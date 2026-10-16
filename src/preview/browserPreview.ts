@@ -152,8 +152,16 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     textToolResult: unavailable,
     onTextEvent: unsubscribe,
   };
+  const credentials: Window["electronAPI"]["credentials"] = {
+    list: async () => [],
+    save: async () => ({ ok: false, error: "unsupported" }),
+    remove: async () => ({ ok: false, error: "unsupported" }),
+    undoRemove: async () => ({ ok: false, reason: "unknown" }),
+    onChanged: unsubscribe,
+  };
   return {
     personalInference,
+    credentials,
     updates: {
       status: async () => ({ ...updateStatus }),
       preferences: async (patch) => {

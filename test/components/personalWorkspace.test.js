@@ -233,3 +233,62 @@ test("settings toggles expose their setting label and checked state to assistive
   assert.match(html, /aria-checked="true"/);
   assert.ok(html.includes(`aria-labelledby="${labelId}"`));
 });
+
+const { deferred } = require("../helpers/harness/deferred");
+
+const keyEditor = (h) => ({
+  open: () =>
+    find(
+      h.tree(),
+      (node) =>
+        node.type === "button" &&
+        node.props?.onClick &&
+        node.props?.className?.includes("cursor-pointer")
+    ),
+  input: () => find(h.tree(), (node) => node.props?.type === "password"),
+  save: () =>
+    find(
+      h.tree(),
+      (node) => node.type === "button" && node.props?.className?.includes("text-success")
+    ),
+  alert: () => find(h.tree(), (node) => node.props?.role === "alert"),
+});
+
+// change-driving (I3): today save() closes the editor before the store's
+// fire-and-forget IPC has even started, so a failure loses the pasted key.
+test("a key save that main refuses keeps the draft and says so", async (t) => {
+  const h = await harness(t, "/components/ui/ApiKeyInput.tsx", {
+    props: { apiKey: "", setApiKey: async () => ({ ok: false, error: "persistFailed" }) },
+  });
+  const editor = keyEditor(h);
+  await React.act(async () => editor.open().props.onClick());
+  await React.act(async () => editor.input().props.onChange({ target: { value: "sk-typed" } }));
+  await React.act(async () => editor.save().props.onClick());
+  assert.equal(editor.input()?.props.value, "sk-typed");
+  assert.ok(editor.alert(), "the failure is announced");
+});
+
+// change-driving (I3): the editor stays open while main persists and clears
+// its draft only once main acknowledged the save.
+test("a key save clears the draft only after main acknowledges it", async (t) => {
+  const ack = deferred();
+  const h = await harness(t, "/components/ui/ApiKeyInput.tsx", {
+    props: { apiKey: "", setApiKey: () => ack.promise },
+  });
+  const editor = keyEditor(h);
+  await React.act(async () => editor.open().props.onClick());
+  await React.act(async () => editor.input().props.onChange({ target: { value: "sk-typed" } }));
+  let saving;
+  await React.act(async () => {
+    saving = editor.save().props.onClick();
+  });
+  assert.equal(editor.input()?.props.value, "sk-typed", "still editing while main persists");
+  await React.act(async () => {
+    ack.resolve({ ok: true });
+    await saving;
+  });
+  assert.equal(editor.input(), undefined, "editor closed after the acknowledgement");
+  assert.equal(editor.alert(), undefined);
+  await React.act(async () => editor.open().props.onClick());
+  assert.equal(editor.input().props.value, "");
+});

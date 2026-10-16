@@ -97,6 +97,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () => ipcRenderer.removeListener("personal-inference:event", listener);
     },
   },
+  credentials: {
+    list: () => ipcRenderer.invoke("credentials-list"),
+    save: (id, field, value) => ipcRenderer.invoke("credentials-save", id, field, value),
+    remove: (id) => ipcRenderer.invoke("credentials-remove", id),
+    undoRemove: (token) => ipcRenderer.invoke("credentials-undo-remove", token),
+    onChanged: registerListener("credentials-changed", (cb) => (_event, change) => cb(change)),
+  },
   modelImportGguf: () => ipcRenderer.invoke("model-import-gguf"),
   modelTestLoad: (modelId) => ipcRenderer.invoke("model-test-load", modelId),
   modelCancelLoadTest: () => ipcRenderer.invoke("model-cancel-load-test"),
@@ -599,6 +606,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveAzureDeployment: (value) => ipcRenderer.invoke("save-azure-deployment", value),
   getAzureApiVersion: () => ipcRenderer.invoke("get-azure-api-version"),
   saveAzureApiVersion: (value) => ipcRenderer.invoke("save-azure-api-version", value),
+  getVertexAuthSource: () => ipcRenderer.invoke("get-vertex-auth-source"),
+  saveVertexAuthSource: (source) => ipcRenderer.invoke("save-vertex-auth-source", source),
   getVertexProject: () => ipcRenderer.invoke("get-vertex-project"),
   saveVertexProject: (value) => ipcRenderer.invoke("save-vertex-project", value),
   getVertexLocation: () => ipcRenderer.invoke("get-vertex-location"),

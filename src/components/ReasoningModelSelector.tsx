@@ -1,3 +1,5 @@
+import { unavailableSecretSave } from "../lib/credentialSlots";
+import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API_ENDPOINTS } from "../config/constants";
@@ -67,7 +69,7 @@ interface ReasoningModelSelectorProps {
   cloudReasoningBaseUrl: string;
   setCloudReasoningBaseUrl: (value: string) => void;
   customReasoningApiKey?: string;
-  setCustomReasoningApiKey?: (key: string) => void;
+  setCustomReasoningApiKey?: AcknowledgedSecretSave;
   setReasoningMode?: (mode: InferenceMode) => void;
   mode?: "cloud" | "local";
   credentialRef?: string;
@@ -598,7 +600,7 @@ export default function ReasoningModelSelector({
                   baseUrl={cloudReasoningBaseUrl}
                   setBaseUrl={setCloudReasoningBaseUrl}
                   apiKey={customReasoningApiKey}
-                  setApiKey={setCustomReasoningApiKey || (() => {})}
+                  setApiKey={setCustomReasoningApiKey ?? unavailableSecretSave}
                   model={localReasoningProvider === "custom" ? reasoningModel : ""}
                   setModel={(m) => {
                     setLocalReasoningProvider("custom");

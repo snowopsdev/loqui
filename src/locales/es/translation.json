@@ -3058,7 +3058,9 @@
     "edit": "Editar",
     "add": "Agregar",
     "editButton": "Editar",
-    "addButton": "Agregar"
+    "addButton": "Agregar",
+    "saveFailed": "No se pudo guardar esta clave. Lo que escribiste sigue aquí; inténtalo de nuevo.",
+    "removeFailed": "No se pudo quitar esta clave. Sigue guardada."
   },
   "gpu": {
     "transcriptionBanner": "Acelera la transcripción con GPU",

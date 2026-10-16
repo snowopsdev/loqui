@@ -3005,7 +3005,9 @@
     "edit": "Editar",
     "add": "Adicionar",
     "editButton": "Editar",
-    "addButton": "Adicionar"
+    "addButton": "Adicionar",
+    "saveFailed": "Não foi possível salvar esta chave. O que você digitou continua aqui — tente novamente.",
+    "removeFailed": "Não foi possível remover esta chave. Ela continua salva."
   },
   "gpu": {
     "transcriptionBanner": "Acelere a transcrição com GPU",

@@ -214,6 +214,7 @@ function registerPersonalInferenceIPC({
   codex = new CodexAppServer({ userDataPath }),
   modelFactory = createModel,
   getEnterpriseConfig = () => ({}),
+  waitForAdmission = async () => {},
 }) {
   const active = new Map();
   const pendingTools = new Map();
@@ -225,7 +226,10 @@ function registerPersonalInferenceIPC({
   const handle = (name, fn) => {
     const channel = `personal-inference:${name}`;
     channels.push(channel);
-    ipcMain.handle(channel, fn);
+    ipcMain.handle(channel, async (...args) => {
+      if (!["text-cancel", "text-tool-result"].includes(name)) await waitForAdmission();
+      return fn(...args);
+    });
   };
   const ownerKey = (sender, id) => `${sender.id}:${id}`;
   const track = (sender) => {
@@ -267,7 +271,7 @@ function registerPersonalInferenceIPC({
   handle("codex-rate-limits", () => codex.rateLimits());
   handle("credential-status", async (_event, ref) => {
     validateCredentialRef(ref);
-    const enterprise = ["bedrock", "vertex"].includes(ref) ? await getEnterpriseConfig() : {};
+    const enterprise = ["bedrock", "vertex"].includes(ref) ? await getEnterpriseConfig(ref) : {};
     return {
       configured:
         ref === "bedrock"
@@ -416,7 +420,7 @@ function registerPersonalInferenceIPC({
         request.baseUrl,
         request.disableThinking,
         ["bedrock", "azure", "vertex"].includes(request.provider)
-          ? await getEnterpriseConfig()
+          ? await getEnterpriseConfig(request.provider)
           : undefined
       );
       const { streamText, generateText, isStepCount, jsonSchema } = require("ai");

@@ -37,29 +37,33 @@ test("manifest entries are unique and complete", () => {
   }
 });
 
-test("every BYOK key round-trips through the generated accessors", () => {
-  const env = new EnvironmentManager();
+// baseline guard: saves now acknowledge durable persistence before accessors change.
+test("every BYOK key round-trips through the generated accessors", async (t) => {
+  const { realCredentialEnv } = require("./harness/realCredentialEnv");
+  const { env } = realCredentialEnv(t, {}, { encryptionAvailable: false });
   for (const k of BYOK_API_KEYS) {
     assert.equal(typeof env[k.get], "function", `${k.get} generated`);
     assert.equal(typeof env[k.save], "function", `${k.save} generated`);
 
     const secret = `sk-test-${k.base}-123`;
-    env[k.save](secret);
+    await env[k.save](secret);
     assert.equal(env[k.get](), secret, `${k.base} round-trips`);
     assert.equal(process.env[k.env], secret, `${k.base} persisted to its env var`);
 
-    env[k.save]("");
+    await env[k.save]("");
     assert.equal(env[k.get](), "", `${k.base} clears`);
     assert.equal(process.env[k.env], undefined, `${k.base} env var removed on clear`);
   }
 });
 
-test("openrouter is a first-class secret", () => {
+// baseline guard: generated OpenRouter saver remains acknowledged.
+test("openrouter is a first-class secret", async (t) => {
   const or = BYOK_API_KEYS.find((k) => k.base === "openrouter");
   assert.ok(or, "openrouter present in manifest");
   assert.equal(or.env, "OPENROUTER_API_KEY");
-  const env = new EnvironmentManager();
-  env.saveOpenrouterKey("sk-or-abc");
+  const { realCredentialEnv } = require("./harness/realCredentialEnv");
+  const { env } = realCredentialEnv(t, {}, { encryptionAvailable: false });
+  await env.saveOpenrouterKey("sk-or-abc");
   assert.equal(env.getOpenrouterKey(), "sk-or-abc");
 });
 
@@ -67,7 +71,7 @@ test("openrouter is a first-class secret", () => {
 // and realtimeTokenProviders.js / stt-canary.mjs call these exact spellings —
 // a base-derived rename would give getAssemblyaiKey and break them silently.
 test("the STT accessors keep the spellings their callers use", () => {
-  const env = new EnvironmentManager();
+  const env = Object.create(EnvironmentManager.prototype);
   assert.equal(typeof env.getAssemblyAIKey, "function");
   assert.equal(typeof env.saveAssemblyAIKey, "function");
   assert.equal(typeof env.getDeepgramKey, "function");
@@ -88,4 +92,9 @@ test("preload BYOK_KEY_BRIDGES mirror the manifest exactly", () => {
   }
   const bridgeCount = (block[1].match(/base:/g) || []).length;
   assert.equal(bridgeCount, BYOK_API_KEYS.length, "no extra/missing preload bridges");
+});
+
+test.after(() => {
+  Module._load = origLoad;
+  fs.rmSync(tmpUserData, { recursive: true, force: true });
 });

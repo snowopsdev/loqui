@@ -1,3 +1,6 @@
+import { saveSecret } from "../../stores/settingsStore";
+import { isSecretStoreKey, unavailableSecretSave } from "../../lib/credentialSlots";
+import type { AcknowledgedSecretSave } from "../ui/ApiKeyInput";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { supportsProviderSearch } from "../../utils/providerSearch";
 import { SettingsRow } from "../ui/SettingsSection";
@@ -124,6 +127,13 @@ export default function InferenceConfigEditor({
   const setMode = setField("mode");
   const setProvider = setField("provider");
   const setModel = setField("model");
+  // The scope's custom-endpoint key saves through main and is acknowledged
+  // (I3, R2-3); setField would route it through the fire-and-forget setter.
+  const customKeyField = INFERENCE_SCOPES[scope].storeKeys.customApiKey;
+  const saveCustomKey: AcknowledgedSecretSave = (value) =>
+    customKeyField && isSecretStoreKey(customKeyField)
+      ? saveSecret(customKeyField, value)
+      : unavailableSecretSave(value);
 
   const renderModelSelector = (mode?: "cloud" | "local") => (
     <ReasoningModelSelector
@@ -136,7 +146,7 @@ export default function InferenceConfigEditor({
       cloudReasoningBaseUrl={config.cloudBaseUrl ?? ""}
       setCloudReasoningBaseUrl={setField("cloudBaseUrl")}
       customReasoningApiKey={config.customApiKey ?? ""}
-      setCustomReasoningApiKey={setField("customApiKey")}
+      setCustomReasoningApiKey={saveCustomKey}
       setReasoningMode={setMode}
       mode={mode}
     />
@@ -169,7 +179,7 @@ export default function InferenceConfigEditor({
           baseUrl={config.remoteUrl ?? ""}
           setBaseUrl={setField("remoteUrl")}
           apiKey={config.customApiKey ?? ""}
-          setApiKey={setField("customApiKey")}
+          setApiKey={saveCustomKey}
           model={config.model}
           setModel={setModel}
           baseUrlPlaceholder="http://localhost:11434/v1"

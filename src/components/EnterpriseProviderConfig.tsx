@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSettingsStore } from "../stores/settingsStore";
+import { saveSecret as saveStoredSecret, useSettingsStore } from "../stores/settingsStore";
 import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
 import ApiKeyInput from "./ui/ApiKeyInput";
 import { Button } from "./ui/button";
@@ -50,7 +50,9 @@ export default function EnterpriseProviderConfig({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
-  const saveSecret = async (
+  // Main stores the credential and acknowledges it; ApiKeyInput shows the
+  // outcome, and renderer state only ever holds the presence sentinel.
+  const saveSecret = (
     field:
       | "bedrockAccessKeyId"
       | "bedrockSecretAccessKey"
@@ -61,28 +63,9 @@ export default function EnterpriseProviderConfig({
   ) => {
     setError("");
     setConnected(false);
-    try {
-      if (field === "azureApiKey" || field === "vertexApiKey") {
-        await window.electronAPI.personalInference.credentialSave(
-          field === "azureApiKey" ? "azure" : "vertex",
-          value
-        );
-      } else {
-        const method =
-          field === "bedrockAccessKeyId"
-            ? "saveBedrockAccessKeyId"
-            : field === "bedrockSecretAccessKey"
-              ? "saveBedrockSecretAccessKey"
-              : "saveBedrockSessionToken";
-        const save = window.electronAPI[method];
-        if (!save) throw new Error(t("reasoning.enterprise.testFailed"));
-        await save(value);
-      }
-      useSettingsStore.setState({ [field]: value ? "__stored__" : "" });
-    } catch (error) {
-      setError((error as Error).message);
-    }
+    return saveStoredSecret(field, value);
   };
+
   const testConnection = async () => {
     setBusy(true);
     setError("");
@@ -128,17 +111,17 @@ export default function EnterpriseProviderConfig({
             masked={false}
             placeholder="AKIA…"
             apiKey={settings.bedrockAccessKeyId}
-            setApiKey={(value) => void saveSecret("bedrockAccessKeyId", value)}
+            setApiKey={(value) => saveSecret("bedrockAccessKeyId", value)}
           />
           <ApiKeyInput
             label={t("reasoning.enterprise.secretAccessKey")}
             apiKey={settings.bedrockSecretAccessKey}
-            setApiKey={(value) => void saveSecret("bedrockSecretAccessKey", value)}
+            setApiKey={(value) => saveSecret("bedrockSecretAccessKey", value)}
           />
           <ApiKeyInput
             label={t("reasoning.enterprise.sessionToken")}
             apiKey={settings.bedrockSessionToken}
-            setApiKey={(value) => void saveSecret("bedrockSessionToken", value)}
+            setApiKey={(value) => saveSecret("bedrockSessionToken", value)}
           />
         </>
       )}
@@ -159,7 +142,7 @@ export default function EnterpriseProviderConfig({
           />
           <ApiKeyInput
             apiKey={settings.azureApiKey}
-            setApiKey={(value) => void saveSecret("azureApiKey", value)}
+            setApiKey={(value) => saveSecret("azureApiKey", value)}
           />
         </>
       )}
@@ -180,7 +163,7 @@ export default function EnterpriseProviderConfig({
           </p>
           <ApiKeyInput
             apiKey={settings.vertexApiKey}
-            setApiKey={(value) => void saveSecret("vertexApiKey", value)}
+            setApiKey={(value) => saveSecret("vertexApiKey", value)}
             helpText={t("reasoning.enterprise.vertex.apikeyHelp")}
           />
         </>

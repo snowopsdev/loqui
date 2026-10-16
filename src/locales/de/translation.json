@@ -3174,7 +3174,9 @@
     "edit": "Bearbeiten",
     "add": "Hinzufügen",
     "editButton": "Bearbeiten",
-    "addButton": "Hinzufügen"
+    "addButton": "Hinzufügen",
+    "saveFailed": "Der Schlüssel konnte nicht gespeichert werden. Die Eingabe bleibt erhalten – bitte erneut versuchen.",
+    "removeFailed": "Der Schlüssel konnte nicht entfernt werden. Er ist weiterhin gespeichert."
   },
   "gpu": {
     "transcriptionBanner": "Transkription mit GPU beschleunigen",

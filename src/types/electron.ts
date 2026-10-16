@@ -17,6 +17,53 @@ export type ChineseScriptPreference = "simplified" | "traditional" | "as-transcr
 
 export type InferenceMode = "openwhispr" | "providers" | "local" | "self-hosted" | "enterprise";
 
+/** Main-owned credential slots (src/helpers/credentialAuthority.js); one shared definition. */
+export type CredentialSlot = import("../lib/credentialSlots").CredentialSlot;
+export type CredentialField = import("../lib/credentialSlots").CredentialField;
+export type CredentialError =
+  | "unknownCredential"
+  | "unknownField"
+  | "invalidValue"
+  | "persistFailed"
+  | "unsupported"
+  | "notStored"
+  | "reset"; // a Reset Loqui began after the request: nothing was kept
+export interface CredentialPresence {
+  id: import("../lib/routeGraph").CredentialId;
+  present: boolean;
+  generation: number;
+  fields: Partial<Record<CredentialField, boolean>>;
+  /** Durable recovery could not determine the slot. Never ready; capture is refused. */
+  unknown?: boolean;
+}
+export interface CredentialChange extends Omit<CredentialPresence, "id"> {
+  id: CredentialSlot;
+}
+export type CredentialSaveResult =
+  { ok: true; generation: number } | { ok: false; error: CredentialError };
+export type CredentialRemoveResult =
+  | { ok: true; undoToken: string; expiresAt: number; generation: number }
+  | { ok: false; error: CredentialError };
+export type CredentialUndoResult =
+  | { ok: true; generation: number }
+  | { ok: false; reason: "expired" | "replaced" | "unknown" | "persistFailed" };
+/** What every legacy per-slot secret save channel resolves to. */
+export interface SecretSaveAck {
+  success: boolean;
+  error?: CredentialError;
+}
+export interface CredentialsAPI {
+  list: () => Promise<CredentialPresence[]>;
+  save: (
+    id: CredentialSlot,
+    field: CredentialField,
+    value: string
+  ) => Promise<CredentialSaveResult>;
+  remove: (id: CredentialSlot) => Promise<CredentialRemoveResult>; // every field of the slot
+  undoRemove: (token: string) => Promise<CredentialUndoResult>;
+  onChanged: (callback: (change: CredentialChange) => void) => () => void;
+}
+
 export type SelfHostedType = "openai-compatible" | "lan";
 
 type TranscriptionStatus = "completed" | "failed" | "pending" | "discarded";
@@ -675,6 +722,7 @@ declare global {
       downloadSearchModel: () => Promise<{ success: boolean; error?: string }>;
       updates: import("./updates").UpdatesAPI;
       personalInference: import("../services/ai/personalInferenceTypes").PersonalInferenceAPI;
+      credentials: CredentialsAPI;
       modelImportGguf: () => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -1129,9 +1177,9 @@ declare global {
 
       // API key management
       getOpenAIKey: () => Promise<string>;
-      saveOpenAIKey: (key: string) => Promise<{ success: boolean }>;
+      saveOpenAIKey: (key: string) => Promise<SecretSaveAck>;
       getAnthropicKey: () => Promise<string | null>;
-      saveAnthropicKey: (key: string) => Promise<void>;
+      saveAnthropicKey: (key: string) => Promise<SecretSaveAck>;
       getUiLanguage: () => Promise<string>;
       saveUiLanguage: (language: string) => Promise<{ success: boolean; language: string }>;
       setUiLanguage: (language: string) => Promise<{ success: boolean; language: string }>;
@@ -1500,7 +1548,7 @@ declare global {
 
       // Gemini API key management
       getGeminiKey: () => Promise<string | null>;
-      saveGeminiKey: (key: string) => Promise<void>;
+      saveGeminiKey: (key: string) => Promise<SecretSaveAck>;
       proxyGeminiTranscription?: (data: {
         audioBuffer: ArrayBuffer;
         model?: string;
@@ -1510,13 +1558,13 @@ declare global {
 
       // Groq API key management
       getGroqKey: () => Promise<string | null>;
-      saveGroqKey: (key: string) => Promise<void>;
+      saveGroqKey: (key: string) => Promise<SecretSaveAck>;
       getOpenrouterKey: () => Promise<string | null>;
-      saveOpenrouterKey: (key: string) => Promise<void>;
+      saveOpenrouterKey: (key: string) => Promise<SecretSaveAck>;
 
       // xAI API key management
       getXaiKey?: () => Promise<string | null>;
-      saveXaiKey?: (key: string) => Promise<void>;
+      saveXaiKey?: (key: string) => Promise<SecretSaveAck>;
       proxyXaiTranscription?: (data: {
         audioBuffer: ArrayBuffer;
         language?: string;
@@ -1525,7 +1573,7 @@ declare global {
 
       // Mistral API key management
       getMistralKey: () => Promise<string | null>;
-      saveMistralKey: (key: string) => Promise<void>;
+      saveMistralKey: (key: string) => Promise<SecretSaveAck>;
       proxyMistralTranscription: (data: {
         audioBuffer: ArrayBuffer;
         model?: string;
@@ -1535,11 +1583,11 @@ declare global {
 
       // Corti credential management
       getCortiClientId?: () => Promise<string | null>;
-      saveCortiClientId?: (key: string) => Promise<void>;
+      saveCortiClientId?: (key: string) => Promise<SecretSaveAck>;
       getCortiClientSecret?: () => Promise<string | null>;
-      saveCortiClientSecret?: (key: string) => Promise<void>;
+      saveCortiClientSecret?: (key: string) => Promise<SecretSaveAck>;
       getCortiKey?: () => Promise<string | null>;
-      saveCortiKey?: (key: string) => Promise<void>;
+      saveCortiKey?: (key: string) => Promise<SecretSaveAck>;
       proxyCortiTranscription?: (data: {
         audioBuffer: ArrayBuffer;
         language: string;
@@ -1547,7 +1595,7 @@ declare global {
         tenant: string;
       }) => Promise<ProxyTranscriptionResult>;
       getTinfoilKey?: () => Promise<string | null>;
-      saveTinfoilKey?: (key: string) => Promise<void>;
+      saveTinfoilKey?: (key: string) => Promise<SecretSaveAck>;
       getTinfoilChatModels?: () => Promise<TinfoilCatalogModel[]>;
       proxyTinfoilTranscription?: (data: {
         audioBuffer: ArrayBuffer;
@@ -1555,51 +1603,53 @@ declare global {
         prompt?: string;
       }) => Promise<ProxyTranscriptionResult>;
       getDeepgramKey?: () => Promise<string | null>;
-      saveDeepgramKey?: (key: string) => Promise<void>;
+      saveDeepgramKey?: (key: string) => Promise<SecretSaveAck>;
       getAssemblyAIKey?: () => Promise<string | null>;
-      saveAssemblyAIKey?: (key: string) => Promise<void>;
+      saveAssemblyAIKey?: (key: string) => Promise<SecretSaveAck>;
 
       // Custom endpoint API keys
       getCustomTranscriptionKey?: () => Promise<string | null>;
-      saveCustomTranscriptionKey?: (key: string) => Promise<void>;
+      saveCustomTranscriptionKey?: (key: string) => Promise<SecretSaveAck>;
       getCleanupCustomKey?: () => Promise<string | null>;
-      saveCleanupCustomKey?: (key: string) => Promise<void>;
+      saveCleanupCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getNoteFormattingCustomKey?: () => Promise<string | null>;
-      saveNoteFormattingCustomKey?: (key: string) => Promise<void>;
+      saveNoteFormattingCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getTranslationCustomKey?: () => Promise<string | null>;
-      saveTranslationCustomKey?: (key: string) => Promise<void>;
+      saveTranslationCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getDictationAgentCustomKey?: () => Promise<string | null>;
-      saveDictationAgentCustomKey?: (key: string) => Promise<void>;
+      saveDictationAgentCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getDictationAgentVisionCustomKey?: () => Promise<string | null>;
-      saveDictationAgentVisionCustomKey?: (key: string) => Promise<void>;
+      saveDictationAgentVisionCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getChatAgentCustomKey?: () => Promise<string | null>;
-      saveChatAgentCustomKey?: (key: string) => Promise<void>;
+      saveChatAgentCustomKey?: (key: string) => Promise<SecretSaveAck>;
 
       // Enterprise provider key persistence
       getBedrockRegion?: () => Promise<string | null>;
       saveBedrockRegion?: (value: string) => Promise<void>;
       getBedrockProfile?: () => Promise<string | null>;
-      saveBedrockProfile?: (value: string) => Promise<void>;
+      saveBedrockProfile?: (value: string) => Promise<{ success: boolean }>;
       getBedrockAccessKeyId?: () => Promise<string | null>;
-      saveBedrockAccessKeyId?: (key: string) => Promise<void>;
+      saveBedrockAccessKeyId?: (key: string) => Promise<SecretSaveAck>;
       getBedrockSecretAccessKey?: () => Promise<string | null>;
-      saveBedrockSecretAccessKey?: (key: string) => Promise<void>;
+      saveBedrockSecretAccessKey?: (key: string) => Promise<SecretSaveAck>;
       getBedrockSessionToken?: () => Promise<string | null>;
-      saveBedrockSessionToken?: (key: string) => Promise<void>;
+      saveBedrockSessionToken?: (key: string) => Promise<SecretSaveAck>;
       getAzureEndpoint?: () => Promise<string | null>;
       saveAzureEndpoint?: (value: string) => Promise<void>;
       getAzureApiKey?: () => Promise<string | null>;
-      saveAzureApiKey?: (key: string) => Promise<void>;
+      saveAzureApiKey?: (key: string) => Promise<SecretSaveAck>;
       getAzureDeployment?: () => Promise<string | null>;
       saveAzureDeployment?: (value: string) => Promise<void>;
       getAzureApiVersion?: () => Promise<string | null>;
       saveAzureApiVersion?: (value: string) => Promise<void>;
+      getVertexAuthSource: () => Promise<"adc" | "apiKey" | null>;
+      saveVertexAuthSource: (source: "adc" | "apiKey") => Promise<{ success: boolean }>;
       getVertexProject?: () => Promise<string | null>;
       saveVertexProject?: (value: string) => Promise<void>;
       getVertexLocation?: () => Promise<string | null>;
       saveVertexLocation?: (value: string) => Promise<void>;
       getVertexApiKey?: () => Promise<string | null>;
-      saveVertexApiKey?: (key: string) => Promise<void>;
+      saveVertexApiKey?: (key: string) => Promise<SecretSaveAck>;
       testEnterpriseConnection?: (
         provider: string,
         config: Record<string, unknown>

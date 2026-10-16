@@ -22,6 +22,8 @@ const { broadcastToWindows } = require("./windowBroadcast");
 const { openExternalUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
+const { createCredentialAuthority, byokSlotId } = require("./credentialAuthority");
+const { initializeVertexAuthSource } = require("./vertexAuthSourceMigration");
 const { extractAnthropicText, describeMissingAnthropicText } = require("./anthropicResponse");
 const { toPolicyFailure } = require("./policyResponseError");
 const { resolveSystemDefaultMicrophone } = require("./systemDefaultMicrophone");
@@ -345,6 +347,16 @@ class IPCHandlers {
     this._logDetectedGpus();
     // Warm the OS default mic answer before the first hotkey press (~2s on Windows).
     resolveSystemDefaultMicrophone();
+    this.credentials = createCredentialAuthority({
+      env: this.environmentManager,
+      codexHome: path.join(app.getPath("userData"), "codex"),
+      fs,
+      broadcast: broadcastToWindows,
+    });
+    this.vertexAuthSourceReady = new Promise((resolve) => {
+      this.resolveVertexAuthSourceReady = resolve;
+    });
+    this.vertexAuthInitialization = null;
     this.setupHandlers();
     if (this.whisperManager?.serverManager) {
       // Remember the failed backend so it isn't re-attempted (and its model
@@ -1018,6 +1030,27 @@ class IPCHandlers {
     return { token, environment, tenant };
   }
 
+  initializeVertexAuthSource(hasExistingSettingsProfile) {
+    if (!this.vertexAuthInitialization) {
+      this.vertexAuthInitialization = initializeVertexAuthSource({
+        hasExistingSettingsProfile,
+        environment: this.environmentManager,
+        credentials: this.credentials,
+      });
+      this.vertexAuthInitialization.then(
+        () => this.resolveVertexAuthSourceReady(),
+        () => {}
+      );
+    }
+    return this.vertexAuthInitialization;
+  }
+
+  async _acknowledgedSave(id, field, value) {
+    await this.vertexAuthSourceReady;
+    const result = await this.credentials.save(id, field, value);
+    return result.ok === true ? { success: true } : { success: false, error: result.error };
+  }
+
   setupHandlers() {
     ipcMain.handle("onboarding-set-window-mode", (_event, mode) =>
       this.windowManager.setOnboardingWindowMode(mode)
@@ -1251,12 +1284,40 @@ class IPCHandlers {
       return this.windowManager.resizeDictationErrorWindowToContent(surfaceHeight);
     });
 
+    ipcMain.handle("credentials-list", async () => {
+      await this.vertexAuthSourceReady;
+      return this.credentials.list();
+    });
+    ipcMain.handle("credentials-save", async (_event, id, field, value) => {
+      await this.vertexAuthSourceReady;
+      return this.credentials.save(String(id), String(field), value);
+    });
+    ipcMain.handle("credentials-remove", async (_event, id) => {
+      await this.vertexAuthSourceReady;
+      return this.credentials.remove(String(id));
+    });
+    ipcMain.handle("credentials-undo-remove", async (_event, token) => {
+      await this.vertexAuthSourceReady;
+      return this.credentials.undoRemove(String(token));
+    });
+    ipcMain.handle("get-vertex-auth-source", async () => {
+      await this.vertexAuthSourceReady;
+      return this.environmentManager.getVertexAuthSource();
+    });
+    ipcMain.handle("save-vertex-auth-source", async (_event, source) => {
+      await this.vertexAuthSourceReady;
+      if (source !== "adc" && source !== "apiKey") throw new Error("Invalid Vertex auth source");
+      const result = await this.environmentManager.saveVertexAuthSource(source);
+      if (result?.success) this.credentials.refresh("vertex");
+      return result;
+    });
+
     for (const k of BYOK_API_KEYS) {
       ipcMain.handle(`get-${k.base}-key`, () =>
         this.environmentManager[k.get]() ? "__stored__" : ""
       );
       ipcMain.handle(`save-${k.base}-key`, (event, key) =>
-        key === "__stored__" ? true : this.environmentManager[k.save](key)
+        this._acknowledgedSave(byokSlotId(k.base), "key", key)
       );
     }
 
@@ -3228,7 +3289,7 @@ class IPCHandlers {
 
       // Delete device-wide settings and encrypted credentials.
       try {
-        await this.environmentManager?.clearAllPersistedData();
+        await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData());
       } catch (e) {
         errors.push(`Environment settings: ${e.message}`);
       }
@@ -3799,17 +3860,17 @@ class IPCHandlers {
       return this.environmentManager.getCortiClientId() ? "__stored__" : "";
     });
 
-    ipcMain.handle("save-corti-client-id", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveCortiClientId(key);
-    });
+    ipcMain.handle("save-corti-client-id", (_event, key) =>
+      this._acknowledgedSave("corti:speech", "clientId", key)
+    );
 
     ipcMain.handle("get-corti-client-secret", async () => {
       return this.environmentManager.getCortiClientSecret() ? "__stored__" : "";
     });
 
-    ipcMain.handle("save-corti-client-secret", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveCortiClientSecret(key);
-    });
+    ipcMain.handle("save-corti-client-secret", (_event, key) =>
+      this._acknowledgedSave("corti:speech", "clientSecret", key)
+    );
 
     ipcMain.handle(
       "proxy-corti-transcription",
@@ -3871,91 +3932,114 @@ class IPCHandlers {
       return this.environmentManager.getCustomTranscriptionKey() ? "__stored__" : "";
     });
 
-    ipcMain.handle("save-custom-transcription-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveCustomTranscriptionKey(key);
-    });
+    ipcMain.handle("save-custom-transcription-key", (_event, key) =>
+      this._acknowledgedSave("custom:transcription", "key", key)
+    );
 
     ipcMain.handle("get-cleanup-custom-key", async () => {
       return this.environmentManager.getCleanupCustomKey() ? "__stored__" : "";
     });
 
-    ipcMain.handle("save-cleanup-custom-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveCleanupCustomKey(key);
-    });
+    ipcMain.handle("save-cleanup-custom-key", (_event, key) =>
+      this._acknowledgedSave("custom:dictationCleanup", "key", key)
+    );
 
     // Enterprise provider key handlers
     ipcMain.handle("get-bedrock-region", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockRegion();
     });
     ipcMain.handle("save-bedrock-region", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveBedrockRegion(value);
     });
     ipcMain.handle("get-bedrock-profile", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockProfile();
     });
-    ipcMain.handle("save-bedrock-profile", async (event, value) => {
-      return this.environmentManager.saveBedrockProfile(value);
+    ipcMain.handle("save-bedrock-profile", async (_event, value) => {
+      await this.vertexAuthSourceReady;
+      const result = await this.environmentManager.saveBedrockProfile(value);
+      if (result?.success) this.credentials.refresh("bedrock");
+      return result;
     });
     ipcMain.handle("get-bedrock-access-key-id", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockAccessKeyId() ? "__stored__" : "";
     });
-    ipcMain.handle("save-bedrock-access-key-id", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveBedrockAccessKeyId(key);
-    });
+    ipcMain.handle("save-bedrock-access-key-id", (_event, key) =>
+      this._acknowledgedSave("bedrock", "accessKeyId", key)
+    );
     ipcMain.handle("get-bedrock-secret-access-key", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockSecretAccessKey() ? "__stored__" : "";
     });
-    ipcMain.handle("save-bedrock-secret-access-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveBedrockSecretAccessKey(key);
-    });
+    ipcMain.handle("save-bedrock-secret-access-key", (_event, key) =>
+      this._acknowledgedSave("bedrock", "secretAccessKey", key)
+    );
     ipcMain.handle("get-bedrock-session-token", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockSessionToken() ? "__stored__" : "";
     });
-    ipcMain.handle("save-bedrock-session-token", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveBedrockSessionToken(key);
-    });
+    ipcMain.handle("save-bedrock-session-token", (_event, key) =>
+      this._acknowledgedSave("bedrock", "sessionToken", key)
+    );
     ipcMain.handle("get-azure-endpoint", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getAzureEndpoint();
     });
     ipcMain.handle("save-azure-endpoint", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveAzureEndpoint(value);
     });
     ipcMain.handle("get-azure-api-key", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getAzureApiKey() ? "__stored__" : "";
     });
-    ipcMain.handle("save-azure-api-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveAzureApiKey(key);
-    });
+    ipcMain.handle("save-azure-api-key", (_event, key) =>
+      this._acknowledgedSave("azure", "key", key)
+    );
     ipcMain.handle("get-azure-deployment", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getAzureDeployment();
     });
     ipcMain.handle("save-azure-deployment", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveAzureDeployment(value);
     });
     ipcMain.handle("get-azure-api-version", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getAzureApiVersion();
     });
     ipcMain.handle("save-azure-api-version", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveAzureApiVersion(value);
     });
     ipcMain.handle("get-vertex-project", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getVertexProject();
     });
-    ipcMain.handle("save-vertex-project", async (event, value) => {
-      return this.environmentManager.saveVertexProject(value);
+    ipcMain.handle("save-vertex-project", async (_event, value) => {
+      await this.vertexAuthSourceReady;
+      const result = await this.environmentManager.saveVertexProject(value);
+      if (result?.success) this.credentials.refresh("vertex");
+      return result;
     });
     ipcMain.handle("get-vertex-location", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getVertexLocation();
     });
     ipcMain.handle("save-vertex-location", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveVertexLocation(value);
     });
     ipcMain.handle("get-vertex-api-key", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getVertexApiKey() ? "__stored__" : "";
     });
-    ipcMain.handle("save-vertex-api-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveVertexApiKey(key);
-    });
+    ipcMain.handle("save-vertex-api-key", (_event, key) =>
+      this._acknowledgedSave("vertex", "key", key)
+    );
 
     // Enterprise provider test connection
     ipcMain.handle("test-enterprise-connection", async (event, provider, config) => {
@@ -5081,12 +5165,20 @@ class IPCHandlers {
     });
 
     const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
-    const resolveEnterpriseRuntime = async (_event, provider, model, config = {}) => ({
-      provider,
-      model,
-      apiKey: config.apiKey || "",
-      enterprise: require("./enterpriseProviderErrors").pickEnterpriseConfig(config),
-    });
+    const resolveEnterpriseRuntime = async (_event, provider, model, config = {}) => {
+      await this.vertexAuthSourceReady;
+      const enterprise = require("./enterpriseProviderErrors").pickEnterpriseConfig(config);
+      return {
+        provider,
+        model,
+        apiKey: config.apiKey || "",
+        enterprise: {
+          ...enterprise,
+          vertexAuthSource:
+            enterprise.vertexAuthSource ?? this.environmentManager.getVertexAuthSource(),
+        },
+      };
+    };
 
     ipcMain.handle("retry-transcription", async (event, id, settings) => {
       const buffer = this.audioStorageManager.getAudioBuffer(id);

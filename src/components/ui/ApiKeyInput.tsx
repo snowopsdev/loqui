@@ -1,3 +1,10 @@
+import type { CredentialSlot } from "../../lib/credentialSlots";
+import type { SecretSaveResult } from "../../stores/settingsStore";
+export type { SecretSaveResult };
+// This stateless re-export is the shared save contract for optional credential fields.
+// eslint-disable-next-line react-refresh/only-export-components
+export { unavailableSecretSave } from "../../lib/credentialSlots";
+export type AcknowledgedSecretSave = (value: string) => Promise<SecretSaveResult>;
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import logger from "../../utils/logger";
@@ -6,7 +13,8 @@ import { Input } from "./input";
 
 interface ApiKeyInputProps {
   apiKey: string;
-  setApiKey: (key: string) => void;
+  setApiKey: AcknowledgedSecretSave;
+  credentialId?: CredentialSlot;
   className?: string;
   placeholder?: string;
   label?: string;
@@ -33,6 +41,9 @@ export default function ApiKeyInput({
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftTouched, setDraftTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<"save" | "remove" | null>(null);
+  const savingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasKey = apiKey.length > 0;
@@ -50,27 +61,64 @@ export default function ApiKeyInput({
   const enterEdit = () => {
     setDraft("");
     setDraftTouched(false);
+    setFailure(null);
     setIsEditing(true);
   };
 
-  const save = useCallback(() => {
-    try {
-      if (draftTouched) setApiKey(draft.trim());
-    } catch (err) {
-      logger.warn("Failed to save API key", { error: (err as Error).message }, "settings");
+  const commit = useCallback(
+    async (value: string): Promise<boolean> => {
+      try {
+        const result = await setApiKey(value);
+        return result?.ok === true;
+      } catch (err) {
+        logger.warn("Failed to save API key", { error: (err as Error).message }, "settings");
+        return false;
+      }
+    },
+    [setApiKey]
+  );
+
+  // The editor stays open until main acknowledges the key; a refused save
+  // keeps the draft so nothing the user pasted is lost.
+  const save = useCallback(async () => {
+    if (savingRef.current) return;
+    if (!draftTouched) {
+      setIsEditing(false);
+      return;
     }
+    savingRef.current = true;
+    setSaving(true);
+    setFailure(null);
+    const ok = await commit(draft.trim());
+    savingRef.current = false;
+    setSaving(false);
+    if (!ok) {
+      setFailure("save");
+      return;
+    }
+    setDraft("");
+    setDraftTouched(false);
     setIsEditing(false);
-  }, [draft, draftTouched, setApiKey]);
+  }, [draft, draftTouched, commit]);
+
+  // Today's Remove (an empty save), unchanged in this task. Task 12 replaces
+  // it with main's undoable token removal and deletes this path (R2-5).
+  const remove = async () => {
+    setFailure(null);
+    if (!(await commit(""))) setFailure("remove");
+  };
 
   const cancel = () => {
+    if (savingRef.current) return;
     setDraft("");
+    setFailure(null);
     setIsEditing(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      save();
+      void save();
     }
     if (e.key === "Escape") {
       e.preventDefault();
@@ -84,7 +132,7 @@ export default function ApiKeyInput({
     if (!isEditing) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current?.contains(e.target as Node)) return;
-      save();
+      void save();
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -105,6 +153,7 @@ export default function ApiKeyInput({
               type={masked ? "password" : "text"}
               placeholder={resolvedPlaceholder}
               value={draft}
+              disabled={saving}
               onChange={(e) => {
                 setDraft(e.target.value);
                 setDraftTouched(true);
@@ -119,6 +168,7 @@ export default function ApiKeyInput({
               <button
                 type="button"
                 onClick={save}
+                disabled={saving}
                 className="h-6 w-6 flex items-center justify-center rounded text-success hover:bg-success/10 active:scale-95 transition-all"
                 aria-label={t("apiKeyInput.save")}
               >
@@ -127,6 +177,7 @@ export default function ApiKeyInput({
               <button
                 type="button"
                 onClick={cancel}
+                disabled={saving}
                 className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted/50 active:scale-95 transition-all"
                 aria-label={t("apiKeyInput.cancelEdit")}
               >
@@ -167,10 +218,15 @@ export default function ApiKeyInput({
         <button
           type="button"
           className="mt-1 text-xs text-muted-foreground hover:text-destructive"
-          onClick={() => setApiKey("")}
+          onClick={remove}
         >
           {t("personal.removeKey")}
         </button>
+      )}
+      {failure && (
+        <p role="alert" className="mt-1 text-xs font-medium text-foreground">
+          {t(failure === "save" ? "apiKeyInput.saveFailed" : "apiKeyInput.removeFailed")}
+        </p>
       )}
       {helpText && <p className="text-xs text-muted-foreground/70 mt-1">{helpText}</p>}
     </div>

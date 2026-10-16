@@ -3005,7 +3005,9 @@
     "edit": "編輯",
     "add": "新增",
     "editButton": "編輯金鑰",
-    "addButton": "新增金鑰"
+    "addButton": "新增金鑰",
+    "saveFailed": "無法儲存此金鑰。你輸入的內容仍在這裡，請再試一次。",
+    "removeFailed": "無法移除此金鑰。它仍處於已儲存狀態。"
   },
   "gpu": {
     "transcriptionBanner": "使用 GPU 加速轉錄",

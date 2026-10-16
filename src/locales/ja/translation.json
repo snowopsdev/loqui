@@ -3005,7 +3005,9 @@
     "edit": "編集",
     "add": "追加",
     "editButton": "編集",
-    "addButton": "追加"
+    "addButton": "追加",
+    "saveFailed": "このキーを保存できませんでした。入力内容は残っています。もう一度お試しください。",
+    "removeFailed": "このキーを削除できませんでした。保存されたままです。"
   },
   "gpu": {
     "transcriptionBanner": "GPU で文字起こしを高速化",

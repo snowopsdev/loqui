@@ -121,3 +121,40 @@ test("credential status never reveals the secret and registration cleans up", as
   service.dispose();
   assert.equal(handlers.size, 0);
 });
+
+// change-driving Task2: provider admission waits for source migration; default seam preserves old callers.
+test("inference admission waits for startup source migration before reading settings or dispatching", async () => {
+  const handlers = new Map();
+  let admit;
+  const gate = new Promise((resolve) => {
+    admit = resolve;
+  });
+  const touched = [];
+  const codex = new EventEmitter();
+  codex.status = async () => {
+    touched.push("provider");
+    return { available: true };
+  };
+  codex.stop = () => {};
+  const registered = registerPersonalInferenceIPC({
+    ipcMain: { handle: (name, handler) => handlers.set(name, handler), removeHandler() {} },
+    userDataPath: "/fixture-never-read",
+    codex,
+    waitForAdmission: () => gate,
+    getCredential: async () => {
+      touched.push("credential");
+      return "";
+    },
+    getEnterpriseConfig: async () => {
+      touched.push("enterprise");
+      return { vertexAuthSource: "adc", vertexProject: "fixture-project" };
+    },
+  });
+  const reading = handlers.get("personal-inference:credential-status")({}, "vertex");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(touched, []);
+  admit();
+  assert.deepEqual(await reading, { configured: true });
+  assert.deepEqual(touched, ["enterprise", "credential"]);
+  registered.dispose();
+});

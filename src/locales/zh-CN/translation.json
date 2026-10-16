@@ -3005,7 +3005,9 @@
     "edit": "编辑",
     "add": "添加",
     "editButton": "编辑密钥",
-    "addButton": "添加密钥"
+    "addButton": "添加密钥",
+    "saveFailed": "无法保存此密钥。你输入的内容仍在这里，请重试。",
+    "removeFailed": "无法移除此密钥。它仍处于已保存状态。"
   },
   "gpu": {
     "transcriptionBanner": "使用 GPU 加速转录",

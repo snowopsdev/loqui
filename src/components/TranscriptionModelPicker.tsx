@@ -1,3 +1,5 @@
+import { unavailableSecretSave } from "../lib/credentialSlots";
+import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API_ENDPOINTS, normalizeBaseUrl } from "../config/constants";
@@ -981,6 +983,22 @@ export default function TranscriptionModelPicker({
     deepgramApiKey: setDeepgramApiKey,
     assemblyaiApiKey: setAssemblyaiApiKey,
   };
+  // Key fields need the acknowledged save; credentialSetters also holds the
+  // non-secret Corti region/tenant setters, so it stays (value) => void.
+  const credentialSecretSavers: Partial<
+    Record<ProviderCredentialField["key"], AcknowledgedSecretSave>
+  > = {
+    openaiApiKey: setOpenaiApiKey,
+    groqApiKey: setGroqApiKey,
+    xaiApiKey: setXaiApiKey,
+    mistralApiKey: setMistralApiKey,
+    geminiApiKey: setGeminiApiKey,
+    cortiClientId: setCortiClientId,
+    cortiClientSecret: setCortiClientSecret,
+    tinfoilApiKey: setTinfoilApiKey,
+    deepgramApiKey: setDeepgramApiKey,
+    assemblyaiApiKey: setAssemblyaiApiKey,
+  };
 
   const cloudModelOptions = useMemo(() => {
     if (!currentCloudProvider) return [];
@@ -1242,7 +1260,7 @@ export default function TranscriptionModelPicker({
                       {field.input === "secret" ? (
                         <ApiKeyInput
                           apiKey={credentialValues[field.key]}
-                          setApiKey={credentialSetters[field.key]}
+                          setApiKey={credentialSecretSavers[field.key] ?? unavailableSecretSave}
                           label=""
                           helpText=""
                         />

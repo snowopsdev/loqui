@@ -1,3 +1,4 @@
+const { hasExistingSettingsProfile } = require("./src/helpers/settingsProfile");
 const product = require("./src/config/product.json");
 // Chromium picks the display backend before JS runs, so appendSwitch is too
 // late — the flag has to come from a relaunch.
@@ -435,26 +436,45 @@ function initializeCoreManagers() {
   const inference = require("./src/helpers/personalInference").registerPersonalInferenceIPC({
     ipcMain,
     userDataPath: app.getPath("userData"),
-    getCredential: (ref) => {
-      const slot = credentialSlot(ref);
-      return slot ? environmentManager[slot[0]]() : "";
+    waitForAdmission: () => ipcHandlers.vertexAuthSourceReady,
+    getCredential: async (ref) => {
+      const target = require("./src/helpers/credentialAuthority").slotForCredentialRef(ref);
+      const capture = target ? await ipcHandlers.credentials.captureCommitted(target.id) : null;
+      if (target && !capture) throw new Error("Credential persistence is unavailable.");
+      return capture?.values.key || "";
     },
-    saveCredential: (ref, value) => {
-      const slot = credentialSlot(ref);
-      if (!slot) throw new Error("Unknown credential reference");
-      return environmentManager[slot[1]](value);
+    saveCredential: async (ref, value) => {
+      await ipcHandlers.vertexAuthSourceReady;
+      const target = require("./src/helpers/credentialAuthority").slotForCredentialRef(ref);
+      if (!target) throw new Error("Unknown credential reference");
+      const result = await ipcHandlers.credentials.save(target.id, target.field, value);
+      if (result.ok === false) throw new Error("The credential could not be saved.");
     },
-    getEnterpriseConfig: () => ({
-      bedrockRegion: environmentManager.getBedrockRegion(),
-      bedrockProfile: environmentManager.getBedrockProfile(),
-      bedrockAccessKeyId: environmentManager.getBedrockAccessKeyId(),
-      bedrockSecretAccessKey: environmentManager.getBedrockSecretAccessKey(),
-      bedrockSessionToken: environmentManager.getBedrockSessionToken(),
-      azureEndpoint: environmentManager.getAzureEndpoint(),
-      azureApiVersion: environmentManager.getAzureApiVersion(),
-      vertexProject: environmentManager.getVertexProject(),
-      vertexLocation: environmentManager.getVertexLocation(),
-    }),
+    getEnterpriseConfig: async (provider) => {
+      await ipcHandlers.vertexAuthSourceReady;
+      const bedrock =
+        provider === "bedrock" ? await ipcHandlers.credentials.captureCommitted("bedrock") : null;
+      if (provider === "bedrock" && !bedrock)
+        throw new Error("Credential persistence is unavailable.");
+      return {
+        bedrockRegion: environmentManager.getBedrockRegion(),
+        bedrockProfile: environmentManager.getBedrockProfile(),
+        bedrockAccessKeyId: bedrock
+          ? bedrock.values.accessKeyId
+          : environmentManager.getBedrockAccessKeyId(),
+        bedrockSecretAccessKey: bedrock
+          ? bedrock.values.secretAccessKey
+          : environmentManager.getBedrockSecretAccessKey(),
+        bedrockSessionToken: bedrock
+          ? bedrock.values.sessionToken
+          : environmentManager.getBedrockSessionToken(),
+        azureEndpoint: environmentManager.getAzureEndpoint(),
+        azureApiVersion: environmentManager.getAzureApiVersion(),
+        vertexProject: environmentManager.getVertexProject(),
+        vertexLocation: environmentManager.getVertexLocation(),
+        vertexAuthSource: environmentManager.getVertexAuthSource(),
+      };
+    },
     openExternal: (url) => shell.openExternal(url),
   });
   updateManager = require("./src/helpers/updateIPC").attachUpdateIPC({
@@ -488,22 +508,6 @@ function initializeCoreManagers() {
     modelManager: require("./src/helpers/modelManagerBridge").default,
     getWindow: (event) => BrowserWindow.fromWebContents(event.sender),
   });
-}
-
-function credentialSlot(ref) {
-  const custom = {
-    dictationCleanup: ["getCleanupCustomKey", "saveCleanupCustomKey"],
-    noteFormatting: ["getNoteFormattingCustomKey", "saveNoteFormattingCustomKey"],
-    dictationTranslation: ["getTranslationCustomKey", "saveTranslationCustomKey"],
-    dictationAgent: ["getDictationAgentCustomKey", "saveDictationAgentCustomKey"],
-    dictationAgentVision: ["getDictationAgentVisionCustomKey", "saveDictationAgentVisionCustomKey"],
-    chatIntelligence: ["getChatAgentCustomKey", "saveChatAgentCustomKey"],
-  };
-  if (ref === "azure") return ["getAzureApiKey", "saveAzureApiKey"];
-  if (ref === "vertex") return ["getVertexApiKey", "saveVertexApiKey"];
-  if (ref.startsWith("custom:")) return custom[ref.slice(7)];
-  const slot = require("./src/config/secretKeys").BYOK_API_KEYS.find((k) => k.base === ref);
-  return slot ? [slot.get, slot.save] : undefined;
 }
 
 function registerSidecars() {
@@ -570,6 +574,11 @@ function initializeDeferredManagers() {
 }
 
 async function startApp() {
+  const existingSettingsProfile = await hasExistingSettingsProfile({
+    fs: require("node:fs/promises"),
+    userDataPath: app.getPath("userData"),
+    development: process.env.NODE_ENV === "development",
+  });
   // Await so a stale sidecar is confirmed dead before new ones can spawn and
   // contend for its port or storage lock.
   await reapStaleSidecars();
@@ -577,6 +586,7 @@ async function startApp() {
   // Phase 1: Core managers + IPC handlers before windows
   initializeCoreManagers();
   await environmentManager.init();
+  await ipcHandlers.initializeVertexAuthSource(existingSettingsProfile);
   // After any upgrade the GPU gets one fresh attempt: clear the remembered
   // failure before the whisper pre-warm below resolves its GPU backend.
   resetWhisperGpuFailureOnUpgrade(environmentManager);

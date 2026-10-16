@@ -1,3 +1,4 @@
+import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { buildApiUrl, getModelListBaseCandidates, normalizeBaseUrl } from "../config/constants";
@@ -21,7 +22,7 @@ interface OpenAICompatiblePanelProps {
   baseUrl: string;
   setBaseUrl: (value: string) => void;
   apiKey: string;
-  setApiKey: (value: string) => void;
+  setApiKey: AcknowledgedSecretSave;
   model: string;
   setModel: (value: string) => void;
   defaultBaseUrl?: string;

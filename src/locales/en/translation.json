@@ -3174,7 +3174,9 @@
     "edit": "Edit API key",
     "add": "Add API key",
     "editButton": "edit",
-    "addButton": "add"
+    "addButton": "add",
+    "saveFailed": "Couldn't save this key. Your entry is still here — try again.",
+    "removeFailed": "Couldn't remove this key. It is still saved."
   },
   "gpu": {
     "transcriptionBanner": "Speed up transcription with GPU acceleration",

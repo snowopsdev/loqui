@@ -3174,7 +3174,9 @@
     "edit": "Modifier la clé API",
     "add": "Ajouter une clé API",
     "editButton": "modifier",
-    "addButton": "ajouter"
+    "addButton": "ajouter",
+    "saveFailed": "Impossible d’enregistrer cette clé. Votre saisie est conservée — réessayez.",
+    "removeFailed": "Impossible de supprimer cette clé. Elle est toujours enregistrée."
   },
   "gpu": {
     "transcriptionBanner": "Accélérez la transcription avec le GPU",

@@ -84,13 +84,21 @@ function createAzureModel(model, apiKey, enterprise) {
 
 function createVertexModel(model, apiKey, enterprise) {
   const { createVertex } = require("@ai-sdk/google-vertex");
-  if (apiKey) {
-    return createVertex({ apiKey })(model);
+  if (enterprise?.vertexAuthSource === "apiKey") {
+    const effectiveKey = apiKey || process.env.GOOGLE_VERTEX_API_KEY || "";
+    if (!effectiveKey) throw new Error("Configure a Vertex API key in Settings.");
+    // Main's committed stored key wins over the supported legacy fallback.
+    return createVertex({ apiKey: effectiveKey })(model);
   }
-  return createVertex({
-    project: enterprise?.vertexProject,
-    location: enterprise?.vertexLocation || "us-central1",
-  })(model);
+  if (enterprise?.vertexAuthSource === "adc") {
+    // Explicit empty suppresses the SDK's ambient GOOGLE_VERTEX_API_KEY fallback.
+    return createVertex({
+      apiKey: "",
+      project: enterprise.vertexProject,
+      location: enterprise.vertexLocation || "us-central1",
+    })(model);
+  }
+  throw new Error("Choose a supported Vertex authentication source.");
 }
 
 module.exports = { getEnterpriseAIModel };

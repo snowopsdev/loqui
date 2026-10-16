@@ -2370,7 +2370,6 @@
       "audioStorageFiles": "{{count}} Dateien, {{size}}",
       "audioStorageEmpty": "Keine Audiodateien gespeichert",
       "clearAllAudio": "Alle Audiodateien löschen",
-      "clearAllAudioConfirm": "Alle gespeicherten Audiodateien löschen? Dies kann nicht rückgängig gemacht werden.",
       "dataRetention": "Datenaufbewahrung",
       "dataRetentionDescription": "Transkriptionen und Audio lokal im Verlauf speichern. Wenn deaktiviert, werden Transkriptionen eingefügt, aber nicht gespeichert.",
       "transcriptRetention": "Transkript-Aufbewahrung",
@@ -2381,7 +2380,14 @@
       "lastSynced": "Zuletzt synchronisiert {{time}}",
       "minutesAgo": "vor {{count}} Min.",
       "saveDiscarded": "Verworfene Diktate speichern",
-      "saveDiscardedDescription": "Wenn Sie ein Diktat mit Escape abbrechen, bleibt das Audio im Verlauf, damit Sie es wiederherstellen können. Erfordert aktive Daten- und Audio-Aufbewahrung."
+      "saveDiscardedDescription": "Wenn Sie ein Diktat mit Escape abbrechen, bleibt das Audio im Verlauf, damit Sie es wiederherstellen können. Erfordert aktive Daten- und Audio-Aufbewahrung.",
+      "clearAllAudioTitle": "Alle Audiodateien löschen?",
+      "clearAllAudioCounted": "Gespeichertes Audio: {{summary}}. Alles löschen? Das kann nicht rückgängig gemacht werden.",
+      "clearAllAudioAction": "Audio löschen",
+      "clearAllAudioDone": "Gespeichertes Audio gelöscht",
+      "clearAllAudioFailed": "Nicht alle gespeicherten Audiodateien wurden gelöscht. Versuche es erneut oder prüfe, ob eine andere App die Dateien verwendet.",
+      "audioStorageChecking": "Gespeichertes Audio wird geprüft…",
+      "audioStorageUnavailable": "Loqui konnte seinen Audioordner nicht lesen und kann gespeichertes Audio gerade weder anzeigen noch löschen."
     },
     "prompts": {
       "description": "Den einheitlichen System-Prompt anzeigen, anpassen und testen, der Textbereinigung und Anweisungserkennung steuert",

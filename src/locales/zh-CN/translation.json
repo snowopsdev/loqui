@@ -2086,9 +2086,15 @@
       "audioStorageFiles": "{{count}} 个文件，{{size}}",
       "audioStorageEmpty": "没有存储的音频文件",
       "clearAllAudio": "清除所有音频",
-      "clearAllAudioConfirm": "删除所有已存储的音频文件？此操作无法撤销。",
       "saveDiscarded": "保存已放弃的听写",
-      "saveDiscardedDescription": "用 Escape 取消听写时，将其音频保留在历史记录中以便恢复。需开启数据和音频保留。"
+      "saveDiscardedDescription": "用 Escape 取消听写时，将其音频保留在历史记录中以便恢复。需开启数据和音频保留。",
+      "clearAllAudioTitle": "清除所有音频？",
+      "clearAllAudioCounted": "已存储的音频：{{summary}}。全部删除？此操作无法撤销。",
+      "clearAllAudioAction": "删除音频",
+      "clearAllAudioDone": "已删除存储的音频",
+      "clearAllAudioFailed": "并非所有存储的音频都已删除。请重试，或检查是否有其他应用正在使用这些文件。",
+      "audioStorageChecking": "正在检查存储的音频…",
+      "audioStorageUnavailable": "Loqui 无法读取其音频文件夹，因此现在无法显示或清除存储的音频。"
     },
     "prompts": {
       "description": "查看、自定义和测试用于文本整理和指令识别的统一系统提示词",

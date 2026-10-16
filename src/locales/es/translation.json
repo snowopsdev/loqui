@@ -2141,7 +2141,13 @@
       "audioStorageFiles": "{{count}} archivos, {{size}}",
       "audioStorageEmpty": "No hay archivos de audio almacenados",
       "clearAllAudio": "Eliminar todo el audio",
-      "clearAllAudioConfirm": "¿Eliminar todos los archivos de audio almacenados? Esta acción no se puede deshacer."
+      "clearAllAudioTitle": "¿Borrar todo el audio?",
+      "clearAllAudioCounted": "Audio almacenado: {{summary}}. ¿Eliminarlo todo? No se puede deshacer.",
+      "clearAllAudioAction": "Eliminar audio",
+      "clearAllAudioDone": "Audio almacenado eliminado",
+      "clearAllAudioFailed": "No se eliminó todo el audio almacenado. Inténtalo de nuevo o comprueba que ninguna otra app esté usando los archivos.",
+      "audioStorageChecking": "Comprobando el audio almacenado…",
+      "audioStorageUnavailable": "Loqui no pudo leer su carpeta de audio, así que ahora no puede mostrar ni borrar el audio almacenado."
     },
     "prompts": {
       "description": "Visualiza, personaliza y prueba el prompt de sistema unificado que impulsa la corrección de texto y la detección de instrucciones",

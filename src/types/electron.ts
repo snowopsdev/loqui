@@ -854,8 +854,12 @@ declare global {
       showAudioInFolder: (id: number) => Promise<{ success: boolean }>;
       getAudioBuffer: (id: number) => Promise<ArrayBuffer | null>;
       deleteTranscriptionAudio: (id: number) => Promise<{ success: boolean }>;
-      getAudioStorageUsage: () => Promise<{ fileCount: number; totalBytes: number }>;
-      deleteAllAudio: () => Promise<{ deleted: number }>;
+      getAudioStorageUsage: () => Promise<{
+        fileCount: number;
+        totalBytes: number;
+        readable: boolean;
+      }>;
+      deleteAllAudio: () => Promise<{ deleted: number; failed: number; readable: boolean }>;
       syncRetentionSettings?: (settings: {
         audioRetentionDays: number;
         transcriptRetentionDays: number;

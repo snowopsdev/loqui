@@ -1,3 +1,5 @@
+import { useAudioStorageUsage } from "../hooks/useAudioStorageUsage";
+import { AudioStorageRow } from "./settings/AudioStorageRow";
 import UpdateSettings from "./settings/UpdateSettings";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -1113,20 +1115,8 @@ export default function SettingsPage({
   const permissionsHook = usePermissions(showAlertDialog);
   const systemAudio = useSystemAudioPermission();
   useClipboard(showAlertDialog);
-  const [audioStorageUsage, setAudioStorageUsage] = useState<{
-    fileCount: number;
-    totalBytes: number;
-  }>({ fileCount: 0, totalBytes: 0 });
-
-  useEffect(() => {
-    if (activeSection !== "privacyData") return;
-    window.electronAPI
-      ?.getAudioStorageUsage?.()
-      .then((usage: { fileCount: number; totalBytes: number }) => {
-        if (usage) setAudioStorageUsage(usage);
-      })
-      .catch(() => {});
-  }, [activeSection]);
+  const audioStorage = useAudioStorageUsage(activeSection === "privacyData");
+  const [clearAudioError, setClearAudioError] = useState(false);
 
   // Lazy keep-alive: mount AI sections only after the user has visited them once,
   // then keep them mounted so model-download progress and IPC listeners survive
@@ -1144,14 +1134,32 @@ export default function SettingsPage({
   }
 
   const handleClearAllAudio = async () => {
-    if (!window.electronAPI?.deleteAllAudio) return;
-    try {
-      await window.electronAPI.deleteAllAudio();
-      setAudioStorageUsage({ fileCount: 0, totalBytes: 0 });
-      toast({ title: t("settingsPage.privacy.clearAllAudio"), variant: "default" });
-    } catch {
-      // silent fail
-    }
+    setClearAudioError(false);
+    // Count what is on disk now. A failed read turns the row "unavailable"
+    // and opens no confirmation: a stale count is never shown as current.
+    const current = await audioStorage.refresh();
+    if (current.status !== "known") return;
+    showConfirmDialog({
+      title: t("settingsPage.privacy.clearAllAudioTitle"),
+      description: t("settingsPage.privacy.clearAllAudioCounted", {
+        summary: t("settingsPage.privacy.audioStorageFiles", {
+          count: current.fileCount,
+          size: formatBytes(current.totalBytes),
+        }),
+      }),
+      confirmText: t("settingsPage.privacy.clearAllAudioAction"),
+      cancelText: t("common.cancel"),
+      variant: "destructive",
+      onConfirm: () =>
+        void (async () => {
+          const outcome = await audioStorage.clearAll();
+          if (outcome === "cleared") {
+            toast({ title: t("settingsPage.privacy.clearAllAudioDone"), variant: "default" });
+          } else {
+            setClearAudioError(true);
+          }
+        })(),
+    });
   };
 
   // Wayland paste tool status for diagnostics.
@@ -2791,27 +2799,12 @@ EOF`,
                   </SettingsRow>
                 </SettingsPanelRow>
                 <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.privacy.audioStorageUsage")}
-                    description={
-                      audioStorageUsage.fileCount > 0
-                        ? t("settingsPage.privacy.audioStorageFiles", {
-                            count: audioStorageUsage.fileCount,
-                            size: formatBytes(audioStorageUsage.totalBytes),
-                          })
-                        : t("settingsPage.privacy.audioStorageEmpty")
-                    }
-                  >
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      disabled={audioStorageUsage.fileCount === 0}
-                      onClick={handleClearAllAudio}
-                    >
-                      {t("settingsPage.privacy.clearAllAudio")}
-                    </Button>
-                  </SettingsRow>
+                  <AudioStorageRow
+                    usage={audioStorage.usage}
+                    clearError={clearAudioError}
+                    onClear={() => void handleClearAllAudio()}
+                    onRetry={() => void audioStorage.refresh()}
+                  />
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>

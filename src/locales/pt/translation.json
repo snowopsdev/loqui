@@ -2065,9 +2065,15 @@
       "audioStorageFiles": "{{count}} arquivos, {{size}}",
       "audioStorageEmpty": "Nenhum arquivo de áudio armazenado",
       "clearAllAudio": "Excluir todos os áudios",
-      "clearAllAudioConfirm": "Excluir todos os arquivos de áudio armazenados? Esta ação não pode ser desfeita.",
       "saveDiscarded": "Salvar ditados descartados",
-      "saveDiscardedDescription": "Quando você cancela um ditado com Escape, mantém o áudio no histórico para poder recuperá-lo. Requer a retenção de dados e áudio ativada."
+      "saveDiscardedDescription": "Quando você cancela um ditado com Escape, mantém o áudio no histórico para poder recuperá-lo. Requer a retenção de dados e áudio ativada.",
+      "clearAllAudioTitle": "Apagar todo o áudio?",
+      "clearAllAudioCounted": "Áudio armazenado: {{summary}}. Excluir tudo? Isso não pode ser desfeito.",
+      "clearAllAudioAction": "Excluir áudio",
+      "clearAllAudioDone": "Áudio armazenado excluído",
+      "clearAllAudioFailed": "Nem todo o áudio armazenado foi excluído. Tente novamente ou verifique se outro app está usando os arquivos.",
+      "audioStorageChecking": "Verificando o áudio armazenado…",
+      "audioStorageUnavailable": "O Loqui não conseguiu ler a pasta de áudio, então não pode mostrar nem apagar o áudio armazenado agora."
     },
     "prompts": {
       "description": "Visualize, personalize e teste o prompt de sistema unificado que alimenta a limpeza de texto e a detecção de instruções",

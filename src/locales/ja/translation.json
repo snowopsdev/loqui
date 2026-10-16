@@ -2086,9 +2086,15 @@
       "audioStorageFiles": "{{count}}ファイル、{{size}}",
       "audioStorageEmpty": "保存された音声ファイルはありません",
       "clearAllAudio": "すべての音声を削除",
-      "clearAllAudioConfirm": "保存されたすべての音声ファイルを削除しますか？この操作は元に戻せません。",
       "saveDiscarded": "破棄したディクテーションを保存",
-      "saveDiscardedDescription": "Escape でディクテーションをキャンセルしたとき、音声を履歴に残して後で復元できるようにします。データと音声の保持を有効にする必要があります。"
+      "saveDiscardedDescription": "Escape でディクテーションをキャンセルしたとき、音声を履歴に残して後で復元できるようにします。データと音声の保持を有効にする必要があります。",
+      "clearAllAudioTitle": "すべての音声を削除しますか？",
+      "clearAllAudioCounted": "保存済みの音声: {{summary}}。すべて削除しますか？元に戻せません。",
+      "clearAllAudioAction": "音声を削除",
+      "clearAllAudioDone": "保存済みの音声を削除しました",
+      "clearAllAudioFailed": "保存済みの音声の一部を削除できませんでした。もう一度試すか、他のアプリがファイルを使用していないか確認してください。",
+      "audioStorageChecking": "保存済みの音声を確認しています…",
+      "audioStorageUnavailable": "Loqui が音声フォルダーを読み取れなかったため、現在は保存済みの音声を表示または削除できません。"
     },
     "prompts": {
       "description": "テキスト補正と指示検出を行う統合システムプロンプトの表示、カスタマイズ、テスト",

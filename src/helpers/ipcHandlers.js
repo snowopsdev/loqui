@@ -1,3 +1,4 @@
+const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
 const {
   ipcMain,
   app,
@@ -1409,12 +1410,10 @@ class IPCHandlers {
     ipcMain.handle("delete-all-audio", async () => {
       const result = this.audioStorageManager.deleteAllAudio();
       try {
-        const rows = this.databaseManager.db
-          .prepare("SELECT id FROM transcriptions WHERE has_audio = 1")
-          .all();
-        if (rows.length > 0) {
-          this.databaseManager.clearAudioFlags(rows.map((r) => r.id));
-        }
+        clearFlagsForDeletedAudio({
+          audioStorage: this.audioStorageManager,
+          database: this.databaseManager,
+        });
       } catch (error) {
         debugLogger.error(
           "Failed to clear audio flags after delete-all",

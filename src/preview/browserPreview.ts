@@ -273,7 +273,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     getDiarizationModelStatus: async () => ({ available: false, modelsDownloaded: false }),
     downloadDiarizationModels: unavailable,
     downloadSearchModel: unavailable,
-    getAudioStorageUsage: async () => ({ fileCount: 0, totalBytes: 0 }),
+    getAudioStorageUsage: async () => ({ fileCount: 0, totalBytes: 0, readable: true }),
     getModelCacheRoot: async () => "Desktop app only",
     noteFilesGetDefaultPath: async () => "Desktop app only",
     getAutoStartEnabled: async () => ({ enabled: false, requiresApproval: false }),

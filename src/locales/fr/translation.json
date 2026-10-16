@@ -2370,7 +2370,6 @@
       "audioStorageFiles": "{{count}} fichiers, {{size}}",
       "audioStorageEmpty": "Aucun fichier audio stocké",
       "clearAllAudio": "Supprimer tous les fichiers audio",
-      "clearAllAudioConfirm": "Supprimer tous les fichiers audio stockés ? Cette action est irréversible.",
       "dataRetention": "Conservation des données",
       "dataRetentionDescription": "Stocker les transcriptions et l'audio localement dans votre historique. Lorsque désactivé, les transcriptions sont collées mais pas enregistrées.",
       "transcriptRetention": "Conservation des transcriptions",
@@ -2381,7 +2380,14 @@
       "lastSynced": "Dernière synchronisation {{time}}",
       "minutesAgo": "il y a {{count}}min",
       "saveDiscarded": "Enregistrer les dictées abandonnées",
-      "saveDiscardedDescription": "Quand vous annulez une dictée avec Échap, conserve son audio dans l'historique pour pouvoir la récupérer. Nécessite la conservation des données et de l'audio."
+      "saveDiscardedDescription": "Quand vous annulez une dictée avec Échap, conserve son audio dans l'historique pour pouvoir la récupérer. Nécessite la conservation des données et de l'audio.",
+      "clearAllAudioTitle": "Effacer tout l'audio ?",
+      "clearAllAudioCounted": "Audio stocké : {{summary}}. Tout supprimer ? Cette action est irréversible.",
+      "clearAllAudioAction": "Supprimer l'audio",
+      "clearAllAudioDone": "Audio stocké supprimé",
+      "clearAllAudioFailed": "Tout l'audio stocké n'a pas été supprimé. Réessayez ou vérifiez qu'aucune autre app n'utilise les fichiers.",
+      "audioStorageChecking": "Vérification de l'audio stocké…",
+      "audioStorageUnavailable": "Loqui n'a pas pu lire son dossier audio et ne peut donc pas afficher ni effacer l'audio stocké pour le moment."
     },
     "prompts": {
       "description": "Affichez, personnalisez et testez le prompt système unifié qui gère la correction du texte et la détection des instructions",

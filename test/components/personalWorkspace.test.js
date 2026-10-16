@@ -33,9 +33,11 @@ async function harness(t, module, options = {}) {
     },
   });
   const Component = (await vite.ssrLoadModule(module)).default;
+  await options.beforeRender?.(vite);
   let tree;
   function Harness() {
     tree = Component(options.props ?? {});
+    if (options.project) tree = options.project(tree);
     return null;
   }
   root = createRoot(container);
@@ -291,4 +293,75 @@ test("a key save clears the draft only after main acknowledges it", async (t) =>
   assert.equal(editor.alert(), undefined);
   await React.act(async () => editor.open().props.onClick());
   assert.equal(editor.input().props.value, "");
+});
+
+// change-driving review R2: profile draft is separate from acknowledged readiness.
+test("Bedrock profile typing remains editable during pending persistence and retains a failed draft", async (t) => {
+  const first = deferred();
+  const second = deferred();
+  const third = deferred();
+  const calls = [];
+  let store;
+  const h = await harness(t, "/components/EnterpriseProviderConfig.tsx", {
+    props: { provider: "bedrock", reasoningModel: "fixture-model", setReasoningModel() {} },
+    api: {
+      saveBedrockProfile: (value) => {
+        calls.push(value);
+        return [first, second, third][calls.length - 1].promise;
+      },
+    },
+    mocks: { "/services/ReasoningService": "export default { clearApiKeyCache() {} };" },
+    beforeRender: async (vite) => {
+      store = (await vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+      store.setState({ bedrockProfile: "fixture-old" });
+    },
+    project: (tree) => {
+      let fieldIndex = 0;
+      const field = find(tree, (node) => node.type?.name === "Field" && fieldIndex++ === 1);
+      return field.type(field.props);
+    },
+  });
+  const input = () =>
+    find(h.tree(), (node) => node.props?.value !== undefined && node.props?.onChange);
+  await React.act(async () => {
+    input().props.onChange({ target: { value: "fixture-new" } });
+  });
+  assert.equal(input().props.value, "fixture-new");
+  assert.deepEqual(calls, [], "typing does not persist or change readiness");
+  let saving;
+  await React.act(async () => {
+    saving = input().props.onBlur();
+  });
+  assert.equal(input().props.value, "fixture-new");
+  assert.equal(store.getState().bedrockProfile, "fixture-old");
+  await React.act(async () => {
+    first.resolve(Promise.reject(new Error("fixture refusal")));
+    await saving;
+  });
+  assert.equal(input().props.value, "fixture-new");
+  assert.equal(store.getState().bedrockProfile, "fixture-old");
+  assert.ok(find(h.tree(), (node) => node.props?.role === "alert"));
+  await React.act(async () => {
+    saving = input().props.onBlur();
+  });
+  await React.act(async () => {
+    input().props.onChange({ target: { value: "fixture-later" } });
+  });
+  let laterSaving;
+  await React.act(async () => {
+    laterSaving = input().props.onBlur();
+  });
+  assert.equal(calls.length, 2, "a later blur waits for the prior profile ACK");
+  await React.act(async () => {
+    second.resolve({ success: true });
+    await saving;
+  });
+  assert.equal(input().props.value, "fixture-later", "an earlier ACK cannot replace a newer draft");
+  assert.equal(store.getState().bedrockProfile, "fixture-new");
+  await React.act(async () => {
+    third.resolve({ success: true });
+    await laterSaving;
+  });
+  assert.equal(store.getState().bedrockProfile, "fixture-later");
+  assert.deepEqual(calls, ["fixture-new", "fixture-new", "fixture-later"]);
 });

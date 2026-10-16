@@ -1062,7 +1062,7 @@ export interface SettingsState
   vertexApiKey: string;
   setBedrockAuthMode: (value: string) => void;
   setBedrockRegion: (value: string) => void;
-  setBedrockProfile: (value: string) => Promise<void>;
+  setBedrockProfile: (value: string) => Promise<boolean>;
   setBedrockAccessKeyId: (key: string) => Promise<SecretSaveResult>;
   setBedrockSecretAccessKey: (key: string) => Promise<SecretSaveResult>;
   setBedrockSessionToken: (key: string) => Promise<SecretSaveResult>;
@@ -1337,6 +1337,13 @@ function invalidateApiKeyCaches(
 
 const pendingSecretSaves = new Set<Promise<SecretSaveResult>>();
 const credentialGenerations: Partial<Record<CredentialSlot, number>> = {};
+// Getter-only startup snapshots have no generation. Revisions record every
+// accepted ACK/event so late reads cannot replace a newer committed fact.
+const credentialRevisions: Partial<Record<CredentialSlot, number>> = {};
+const credentialRevision = (id: CredentialSlot) => credentialRevisions[id] ?? 0;
+const advanceCredentialRevision = (id: CredentialSlot) => {
+  credentialRevisions[id] = credentialRevision(id) + 1;
+};
 
 // Acknowledged secret save (I3). The raw value goes to main and nowhere
 // else; the store field becomes "__stored__" or "" only after main confirms
@@ -1358,6 +1365,7 @@ export function saveSecret(storeKey: SecretStoreKey, value: string): Promise<Sec
     }
     if (result.generation >= (credentialGenerations[id] ?? 0) && value !== "__stored__") {
       credentialGenerations[id] = result.generation;
+      advanceCredentialRevision(id);
       useSettingsStore.setState({
         [storeKey]: value.trim() ? "__stored__" : "",
       } as Partial<SettingsState>);
@@ -1387,6 +1395,7 @@ export function subscribeCredentialChanges(): () => void {
   return credentials.onChanged((change) => {
     if (change.generation < (credentialGenerations[change.id] ?? 0)) return;
     credentialGenerations[change.id] = change.generation;
+    advanceCredentialRevision(change.id);
     const patch: Record<string, string> = {};
     const caches = new Set<Parameters<typeof invalidateApiKeyCaches>[0]>();
     for (const [storeKey, [id, field]] of Object.entries(SECRET_SLOTS) as [
@@ -2046,10 +2055,15 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     debouncedPersistToEnv();
   },
   setBedrockProfile: async (value: string) => {
-    const result = await window.electronAPI?.saveBedrockProfile?.(value);
-    if (result?.success) {
+    try {
+      const result = await window.electronAPI?.saveBedrockProfile?.(value);
+      if (!result?.success) return false;
       set({ bedrockProfile: value });
       if (isBrowser) localStorage.setItem("bedrockProfile", value);
+      return true;
+    } catch {
+      logger.warn("Failed to persist Bedrock profile", {}, "settings");
+      return false;
     }
   },
   setBedrockAccessKeyId: createSecretSetter("bedrockAccessKeyId"),
@@ -2756,10 +2770,16 @@ export function getEffectiveCleanupModel() {
 // localStorage (the sweep below skips it) so nothing the user typed is lost.
 const unmigratedLegacySecrets = new Set<string>();
 async function migrateScopeCustomKeys(
-  entries: ReadonlyArray<[SecretStoreKey, string | null | undefined]>
+  entries: ReadonlyArray<[SecretStoreKey, string | null | undefined]>,
+  boundary: Partial<Record<CredentialSlot, number>>
 ): Promise<Partial<SettingsState>> {
   const updates: Record<string, string> = {};
   for (const [storeKey, secureValue] of entries) {
+    // An earlier migration may have waited while the user initiated a save.
+    // Join those saves before deciding whether an old legacy copy may write.
+    await flushSecretSaves();
+    const [id] = SECRET_SLOTS[storeKey];
+    if (credentialRevision(id) !== (boundary[id] ?? 0)) continue;
     let present = !!secureValue;
     if (!present) {
       const legacy = localStorage.getItem(storeKey)?.trim() || "";
@@ -2783,6 +2803,8 @@ export async function initializeSettings(): Promise<void> {
   if (!isBrowser) return;
 
   const state = useSettingsStore.getState();
+  const secretHydrationBoundary = { ...credentialRevisions };
+  subscribeCredentialChanges();
 
   if (window.electronAPI) {
     try {
@@ -2840,7 +2862,7 @@ export async function initializeSettings(): Promise<void> {
         window.electronAPI.getAssemblyAIKey?.(),
       ]);
 
-      useSettingsStore.setState({
+      const secretHydration: Partial<SettingsState> = {
         openaiApiKey: openai ? "__stored__" : "",
         anthropicApiKey: anthropic ? "__stored__" : "",
         geminiApiKey: gemini ? "__stored__" : "",
@@ -2855,20 +2877,31 @@ export async function initializeSettings(): Promise<void> {
         customTranscriptionApiKey: customTx ? "__stored__" : "",
         cleanupCustomApiKey: customRx ? "__stored__" : "",
         bedrockAccessKeyId: bedrockAccessKeyId ? "__stored__" : "",
-        ...(await migrateScopeCustomKeys([
-          ["noteFormattingCustomApiKey", noteFormattingCustom],
-          ["translationCustomApiKey", translationCustom],
-          ["dictationAgentCustomApiKey", dictationAgentCustom],
-          ["dictationAgentVisionCustomApiKey", dictationAgentVisionCustom],
-          ["chatAgentCustomApiKey", chatAgentCustom],
-        ])),
+        ...(await migrateScopeCustomKeys(
+          [
+            ["noteFormattingCustomApiKey", noteFormattingCustom],
+            ["translationCustomApiKey", translationCustom],
+            ["dictationAgentCustomApiKey", dictationAgentCustom],
+            ["dictationAgentVisionCustomApiKey", dictationAgentVisionCustom],
+            ["chatAgentCustomApiKey", chatAgentCustom],
+          ],
+          secretHydrationBoundary
+        )),
         bedrockSecretAccessKey: bedrockSecretAccessKey ? "__stored__" : "",
         bedrockSessionToken: bedrockSessionToken ? "__stored__" : "",
         azureApiKey: azureApiKey ? "__stored__" : "",
         vertexApiKey: vertexApiKey ? "__stored__" : "",
         deepgramApiKey: deepgram ? "__stored__" : "",
         assemblyaiApiKey: assemblyai ? "__stored__" : "",
-      });
+      };
+      useSettingsStore.setState(
+        Object.fromEntries(
+          Object.entries(secretHydration).filter(([key]) => {
+            const [id] = SECRET_SLOTS[key as SecretStoreKey];
+            return credentialRevision(id) === (secretHydrationBoundary[id] ?? 0);
+          })
+        ) as Partial<SettingsState>
+      );
 
       if (localStorage.getItem("_dictationAgentSeeded") === "key-pending") {
         const { chatAgentCustomApiKey, setDictationAgentCustomApiKey } =
@@ -2878,9 +2911,12 @@ export async function initializeSettings(): Promise<void> {
       }
 
       for (const key of STALE_SECRET_LOCALSTORAGE_KEYS) {
-        if (!unmigratedLegacySecrets.has(key)) localStorage.removeItem(key);
+        const slot = SECRET_SLOTS[key as SecretStoreKey]?.[0];
+        const changed = slot && credentialRevision(slot) !== (secretHydrationBoundary[slot] ?? 0);
+        // A failed copy is retained only while no newer authoritative change
+        // has revoked it. Otherwise a later startup could resurrect that copy.
+        if (!unmigratedLegacySecrets.has(key) || changed) localStorage.removeItem(key);
       }
-      subscribeCredentialChanges();
 
       // Users who configured OpenRouter through the Custom tab keep their key
       // in the shared custom slot — seed the dedicated slot from it once.

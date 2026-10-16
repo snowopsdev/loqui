@@ -293,3 +293,125 @@ test("direct same-key saves cannot restore an obsolete base after a later failed
   assert.equal(env.getGroqKey(), "fixture-first");
   assert.match(disk(fs), /^GROQ_API_KEY=fixture-first$/m);
 });
+
+// change-driving review R1: queue admission must observe uncertainty established by earlier work.
+test("a save queued before unreadable pair recovery remains refused and cannot clear unknown", async (t) => {
+  const { authority, env, fs, events } = setup(t, {
+    CORTI_CLIENT_ID: "fixture-id",
+    CORTI_CLIENT_SECRET: "fixture-secret",
+  });
+  fs.holdNext((op, name) => op === "unlink" && name === "CORTI_CLIENT_SECRET.enc");
+  const removing = authority.remove("corti:speech");
+  const held = await fs.nextHold();
+  const queued = authority.save("corti:speech", "clientId", "fixture-queued-new-id");
+  const rename = fs.promises.rename;
+  fs.promises.rename = async () => {
+    throw new Error("fixture rollback failed");
+  };
+  const readFile = fs.promises.readFile;
+  fs.promises.readFile = async (file, encoding) => {
+    if (file.endsWith("CORTI_CLIENT_SECRET.enc")) throw new Error("fixture unreadable");
+    return readFile(file, encoding);
+  };
+  const writesBeforeRecovery = fs.log.filter(
+    (entry) => entry === "writeFile CORTI_CLIENT_ID.enc.tmp"
+  ).length;
+  held.fail(new Error("fixture second field failed"));
+  assert.deepEqual(await removing, { ok: false, error: "persistFailed" });
+  const writesAfterRecovery = fs.log.filter(
+    (entry) => entry === "writeFile CORTI_CLIENT_ID.enc.tmp"
+  ).length;
+  // Restore ordinary writes so refusal cannot be explained by a failing filesystem.
+  fs.promises.rename = rename;
+  assert.deepEqual(await queued, { ok: false, error: "persistFailed" });
+  assert.equal(
+    writesAfterRecovery,
+    writesBeforeRecovery + 1,
+    "only rollback attempted a field write"
+  );
+  assert.equal(
+    fs.log.filter((entry) => entry === "writeFile CORTI_CLIENT_ID.enc.tmp").length,
+    writesAfterRecovery,
+    "queued save never writes"
+  );
+  const row = authority.list().find((row) => row.id === "corti:speech");
+  assert.equal(row.unknown, true);
+  assert.equal(row.generation, 1);
+  assert.equal(events.at(-1).unknown, true);
+  assert.equal(events.length, 1, "only recovery is published");
+  assert.equal(await authority.captureCommitted("corti:speech"), null);
+  await assert.rejects(env.saveAllKeysToEnvFile(), { code: "CREDENTIAL_UNKNOWN" });
+});
+
+// baseline guard review R1: non-secret profile readiness and refresh cannot clear unknown native fields.
+test("Bedrock profile and refresh paths preserve unreadable slot uncertainty", async (t) => {
+  const { authority, env, fs, events } = setup(t, {
+    BEDROCK_PROFILE: "fixture-profile",
+    BEDROCK_ACCESS_KEY_ID: "fixture-id",
+    BEDROCK_SECRET_ACCESS_KEY: "fixture-secret",
+  });
+  const unlink = fs.promises.unlink;
+  fs.promises.unlink = async (file) => {
+    if (file.endsWith("BEDROCK_SECRET_ACCESS_KEY.enc")) throw new Error("fixture second field");
+    return unlink(file);
+  };
+  fs.promises.rename = async () => {
+    throw new Error("fixture rollback");
+  };
+  const readFile = fs.promises.readFile;
+  fs.promises.readFile = async (file, encoding) => {
+    if (file.endsWith("BEDROCK_SECRET_ACCESS_KEY.enc")) throw new Error("fixture unreadable");
+    return readFile(file, encoding);
+  };
+  assert.equal((await authority.remove("bedrock")).ok, false);
+  await assert.rejects(env.saveBedrockProfile("fixture-new-profile"), {
+    code: "CREDENTIAL_UNKNOWN",
+  });
+  assert.equal(env.getBedrockProfile(), "fixture-profile");
+  authority.refresh("bedrock");
+  assert.equal(events.at(-1).unknown, true);
+  assert.equal(
+    events.at(-1).present,
+    false,
+    "an existing profile cannot make an unknown slot ready"
+  );
+  assert.equal(events.at(-1).generation, 1);
+  assert.equal(await authority.captureCommitted("bedrock"), null);
+});
+
+// change-driving review R1: a failed erase must not turn unknown storage into trustworthy absence.
+test("failed reset retains unknown credential state until a successful erase", async (t) => {
+  const { authority, env, fs, erase } = setup(t, {
+    CORTI_CLIENT_ID: "fixture-id",
+    CORTI_CLIENT_SECRET: "fixture-secret",
+  });
+  const unlink = fs.promises.unlink;
+  fs.promises.unlink = async (file) => {
+    if (file.endsWith("CORTI_CLIENT_SECRET.enc")) throw new Error("fixture second field");
+    return unlink(file);
+  };
+  const rename = fs.promises.rename;
+  fs.promises.rename = async () => {
+    throw new Error("fixture rollback");
+  };
+  const readFile = fs.promises.readFile;
+  fs.promises.readFile = async (file, encoding) => {
+    if (file.endsWith("CORTI_CLIENT_SECRET.enc")) throw new Error("fixture unreadable");
+    return readFile(file, encoding);
+  };
+  assert.equal((await authority.remove("corti:speech")).ok, false);
+  fs.promises.rename = rename;
+  await assert.rejects(
+    authority.reset(async () => {
+      throw new Error("fixture erase refused");
+    }),
+    /fixture erase refused/
+  );
+  assert.equal(authority.list().find((row) => row.id === "corti:speech").unknown, true);
+  assert.equal(await authority.captureCommitted("corti:speech"), null);
+  await assert.rejects(env.saveAllKeysToEnvFile(), { code: "CREDENTIAL_UNKNOWN" });
+  await authority.reset(erase);
+  assert.equal(authority.list().find((row) => row.id === "corti:speech").unknown, undefined);
+  assert.equal((await authority.captureCommitted("corti:speech")).present, false);
+  assert.equal((await env.saveAllKeysToEnvFile()).success, true);
+});

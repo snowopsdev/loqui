@@ -812,7 +812,8 @@
       "vertex": {
         "adcHelp": "使用 Application Default Credentials。請執行：gcloud auth application-default login",
         "apikeyHelp": "從 Google AI Studio 取得的 Vertex AI Express Mode API 金鑰。"
-      }
+      },
+      "profileSaveFailed": "無法儲存此設定檔。你輸入的內容仍在這裡，請再試一次。"
     },
     "tinfoil": {
       "modelRetiredTitle": "模型已無法使用",

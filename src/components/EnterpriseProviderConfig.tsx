@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { saveSecret as saveStoredSecret, useSettingsStore } from "../stores/settingsStore";
 import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
@@ -16,10 +16,14 @@ function Field({
   label,
   value,
   onChange,
+  onCommit,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  onCommit?: () => Promise<void>;
+  error?: string;
 }) {
   const id = useId();
   return (
@@ -32,9 +36,27 @@ function Field({
         dir="ltr"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onBlur={onCommit}
+        onKeyDown={
+          onCommit
+            ? (event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void onCommit();
+                }
+              }
+            : undefined
+        }
+        aria-invalid={!!error}
+        aria-describedby={error ? `${id}-error` : undefined}
         className="h-8 text-sm"
         autoComplete="off"
       />
+      {error && (
+        <p id={`${id}-error`} role="alert" className="text-xs text-foreground">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -50,6 +72,51 @@ export default function EnterpriseProviderConfig({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
+  const [profileDraft, setProfileDraft] = useState(settings.bedrockProfile);
+  const [profileFailed, setProfileFailed] = useState(false);
+  const profileDraftRef = useRef(profileDraft);
+  const profileDirty = useRef(false);
+  const profileRevision = useRef(0);
+  const profilePending = useRef<Promise<void>>(Promise.resolve());
+  const profileSubmitted = useRef<{ value: string; promise: Promise<void> } | null>(null);
+
+  useEffect(() => {
+    if (!profileDirty.current) {
+      profileDraftRef.current = settings.bedrockProfile;
+      setProfileDraft(settings.bedrockProfile);
+    }
+  }, [settings.bedrockProfile]);
+
+  const editProfile = (value: string) => {
+    profileRevision.current += 1;
+    profileDirty.current = true;
+    profileDraftRef.current = value;
+    setProfileDraft(value);
+    setProfileFailed(false);
+    setConnected(false);
+  };
+  const commitProfile = (): Promise<void> => {
+    const value = profileDraftRef.current;
+    const revision = profileRevision.current;
+    if (!profileSubmitted.current && value === settings.bedrockProfile) return Promise.resolve();
+    if (profileSubmitted.current?.value === value) return profileSubmitted.current.promise;
+    // A blur during an earlier ACK queues the later draft. Each completion
+    // belongs to its edit revision and cannot overwrite a newer draft/error.
+    const saving = profilePending.current.then(async () => {
+      const saved = await settings.setBedrockProfile(value);
+      if (profileRevision.current === revision) {
+        profileDirty.current = !saved;
+        setProfileFailed(!saved);
+      }
+    });
+    profilePending.current = saving;
+    profileSubmitted.current = { value, promise: saving };
+    void saving.then(() => {
+      if (profileSubmitted.current?.promise === saving) profileSubmitted.current = null;
+    });
+    return saving;
+  };
+
   // Main stores the credential and acknowledges it; ApiKeyInput shows the
   // outcome, and renderer state only ever holds the presence sentinel.
   const saveSecret = (
@@ -102,8 +169,10 @@ export default function EnterpriseProviderConfig({
           />
           <Field
             label={t("reasoning.enterprise.profile")}
-            value={settings.bedrockProfile}
-            onChange={settings.setBedrockProfile}
+            value={profileDraft}
+            onChange={editProfile}
+            onCommit={commitProfile}
+            error={profileFailed ? t("reasoning.enterprise.profileSaveFailed") : undefined}
           />
           <p className="text-xs text-muted-foreground">{t("personal.directAwsCredentials")}</p>
           <ApiKeyInput

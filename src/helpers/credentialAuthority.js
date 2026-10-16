@@ -209,13 +209,16 @@ function createCredentialAuthority({
   };
   // A mutation of one slot. Resolves null when a reset began after it was
   // requested; `stale()` turns true from that moment.
-  const mutate = (id, task) => {
+  const mutate = (id, task, unknownResult = { ok: false, error: "persistFailed" }) => {
     if (fenced) return Promise.resolve(null);
     const taskEpoch = epoch;
     const stale = () => taskEpoch !== epoch;
     return enqueue(id, async () => {
       if (stale()) return null; // queued before the reset: never written
-      if (!unknown.has(id)) committed.set(id, liveValues(id));
+      // Earlier queued work may have established uncertainty after invocation.
+      // No mutation can publish over it without coherent recovery or erase.
+      if (unknown.has(id)) return unknownResult;
+      committed.set(id, liveValues(id));
       try {
         return await task(stale);
       } finally {
@@ -350,26 +353,30 @@ function createCredentialAuthority({
   function undoRemove(token) {
     const entry = typeof token === "string" ? undoEntries.get(token) : undefined;
     if (!entry) return Promise.resolve({ ok: false, reason: "unknown" });
-    return mutate(entry.id, async (stale) => {
-      if (undoEntries.get(token) !== entry) return { ok: false, reason: "unknown" };
-      if (!entry.values || now() >= entry.expiresAt) {
+    return mutate(
+      entry.id,
+      async (stale) => {
+        if (undoEntries.get(token) !== entry) return { ok: false, reason: "unknown" };
+        if (!entry.values || now() >= entry.expiresAt) {
+          entry.values = null;
+          return { ok: false, reason: "expired" };
+        }
+        if (generation(entry.id) !== entry.generation) {
+          entry.values = null;
+          return { ok: false, reason: "replaced" };
+        }
+        try {
+          await persistSlot(entry.id, entry.values, stale);
+        } catch {
+          return stale() ? null : { ok: false, reason: "persistFailed" };
+        }
+        if (stale()) return null; // restored, but the reset erases it: Undo failed
+        undoEntries.delete(token);
         entry.values = null;
-        return { ok: false, reason: "expired" };
-      }
-      if (generation(entry.id) !== entry.generation) {
-        entry.values = null;
-        return { ok: false, reason: "replaced" };
-      }
-      try {
-        await persistSlot(entry.id, entry.values, stale);
-      } catch {
-        return stale() ? null : { ok: false, reason: "persistFailed" };
-      }
-      if (stale()) return null; // restored, but the reset erases it: Undo failed
-      undoEntries.delete(token);
-      entry.values = null;
-      return { ok: true, generation: publish(entry.id, "undo") };
-    }).then((result) => result || { ok: false, reason: "unknown" });
+        return { ok: true, generation: publish(entry.id, "undo") };
+      },
+      { ok: false, reason: "persistFailed" }
+    ).then((result) => result || { ok: false, reason: "unknown" });
   }
 
   // Task 11 Verify (R2-4). Queued behind every save, removal and Undo already
@@ -388,7 +395,7 @@ function createCredentialAuthority({
   // move the epoch (queued work returns without writing); forget every Undo
   // value; bump every generation, which discards verifications in flight
   // (Task 11); wait for the write in flight; and only then erase.
-  async function reset(erase = async () => {}) {
+  async function reset(erase) {
     // A second caller must not lower the first reset's fence in its finally.
     if (fenced) throw new Error("Credential reset already in progress");
     fenced = true;
@@ -400,12 +407,16 @@ function createCredentialAuthority({
     let failure = null;
     try {
       await Promise.allSettled([...queues.values()]);
-      await erase();
+      await erase?.();
     } catch (error) {
       failure = error;
     } finally {
-      committed.clear();
-      unknown.clear();
+      // Revoking tokens alone is not storage recovery. Keep uncertainty when
+      // erase failed or was omitted; only successful explicit erase clears it.
+      for (const id of committed.keys()) {
+        if ((!failure && erase) || !unknown.has(id)) committed.delete(id);
+      }
+      if (!failure && erase) unknown.clear();
       fenced = false;
     }
     for (const id of ids) emit(id, "reset");

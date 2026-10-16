@@ -15,7 +15,7 @@ function fakeCredentials() {
       respond = fn;
     },
     emit(change) {
-      listener(change);
+      listener?.(change);
     },
     api: {
       save: async (id, field, value) => {
@@ -194,4 +194,229 @@ test("secret setters wait for main's acknowledgement", async (t) => {
     assert.equal(useSettingsStore.getState(), before, "no store slot for codex");
     stop();
   });
+});
+
+// change-driving review R3: legacy getter snapshots never overwrite newer committed presence.
+test("late secret hydration cannot overwrite an acknowledged save/removal", async (t) => {
+  for (const removing of [true, false]) {
+    await t.test(
+      removing ? "removal while initial read is held" : "save while initial read is held",
+      async (st) => {
+        const creds = fakeCredentials();
+        const initial = deferred();
+        installBrowserGlobals(st, {
+          window: {
+            electronAPI: {
+              credentials: creds.api,
+              getOpenAIKey: () => initial.promise,
+              getDictionary: async () => ["Loqui"],
+            },
+            dispatchEvent() {},
+          },
+        });
+        const vite = await createRendererServer(st, {
+          cachePrefix: "loqui-hydration-ack-",
+          mockModules: {
+            "/services/ReasoningService": "export default { clearApiKeyCache() {} };",
+          },
+        });
+        const { useSettingsStore, initializeSettings } = await vite.ssrLoadModule(
+          "/stores/settingsStore.ts"
+        );
+        useSettingsStore.setState({ openaiApiKey: removing ? "__stored__" : "" });
+        const initializing = initializeSettings();
+        await useSettingsStore.getState().setOpenaiApiKey(removing ? "" : "fixture-new");
+        assert.equal(useSettingsStore.getState().openaiApiKey, removing ? "" : "__stored__");
+        initial.resolve(removing ? "__stored__" : "");
+        await initializing;
+        assert.equal(useSettingsStore.getState().openaiApiKey, removing ? "" : "__stored__");
+      }
+    );
+  }
+});
+
+// change-driving review R3: subscribe before both initial getter and legacy migration waits.
+test("credential events received during secret hydration survive the initial snapshot", async (t) => {
+  for (const migrating of [false, true]) {
+    await t.test(
+      migrating ? "events and ACKs during legacy migration" : "peer events during initial reads",
+      async (st) => {
+        const creds = fakeCredentials();
+        const gate = deferred();
+        const migrationStarted = deferred();
+        const browser = installBrowserGlobals(st, {
+          initialStorage: migrating
+            ? {
+                noteFormattingCustomApiKey: "fixture-legacy",
+                translationCustomApiKey: "fixture-legacy-translation",
+              }
+            : {},
+          window: {
+            electronAPI: {
+              credentials: creds.api,
+              getOpenAIKey: migrating ? async () => "__stored__" : () => gate.promise,
+              getGroqKey: async () => "",
+              getDictionary: async () => ["Loqui"],
+            },
+            dispatchEvent() {},
+          },
+        });
+        if (migrating)
+          creds.respond((id) => {
+            if (id === "custom:noteFormatting") {
+              migrationStarted.resolve();
+              return gate.promise;
+            }
+            return { ok: true, generation: 2 };
+          });
+        const vite = await createRendererServer(st, {
+          cachePrefix: "loqui-hydration-event-",
+          mockModules: {
+            "/services/ReasoningService": "export default { clearApiKeyCache() {} };",
+          },
+        });
+        const { useSettingsStore, initializeSettings } = await vite.ssrLoadModule(
+          "/stores/settingsStore.ts"
+        );
+        const initializing = initializeSettings();
+        if (migrating) await migrationStarted.promise;
+        creds.emit({ id: "openai", present: false, generation: 2, fields: { key: false } });
+        creds.emit({ id: "groq", present: true, generation: 2, fields: { key: true } });
+        if (migrating) {
+          await useSettingsStore.getState().setOpenaiApiKey("");
+          creds.emit({
+            id: "custom:noteFormatting",
+            present: false,
+            generation: 3,
+            fields: { key: false },
+          });
+          creds.emit({
+            id: "custom:dictationTranslation",
+            present: true,
+            generation: 4,
+            fields: { key: true },
+          });
+          gate.resolve({ ok: true, generation: 1 });
+        } else gate.resolve("__stored__");
+        await initializing;
+        assert.equal(useSettingsStore.getState().openaiApiKey, "");
+        assert.equal(useSettingsStore.getState().groqApiKey, "__stored__");
+        if (migrating) {
+          assert.equal(useSettingsStore.getState().noteFormattingCustomApiKey, "");
+          assert.equal(browser.storage.getItem("noteFormattingCustomApiKey"), null);
+          assert.equal(useSettingsStore.getState().translationCustomApiKey, "__stored__");
+          assert.equal(
+            creds.calls.some(
+              ([id, , value]) =>
+                id === "custom:dictationTranslation" && value === "fixture-legacy-translation"
+            ),
+            false,
+            "peer ACK revokes the delayed legacy admission"
+          );
+          assert.equal(browser.storage.getItem("translationCustomApiKey"), null);
+        }
+      }
+    );
+  }
+});
+
+// change-driving review R3: an earlier legacy migration wait must not admit stale later-slot copies.
+test("legacy migration waits for pending user saves and never overwrites a newer credential", async (t) => {
+  const creds = fakeCredentials();
+  const legacyGate = deferred();
+  const userGate = deferred();
+  const started = deferred();
+  const browser = installBrowserGlobals(t, {
+    initialStorage: {
+      noteFormattingCustomApiKey: "fixture-legacy-note",
+      translationCustomApiKey: "fixture-legacy-translation",
+    },
+    window: {
+      electronAPI: { credentials: creds.api, getDictionary: async () => ["Loqui"] },
+      dispatchEvent() {},
+    },
+  });
+  creds.respond((id, _field, value) => {
+    if (id === "custom:noteFormatting") {
+      started.resolve();
+      return legacyGate.promise;
+    }
+    return value === "fixture-current-translation" ? userGate.promise : { ok: true, generation: 3 };
+  });
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-hydration-migration-",
+    mockModules: { "/services/ReasoningService": "export default { clearApiKeyCache() {} };" },
+  });
+  const { useSettingsStore, initializeSettings } = await vite.ssrLoadModule(
+    "/stores/settingsStore.ts"
+  );
+  const initializing = initializeSettings();
+  await started.promise;
+  const saving = useSettingsStore
+    .getState()
+    .setTranslationCustomApiKey("fixture-current-translation");
+  legacyGate.resolve({ ok: true, generation: 1 });
+  await new Promise((resolve) => setImmediate(resolve));
+  const admittedBeforeUserAck = creds.calls
+    .filter(([id]) => id === "custom:dictationTranslation")
+    .map(([, , value]) => value);
+  userGate.resolve({ ok: true, generation: 2 });
+  await saving;
+  await initializing;
+  assert.deepEqual(admittedBeforeUserAck, ["fixture-current-translation"]);
+  assert.deepEqual(
+    creds.calls.filter(([id]) => id === "custom:dictationTranslation").map(([, , value]) => value),
+    ["fixture-current-translation"]
+  );
+  assert.equal(useSettingsStore.getState().translationCustomApiKey, "__stored__");
+  assert.equal(
+    browser.storage.getItem("translationCustomApiKey"),
+    null,
+    "stale legacy copy cannot resurrect next initialization"
+  );
+});
+
+// change-driving review R3: a retained failed-migration copy becomes stale after a newer main change.
+test("a newer credential event discards a failed legacy migration copy before later startup work completes", async (t) => {
+  const creds = fakeCredentials();
+  const laterMigration = deferred();
+  const started = deferred();
+  const browser = installBrowserGlobals(t, {
+    initialStorage: {
+      noteFormattingCustomApiKey: "fixture-failed-note",
+      translationCustomApiKey: "fixture-later-translation",
+    },
+    window: {
+      electronAPI: { credentials: creds.api, getDictionary: async () => ["Loqui"] },
+      dispatchEvent() {},
+    },
+  });
+  creds.respond((id) => {
+    if (id === "custom:noteFormatting") return { ok: false, error: "persistFailed" };
+    started.resolve();
+    return laterMigration.promise;
+  });
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-hydration-stale-copy-",
+    mockModules: { "/services/ReasoningService": "export default { clearApiKeyCache() {} };" },
+  });
+  const { useSettingsStore, initializeSettings } = await vite.ssrLoadModule(
+    "/stores/settingsStore.ts"
+  );
+  const initializing = initializeSettings();
+  await started.promise;
+  creds.emit({
+    id: "custom:noteFormatting",
+    present: false,
+    generation: 2,
+    fields: { key: false },
+  });
+  laterMigration.resolve({ ok: true, generation: 1 });
+  await initializing;
+  assert.equal(useSettingsStore.getState().noteFormattingCustomApiKey, "");
+  assert.equal(
+    browser.storage.getItem("noteFormattingCustomApiKey"),
+    null,
+    "a later authoritative removal revokes the failed legacy copy"
+  );
 });

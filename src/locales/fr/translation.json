@@ -812,7 +812,8 @@
       "vertex": {
         "adcHelp": "Utilise Application Default Credentials. Exécutez : gcloud auth application-default login",
         "apikeyHelp": "Clé API Vertex AI Express Mode obtenue depuis Google AI Studio."
-      }
+      },
+      "profileSaveFailed": "Impossible d’enregistrer ce profil. Votre saisie est conservée — réessayez."
     },
     "tinfoil": {
       "modelRetiredTitle": "Modèle non disponible",

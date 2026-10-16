@@ -3711,5 +3711,57 @@
     "remote": "发送至 {{provider}}",
     "unknownProvider": "未知提供商",
     "customEndpoint": "自定义端点"
+  },
+  "routes": {
+    "groups": {
+      "speech": "语音",
+      "text": "文本",
+      "support": "仅限此设备"
+    },
+    "names": {
+      "dictationStt": "听写",
+      "noteRecordingStt": "笔记录音",
+      "uploadStt": "音频上传",
+      "dictationCleanup": "听写润色",
+      "voiceAssistant": "语音助手",
+      "assistantVision": "助手视觉",
+      "translation": "翻译",
+      "noteFormatting": "笔记排版",
+      "chat": "聊天",
+      "speakerId": "说话人识别",
+      "semanticSearch": "语义搜索"
+    },
+    "subtitles": {
+      "dictationStt": "轻点即可在任何应用中语音输入",
+      "noteRecordingStt": "会议和语音笔记",
+      "uploadStt": "转写导入的文件",
+      "dictationCleanup": "修正语气词和标点",
+      "voiceAssistant": "提出问题，即可获得回答",
+      "assistantVision": "随助手请求发送的屏幕截图",
+      "translation": "用一种语言听写，以另一种语言粘贴",
+      "noteFormatting": "摘要和待办事项",
+      "chat": "就笔记内容提问",
+      "speakerId": "识别会议中谁说了什么",
+      "semanticSearch": "按含义查找笔记"
+    },
+    "payload": {
+      "audio": "你的音频",
+      "audioFile": "音频文件",
+      "meetingAudio": "来自麦克风和通话的会议音频",
+      "dictionary": "你的词典词汇和文本片段触发词",
+      "dictionaryWords": "你的词典词汇",
+      "transcript": "你的转写文本",
+      "request": "你的语音请求",
+      "selectedText": "你选中的文本",
+      "history": "最近的对话",
+      "lookups": "查找到的笔记和日历详情",
+      "noteText": "你的笔记文本",
+      "meetingTranscript": "带有说话人姓名的会议转写",
+      "participants": "参会者姓名和电子邮件地址",
+      "screenshot": "你的屏幕截图",
+      "webSearch": "允许提供商搜索网络的授权",
+      "messages": "你的消息",
+      "metadataNote": "语言和模型名称等设置也会发送。"
+    }
   }
 }

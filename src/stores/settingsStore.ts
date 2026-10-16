@@ -1057,6 +1057,8 @@ export interface SettingsState
   azureDeploymentName: string;
   azureApiVersion: string;
   vertexAuthMode: string;
+  vertexAuthSource: "adc" | "apiKey";
+  setVertexAuthSource: (value: "adc" | "apiKey") => Promise<boolean>;
   vertexProject: string;
   vertexLocation: string;
   vertexApiKey: string;
@@ -1253,6 +1255,48 @@ function debouncedPersistToEnv() {
       );
     });
   }, 1000);
+}
+
+// R2-1/R3-1: main's environment is what the enterprise executor reads
+// (main.js:447-457), so main wins over localStorage. A local write sends
+// the new value to main as well, so a write after the read began is newer
+// than that read and is kept. Four legacy controlled-input setters fence at
+// dispatch for compatibility; Task6/9 owns their atomic ACK/CAS + editable draft
+// integration. This counter does not prove cross-window tuple freshness (N2).
+const ENTERPRISE_ROUTE_FIELDS = [
+  "bedrockRegion",
+  "azureEndpoint",
+  "vertexProject",
+  "vertexLocation",
+  "vertexAuthSource",
+] as const;
+let enterpriseLocalWrites = 0;
+
+export function noteEnterpriseLocalWrite(): void {
+  enterpriseLocalWrites += 1;
+}
+
+export function enterpriseLocalWriteCount(): number {
+  return enterpriseLocalWrites;
+}
+
+export function reconcileEnterpriseSettingsFromMain(
+  main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string> & {
+    vertexAuthSource: "adc" | "apiKey";
+  },
+  since: number
+): boolean {
+  if (enterpriseLocalWrites !== since) return false;
+  const state = useSettingsStore.getState();
+  const changed: Partial<SettingsState> = {};
+  for (const key of ENTERPRISE_ROUTE_FIELDS) {
+    if (state[key] === main[key]) continue;
+    Object.assign(changed, { [key]: main[key] });
+    if (isBrowser) localStorage.setItem(key, main[key]);
+  }
+  // Renderer-only: nothing is written back to main.
+  if (Object.keys(changed).length > 0) useSettingsStore.setState(changed);
+  return true;
 }
 
 // Which ReasoningService key cache a secret invalidates (same as the former setters).
@@ -1499,6 +1543,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   azureDeploymentName: readString("azureDeploymentName", ""),
   azureApiVersion: readString("azureApiVersion", "2024-10-21"),
   vertexAuthMode: readString("vertexAuthMode", "adc"),
+  vertexAuthSource: readString("vertexAuthSource", "adc") as "adc" | "apiKey",
   vertexProject: readString("vertexProject", ""),
   vertexLocation: readString("vertexLocation", "us-central1"),
   vertexApiKey: "",
@@ -2049,6 +2094,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     set({ bedrockAuthMode: value });
   },
   setBedrockRegion: (value: string) => {
+    noteEnterpriseLocalWrite();
     if (isBrowser) localStorage.setItem("bedrockRegion", value);
     set({ bedrockRegion: value });
     window.electronAPI?.saveBedrockRegion?.(value);
@@ -2070,6 +2116,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setBedrockSecretAccessKey: createSecretSetter("bedrockSecretAccessKey"),
   setBedrockSessionToken: createSecretSetter("bedrockSessionToken"),
   setAzureEndpoint: (value: string) => {
+    noteEnterpriseLocalWrite();
     if (isBrowser) localStorage.setItem("azureEndpoint", value);
     set({ azureEndpoint: value });
     window.electronAPI?.saveAzureEndpoint?.(value);
@@ -2092,13 +2139,27 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (isBrowser) localStorage.setItem("vertexAuthMode", value);
     set({ vertexAuthMode: value });
   },
+  setVertexAuthSource: async (value: "adc" | "apiKey") => {
+    try {
+      const result = await window.electronAPI?.saveVertexAuthSource?.(value);
+      if (!result?.success) return false;
+      noteEnterpriseLocalWrite();
+      if (isBrowser) localStorage.setItem("vertexAuthSource", value);
+      set({ vertexAuthSource: value });
+      return true;
+    } catch {
+      return false;
+    }
+  },
   setVertexProject: (value: string) => {
+    noteEnterpriseLocalWrite();
     if (isBrowser) localStorage.setItem("vertexProject", value);
     set({ vertexProject: value });
     window.electronAPI?.saveVertexProject?.(value);
     debouncedPersistToEnv();
   },
   setVertexLocation: (value: string) => {
+    noteEnterpriseLocalWrite();
     if (isBrowser) localStorage.setItem("vertexLocation", value);
     set({ vertexLocation: value });
     window.electronAPI?.saveVertexLocation?.(value);

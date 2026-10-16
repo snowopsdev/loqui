@@ -3711,5 +3711,57 @@
     "remote": "Inviato a {{provider}}",
     "unknownProvider": "Provider sconosciuto",
     "customEndpoint": "Endpoint personalizzato"
+  },
+  "routes": {
+    "groups": {
+      "speech": "Voce",
+      "text": "Testo",
+      "support": "Solo su questo dispositivo"
+    },
+    "names": {
+      "dictationStt": "Dettatura",
+      "noteRecordingStt": "Registrazione note",
+      "uploadStt": "Caricamento audio",
+      "dictationCleanup": "Correzione dettatura",
+      "voiceAssistant": "Assistente vocale",
+      "assistantVision": "Visione dell’assistente",
+      "translation": "Traduzione",
+      "noteFormatting": "Formattazione note",
+      "chat": "Chat",
+      "speakerId": "Identificazione dei parlanti",
+      "semanticSearch": "Ricerca semantica"
+    },
+    "subtitles": {
+      "dictationStt": "Tocca per dettare in qualsiasi app",
+      "noteRecordingStt": "Riunioni e note vocali",
+      "uploadStt": "Trascrivi un file importato",
+      "dictationCleanup": "Correggi intercalari e punteggiatura",
+      "voiceAssistant": "Fai una domanda e ricevi una risposta",
+      "assistantVision": "Schermate inviate con le richieste all’assistente",
+      "translation": "Detta in una lingua e incolla in un’altra",
+      "noteFormatting": "Riepiloghi e attività da svolgere",
+      "chat": "Fai domande sulle tue note",
+      "speakerId": "Chi ha detto cosa nelle riunioni",
+      "semanticSearch": "Trova le note in base al significato"
+    },
+    "payload": {
+      "audio": "il tuo audio",
+      "audioFile": "il file audio",
+      "meetingAudio": "l’audio della riunione dal microfono e dalla chiamata",
+      "dictionary": "le parole del tuo dizionario e i trigger dei frammenti",
+      "dictionaryWords": "le parole del tuo dizionario",
+      "transcript": "il testo della tua trascrizione",
+      "request": "la tua richiesta vocale",
+      "selectedText": "il testo che hai selezionato",
+      "history": "la conversazione recente",
+      "lookups": "le note e i dettagli del calendario consultati",
+      "noteText": "il testo della tua nota",
+      "meetingTranscript": "la trascrizione della riunione con i nomi dei parlanti",
+      "participants": "i nomi e gli indirizzi email dei partecipanti",
+      "screenshot": "una schermata del tuo schermo",
+      "webSearch": "il permesso al fornitore di cercare sul web",
+      "messages": "i tuoi messaggi",
+      "metadataNote": "Vengono inviate anche impostazioni come la lingua e i nomi dei modelli."
+    }
   }
 }

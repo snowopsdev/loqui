@@ -606,6 +606,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveAzureDeployment: (value) => ipcRenderer.invoke("save-azure-deployment", value),
   getAzureApiVersion: () => ipcRenderer.invoke("get-azure-api-version"),
   saveAzureApiVersion: (value) => ipcRenderer.invoke("save-azure-api-version", value),
+  enterpriseRouteFacts: () => ipcRenderer.invoke("enterprise-route-facts"),
   getVertexAuthSource: () => ipcRenderer.invoke("get-vertex-auth-source"),
   saveVertexAuthSource: (source) => ipcRenderer.invoke("save-vertex-auth-source", source),
   getVertexProject: () => ipcRenderer.invoke("get-vertex-project"),

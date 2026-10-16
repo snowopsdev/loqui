@@ -3711,5 +3711,57 @@
     "remote": "{{provider}} に送信",
     "unknownProvider": "不明なプロバイダー",
     "customEndpoint": "カスタムエンドポイント"
+  },
+  "routes": {
+    "groups": {
+      "speech": "音声",
+      "text": "テキスト",
+      "support": "このデバイスのみ"
+    },
+    "names": {
+      "dictationStt": "音声入力",
+      "noteRecordingStt": "ノート録音",
+      "uploadStt": "音声アップロード",
+      "dictationCleanup": "音声入力の整形",
+      "voiceAssistant": "音声アシスタント",
+      "assistantVision": "アシスタントの画像認識",
+      "translation": "翻訳",
+      "noteFormatting": "ノート整形",
+      "chat": "チャット",
+      "speakerId": "話者識別",
+      "semanticSearch": "意味検索"
+    },
+    "subtitles": {
+      "dictationStt": "タップして任意のアプリに音声入力",
+      "noteRecordingStt": "会議と音声メモ",
+      "uploadStt": "読み込んだファイルを文字起こし",
+      "dictationCleanup": "つなぎ言葉や句読点を修正",
+      "voiceAssistant": "質問すると回答が届きます",
+      "assistantVision": "アシスタントへのリクエストに添付するスクリーンショット",
+      "translation": "ある言語で話し、別の言語で貼り付け",
+      "noteFormatting": "要約とアクション項目",
+      "chat": "ノートについて質問",
+      "speakerId": "会議で誰が何を話したかを識別",
+      "semanticSearch": "意味でノートを検索"
+    },
+    "payload": {
+      "audio": "あなたの音声",
+      "audioFile": "音声ファイル",
+      "meetingAudio": "マイクと通話からの会議音声",
+      "dictionary": "辞書の単語とスニペットのトリガー",
+      "dictionaryWords": "辞書の単語",
+      "transcript": "文字起こしのテキスト",
+      "request": "音声でのリクエスト",
+      "selectedText": "選択したテキスト",
+      "history": "最近の会話",
+      "lookups": "検索したノートとカレンダーの詳細",
+      "noteText": "ノートのテキスト",
+      "meetingTranscript": "話者名付きの会議の文字起こし",
+      "participants": "参加者の名前とメールアドレス",
+      "screenshot": "画面のスクリーンショット",
+      "webSearch": "プロバイダーがウェブ検索を行うための許可",
+      "messages": "あなたのメッセージ",
+      "metadataNote": "言語やモデル名などの設定も送信されます。"
+    }
   }
 }

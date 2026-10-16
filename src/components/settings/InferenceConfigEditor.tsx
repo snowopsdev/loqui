@@ -2,7 +2,7 @@ import { saveSecret } from "../../stores/settingsStore";
 import { isSecretStoreKey, unavailableSecretSave } from "../../lib/credentialSlots";
 import type { AcknowledgedSecretSave } from "../ui/ApiKeyInput";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
-import { supportsProviderSearch } from "../../utils/providerSearch";
+import { PROVIDER_SEARCH_CHANGED_EVENT, supportsProviderSearch } from "../../utils/providerSearch";
 import { SettingsRow } from "../ui/SettingsSection";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -218,7 +218,13 @@ function ProviderSearchPreference({ scope }: { scope: string }) {
       label={t("personal.providerSearch")}
       description={t("personal.providerSearchDescription")}
     >
-      <Toggle checked={enabled} onChange={setEnabled} />
+      <Toggle
+        checked={enabled}
+        onChange={(next) => {
+          setEnabled(next);
+          window.dispatchEvent(new Event(PROVIDER_SEARCH_CHANGED_EVENT));
+        }}
+      />
     </SettingsRow>
   );
 }

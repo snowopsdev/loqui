@@ -3711,5 +3711,57 @@
     "remote": "An {{provider}} gesendet",
     "unknownProvider": "Unbekannter Anbieter",
     "customEndpoint": "Benutzerdefinierter Endpunkt"
+  },
+  "routes": {
+    "groups": {
+      "speech": "Sprache",
+      "text": "Text",
+      "support": "Nur auf diesem Gerät"
+    },
+    "names": {
+      "dictationStt": "Diktat",
+      "noteRecordingStt": "Notizaufnahme",
+      "uploadStt": "Audio-Upload",
+      "dictationCleanup": "Diktatbereinigung",
+      "voiceAssistant": "Sprachassistent",
+      "assistantVision": "Assistent mit Bildverständnis",
+      "translation": "Übersetzung",
+      "noteFormatting": "Notizformatierung",
+      "chat": "Chat",
+      "speakerId": "Sprechererkennung",
+      "semanticSearch": "Semantische Suche"
+    },
+    "subtitles": {
+      "dictationStt": "Durch Antippen in jede App diktieren",
+      "noteRecordingStt": "Besprechungen und Sprachnotizen",
+      "uploadStt": "Eine importierte Datei transkribieren",
+      "dictationCleanup": "Füllwörter und Zeichensetzung korrigieren",
+      "voiceAssistant": "Fragen stellen und Antworten erhalten",
+      "assistantVision": "Screenshots bei Assistentenanfragen mitsenden",
+      "translation": "In einer Sprache diktieren, in einer anderen einfügen",
+      "noteFormatting": "Zusammenfassungen und Aufgaben",
+      "chat": "Fragen zu deinen Notizen stellen",
+      "speakerId": "Wer in Besprechungen was gesagt hat",
+      "semanticSearch": "Notizen nach Bedeutung finden"
+    },
+    "payload": {
+      "audio": "deine Audiodaten",
+      "audioFile": "die Audiodatei",
+      "meetingAudio": "Besprechungsaudio von deinem Mikrofon und dem Anruf",
+      "dictionary": "deine Wörterbucheinträge und Textbaustein-Auslöser",
+      "dictionaryWords": "deine Wörterbucheinträge",
+      "transcript": "deinen Transkripttext",
+      "request": "deine gesprochene Anfrage",
+      "selectedText": "den von dir ausgewählten Text",
+      "history": "den letzten Gesprächsverlauf",
+      "lookups": "abgerufene Notizen und Kalenderdetails",
+      "noteText": "deinen Notiztext",
+      "meetingTranscript": "das Besprechungstranskript mit Sprechernamen",
+      "participants": "Namen und E-Mail-Adressen der Teilnehmenden",
+      "screenshot": "einen Screenshot deines Bildschirms",
+      "webSearch": "die Erlaubnis für den Anbieter, das Web zu durchsuchen",
+      "messages": "deine Nachrichten",
+      "metadataNote": "Einstellungen wie Sprache und Modellnamen werden ebenfalls gesendet."
+    }
   }
 }

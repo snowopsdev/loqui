@@ -6,6 +6,7 @@ const { deferred } = require("./harness/deferred");
 const { fakeCredentialEnv, fakeCodexFs } = require("./harness/fakeCredentialEnv");
 const {
   CREDENTIAL_IDS,
+  ALL_CREDENTIAL_SLOTS,
   byokSlotId,
   createCredentialAuthority,
   hasStoredAccount,
@@ -52,9 +53,15 @@ test("presence comes from main's store for every identity, with Corti split by a
     },
   });
   const list = authority.list();
+  assert.equal(CREDENTIAL_IDS.length, 16, "public graph/keyring ids remain stable");
+  assert.equal(
+    ALL_CREDENTIAL_SLOTS.length,
+    23,
+    "all secret slots expose presence/uncertainty only"
+  );
   assert.deepEqual(
     list.map((entry) => entry.id),
-    CREDENTIAL_IDS
+    ALL_CREDENTIAL_SLOTS
   );
   assert.deepEqual(presence(list), {
     openai: true,
@@ -73,6 +80,13 @@ test("presence comes from main's store for every identity, with Corti split by a
     bedrock: false,
     azure: false,
     vertex: true,
+    "custom:transcription": false,
+    "custom:dictationCleanup": false,
+    "custom:noteFormatting": false,
+    "custom:dictationTranslation": false,
+    "custom:dictationAgent": false,
+    "custom:dictationAgentVision": false,
+    "custom:chatIntelligence": false,
   });
   assert.deepEqual(list.find((e) => e.id === "corti:speech").fields, {
     clientId: true,
@@ -376,4 +390,17 @@ test("prototype-named slots and fields are refused before persistence", async ()
       error: "unknownField",
     });
   assert.deepEqual(env.persisted, []);
+});
+
+// baseline guard B6 integration: public16 identity enumeration must never
+// narrow all-slot reset revocation/events, including absent custom slots.
+test("reset revokes and publishes custom metadata even for absent-to-absent slots", async () => {
+  const { authority, broadcasts } = setup();
+  const slot = "custom:chatIntelligence";
+  const before = authority.list().find((row) => row.id === slot);
+  assert.deepEqual(before, { id: slot, present: false, generation: 0, fields: { key: false } });
+  await authority.reset();
+  const after = authority.list().find((row) => row.id === slot);
+  assert.deepEqual(after, { ...before, generation: 1 });
+  assert.deepEqual(broadcasts.find(({ payload }) => payload.id === slot).payload, after);
 });

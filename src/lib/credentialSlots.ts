@@ -1,17 +1,6 @@
-import type { CredentialId } from "./routeGraph";
+import type { CredentialSlot, CustomCredentialSlot } from "./routeGraph";
+export type { CredentialSlot, CustomCredentialSlot } from "./routeGraph";
 
-// Main's credential slots (src/helpers/credentialAuthority.js): the 16
-// CredentialIds plus the seven custom-endpoint keys, named like the
-// personal-inference credential refs (main.js credentialSlot).
-export type CustomCredentialSlot =
-  | "custom:transcription"
-  | "custom:dictationCleanup"
-  | "custom:noteFormatting"
-  | "custom:dictationTranslation"
-  | "custom:dictationAgent"
-  | "custom:dictationAgentVision"
-  | "custom:chatIntelligence";
-export type CredentialSlot = CredentialId | CustomCredentialSlot;
 export type CredentialField =
   "key" | "clientId" | "clientSecret" | "accessKeyId" | "secretAccessKey" | "sessionToken";
 

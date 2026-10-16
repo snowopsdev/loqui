@@ -3711,5 +3711,57 @@
     "remote": "Enviado para {{provider}}",
     "unknownProvider": "Provedor desconhecido",
     "customEndpoint": "Endpoint personalizado"
+  },
+  "routes": {
+    "groups": {
+      "speech": "Voz",
+      "text": "Texto",
+      "support": "Apenas neste dispositivo"
+    },
+    "names": {
+      "dictationStt": "Ditado",
+      "noteRecordingStt": "Gravação de notas",
+      "uploadStt": "Envio de áudio",
+      "dictationCleanup": "Correção do ditado",
+      "voiceAssistant": "Assistente de voz",
+      "assistantVision": "Visão do assistente",
+      "translation": "Tradução",
+      "noteFormatting": "Formatação de notas",
+      "chat": "Chat",
+      "speakerId": "Identificação de falantes",
+      "semanticSearch": "Pesquisa semântica"
+    },
+    "subtitles": {
+      "dictationStt": "Toque para ditar em qualquer aplicativo",
+      "noteRecordingStt": "Reuniões e notas de voz",
+      "uploadStt": "Transcreva um arquivo importado",
+      "dictationCleanup": "Corrija vícios de linguagem e pontuação",
+      "voiceAssistant": "Pergunte e receba uma resposta",
+      "assistantVision": "Capturas de tela enviadas com solicitações ao assistente",
+      "translation": "Dite em um idioma e cole em outro",
+      "noteFormatting": "Resumos e tarefas",
+      "chat": "Faça perguntas sobre suas notas",
+      "speakerId": "Quem disse o quê nas reuniões",
+      "semanticSearch": "Encontre notas pelo significado"
+    },
+    "payload": {
+      "audio": "seu áudio",
+      "audioFile": "o arquivo de áudio",
+      "meetingAudio": "o áudio da reunião do microfone e da chamada",
+      "dictionary": "as palavras do seu dicionário e os gatilhos de trechos",
+      "dictionaryWords": "as palavras do seu dicionário",
+      "transcript": "o texto da sua transcrição",
+      "request": "sua solicitação falada",
+      "selectedText": "o texto que você selecionou",
+      "history": "a conversa recente",
+      "lookups": "as notas e os detalhes do calendário consultados",
+      "noteText": "o texto da sua nota",
+      "meetingTranscript": "a transcrição da reunião com os nomes dos falantes",
+      "participants": "os nomes e os endereços de e-mail dos participantes",
+      "screenshot": "uma captura da sua tela",
+      "webSearch": "a permissão para o provedor pesquisar na web",
+      "messages": "suas mensagens",
+      "metadataNote": "Configurações como idioma e nomes dos modelos também são enviadas."
+    }
   }
 }

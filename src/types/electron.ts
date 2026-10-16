@@ -29,7 +29,7 @@ export type CredentialError =
   | "notStored"
   | "reset"; // a Reset Loqui began after the request: nothing was kept
 export interface CredentialPresence {
-  id: import("../lib/routeGraph").CredentialId;
+  id: CredentialSlot;
   present: boolean;
   generation: number;
   fields: Partial<Record<CredentialField, boolean>>;
@@ -720,8 +720,24 @@ declare global {
     electronAPI: {
       getSearchModelStatus: () => Promise<{ downloaded: boolean }>;
       downloadSearchModel: () => Promise<{ success: boolean; error?: string }>;
+      // Sealed mode (spec §5.4, Plan 07). Optional until Plan 07 ships the
+      // preload namespace; src/stores/sealedStore.ts is its only reader.
+      privacy?: {
+        getSealed: () => Promise<boolean>;
+        onSealedChange: (callback: (sealed: boolean) => void) => (() => void) | void;
+      };
+
       updates: import("./updates").UpdatesAPI;
       personalInference: import("../services/ai/personalInferenceTypes").PersonalInferenceAPI;
+      // Task11 extends this namespace. routeHealth is a local metadata read;
+      // it must never verify/discover or return secret fingerprints/values.
+      keyring?: {
+        list?: () => Promise<{ id: import("../lib/routeGraph").CredentialId; status: string }[]>;
+        routeHealth?: (
+          options?: import("../lib/routeGraph").RouteVerificationOptions
+        ) => Promise<import("../lib/routeGraph").RouteHealthMetadata>;
+        onChanged?: (callback: () => void) => (() => void) | void;
+      };
       credentials: CredentialsAPI;
       modelImportGguf: () => Promise<{
         success: boolean;
@@ -1642,6 +1658,7 @@ declare global {
       saveAzureDeployment?: (value: string) => Promise<void>;
       getAzureApiVersion?: () => Promise<string | null>;
       saveAzureApiVersion?: (value: string) => Promise<void>;
+      enterpriseRouteFacts?: () => Promise<import("../lib/routeGraph").EnterpriseMainFacts>;
       getVertexAuthSource: () => Promise<"adc" | "apiKey" | null>;
       saveVertexAuthSource: (source: "adc" | "apiKey") => Promise<{ success: boolean }>;
       getVertexProject?: () => Promise<string | null>;

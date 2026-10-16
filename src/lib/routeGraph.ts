@@ -78,6 +78,18 @@ export type CredentialId =
   | "azure"
   | "vertex";
 
+// Shared slot metadata type, owned here so the pure graph keeps its three
+// runtime imports. credentialSlots re-exports it for persistence/UI consumers.
+export type CustomCredentialSlot =
+  | "custom:transcription"
+  | "custom:dictationCleanup"
+  | "custom:noteFormatting"
+  | "custom:dictationTranslation"
+  | "custom:dictationAgent"
+  | "custom:dictationAgentVision"
+  | "custom:chatIntelligence";
+export type CredentialSlot = CredentialId | CustomCredentialSlot;
+
 export interface SttRouteInput {
   mode: string;
   localProvider: string;
@@ -137,6 +149,19 @@ export function matchingRejectedCredentials(
   return rejected;
 }
 
+// Task 11's optional network-free routeHealth query returns these main-owned
+// bindings. Options are normalized by routeVerificationOptions.mjs; fingerprints
+// cover actual effective targets/paths/overrides and never include secrets.
+export interface RouteVerificationOptions {
+  cortiEnvironment?: string;
+  cortiTenant?: string;
+}
+export interface RouteHealthMetadata {
+  options: { cortiEnvironment: string; cortiTenant: string } | null;
+  current: readonly (CredentialVerificationIdentity & { identity: CredentialId })[];
+  health: readonly CredentialHealthFact[];
+}
+
 export interface RouteFacts {
   // Raw model ids per family; null = this family's inventory is not known.
   installed: {
@@ -144,10 +169,16 @@ export interface RouteFacts {
     sherpa: ReadonlySet<string> | null;
     llm: ReadonlySet<string> | null;
   };
-  credentials: ReadonlyMap<CredentialId, boolean> | null; // main-confirmed presence; null = not loaded
-  // Main-confirmed presence per credential field (Task 2's list rows' `fields`),
-  // loaded and nulled together with `credentials`. Vertex's `key` affects readiness only.
-  credentialFields: ReadonlyMap<CredentialId, Readonly<Record<string, boolean>>> | null;
+  credentials: ReadonlyMap<CredentialSlot, boolean> | null; // main-confirmed presence; null = not loaded
+  // Main metadata for per-snapshot health projection, optional until Task 11.
+  credentialHealth?: RouteHealthMetadata;
+  // Durable recovery could not determine these slots: current main admission refuses capture.
+  // Known-absent keys still permit independent ADC/profile sources.
+  credentialUnknown?: ReadonlySet<CredentialSlot>;
+  credentialGenerations?: ReadonlyMap<CredentialSlot, number>;
+  // Main-confirmed field presence, published with credentials under the same generation.
+  // Vertex's key field affects readiness only, never the selected auth source.
+  credentialFields: ReadonlyMap<CredentialSlot, Readonly<Record<string, boolean>>> | null;
   // Main's own environment overrides for the enterprise SDKs (Task 3's
   // enterprise-route-facts). null until Task 3 has also reconciled the five
   // enterprise settings to main's values: until then every enterprise route is unknown.
@@ -538,7 +569,7 @@ function cloudModelName(
 function credentialState(s: RouteSettingsSnapshot, id: RouteId, providerId: string): RouteState {
   const credential = routeCredentialId(id, providerId);
   if (credential === null) return UNSUPPORTED;
-  if (s.facts.credentials === null) return UNKNOWN;
+  if (s.facts.credentials === null || s.facts.credentialUnknown?.has(credential)) return UNKNOWN;
   if (s.facts.credentials.get(credential) !== true || s.facts.rejected.has(credential)) {
     return { status: "needsKey", provider: providerDisplayName(providerId) };
   }
@@ -551,7 +582,12 @@ function keyPresence(
   providerId: string
 ): boolean | undefined {
   const credential = routeCredentialId(id, providerId);
-  if (credential === null || s.facts.credentials === null) return undefined;
+  if (
+    credential === null ||
+    s.facts.credentials === null ||
+    s.facts.credentialUnknown?.has(credential)
+  )
+    return undefined;
   return s.facts.credentials.get(credential) === true && !s.facts.rejected.has(credential);
 }
 
@@ -635,6 +671,20 @@ function endpointDestination(
   };
 }
 
+// Optional authentication differs from unknown durable storage. Custom text
+// capture refuses unknown slots; legacy speech getters have no capture gate yet,
+// but explicit uncertainty is conservatively non-ready there too.
+function optionalCredentialDestination(
+  s: RouteSettingsSnapshot,
+  dest: Destination,
+  slot: CustomCredentialSlot
+): Destination {
+  return dest.state.status === "ready" &&
+    (s.facts.credentials === null || s.facts.credentialUnknown?.has(slot))
+    ? { ...dest, state: UNKNOWN }
+    : dest;
+}
+
 // Error codes from resolveTranscriptionRoute → route state. null = the
 // executor refuses the batch request but the live dictation path runs it.
 function transcriptionErrorState(
@@ -692,17 +742,25 @@ function batchSttDestination(
   const endpoint = route.transport === "http-batch" ? route.endpoint : "";
 
   if (mode === "self-hosted" && remoteUrl) {
-    return endpointDestination(
-      endpoint,
-      ok,
-      null,
-      input.remoteModel.trim() || null,
-      errorState ?? NEEDS_URL
+    return optionalCredentialDestination(
+      s,
+      endpointDestination(
+        endpoint,
+        ok,
+        null,
+        input.remoteModel.trim() || null,
+        errorState ?? NEEDS_URL
+      ),
+      "custom:transcription"
     );
   }
   const model = cloudModelName(s, providerId, input.cloudModel);
   if ((mode === "providers" || mode === "self-hosted") && providerId === "custom") {
-    return endpointDestination(endpoint, ok, "custom", model, errorState ?? NEEDS_URL);
+    return optionalCredentialDestination(
+      s,
+      endpointDestination(endpoint, ok, "custom", model, errorState ?? NEEDS_URL),
+      "custom:transcription"
+    );
   }
   if (mode === "self-hosted") {
     return {
@@ -798,12 +856,16 @@ function enterpriseDestination(
   }
   const host = enterpriseRequestHost(providerId, s.enterprise, main);
   if (host === null) return at(null, NEEDS_URL);
+  // Current main admission captures these slots before choosing profile/ADC.
+  // Known absence permits independent sources; unreadable storage refuses them.
+  if (s.facts.credentials === null || s.facts.credentialUnknown?.has(providerId))
+    return at(host, UNKNOWN);
   // Recipient settings pick the host independently of credentials. Preserve
   // that host while main-confirmed credential facts are still loading.
   if (
     providerId === "vertex" &&
     s.enterprise.vertexAuthSource === "apiKey" &&
-    (s.facts.credentials === null || s.facts.credentialFields === null)
+    s.facts.credentialFields === null
   )
     return at(host, UNKNOWN);
   if (providerId === "bedrock" && !main.bedrockProfile && s.facts.credentialFields === null)
@@ -881,6 +943,10 @@ function llmDestination(s: RouteSettingsSnapshot, id: RouteId, input: LlmRouteIn
     }
   } else {
     dest = remote(s, providerId, cloudModelName(s, providerId, modelId), UNSUPPORTED);
+  }
+  const scope = ROUTE_SCOPE[id];
+  if ((mode === "self-hosted" || (mode === "providers" && providerId === "custom")) && scope) {
+    dest = optionalCredentialDestination(s, dest, `custom:${scope}` as CustomCredentialSlot);
   }
   // Main refuses a text request without a model ("Choose a text model."), and
   // text providers have no implicit default, unlike speech providers.

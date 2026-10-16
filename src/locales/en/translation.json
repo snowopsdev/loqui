@@ -3711,5 +3711,57 @@
     "remote": "Sent to {{provider}}",
     "unknownProvider": "Unknown provider",
     "customEndpoint": "Custom endpoint"
+  },
+  "routes": {
+    "groups": {
+      "speech": "Speech",
+      "text": "Text",
+      "support": "This device only"
+    },
+    "names": {
+      "dictationStt": "Dictation",
+      "noteRecordingStt": "Note recording",
+      "uploadStt": "Audio upload",
+      "dictationCleanup": "Dictation cleanup",
+      "voiceAssistant": "Voice assistant",
+      "assistantVision": "Assistant vision",
+      "translation": "Translation",
+      "noteFormatting": "Note formatting",
+      "chat": "Chat",
+      "speakerId": "Speaker identification",
+      "semanticSearch": "Semantic search"
+    },
+    "subtitles": {
+      "dictationStt": "Tap-to-talk into any app",
+      "noteRecordingStt": "Meetings and voice notes",
+      "uploadStt": "Transcribe an imported file",
+      "dictationCleanup": "Fix fillers and punctuation",
+      "voiceAssistant": "Ask, then it answers",
+      "assistantVision": "Screenshots sent with assistant requests",
+      "translation": "Dictate in one language, paste in another",
+      "noteFormatting": "Summaries and action items",
+      "chat": "Ask questions about your notes",
+      "speakerId": "Who said what in meetings",
+      "semanticSearch": "Find notes by meaning"
+    },
+    "payload": {
+      "audio": "your audio",
+      "audioFile": "the audio file",
+      "meetingAudio": "meeting audio from your microphone and the call",
+      "dictionary": "your dictionary words and snippet triggers",
+      "dictionaryWords": "your dictionary words",
+      "transcript": "your transcript text",
+      "request": "your spoken request",
+      "selectedText": "text you have selected",
+      "history": "recent conversation",
+      "lookups": "notes and calendar details it looks up",
+      "noteText": "your note text",
+      "meetingTranscript": "the meeting transcript with speaker names",
+      "participants": "attendee names and email addresses",
+      "screenshot": "a screenshot of your screen",
+      "webSearch": "permission for the provider to search the web",
+      "messages": "your messages",
+      "metadataNote": "Settings such as language and model names are sent too."
+    }
   }
 }

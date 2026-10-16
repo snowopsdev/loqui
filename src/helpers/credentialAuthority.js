@@ -90,6 +90,13 @@ const SLOTS = {
   },
 };
 
+// Custom endpoint slots also publish uncertainty to newly opened windows.
+// Public graph/keyring identity enumeration remains the original sixteen.
+const ALL_CREDENTIAL_SLOTS = [
+  ...CREDENTIAL_IDS,
+  ...Object.keys(SLOTS).filter((id) => !CREDENTIAL_IDS.includes(id)),
+];
+
 function slotForCredentialRef(ref) {
   if (typeof ref !== "string") return null;
   if (ref === "azure" || ref === "vertex") return { id: ref, field: "key" };
@@ -428,7 +435,7 @@ function createCredentialAuthority({
   }
 
   return {
-    list: () => CREDENTIAL_IDS.map(snapshot),
+    list: () => ALL_CREDENTIAL_SLOTS.map(snapshot),
     present,
     generation,
     save,
@@ -447,6 +454,7 @@ function createCredentialAuthority({
 module.exports = {
   UNDO_MS,
   CREDENTIAL_IDS,
+  ALL_CREDENTIAL_SLOTS,
   byokSlotId,
   slotForCredentialRef,
   hasStoredAccount,

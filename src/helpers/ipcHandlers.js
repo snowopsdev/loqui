@@ -4041,6 +4041,12 @@ class IPCHandlers {
       this._acknowledgedSave("vertex", "key", key)
     );
 
+    // Local environment facts; migration completes before readiness is published.
+    ipcMain.handle("enterprise-route-facts", async () => {
+      await this.vertexAuthSourceReady;
+      return require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env);
+    });
+
     // Enterprise provider test connection
     ipcMain.handle("test-enterprise-connection", async (event, provider, config) => {
       const {

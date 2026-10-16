@@ -3711,5 +3711,57 @@
     "remote": "傳送至 {{provider}}",
     "unknownProvider": "未知提供者",
     "customEndpoint": "自訂端點"
+  },
+  "routes": {
+    "groups": {
+      "speech": "語音",
+      "text": "文字",
+      "support": "僅限此裝置"
+    },
+    "names": {
+      "dictationStt": "聽寫",
+      "noteRecordingStt": "筆記錄音",
+      "uploadStt": "音訊上傳",
+      "dictationCleanup": "聽寫潤飾",
+      "voiceAssistant": "語音助理",
+      "assistantVision": "助理視覺",
+      "translation": "翻譯",
+      "noteFormatting": "筆記排版",
+      "chat": "聊天",
+      "speakerId": "說話者辨識",
+      "semanticSearch": "語意搜尋"
+    },
+    "subtitles": {
+      "dictationStt": "輕點即可在任何應用程式中語音輸入",
+      "noteRecordingStt": "會議和語音筆記",
+      "uploadStt": "轉錄匯入的檔案",
+      "dictationCleanup": "修正贅詞和標點符號",
+      "voiceAssistant": "提出問題，即可獲得回答",
+      "assistantVision": "隨助理請求傳送的螢幕截圖",
+      "translation": "用一種語言聽寫，以另一種語言貼上",
+      "noteFormatting": "摘要和待辦事項",
+      "chat": "針對筆記內容提問",
+      "speakerId": "辨識會議中誰說了什麼",
+      "semanticSearch": "依意義尋找筆記"
+    },
+    "payload": {
+      "audio": "你的音訊",
+      "audioFile": "音訊檔案",
+      "meetingAudio": "來自麥克風和通話的會議音訊",
+      "dictionary": "你的詞典詞彙和文字片段觸發詞",
+      "dictionaryWords": "你的詞典詞彙",
+      "transcript": "你的轉錄文字",
+      "request": "你的語音請求",
+      "selectedText": "你選取的文字",
+      "history": "最近的對話",
+      "lookups": "查找到的筆記和行事曆詳情",
+      "noteText": "你的筆記文字",
+      "meetingTranscript": "附有說話者姓名的會議轉錄",
+      "participants": "與會者姓名和電子郵件地址",
+      "screenshot": "你的螢幕截圖",
+      "webSearch": "允許供應商搜尋網路的授權",
+      "messages": "你的訊息",
+      "metadataNote": "語言和模型名稱等設定也會傳送。"
+    }
   }
 }

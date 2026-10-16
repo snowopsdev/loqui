@@ -3811,5 +3811,57 @@
     "remote": "يُرسل إلى {{provider}}",
     "unknownProvider": "مزوّد غير معروف",
     "customEndpoint": "نقطة نهاية مخصصة"
+  },
+  "routes": {
+    "groups": {
+      "speech": "الكلام",
+      "text": "النص",
+      "support": "على هذا الجهاز فقط"
+    },
+    "names": {
+      "dictationStt": "الإملاء",
+      "noteRecordingStt": "تسجيل الملاحظات",
+      "uploadStt": "رفع الصوت",
+      "dictationCleanup": "تنقيح الإملاء",
+      "voiceAssistant": "المساعد الصوتي",
+      "assistantVision": "رؤية المساعد",
+      "translation": "الترجمة",
+      "noteFormatting": "تنسيق الملاحظات",
+      "chat": "المحادثة",
+      "speakerId": "تحديد المتحدثين",
+      "semanticSearch": "البحث الدلالي"
+    },
+    "subtitles": {
+      "dictationStt": "انقر للإملاء في أي تطبيق",
+      "noteRecordingStt": "الاجتماعات والملاحظات الصوتية",
+      "uploadStt": "نسخ ملف مستورد",
+      "dictationCleanup": "تصحيح الحشو وعلامات الترقيم",
+      "voiceAssistant": "اسأل واحصل على إجابة",
+      "assistantVision": "لقطات شاشة تُرسل مع طلبات المساعد",
+      "translation": "أملِ بلغة والصق بلغة أخرى",
+      "noteFormatting": "الملخصات وبنود العمل",
+      "chat": "اطرح أسئلة حول ملاحظاتك",
+      "speakerId": "معرفة من قال ماذا في الاجتماعات",
+      "semanticSearch": "العثور على الملاحظات حسب المعنى"
+    },
+    "payload": {
+      "audio": "الصوت الخاص بك",
+      "audioFile": "الملف الصوتي",
+      "meetingAudio": "صوت الاجتماع من الميكروفون والمكالمة",
+      "dictionary": "كلمات قاموسك ومحفزات المقاطع النصية",
+      "dictionaryWords": "كلمات قاموسك",
+      "transcript": "نص التفريغ الخاص بك",
+      "request": "طلبك المنطوق",
+      "selectedText": "النص الذي حددته",
+      "history": "المحادثة الأخيرة",
+      "lookups": "الملاحظات وتفاصيل التقويم التي يبحث عنها",
+      "noteText": "نص ملاحظتك",
+      "meetingTranscript": "نص الاجتماع مع أسماء المتحدثين",
+      "participants": "أسماء الحاضرين وعناوين بريدهم الإلكتروني",
+      "screenshot": "لقطة لشاشتك",
+      "webSearch": "الإذن للمزوّد بالبحث على الويب",
+      "messages": "رسائلك",
+      "metadataNote": "تُرسل أيضًا إعدادات مثل اللغة وأسماء النماذج."
+    }
   }
 }

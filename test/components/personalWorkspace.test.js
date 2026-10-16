@@ -10,6 +10,8 @@ const {
   installHookDom,
 } = require("../lib/rendererTestHarness");
 
+const { withI18nMock } = require("../lib/i18nTestMock");
+
 const { TOAST_MOCK } = require("../helpers/harness/rendererMocks");
 
 function find(node, predicate) {
@@ -24,14 +26,16 @@ async function harness(t, module, options = {}) {
   });
   installBrowserGlobals(t, { window: { electronAPI: options.api ?? {} } });
   const container = installHookDom(t);
-  const vite = await createRendererServer(t, {
-    resolveAlias: { "@": path.resolve(__dirname, "../../src") },
-    mockModules: {
-      "/ui/useToast": TOAST_MOCK,
-      "react-i18next": "export const useTranslation = () => ({ t: key => key });",
-      ...(options.mocks ?? {}),
-    },
-  });
+  const vite = await createRendererServer(
+    t,
+    withI18nMock({
+      resolveAlias: { "@": path.resolve(__dirname, "../../src") },
+      mockModules: {
+        "/ui/useToast": TOAST_MOCK,
+        ...(options.mocks ?? {}),
+      },
+    })
+  );
   const Component = (await vite.ssrLoadModule(module)).default;
   await options.beforeRender?.(vite);
   let tree;

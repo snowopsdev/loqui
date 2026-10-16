@@ -3711,5 +3711,57 @@
     "remote": "Envoyé à {{provider}}",
     "unknownProvider": "Fournisseur inconnu",
     "customEndpoint": "Point de terminaison personnalisé"
+  },
+  "routes": {
+    "groups": {
+      "speech": "Parole",
+      "text": "Texte",
+      "support": "Sur cet appareil uniquement"
+    },
+    "names": {
+      "dictationStt": "Dictée",
+      "noteRecordingStt": "Enregistrement de notes",
+      "uploadStt": "Import audio",
+      "dictationCleanup": "Correction de dictée",
+      "voiceAssistant": "Assistant vocal",
+      "assistantVision": "Vision de l’assistant",
+      "translation": "Traduction",
+      "noteFormatting": "Mise en forme des notes",
+      "chat": "Discussion",
+      "speakerId": "Identification des locuteurs",
+      "semanticSearch": "Recherche sémantique"
+    },
+    "subtitles": {
+      "dictationStt": "Appuyez pour dicter dans n’importe quelle application",
+      "noteRecordingStt": "Réunions et notes vocales",
+      "uploadStt": "Transcrire un fichier importé",
+      "dictationCleanup": "Corriger les hésitations et la ponctuation",
+      "voiceAssistant": "Posez une question, il vous répond",
+      "assistantVision": "Captures d’écran envoyées avec les demandes à l’assistant",
+      "translation": "Dictez dans une langue, collez dans une autre",
+      "noteFormatting": "Résumés et actions à mener",
+      "chat": "Posez des questions sur vos notes",
+      "speakerId": "Qui a dit quoi en réunion",
+      "semanticSearch": "Trouver des notes par leur sens"
+    },
+    "payload": {
+      "audio": "votre audio",
+      "audioFile": "le fichier audio",
+      "meetingAudio": "l’audio de la réunion provenant du microphone et de l’appel",
+      "dictionary": "les mots de votre dictionnaire et les déclencheurs de vos extraits",
+      "dictionaryWords": "les mots de votre dictionnaire",
+      "transcript": "le texte de votre transcription",
+      "request": "votre demande orale",
+      "selectedText": "le texte que vous avez sélectionné",
+      "history": "la conversation récente",
+      "lookups": "les notes et les détails du calendrier consultés",
+      "noteText": "le texte de votre note",
+      "meetingTranscript": "la transcription de la réunion avec les noms des locuteurs",
+      "participants": "les noms et les adresses e-mail des participants",
+      "screenshot": "une capture de votre écran",
+      "webSearch": "l’autorisation donnée au fournisseur de rechercher sur le Web",
+      "messages": "vos messages",
+      "metadataNote": "Les paramètres tels que la langue et les noms des modèles sont également envoyés."
+    }
   }
 }

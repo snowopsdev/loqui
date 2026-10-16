@@ -1456,7 +1456,6 @@
       "none": "None",
       "outputLabel": "Output",
       "processing": "Processing...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "Provider",
       "run": "Run Test",
       "customEndpoint": "Custom endpoint",
@@ -1477,24 +1476,11 @@
   "settingsModal": {
     "managedByOrg": "Some settings are managed by your organization.",
     "groups": {
-      "account": "Account",
       "app": "App",
       "aiModels": "AI Models",
       "system": "System"
     },
     "sections": {
-      "account": {
-        "description": "Profile & sign in",
-        "label": "Profile"
-      },
-      "plansBilling": {
-        "description": "Plans, usage & billing",
-        "label": "Plans & Billing"
-      },
-      "workspace": {
-        "description": "Members, team spaces & API keys",
-        "label": "Workspace"
-      },
       "general": {
         "description": "Appearance, sounds & startup",
         "label": "Preferences"
@@ -1512,7 +1498,7 @@
         "label": "Language Models"
       },
       "privacyData": {
-        "description": "Privacy, permissions & analytics",
+        "description": "Privacy, permissions & stored data",
         "label": "Privacy & Data"
       },
       "system": {
@@ -1523,206 +1509,6 @@
     "title": "Settings"
   },
   "settingsPage": {
-    "workspace": {
-      "title": "Workspace",
-      "description": "Collaborate with teammates, share notes, and manage workspace access in one place.",
-      "empty": {
-        "title": "Create your first workspace",
-        "description": "Workspaces let you collaborate with teammates and share notes.",
-        "create": "Create workspace"
-      },
-      "loadError": {
-        "title": "Couldn't load workspaces",
-        "description": "Check your connection and try again.",
-        "retry": "Retry"
-      },
-      "tab": {
-        "general": "General",
-        "members": "Members",
-        "teams": "Groups",
-        "developer": "Developer"
-      },
-      "role": {
-        "owner": "Owner",
-        "admin": "Admin",
-        "member": "Member"
-      },
-      "general": {
-        "nameLabel": "Workspace name",
-        "saved": "Workspace updated",
-        "dangerTitle": "Delete workspace",
-        "dangerDescription": "All shared notes, folders, and integrations will be deleted. This cannot be undone.",
-        "delete": "Delete workspace",
-        "confirmTitle": "Delete {{name}}?",
-        "confirmDescription": "This cancels the subscription and removes all workspace data permanently.",
-        "deleting": "Deleting…",
-        "deleted": "Workspace deleted",
-        "leaveTitle": "Leave workspace",
-        "leaveDescription": "You'll lose access to this workspace and its shared notes.",
-        "leave": "Leave workspace",
-        "leaving": "Leaving…",
-        "leaveConfirm": {
-          "title": "Leave {{name}}?",
-          "description": "You'll lose access immediately. An admin can invite you back."
-        },
-        "left": "You left {{name}}"
-      },
-      "members": {
-        "title": "Members",
-        "description": "{{count}} of {{seats}} seats used.",
-        "invite": "Invite",
-        "empty": "No members yet.",
-        "loadError": "Couldn't load members.",
-        "roleUpdated": "Role updated",
-        "removed": "Removed {{name}}",
-        "promote": "Make admin",
-        "demote": "Make member",
-        "transferOwnership": "Transfer ownership",
-        "remove": "Remove from workspace",
-        "removeConfirm": {
-          "title": "Remove this member?",
-          "description": "{{name}} will lose access to {{workspace}} immediately."
-        },
-        "transferConfirm": {
-          "title": "Transfer ownership?",
-          "description": "{{name}} becomes the owner of {{workspace}}. Your role changes to admin and only the new owner can transfer it back."
-        }
-      },
-      "joinRequests": {
-        "title": "Requests to join",
-        "approve": "Approve",
-        "deny": "Deny",
-        "approved": "{{name}} joined the workspace",
-        "denied": "Request denied",
-        "errorTitle": "Could not update the request"
-      },
-      "teams": {
-        "title": "Groups",
-        "description": "Groups of workspace members that can be given access to team spaces together.",
-        "new": "New group",
-        "empty": "No groups yet.",
-        "createFirst": "Create your first group",
-        "addMembersLabel": "Add members",
-        "createTitle": "Create group",
-        "nameLabel": "Group name",
-        "memberCount_one": "{{count}} member",
-        "memberCount_other": "{{count}} members",
-        "membersButton": "Members",
-        "grantsAccessToSpaces_one": "Grants access to {{count}} space",
-        "grantsAccessToSpaces_other": "Grants access to {{count}} spaces",
-        "couldNotCreate": "Couldn't create group",
-        "created": "Created {{team}}",
-        "deleted": "Deleted {{team}}",
-        "deleteConfirmTitle": "Delete {{team}}?",
-        "deleteConfirmDescription": "This archives the group. Its members lose any access it granted.",
-        "deleteConfirmSpaceAccess_one": "This group grants access to {{count}} space. Its members will lose that access.",
-        "deleteConfirmSpaceAccess_other": "This group grants access to {{count}} spaces. Its members will lose that access.",
-        "members": {
-          "title": "Members of {{team}}",
-          "removeConfirm": "Remove {{name}} from {{team}}?",
-          "leave": "Leave group",
-          "leftTeam": "You left {{team}}",
-          "leaveConfirm": "Leave {{team}}?",
-          "leaveConfirmDescription": "You'll lose access to the spaces this group is assigned to unless you were added directly or another group includes you."
-        }
-      },
-      "invites": {
-        "title": "Pending invitations",
-        "expiresIn_one": "Expires in {{count}} day",
-        "expiresIn_other": "Expires in {{count}} days",
-        "expired": "Expired",
-        "loadError": "Couldn't load invitations.",
-        "resend": "Resend",
-        "resending": "Resending…",
-        "revoke": "Revoke",
-        "resent": "Invitation resent",
-        "resentNoEmail": "Invitation updated, but the email couldn't be delivered.",
-        "revoked": "Invitation revoked",
-        "revokeFailed": "Could not revoke invitation",
-        "revokeConfirm": {
-          "title": "Revoke this invitation?",
-          "description": "The invitation link for {{email}} will stop working."
-        }
-      },
-      "billing": {
-        "plan": "Plan",
-        "seats": "Seats",
-        "ownerOnly": "Only the workspace owner can manage the subscription.",
-        "nextInvoice": "Next invoice",
-        "manageStripe": "Manage in Stripe",
-        "startSubscription": "Start subscription",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "Free",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "Active",
-          "trialing": "Trialing",
-          "past_due": "Past due",
-          "canceled": "Canceled",
-          "incomplete": "Incomplete",
-          "unpaid": "Unpaid"
-        }
-      },
-      "developer": {
-        "title": "API keys",
-        "description": "Programmatic access scoped to this workspace.",
-        "empty": "No API keys yet. Create one to integrate with this workspace.",
-        "loadError": "Couldn't load API keys.",
-        "new": "New key",
-        "create": "Create key",
-        "createTitle": "Create API key",
-        "createDescription": "Choose the permissions this key needs. You can revoke it any time.",
-        "nameLabel": "Key name",
-        "namePlaceholder": "Production integration",
-        "revoke": "Revoke key",
-        "revoked": "Revoked {{name}}",
-        "lastUsed": "Last used {{date}}",
-        "neverUsed": "Never used",
-        "keyCreatedTitle": "API key created",
-        "keyCreatedDescription": "Copy this key now — you won't be able to see it again.",
-        "revokeConfirm": {
-          "title": "Revoke this key?",
-          "description": "{{name}} will stop working immediately. Any integration using it will start failing."
-        },
-        "scopes": {
-          "notes": {
-            "title": "Notes",
-            "read": "Read notes",
-            "write": "Write notes"
-          },
-          "folders": {
-            "title": "Folders",
-            "read": "Read folders",
-            "write": "Write folders"
-          },
-          "transcriptions": {
-            "title": "Transcriptions",
-            "read": "Read transcriptions"
-          },
-          "members": {
-            "title": "Members",
-            "read": "Read members",
-            "write": "Manage members"
-          },
-          "billing": {
-            "title": "Billing",
-            "read": "Read billing"
-          },
-          "full": {
-            "title": "Full access",
-            "admin": "Workspace admin"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "Enterprise console",
-        "description": "Manage SSO, policies, and members on the web",
-        "open": "Open console"
-      }
-    },
     "unifiedBilling": {
       "workspaceTitle": "Workspace billing",
       "workspaceDescription": "Each workspace has its own plan, seats, and billing owner.",
@@ -1743,230 +1529,6 @@
         "newCapacity": "New capacity",
         "chargeToday": "Charge today",
         "confirm": "Add seat"
-      }
-    },
-    "account": {
-      "badges": {
-        "free": "Free",
-        "limitReached": "Limit reached",
-        "pastDue": "Past due",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "Trial"
-      },
-      "billing": {
-        "couldNotOpenDescription": "We had trouble opening the billing page. Please try again.",
-        "couldNotOpenTitle": "Couldn't open billing",
-        "manageBilling": "Manage Billing",
-        "opening": "Opening...",
-        "updatePaymentMethod": "Update Payment Method",
-        "contactOwnerTitle": "Contact your workspace owner",
-        "contactOwnerDescription": "Only the workspace owner can update billing for this workspace."
-      },
-      "checkout": {
-        "couldNotOpenDescription": "We had trouble opening the checkout page. Please try again.",
-        "couldNotOpenTitle": "Couldn't open checkout",
-        "opening": "Opening...",
-        "upgradeToPro": "Upgrade to Pro"
-      },
-      "disabled": "Disabled",
-      "featuresDisabled": "Account Features Disabled",
-      "featuresDisabledDescription": "Set VITE_AUTH_URL in your .env file to enable account features.",
-      "notConfigured": "Authentication is not configured",
-      "notSignedIn": "Not signed in",
-      "notSignedInDescription": "Create an account to unlock premium features.",
-      "offline": "Offline",
-      "pastDue": {
-        "description": "You're on the free plan for now. Update your payment method to get back to Pro.",
-        "title": "We couldn't process your payment"
-      },
-      "planDescriptions": {
-        "freeUsage": "{{used}} / {{limit}} words this week",
-        "nextBilling": "Next billing: {{date}}",
-        "pastDue": "{{used}} / {{limit}} free words this week - update payment to restore Pro",
-        "trial": "{{days}} days remaining - unlimited transcriptions",
-        "unlimited": "Unlimited"
-      },
-      "planLabels": {
-        "free": "Free",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "Trial"
-      },
-      "pricing": {
-        "title": "Plans",
-        "billedYearly": "Billed yearly",
-        "free": {
-          "name": "Free",
-          "price": "$0",
-          "period": "forever",
-          "features": [
-            "## Loqui Cloud",
-            "2,000 words/week transcription",
-            "5 hours of meeting recordings/month",
-            "## Always free",
-            "Unlimited local AI models",
-            "Unlimited cloud transcription with your own API keys",
-            "100+ languages supported",
-            "Custom dictionary",
-            "Zero data retention",
-            "Community support"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/mo",
-          "annualPrice": "$80",
-          "annualPeriod": "/yr",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "All Free features +",
-          "features": [
-            "Unlimited cloud transcription",
-            "20 hours of meeting recordings/month",
-            "Sync across devices",
-            "Share notes with public links",
-            "Personal API access",
-            "MCP integration in all your apps",
-            "Mobile app",
-            "Email support"
-          ],
-          "cta": "Get Started",
-          "switchToAnnual": "Switch to Annual"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/mo",
-          "annualPrice": "$160",
-          "annualPeriod": "/yr",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "All Pro features +",
-          "badge": "Most Popular",
-          "features": [
-            "Unlimited meeting recordings",
-            "Workspace roles & member management",
-            "Assistant mode",
-            "Chat over your data",
-            "Priority support"
-          ],
-          "cta": "Get Started",
-          "switchToAnnual": "Switch to Annual"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "Custom",
-          "subtitle": "For advanced security & support",
-          "includesPrefix": "All Business features +",
-          "features": [
-            "Managed API credits",
-            "Cloud sync across devices",
-            "Team features & admin",
-            "SSO & compliance",
-            "Dedicated support"
-          ],
-          "cta": "Contact Sales",
-          "upgradeCta": "Upgrade to Enterprise",
-          "askOwner": "Ask {{name}} to upgrade your workspace."
-        },
-        "currentPlan": "Current plan",
-        "coveredByWorkspace": "Included with your workspace plan",
-        "upgrade": "Upgrade",
-        "downgrade": "Downgrade",
-        "planSwitched": "Plan updated successfully",
-        "confirmSwitch": {
-          "title": "Confirm plan change",
-          "description": "Switch to {{plan}} ({{interval}})",
-          "monthly": "monthly",
-          "yearly": "yearly",
-          "chargeToday": "Charge today",
-          "accountCredit": "Account credit",
-          "newPrice": "New price",
-          "nextBilling": "Next billing",
-          "mo": "mo",
-          "yr": "yr",
-          "cancel": "Cancel",
-          "confirm": "Confirm"
-        }
-      },
-      "rollingWeeklyLimit": "Rolling weekly limit",
-      "signOut": {
-        "failedDescription": "Something went wrong signing out. Please try again.",
-        "failedTitle": "Couldn't sign out",
-        "signOut": "Sign Out",
-        "signingOut": "Signing out..."
-      },
-      "title": "Account",
-      "toasts": {
-        "approachingLimit": {
-          "description": "You've used {{used}} of {{limit}} free words this week. Upgrade to Pro for unlimited use.",
-          "title": "Approaching weekly limit"
-        }
-      },
-      "trialCta": {
-        "button": "Create Free Account",
-        "description": "Unlimited transcriptions, priority processing, and more.",
-        "title": "Try Pro free for 7 days"
-      },
-      "signedOutPlans": {
-        "button": "Create Free Account"
-      },
-      "user": "User",
-      "wordsRemaining": "{{remaining}} remaining",
-      "deleteAccount": {
-        "label": "Delete Account",
-        "labelDescription": "Permanently delete your account and personal cloud data. Other local users and workspace-owned content are preserved.",
-        "button": "Delete My Account",
-        "deleting": "Deleting...",
-        "title": "Delete Your Account?",
-        "description": "This permanently deletes your Loqui account and personal data. Workspace-owned content and data belonging to other local users stay on this device.",
-        "confirmText": "Delete Account",
-        "eraseDeviceLabel": "Also erase all data from this device",
-        "eraseDeviceDescription": "Deletes every local user's notes and workspace cache, downloaded models, settings, calendar connections, credentials, and recordings.",
-        "eraseDeviceWarning": "This device-wide erasure cannot be undone and affects every local user.",
-        "successTitle": "Account Deleted",
-        "successDescription": "Your account and personal data were deleted. Other local users, workspaces, models, and device settings were preserved.",
-        "partialCleanupDescription": "Your account was deleted, but some local cleanup could not finish. Other users and workspace-owned content were preserved.",
-        "failedTitle": "Deletion Failed",
-        "failedDescription": "Account deletion could not complete. No device-wide erasure was started. Please try again."
-      },
-      "profile": {
-        "name": {
-          "label": "Display name",
-          "placeholder": "Your name",
-          "save": "Save",
-          "saving": "Saving...",
-          "saved": "Display name updated",
-          "error": "Couldn't update your name"
-        },
-        "password": {
-          "label": "Password",
-          "description": "Change the password you use to sign in.",
-          "change": "Change password",
-          "dialogTitle": "Change password",
-          "dialogDescription": "Enter your current password and choose a new one.",
-          "currentLabel": "Current password",
-          "newLabel": "New password",
-          "confirmLabel": "Confirm new password",
-          "minLength": "Password must be at least 8 characters",
-          "mismatch": "Passwords don't match",
-          "revokeOthers": "Sign out other devices",
-          "submit": "Update password",
-          "saving": "Updating...",
-          "cancel": "Cancel",
-          "saved": "Password updated"
-        },
-        "errors": {
-          "invalidPassword": "Your current password is incorrect.",
-          "passwordTooShort": "Password must be at least 8 characters.",
-          "passwordTooLong": "Password is too long.",
-          "noPassword": "No password is set for this account.",
-          "generic": "Something went wrong. Please try again."
-        }
-      },
-      "planUnavailable": {
-        "title": "Plan unavailable",
-        "description": "We couldn't load your plan right now. Your access is unchanged."
       }
     },
     "agentConfig": {
@@ -1997,19 +1559,15 @@
       "enableTextCleanup": "Enable text cleanup",
       "enableTextCleanupDescription": "Use AI to remove filler words, fix grammar, and polish punctuation",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Cloud Providers",
         "local": "Local",
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
-        "openwhisprDesc": "Reliable accuracy. No setup needed.",
         "providersDesc": "Bring your own API key.",
         "localDesc": "On-device models. Fully private.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "Reliable accuracy. No setup needed.",
       "title": "AI Text Enhancement",
       "toasts": {
         "switchedCloud": {
@@ -2351,8 +1909,6 @@
       "cloudNotesMigrationDone": "All notes backed up",
       "description": "Control what data leaves your device. Everything is off by default.",
       "title": "Privacy",
-      "usageAnalytics": "Usage analytics",
-      "usageAnalyticsDescription": "Help us improve Loqui by sharing anonymous performance metrics. We never send transcription content — only timing and error data.",
       "insightsSync": "Sync personal Insights",
       "insightsSyncDescription": "Sync word counts, the date and exact time of each dictation, durations, and model types across your devices. Transcript content is never included. When you're signed in, clearing history also removes these counters from this device and your account.",
       "insightsSyncRequiresAccount": "Sign in to sync content-free Insights data across your devices.",
@@ -2423,19 +1979,15 @@
       "customSetupDescription": "Use your own provider and API key.",
       "description": "Choose how Loqui transcribes your voice",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Cloud Providers",
         "local": "Local",
         "selfHosted": "Self-Hosted",
-        "openwhisprDesc": "Reliable accuracy. No setup needed.",
         "providersDesc": "Bring your own API key.",
         "localDesc": "On-device models. Fully private.",
         "selfHostedDesc": "Your own server on your network.",
         "enterprise": "Enterprise cloud",
         "enterpriseDesc": "Audio goes to your organization's own cloud."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "Reliable accuracy. No setup needed.",
       "title": "Speech to Text",
       "toasts": {
         "switchedCloud": {
@@ -3282,7 +2834,6 @@
       "newFolder": "New Folder",
       "folderName": "Folder name",
       "create": "Create",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "Custom",
       "selectFolder": "Select folder",
       "transcriptionFailed": "Transcription failed",
@@ -3706,8 +3257,6 @@
       "relaunchHint": "Screen Recording was granted while Loqui was running. Quit and reopen Loqui to start capturing screenshots."
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "Use the Loqui-managed assistant — no API key needed.",
       "providers": "Bring your own key",
       "providersDesc": "Connect to OpenAI, Anthropic, Gemini, or Groq with your own API key.",
       "local": "Local",
@@ -3728,12 +3277,10 @@
       "systemPromptDescription": "Custom instructions for the assistant",
       "systemPromptPlaceholder": "Enter custom system prompt...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Cloud Providers",
         "local": "Local",
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
-        "openwhisprDesc": "Reliable accuracy. No setup needed.",
         "providersDesc": "Bring your own API key.",
         "localDesc": "On-device models. Fully private.",
         "selfHostedDesc": "Your own server on your network.",

@@ -959,7 +959,6 @@
       "none": "لا شيء",
       "outputLabel": "المخرجات",
       "processing": "جاري المعالجة...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "المزود",
       "run": "تشغيل الاختبار",
       "customEndpoint": "نقطة نهاية مخصصة",
@@ -1183,8 +1182,6 @@
       "relaunchHint": "تم منح إذن تسجيل الشاشة أثناء تشغيل Loqui. قم بإنهاء Loqui وإعادة فتحه لبدء التقاط لقطات الشاشة."
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "استخدم المساعد المُدار بواسطة Loqui — لا حاجة لمفتاح API.",
       "providers": "إحضار مفتاحك الخاص",
       "providersDesc": "اتصل بـ OpenAI أو Anthropic أو Gemini أو Groq باستخدام مفتاح API الخاص بك.",
       "local": "محلي",
@@ -1205,12 +1202,10 @@
       "systemPromptDescription": "تعليمات مخصصة للمساعد",
       "systemPromptPlaceholder": "أدخل مطالبة النظام المخصصة...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "مزودو الخدمات السحابية",
         "local": "محلي",
         "selfHosted": "مستضاف ذاتيًا",
         "enterprise": "للمؤسسات",
-        "openwhisprDesc": "دقة موثوقة. لا يتطلب أي إعداد.",
         "providersDesc": "أحضر مفتاح API الخاص بك.",
         "localDesc": "نماذج على الجهاز. خاصة بالكامل.",
         "selfHostedDesc": "الخادم الخاص بك على شبكتك.",
@@ -1651,7 +1646,6 @@
       "newFolder": "مجلد جديد",
       "folderName": "اسم المجلد",
       "create": "إنشاء",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "مخصص",
       "selectFolder": "تحديد مجلد",
       "transcriptionFailed": "فشل التفريغ",
@@ -2299,228 +2293,6 @@
     }
   },
   "settingsPage": {
-    "workspace": {
-      "title": "مساحة العمل",
-      "description": "تعاون مع زملائك، وشارك الملاحظات، وقم بإدارة الوصول إلى مساحة العمل في مكان واحد.",
-      "empty": {
-        "title": "أنشئ مساحة العمل الأولى الخاصة بك",
-        "description": "تتيح لك مساحات العمل التعاون مع زملائك ومشاركة الملاحظات.",
-        "create": "إنشاء مساحة عمل"
-      },
-      "loadError": {
-        "title": "تعذر تحميل مساحات العمل",
-        "description": "تحقق من اتصالك وحاول مرة أخرى.",
-        "retry": "إعادة المحاولة"
-      },
-      "tab": {
-        "general": "عام",
-        "members": "الأعضاء",
-        "teams": "المجموعات",
-        "developer": "للمطورين"
-      },
-      "role": {
-        "owner": "مالك",
-        "admin": "مسؤول",
-        "member": "عضو"
-      },
-      "general": {
-        "nameLabel": "اسم مساحة العمل",
-        "saved": "تم تحديث مساحة العمل",
-        "dangerTitle": "حذف مساحة العمل",
-        "dangerDescription": "سيتم حذف جميع الملاحظات المشتركة والمجلدات وعمليات التكامل. لا يمكن التراجع عن هذا الإجراء.",
-        "delete": "حذف مساحة العمل",
-        "confirmTitle": "حذف {{name}}؟",
-        "confirmDescription": "هذا يلغي الاشتراك ويزيل جميع بيانات مساحة العمل بشكل دائم.",
-        "deleting": "جاري الحذف…",
-        "deleted": "تم حذف مساحة العمل",
-        "leaveTitle": "مغادرة مساحة العمل",
-        "leaveDescription": "ستفقد إمكانية الوصول إلى مساحة العمل هذه وملاحظاتها المشتركة.",
-        "leave": "مغادرة مساحة العمل",
-        "leaving": "جاري المغادرة…",
-        "leaveConfirm": {
-          "title": "مغادرة {{name}}؟",
-          "description": "ستفقد إمكانية الوصول على الفور. يمكن لمسؤول دعوتك مرة أخرى."
-        },
-        "left": "لقد غادرت {{name}}"
-      },
-      "members": {
-        "title": "الأعضاء",
-        "description": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_zero": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_one": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_two": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_few": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_many": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_other": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "invite": "دعوة",
-        "empty": "لا يوجد أعضاء بعد.",
-        "loadError": "تعذر تحميل الأعضاء.",
-        "roleUpdated": "تم تحديث الدور",
-        "removed": "تمت إزالة {{name}}",
-        "promote": "تعيين كمسؤول",
-        "demote": "تعيين كعضو",
-        "transferOwnership": "نقل الملكية",
-        "remove": "إزالة من مساحة العمل",
-        "removeConfirm": {
-          "title": "إزالة هذا العضو؟",
-          "description": "سيفقد {{name}} إمكانية الوصول إلى {{workspace}} على الفور."
-        },
-        "transferConfirm": {
-          "title": "نقل الملكية؟",
-          "description": "سيصبح {{name}} مالك {{workspace}}. سيتغير دورك إلى مسؤول ويمكن للمالك الجديد فقط إعادته."
-        }
-      },
-      "joinRequests": {
-        "title": "طلبات الانضمام",
-        "approve": "موافقة",
-        "deny": "رفض",
-        "approved": "انضم {{name}} إلى مساحة العمل",
-        "denied": "تم رفض الطلب",
-        "errorTitle": "تعذر تحديث الطلب"
-      },
-      "teams": {
-        "title": "المجموعات",
-        "description": "مجموعات من أعضاء مساحة العمل يمكن منحها الوصول إلى مساحات الفريق معًا.",
-        "new": "مجموعة جديدة",
-        "empty": "لا توجد مجموعات بعد.",
-        "createFirst": "أنشئ مجموعتك الأولى",
-        "addMembersLabel": "إضافة أعضاء",
-        "createTitle": "إنشاء مجموعة",
-        "nameLabel": "اسم المجموعة",
-        "memberCount_zero": "{{count}} أعضاء",
-        "memberCount_one": "{{count}} عضو",
-        "memberCount_two": "{{count}} عضوان",
-        "memberCount_few": "{{count}} أعضاء",
-        "memberCount_many": "{{count}} عضوًا",
-        "memberCount_other": "{{count}} عضو",
-        "membersButton": "الأعضاء",
-        "grantsAccessToSpaces_zero": "يمنح الوصول إلى {{count}} مساحات",
-        "grantsAccessToSpaces_one": "يمنح الوصول إلى {{count}} مساحة",
-        "grantsAccessToSpaces_two": "يمنح الوصول إلى {{count}} مساحتين",
-        "grantsAccessToSpaces_few": "يمنح الوصول إلى {{count}} مساحات",
-        "grantsAccessToSpaces_many": "يمنح الوصول إلى {{count}} مساحةً",
-        "grantsAccessToSpaces_other": "يمنح الوصول إلى {{count}} مساحة",
-        "couldNotCreate": "تعذر إنشاء المجموعة",
-        "created": "تم إنشاء {{team}}",
-        "deleted": "تم حذف {{team}}",
-        "deleteConfirmTitle": "حذف {{team}}؟",
-        "deleteConfirmDescription": "هذا يؤرشف المجموعة. سيفقد أعضاؤها أي وصول منحته إياهم.",
-        "deleteConfirmSpaceAccess_zero": "تمنح هذه المجموعة الوصول إلى {{count}} مساحات. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_one": "تمنح هذه المجموعة الوصول إلى {{count}} مساحة. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_two": "تمنح هذه المجموعة الوصول إلى {{count}} مساحتين. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_few": "تمنح هذه المجموعة الوصول إلى {{count}} مساحات. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_many": "تمنح هذه المجموعة الوصول إلى {{count}} مساحةً. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_other": "تمنح هذه المجموعة الوصول إلى {{count}} مساحة. سيفقد أعضاؤها هذا الوصول.",
-        "members": {
-          "title": "أعضاء {{team}}",
-          "removeConfirm": "إزالة {{name}} من {{team}}؟",
-          "leave": "مغادرة المجموعة",
-          "leftTeam": "لقد غادرت {{team}}",
-          "leaveConfirm": "مغادرة {{team}}؟",
-          "leaveConfirmDescription": "ستفقد إمكانية الوصول إلى المساحات المخصصة لهذه المجموعة ما لم تكن مضافًا مباشرةً أو تضمك مجموعة أخرى."
-        }
-      },
-      "invites": {
-        "title": "الدعوات المعلقة",
-        "expiresIn_zero": "تنتهي صلاحيتها خلال {{count}} أيام",
-        "expiresIn_one": "تنتهي صلاحيتها خلال {{count}} يوم",
-        "expiresIn_two": "تنتهي صلاحيتها خلال {{count}} يومين",
-        "expiresIn_few": "تنتهي صلاحيتها خلال {{count}} أيام",
-        "expiresIn_many": "تنتهي صلاحيتها خلال {{count}} يومًا",
-        "expiresIn_other": "تنتهي صلاحيتها خلال {{count}} يوم",
-        "expired": "منتهية الصلاحية",
-        "loadError": "تعذر تحميل الدعوات.",
-        "resend": "إعادة الإرسال",
-        "resending": "جاري إعادة الإرسال…",
-        "revoke": "إبطال الدعوة",
-        "resent": "تمت إعادة إرسال الدعوة",
-        "resentNoEmail": "تم تحديث الدعوة، لكن تعذر تسليم البريد الإلكتروني.",
-        "revoked": "تم إبطال الدعوة",
-        "revokeFailed": "تعذر إبطال الدعوة",
-        "revokeConfirm": {
-          "title": "إبطال هذه الدعوة؟",
-          "description": "سيتوقف رابط الدعوة لـ {{email}} عن العمل."
-        }
-      },
-      "billing": {
-        "plan": "الخطة",
-        "seats": "المقاعد",
-        "ownerOnly": "يمكن لمالك مساحة العمل فقط إدارة الاشتراك.",
-        "nextInvoice": "الفاتورة القادمة",
-        "manageStripe": "إدارة في Stripe",
-        "startSubscription": "بدء الاشتراك",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "مجاني",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "نشط",
-          "trialing": "في فترة تجريبية",
-          "past_due": "متأخر الدفع",
-          "canceled": "ملغى",
-          "incomplete": "غير مكتمل",
-          "unpaid": "غير مدفوع"
-        }
-      },
-      "developer": {
-        "title": "مفاتيح API",
-        "description": "وصول برمجي مخصص لمساحة العمل هذه.",
-        "empty": "لا توجد مفاتيح API بعد. أنشئ واحدًا للدمج مع مساحة العمل هذه.",
-        "loadError": "تعذر تحميل مفاتيح API.",
-        "new": "مفتاح جديد",
-        "create": "إنشاء مفتاح",
-        "createTitle": "إنشاء مفتاح API",
-        "createDescription": "اختر الأذونات التي يحتاجها هذا المفتاح. يمكنك إبطاله في أي وقت.",
-        "nameLabel": "اسم المفتاح",
-        "namePlaceholder": "تكامل الإنتاج",
-        "revoke": "إبطال المفتاح",
-        "revoked": "تم إبطال {{name}}",
-        "lastUsed": "آخر استخدام في {{date}}",
-        "neverUsed": "لم يُستخدم أبدًا",
-        "keyCreatedTitle": "تم إنشاء مفتاح API",
-        "keyCreatedDescription": "انسخ هذا المفتاح الآن — لن تتمكن من رؤيته مرة أخرى.",
-        "revokeConfirm": {
-          "title": "إبطال هذا المفتاح؟",
-          "description": "سيتوقف {{name}} عن العمل على الفور. سيفشل أي تكامل يستخدمه."
-        },
-        "scopes": {
-          "notes": {
-            "title": "الملاحظات",
-            "read": "قراءة الملاحظات",
-            "write": "كتابة الملاحظات"
-          },
-          "folders": {
-            "title": "المجلدات",
-            "read": "قراءة المجلدات",
-            "write": "كتابة المجلدات"
-          },
-          "transcriptions": {
-            "title": "النصوص المفرَّغة",
-            "read": "قراءة النصوص المفرَّغة"
-          },
-          "members": {
-            "title": "الأعضاء",
-            "read": "قراءة الأعضاء",
-            "write": "إدارة الأعضاء"
-          },
-          "billing": {
-            "title": "الفوترة",
-            "read": "قراءة الفوترة"
-          },
-          "full": {
-            "title": "وصول كامل",
-            "admin": "مسؤول مساحة العمل"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "وحدة تحكم Enterprise",
-        "description": "إدارة SSO والسياسات والأعضاء على الويب",
-        "open": "فتح وحدة التحكم"
-      }
-    },
     "unifiedBilling": {
       "workspaceTitle": "فوترة مساحة العمل",
       "workspaceDescription": "لكل مساحة عمل خطة ومقاعد ومالك فوترة خاص بها.",
@@ -2551,230 +2323,6 @@
         "confirm": "إضافة مقعد"
       }
     },
-    "account": {
-      "badges": {
-        "free": "مجاني",
-        "limitReached": "تم بلوغ الحد الأقصى",
-        "pastDue": "متأخر الدفع",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "تجريبي"
-      },
-      "billing": {
-        "couldNotOpenDescription": "واجهنا مشكلة في فتح صفحة الفوترة. يرجى المحاولة مرة أخرى.",
-        "couldNotOpenTitle": "تعذر فتح الفوترة",
-        "manageBilling": "إدارة الفوترة",
-        "opening": "جاري الفتح...",
-        "updatePaymentMethod": "تحديث طريقة الدفع",
-        "contactOwnerTitle": "اتصل بمالك مساحة العمل الخاصة بك",
-        "contactOwnerDescription": "يمكن لمالك مساحة العمل فقط تحديث الفوترة لمساحة العمل هذه."
-      },
-      "checkout": {
-        "couldNotOpenDescription": "واجهنا مشكلة في فتح صفحة الدفع. يرجى المحاولة مرة أخرى.",
-        "couldNotOpenTitle": "تعذر فتح صفحة الدفع",
-        "opening": "جاري الفتح...",
-        "upgradeToPro": "الترقية إلى Pro"
-      },
-      "disabled": "معطل",
-      "featuresDisabled": "ميزات الحساب معطلة",
-      "featuresDisabledDescription": "قم بتعيين VITE_AUTH_URL في ملف .env الخاص بك لتمكين ميزات الحساب.",
-      "notConfigured": "لم يتم تكوين المصادقة",
-      "notSignedIn": "لم يتم تسجيل الدخول",
-      "notSignedInDescription": "أنشئ حسابًا للوصول إلى الميزات المميزة.",
-      "offline": "غير متصل بالإنترنت",
-      "pastDue": {
-        "description": "أنت على الخطة المجانية في الوقت الحالي. قم بتحديث طريقة الدفع الخاصة بك للعودة إلى Pro.",
-        "title": "لم نتمكن من معالجة دفعتك"
-      },
-      "planDescriptions": {
-        "freeUsage": "{{used}} من {{limit}} كلمة هذا الأسبوع",
-        "nextBilling": "الفوترة القادمة: {{date}}",
-        "pastDue": "{{used}} من {{limit}} كلمة مجانية هذا الأسبوع - قم بتحديث الدفع لاستعادة Pro",
-        "trial": "عدد الأيام المتبقية: {{days}} - تفريغ غير محدود",
-        "unlimited": "غير محدود"
-      },
-      "planLabels": {
-        "free": "مجاني",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "تجريبي"
-      },
-      "pricing": {
-        "title": "الخطط",
-        "billedYearly": "تدفع سنويًا",
-        "free": {
-          "name": "مجاني",
-          "price": "$0",
-          "period": "إلى الأبد",
-          "features": [
-            "## Loqui Cloud",
-            "2,000 كلمة/أسبوع للتفريغ",
-            "5 ساعات من تسجيلات الاجتماعات/شهر",
-            "## مجانًا دائمًا",
-            "نماذج ذكاء اصطناعي محلية غير محدودة",
-            "تفريغ سحابي غير محدود باستخدام مفاتيح API الخاصة بك",
-            "دعم أكثر من 100 لغة",
-            "قاموس مخصص",
-            "عدم الاحتفاظ بالبيانات",
-            "دعم مجتمعي"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/شهر",
-          "annualPrice": "$80",
-          "annualPeriod": "/سنة",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "جميع ميزات الخطة المجانية +",
-          "features": [
-            "تفريغ سحابي غير محدود",
-            "20 ساعة من تسجيلات الاجتماعات/شهر",
-            "مزامنة عبر الأجهزة",
-            "مشاركة الملاحظات بروابط عامة",
-            "وصول شخصي عبر API",
-            "تكامل MCP في جميع تطبيقاتك",
-            "تطبيق الجوال",
-            "دعم عبر البريد الإلكتروني"
-          ],
-          "cta": "البدء",
-          "switchToAnnual": "التبديل إلى السنوي"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/شهر",
-          "annualPrice": "$160",
-          "annualPeriod": "/سنة",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "جميع ميزات Pro +",
-          "badge": "الأكثر شيوعًا",
-          "features": [
-            "تسجيلات اجتماعات غير محدودة",
-            "أدوار مساحة العمل وإدارة الأعضاء",
-            "وضع المساعد",
-            "الدردشة حول بياناتك",
-            "دعم ذو أولوية"
-          ],
-          "cta": "البدء",
-          "switchToAnnual": "التبديل إلى السنوي"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "مخصص",
-          "subtitle": "للأمان والدعم المتقدمين",
-          "includesPrefix": "جميع ميزات خطة Business +",
-          "features": [
-            "أرصدة API مُدارة",
-            "مزامنة سحابية عبر الأجهزة",
-            "ميزات الفريق والمسؤول",
-            "SSO والامتثال",
-            "دعم مخصص"
-          ],
-          "cta": "اتصل بالمبيعات",
-          "upgradeCta": "الترقية إلى Enterprise",
-          "askOwner": "اطلب من {{name}} ترقية مساحة العمل الخاصة بك."
-        },
-        "currentPlan": "الخطة الحالية",
-        "coveredByWorkspace": "مضمنة في خطة مساحة العمل الخاصة بك",
-        "upgrade": "ترقية",
-        "downgrade": "تخفيض الخطة",
-        "planSwitched": "تم تحديث الخطة بنجاح",
-        "confirmSwitch": {
-          "title": "تأكيد تغيير الخطة",
-          "description": "التبديل إلى {{plan}} ({{interval}})",
-          "monthly": "شهريًا",
-          "yearly": "سنويًا",
-          "chargeToday": "رسوم اليوم",
-          "accountCredit": "رصيد الحساب",
-          "newPrice": "السعر الجديد",
-          "nextBilling": "الفوترة القادمة",
-          "mo": "شهر",
-          "yr": "سنة",
-          "cancel": "إلغاء",
-          "confirm": "تأكيد"
-        }
-      },
-      "rollingWeeklyLimit": "حد أسبوعي متجدد",
-      "signOut": {
-        "failedDescription": "حدث خطأ أثناء تسجيل الخروج. يرجى المحاولة مرة أخرى.",
-        "failedTitle": "تعذر تسجيل الخروج",
-        "signOut": "تسجيل الخروج",
-        "signingOut": "جاري تسجيل الخروج..."
-      },
-      "title": "الحساب",
-      "toasts": {
-        "approachingLimit": {
-          "description": "لقد استخدمت {{used}} من أصل {{limit}} كلمة مجانية هذا الأسبوع. قم بالترقية إلى Pro للاستخدام غير المحدود.",
-          "title": "الاقتراب من الحد الأسبوعي"
-        }
-      },
-      "trialCta": {
-        "button": "إنشاء حساب مجاني",
-        "description": "تفريغ غير محدود، ومعالجة ذات أولوية، والمزيد.",
-        "title": "جرب Pro مجانًا لمدة 7 أيام"
-      },
-      "signedOutPlans": {
-        "button": "إنشاء حساب مجاني"
-      },
-      "user": "المستخدم",
-      "wordsRemaining": "متبقي {{remaining}}",
-      "deleteAccount": {
-        "label": "حذف الحساب",
-        "labelDescription": "حذف حسابك وبياناتك السحابية الشخصية نهائيًا. ستبقى بيانات المستخدمين المحليين الآخرين والمحتوى المملوك لمساحة العمل محفوظة.",
-        "button": "حذف حسابي",
-        "deleting": "جاري الحذف...",
-        "title": "هل تريد حذف حسابك؟",
-        "description": "يؤدي هذا إلى حذف حساب Loqui وبياناتك الشخصية نهائيًا. سيبقى المحتوى المملوك لمساحة العمل وبيانات المستخدمين المحليين الآخرين على هذا الجهاز.",
-        "eraseDeviceLabel": "مسح جميع البيانات من هذا الجهاز أيضًا",
-        "eraseDeviceDescription": "يحذف ملاحظات جميع المستخدمين المحليين وبيانات مساحة العمل المخزنة مؤقتًا والنماذج التي تم تنزيلها والإعدادات واتصالات التقويم وبيانات الاعتماد والتسجيلات.",
-        "eraseDeviceWarning": "لا يمكن التراجع عن هذا المسح الشامل للجهاز، وهو يؤثر على جميع المستخدمين المحليين.",
-        "confirmText": "حذف الحساب",
-        "successTitle": "تم حذف الحساب",
-        "successDescription": "تم حذف حسابك وبياناتك الشخصية. بقيت بيانات المستخدمين المحليين الآخرين ومساحات العمل والنماذج وإعدادات الجهاز محفوظة.",
-        "failedTitle": "فشل الحذف",
-        "failedDescription": "تعذر إكمال حذف الحساب. لم تبدأ عملية مسح شاملة للجهاز. يُرجى المحاولة مرة أخرى.",
-        "partialCleanupDescription": "تم حذف حسابك، لكن تعذر إكمال بعض عمليات التنظيف المحلي. تم الاحتفاظ ببيانات المستخدمين الآخرين والمحتوى المملوك لمساحة العمل."
-      },
-      "profile": {
-        "name": {
-          "label": "اسم العرض",
-          "placeholder": "اسمك",
-          "save": "حفظ",
-          "saving": "جاري الحفظ...",
-          "saved": "تم تحديث اسم العرض",
-          "error": "تعذر تحديث اسمك"
-        },
-        "password": {
-          "label": "كلمة المرور",
-          "description": "غيّر كلمة المرور التي تستخدمها لتسجيل الدخول.",
-          "change": "تغيير كلمة المرور",
-          "dialogTitle": "تغيير كلمة المرور",
-          "dialogDescription": "أدخل كلمة المرور الحالية واختر كلمة مرور جديدة.",
-          "currentLabel": "كلمة المرور الحالية",
-          "newLabel": "كلمة المرور الجديدة",
-          "confirmLabel": "تأكيد كلمة المرور الجديدة",
-          "minLength": "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل",
-          "mismatch": "كلمات المرور غير متطابقة",
-          "revokeOthers": "تسجيل الخروج من الأجهزة الأخرى",
-          "submit": "تحديث كلمة المرور",
-          "saving": "جاري التحديث...",
-          "cancel": "إلغاء",
-          "saved": "تم تحديث كلمة المرور"
-        },
-        "errors": {
-          "invalidPassword": "كلمة المرور الحالية غير صحيحة.",
-          "passwordTooShort": "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل.",
-          "passwordTooLong": "كلمة المرور طويلة جدًا.",
-          "noPassword": "لم يتم تعيين كلمة مرور لهذا الحساب.",
-          "generic": "حدث خطأ ما. يرجى المحاولة مرة أخرى."
-        }
-      },
-      "planUnavailable": {
-        "title": "الخطة غير متاحة",
-        "description": "لم نتمكن من تحميل خطتك في الوقت الحالي. وصولك لم يتغير."
-      }
-    },
     "agentConfig": {
       "agentName": "اسم المساعد",
       "description": "قم بتسمية مساعدك الذكي حتى تتمكن من مخاطبته مباشرة أثناء الإملاء",
@@ -2803,19 +2351,15 @@
       "enableTextCleanup": "تمكين تنظيف النص",
       "enableTextCleanupDescription": "استخدم الذكاء الاصطناعي لإزالة كلمات الحشو، وإصلاح القواعد، وتنسيق علامات الترقيم",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "مزودو الخدمات السحابية",
         "local": "محلي",
         "selfHosted": "مستضاف ذاتيًا",
         "enterprise": "مؤسسي",
-        "openwhisprDesc": "دقة موثوقة. لا حاجة للإعداد.",
         "providersDesc": "أحضر مفتاح API الخاص بك.",
         "localDesc": "نماذج على الجهاز. خاصة بالكامل.",
         "selfHostedDesc": "خادمك الخاص على شبكتك.",
         "enterpriseDesc": "استخدم الحساب السحابي لمؤسستك (AWS، Azure، GCP)."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "دقة موثوقة. لا حاجة للإعداد.",
       "title": "تحسين النص بالذكاء الاصطناعي",
       "toasts": {
         "switchedCloud": {
@@ -3157,8 +2701,6 @@
       "cloudNotesMigrationDone": "تم نسخ جميع الملاحظات احتياطيًا",
       "description": "تحكم في البيانات التي تغادر جهازك. كل شيء متوقف افتراضيًا.",
       "title": "الخصوصية",
-      "usageAnalytics": "تحليلات الاستخدام",
-      "usageAnalyticsDescription": "ساعدنا في تحسين Loqui من خلال مشاركة مقاييس الأداء المجهولة. لا نرسل أبدًا محتوى التفريغ — فقط بيانات التوقيت والأخطاء.",
       "audioRetention": "الاحتفاظ بالصوت",
       "audioRetentionDescription": "تخزين صوت الإملاء محليًا لإعادة التفريغ والتنزيل. يتم حذف الملفات تلقائيًا بعد فترة الاحتفاظ. لا يتم تخزين صوت الاجتماعات أبدًا.",
       "audioRetentionDisabled": "معطل",
@@ -3251,19 +2793,15 @@
       "customSetupDescription": "استخدم المزود ومفتاح API الخاص بك.",
       "description": "اختر كيف يفرّغ Loqui صوتك",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "مزودو الخدمات السحابية",
         "local": "محلي",
         "selfHosted": "مستضاف ذاتيًا",
-        "openwhisprDesc": "دقة موثوقة. لا حاجة للإعداد.",
         "providersDesc": "أحضر مفتاح API الخاص بك.",
         "localDesc": "نماذج على الجهاز. خاصة بالكامل.",
         "selfHostedDesc": "خادمك الخاص على شبكتك.",
         "enterprise": "السحابة المؤسسية",
         "enterpriseDesc": "يُرسَل الصوت إلى السحابة الخاصة بمؤسستك."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "دقة موثوقة. لا حاجة للإعداد.",
       "title": "تحويل الكلام إلى نص",
       "toasts": {
         "switchedCloud": {
@@ -3773,24 +3311,11 @@
   "settingsModal": {
     "managedByOrg": "تتم إدارة بعض الإعدادات بواسطة مؤسستك.",
     "groups": {
-      "account": "الحساب",
       "app": "التطبيق",
       "aiModels": "نماذج الذكاء الاصطناعي",
       "system": "النظام"
     },
     "sections": {
-      "account": {
-        "description": "الملف الشخصي وتسجيل الدخول",
-        "label": "الملف الشخصي"
-      },
-      "plansBilling": {
-        "description": "الخطط والاستخدام والفواتير",
-        "label": "الخطط والفواتير"
-      },
-      "workspace": {
-        "description": "الأعضاء، مساحات الفريق ومفاتيح API",
-        "label": "مساحة العمل"
-      },
       "general": {
         "description": "المظهر والأصوات وبدء التشغيل",
         "label": "التفضيلات"
@@ -3808,7 +3333,7 @@
         "label": "النماذج اللغوية"
       },
       "privacyData": {
-        "description": "الخصوصية والأذونات والتحليلات",
+        "description": "الخصوصية والأذونات والبيانات المخزّنة",
         "label": "الخصوصية والبيانات"
       },
       "system": {

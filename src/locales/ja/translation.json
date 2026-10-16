@@ -1363,7 +1363,6 @@
       "none": "なし",
       "outputLabel": "出力",
       "processing": "処理中...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "プロバイダー",
       "run": "テスト実行",
       "customEndpoint": "カスタムエンドポイント",
@@ -1384,20 +1383,11 @@
   "settingsModal": {
     "managedByOrg": "一部の設定は組織によって管理されています。",
     "groups": {
-      "account": "アカウント",
       "app": "アプリ",
       "aiModels": "AIモデル",
       "system": "システム"
     },
     "sections": {
-      "account": {
-        "description": "プロフィールとサインイン",
-        "label": "プロフィール"
-      },
-      "plansBilling": {
-        "description": "プラン、使用状況、請求",
-        "label": "プランと請求"
-      },
       "general": {
         "description": "外観、サウンド、起動設定",
         "label": "環境設定"
@@ -1415,16 +1405,12 @@
         "label": "言語モデル"
       },
       "privacyData": {
-        "description": "プライバシー、権限、分析",
+        "description": "プライバシー、権限、保存データ",
         "label": "プライバシーとデータ"
       },
       "system": {
         "description": "更新、ストレージ、開発者ツール",
         "label": "システム"
-      },
-      "workspace": {
-        "description": "メンバー、チームスペース、API キー",
-        "label": "ワークスペース"
       }
     },
     "title": "設定"
@@ -1450,230 +1436,6 @@
         "newCapacity": "新しい容量",
         "chargeToday": "本日の請求額",
         "confirm": "シートを追加"
-      }
-    },
-    "account": {
-      "badges": {
-        "free": "無料",
-        "limitReached": "上限到達",
-        "pastDue": "支払い遅延",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "トライアル"
-      },
-      "billing": {
-        "couldNotOpenDescription": "請求ページを開く際に問題が発生しました。もう一度お試しください。",
-        "couldNotOpenTitle": "請求を開けませんでした",
-        "manageBilling": "請求を管理",
-        "opening": "開いています...",
-        "updatePaymentMethod": "お支払い方法を更新",
-        "contactOwnerTitle": "ワークスペースのオーナーにご連絡ください",
-        "contactOwnerDescription": "このワークスペースの請求を更新できるのはオーナーのみです。"
-      },
-      "checkout": {
-        "couldNotOpenDescription": "購入ページを開く際に問題が発生しました。もう一度お試しください。",
-        "couldNotOpenTitle": "購入ページを開けませんでした",
-        "opening": "開いています...",
-        "upgradeToPro": "Pro にアップグレード"
-      },
-      "disabled": "無効",
-      "featuresDisabled": "アカウント機能が無効です",
-      "featuresDisabledDescription": ".env ファイルで VITE_AUTH_URL を設定してアカウント機能を有効にしてください。",
-      "notConfigured": "認証が設定されていません",
-      "notSignedIn": "サインインしていません",
-      "notSignedInDescription": "アカウントを作成してプレミアム機能をアンロックしましょう。",
-      "offline": "オフライン",
-      "pastDue": {
-        "description": "現在は無料プランをご利用中です。お支払い方法を更新して Pro に戻しましょう。",
-        "title": "お支払いを処理できませんでした"
-      },
-      "planDescriptions": {
-        "freeUsage": "今週 {{used}} / {{limit}} ワード使用済み",
-        "nextBilling": "次の請求日: {{date}}",
-        "pastDue": "今週 {{used}} / {{limit}} 無料ワード使用済み - お支払い方法を更新して Pro を復元",
-        "trial": "残り {{days}} 日 - 無制限の文字起こし",
-        "unlimited": "無制限"
-      },
-      "planLabels": {
-        "free": "無料",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "トライアル"
-      },
-      "pricing": {
-        "title": "プラン",
-        "billedYearly": "年払い",
-        "free": {
-          "name": "Free",
-          "price": "$0",
-          "period": "永久",
-          "features": [
-            "## Loqui Cloud",
-            "週2,000ワードの文字起こし",
-            "月5時間の会議録音",
-            "## 永久無料",
-            "無制限のローカルAIモデル",
-            "独自のAPIキーで無制限のクラウド文字起こし",
-            "100以上の言語に対応",
-            "カスタム辞書",
-            "データ保持なし",
-            "コミュニティサポート"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/月",
-          "annualPrice": "$80",
-          "annualPeriod": "/年",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "Free の全機能 +",
-          "features": [
-            "無制限のクラウド文字起こし",
-            "月20時間の会議録音",
-            "デバイス間の同期",
-            "公開リンクでノートを共有",
-            "個人APIアクセス",
-            "すべてのアプリでMCP統合",
-            "モバイルアプリ",
-            "メールサポート"
-          ],
-          "cta": "始める",
-          "switchToAnnual": "年払いに切り替え"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/月",
-          "annualPrice": "$160",
-          "annualPeriod": "/年",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "Pro の全機能 +",
-          "badge": "一番人気",
-          "features": [
-            "無制限の会議録音",
-            "ワークスペースのロールとメンバー管理",
-            "アシスタントモード",
-            "データとチャット",
-            "優先サポート"
-          ],
-          "cta": "始める",
-          "switchToAnnual": "年払いに切り替え"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "カスタム",
-          "subtitle": "高度なセキュリティとサポート向け",
-          "includesPrefix": "Business の全機能 +",
-          "features": [
-            "管理されたAPIクレジット",
-            "デバイス間のクラウド同期",
-            "チーム機能と管理",
-            "SSO とコンプライアンス",
-            "専任サポート"
-          ],
-          "cta": "営業に問い合わせる",
-          "upgradeCta": "Enterpriseにアップグレード",
-          "askOwner": "{{name}}さんにワークスペースのアップグレードを依頼してください。"
-        },
-        "currentPlan": "現在のプラン",
-        "coveredByWorkspace": "ワークスペースのプランに含まれています",
-        "upgrade": "アップグレード",
-        "downgrade": "ダウングレード",
-        "planSwitched": "プランが正常に更新されました",
-        "confirmSwitch": {
-          "title": "プラン変更の確認",
-          "description": "{{plan}}（{{interval}}）に変更",
-          "monthly": "月額",
-          "yearly": "年額",
-          "chargeToday": "本日のご請求",
-          "accountCredit": "アカウントクレジット",
-          "newPrice": "新しい料金",
-          "nextBilling": "次回請求日",
-          "mo": "mo",
-          "yr": "yr",
-          "cancel": "キャンセル",
-          "confirm": "確認"
-        }
-      },
-      "rollingWeeklyLimit": "週間利用上限（ローリング）",
-      "signOut": {
-        "failedDescription": "サインアウト中に問題が発生しました。もう一度お試しください。",
-        "failedTitle": "サインアウトできませんでした",
-        "signOut": "サインアウト",
-        "signingOut": "サインアウト中..."
-      },
-      "signedOutPlans": {
-        "button": "無料アカウントを作成"
-      },
-      "title": "アカウント",
-      "toasts": {
-        "approachingLimit": {
-          "description": "今週 {{used}} / {{limit}} 無料ワードを使用しました。Pro にアップグレードして無制限にご利用ください。",
-          "title": "週間利用上限に近づいています"
-        }
-      },
-      "trialCta": {
-        "button": "無料アカウントを作成",
-        "description": "無制限の文字起こし、優先処理など。",
-        "title": "Pro を 7 日間無料でお試し"
-      },
-      "user": "ユーザー",
-      "wordsRemaining": "残り {{remaining}}",
-      "deleteAccount": {
-        "label": "アカウントを削除",
-        "labelDescription": "アカウントと個人のクラウドデータを完全に削除します。他のローカルユーザーとワークスペース所有のコンテンツは保持されます。",
-        "button": "アカウントを削除",
-        "deleting": "削除中...",
-        "title": "アカウントを削除しますか？",
-        "description": "Loqui アカウントと個人データを完全に削除します。ワークスペース所有のコンテンツと他のローカルユーザーのデータはこのデバイスに残ります。",
-        "confirmText": "アカウントを削除",
-        "eraseDeviceLabel": "このデバイス上のすべてのデータも消去する",
-        "eraseDeviceDescription": "すべてのローカルユーザーのノートとワークスペースキャッシュ、ダウンロード済みモデル、設定、カレンダー接続、認証情報、録音を削除します。",
-        "eraseDeviceWarning": "このデバイス全体の消去は元に戻せず、すべてのローカルユーザーに影響します。",
-        "successTitle": "アカウントが削除されました",
-        "successDescription": "アカウントと個人データが削除されました。他のローカルユーザー、ワークスペース、モデル、デバイス設定は保持されました。",
-        "partialCleanupDescription": "アカウントは削除されましたが、一部のローカルクリーンアップを完了できませんでした。他のユーザーとワークスペース所有のコンテンツは保持されました。",
-        "failedTitle": "削除に失敗しました",
-        "failedDescription": "アカウントの削除を完了できませんでした。デバイス全体の消去は開始されていません。もう一度お試しください。"
-      },
-      "profile": {
-        "name": {
-          "label": "表示名",
-          "placeholder": "お名前",
-          "save": "保存",
-          "saving": "保存中...",
-          "saved": "表示名を更新しました",
-          "error": "名前を更新できませんでした"
-        },
-        "password": {
-          "label": "パスワード",
-          "description": "サインインに使用するパスワードを変更します。",
-          "change": "パスワードを変更",
-          "dialogTitle": "パスワードを変更",
-          "dialogDescription": "現在のパスワードを入力し、新しいパスワードを設定してください。",
-          "currentLabel": "現在のパスワード",
-          "newLabel": "新しいパスワード",
-          "confirmLabel": "新しいパスワード（確認）",
-          "minLength": "パスワードは 8 文字以上にしてください",
-          "mismatch": "パスワードが一致しません",
-          "revokeOthers": "他のデバイスでサインアウト",
-          "submit": "パスワードを更新",
-          "saving": "更新中...",
-          "cancel": "キャンセル",
-          "saved": "パスワードを更新しました"
-        },
-        "errors": {
-          "invalidPassword": "現在のパスワードが正しくありません。",
-          "passwordTooShort": "パスワードは 8 文字以上にしてください。",
-          "passwordTooLong": "パスワードが長すぎます。",
-          "noPassword": "このアカウントにはパスワードが設定されていません。",
-          "generic": "問題が発生しました。もう一度お試しください。"
-        }
-      },
-      "planUnavailable": {
-        "title": "プランを取得できません",
-        "description": "現在プランを読み込めませんでした。ご利用の権限は変わりません。"
       }
     },
     "agentConfig": {
@@ -1704,19 +1466,15 @@
       "enableTextCleanup": "テキスト補正を有効にする",
       "enableTextCleanupDescription": "AI がフィラーワードを除去し、文法と句読点を整える",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "クラウドプロバイダー",
         "local": "ローカル",
         "selfHosted": "セルフホスト",
-        "openwhisprDesc": "信頼できる精度。設定不要。",
         "providersDesc": "自分のAPIキーを使用。",
         "localDesc": "端末上のモデル。完全プライベート。",
         "selfHostedDesc": "自前サーバーをネットワーク上に。",
         "enterprise": "エンタープライズ",
         "enterpriseDesc": "組織のクラウドアカウントを使用 (AWS, Azure, GCP)。"
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "信頼できる精度。設定不要。",
       "title": "AI テキスト補正",
       "toasts": {
         "switchedCloud": {
@@ -2065,8 +1823,6 @@
       "leaderboardDescription": "対象となるワークスペースと勤務先ドメインのリーダーボードに、名前、メールアドレス、アクティビティを表示します。文字起こしは非公開のままです。",
       "leaderboardRequiresAccount": "リーダーボードへの参加を管理するにはサインインしてください。",
       "leaderboardRequiresHistory": "リーダーボードに参加する前にデータ保持を有効にしてください。",
-      "usageAnalytics": "使用状況の分析",
-      "usageAnalyticsDescription": "匿名のパフォーマンスデータを共有して Loqui の改善にご協力ください。文字起こしの内容は送信されません。タイミングとエラーデータのみです。",
       "dataRetention": "データ保持",
       "dataRetentionDescription": "文字起こしと音声を履歴にローカル保存します。無効にすると、文字起こしは貼り付けられますが保存されません。",
       "transcriptRetention": "文字起こしの保持",
@@ -2130,19 +1886,15 @@
       "customSetupDescription": "独自のプロバイダーと API キーを使用。",
       "description": "Loqui の音声文字起こし方法を選択",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "クラウドプロバイダー",
         "local": "ローカル",
         "selfHosted": "セルフホスト",
-        "openwhisprDesc": "信頼できる精度。設定不要。",
         "providersDesc": "自分のAPIキーを使用。",
         "localDesc": "端末上のモデル。完全プライベート。",
         "selfHostedDesc": "自前サーバーをネットワーク上に。",
         "enterprise": "エンタープライズクラウド",
         "enterpriseDesc": "音声は組織自身のクラウドに送信されます。"
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "信頼できる精度。設定不要。",
       "title": "音声テキスト変換",
       "toasts": {
         "switchedCloud": {
@@ -2238,206 +1990,6 @@
       "endpointUrl": "エンドポイント URL",
       "serverUrl": "サーバー URL",
       "apiKeyOptional": "API キー（任意）"
-    },
-    "workspace": {
-      "title": "ワークスペース",
-      "description": "チームメイトとのコラボレーション、ノートの共有、ワークスペースへのアクセス管理を一括で行えます。",
-      "empty": {
-        "title": "最初のワークスペースを作成",
-        "description": "ワークスペースでは、チームメイトとのコラボレーションやノートの共有ができます。",
-        "create": "ワークスペースを作成"
-      },
-      "loadError": {
-        "title": "ワークスペースを読み込めませんでした",
-        "description": "接続を確認して、もう一度お試しください。",
-        "retry": "再試行"
-      },
-      "tab": {
-        "general": "一般",
-        "members": "メンバー",
-        "teams": "グループ",
-        "developer": "開発者"
-      },
-      "role": {
-        "owner": "オーナー",
-        "admin": "管理者",
-        "member": "メンバー"
-      },
-      "general": {
-        "nameLabel": "ワークスペース名",
-        "saved": "ワークスペースを更新しました",
-        "dangerTitle": "ワークスペースを削除",
-        "dangerDescription": "共有されているノート、フォルダ、連携がすべて削除されます。この操作は取り消せません。",
-        "delete": "ワークスペースを削除",
-        "confirmTitle": "{{name}} を削除しますか？",
-        "confirmDescription": "サブスクリプションがキャンセルされ、ワークスペースのすべてのデータが完全に削除されます。",
-        "deleting": "削除中…",
-        "deleted": "ワークスペースを削除しました",
-        "leaveTitle": "ワークスペースから退出",
-        "leaveDescription": "このワークスペースと共有ノートにアクセスできなくなります。",
-        "leave": "ワークスペースから退出",
-        "leaving": "退出中…",
-        "leaveConfirm": {
-          "title": "{{name}} から退出しますか？",
-          "description": "すぐにアクセスできなくなります。管理者が再度招待できます。"
-        },
-        "left": "{{name}} から退出しました"
-      },
-      "members": {
-        "title": "メンバー",
-        "description": "{{seats}} シート中 {{count}} シートを使用中。",
-        "invite": "招待",
-        "empty": "まだメンバーがいません。",
-        "loadError": "メンバーを読み込めませんでした。",
-        "roleUpdated": "役割を更新しました",
-        "removed": "{{name}} を削除しました",
-        "promote": "管理者にする",
-        "demote": "メンバーにする",
-        "transferOwnership": "オーナー権限を譲渡",
-        "remove": "ワークスペースから削除",
-        "removeConfirm": {
-          "title": "このメンバーを削除しますか？",
-          "description": "{{name}} はすぐに {{workspace}} にアクセスできなくなります。"
-        },
-        "transferConfirm": {
-          "title": "オーナー権限を譲渡しますか？",
-          "description": "{{name}} が {{workspace}} のオーナーになります。あなたの役割は管理者に変わり、元に戻せるのは新しいオーナーのみです。"
-        }
-      },
-      "joinRequests": {
-        "title": "参加リクエスト",
-        "approve": "承認",
-        "deny": "却下",
-        "approved": "{{name}} がワークスペースに参加しました",
-        "denied": "リクエストを却下しました",
-        "errorTitle": "リクエストを更新できませんでした"
-      },
-      "teams": {
-        "title": "グループ",
-        "description": "チームスペースへのアクセスをまとめて付与できるワークスペースメンバーのグループ。",
-        "new": "新しいグループ",
-        "empty": "グループはまだありません。",
-        "createFirst": "最初のグループを作成",
-        "addMembersLabel": "メンバーを追加",
-        "createTitle": "グループを作成",
-        "nameLabel": "グループ名",
-        "memberCount_one": "{{count}}人のメンバー",
-        "memberCount_other": "{{count}}人のメンバー",
-        "membersButton": "メンバー",
-        "grantsAccessToSpaces_one": "{{count}} 件のスペースへのアクセスを付与しています",
-        "grantsAccessToSpaces_other": "{{count}} 件のスペースへのアクセスを付与しています",
-        "couldNotCreate": "グループを作成できませんでした",
-        "created": "{{team}} を作成しました",
-        "deleted": "{{team}} を削除しました",
-        "deleteConfirmTitle": "{{team}} を削除しますか？",
-        "deleteConfirmDescription": "グループをアーカイブします。このグループが付与していたアクセスは失われます。",
-        "deleteConfirmSpaceAccess_one": "このグループは {{count}} 件のスペースへのアクセスを付与しています。メンバーはそのアクセスを失います。",
-        "deleteConfirmSpaceAccess_other": "このグループは {{count}} 件のスペースへのアクセスを付与しています。メンバーはそのアクセスを失います。",
-        "members": {
-          "title": "{{team}} のメンバー",
-          "removeConfirm": "{{name}} を {{team}} から外しますか？",
-          "leave": "グループから退出",
-          "leftTeam": "{{team}} から退出しました",
-          "leaveConfirm": "{{team}} から退出しますか？",
-          "leaveConfirmDescription": "直接追加されているか他のグループに含まれていない限り、このグループが付与するスペースへのアクセスを失います。"
-        }
-      },
-      "invites": {
-        "title": "保留中の招待",
-        "expiresIn_one": "有効期限まであと{{count}}日",
-        "expiresIn_other": "有効期限まであと{{count}}日",
-        "expired": "期限切れ",
-        "loadError": "招待を読み込めませんでした。",
-        "resend": "再送信",
-        "resending": "再送信中…",
-        "revoke": "取り消す",
-        "resent": "招待を再送信しました",
-        "resentNoEmail": "招待を更新しましたが、メールを配信できませんでした。",
-        "revoked": "招待を取り消しました",
-        "revokeFailed": "招待を取り消せませんでした",
-        "revokeConfirm": {
-          "title": "この招待を取り消しますか？",
-          "description": "{{email}} への招待リンクが無効になります。"
-        }
-      },
-      "billing": {
-        "plan": "プラン",
-        "seats": "シート",
-        "ownerOnly": "サブスクリプションを管理できるのはワークスペースのオーナーのみです。",
-        "nextInvoice": "次回の請求",
-        "manageStripe": "Stripe で管理",
-        "startSubscription": "サブスクリプションを開始",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "Free",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "有効",
-          "trialing": "トライアル中",
-          "past_due": "支払い期限超過",
-          "canceled": "キャンセル済み",
-          "incomplete": "未完了",
-          "unpaid": "未払い"
-        }
-      },
-      "developer": {
-        "title": "API キー",
-        "description": "このワークスペースに限定されたプログラムからのアクセス。",
-        "empty": "まだ API キーがありません。このワークスペースと連携するには作成してください。",
-        "loadError": "APIキーを読み込めませんでした。",
-        "new": "新規キー",
-        "create": "キーを作成",
-        "createTitle": "API キーを作成",
-        "createDescription": "このキーに必要な権限を選択してください。いつでも取り消せます。",
-        "nameLabel": "キー名",
-        "namePlaceholder": "本番環境の連携",
-        "revoke": "キーを取り消す",
-        "revoked": "キー {{name}} を取り消しました",
-        "lastUsed": "最終使用: {{date}}",
-        "neverUsed": "未使用",
-        "keyCreatedTitle": "API キーを作成しました",
-        "keyCreatedDescription": "このキーを今すぐコピーしてください。後で再表示することはできません。",
-        "revokeConfirm": {
-          "title": "このキーを取り消しますか？",
-          "description": "{{name}} はすぐに使用できなくなります。このキーを使用している連携は失敗するようになります。"
-        },
-        "scopes": {
-          "notes": {
-            "title": "ノート",
-            "read": "ノートの読み取り",
-            "write": "ノートの書き込み"
-          },
-          "folders": {
-            "title": "フォルダ",
-            "read": "フォルダの読み取り",
-            "write": "フォルダの書き込み"
-          },
-          "transcriptions": {
-            "title": "文字起こし",
-            "read": "文字起こしの読み取り"
-          },
-          "members": {
-            "title": "メンバー",
-            "read": "メンバーの読み取り",
-            "write": "メンバーの管理"
-          },
-          "billing": {
-            "title": "請求",
-            "read": "請求の読み取り"
-          },
-          "full": {
-            "title": "フルアクセス",
-            "admin": "ワークスペース管理者"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "Enterpriseコンソール",
-        "description": "SSO、ポリシー、メンバーをウェブで管理",
-        "open": "コンソールを開く"
-      }
     },
     "enterpriseCheckout": {
       "title": "Enterpriseにアップグレード",
@@ -2927,7 +2479,6 @@
       "newFolder": "新しいフォルダ",
       "folderName": "フォルダ名",
       "create": "作成",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "カスタム",
       "selectFolder": "フォルダを選択",
       "transcriptionFailed": "文字起こしに失敗しました",
@@ -3537,8 +3088,6 @@
       "relaunchHint": "画面収録の許可は Loqui の実行中に付与されました。スクリーンショットのキャプチャを開始するには、Loqui を終了して再度開いてください。"
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "Loqui が管理するアシスタントを使用。API キーは不要です。",
       "providers": "自分の API キーを使用",
       "providersDesc": "自分の API キーで OpenAI、Anthropic、Gemini、Groq に接続します。",
       "local": "ローカル",
@@ -3559,11 +3108,9 @@
       "systemPromptDescription": "アシスタントへのカスタム指示",
       "systemPromptPlaceholder": "カスタムシステムプロンプトを入力...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "クラウドプロバイダー",
         "local": "ローカル",
         "selfHosted": "セルフホスト",
-        "openwhisprDesc": "信頼できる精度。設定不要。",
         "providersDesc": "独自のAPIキーを使用。",
         "localDesc": "デバイス上のモデル。完全プライベート。",
         "selfHostedDesc": "ネットワーク上の自分のサーバー。",

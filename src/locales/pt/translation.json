@@ -1342,7 +1342,6 @@
       "none": "Nenhum",
       "outputLabel": "Saída",
       "processing": "Processando...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "Provedor",
       "run": "Executar teste",
       "customEndpoint": "Endpoint personalizado",
@@ -1363,20 +1362,11 @@
   "settingsModal": {
     "managedByOrg": "Algumas configurações são gerenciadas pela sua organização.",
     "groups": {
-      "account": "Conta",
       "app": "Aplicativo",
       "aiModels": "Modelos de IA",
       "system": "Sistema"
     },
     "sections": {
-      "account": {
-        "description": "Perfil e login",
-        "label": "Perfil"
-      },
-      "plansBilling": {
-        "description": "Planos, uso e cobrança",
-        "label": "Planos e cobrança"
-      },
       "general": {
         "description": "Aparência, sons e inicialização",
         "label": "Preferências"
@@ -1394,16 +1384,12 @@
         "label": "Modelos de linguagem"
       },
       "privacyData": {
-        "description": "Privacidade, permissões e análise",
+        "description": "Privacidade, permissões e dados armazenados",
         "label": "Privacidade e dados"
       },
       "system": {
         "description": "Atualizações, armazenamento e ferramentas de desenvolvimento",
         "label": "Sistema"
-      },
-      "workspace": {
-        "description": "Membros, espaços de equipe e chaves de API",
-        "label": "Espaço de trabalho"
       }
     },
     "title": "Configurações"
@@ -1429,230 +1415,6 @@
         "newCapacity": "Nova capacidade",
         "chargeToday": "Cobrança de hoje",
         "confirm": "Adicionar assento"
-      }
-    },
-    "account": {
-      "badges": {
-        "free": "Gratuito",
-        "limitReached": "Limite atingido",
-        "pastDue": "Em atraso",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "Teste"
-      },
-      "billing": {
-        "couldNotOpenDescription": "Tivemos dificuldade em abrir a página de cobrança. Tente novamente.",
-        "couldNotOpenTitle": "Não foi possível abrir cobrança",
-        "manageBilling": "Gerenciar cobrança",
-        "opening": "Abrindo...",
-        "updatePaymentMethod": "Atualizar forma de pagamento",
-        "contactOwnerTitle": "Fale com o proprietário do workspace",
-        "contactOwnerDescription": "Apenas o proprietário do workspace pode atualizar a cobrança dele."
-      },
-      "checkout": {
-        "couldNotOpenDescription": "Tivemos dificuldade em abrir a página de checkout. Tente novamente.",
-        "couldNotOpenTitle": "Não foi possível abrir checkout",
-        "opening": "Abrindo...",
-        "upgradeToPro": "Fazer upgrade para Pro"
-      },
-      "disabled": "Desabilitado",
-      "featuresDisabled": "Recursos de conta desabilitados",
-      "featuresDisabledDescription": "Defina VITE_AUTH_URL no seu arquivo .env para habilitar os recursos de conta.",
-      "notConfigured": "A autenticação não está configurada",
-      "notSignedIn": "Não conectado",
-      "notSignedInDescription": "Crie uma conta para desbloquear recursos premium.",
-      "offline": "Offline",
-      "pastDue": {
-        "description": "Você está no plano gratuito por enquanto. Atualize sua forma de pagamento para voltar ao Pro.",
-        "title": "Não foi possível processar seu pagamento"
-      },
-      "planDescriptions": {
-        "freeUsage": "{{used}} / {{limit}} palavras esta semana",
-        "nextBilling": "Próxima cobrança: {{date}}",
-        "pastDue": "{{used}} / {{limit}} palavras gratuitas esta semana — atualize o pagamento para restaurar o Pro",
-        "trial": "{{days}} dias restantes — transcrições ilimitadas",
-        "unlimited": "Ilimitado"
-      },
-      "planLabels": {
-        "free": "Gratuito",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "Teste"
-      },
-      "rollingWeeklyLimit": "Limite semanal contínuo",
-      "signOut": {
-        "failedDescription": "Algo deu errado ao sair. Tente novamente.",
-        "failedTitle": "Não foi possível sair",
-        "signOut": "Sair",
-        "signingOut": "Saindo..."
-      },
-      "title": "Conta",
-      "toasts": {
-        "approachingLimit": {
-          "description": "Você usou {{used}} de {{limit}} palavras gratuitas esta semana. Faça upgrade para Pro para uso ilimitado.",
-          "title": "Aproximando-se do limite semanal"
-        }
-      },
-      "trialCta": {
-        "button": "Criar conta gratuita",
-        "description": "Transcrições ilimitadas, processamento prioritário e muito mais.",
-        "title": "Experimente o Pro grátis por 7 dias"
-      },
-      "pricing": {
-        "title": "Planos",
-        "billedYearly": "Cobrança anual",
-        "free": {
-          "name": "Free",
-          "price": "$0",
-          "period": "para sempre",
-          "features": [
-            "## Loqui Cloud",
-            "2.000 palavras/semana de transcrição",
-            "5 horas de gravação de reuniões/mês",
-            "## Sempre gratuito",
-            "Modelos de IA locais ilimitados",
-            "Transcrição na nuvem ilimitada com suas próprias chaves de API",
-            "Mais de 100 idiomas suportados",
-            "Dicionário personalizado",
-            "Zero retenção de dados",
-            "Suporte da comunidade"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/mês",
-          "annualPrice": "$80",
-          "annualPeriod": "/ano",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "Todos os recursos do Free +",
-          "features": [
-            "Transcrição na nuvem ilimitada",
-            "20 horas de gravação de reuniões/mês",
-            "Sincronização entre dispositivos",
-            "Compartilhe notas com links públicos",
-            "Acesso pessoal à API",
-            "Integração MCP em todos os seus apps",
-            "Aplicativo móvel",
-            "Suporte por e-mail"
-          ],
-          "cta": "Começar",
-          "switchToAnnual": "Mudar para anual"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/mês",
-          "annualPrice": "$160",
-          "annualPeriod": "/ano",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "Todos os recursos do Pro +",
-          "badge": "Mais popular",
-          "features": [
-            "Gravações de reuniões ilimitadas",
-            "Funções e gestão de membros do espaço de trabalho",
-            "Modo assistente",
-            "Converse com seus dados",
-            "Suporte prioritário"
-          ],
-          "cta": "Começar",
-          "switchToAnnual": "Mudar para anual"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "Personalizado",
-          "subtitle": "Para segurança avançada e suporte",
-          "includesPrefix": "Todos os recursos do Business +",
-          "features": [
-            "Créditos de API gerenciados",
-            "Sincronização na nuvem entre dispositivos",
-            "Recursos de equipe e administração",
-            "SSO e conformidade",
-            "Suporte dedicado"
-          ],
-          "cta": "Falar com Vendas",
-          "upgradeCta": "Fazer upgrade para Enterprise",
-          "askOwner": "Peça a {{name}} para fazer o upgrade do seu workspace."
-        },
-        "currentPlan": "Plano atual",
-        "coveredByWorkspace": "Incluído no plano do seu workspace",
-        "upgrade": "Fazer upgrade",
-        "downgrade": "Fazer downgrade",
-        "planSwitched": "Plano atualizado com sucesso",
-        "confirmSwitch": {
-          "title": "Confirmar alteração de plano",
-          "description": "Mudar para {{plan}} ({{interval}})",
-          "monthly": "mensal",
-          "yearly": "anual",
-          "chargeToday": "Cobrança hoje",
-          "accountCredit": "Crédito na conta",
-          "newPrice": "Novo preço",
-          "nextBilling": "Próxima cobrança",
-          "mo": "mo",
-          "yr": "yr",
-          "cancel": "Cancelar",
-          "confirm": "Confirmar"
-        }
-      },
-      "signedOutPlans": {
-        "button": "Criar conta gratuita"
-      },
-      "user": "Usuário",
-      "wordsRemaining": "{{remaining}} restantes",
-      "deleteAccount": {
-        "label": "Excluir conta",
-        "labelDescription": "Excluir permanentemente sua conta e dados pessoais na nuvem. Outros usuários locais e conteúdos dos espaços de trabalho são preservados.",
-        "button": "Excluir minha conta",
-        "deleting": "Excluindo...",
-        "title": "Excluir sua conta?",
-        "description": "Isso exclui permanentemente sua conta Loqui e seus dados pessoais. Conteúdos dos espaços de trabalho e dados de outros usuários locais permanecem neste dispositivo.",
-        "confirmText": "Excluir conta",
-        "eraseDeviceLabel": "Também apagar todos os dados deste dispositivo",
-        "eraseDeviceDescription": "Exclui notas e caches de espaços de todos os usuários locais, modelos baixados, configurações, calendários, credenciais e gravações.",
-        "eraseDeviceWarning": "Esta exclusão de todo o dispositivo não pode ser desfeita e afeta todos os usuários locais.",
-        "successTitle": "Conta excluída",
-        "successDescription": "Sua conta e dados pessoais foram excluídos. Outros usuários locais, espaços de trabalho, modelos e configurações foram preservados.",
-        "partialCleanupDescription": "Sua conta foi excluída, mas parte da limpeza local não pôde ser concluída. Outros usuários e conteúdos dos espaços de trabalho foram preservados.",
-        "failedTitle": "Falha na exclusão",
-        "failedDescription": "Não foi possível concluir a exclusão da conta. Nenhuma exclusão de todo o dispositivo foi iniciada. Tente novamente."
-      },
-      "profile": {
-        "name": {
-          "label": "Nome de exibição",
-          "placeholder": "Seu nome",
-          "save": "Salvar",
-          "saving": "Salvando...",
-          "saved": "Nome de exibição atualizado",
-          "error": "Não foi possível atualizar seu nome"
-        },
-        "password": {
-          "label": "Senha",
-          "description": "Altere a senha que você usa para entrar.",
-          "change": "Alterar senha",
-          "dialogTitle": "Alterar senha",
-          "dialogDescription": "Digite sua senha atual e escolha uma nova.",
-          "currentLabel": "Senha atual",
-          "newLabel": "Nova senha",
-          "confirmLabel": "Confirmar nova senha",
-          "minLength": "A senha deve ter pelo menos 8 caracteres",
-          "mismatch": "As senhas não coincidem",
-          "revokeOthers": "Sair dos outros dispositivos",
-          "submit": "Atualizar senha",
-          "saving": "Atualizando...",
-          "cancel": "Cancelar",
-          "saved": "Senha atualizada"
-        },
-        "errors": {
-          "invalidPassword": "Sua senha atual está incorreta.",
-          "passwordTooShort": "A senha deve ter pelo menos 8 caracteres.",
-          "passwordTooLong": "A senha é muito longa.",
-          "noPassword": "Nenhuma senha está definida para esta conta.",
-          "generic": "Algo deu errado. Tente novamente."
-        }
-      },
-      "planUnavailable": {
-        "title": "Plano indisponível",
-        "description": "Não conseguimos carregar seu plano agora. Seu acesso permanece o mesmo."
       }
     },
     "agentConfig": {
@@ -1683,19 +1445,15 @@
       "enableTextCleanup": "Ativar limpeza de texto",
       "enableTextCleanupDescription": "A IA remove palavras de preenchimento, corrige gramática e pontuação",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Provedores na nuvem",
         "local": "Local",
         "selfHosted": "Auto-hospedado",
-        "openwhisprDesc": "Resultados confiáveis. Sem configuração.",
         "providersDesc": "Use sua própria chave API.",
         "localDesc": "Modelos no dispositivo. Privado.",
         "selfHostedDesc": "Seu servidor na sua rede.",
         "enterprise": "Corporativo",
         "enterpriseDesc": "Use a conta de nuvem da sua organização (AWS, Azure, GCP)."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "Resultados confiáveis. Sem configuração.",
       "title": "Melhoria de texto com IA",
       "toasts": {
         "switchedCloud": {
@@ -2044,8 +1802,6 @@
       "leaderboardDescription": "Mostre seu nome, e-mail e atividade nas classificações qualificadas de espaços de trabalho e domínios profissionais. As transcrições permanecem privadas.",
       "leaderboardRequiresAccount": "Entre na sua conta para gerenciar sua participação nas classificações.",
       "leaderboardRequiresHistory": "Ative a retenção de dados antes de participar das classificações.",
-      "usageAnalytics": "Análise de uso",
-      "usageAnalyticsDescription": "Ajude-nos a melhorar o Loqui compartilhando métricas anônimas de desempenho. Nunca enviamos conteúdo de transcrição — apenas dados de tempo e erros.",
       "dataRetention": "Retenção de dados",
       "dataRetentionDescription": "Armazenar transcrições e áudio localmente no seu histórico. Quando desativado, as transcrições são coladas mas não salvas.",
       "transcriptRetention": "Retenção de transcrições",
@@ -2109,19 +1865,15 @@
       "customSetupDescription": "Use seu próprio provedor e chave API.",
       "description": "Escolha como o Loqui transcreve sua voz",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Provedores na nuvem",
         "local": "Local",
         "selfHosted": "Auto-hospedado",
-        "openwhisprDesc": "Resultados confiáveis. Sem configuração.",
         "providersDesc": "Use sua própria chave API.",
         "localDesc": "Modelos no dispositivo. Privado.",
         "selfHostedDesc": "Seu servidor na sua rede.",
         "enterprise": "Nuvem corporativa",
         "enterpriseDesc": "O áudio vai para a nuvem da sua organização."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "Resultados confiáveis. Sem configuração.",
       "title": "Fala para texto",
       "toasts": {
         "switchedCloud": {
@@ -2217,206 +1969,6 @@
       "endpointUrl": "URL do endpoint",
       "serverUrl": "URL do servidor",
       "apiKeyOptional": "API Key (opcional)"
-    },
-    "workspace": {
-      "title": "Espaço de trabalho",
-      "description": "Colabore com colegas, compartilhe notas e gerencie o acesso ao workspace em um só lugar.",
-      "empty": {
-        "title": "Crie seu primeiro espaço de trabalho",
-        "description": "Espaços de trabalho permitem colaborar com colegas e compartilhar notas.",
-        "create": "Criar espaço de trabalho"
-      },
-      "loadError": {
-        "title": "Não foi possível carregar os espaços de trabalho",
-        "description": "Verifique sua conexão e tente novamente.",
-        "retry": "Tentar novamente"
-      },
-      "tab": {
-        "general": "Geral",
-        "members": "Membros",
-        "teams": "Grupos",
-        "developer": "Desenvolvedor"
-      },
-      "role": {
-        "owner": "Proprietário",
-        "admin": "Administrador",
-        "member": "Membro"
-      },
-      "general": {
-        "nameLabel": "Nome do espaço de trabalho",
-        "saved": "Espaço de trabalho atualizado",
-        "dangerTitle": "Excluir espaço de trabalho",
-        "dangerDescription": "Todas as notas, pastas e integrações compartilhadas serão excluídas. Esta ação não pode ser desfeita.",
-        "delete": "Excluir espaço de trabalho",
-        "confirmTitle": "Excluir {{name}}?",
-        "confirmDescription": "Isso cancela a assinatura e remove todos os dados do espaço de trabalho permanentemente.",
-        "deleting": "Excluindo…",
-        "deleted": "Espaço de trabalho excluído",
-        "leaveTitle": "Sair do espaço de trabalho",
-        "leaveDescription": "Você perderá o acesso a este espaço de trabalho e às notas compartilhadas dele.",
-        "leave": "Sair do espaço de trabalho",
-        "leaving": "Saindo…",
-        "leaveConfirm": {
-          "title": "Sair de {{name}}?",
-          "description": "Você perderá o acesso imediatamente. Um administrador pode convidá-lo de volta."
-        },
-        "left": "Você saiu de {{name}}"
-      },
-      "members": {
-        "title": "Membros",
-        "description": "{{count}} de {{seats}} assentos usados.",
-        "invite": "Convidar",
-        "empty": "Ainda não há membros.",
-        "loadError": "Não foi possível carregar os membros.",
-        "roleUpdated": "Função atualizada",
-        "removed": "{{name}} removido",
-        "promote": "Tornar administrador",
-        "demote": "Tornar membro",
-        "transferOwnership": "Transferir propriedade",
-        "remove": "Remover do espaço de trabalho",
-        "removeConfirm": {
-          "title": "Remover este membro?",
-          "description": "{{name}} perderá o acesso a {{workspace}} imediatamente."
-        },
-        "transferConfirm": {
-          "title": "Transferir a propriedade?",
-          "description": "{{name}} se torna o proprietário de {{workspace}}. Sua função muda para administrador e apenas o novo proprietário pode transferi-la de volta."
-        }
-      },
-      "joinRequests": {
-        "title": "Pedidos de acesso",
-        "approve": "Aprovar",
-        "deny": "Recusar",
-        "approved": "{{name}} entrou no workspace",
-        "denied": "Pedido recusado",
-        "errorTitle": "Não foi possível atualizar o pedido"
-      },
-      "teams": {
-        "title": "Grupos",
-        "description": "Grupos de membros do workspace que podem receber acesso a espaços de equipe de uma vez.",
-        "new": "Novo grupo",
-        "empty": "Nenhum grupo ainda.",
-        "createFirst": "Crie seu primeiro grupo",
-        "addMembersLabel": "Adicionar membros",
-        "createTitle": "Criar grupo",
-        "nameLabel": "Nome do grupo",
-        "memberCount_one": "{{count}} membro",
-        "memberCount_other": "{{count}} membros",
-        "membersButton": "Membros",
-        "grantsAccessToSpaces_one": "Dá acesso a {{count}} espaço",
-        "grantsAccessToSpaces_other": "Dá acesso a {{count}} espaços",
-        "couldNotCreate": "Não foi possível criar o grupo",
-        "created": "{{team}} criada",
-        "deleted": "{{team}} excluída",
-        "deleteConfirmTitle": "Excluir {{team}}?",
-        "deleteConfirmDescription": "Isso arquiva o grupo. Seus membros perdem o acesso que ele concedia.",
-        "deleteConfirmSpaceAccess_one": "Este grupo dá acesso a {{count}} espaço. Seus membros perderão esse acesso.",
-        "deleteConfirmSpaceAccess_other": "Este grupo dá acesso a {{count}} espaços. Seus membros perderão esse acesso.",
-        "members": {
-          "title": "Membros de {{team}}",
-          "removeConfirm": "Remover {{name}} de {{team}}?",
-          "leave": "Sair do grupo",
-          "leftTeam": "Você saiu de {{team}}",
-          "leaveConfirm": "Sair de {{team}}?",
-          "leaveConfirmDescription": "Você perderá o acesso aos espaços atribuídos a este grupo, a menos que tenha sido adicionado diretamente ou outro grupo o inclua."
-        }
-      },
-      "invites": {
-        "title": "Convites pendentes",
-        "expiresIn_one": "Expira em {{count}} dia",
-        "expiresIn_other": "Expira em {{count}} dias",
-        "expired": "Expirado",
-        "loadError": "Não foi possível carregar os convites.",
-        "resend": "Reenviar",
-        "resending": "Reenviando…",
-        "revoke": "Revogar",
-        "resent": "Convite reenviado",
-        "resentNoEmail": "Convite atualizado, mas não foi possível entregar o e-mail.",
-        "revoked": "Convite revogado",
-        "revokeFailed": "Não foi possível revogar o convite",
-        "revokeConfirm": {
-          "title": "Revogar este convite?",
-          "description": "O link de convite de {{email}} deixará de funcionar."
-        }
-      },
-      "billing": {
-        "plan": "Plano",
-        "seats": "Assentos",
-        "ownerOnly": "Apenas o proprietário do espaço de trabalho pode gerenciar a assinatura.",
-        "nextInvoice": "Próxima fatura",
-        "manageStripe": "Gerenciar no Stripe",
-        "startSubscription": "Iniciar assinatura",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "Gratuito",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "Ativa",
-          "trialing": "Em teste",
-          "past_due": "Em atraso",
-          "canceled": "Cancelada",
-          "incomplete": "Incompleta",
-          "unpaid": "Não paga"
-        }
-      },
-      "developer": {
-        "title": "Chaves de API",
-        "description": "Acesso programático limitado a este espaço de trabalho.",
-        "empty": "Ainda não há chaves de API. Crie uma para integrar com este espaço de trabalho.",
-        "loadError": "Não foi possível carregar as chaves de API.",
-        "new": "Nova chave",
-        "create": "Criar chave",
-        "createTitle": "Criar chave de API",
-        "createDescription": "Escolha as permissões que esta chave precisa. Você pode revogá-la a qualquer momento.",
-        "nameLabel": "Nome da chave",
-        "namePlaceholder": "Integração de produção",
-        "revoke": "Revogar chave",
-        "revoked": "Chave {{name}} revogada",
-        "lastUsed": "Último uso {{date}}",
-        "neverUsed": "Nunca usada",
-        "keyCreatedTitle": "Chave de API criada",
-        "keyCreatedDescription": "Copie esta chave agora — você não poderá vê-la novamente.",
-        "revokeConfirm": {
-          "title": "Revogar esta chave?",
-          "description": "{{name}} deixará de funcionar imediatamente. Qualquer integração que a utilize começará a falhar."
-        },
-        "scopes": {
-          "notes": {
-            "title": "Notas",
-            "read": "Ler notas",
-            "write": "Escrever notas"
-          },
-          "folders": {
-            "title": "Pastas",
-            "read": "Ler pastas",
-            "write": "Escrever pastas"
-          },
-          "transcriptions": {
-            "title": "Transcrições",
-            "read": "Ler transcrições"
-          },
-          "members": {
-            "title": "Membros",
-            "read": "Ler membros",
-            "write": "Gerenciar membros"
-          },
-          "billing": {
-            "title": "Cobrança",
-            "read": "Ler cobrança"
-          },
-          "full": {
-            "title": "Acesso total",
-            "admin": "Administrador do espaço de trabalho"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "Console Enterprise",
-        "description": "Gerencie SSO, políticas e membros pela web",
-        "open": "Abrir console"
-      }
     },
     "enterpriseCheckout": {
       "title": "Fazer upgrade para Enterprise",
@@ -2934,7 +2486,6 @@
       "newFolder": "Nova pasta",
       "folderName": "Nome da pasta",
       "create": "Criar",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "Personalizado",
       "selectFolder": "Selecionar pasta",
       "transcriptionFailed": "Falha na transcrição",
@@ -3537,8 +3088,6 @@
       "relaunchHint": "A permissão de gravação de tela foi concedida enquanto o Loqui estava em execução. Feche e reabra o Loqui para começar a capturar a tela."
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "Use o assistente gerenciado pelo Loqui, sem precisar de chave API.",
       "providers": "Use sua própria chave",
       "providersDesc": "Conecte-se à OpenAI, Anthropic, Gemini ou Groq com sua própria chave API.",
       "local": "Local",
@@ -3559,11 +3108,9 @@
       "systemPromptDescription": "Instruções personalizadas para o assistente",
       "systemPromptPlaceholder": "Digite um prompt de sistema personalizado...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Provedores Cloud",
         "local": "Local",
         "selfHosted": "Auto-hospedado",
-        "openwhisprDesc": "Resultados confiáveis. Sem configuração.",
         "providersDesc": "Traga sua própria chave API.",
         "localDesc": "Modelos no dispositivo. Totalmente privado.",
         "selfHostedDesc": "Seu próprio servidor na sua rede.",

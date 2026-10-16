@@ -1363,7 +1363,6 @@
       "none": "無",
       "outputLabel": "輸出",
       "processing": "處理中...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "供應商",
       "run": "執行測試",
       "customEndpoint": "自訂端點",
@@ -1384,20 +1383,11 @@
   "settingsModal": {
     "managedByOrg": "部分設定由您的組織管理。",
     "groups": {
-      "account": "帳戶",
       "app": "應用程式",
       "aiModels": "AI 模型",
       "system": "系統"
     },
     "sections": {
-      "account": {
-        "description": "個人資料與登入",
-        "label": "個人資料"
-      },
-      "plansBilling": {
-        "description": "方案、用量與帳單",
-        "label": "方案與帳單"
-      },
       "general": {
         "description": "外觀、音效與啟動",
         "label": "偏好設定"
@@ -1415,16 +1405,12 @@
         "label": "語言模型"
       },
       "privacyData": {
-        "description": "隱私、權限與資料分析",
+        "description": "隱私權、權限與儲存的資料",
         "label": "隱私與資料"
       },
       "system": {
         "description": "更新、儲存與開發者工具",
         "label": "系統"
-      },
-      "workspace": {
-        "description": "成員、團隊空間與 API 金鑰",
-        "label": "工作區"
       }
     },
     "title": "設定"
@@ -1450,230 +1436,6 @@
         "newCapacity": "新容量",
         "chargeToday": "今日收費",
         "confirm": "新增席次"
-      }
-    },
-    "account": {
-      "badges": {
-        "free": "免費",
-        "limitReached": "已達上限",
-        "pastDue": "款項逾期",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "試用"
-      },
-      "billing": {
-        "couldNotOpenDescription": "開啟帳單頁面時發生問題。請再試一次。",
-        "couldNotOpenTitle": "無法開啟帳單頁面",
-        "manageBilling": "管理帳單",
-        "opening": "開啟中...",
-        "updatePaymentMethod": "更新付款方式",
-        "contactOwnerTitle": "請聯絡工作區擁有者",
-        "contactOwnerDescription": "只有工作區擁有者才能更新該工作區的帳單。"
-      },
-      "checkout": {
-        "couldNotOpenDescription": "開啟結帳頁面時發生問題。請再試一次。",
-        "couldNotOpenTitle": "無法開啟結帳頁面",
-        "opening": "開啟中...",
-        "upgradeToPro": "升級至 Pro"
-      },
-      "disabled": "已停用",
-      "featuresDisabled": "帳號功能已停用",
-      "featuresDisabledDescription": "請在 .env 檔案中設定 VITE_AUTH_URL 以啟用帳號功能。",
-      "notConfigured": "尚未設定驗證功能",
-      "notSignedIn": "尚未登入",
-      "notSignedInDescription": "建立帳號以解鎖進階功能。",
-      "offline": "離線",
-      "pastDue": {
-        "description": "你目前使用的是免費方案。更新付款方式即可恢復 Pro。",
-        "title": "我們無法處理你的付款"
-      },
-      "planDescriptions": {
-        "freeUsage": "本週已使用 {{used}} / {{limit}} 字",
-        "nextBilling": "下次扣款日：{{date}}",
-        "pastDue": "本週 {{used}} / {{limit}} 免費字數——更新付款方式以恢復 Pro",
-        "trial": "剩餘 {{days}} 天——無限轉錄",
-        "unlimited": "無限"
-      },
-      "planLabels": {
-        "free": "免費",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "試用"
-      },
-      "rollingWeeklyLimit": "滾動式每週額度",
-      "signOut": {
-        "failedDescription": "登出時發生錯誤。請再試一次。",
-        "failedTitle": "無法登出",
-        "signOut": "登出",
-        "signingOut": "登出中..."
-      },
-      "title": "帳號",
-      "toasts": {
-        "approachingLimit": {
-          "description": "你本週已使用 {{used}} / {{limit}} 免費字數。升級至 Pro 即可無限使用。",
-          "title": "即將達到每週上限"
-        }
-      },
-      "trialCta": {
-        "button": "建立免費帳號",
-        "description": "無限轉錄、優先處理等更多功能。",
-        "title": "免費試用 Pro 7 天"
-      },
-      "pricing": {
-        "title": "方案",
-        "billedYearly": "按年計費",
-        "free": {
-          "name": "Free",
-          "price": "$0",
-          "period": "永久",
-          "features": [
-            "## Loqui Cloud",
-            "每週 2,000 字轉錄",
-            "每月 5 小時會議錄製",
-            "## 永久免費",
-            "無限本地 AI 模型",
-            "使用自己的 API 金鑰無限雲端轉錄",
-            "支援 100+ 種語言",
-            "自訂詞典",
-            "零資料留存",
-            "社群支援"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/月",
-          "annualPrice": "$80",
-          "annualPeriod": "/年",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "所有 Free 功能 +",
-          "features": [
-            "無限雲端轉錄",
-            "每月 20 小時會議錄製",
-            "跨裝置同步",
-            "透過公開連結分享筆記",
-            "個人 API 存取",
-            "在所有應用程式中整合 MCP",
-            "行動應用程式",
-            "電子郵件支援"
-          ],
-          "cta": "開始使用",
-          "switchToAnnual": "切換為年付"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/月",
-          "annualPrice": "$160",
-          "annualPeriod": "/年",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "所有 Pro 功能 +",
-          "badge": "最熱門",
-          "features": [
-            "無限會議錄製",
-            "工作區角色與成員管理",
-            "助理模式",
-            "與您的資料對話",
-            "優先支援"
-          ],
-          "cta": "開始使用",
-          "switchToAnnual": "切換為年付"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "自訂",
-          "subtitle": "提供進階安全保障與支援",
-          "includesPrefix": "所有 Business 功能 +",
-          "features": [
-            "託管 API 額度",
-            "跨裝置雲端同步",
-            "團隊功能與管理",
-            "SSO 與合規",
-            "專屬支援"
-          ],
-          "cta": "聯繫銷售",
-          "upgradeCta": "升級至 Enterprise",
-          "askOwner": "請 {{name}} 升級您的工作區。"
-        },
-        "currentPlan": "目前方案",
-        "coveredByWorkspace": "已包含在您的工作區方案中",
-        "upgrade": "升級",
-        "downgrade": "降級",
-        "planSwitched": "方案已成功更新",
-        "confirmSwitch": {
-          "title": "確認更換方案",
-          "description": "切換至 {{plan}}（{{interval}}）",
-          "monthly": "月付",
-          "yearly": "年付",
-          "chargeToday": "今日收費",
-          "accountCredit": "帳戶餘額",
-          "newPrice": "新價格",
-          "nextBilling": "下次計費",
-          "mo": "月",
-          "yr": "年",
-          "cancel": "取消",
-          "confirm": "確認"
-        }
-      },
-      "signedOutPlans": {
-        "button": "建立免費帳號"
-      },
-      "user": "使用者",
-      "wordsRemaining": "剩餘 {{remaining}} 字",
-      "deleteAccount": {
-        "label": "刪除帳戶",
-        "labelDescription": "永久刪除您的帳戶和個人雲端資料。其他本地使用者和工作區擁有的內容將被保留。",
-        "button": "刪除我的帳戶",
-        "deleting": "正在刪除...",
-        "title": "刪除您的帳戶？",
-        "description": "這將永久刪除您的 Loqui 帳戶和個人資料。工作區擁有的內容及其他本地使用者的資料會保留在此裝置上。",
-        "confirmText": "刪除帳戶",
-        "eraseDeviceLabel": "同時清除此裝置上的所有資料",
-        "eraseDeviceDescription": "刪除所有本地使用者的筆記和工作區快取、已下載模型、設定、行事曆連線、憑證和錄音。",
-        "eraseDeviceWarning": "此裝置級清除無法復原，並會影響所有本地使用者。",
-        "successTitle": "帳戶已刪除",
-        "successDescription": "您的帳戶和個人資料已刪除。其他本地使用者、工作區、模型和裝置設定均已保留。",
-        "partialCleanupDescription": "您的帳戶已刪除，但部分本地清理未能完成。其他使用者和工作區擁有的內容均已保留。",
-        "failedTitle": "刪除失敗",
-        "failedDescription": "無法完成帳戶刪除。未啟動裝置級清除。請重試。"
-      },
-      "profile": {
-        "name": {
-          "label": "顯示名稱",
-          "placeholder": "您的姓名",
-          "save": "儲存",
-          "saving": "儲存中...",
-          "saved": "顯示名稱已更新",
-          "error": "無法更新您的姓名"
-        },
-        "password": {
-          "label": "密碼",
-          "description": "變更您用於登入的密碼。",
-          "change": "變更密碼",
-          "dialogTitle": "變更密碼",
-          "dialogDescription": "輸入您目前的密碼並設定新密碼。",
-          "currentLabel": "目前密碼",
-          "newLabel": "新密碼",
-          "confirmLabel": "確認新密碼",
-          "minLength": "密碼至少需要 8 個字元",
-          "mismatch": "兩次輸入的密碼不一致",
-          "revokeOthers": "在其他裝置上登出",
-          "submit": "更新密碼",
-          "saving": "更新中...",
-          "cancel": "取消",
-          "saved": "密碼已更新"
-        },
-        "errors": {
-          "invalidPassword": "您目前的密碼不正確。",
-          "passwordTooShort": "密碼至少需要 8 個字元。",
-          "passwordTooLong": "密碼過長。",
-          "noPassword": "此帳戶尚未設定密碼。",
-          "generic": "發生錯誤，請再試一次。"
-        }
-      },
-      "planUnavailable": {
-        "title": "無法取得方案",
-        "description": "目前無法載入你的方案，你的使用權限不受影響。"
       }
     },
     "agentConfig": {
@@ -1704,19 +1466,15 @@
       "enableTextCleanup": "啟用文字整理",
       "enableTextCleanupDescription": "AI 移除語助詞，修正文法和標點",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "雲端供應商",
         "local": "本機",
         "selfHosted": "自架主機",
-        "openwhisprDesc": "準確可靠，無需設定。",
         "providersDesc": "使用你自己的 API Key。",
         "localDesc": "裝置端模型，完全私密。",
         "selfHostedDesc": "你的伺服器，在你的網路上。",
         "enterprise": "企業級",
         "enterpriseDesc": "使用你組織的雲端帳號（AWS、Azure、GCP）。"
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "準確可靠，無需設定。",
       "title": "AI 文字增強",
       "toasts": {
         "switchedCloud": {
@@ -2065,8 +1823,6 @@
       "leaderboardDescription": "在符合條件的工作區與工作網域排行榜中顯示你的姓名、電子郵件和活動。轉錄內容維持私密。",
       "leaderboardRequiresAccount": "登入後即可管理排行榜參與狀態。",
       "leaderboardRequiresHistory": "加入排行榜前，請先開啟資料保留。",
-      "usageAnalytics": "使用分析",
-      "usageAnalyticsDescription": "分享匿名的效能指標，協助我們改善 Loqui。我們絕不會傳送轉錄內容——只有計時和錯誤資料。",
       "dataRetention": "資料保留",
       "dataRetentionDescription": "將轉錄和音訊本地儲存至歷史記錄。停用後，轉錄內容會被貼上但不會被儲存。",
       "transcriptRetention": "轉錄保留",
@@ -2130,19 +1886,15 @@
       "customSetupDescription": "使用你自己的供應商和 API Key。",
       "description": "選擇 Loqui 轉錄語音的方式",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "雲端供應商",
         "local": "本機",
         "selfHosted": "自架主機",
-        "openwhisprDesc": "準確可靠，無需設定。",
         "providersDesc": "使用你自己的 API Key。",
         "localDesc": "裝置端模型，完全私密。",
         "selfHostedDesc": "你的伺服器，在你的網路上。",
         "enterprise": "企業雲端",
         "enterpriseDesc": "音訊會傳送到貴組織自己的雲端。"
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "準確可靠，無需設定。",
       "title": "語音轉文字",
       "toasts": {
         "switchedCloud": {
@@ -2238,206 +1990,6 @@
       "endpointUrl": "端點 URL",
       "serverUrl": "伺服器 URL",
       "apiKeyOptional": "API Key（選填）"
-    },
-    "workspace": {
-      "title": "工作區",
-      "description": "與團隊成員協作、分享筆記，並在同一處管理工作區存取權限。",
-      "empty": {
-        "title": "建立你的第一個工作區",
-        "description": "工作區讓你與團隊成員協作並分享筆記。",
-        "create": "建立工作區"
-      },
-      "loadError": {
-        "title": "無法載入工作區",
-        "description": "請檢查網路連線後再試一次。",
-        "retry": "重試"
-      },
-      "tab": {
-        "general": "一般",
-        "members": "成員",
-        "teams": "群組",
-        "developer": "開發者"
-      },
-      "role": {
-        "owner": "擁有者",
-        "admin": "管理員",
-        "member": "成員"
-      },
-      "general": {
-        "nameLabel": "工作區名稱",
-        "saved": "工作區已更新",
-        "dangerTitle": "刪除工作區",
-        "dangerDescription": "所有共享的筆記、資料夾與整合都會被刪除。此操作無法復原。",
-        "delete": "刪除工作區",
-        "confirmTitle": "要刪除 {{name}} 嗎？",
-        "confirmDescription": "這會取消訂閱並永久移除所有工作區資料。",
-        "deleting": "刪除中…",
-        "deleted": "工作區已刪除",
-        "leaveTitle": "離開工作區",
-        "leaveDescription": "你將失去此工作區及其共享筆記的存取權。",
-        "leave": "離開工作區",
-        "leaving": "離開中…",
-        "leaveConfirm": {
-          "title": "要離開 {{name}} 嗎？",
-          "description": "你將立即失去存取權。管理員可以再次邀請你加入。"
-        },
-        "left": "你已離開 {{name}}"
-      },
-      "members": {
-        "title": "成員",
-        "description": "已使用 {{count}} / {{seats}} 個席次。",
-        "invite": "邀請",
-        "empty": "尚無成員。",
-        "loadError": "無法載入成員。",
-        "roleUpdated": "角色已更新",
-        "removed": "已移除 {{name}}",
-        "promote": "設為管理員",
-        "demote": "設為成員",
-        "transferOwnership": "轉移擁有權",
-        "remove": "從工作區移除",
-        "removeConfirm": {
-          "title": "要移除這位成員嗎？",
-          "description": "{{name}} 將立即失去 {{workspace}} 的存取權。"
-        },
-        "transferConfirm": {
-          "title": "要轉移擁有權嗎？",
-          "description": "{{name}} 將成為 {{workspace}} 的擁有者。你的角色會變更為管理員，且只有新擁有者能將擁有權轉回。"
-        }
-      },
-      "joinRequests": {
-        "title": "加入申請",
-        "approve": "核准",
-        "deny": "拒絕",
-        "approved": "{{name}} 已加入工作區",
-        "denied": "已拒絕申請",
-        "errorTitle": "無法更新申請"
-      },
-      "teams": {
-        "title": "群組",
-        "description": "可一次取得團隊空間存取權的工作區成員群組。",
-        "new": "新增群組",
-        "empty": "還沒有群組。",
-        "createFirst": "建立你的第一個群組",
-        "addMembersLabel": "新增成員",
-        "createTitle": "建立群組",
-        "nameLabel": "群組名稱",
-        "memberCount_one": "{{count}} 位成員",
-        "memberCount_other": "{{count}} 位成員",
-        "membersButton": "成員",
-        "grantsAccessToSpaces_one": "授予 {{count}} 個空間的存取權",
-        "grantsAccessToSpaces_other": "授予 {{count}} 個空間的存取權",
-        "couldNotCreate": "無法建立群組",
-        "created": "已建立 {{team}}",
-        "deleted": "已刪除 {{team}}",
-        "deleteConfirmTitle": "刪除 {{team}}？",
-        "deleteConfirmDescription": "這將封存該群組。其成員將失去它授予的存取權。",
-        "deleteConfirmSpaceAccess_one": "該群組授予 {{count}} 個空間的存取權。其成員將失去該存取權。",
-        "deleteConfirmSpaceAccess_other": "該群組授予 {{count}} 個空間的存取權。其成員將失去該存取權。",
-        "members": {
-          "title": "{{team}} 的成員",
-          "removeConfirm": "將 {{name}} 從 {{team}} 移除？",
-          "leave": "退出群組",
-          "leftTeam": "你已退出 {{team}}",
-          "leaveConfirm": "退出 {{team}}？",
-          "leaveConfirmDescription": "除非你被直接加入或其他群組包含你，否則你將失去透過該群組取得的空間存取權。"
-        }
-      },
-      "invites": {
-        "title": "待處理的邀請",
-        "expiresIn_one": "{{count}} 天後到期",
-        "expiresIn_other": "{{count}} 天後到期",
-        "expired": "已到期",
-        "loadError": "無法載入邀請。",
-        "resend": "重新傳送",
-        "resending": "重新傳送中…",
-        "revoke": "撤銷",
-        "resent": "邀請已重新傳送",
-        "resentNoEmail": "邀請已更新，但電子郵件無法送達。",
-        "revoked": "邀請已撤銷",
-        "revokeFailed": "無法撤銷邀請",
-        "revokeConfirm": {
-          "title": "要撤銷此邀請嗎？",
-          "description": "{{email}} 的邀請連結將會失效。"
-        }
-      },
-      "billing": {
-        "plan": "方案",
-        "seats": "席次",
-        "ownerOnly": "只有工作區擁有者可以管理訂閱。",
-        "nextInvoice": "下期帳單",
-        "manageStripe": "在 Stripe 中管理",
-        "startSubscription": "開始訂閱",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "免費",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "使用中",
-          "trialing": "試用中",
-          "past_due": "逾期未付",
-          "canceled": "已取消",
-          "incomplete": "未完成",
-          "unpaid": "未付款"
-        }
-      },
-      "developer": {
-        "title": "API 金鑰",
-        "description": "範圍限於此工作區的程式化存取。",
-        "empty": "尚無 API 金鑰。建立一個以整合此工作區。",
-        "loadError": "無法載入 API 金鑰。",
-        "new": "新增金鑰",
-        "create": "建立金鑰",
-        "createTitle": "建立 API 金鑰",
-        "createDescription": "選擇此金鑰所需的權限。你隨時可以撤銷它。",
-        "nameLabel": "金鑰名稱",
-        "namePlaceholder": "正式環境整合",
-        "revoke": "撤銷金鑰",
-        "revoked": "已撤銷金鑰 {{name}}",
-        "lastUsed": "上次使用於 {{date}}",
-        "neverUsed": "從未使用",
-        "keyCreatedTitle": "API 金鑰已建立",
-        "keyCreatedDescription": "請立即複製此金鑰 — 之後將無法再次檢視。",
-        "revokeConfirm": {
-          "title": "要撤銷此金鑰嗎？",
-          "description": "{{name}} 將立即失效。所有使用它的整合都會開始失敗。"
-        },
-        "scopes": {
-          "notes": {
-            "title": "筆記",
-            "read": "讀取筆記",
-            "write": "寫入筆記"
-          },
-          "folders": {
-            "title": "資料夾",
-            "read": "讀取資料夾",
-            "write": "寫入資料夾"
-          },
-          "transcriptions": {
-            "title": "轉錄",
-            "read": "讀取轉錄"
-          },
-          "members": {
-            "title": "成員",
-            "read": "讀取成員",
-            "write": "管理成員"
-          },
-          "billing": {
-            "title": "帳單",
-            "read": "讀取帳單"
-          },
-          "full": {
-            "title": "完整存取",
-            "admin": "工作區管理員"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "Enterprise 主控台",
-        "description": "在網頁上管理 SSO、政策與成員",
-        "open": "開啟主控台"
-      }
     },
     "enterpriseCheckout": {
       "title": "升級至 Enterprise",
@@ -2934,7 +2486,6 @@
       "newFolder": "新增資料夾",
       "folderName": "資料夾名稱",
       "create": "建立",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "自訂",
       "selectFolder": "選擇資料夾",
       "transcriptionFailed": "轉錄失敗",
@@ -3537,8 +3088,6 @@
       "relaunchHint": "螢幕錄製權限是在 Loqui 執行期間授予的。請結束並重新開啟 Loqui 以開始擷取螢幕截圖。"
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "使用 Loqui 託管的助理，無需 API Key。",
       "providers": "使用你自己的 API Key",
       "providersDesc": "用你自己的 API Key 連接 OpenAI、Anthropic、Gemini 或 Groq。",
       "local": "本機",
@@ -3559,11 +3108,9 @@
       "systemPromptDescription": "助理的自訂指令",
       "systemPromptPlaceholder": "輸入自訂系統提示詞...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "雲端供應商",
         "local": "本機",
         "selfHosted": "自架主機",
-        "openwhisprDesc": "準確可靠，無需設定。",
         "providersDesc": "使用自己的 API 金鑰。",
         "localDesc": "裝置端模型，完全私密。",
         "selfHostedDesc": "你自己網路上的伺服器。",

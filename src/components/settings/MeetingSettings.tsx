@@ -4,6 +4,7 @@ import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
 import { getMeetingStreamingTranscriptionProviders } from "../../models/ModelRegistry";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useResolvedRoute } from "../../lib/routes";
 import type { InferenceMode } from "../../types/electron";
 import { Cpu, Key, Network } from "../icons";
 import TranscriptionModelPicker from "../TranscriptionModelPicker";
@@ -33,6 +34,7 @@ const noop = () => {};
 
 export function MeetingTranscriptionPanel() {
   const { t } = useTranslation();
+  const route = useResolvedRoute("noteRecordingStt");
   const startOnboarding = useStartOnboarding();
 
   const {
@@ -143,9 +145,11 @@ export function MeetingTranscriptionPanel() {
   return (
     <div className="space-y-3">
       <InferenceModeSelector
+        label={t("routes.runsOn", { task: t("routes.names.noteRecordingStt") })}
         modes={transcriptionModes}
         activeMode={effectiveTranscriptionMode}
         onSelect={handleTranscriptionModeSelect}
+        routeState={route.state}
       />
 
       {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}

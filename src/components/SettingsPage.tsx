@@ -31,6 +31,7 @@ import {
 } from "./icons";
 import LocalSupportModels from "./settings/LocalSupportModels";
 import { LLM_SUB_TABS, SPEECH_SUB_TABS } from "../lib/settingsPaths";
+import { useResolvedRoute } from "../lib/routes";
 import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -500,6 +501,7 @@ function TranscriptionSection({
   toast,
 }: TranscriptionSectionProps) {
   const { t } = useTranslation();
+  const dictationRoute = useResolvedRoute("dictationStt");
 
   const {
     modes: transcriptionModes,
@@ -642,9 +644,11 @@ function TranscriptionSection({
       {
         <>
           <InferenceModeSelector
+            label={t("routes.runsOn", { task: t("routes.names.dictationStt") })}
             modes={transcriptionModes}
             activeMode={effectiveTranscriptionMode}
             onSelect={handleTranscriptionModeSelect}
+            routeState={dictationRoute.state}
           />
 
           {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}

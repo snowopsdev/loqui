@@ -3771,6 +3771,29 @@
       "webSearch": "プロバイダーがウェブ検索を行うための許可",
       "messages": "あなたのメッセージ",
       "metadataNote": "言語やモデル名などの設定も送信されます。"
+    },
+    "runsOn": "{{task}}の実行先",
+    "place": {
+      "chooseProvider": "プロバイダーを選択"
+    },
+    "selection": {
+      "current": "現在",
+      "selected": "選択済み",
+      "staged": "保留中（未適用）"
+    },
+    "state": {
+      "ready": "準備完了",
+      "off": "オフ",
+      "checking": "確認中…",
+      "download": "{{size}}をダウンロード",
+      "chooseModel": "モデルを選択",
+      "addKey": "APIキーを追加",
+      "chooseProvider": "プロバイダーを選択",
+      "addUrl": "サーバーURLを追加",
+      "sealed": "一時停止 · シールモード",
+      "retired": "サービス終了 · 再選択してください",
+      "unsupported": "このタスクでは利用できません",
+      "cantReach": "サーバーに接続できません"
     }
   }
 }

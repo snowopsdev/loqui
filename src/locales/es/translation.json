@@ -3771,6 +3771,29 @@
       "webSearch": "el permiso para que el proveedor busque en la web",
       "messages": "tus mensajes",
       "metadataNote": "También se envían ajustes como el idioma y los nombres de los modelos."
+    },
+    "runsOn": "{{task}} se ejecuta en",
+    "place": {
+      "chooseProvider": "Elige un proveedor"
+    },
+    "selection": {
+      "current": "Actual",
+      "selected": "Seleccionado",
+      "staged": "En espera, inactivo"
+    },
+    "state": {
+      "ready": "Listo",
+      "off": "Desactivado",
+      "checking": "Comprobando…",
+      "download": "Descargar {{size}}",
+      "chooseModel": "Elige un modelo",
+      "addKey": "Añade una clave API",
+      "chooseProvider": "Elige un proveedor",
+      "addUrl": "Añade la URL del servidor",
+      "sealed": "En pausa · modo sellado",
+      "retired": "Servicio retirado · elige de nuevo",
+      "unsupported": "No disponible para esta tarea",
+      "cantReach": "No se puede acceder al servidor"
     }
   }
 }

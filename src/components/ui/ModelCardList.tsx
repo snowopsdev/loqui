@@ -200,8 +200,8 @@ export function ModelCard({
 
         <div className="ms-auto flex items-center gap-1.5 shrink-0">
           {isSelected && (
-            <span className="text-xs font-medium text-primary px-2 py-0.5 bg-primary/10 rounded-sm">
-              {t("common.active")}
+            <span className="text-xs font-medium text-foreground px-2 py-0.5 bg-muted rounded-sm">
+              {t("routes.selection.selected")}
             </span>
           )}
 

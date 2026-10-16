@@ -3771,6 +3771,29 @@
       "webSearch": "允许提供商搜索网络的授权",
       "messages": "你的消息",
       "metadataNote": "语言和模型名称等设置也会发送。"
+    },
+    "runsOn": "{{task}}运行于",
+    "place": {
+      "chooseProvider": "选择提供商"
+    },
+    "selection": {
+      "current": "当前",
+      "selected": "已选择",
+      "staged": "已暂存，未启用"
+    },
+    "state": {
+      "ready": "就绪",
+      "off": "关闭",
+      "checking": "正在检查…",
+      "download": "下载{{size}}",
+      "chooseModel": "选择模型",
+      "addKey": "添加 API 密钥",
+      "chooseProvider": "选择提供商",
+      "addUrl": "添加服务器网址",
+      "sealed": "已暂停 · 密封模式",
+      "retired": "服务已停用 · 请重新选择",
+      "unsupported": "此任务不可用",
+      "cantReach": "无法连接服务器"
     }
   }
 }

@@ -3771,6 +3771,29 @@
       "webSearch": "允許供應商搜尋網路的授權",
       "messages": "你的訊息",
       "metadataNote": "語言和模型名稱等設定也會傳送。"
+    },
+    "runsOn": "{{task}}執行於",
+    "place": {
+      "chooseProvider": "選擇提供者"
+    },
+    "selection": {
+      "current": "目前",
+      "selected": "已選取",
+      "staged": "已暫存，未啟用"
+    },
+    "state": {
+      "ready": "就緒",
+      "off": "關閉",
+      "checking": "正在檢查…",
+      "download": "下載{{size}}",
+      "chooseModel": "選擇模型",
+      "addKey": "新增 API 金鑰",
+      "chooseProvider": "選擇提供者",
+      "addUrl": "新增伺服器網址",
+      "sealed": "已暫停 · 封存模式",
+      "retired": "服務已停用 · 請重新選擇",
+      "unsupported": "此任務無法使用",
+      "cantReach": "無法連線至伺服器"
     }
   }
 }

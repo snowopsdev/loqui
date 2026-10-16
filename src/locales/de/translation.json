@@ -3771,6 +3771,29 @@
       "webSearch": "die Erlaubnis für den Anbieter, das Web zu durchsuchen",
       "messages": "deine Nachrichten",
       "metadataNote": "Einstellungen wie Sprache und Modellnamen werden ebenfalls gesendet."
+    },
+    "runsOn": "{{task}} läuft auf",
+    "place": {
+      "chooseProvider": "Anbieter auswählen"
+    },
+    "selection": {
+      "current": "Aktuell",
+      "selected": "Ausgewählt",
+      "staged": "Vorgemerkt, nicht aktiv"
+    },
+    "state": {
+      "ready": "Bereit",
+      "off": "Aus",
+      "checking": "Wird geprüft…",
+      "download": "{{size}} herunterladen",
+      "chooseModel": "Modell auswählen",
+      "addKey": "API-Schlüssel hinzufügen",
+      "chooseProvider": "Anbieter auswählen",
+      "addUrl": "Serveradresse hinzufügen",
+      "sealed": "Pausiert · versiegelter Modus",
+      "retired": "Dienst eingestellt · erneut auswählen",
+      "unsupported": "Für diese Aufgabe nicht verfügbar",
+      "cantReach": "Server nicht erreichbar"
     }
   }
 }

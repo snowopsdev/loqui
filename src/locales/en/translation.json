@@ -3771,6 +3771,29 @@
       "webSearch": "permission for the provider to search the web",
       "messages": "your messages",
       "metadataNote": "Settings such as language and model names are sent too."
+    },
+    "runsOn": "{{task}} runs on",
+    "place": {
+      "chooseProvider": "Choose a provider"
+    },
+    "selection": {
+      "current": "Current",
+      "selected": "Selected",
+      "staged": "Staged, not active"
+    },
+    "state": {
+      "ready": "Ready",
+      "off": "Off",
+      "checking": "Checking…",
+      "download": "Download {{size}}",
+      "chooseModel": "Choose a model",
+      "addKey": "Add API key",
+      "chooseProvider": "Choose a provider",
+      "addUrl": "Add server URL",
+      "sealed": "Paused · Sealed mode",
+      "retired": "Service retired · choose again",
+      "unsupported": "Not available for this task",
+      "cantReach": "Can't reach the server"
     }
   }
 }

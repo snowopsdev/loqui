@@ -1,4 +1,6 @@
 import { saveSecret } from "../../stores/settingsStore";
+import { SCOPE_ROUTE } from "../../lib/routeGraph";
+import { useResolvedRoute } from "../../lib/routes";
 import { isSecretStoreKey, unavailableSecretSave } from "../../lib/credentialSlots";
 import type { AcknowledgedSecretSave } from "../ui/ApiKeyInput";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -51,6 +53,7 @@ export default function InferenceConfigEditor({
   allowedModes,
 }: InferenceConfigEditorProps) {
   const { t } = useTranslation();
+  const route = useResolvedRoute(SCOPE_ROUTE[scope]);
 
   const config = useSettingsStore(
     useShallow((settings): ResolvedLLMConfig => {
@@ -164,9 +167,11 @@ export default function InferenceConfigEditor({
     <div className="space-y-3">
       {modes.length > 1 && (
         <InferenceModeSelector
+          label={t("routes.runsOn", { task: t(`routes.names.${route.id}`) })}
           modes={modes}
           activeMode={effectiveMode}
           onSelect={handleModeSelect}
+          routeState={route.state}
         />
       )}
 

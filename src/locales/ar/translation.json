@@ -3871,6 +3871,29 @@
       "webSearch": "الإذن للمزوّد بالبحث على الويب",
       "messages": "رسائلك",
       "metadataNote": "تُرسل أيضًا إعدادات مثل اللغة وأسماء النماذج."
+    },
+    "runsOn": "يعمل {{task}} على",
+    "place": {
+      "chooseProvider": "اختر موفّرًا"
+    },
+    "selection": {
+      "current": "الحالي",
+      "selected": "محدد",
+      "staged": "مُجهّز، غير نشط"
+    },
+    "state": {
+      "ready": "جاهز",
+      "off": "متوقف",
+      "checking": "جارٍ التحقق…",
+      "download": "نزّل {{size}}",
+      "chooseModel": "اختر نموذجًا",
+      "addKey": "أضف مفتاح API",
+      "chooseProvider": "اختر موفّرًا",
+      "addUrl": "أضف عنوان الخادم",
+      "sealed": "متوقف مؤقتًا · الوضع المحكم",
+      "retired": "توقفت الخدمة · اختر مجددًا",
+      "unsupported": "غير متاح لهذه المهمة",
+      "cantReach": "تعذر الوصول إلى الخادم"
     }
   }
 }

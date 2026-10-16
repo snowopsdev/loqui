@@ -85,3 +85,43 @@ test("Plum Night status fills and status text meet 4.5:1", async () => {
       assert.ok(ratio >= 4.5, `${role} text on ${surface} is ${ratio}:1`);
     }
 });
+
+// Task 5 baseline guard: Settings chip text and non-text marks retain Plum Night contrast.
+// Settings draws chips, rows and buttons on popover, muted, secondary and
+// surface-1..3. Plan 01 scores text roles on all twelve surfaces; these pin the
+// roles it does not cover there (destructive text, and the non-text marks).
+const SETTINGS_SURFACES = [
+  "--color-popover",
+  "--color-muted",
+  "--color-secondary",
+  "--color-surface-1",
+  "--color-surface-2",
+  "--color-surface-3",
+];
+
+test("Plum Night destructive text meets 4.5:1 on the settings surfaces", async () => {
+  const { contrastRatio } = await load();
+  const { dark } = resolveTokens(css);
+  for (const s of SETTINGS_SURFACES) {
+    const ratio = contrastRatio(dark["--color-destructive"], dark[s]);
+    assert.ok(ratio >= 4.5, `--color-destructive on ${s} is ${ratio}:1`);
+  }
+});
+
+test("Plum Night ring, locality, warning and destructive marks meet 3:1 on the settings surfaces", async () => {
+  const { contrastRatio } = await load();
+  const { dark } = resolveTokens(css);
+  const marks = [
+    "--color-ring",
+    "--color-locality-device",
+    "--color-locality-network",
+    "--color-locality-remote",
+    "--color-warning",
+    "--color-destructive",
+  ];
+  for (const m of marks)
+    for (const s of SETTINGS_SURFACES) {
+      const ratio = contrastRatio(dark[m], dark[s]);
+      assert.ok(ratio >= 3, `${m} on ${s} is ${ratio}:1`);
+    }
+});

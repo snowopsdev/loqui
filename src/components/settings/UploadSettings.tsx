@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useResolvedRoute } from "../../lib/routes";
 import type { InferenceMode } from "../../types/electron";
 import { Cpu, Key, Network } from "../icons";
 import SelfHostedPanel from "../SelfHostedPanel";
@@ -11,6 +12,7 @@ import { InferenceModeSelector } from "../ui/SettingsSection";
 
 export function UploadTranscriptionPanel() {
   const { t } = useTranslation();
+  const route = useResolvedRoute("uploadStt");
   const startOnboarding = useStartOnboarding();
 
   const {
@@ -122,9 +124,11 @@ export function UploadTranscriptionPanel() {
   return (
     <div className="space-y-3">
       <InferenceModeSelector
+        label={t("routes.runsOn", { task: t("routes.names.uploadStt") })}
         modes={transcriptionModes}
         activeMode={effectiveTranscriptionMode}
         onSelect={handleTranscriptionModeSelect}
+        routeState={route.state}
       />
 
       {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}

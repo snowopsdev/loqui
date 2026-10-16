@@ -3771,6 +3771,29 @@
       "webSearch": "il permesso al fornitore di cercare sul web",
       "messages": "i tuoi messaggi",
       "metadataNote": "Vengono inviate anche impostazioni come la lingua e i nomi dei modelli."
+    },
+    "runsOn": "{{task}} viene eseguito su",
+    "place": {
+      "chooseProvider": "Scegli un provider"
+    },
+    "selection": {
+      "current": "Attuale",
+      "selected": "Selezionato",
+      "staged": "In attesa, non attivo"
+    },
+    "state": {
+      "ready": "Pronto",
+      "off": "Disattivato",
+      "checking": "Verifica in corso…",
+      "download": "Scarica {{size}}",
+      "chooseModel": "Scegli un modello",
+      "addKey": "Aggiungi chiave API",
+      "chooseProvider": "Scegli un provider",
+      "addUrl": "Aggiungi URL del server",
+      "sealed": "In pausa · modalità sigillata",
+      "retired": "Servizio ritirato · scegli di nuovo",
+      "unsupported": "Non disponibile per questa attività",
+      "cantReach": "Impossibile raggiungere il server"
     }
   }
 }

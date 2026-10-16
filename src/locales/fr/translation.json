@@ -3771,6 +3771,29 @@
       "webSearch": "l’autorisation donnée au fournisseur de rechercher sur le Web",
       "messages": "vos messages",
       "metadataNote": "Les paramètres tels que la langue et les noms des modèles sont également envoyés."
+    },
+    "runsOn": "{{task}} s’exécute sur",
+    "place": {
+      "chooseProvider": "Choisir un fournisseur"
+    },
+    "selection": {
+      "current": "Actuel",
+      "selected": "Sélectionné",
+      "staged": "En attente, inactif"
+    },
+    "state": {
+      "ready": "Prêt",
+      "off": "Désactivé",
+      "checking": "Vérification…",
+      "download": "Télécharger {{size}}",
+      "chooseModel": "Choisir un modèle",
+      "addKey": "Ajouter une clé API",
+      "chooseProvider": "Choisir un fournisseur",
+      "addUrl": "Ajouter l’URL du serveur",
+      "sealed": "En pause · mode scellé",
+      "retired": "Service retiré · choisir à nouveau",
+      "unsupported": "Indisponible pour cette tâche",
+      "cantReach": "Serveur inaccessible"
     }
   }
 }

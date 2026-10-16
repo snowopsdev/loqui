@@ -275,3 +275,22 @@ for (const [label, writeClipboard] of [
     );
   });
 }
+
+test("an error card that holds the transcript never auto-dismisses", async (t) => {
+  const harness = await mountHarness(t);
+  await harness.forceStop("timeout");
+  await harness.complete();
+  const [toast] = errorToasts(harness);
+  assert.ok(toast.actions.some((a) => a.icon === "transcript"));
+  assert.equal(toast.duration, 0, "the user's words stay until they act on them");
+});
+
+test("an error card without a transcript keeps the reading-time timer", async (t) => {
+  const harness = await mountHarness(t);
+  await React.act(async () =>
+    globalThis.__forceStopAudioManager.callbacks.onError({ message: "Network down" })
+  );
+  const [toast] = errorToasts(harness);
+  assert.ok(toast, "the error is shown");
+  assert.equal(toast.duration, undefined, "the provider picks 6/8/10 s from the text length");
+});

@@ -325,7 +325,9 @@ export const useAudioRecording = (toast, options = {}) => {
         description,
         variant: "destructive",
         presentation: "dictation-error",
-        duration,
+        // A card holding the only copy of the user's words stays until they
+        // act on it: View transcript, Retry, close, or the next dictation.
+        duration: recoverableTranscript ? 0 : duration,
         actions,
       });
     };

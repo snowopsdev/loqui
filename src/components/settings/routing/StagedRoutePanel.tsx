@@ -268,6 +268,7 @@ export function StagedRoutePanelView({
 export function StagedRoutePanel({ routeId }: { routeId: RouteId }) {
   const { t } = useTranslation();
   const draft = useRouteDraftStore((s) => s.draft);
+  const draftIdentity = useRouteDraftStore((s) => s.draftIdentity);
   const settings = useSettingsStore();
   useResolvedRoutes(); // local facts and canonical settings keep the prospective setup live
   const { requestDraftTarget, copy } = useRouteChange();
@@ -313,6 +314,7 @@ export function StagedRoutePanel({ routeId }: { routeId: RouteId }) {
           <CodexConnection onSignedInChange={() => void refreshRouteFacts(["credentials"])} />
         ) : isEnterpriseProvider(chosen) ? (
           <EnterpriseProviderConfig
+            key={JSON.stringify([routeId, draftIdentity, chosen])}
             provider={chosen}
             reasoningModel={target.model ?? ""}
             onSelectModel={(model) =>

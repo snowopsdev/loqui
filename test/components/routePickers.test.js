@@ -523,3 +523,95 @@ test("change-driving: invalid persisted text provider remains visible without a 
   assert.deepEqual(commits, []);
   assert.ok(findElement(tree(), (node) => node.props?.["data-invalid-selection"] !== undefined));
 });
+
+// Change-driving I1: capability reads may move a disabled browse tab, but may
+// never commit a replacement engine, including an inactive local preference.
+// Cohere variants were added after the fix and are baseline guards.
+for (const provider of ["nvidia", "cohere"])
+  for (const mode of ["cloud", "local"])
+    test(`${provider === "cohere" ? "baseline guard" : "change-driving"} FIX1: unsupported hardware preserves committed ${mode} route (${provider}) until an explicit pick`, async (t) => {
+      const api = routeTestApi({
+        present: ["openai"],
+        extra: {
+          getPlatform: () => "darwin",
+          checkParakeetInstallation: async () => ({
+            supported: false,
+            minimumMacOSVersion: "15.5",
+          }),
+          listWhisperModels: async () => ({
+            success: true,
+            models: [{ model: "base", downloaded: true, size_mb: 142 }],
+          }),
+          listParakeetModels: async () => ({ success: true, models: [] }),
+          onWhisperDownloadProgress: () => () => {},
+          onParakeetDownloadProgress: () => () => {},
+        },
+      });
+      installBrowserGlobals(t, { window: { electronAPI: api } });
+      const vite = await rendererServer(t, "loqui-fix1-hardware-choice-");
+      const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+      const { useRouteCommit } = await vite.ssrLoadModule(
+        "/components/settings/routing/useRouteChange.ts"
+      );
+      const { useRouteDraftStore } = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+      const Picker = (await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx")).default;
+      await primeRouteFacts(vite);
+      const selectedModel = provider === "cohere" ? "cohere-transcribe-03-2026" : "orukeet-v0.1.0";
+      const initial = {
+        transcriptionMode: mode === "cloud" ? "providers" : "local",
+        useLocalWhisper: mode === "local",
+        localTranscriptionProvider: provider,
+        parakeetModel: "orukeet-v0.1.0",
+        cohereModel: "cohere-transcribe-03-2026",
+        whisperModel: "base",
+        cloudTranscriptionProvider: "openai",
+        cloudTranscriptionModel: "whisper-1",
+      };
+      useSettingsStore.setState(initial);
+      const { wrap, toasts } = await toastCapture(vite);
+      const probes = createProbeRoot(t, { wrap });
+      const tree = await probes.mount("picker", () => {
+        const commit = useRouteCommit("dictationStt");
+        return Picker({
+          mode,
+          selectedLocalProvider: provider,
+          selectedLocalModel: selectedModel,
+          selectedCloudProvider: "openai",
+          selectedCloudModel: "whisper-1",
+          useLocalWhisper: mode === "local",
+          onCommit: commit,
+        });
+      });
+      await probes.settle();
+      for (const [key, value] of Object.entries(initial))
+        assert.equal(useSettingsStore.getState()[key], value, `mount preserves ${key}`);
+      assert.equal(useRouteDraftStore.getState().draft, null);
+      assert.deepEqual(toasts, []);
+      if (mode === "local") {
+        const unsupported = findElement(
+          tree(),
+          (node) => node.props?.["data-unsupported-local-selection"] !== undefined
+        );
+        assert.ok(unsupported, "the preserved unsupported choice remains visible");
+        const state = findElement(unsupported, (node) => node.type?.name === "RouteStateChip");
+        assert.deepEqual(state.props.state, { status: "unreachable", detail: "unsupported" });
+        const tabs = findElement(tree(), (node) =>
+          node.props?.providers?.some((provider) => provider.id === "oruk")
+        );
+        assert.equal(
+          tabs.props.selectedId,
+          "whisper",
+          "only the browse tab leaves the disabled entry"
+        );
+        const whisper = findElement(
+          tree(),
+          (node) => node.props?.modelId === "base" && typeof node.props?.onSelect === "function"
+        );
+        assert.ok(whisper, "Whisper remains an explicit supported choice");
+        await probes.act(() => whisper.props.onSelect());
+        await probes.settle();
+        assert.equal(useSettingsStore.getState().localTranscriptionProvider, "whisper");
+        assert.equal(useSettingsStore.getState().whisperModel, "base");
+        assert.equal(toasts.length, 1);
+      }
+    });

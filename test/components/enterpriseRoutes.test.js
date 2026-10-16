@@ -4,8 +4,9 @@ const path = require("node:path");
 const test = require("node:test");
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
-const { installBrowserGlobals } = require("../lib/rendererTestHarness");
-const { createProbeRoot, findElement } = require("../lib/probeRoot");
+const { createRoot } = require("react-dom/client");
+const { installHookDom, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const { createProbeRoot, findElement, findAll } = require("../lib/probeRoot");
 const {
   SRC,
   primeRouteFacts,
@@ -966,4 +967,327 @@ test("change-driving: first-read Codex sign-in refreshes readiness without commi
   );
   assert.equal(useSettingsStore.getState().useCleanupModel, false);
   assert.equal(drafts.useRouteDraftStore.getState().draft.patch.useCleanupModel, true);
+});
+
+// Honor the production React keys at both projected component levels. The
+// selector/panel parent remains mounted; no host elements reach the fake DOM.
+async function stableEnterpriseProjection(t, render, initial, wrap) {
+  const root = createRoot(installHookDom(t));
+  const globals = Object.fromEntries(
+    ["window", "document", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globalThis[key]])
+  );
+  let update,
+    configTree,
+    fieldElements = [],
+    parentMounts = 0;
+  const fields = new Map();
+  function FieldProjection({ element, index }) {
+    fields.set(index, element.type(element.props));
+    return null;
+  }
+  function EnterpriseProjection({ element }) {
+    configTree = element.type(element.props);
+    fieldElements = findAll(configTree, (node) =>
+      ["DraftField", "Field"].includes(node.type?.name)
+    );
+    return React.createElement(
+      React.Fragment,
+      null,
+      ...fieldElements.map((field, index) =>
+        React.createElement(FieldProjection, { key: field.key ?? index, element: field, index })
+      )
+    );
+  }
+  function Parent() {
+    const [context, setContext] = React.useState(initial);
+    update = setContext;
+    React.useEffect(() => {
+      parentMounts++;
+    }, []);
+    const element = render(context);
+    return element
+      ? React.createElement(EnterpriseProjection, { key: element.key, element })
+      : null;
+  }
+  const act = async (fn) => {
+    let result;
+    await React.act(async () => {
+      result = await fn();
+    });
+    return result;
+  };
+  await act(() =>
+    root.render(wrap ? wrap(React.createElement(Parent)) : React.createElement(Parent))
+  );
+  t.after(async () => {
+    const previous = Object.fromEntries(Object.keys(globals).map((key) => [key, globalThis[key]]));
+    Object.assign(globalThis, globals);
+    try {
+      await act(() => root.unmount());
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete globalThis[key];
+        else globalThis[key] = value;
+      }
+    }
+  });
+  const input = (label) => {
+    const index = fieldElements.findIndex((field) => field.props.label === label);
+    assert.notEqual(index, -1, `field exists: ${label}`);
+    return findElement(
+      fields.get(index),
+      (node) =>
+        typeof node.props?.onChange === "function" && typeof node.props?.onBlur === "function"
+    );
+  };
+  return {
+    act,
+    input,
+    update: (context) => act(() => update(context)),
+    parentMounts: () => parentMounts,
+    config: () => configTree,
+  };
+}
+
+// Change-driving I2: stable-parent provider switching must reconcile the actual
+// production enterprise key; manually remounting a projected field masks this.
+test("change-driving FIX1: enterprise model drafts do not follow a different provider tab", async (t) => {
+  installBrowserGlobals(t, { window: { electronAPI: routeTestApi() } });
+  const vite = await rendererServer(t, "loqui-fix1-provider-draft-");
+  const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
+  const commits = [];
+  const props = {
+    mode: "cloud",
+    credentialRef: "custom:chatIntelligence",
+    editorIdentity: "chat",
+    reasoningModel: "azure-current",
+    localReasoningProvider: "azure",
+    cloudReasoningBaseUrl: "",
+    onCommit: (target) => commits.push(target),
+    onRoutePatch() {},
+  };
+  const probe = await stableEnterpriseProjection(
+    t,
+    (context) =>
+      findElement(Selector(context), (node) => node.type?.name === "EnterpriseProviderConfig"),
+    props
+  );
+  const azure = "reasoning.enterprise.deploymentName",
+    vertex = "reasoning.enterprise.customModelId";
+  await probe.act(() =>
+    probe.input(azure).props.onChange({ target: { value: "azure-new-deployment" } })
+  );
+  await probe.act(() => probe.input(azure).props.onBlur());
+  await probe.update({
+    ...props,
+    localReasoningProvider: "vertex",
+    reasoningModel: "vertex-current",
+  });
+  assert.equal(probe.parentMounts(), 1);
+  assert.equal(
+    probe.input(vertex).props.value,
+    "vertex-current",
+    "Azure text must not become the Vertex model"
+  );
+  await probe.act(() => probe.input(vertex).props.onChange({ target: { value: "vertex-new" } }));
+  await probe.act(() => probe.input(vertex).props.onBlur());
+  assert.deepEqual(commits, [
+    { mode: "providers", provider: "azure", model: "azure-new-deployment" },
+    { mode: "providers", provider: "vertex", model: "vertex-new" },
+  ]);
+});
+
+// Change-driving I2: route identity changes reset that editor's model; a peer
+// canonical change inside the same route keeps its newer unsent local text.
+test("change-driving FIX1: enterprise model draft lifetime follows the active editor route", async (t) => {
+  installBrowserGlobals(t, { window: { electronAPI: routeTestApi() } });
+  const vite = await rendererServer(t, "loqui-fix1-editor-draft-");
+  const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
+  const props = {
+    mode: "cloud",
+    credentialRef: "custom:chatIntelligence",
+    editorIdentity: "chat",
+    reasoningModel: "chat-current",
+    localReasoningProvider: "azure",
+    cloudReasoningBaseUrl: "",
+    onCommit() {},
+    onRoutePatch() {},
+  };
+  const probe = await stableEnterpriseProjection(
+    t,
+    (context) =>
+      findElement(Selector(context), (node) => node.type?.name === "EnterpriseProviderConfig"),
+    props
+  );
+  const label = "reasoning.enterprise.deploymentName";
+  await probe.act(() => probe.input(label).props.onChange({ target: { value: "chat-unsent" } }));
+  await probe.update({ ...props, reasoningModel: "chat-peer-ack" });
+  assert.equal(
+    probe.input(label).props.value,
+    "chat-unsent",
+    "same route preserves newer text across canonical events"
+  );
+  await probe.update({
+    ...props,
+    editorIdentity: "noteFormatting",
+    reasoningModel: "note-current",
+  });
+  assert.equal(probe.parentMounts(), 1);
+  assert.equal(
+    probe.input(label).props.value,
+    "note-current",
+    "a different route does not inherit Chat's draft"
+  );
+  const source = fs.readFileSync(
+    path.join(SRC, "components/settings/InferenceConfigEditor.tsx"),
+    "utf8"
+  );
+  assert.match(source, /editorIdentity=\{routeId\}/);
+});
+
+// Change-driving I2: a replacement for the same route is a different owner,
+// while setup/model refinements of the exact owner retain its other raw text.
+test("change-driving FIX1: enterprise setup keeps one owner lifetime through refinements, then resets on replacement", async (t) => {
+  installBrowserGlobals(t, { window: { electronAPI: routeTestApi({ present: ["azure"] }) } });
+  const vite = await rendererServer(t, "loqui-fix1-owner-draft-");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const { StagedRoutePanel } = await vite.ssrLoadModule(
+    "/components/settings/routing/StagedRoutePanel.tsx"
+  );
+  await primeRouteFacts(vite);
+  useSettingsStore.setState({
+    chatAgentMode: "providers",
+    chatAgentProvider: "openai",
+    chatAgentModel: "fixture",
+  });
+  const first = {
+    routeId: "chat",
+    kind: "target",
+    target: { mode: "providers", provider: "azure", model: "owner-a-current" },
+  };
+  drafts.useRouteDraftStore.getState().stage(first);
+  const { wrap } = await toastCapture(vite);
+  const probe = await stableEnterpriseProjection(
+    t,
+    (context) =>
+      findElement(StagedRoutePanel(context), (node) => typeof node.props?.onTarget === "function")
+        ?.props.setup,
+    { routeId: "chat" },
+    wrap
+  );
+  const label = "reasoning.enterprise.deploymentName";
+  await probe.act(() => probe.input(label).props.onChange({ target: { value: "owner-a-unsent" } }));
+  const originalIdentity = drafts.useRouteDraftStore.getState().draftIdentity;
+  await probe.act(() => drafts.stageDraftSetup("chat", { azureEndpoint: WEST }));
+  assert.equal(drafts.useRouteDraftStore.getState().draftIdentity, originalIdentity);
+  assert.equal(probe.input(label).props.value, "owner-a-unsent");
+  await probe.act(() =>
+    drafts.requestDraftTarget(
+      "chat",
+      { mode: "providers", provider: "azure", model: "owner-a-peer" },
+      TEST_COPY
+    )
+  );
+  assert.equal(drafts.useRouteDraftStore.getState().draftIdentity, originalIdentity);
+  assert.equal(probe.input(label).props.value, "owner-a-unsent");
+  await probe.act(() =>
+    drafts.useRouteDraftStore
+      .getState()
+      .stage({ ...first, target: { ...first.target, model: "owner-b-current" } })
+  );
+  assert.equal(probe.parentMounts(), 1);
+  assert.equal(
+    probe.input(label).props.value,
+    "owner-b-current",
+    "same-route replacement must not inherit the earlier owner's text"
+  );
+  assert.ok(drafts.useRouteDraftStore.getState().draftIdentity > originalIdentity);
+});
+
+// Change-driving I2: the displayed coupled route also scopes editor identity,
+// even when both panels refine one shared enterprise endpoint patch.
+test("change-driving FIX1: coupled enterprise setup follows its displayed route", async (t) => {
+  installBrowserGlobals(t, { window: { electronAPI: routeTestApi({ present: ["azure"] }) } });
+  const vite = await rendererServer(t, "loqui-fix1-coupled-draft-");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const { StagedRoutePanel } = await vite.ssrLoadModule(
+    "/components/settings/routing/StagedRoutePanel.tsx"
+  );
+  await primeRouteFacts(vite);
+  useSettingsStore.setState({
+    azureEndpoint: EAST,
+    chatAgentMode: "enterprise",
+    chatAgentProvider: "azure",
+    chatAgentModel: "chat-current",
+    useDictationTranslation: true,
+    translationMode: "enterprise",
+    translationProvider: "azure",
+    translationModel: "translation-current",
+  });
+  drafts.useRouteDraftStore
+    .getState()
+    .stage({ routeId: "chat", kind: "patch", patch: { azureEndpoint: WEST } });
+  const { wrap } = await toastCapture(vite);
+  const probe = await stableEnterpriseProjection(
+    t,
+    (context) =>
+      findElement(StagedRoutePanel(context), (node) => typeof node.props?.onTarget === "function")
+        ?.props.setup,
+    { routeId: "chat" },
+    wrap
+  );
+  const label = "reasoning.enterprise.deploymentName";
+  await probe.act(() => probe.input(label).props.onChange({ target: { value: "chat-unsent" } }));
+  await probe.update({ routeId: "translation" });
+  assert.equal(probe.parentMounts(), 1);
+  assert.equal(probe.input(label).props.value, "translation-current");
+});
+
+// Baseline guard FIX1: browsing uses the actual tab callback while retaining
+// the same selector parent and committed provider; no provider commit on browse.
+test("baseline guard FIX1: enterprise tab browsing starts with that provider's committed model", async (t) => {
+  installBrowserGlobals(t, { window: { electronAPI: routeTestApi() } });
+  const vite = await rendererServer(t, "loqui-fix1-browse-draft-");
+  const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
+  let selectorTree;
+  const commits = [];
+  const props = {
+    mode: "cloud",
+    credentialRef: "custom:chatIntelligence",
+    editorIdentity: "chat",
+    reasoningModel: "azure-current",
+    localReasoningProvider: "azure",
+    cloudReasoningBaseUrl: "",
+    onCommit: (target) => commits.push(target),
+    onRoutePatch() {},
+  };
+  const probe = await stableEnterpriseProjection(
+    t,
+    (context) => {
+      selectorTree = Selector(context);
+      return findElement(selectorTree, (node) => node.type?.name === "EnterpriseProviderConfig");
+    },
+    props
+  );
+  await probe.act(() =>
+    probe
+      .input("reasoning.enterprise.deploymentName")
+      .props.onChange({ target: { value: "azure-unsent" } })
+  );
+  const tabs = () =>
+    findElement(selectorTree, (node) =>
+      node.props?.providers?.some((provider) => provider.id === "vertex")
+    );
+  await probe.act(() => tabs().props.onSelect("vertex"));
+  assert.equal(
+    probe.input("reasoning.enterprise.customModelId").props.value,
+    "",
+    "Azure's model is not a committed Vertex choice"
+  );
+  assert.deepEqual(commits, []);
+  assert.equal(probe.parentMounts(), 1);
+  await probe.act(() => tabs().props.onSelect("azure"));
+  assert.equal(probe.input("reasoning.enterprise.deploymentName").props.value, "azure-current");
 });

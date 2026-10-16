@@ -74,7 +74,7 @@ test("adding Orukeet preserves fresh-install transcription modes and existing ba
   assert.equal(state.parakeetModel, "parakeet-unified-en-0.6b");
 });
 
-test("Oruk's model-picker tab follows the same unsupported-macOS fallback as Parakeet", async (t) => {
+test("change-driving FIX1: unsupported Oruk browse tab leaves disabled engines without a route fallback", async (t) => {
   const vite = await renderer(t);
   const container = installHookDom(t);
   globalThis.window.electronAPI.checkParakeetInstallation = async () => ({
@@ -124,7 +124,7 @@ test("Oruk's model-picker tab follows the same unsupported-macOS fallback as Par
       );
     }
     assert.equal(tabs.props.selectedId, "whisper");
-    assert.deepEqual(commits, [{ mode: "local", provider: "whisper" }]);
+    assert.deepEqual(commits, [], "hardware capability must not commit a replacement provider");
   } finally {
     await React.act(async () => root.unmount());
   }

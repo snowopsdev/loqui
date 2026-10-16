@@ -25,6 +25,9 @@ export type RouteDraft =
 
 interface RouteDraftState {
   draft: RouteDraft | null;
+  // Ephemeral UI owner lifetime, independent of request tickets and contents.
+  // New stages advance it; exact existing-owner refinements retain it.
+  draftIdentity: number;
   // R2-8, the session epoch. Only the user's Discard and Settings closing
   // (endSettingsSession) bump it, so every request still waiting, on any
   // route, settles to "superseded". Internal draft drops never bump it.
@@ -33,15 +36,23 @@ interface RouteDraftState {
   // routes it is about, so a newer intent supersedes an older request on the
   // same route and leaves requests on other routes alone.
   routeEpochs: Partial<Record<RouteId, number>>;
-  stage: (draft: RouteDraft) => void;
+  stage: (draft: RouteDraft, owner?: RouteDraft) => void;
   discard: () => void;
 }
 
 export const useRouteDraftStore = create<RouteDraftState>()((set) => ({
   draft: null,
+  draftIdentity: 0,
   requestEpoch: 0,
   routeEpochs: {},
-  stage: (draft) => set({ draft }),
+  stage: (draft, owner) =>
+    set((s) => ({
+      draft,
+      draftIdentity:
+        owner && s.draft === owner && draft.routeId === owner.routeId
+          ? s.draftIdentity
+          : s.draftIdentity + 1,
+    })),
   // The user's Discard (and Settings closing): drop the draft and cancel every
   // request still waiting, on every route, so none can recreate a draft or
   // commit. The draft is the session's only pending change, so discarding it
@@ -279,7 +290,8 @@ async function settle(
   draft: RouteDraft,
   copy: RouteCopy,
   ticket: RequestTicket,
-  expectedDraft: RouteDraft | null
+  expectedDraft: RouteDraft | null,
+  refinement = false
 ): Promise<RouteRequestResult> {
   if (plan.kind === "noop") {
     // Re-selecting where the task already runs changes nothing and cancels its draft.
@@ -287,7 +299,7 @@ async function settle(
     return { applied: false, blocker: null, plan };
   }
   if (plan.kind === "instant") return commit(plan, copy, ticket, expectedDraft);
-  useRouteDraftStore.getState().stage(draft);
+  useRouteDraftStore.getState().stage(draft, refinement ? (expectedDraft ?? undefined) : undefined);
   return "staged";
 }
 
@@ -295,18 +307,34 @@ function providerOf(target: RouteTarget): string {
   return target.mode === "providers" ? target.provider : target.mode;
 }
 
-export async function requestRouteChange(
+export function requestRouteChange(
   id: RouteId,
   target: RouteTarget,
   copy: RouteCopy
 ): Promise<RouteRequestResult> {
+  return requestTarget(id, target, copy);
+}
+
+// One planning/admission path for new targets and explicit target refinements.
+// Setup may replace the contents while retaining this owner lifetime; a new
+// owner cannot inherit the earlier editor's unsent text or pending refinement.
+async function requestTarget(
+  id: RouteId,
+  target: RouteTarget,
+  copy: RouteCopy,
+  refinementIdentity?: number
+): Promise<RouteRequestResult> {
   const ticket = takeTicket(id);
+  const ownsRefinement = () =>
+    refinementIdentity === undefined ||
+    (useRouteDraftStore.getState().draftIdentity === refinementIdentity &&
+      !!useRouteDraftStore.getState().draft);
   try {
     await readyToPlan();
   } catch {
-    return isCurrent(ticket) ? "save-failed" : "superseded";
+    return isCurrent(ticket) && ownsRefinement() ? "save-failed" : "superseded";
   }
-  if (!isCurrent(ticket)) return "superseded"; // R2-8
+  if (!isCurrent(ticket) || !ownsRefinement()) return "superseded"; // R2-8
   // A model pick in the staged editor keeps the setup typed for the same
   // provider; a different provider starts without it.
   const prior = useRouteDraftStore.getState().draft;
@@ -322,7 +350,7 @@ export async function requestRouteChange(
     ? { routeId: id, kind: "target", target, setup }
     : { routeId: id, kind: "target", target };
   const draftOwner = useRouteDraftStore.getState().draft;
-  return settle(plan, draft, copy, ticket, draftOwner);
+  return settle(plan, draft, copy, ticket, draftOwner, refinementIdentity !== undefined);
 }
 
 // Setup for an existing pending change keeps the entire reviewed intent. A
@@ -336,7 +364,8 @@ export async function requestDraftTarget(
 ): Promise<RouteRequestResult> {
   const owned = useRouteDraftStore.getState().draft;
   if (!owned || owned.routeId !== id) return "superseded";
-  if (owned.kind === "target" && editRouteId === id) return requestRouteChange(id, target, copy);
+  if (owned.kind === "target" && editRouteId === id)
+    return requestTarget(id, target, copy, useRouteDraftStore.getState().draftIdentity);
   const ticket = takeTicket(id);
   try {
     await readyToPlan();
@@ -363,7 +392,7 @@ export async function requestDraftTarget(
     ...targetPatch,
   } as SettingsPatch;
   const plan = planPatch(state, ctx, id, patch);
-  return settle(plan, { routeId: id, kind: "patch", patch }, copy, ticket, owned);
+  return settle(plan, { routeId: id, kind: "patch", patch }, copy, ticket, owned, true);
 }
 
 // Raw route keys that are not a destination: the enable switches, Corti's
@@ -403,7 +432,7 @@ export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft |
     draft.kind === "patch"
       ? { ...draft, patch: { ...draft.patch, ...patch } as SettingsPatch }
       : { ...draft, setup: { ...(draft.setup ?? {}), ...patch } as SettingsPatch };
-  useRouteDraftStore.getState().stage(next);
+  useRouteDraftStore.getState().stage(next, draft);
   return next;
 }
 

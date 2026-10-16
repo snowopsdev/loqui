@@ -63,6 +63,8 @@ interface ReasoningModelSelectorProps {
   mode?: "cloud" | "local";
   credentialRef?: string;
   requireImages?: boolean;
+  /** Stable route/editor identity; never a callback or a mutable config value. */
+  editorIdentity?: string;
 }
 
 function GpuStatusBadge() {
@@ -337,6 +339,7 @@ export default function ReasoningModelSelector({
   mode,
   credentialRef = "custom:dictationCleanup",
   requireImages = false,
+  editorIdentity,
 }: ReasoningModelSelectorProps) {
   const { t } = useTranslation();
   const openaiApiKey = useSettingsStore((s) => s.openaiApiKey);
@@ -565,6 +568,7 @@ export default function ReasoningModelSelector({
                 free-form custom/OpenRouter ids can collide with registry ids. */}
               {["bedrock", "azure", "vertex"].includes(displayedCloudProvider) ? (
                 <EnterpriseProviderConfig
+                  key={JSON.stringify([editorIdentity ?? credentialRef, displayedCloudProvider])}
                   provider={displayedCloudProvider as "bedrock" | "azure" | "vertex"}
                   reasoningModel={
                     localReasoningProvider === displayedCloudProvider ? reasoningModel : ""

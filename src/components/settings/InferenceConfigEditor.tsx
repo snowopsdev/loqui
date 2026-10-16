@@ -154,6 +154,7 @@ export default function InferenceConfigEditor({
 
   const renderModelSelector = (mode?: "cloud" | "local") => (
     <ReasoningModelSelector
+      editorIdentity={routeId}
       requireImages={scope === "dictationAgentVision"}
       credentialRef={`custom:${scope}`}
       reasoningModel={config.model}

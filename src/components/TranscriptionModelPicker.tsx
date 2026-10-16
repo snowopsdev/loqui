@@ -1,5 +1,6 @@
 import type { RouteTarget } from "../lib/routePlanner";
 import { STT_CONTEXT_ROUTE } from "../lib/routes";
+import { RouteStateChip } from "./settings/routing/RouteChips";
 import { EndpointDraft } from "./settings/routing/EndpointDraft";
 import { useRouteChange } from "./settings/routing/useRouteChange";
 import { unavailableSecretSave } from "../lib/credentialSlots";
@@ -507,18 +508,12 @@ export default function TranscriptionModelPicker({
     };
   }, []);
 
-  const fellBackToWhisperRef = useRef(false);
   useEffect(() => {
     if (parakeetCapability?.supported !== false) return;
-    // The tab leaves the disabled sherpa entry on its own (browse state). A
-    // committed sherpa provider cannot run on this Mac at all; moving it to
-    // Whisper stays on the device, so the planner applies it once, with Undo.
+    // Only browse state leaves the disabled hardware entry. The saved route
+    // stays exactly as chosen until an explicit supported model selection.
     if (usesParakeetManager(internalLocalProvider)) setInternalLocalProvider("whisper");
-    if (isSherpaLocalProvider(selectedLocalProvider) && !fellBackToWhisperRef.current) {
-      fellBackToWhisperRef.current = true;
-      onCommit({ mode: "local", provider: "whisper" });
-    }
-  }, [internalLocalProvider, onCommit, parakeetCapability, selectedLocalProvider]);
+  }, [internalLocalProvider, parakeetCapability]);
 
   const localModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const parakeetModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -1109,6 +1104,23 @@ export default function TranscriptionModelPicker({
           {selectedLocalProvider} · {selectedLocalModel}
         </p>
       )}
+      {effectiveLocal &&
+        isSherpaLocalProvider(selectedLocalProvider) &&
+        parakeetCapability?.supported === false && (
+          <div role="status" className="space-y-1.5" data-unsupported-local-selection>
+            <p dir="ltr" className="text-xs text-muted-foreground">
+              {selectedLocalProvider} · {selectedLocalModel}
+            </p>
+            <RouteStateChip state={{ status: "unreachable", detail: "unsupported" }} />
+            <p className="text-xs text-muted-foreground">
+              {parakeetCapability.minimumMacOSVersion
+                ? t("transcription.parakeet.requiresMacOS", {
+                    version: parakeetCapability.minimumMacOSVersion,
+                  })
+                : t("transcription.parakeet.unavailable")}
+            </p>
+          </div>
+        )}
       {!mode && <ModeToggle useLocalWhisper={effectiveLocal} onModeChange={handleModeChange} />}
 
       {!effectiveLocal ? (

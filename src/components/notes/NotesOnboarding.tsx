@@ -158,6 +158,7 @@ export default function NotesOnboarding({ onComplete }: NotesOnboardingProps) {
                 </p>
 
                 <ReasoningModelSelector
+                  editorIdentity="dictationCleanup"
                   reasoningModel={cleanupConfig.model}
                   localReasoningProvider={cleanupConfig.provider}
                   cloudReasoningBaseUrl={cleanupConfig.cloudBaseUrl ?? ""}

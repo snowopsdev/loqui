@@ -1873,3 +1873,50 @@ test("change-driving main boundary: staged Bedrock setup fits remembered models 
   assert.equal(r.live().chatAgentModel, QWEN);
   assert.deepEqual(r.live().reasoningModelByProvider, { bedrock: "us.anthropic.claude-fable-5" });
 });
+
+// Baseline guard FIX1: TARGET refinements retain the existing Task7 newer-setup
+// semantics, while owner replacement gets no admission from UI identity alone.
+for (const replace of [false, true])
+  test(`baseline guard FIX1: target refinement wait ${replace ? "cannot cross a new owner" : "retains newer same-owner setup"}`, async (t) => {
+    const r = await productionDrafts(t);
+    const owned = await stageAzure(r);
+    const identity = r.useRouteDraftStore.getState().draftIdentity;
+    const list = globalThis.window.electronAPI.credentials.list;
+    const gate = deferred();
+    let read = false;
+    globalThis.window.electronAPI.credentials.list = async () => {
+      read = true;
+      await gate.promise;
+      return list();
+    };
+    const pending = r.requestDraftTarget(
+      "chat",
+      { ...azureTarget, model: "refined-model" },
+      TEST_COPY
+    );
+    while (!read) await new Promise((resolve) => setImmediate(resolve));
+    let replacement;
+    if (replace) {
+      replacement = { ...owned, target: { ...azureTarget, model: "replacement-owner-model" } };
+      r.useRouteDraftStore.getState().stage(replacement);
+    } else
+      r.stageDraftSetup("chat", { azureEndpoint: "https://newer-setup.openai.azure.com/openai" });
+    gate.resolve();
+    assert.equal(await pending, replace ? "superseded" : "staged");
+    if (replace) {
+      assert.equal(r.draft(), replacement);
+      assert.ok(r.useRouteDraftStore.getState().draftIdentity > identity);
+    } else {
+      assert.equal(r.draft().target.model, "refined-model");
+      assert.equal(r.draft().setup.azureEndpoint, "https://newer-setup.openai.azure.com/openai");
+      assert.equal(r.useRouteDraftStore.getState().draftIdentity, identity);
+    }
+    assert.equal(r.calls.length, 0);
+    const beforeDiscard = r.useRouteDraftStore.getState().draftIdentity;
+    r.useRouteDraftStore.getState().discard();
+    r.useRouteDraftStore.getState().stage(owned);
+    assert.ok(
+      r.useRouteDraftStore.getState().draftIdentity > beforeDiscard,
+      "a later owner cannot reuse a discarded lifetime"
+    );
+  });

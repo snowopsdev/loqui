@@ -50,6 +50,22 @@
   background: var(--ow-panel);
 }
 
+/* The shell owns the window while onboarding is mounted. index.css only sets
+   min-height on html, body and #root, so height: 100% on the shell resolved
+   to auto and the footer scrolled away with the content. */
+html:has(.onboarding-welcome),
+html:has(.onboarding-welcome) body,
+html:has(.onboarding-welcome) #root {
+  height: 100%;
+}
+
+/* macOS draws the traffic lights at x:20, y:20 (windowConfig.js) over this
+   frameless header, about 52px wide. They stay on the physical left in RTL
+   too, so this is padding-left on purpose, not padding-inline-start. */
+.onboarding-welcome[data-platform="darwin"] .onboarding-welcome-header {
+  padding-left: max(84px, calc((100vw - 1320px) / 2));
+}
+
 .onboarding-welcome-brand {
   display: flex;
   min-width: 0;
@@ -365,6 +381,9 @@
     flex-direction: column;
     gap: 18px;
     padding: 18px 24px;
+  }
+  .onboarding-welcome[data-platform="darwin"] .onboarding-welcome-header {
+    padding-left: 84px;
   }
   .onboarding-welcome-progress {
     width: 100%;

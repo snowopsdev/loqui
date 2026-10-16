@@ -5,6 +5,7 @@ import { Toggle } from "../ui/toggle";
 import "../../styles/onboarding-welcome.css";
 
 interface WelcomeScreenProps {
+  platform?: string;
   dataRetentionEnabled: boolean;
   onDataRetentionChange: (enabled: boolean) => void;
   updatesEnabled: boolean;
@@ -29,6 +30,7 @@ const benefits = [
 ];
 
 export default function WelcomeScreen({
+  platform,
   dataRetentionEnabled,
   onDataRetentionChange,
   updatesEnabled,
@@ -43,7 +45,7 @@ export default function WelcomeScreen({
   }, []);
 
   return (
-    <div className="onboarding-welcome">
+    <div className="onboarding-welcome" data-platform={platform}>
       <header className="onboarding-welcome-header">
         <div className="onboarding-welcome-brand">
           <span className="onboarding-welcome-brand-mark" aria-hidden="true">

@@ -141,6 +141,7 @@ function displayModelSize(size: string): string {
 }
 
 function StepShell({
+  platform,
   step,
   children,
   onBack,
@@ -150,6 +151,7 @@ function StepShell({
   skipLabel = "Continue later",
   continueDisabled = false,
 }: {
+  platform: string;
   step: Exclude<OnboardingStep, "welcome">;
   children: ReactNode;
   onBack: () => void;
@@ -168,7 +170,7 @@ function StepShell({
   }, [step]);
 
   return (
-    <div className="onboarding-welcome onboarding-guided">
+    <div className="onboarding-welcome onboarding-guided" data-platform={platform}>
       <header className="onboarding-welcome-header">
         <div className="onboarding-welcome-brand">
           <span className="onboarding-welcome-brand-mark" aria-hidden="true">
@@ -1400,6 +1402,7 @@ export default function OnboardingFlow({
   if (step === "welcome") {
     return (
       <WelcomeScreen
+        platform={platform}
         updatesEnabled={updatesEnabled}
         onUpdatesChange={(value) => {
           setUpdatesEnabled(value);
@@ -1415,6 +1418,7 @@ export default function OnboardingFlow({
 
   return (
     <StepShell
+      platform={platform}
       step={step}
       onBack={handleBack}
       onContinue={handleContinue}

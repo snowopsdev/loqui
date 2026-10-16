@@ -624,13 +624,13 @@ function TranscriptionSection({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
         <div>
-          <p className="text-sm font-medium">Review dictation setup</p>
+          <p className="text-sm font-medium">{t("settingsPage.reviewSetup.title")}</p>
           <p className="text-xs text-muted-foreground">
-            Return to the focused setup flow without changing your existing notes or credentials.
+            {t("settingsPage.reviewSetup.description")}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={startOnboarding}>
-          Open setup
+          {t("settingsPage.reviewSetup.action")}
         </Button>
       </div>
       {

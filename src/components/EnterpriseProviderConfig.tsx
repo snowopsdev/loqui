@@ -125,6 +125,8 @@ export default function EnterpriseProviderConfig({
           <p className="text-xs text-muted-foreground">{t("personal.directAwsCredentials")}</p>
           <ApiKeyInput
             label={t("reasoning.enterprise.accessKeyId")}
+            masked={false}
+            placeholder="AKIA…"
             apiKey={settings.bedrockAccessKeyId}
             setApiKey={(value) => void saveSecret("bedrockAccessKeyId", value)}
           />

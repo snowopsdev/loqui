@@ -269,7 +269,9 @@ export default function OpenAICompatiblePanel({
   }, [applyBase, isDraftDirty, trimmedDraft, loadRemoteModels]);
 
   const displayedModels = isDraftDirty ? [] : modelOptions;
-  const queryUrl = buildApiUrl(hasBase ? normalizedBase : baseUrlPlaceholder, "/models");
+  // Only name an endpoint the panel will actually query; the placeholder is
+  // an example, not a destination.
+  const queryUrl = hasBase ? buildApiUrl(normalizedBase, "/models") : null;
 
   return (
     <>
@@ -349,13 +351,15 @@ export default function OpenAICompatiblePanel({
             </Button>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {t("reasoning.custom.queryPrefix")}{" "}
-          <code dir="ltr" className="break-all">
-            {queryUrl}
-          </code>{" "}
-          {t("reasoning.custom.querySuffix")}
-        </p>
+        {queryUrl && (
+          <p className="text-xs text-muted-foreground">
+            {t("reasoning.custom.queryPrefix")}{" "}
+            <code dir="ltr" className="break-all">
+              {queryUrl}
+            </code>{" "}
+            {t("reasoning.custom.querySuffix")}
+          </p>
+        )}
         {isDraftDirty && (
           <p className="text-xs text-primary">{t("reasoning.custom.modelsReloadHint")}</p>
         )}

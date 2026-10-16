@@ -2513,6 +2513,11 @@
       "upgradeCta": "Actualizar ahora",
       "upgradedTitle": "Actualizado a Enterprise",
       "upgradedDescription": "{{workspace}} ahora está en Enterprise."
+    },
+    "reviewSetup": {
+      "title": "Revisar la configuración del dictado",
+      "description": "Vuelve al asistente de configuración sin cambiar tus notas ni credenciales.",
+      "action": "Abrir configuración"
     }
   },
   "models": {

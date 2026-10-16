@@ -3385,6 +3385,11 @@
       "upgradeCta": "الترقية الآن",
       "upgradedTitle": "تمت الترقية إلى Enterprise",
       "upgradedDescription": "أصبحت {{workspace}} الآن على Enterprise."
+    },
+    "reviewSetup": {
+      "title": "مراجعة إعداد الإملاء",
+      "description": "ارجع إلى خطوات الإعداد دون تغيير ملاحظاتك أو بيانات الاعتماد الحالية.",
+      "action": "فتح الإعداد"
     }
   },
   "settings": {

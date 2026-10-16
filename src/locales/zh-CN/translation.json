@@ -2460,6 +2460,11 @@
       "upgradeCta": "立即升级",
       "upgradedTitle": "已升级到 Enterprise",
       "upgradedDescription": "{{workspace}} 现已升级到 Enterprise。"
+    },
+    "reviewSetup": {
+      "title": "检查听写设置",
+      "description": "返回设置流程，不会更改现有笔记或凭据。",
+      "action": "打开设置向导"
     }
   },
   "models": {

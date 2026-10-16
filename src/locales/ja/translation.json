@@ -2460,6 +2460,11 @@
       "upgradeCta": "今すぐアップグレード",
       "upgradedTitle": "Enterpriseにアップグレードしました",
       "upgradedDescription": "{{workspace}}はEnterpriseになりました。"
+    },
+    "reviewSetup": {
+      "title": "音声入力の設定を見直す",
+      "description": "既存のメモや認証情報を変更せずに、セットアップの流れに戻ります。",
+      "action": "セットアップを開く"
     }
   },
   "models": {

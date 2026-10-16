@@ -135,7 +135,7 @@ export default function CodexConnection({
           {t("codexConnection.connect")}
         </Button>
       )}
-      <Button className="ml-2" variant="ghost" disabled={busy} onClick={() => void action(refresh)}>
+      <Button className="ms-2" variant="ghost" disabled={busy} onClick={() => void action(refresh)}>
         {t("codexConnection.refresh")}
       </Button>
       {(error || status?.error) && (

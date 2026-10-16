@@ -2553,6 +2553,11 @@
       "upgradeCta": "Mettre à niveau",
       "upgradedTitle": "Mise à niveau effectuée",
       "upgradedDescription": "{{workspace}} est maintenant sur Enterprise."
+    },
+    "reviewSetup": {
+      "title": "Revoir la configuration de la dictée",
+      "description": "Revenez à l'assistant de configuration sans modifier vos notes ni vos identifiants.",
+      "action": "Ouvrir la configuration"
     }
   },
   "models": {

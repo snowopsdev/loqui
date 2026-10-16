@@ -13,6 +13,7 @@ interface ApiKeyInputProps {
   ariaLabel?: string;
   helpText?: React.ReactNode;
   variant?: "default" | "purple";
+  masked?: boolean;
 }
 
 export default function ApiKeyInput({
@@ -24,6 +25,7 @@ export default function ApiKeyInput({
   ariaLabel,
   helpText,
   variant = "default",
+  masked = true,
 }: ApiKeyInputProps) {
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t("apiKeyInput.placeholder");
@@ -100,7 +102,7 @@ export default function ApiKeyInput({
             <Input
               dir="ltr"
               ref={inputRef}
-              type="password"
+              type={masked ? "password" : "text"}
               placeholder={resolvedPlaceholder}
               value={draft}
               onChange={(e) => {

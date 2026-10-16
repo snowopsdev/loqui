@@ -2460,6 +2460,11 @@
       "upgradeCta": "Esegui l'upgrade",
       "upgradedTitle": "Upgrade completato",
       "upgradedDescription": "{{workspace}} è ora su Enterprise."
+    },
+    "reviewSetup": {
+      "title": "Rivedi la configurazione della dettatura",
+      "description": "Torna alla configurazione guidata senza modificare note o credenziali esistenti.",
+      "action": "Apri configurazione"
     }
   },
   "models": {

@@ -758,9 +758,9 @@
       "apiKeyMode": "API Key",
       "region": "Region",
       "profile": "Profile Name",
-      "accessKeyId": "Access Key ID",
-      "secretAccessKey": "Secret Access Key",
-      "sessionToken": "Session Token (optional)",
+      "accessKeyId": "AWS access key ID",
+      "secretAccessKey": "Secret access key",
+      "sessionToken": "Session token (optional)",
       "endpoint": "Endpoint URL",
       "deploymentName": "Deployment Name",
       "apiVersion": "API Version",
@@ -2553,6 +2553,11 @@
       "upgradeCta": "Upgrade now",
       "upgradedTitle": "Upgraded to Enterprise",
       "upgradedDescription": "{{workspace}} is now on Enterprise."
+    },
+    "reviewSetup": {
+      "title": "Review dictation setup",
+      "description": "Return to the focused setup flow without changing your existing notes or credentials.",
+      "action": "Open setup"
     }
   },
   "models": {

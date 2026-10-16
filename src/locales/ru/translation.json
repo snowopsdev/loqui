@@ -2476,6 +2476,11 @@
       "upgradeCta": "Обновить сейчас",
       "upgradedTitle": "План обновлён до Enterprise",
       "upgradedDescription": "{{workspace}} теперь на плане Enterprise."
+    },
+    "reviewSetup": {
+      "title": "Проверить настройку диктовки",
+      "description": "Вернитесь к пошаговой настройке, не меняя заметки и учётные данные.",
+      "action": "Открыть настройку"
     }
   },
   "models": {

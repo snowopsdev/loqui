@@ -31,9 +31,11 @@
   --color-link: #c43e13;
   --color-link-hover: #a8340d;
   --color-success: #16a34a;
-  --color-success-foreground: #ffffff;
+  /* Ink on the light green and amber fills (5.44:1, 5.63:1); white was
+     3.30:1 and 3.19:1. Plum Night already puts dark text on its fills. */
+  --color-success-foreground: #171717;
   --color-warning: #d97706;
-  --color-warning-foreground: #ffffff;
+  --color-warning-foreground: #171717;
   --color-info: #c43e13;
   --color-info-foreground: #ffffff;
 

@@ -1082,6 +1082,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("meeting-detection-set-preferences", prefs),
   syncNotificationPreferences: (prefs) =>
     ipcRenderer.invoke("sync-notification-preferences", prefs),
+  showSystemNotification: (payload) => ipcRenderer.invoke("show-system-notification", payload),
   setSpeakerDiarizationEnabled: (enabled) =>
     ipcRenderer.invoke("meeting-set-speaker-diarization-enabled", { enabled }),
   setMeetingSessionSpeakerConfig: (config) =>

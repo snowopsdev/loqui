@@ -14,11 +14,16 @@ async function setup(t) {
     if (store) await React.act(async () => store.stopRecording());
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__interruptionToasts;
+    delete globalThis.__nativeNotices;
     delete globalThis.__interruptionDismissals;
   });
   const listeners = {};
   const noop = () => () => {};
   const api = {
+    showSystemNotification(payload) {
+      globalThis.__nativeNotices.push(payload);
+      return Promise.resolve({ success: true });
+    },
     checkSystemAudioAccess: async () => ({
       granted: true,
       status: "granted",
@@ -83,6 +88,7 @@ async function setup(t) {
     await React.act(async () => events.get("visibilitychange")?.());
   };
   globalThis.__interruptionToasts = [];
+  globalThis.__nativeNotices = [];
   globalThis.__interruptionDismissals = [];
   const vite = await createRendererServer(t, {
     cachePrefix: "pr2040-renderer-warning-review-",
@@ -282,4 +288,40 @@ test("stopping with Mount absent removes its persistent warning", async (t) => {
   await render(false);
   await React.act(async () => store.stopRecording());
   assert.deepEqual(globalThis.__interruptionDismissals, ["1"]);
+});
+
+test("a lost meeting audio source raises one native notification even while hidden", async (t) => {
+  const { interrupt, focus } = await setup(t);
+  globalThis.document.hidden = true;
+  globalThis.document.visibilityState = "hidden";
+  await interrupt();
+  assert.equal(globalThis.__interruptionToasts.length, 0, "the in-app warning still waits");
+  assert.equal(globalThis.__nativeNotices.length, 1);
+  assert.equal(globalThis.__nativeNotices[0].title, "Meeting audio stopped");
+  await focus(false);
+  assert.equal(globalThis.__nativeNotices.length, 1, "no replay on focus changes");
+});
+
+test("a recovering interruption stays in-app only", async (t) => {
+  const { interrupt } = await setup(t);
+  await interrupt({ recovering: true });
+  assert.equal(globalThis.__nativeNotices.length, 0);
+});
+
+test("a remount does not replay a delivered native notification", async (t) => {
+  const { interrupt, render } = await setup(t);
+  await interrupt({ reason: "gone_quiet" });
+  assert.equal(globalThis.__nativeNotices[0].title, "Meeting audio has gone quiet");
+  await render(false);
+  await render(true);
+  assert.equal(globalThis.__nativeNotices.length, 1);
+});
+
+test("losing the microphone mid-meeting raises a native notification", async (t) => {
+  const { store } = await setup(t);
+  await React.act(async () =>
+    store.useMeetingRecordingStore.setState({ micCaptureStatus: "unavailable" })
+  );
+  assert.equal(globalThis.__nativeNotices.length, 1);
+  assert.equal(globalThis.__nativeNotices[0].title, "Microphone disconnected");
 });

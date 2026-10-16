@@ -12,6 +12,9 @@ import logger from "../utils/logger";
 import { serializeTranscriptSegments } from "../utils/transcriptSpeakerState";
 import { useToast } from "./ui/useToast";
 
+// Survives route remounts so delivered native interruptions are never replayed.
+let lastNativeInterruptionNonce: number | null = null;
+
 const EMA_PREV = 0.5;
 const EMA_NEXT = 0.5;
 
@@ -172,6 +175,24 @@ export default function MeetingRecordingMount(): null {
     };
   }, [isRecording, systemAudioInterrupted, systemAudioInterruptedNonce, toast, dismiss, t]);
 
+  // Native delivery does not wait for focus: a hidden or covered window is
+  // exactly when the in-app warning above cannot be seen (D2, VO-Q16).
+  useEffect(() => {
+    const state = useMeetingRecordingStore.getState();
+    const interruption = state.systemAudioInterrupted;
+    if (!state.isRecording || !interruption || interruption.recovering) return;
+    if (lastNativeInterruptionNonce === state.systemAudioInterruptedNonce) return;
+    lastNativeInterruptionNonce = state.systemAudioInterruptedNonce;
+    const key =
+      interruption.reason === "gone_quiet"
+        ? "notes.meeting.systemAudioQuiet"
+        : "notes.meeting.systemAudioStopped";
+    void window.electronAPI?.showSystemNotification?.({
+      title: t(`${key}.title`),
+      body: t(`${key}.description`),
+    });
+  }, [isRecording, systemAudioInterrupted, systemAudioInterruptedNonce, t]);
+
   useEffect(() => {
     if (micCaptureStatus === "unavailable" && !wasMicUnavailable.current) {
       wasMicUnavailable.current = true;
@@ -179,6 +200,10 @@ export default function MeetingRecordingMount(): null {
         title: t("hooks.audioRecording.micDisconnected.title"),
         description: t("hooks.audioRecording.micDisconnected.meetingDescription"),
         variant: "default",
+      });
+      void window.electronAPI?.showSystemNotification?.({
+        title: t("hooks.audioRecording.micDisconnected.title"),
+        body: t("hooks.audioRecording.micDisconnected.meetingDescription"),
       });
     } else if (micCaptureStatus === "active" && wasMicUnavailable.current) {
       wasMicUnavailable.current = false;

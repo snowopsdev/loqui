@@ -1,5 +1,14 @@
-const { ipcMain, app, shell, BrowserWindow, systemPreferences, net } = require("electron");
+const {
+  ipcMain,
+  app,
+  shell,
+  BrowserWindow,
+  systemPreferences,
+  net,
+  Notification,
+} = require("electron");
 const path = require("path");
+const { showSystemNotification } = require("./systemNotification");
 const fs = require("fs");
 const os = require("os");
 const { isRestorablePasteTarget } = require("./windowsPasteTarget");
@@ -9369,6 +9378,21 @@ class IPCHandlers {
       "notifyMeetingDetection",
       "notifyCalendarReminders",
     ]);
+
+    ipcMain.handle("show-system-notification", async (event, payload) =>
+      showSystemNotification({
+        Notification,
+        payload,
+        prefs: this.windowManager.notificationPrefs,
+        onClick: () => {
+          const win = BrowserWindow.fromWebContents(event.sender);
+          if (!win || win.isDestroyed()) return;
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+        },
+      })
+    );
 
     ipcMain.handle("sync-notification-preferences", async (_event, prefs) => {
       try {

@@ -2241,6 +2241,10 @@ declare global {
       syncNotificationPreferences?: (
         prefs: Record<string, boolean>
       ) => Promise<{ success: boolean }>;
+      showSystemNotification?: (payload: {
+        title: string;
+        body?: string;
+      }) => Promise<{ success: boolean; reason?: "disabled" | "unsupported" | "invalid" }>;
       setSpeakerDiarizationEnabled?: (
         enabled: boolean
       ) => Promise<{ success: boolean; error?: string }>;

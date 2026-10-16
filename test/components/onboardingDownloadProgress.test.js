@@ -86,12 +86,15 @@ async function mountSpeechStep(t, { cancelResult = { success: true } } = {}) {
   // A terminal event from main: the hook stops tracking the model.
   const settle = async (model, data) =>
     React.act(async () => listeners.progress({}, { model, ...data }));
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const setLanguage = (language) =>
+    React.act(async () => useSettingsStore.getState().setSpokenLanguages([language]));
   const progressbar = () => tree.find((node) => node.attributes?.role === "progressbar");
   const downloadButton = () =>
     tree.find(
       (node) => node.tagName === "BUTTON" && node.textContent.includes("onboarding.download.start")
     );
-  return { ...tree, calls, pending, progress, settle, progressbar, downloadButton };
+  return { ...tree, calls, pending, progress, settle, progressbar, downloadButton, setLanguage };
 }
 
 test("the speech step shows the real download percentage", async (t) => {
@@ -178,3 +181,32 @@ test("a confirmed cancel ignores a late successful result", async (t) => {
   assert.match(flow.text(), /Download the selected model/);
   assert.ok(flow.downloadButton(), "the model still offers Download after late success");
 });
+
+for (const automatic of [false, true]) {
+  test(`cancelled request holds the pipeline after ${automatic ? "language-driven" : "manual"} model selection`, async (t) => {
+    const flow = await mountSpeechStep(t);
+    await flow.click("onboarding.download.start");
+    const modelA = flow.calls.downloads[0];
+    await flow.progress(modelA, 42);
+    if (automatic) await flow.setLanguage("es-ES");
+    await flow.click("common.cancel");
+    if (!automatic) await flow.click("Orukeet");
+    assert.equal(
+      flow.downloadButton().attributes.disabled,
+      "",
+      "A still owns the pipeline after selecting B"
+    );
+    // Invoke the handler directly too: a disabled UI must not be the only guard.
+    await flow.click("onboarding.download.start");
+    assert.equal(flow.calls.downloads.length, 1);
+    await flow.settle(modelA, { type: "error", code: "DOWNLOAD_CANCELLED", error: "cancelled" });
+    assert.equal(flow.downloadButton().attributes.disabled, undefined);
+    await flow.click("onboarding.download.start");
+    assert.equal(flow.calls.downloads.length, 2);
+    assert.notEqual(
+      flow.calls.downloads[1],
+      modelA,
+      "the new selection starts only after A settles"
+    );
+  });
+}

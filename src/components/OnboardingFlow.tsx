@@ -1122,11 +1122,12 @@ export default function OnboardingFlow({
         totalBytes: liveSpeechDownload?.totalBytes ?? 0,
       };
   const speechInstalling = liveSpeechDownload?.phase === "installing";
-  const speechCancelling = !preview && isCancellingModel(selectedModel);
-  // After a cancel, main still has to wind the old request down; the hook
-  // keeps tracking the model until its terminal event arrives.
-  const speechSettling =
-    speechCancelling || (downloadState !== "downloading" && Boolean(liveSpeechDownload));
+  const trackedSpeechModels = Object.keys(speechDownloadStatus);
+  const speechCancelling =
+    !preview && (isCancellingModel(selectedModel) || trackedSpeechModels.some(isCancellingModel));
+  // Parakeet owns one pipeline. Changing selection must not release a cancelled
+  // request's lock before its terminal event removes it from hook tracking.
+  const speechSettling = speechCancelling || (!preview && trackedSpeechModels.length > 0);
   const [trialResult, setTrialResult] = useState("");
   const [updatesEnabled, setUpdatesEnabled] = useState(true);
   const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);
@@ -1224,6 +1225,7 @@ export default function OnboardingFlow({
   }, [onComplete, persist]);
 
   const downloadModel = useCallback(() => {
+    if (downloadState === "downloading" || speechSettling) return;
     const requestedModel = selectedModel;
     const request = ++downloadRequestRef.current;
     const isCurrent = () =>
@@ -1258,7 +1260,7 @@ export default function OnboardingFlow({
       .catch(() => {
         if (isCurrent()) setDownloadState("error");
       });
-  }, [config, preview, scenario, selectedModel]);
+  }, [config, downloadState, preview, scenario, selectedModel, speechSettling]);
 
   const cancelSpeechDownload = useCallback(async () => {
     // Drop the request only once main confirms. It refuses after extraction

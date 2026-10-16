@@ -738,6 +738,18 @@ function batchSttDestination(
     // the dictation recorder has a live path (upload and retry omit it).
     hasProviderKey: id === "dictationStt" ? keyPresence(s, id, providerId) : undefined,
   });
+  // Validate only the actual Corti transport. A retained Corti selection is
+  // unused when the batch executor selects an explicit self-hosted endpoint.
+  if (
+    route.transport === "proxied" &&
+    route.provider === "corti" &&
+    s.capabilities.cortiSpeechTargetValid === false
+  ) {
+    return {
+      ...remote(s, providerId, cloudModelName(s, providerId, input.cloudModel), UNSUPPORTED),
+      host: null,
+    };
+  }
   const ok = route.transport === "http-batch" || route.transport === "proxied";
   const errorState =
     route.transport === "error" ? transcriptionErrorState(route.code, id, mode, providerId) : null;
@@ -799,22 +811,17 @@ function meetingDestination(s: RouteSettingsSnapshot, input: SttRouteInput): Des
   if (!s.capabilities.meetingProviders.includes(providerId)) {
     return remote(s, providerId, model, UNSUPPORTED);
   }
+  // The meeting executor admits only this supported providers transport;
+  // preserve its self-hosted and unsupported-mode refusal paths above.
+  if (providerId === "corti" && s.capabilities.cortiSpeechTargetValid === false) {
+    return { ...remote(s, providerId, model, UNSUPPORTED), host: null };
+  }
   return remote(s, providerId, model, credentialState(s, "noteRecordingStt", providerId));
 }
 
 function sttDestination(s: RouteSettingsSnapshot, id: RouteId, input: SttRouteInput): Destination {
   const mode = input.mode.trim();
   const providerId = input.cloudProvider.trim();
-  if (
-    mode !== "local" &&
-    providerId === "corti" &&
-    s.capabilities.cortiSpeechTargetValid === false
-  ) {
-    return {
-      ...remote(s, providerId, cloudModelName(s, providerId, input.cloudModel), UNSUPPORTED),
-      host: null,
-    };
-  }
   if (mode === "local") {
     const family = sttFamily(input.localProvider);
     if (family === null) {

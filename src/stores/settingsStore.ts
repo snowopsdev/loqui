@@ -39,6 +39,19 @@ import { pickDefaultModelId } from "../models/providerDefaultModel";
 // the switch store only zustand, so neither reopens the ModelRegistry cycle.
 import { readCachedTinfoilModels } from "../models/tinfoilModelCache";
 import { recordTinfoilModelSwitch } from "./tinfoilModelSwitchStore";
+import {
+  ROUTE_ENTERPRISE_KEYS,
+  ROUTE_PATCH_KEY_SET,
+  TRANSCRIPTION_CONTEXT_KEYS,
+  type RouteEnterpriseKey,
+  planReasoningProviderSwitch,
+  planTranscriptionProviderSwitch,
+  providerSearchScope,
+  reasoningModelBelongsToProvider,
+  type SettingsPatch,
+} from "../lib/providerSwitchPlans";
+import type { EnterpriseRouteSettings, EnterpriseRouteState } from "../types/electron";
+import { writeProviderSearchPreference } from "../utils/providerSearch";
 import { STREAMING_ONLY_PROVIDERS } from "../helpers/transcriptionRoute";
 import type { TranscriptionPolicyContext } from "../utils/providerSelection";
 import type {
@@ -63,66 +76,11 @@ const isBrowser = typeof window !== "undefined" && typeof localStorage !== "unde
 
 const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";
 
-// Independent task slots used only when the user changes a provider.
-const TRANSCRIPTION_CONTEXT_KEYS = [
-  {
-    context: "dictation",
-    provider: "cloudTranscriptionProvider",
-    model: "cloudTranscriptionModel",
-  },
-  {
-    context: "meeting",
-    provider: "meetingCloudTranscriptionProvider",
-    model: "meetingCloudTranscriptionModel",
-  },
-  {
-    context: "upload",
-    provider: "uploadCloudTranscriptionProvider",
-    model: "uploadCloudTranscriptionModel",
-  },
-] as const;
-
 const localLlmProviderIds = new Set(
   modelRegistryData.localProviders.map((provider) => provider.id)
 );
 
-function transcriptionProviderModels(
-  providerId: string,
-  context: TranscriptionPolicyContext
-): Array<{ id: string; streaming?: boolean }> {
-  const models =
-    modelRegistryData.transcriptionProviders.find((provider) => provider.id === providerId)
-      ?.models ?? [];
-  return context === "meeting" ? models.filter((model) => model.streaming) : models;
-}
-
-function defaultTranscriptionModel(
-  providerId: string,
-  context: TranscriptionPolicyContext
-): string {
-  return transcriptionProviderModels(providerId, context)[0]?.id ?? "whisper-1";
-}
-
-function transcriptionModelBelongsToProvider(
-  providerId: string,
-  modelId: string,
-  context: TranscriptionPolicyContext
-): boolean {
-  if (providerId === "custom") return Boolean(modelId);
-  return transcriptionProviderModels(providerId, context).some((model) => model.id === modelId);
-}
-
-export function reasoningModelBelongsToProvider(providerId: string, modelId: string): boolean {
-  if (!modelId) return false;
-  // Custom and OpenRouter ids are free-form; any remembered id is valid.
-  // Tinfoil's registry entry is refreshed in place from its live catalog.
-  if (providerId === "custom" || providerId === "openrouter") return true;
-  return (
-    modelRegistryData.cloudProviders
-      .find((provider) => provider.id === providerId)
-      ?.models.some((model) => model.id === modelId) ?? false
-  );
-}
+export { reasoningModelBelongsToProvider };
 
 function readString(key: string, fallback: string): string {
   if (!isBrowser) return fallback;
@@ -1002,12 +960,18 @@ export interface SettingsState
   switchCloudTranscriptionProvider: (
     context: TranscriptionPolicyContext,
     providerId: string
-  ) => void;
+  ) => Promise<void>;
   switchReasoningProvider: (
     scope: InferenceScope,
     providerId: string,
     fallbackModel?: string
-  ) => void;
+  ) => Promise<void>;
+  /** Enterprise writes acknowledge main before local commit. */
+  applyRoutePatch: (
+    patch: SettingsPatch,
+    options?: { expectedEnterprise?: EnterpriseRouteSettings; canCommit?: () => boolean }
+  ) => Promise<void>;
+
   setCleanupCloudMode: (value: string) => void;
   setCleanupCloudBaseUrl: (value: string) => void;
   setCustomDictionary: (words: string[]) => void;
@@ -1153,14 +1117,15 @@ function createStringSetter(key: string) {
   };
 }
 
-function persistTranscriptionModelMemory(memory: Record<string, string>) {
-  if (isBrowser) localStorage.setItem("transcriptionModelByProvider", JSON.stringify(memory));
-  useSettingsStore.setState({ transcriptionModelByProvider: memory });
+function writeModelMemoryStorage(
+  key: "transcriptionModelByProvider" | "reasoningModelByProvider",
+  memory: Record<string, string>
+) {
+  if (isBrowser) localStorage.setItem(key, JSON.stringify(memory));
 }
-
-function persistReasoningModelMemory(memory: Record<string, string>) {
-  if (isBrowser) localStorage.setItem("reasoningModelByProvider", JSON.stringify(memory));
-  useSettingsStore.setState({ reasoningModelByProvider: memory });
+function persistTranscriptionModelMemory(memory: Record<string, string>) {
+  writeModelMemoryStorage("transcriptionModelByProvider", memory);
+  useSettingsStore.setState({ transcriptionModelByProvider: memory });
 }
 
 function readModelMemory(key: string): Record<string, string> {
@@ -1257,46 +1222,327 @@ function debouncedPersistToEnv() {
   }, 1000);
 }
 
-// R2-1/R3-1: main's environment is what the enterprise executor reads
-// (main.js:447-457), so main wins over localStorage. A local write sends
-// the new value to main as well, so a write after the read began is newer
-// than that read and is kept. Four legacy controlled-input setters fence at
-// dispatch for compatibility; Task6/9 owns their atomic ACK/CAS + editable draft
-// integration. This counter does not prove cross-window tuple freshness (N2).
-const ENTERPRISE_ROUTE_FIELDS = [
-  "bedrockRegion",
-  "azureEndpoint",
-  "vertexProject",
-  "vertexLocation",
-  "vertexAuthSource",
-] as const;
+// Main publishes one tuple and monotonic version. Raw legacy inputs remain
+// editable until Task 9 replaces them with explicit component drafts.
+const ENTERPRISE_ROUTE_FIELDS = ROUTE_ENTERPRISE_KEYS;
 let enterpriseLocalWrites = 0;
+let enterpriseVersion = -1;
+let enterpriseCanonical: EnterpriseRouteSettings | null = null;
+let enterprisePatchInFlight = false;
+let enterprisePublicationDeferred = false;
+const enterpriseDrafts = new Map<RouteEnterpriseKey, number>();
+let enterpriseDraftRevision = 0;
+let enterpriseSourceRevision = 0;
+const enterpriseAuthorityListeners = new Set<(state?: EnterpriseRouteState) => void>();
+let enterpriseSubscribed = false;
 
 export function noteEnterpriseLocalWrite(): void {
-  enterpriseLocalWrites += 1;
+  enterpriseLocalWrites++;
 }
-
 export function enterpriseLocalWriteCount(): number {
   return enterpriseLocalWrites;
 }
-
-export function reconcileEnterpriseSettingsFromMain(
-  main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string> & {
-    vertexAuthSource: "adc" | "apiKey";
-  },
-  since: number
-): boolean {
-  if (enterpriseLocalWrites !== since) return false;
+export function enterpriseRouteVersion(): number {
+  return enterpriseVersion;
+}
+export function enterpriseSettingsAreConfirmed(): boolean {
   const state = useSettingsStore.getState();
-  const changed: Partial<SettingsState> = {};
-  for (const key of ENTERPRISE_ROUTE_FIELDS) {
-    if (state[key] === main[key]) continue;
-    Object.assign(changed, { [key]: main[key] });
-    if (isBrowser) localStorage.setItem(key, main[key]);
+  return (
+    enterpriseCanonical !== null &&
+    !enterprisePublicationDeferred &&
+    enterpriseDrafts.size === 0 &&
+    ENTERPRISE_ROUTE_FIELDS.every((key) => state[key] === enterpriseCanonical[key])
+  );
+}
+export function subscribeEnterpriseAuthority(
+  listener: (state?: EnterpriseRouteState) => void
+): () => void {
+  enterpriseAuthorityListeners.add(listener);
+  return () => enterpriseAuthorityListeners.delete(listener);
+}
+function notifyEnterpriseAuthority(state?: EnterpriseRouteState): void {
+  for (const listener of enterpriseAuthorityListeners) listener(state);
+}
+function validEnterpriseTuple(value: unknown): value is EnterpriseRouteSettings {
+  const tuple = value as EnterpriseRouteSettings;
+  return (
+    !!tuple &&
+    typeof tuple === "object" &&
+    Object.keys(tuple).length === ENTERPRISE_ROUTE_FIELDS.length &&
+    ENTERPRISE_ROUTE_FIELDS.every((key) => typeof tuple[key] === "string") &&
+    (tuple.vertexAuthSource === "adc" || tuple.vertexAuthSource === "apiKey")
+  );
+}
+
+export function reconcileEnterpriseRouteState(
+  authority: Pick<EnterpriseRouteState, "current" | "version"> &
+    Partial<Pick<EnterpriseRouteState, "facts">>,
+  companion: Partial<SettingsState> = {},
+  deferPublication = enterprisePatchInFlight
+): boolean {
+  if (
+    !authority ||
+    !Number.isSafeInteger(authority.version) ||
+    authority.version < 0 ||
+    authority.version < enterpriseVersion ||
+    (authority.current !== null && !validEnterpriseTuple(authority.current))
+  )
+    return false;
+  if (
+    authority.version === enterpriseVersion &&
+    (authority.current === null || enterpriseCanonical === null
+      ? authority.current !== enterpriseCanonical
+      : ENTERPRISE_ROUTE_FIELDS.some((key) => authority.current[key] !== enterpriseCanonical[key]))
+  )
+    return false;
+  enterpriseVersion = authority.version;
+  enterpriseCanonical = authority.current ? { ...authority.current } : null;
+  enterprisePublicationDeferred = deferPublication;
+  // Revoke old facts before synchronous settings subscribers can inspect a
+  // newly published tuple (or a preserved, divergent legacy draft).
+  notifyEnterpriseAuthority(authority.facts ? (authority as EnterpriseRouteState) : undefined);
+  noteEnterpriseLocalWrite();
+  if (deferPublication) return true;
+  const patch: Partial<SettingsState> = { ...companion };
+  if (enterpriseCanonical) {
+    for (const key of ENTERPRISE_ROUTE_FIELDS) {
+      if (!enterpriseDrafts.has(key)) Object.assign(patch, { [key]: enterpriseCanonical[key] });
+    }
   }
-  // Renderer-only: nothing is written back to main.
-  if (Object.keys(changed).length > 0) useSettingsStore.setState(changed);
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === "transcriptionModelByProvider" || key === "reasoningModelByProvider") {
+      writeModelMemoryStorage(key, value as Record<string, string>);
+    } else if (isBrowser) localStorage.setItem(key, String(value));
+  }
+  if (Object.keys(patch).length) useSettingsStore.setState(patch);
+  notifyEnterpriseAuthority(authority.facts ? (authority as EnterpriseRouteState) : undefined);
   return true;
+}
+
+export function ensureEnterpriseRouteSubscribed(): void {
+  if (enterpriseSubscribed || !isBrowser || !window.electronAPI?.onEnterpriseRouteChanged) return;
+  enterpriseSubscribed = true;
+  window.electronAPI.onEnterpriseRouteChanged((authority) => {
+    reconcileEnterpriseRouteState(authority);
+  });
+}
+
+// Compatibility only: each submission owns its revision, including A→B→A.
+// A failed save retains the typed text and cannot grant readiness.
+function writeLegacyEnterpriseSetting(
+  key: RouteEnterpriseKey,
+  value: string,
+  save: ((value: string) => Promise<unknown>) | undefined
+): void {
+  ensureEnterpriseRouteSubscribed();
+  const revision = ++enterpriseDraftRevision;
+  enterpriseDrafts.set(key, revision);
+  notifyEnterpriseAuthority();
+  noteEnterpriseLocalWrite();
+  if (isBrowser) localStorage.setItem(key, value);
+  useSettingsStore.setState({ [key]: value });
+  notifyEnterpriseAuthority();
+  void Promise.resolve()
+    .then(() => {
+      if (!save) throw new Error("Enterprise persistence unavailable");
+      return save(value);
+    })
+    .then((result) => {
+      if ((result as { success?: boolean })?.success !== true)
+        throw new Error("Enterprise persistence failed");
+      if (enterpriseDrafts.get(key) === revision) enterpriseDrafts.delete(key);
+      const ack = result as { current?: EnterpriseRouteSettings; version?: number };
+      if (ack.current && typeof ack.version === "number")
+        reconcileEnterpriseRouteState({ current: ack.current, version: ack.version });
+      if (enterpriseCanonical)
+        reconcileEnterpriseRouteState({ current: enterpriseCanonical, version: enterpriseVersion });
+      else notifyEnterpriseAuthority();
+    })
+    .catch(() => {
+      // Retain the owned draft, even if the failed value equals older main state.
+      notifyEnterpriseAuthority();
+    });
+}
+
+let routePatchQueue: Promise<void> = Promise.resolve();
+let routePatchBusy = false;
+const routePatchJobs: (() => void)[] = [];
+
+type RoutePatchOptions = {
+  expectedEnterprise?: EnterpriseRouteSettings;
+  // Renderer-only admission predicate. Never crosses IPC. Task 7 uses it
+  // to prevent a closed/replaced request from sending a patch while queued.
+  canCommit?: () => boolean;
+};
+
+function assertRoutePatchAdmission(options?: RoutePatchOptions): void {
+  if (options?.canCommit && !options.canCommit()) {
+    throw Object.assign(new Error("Route request was superseded before commit"), {
+      code: "ROUTE_PATCH_SUPERSEDED",
+    });
+  }
+}
+
+function enqueueRoutePatch(operation: () => void | Promise<void>): Promise<void> {
+  let finish: () => void;
+  let fail: (error: unknown) => void;
+  const result = new Promise<void>((resolve, reject) => {
+    finish = resolve;
+    fail = reject;
+  });
+  routePatchQueue = result.catch(() => {});
+  const advance = () => {
+    routePatchBusy = false;
+    routePatchJobs.shift()?.();
+  };
+  const run = () => {
+    routePatchBusy = true;
+    try {
+      const pending = operation();
+      if (pending) {
+        pending.then(finish, fail).finally(advance);
+      } else {
+        finish();
+        advance();
+      }
+    } catch (error) {
+      fail(error);
+      advance();
+    }
+  };
+  if (routePatchBusy) routePatchJobs.push(run);
+  else run();
+  return result;
+}
+
+export async function flushRoutePatchSaves(): Promise<void> {
+  for (;;) {
+    const pending = routePatchQueue;
+    await pending;
+    if (pending === routePatchQueue) return;
+  }
+}
+
+function runRoutePatchAtHead(
+  buildPatch: (state: SettingsState) => SettingsPatch,
+  options?: RoutePatchOptions
+): Promise<void> {
+  return enqueueRoutePatch(() => {
+    // Check before planning and again immediately before the first write.
+    // There is no await between the second check and starting IPC.
+    assertRoutePatchAdmission(options);
+    const state = useSettingsStore.getState();
+    return applyRoutePatchNow(buildPatch(state), options);
+  });
+}
+
+function applyRoutePatchNow(
+  patch: SettingsPatch,
+  options?: RoutePatchOptions
+): void | Promise<void> {
+  const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
+  for (const [key] of entries) {
+    if ((STALE_SECRET_LOCALSTORAGE_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`applyRoutePatch: ${key} is a secret and never part of a route patch`);
+    }
+    if (!ROUTE_PATCH_KEY_SET.has(key))
+      throw new Error(`applyRoutePatch: ${key} is not a route setting`);
+  }
+  if (entries.length === 0) return;
+  const storeEntries = entries.filter(([key]) => providerSearchScope(key) === null);
+  const enterpriseEntries = storeEntries.filter(([key]) =>
+    ROUTE_ENTERPRISE_KEYS.includes(key as RouteEnterpriseKey)
+  );
+  // A queued stale request may fail closed here without contacting main or
+  // writing local state. Once saveEnterpriseRoutePatch starts, however, an
+  // ACK is durable and must be reflected even if the request later expires.
+  assertRoutePatchAdmission(options);
+  const commit = () => {
+    for (const [key, value] of storeEntries) {
+      if (key === "transcriptionModelByProvider" || key === "reasoningModelByProvider") {
+        writeModelMemoryStorage(key, value as Record<string, string>);
+      } else if (isBrowser) {
+        localStorage.setItem(key, String(value));
+      }
+    }
+    if (storeEntries.length > 0)
+      useSettingsStore.setState(Object.fromEntries(storeEntries) as Partial<SettingsState>);
+    for (const [key, value] of entries) {
+      const scope = providerSearchScope(key);
+      if (scope && isBrowser) writeProviderSearchPreference(scope, value === true);
+    }
+  };
+  if (enterpriseEntries.length > 0 && isBrowser) {
+    const save = window.electronAPI?.saveEnterpriseRoutePatch;
+    if (!save) throw new Error("Enterprise route persistence is unavailable");
+    const current = useSettingsStore.getState();
+    const expected =
+      options?.expectedEnterprise ??
+      (Object.fromEntries(
+        ROUTE_ENTERPRISE_KEYS.map((key) => [key, current[key]])
+      ) as unknown as EnterpriseRouteSettings);
+    const enterprisePatch = Object.fromEntries(
+      enterpriseEntries
+    ) as Partial<EnterpriseRouteSettings>;
+    ensureEnterpriseRouteSubscribed();
+    enterprisePatchInFlight = true;
+    let saved: ReturnType<NonNullable<Window["electronAPI"]["saveEnterpriseRoutePatch"]>>;
+    try {
+      saved = save({ patch: enterprisePatch, expected });
+    } catch (error) {
+      enterprisePatchInFlight = false;
+      throw error;
+    }
+    return saved
+      .then((ack) => {
+        if (
+          !ack ||
+          (ack.success !== true && !(ack.success === false && ack.conflict === true)) ||
+          !validEnterpriseTuple(ack.current) ||
+          !Number.isSafeInteger(ack.version) ||
+          ack.version < 0
+        )
+          throw new Error("Malformed enterprise route acknowledgement");
+        if (ack.version < enterpriseVersion) {
+          throw Object.assign(new Error("Enterprise route acknowledgement was superseded"), {
+            code: "ENTERPRISE_ROUTE_SUPERSEDED",
+          });
+        }
+        if (ack.success === false) {
+          reconcileEnterpriseRouteState(ack, {}, false);
+          throw Object.assign(
+            new Error("Enterprise route settings changed; review the draft again"),
+            {
+              code: "ENTERPRISE_ROUTE_CONFLICT",
+              current: ack.current,
+            }
+          );
+        }
+        const companion = Object.fromEntries(
+          storeEntries.filter(([key]) => !ROUTE_ENTERPRISE_KEYS.includes(key as RouteEnterpriseKey))
+        ) as Partial<SettingsState>;
+        if (!reconcileEnterpriseRouteState(ack, companion, false)) {
+          throw Object.assign(new Error("Enterprise route acknowledgement was superseded"), {
+            code: "ENTERPRISE_ROUTE_SUPERSEDED",
+          });
+        }
+        for (const [key, value] of entries) {
+          const scope = providerSearchScope(key);
+          if (scope && isBrowser) writeProviderSearchPreference(scope, value === true);
+        }
+      })
+      .finally(() => {
+        enterprisePatchInFlight = false;
+        if (enterprisePublicationDeferred) {
+          reconcileEnterpriseRouteState(
+            { current: enterpriseCanonical, version: enterpriseVersion },
+            {},
+            false
+          );
+        }
+      });
+  }
+  commit();
 }
 
 // Which ReasoningService key cache a secret invalidates (same as the former setters).
@@ -1908,64 +2154,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setCloudTranscriptionModel: createStringSetter("cloudTranscriptionModel"),
   setCloudTranscriptionBaseUrl: createStringSetter("cloudTranscriptionBaseUrl"),
 
-  // Every provider shares one model slot per scope, so a plain provider write
-  // destroys the outgoing provider's model (the "Parasail" wipe). This setter
-  // remembers the outgoing model and restores the incoming provider's last one.
-  switchCloudTranscriptionProvider: (context, providerId) => {
-    const s = useSettingsStore.getState();
-    const keys = TRANSCRIPTION_CONTEXT_KEYS.find((entry) => entry.context === context);
-    if (!keys) return;
-    // Meeting/upload raw keys default to "" (inherit from dictation), so work
-    // against resolved values. Restoring writes a concrete model — the scope
-    // stops inheriting the dictation model from that point on.
-    const outgoingProvider = (s[keys.provider] as string) || s.cloudTranscriptionProvider;
-    if (outgoingProvider === providerId) {
-      setStringSetting(keys.provider, providerId);
-      return;
-    }
-    const outgoingModel = (s[keys.model] as string) || s.cloudTranscriptionModel;
-    const memory = { ...s.transcriptionModelByProvider };
-    if (outgoingProvider && outgoingModel) {
-      memory[`${context}:${outgoingProvider}`] = outgoingModel;
-      persistTranscriptionModelMemory(memory);
-    }
-    const remembered = memory[`${context}:${providerId}`];
-    setStringSetting(keys.provider, providerId);
-    setStringSetting(
-      keys.model,
-      remembered && transcriptionModelBelongsToProvider(providerId, remembered, context)
-        ? remembered
-        : defaultTranscriptionModel(providerId, context)
-    );
-  },
-
-  // LLM twin of switchCloudTranscriptionProvider. The caller supplies the
-  // provider's default model because dynamic catalogs (Tinfoil) live in the UI.
-  switchReasoningProvider: (scope, providerId, fallbackModel = "") => {
-    const s = useSettingsStore.getState();
-    const cfg = selectResolvedLLMConfig(s, scope);
-    const memory = { ...s.reasoningModelByProvider };
-    // Only remember a model the outgoing provider actually owns — after a
-    // local/cloud mode round-trip the shared slot can hold a foreign id.
-    if (cfg.provider && cfg.provider !== providerId) {
-      if (reasoningModelBelongsToProvider(cfg.provider, cfg.model)) {
-        memory[`${scope}:${cfg.provider}`] = cfg.model;
-        persistReasoningModelMemory(memory);
-      }
-    } else if (reasoningModelBelongsToProvider(providerId, cfg.model)) {
-      // Reselecting the current provider with a model it owns: keep it.
-      setResolvedLLMConfig(scope, { provider: providerId });
-      return;
-    }
-    const remembered = memory[`${scope}:${providerId}`];
-    setResolvedLLMConfig(scope, {
-      provider: providerId,
-      model:
-        remembered && reasoningModelBelongsToProvider(providerId, remembered)
-          ? remembered
-          : fallbackModel,
-    });
-  },
+  switchCloudTranscriptionProvider: (context, providerId) =>
+    runRoutePatchAtHead((state) => planTranscriptionProviderSwitch(state, context, providerId)),
+  switchReasoningProvider: (scope, providerId, fallbackModel = "") =>
+    runRoutePatchAtHead((state) =>
+      planReasoningProviderSwitch(state, scope, providerId, fallbackModel)
+    ),
+  applyRoutePatch: (patch, options) => runRoutePatchAtHead(() => patch, options),
   setCloudTranscriptionMode: createStringSetter("cloudTranscriptionMode"),
   setCleanupCloudMode: createStringSetter("cleanupCloudMode"),
   setCleanupCloudBaseUrl: createStringSetter("cleanupCloudBaseUrl"),
@@ -2093,13 +2288,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (isBrowser) localStorage.setItem("bedrockAuthMode", value);
     set({ bedrockAuthMode: value });
   },
-  setBedrockRegion: (value: string) => {
-    noteEnterpriseLocalWrite();
-    if (isBrowser) localStorage.setItem("bedrockRegion", value);
-    set({ bedrockRegion: value });
-    window.electronAPI?.saveBedrockRegion?.(value);
-    debouncedPersistToEnv();
-  },
+  setBedrockRegion: (value: string) =>
+    writeLegacyEnterpriseSetting("bedrockRegion", value, window.electronAPI?.saveBedrockRegion),
   setBedrockProfile: async (value: string) => {
     try {
       const result = await window.electronAPI?.saveBedrockProfile?.(value);
@@ -2115,13 +2305,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setBedrockAccessKeyId: createSecretSetter("bedrockAccessKeyId"),
   setBedrockSecretAccessKey: createSecretSetter("bedrockSecretAccessKey"),
   setBedrockSessionToken: createSecretSetter("bedrockSessionToken"),
-  setAzureEndpoint: (value: string) => {
-    noteEnterpriseLocalWrite();
-    if (isBrowser) localStorage.setItem("azureEndpoint", value);
-    set({ azureEndpoint: value });
-    window.electronAPI?.saveAzureEndpoint?.(value);
-    debouncedPersistToEnv();
-  },
+  setAzureEndpoint: (value: string) =>
+    writeLegacyEnterpriseSetting("azureEndpoint", value, window.electronAPI?.saveAzureEndpoint),
   setAzureApiKey: createSecretSetter("azureApiKey"),
   setAzureDeploymentName: (value: string) => {
     if (isBrowser) localStorage.setItem("azureDeploymentName", value);
@@ -2140,9 +2325,16 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     set({ vertexAuthMode: value });
   },
   setVertexAuthSource: async (value: "adc" | "apiKey") => {
+    const revision = ++enterpriseSourceRevision;
+    ensureEnterpriseRouteSubscribed();
     try {
       const result = await window.electronAPI?.saveVertexAuthSource?.(value);
-      if (!result?.success) return false;
+      if (
+        !result?.success ||
+        revision !== enterpriseSourceRevision ||
+        (enterpriseCanonical && enterpriseCanonical.vertexAuthSource !== value)
+      )
+        return false;
       noteEnterpriseLocalWrite();
       if (isBrowser) localStorage.setItem("vertexAuthSource", value);
       set({ vertexAuthSource: value });
@@ -2151,20 +2343,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       return false;
     }
   },
-  setVertexProject: (value: string) => {
-    noteEnterpriseLocalWrite();
-    if (isBrowser) localStorage.setItem("vertexProject", value);
-    set({ vertexProject: value });
-    window.electronAPI?.saveVertexProject?.(value);
-    debouncedPersistToEnv();
-  },
-  setVertexLocation: (value: string) => {
-    noteEnterpriseLocalWrite();
-    if (isBrowser) localStorage.setItem("vertexLocation", value);
-    set({ vertexLocation: value });
-    window.electronAPI?.saveVertexLocation?.(value);
-    debouncedPersistToEnv();
-  },
+  setVertexProject: (value: string) =>
+    writeLegacyEnterpriseSetting("vertexProject", value, window.electronAPI?.saveVertexProject),
+  setVertexLocation: (value: string) =>
+    writeLegacyEnterpriseSetting("vertexLocation", value, window.electronAPI?.saveVertexLocation),
   setVertexApiKey: createSecretSetter("vertexApiKey"),
 
   setDictationKey: (key: string) => {
@@ -2866,6 +3048,7 @@ export async function initializeSettings(): Promise<void> {
   const state = useSettingsStore.getState();
   const secretHydrationBoundary = { ...credentialRevisions };
   subscribeCredentialChanges();
+  ensureEnterpriseRouteSubscribed();
 
   if (window.electronAPI) {
     try {
@@ -3273,6 +3456,8 @@ export async function initializeSettings(): Promise<void> {
     if (!event.key || event.storageArea !== localStorage || event.newValue === null) return;
 
     const { key, newValue } = event;
+    // Per-key peer storage delivery is not an atomic main acknowledgement.
+    if ((ENTERPRISE_ROUTE_FIELDS as readonly string[]).includes(key)) return;
 
     if (key.startsWith("customPrompt.")) {
       const kind = key.slice("customPrompt.".length) as PromptKind;
@@ -3341,6 +3526,7 @@ export async function initializeSettings(): Promise<void> {
 
   // Sync settings pushed from main process (e.g., hotkey changed in control panel)
   window.electronAPI?.onSettingUpdated?.((data: { key: string; value: unknown }) => {
+    if ((ENTERPRISE_ROUTE_FIELDS as readonly string[]).includes(data.key)) return;
     const state = useSettingsStore.getState();
     if (
       data.key in state &&

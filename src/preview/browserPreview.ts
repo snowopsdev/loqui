@@ -122,6 +122,24 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     error: desktopMessage,
   };
   let snippets: Awaited<ReturnType<Window["electronAPI"]["getSnippets"]>> = [];
+  let enterpriseVersion = 0;
+  let enterpriseCurrent: import("../types/electron").EnterpriseRouteSettings = {
+    bedrockRegion: "us-east-1",
+    azureEndpoint: "",
+    vertexProject: "",
+    vertexLocation: "us-central1",
+    vertexAuthSource: "adc",
+  };
+  const enterpriseState = () => ({
+    current: enterpriseCurrent,
+    version: enterpriseVersion,
+    facts: {
+      bedrockEndpoint: { set: false, host: null },
+      bedrockProfile: false,
+      vertexApiKeyEnv: false,
+      vertexProjectEnv: false,
+    },
+  });
   const listeners = new Map<string, Set<(value: any) => void>>();
   const on = (event: string) => (callback: (value: any) => void) => {
     const group = listeners.get(event) ?? new Set();
@@ -161,6 +179,21 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
   };
   return {
     personalInference,
+    getEnterpriseRouteState: async () => enterpriseState(),
+    onEnterpriseRouteChanged: on("enterprise-route-changed"),
+    saveEnterpriseRoutePatch: async ({ patch, expected }) => {
+      if (Object.keys(expected).some((key) => expected[key] !== enterpriseCurrent[key]))
+        return {
+          success: false,
+          conflict: true,
+          current: enterpriseCurrent,
+          version: enterpriseVersion,
+        };
+      enterpriseCurrent = { ...enterpriseCurrent, ...patch };
+      enterpriseVersion++;
+      emit("enterprise-route-changed", enterpriseState());
+      return { success: true, current: enterpriseCurrent, version: enterpriseVersion };
+    },
     credentials,
     updates: {
       status: async () => ({ ...updateStatus }),

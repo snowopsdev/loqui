@@ -1,3 +1,20 @@
+export type VertexAuthSource = "adc" | "apiKey";
+export interface EnterpriseRouteSettings {
+  bedrockRegion: string;
+  azureEndpoint: string;
+  vertexProject: string;
+  vertexLocation: string;
+  vertexAuthSource: VertexAuthSource;
+}
+export interface EnterpriseRouteState {
+  current: EnterpriseRouteSettings | null;
+  version: number;
+  facts: import("../lib/routeGraph").EnterpriseMainFacts;
+}
+export type EnterpriseRoutePatchAck =
+  | { success: true; current: EnterpriseRouteSettings; version: number }
+  | { success: false; conflict: true; current: EnterpriseRouteSettings; version: number };
+
 import type { ModelDefinition } from "../models/ModelRegistry";
 import type { TinfoilCatalogModel } from "../models/tinfoilModels";
 import type { CalendarAvailabilityRequest, CalendarAvailabilityResult } from "./calendar";
@@ -1641,6 +1658,12 @@ declare global {
 
       // Enterprise provider key persistence
       getBedrockRegion?: () => Promise<string | null>;
+      getEnterpriseRouteState?: () => Promise<EnterpriseRouteState>;
+      onEnterpriseRouteChanged?: (callback: (state: EnterpriseRouteState) => void) => () => void;
+      saveEnterpriseRoutePatch?: (input: {
+        patch: Partial<EnterpriseRouteSettings>;
+        expected: EnterpriseRouteSettings;
+      }) => Promise<EnterpriseRoutePatchAck>;
       saveBedrockRegion?: (value: string) => Promise<void>;
       getBedrockProfile?: () => Promise<string | null>;
       saveBedrockProfile?: (value: string) => Promise<{ success: boolean }>;

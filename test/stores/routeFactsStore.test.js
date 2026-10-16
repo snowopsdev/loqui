@@ -67,6 +67,30 @@ function enterpriseApi(calls, main = {}, envFacts = NO_OVERRIDES) {
     return typeof value === "function" ? value() : Promise.resolve(value);
   };
   return {
+    // Fixture reply construction only; production uses one IPC atomic snapshot.
+    async getEnterpriseRouteState() {
+      calls.push("getEnterpriseRouteState");
+      const values = await Promise.all([
+        this.getBedrockRegion(),
+        this.getAzureEndpoint(),
+        this.getVertexProject(),
+        this.getVertexLocation(),
+        this.getVertexAuthSource(),
+      ]);
+      return {
+        current: Object.fromEntries(
+          [
+            "bedrockRegion",
+            "azureEndpoint",
+            "vertexProject",
+            "vertexLocation",
+            "vertexAuthSource",
+          ].map((key, i) => [key, values[i] === null ? "" : values[i]])
+        ),
+        version: main.version ?? 1,
+        facts: await this.enterpriseRouteFacts(),
+      };
+    },
     getBedrockRegion: answer("getBedrockRegion", main.bedrockRegion ?? ""),
     getAzureEndpoint: answer("getAzureEndpoint", main.azureEndpoint ?? ""),
     getVertexProject: answer("getVertexProject", main.vertexProject ?? null),
@@ -296,7 +320,7 @@ test("a credential event before the first list re-reads the list instead of inve
   assert.equal(facts().credentials.get("openai"), true);
 });
 
-test("enterprise: main's settings win once, then main's environment facts publish; until then nothing is known", async (t) => {
+test("change-driving N2: atomic main settings and facts publish together; newer versions refresh facts", async (t) => {
   // R2-1, change-driving: v2 read the enterprise slice from localStorage only,
   // while the executor reads main's environment (main.js:447-457).
   const { vite, storage, store, facts } = await freshStore(
@@ -341,9 +365,22 @@ test("enterprise: main's settings win once, then main's environment facts publis
   assert.equal(storage.getItem("azureEndpoint"), "https://main.example.com/openai");
   assert.deepEqual(facts().enterpriseMain, proxy);
 
-  // Later loads re-read main's environment only: the settings sync runs once per window.
-  await store.loadRouteFacts(api(enterpriseApi(calls, {}, NO_OVERRIDES)), ["enterprise"]);
-  assert.equal(calls.filter((c) => c === "getAzureEndpoint").length, 1);
+  // Later loads read an atomic tuple too; facts changes advance authority even when tuple fields stay equal.
+  await store.loadRouteFacts(
+    api(
+      enterpriseApi(
+        calls,
+        {
+          bedrockRegion: "eu-west-1",
+          azureEndpoint: "https://main.example.com/openai",
+          version: 2,
+        },
+        NO_OVERRIDES
+      )
+    ),
+    ["enterprise"]
+  );
+  assert.equal(calls.filter((c) => c === "getEnterpriseRouteState").length, 2);
   assert.equal(calls.filter((c) => c === "enterpriseRouteFacts").length, 2);
   assert.deepEqual(facts().enterpriseMain, NO_OVERRIDES);
   assert.equal(
@@ -353,7 +390,7 @@ test("enterprise: main's settings win once, then main's environment facts publis
   );
 });
 
-test("enterprise: a failed or malformed answer is not a sync, and a local write during the sync is kept", async (t) => {
+test("change-driving Task6: enterprise: a failed or malformed answer is not a sync, and a local write during the sync is kept", async (t) => {
   const failing = await freshStore(t);
   const calls = [];
   await failing.store.loadRouteFacts(api(enterpriseApi(calls, { azureEndpoint: fail })), [
@@ -395,7 +432,11 @@ test("enterprise: a failed or malformed answer is not a sync, and a local write 
     "https://typed.example.com/openai",
     "the newer write is kept"
   );
-  assert.notEqual(racing.facts().enterpriseMain, null, "the window counts as synced");
+  assert.equal(
+    racing.facts().enterpriseMain,
+    null,
+    "a pending or failed raw draft is never confirmed authority"
+  );
 });
 
 test("legacy keyring statuses refresh without granting rejection authority", async (t) => {
@@ -453,7 +494,7 @@ test("focus and local-model events refresh the facts, once per window", async (t
 
 // change-driving: concurrent mounts share one startup sync; malformed getters
 // are failures, never a fabricated empty confirmed enterprise configuration.
-test("enterprise startup sync coalesces, and malformed settings stay unknown", async (t) => {
+test("change-driving Task6: enterprise startup sync coalesces, and malformed settings stay unknown", async (t) => {
   const { store, facts } = await freshStore(t);
   await store.loadRouteFacts(
     api(enterpriseApi([], { azureEndpoint: () => Promise.resolve({ invalid: true }) })),
@@ -843,6 +884,10 @@ test("Bedrock profile ACK refreshes enterprise facts; failed save keeps committe
   });
   const source = api({
     ...enterpriseApi([]),
+    getEnterpriseRouteState: async () => ({
+      ...env.getEnterpriseRouteState(),
+      facts: enterpriseRouteFacts(process.env),
+    }),
     enterpriseRouteFacts: async () => enterpriseRouteFacts(process.env),
     credentials: { list: async () => authority.list(), onChanged: (cb) => authority.subscribe(cb) },
     saveBedrockProfile: async (value) => {
@@ -877,11 +922,18 @@ test("Bedrock profile ACK refreshes enterprise facts; failed save keeps committe
 
 // change-driving R3-1: source has no legacy controlled input; a local ACK
 // fences a slow startup read, while pending/failed saves grant no new fence.
-test("acknowledged Vertex source change wins over older startup sync", async (t) => {
+test("change-driving N2: acknowledged Vertex source event wins over older atomic startup sync", async (t) => {
   const save = deferred();
   const getter = deferred();
+  let changed;
   const { store, vite } = await freshStore(t, {
-    electronAPI: { saveVertexAuthSource: () => save.promise },
+    electronAPI: {
+      saveVertexAuthSource: () => save.promise,
+      onEnterpriseRouteChanged: (cb) => {
+        changed = cb;
+        return () => {};
+      },
+    },
   });
   const { useSettingsStore, enterpriseLocalWriteCount } = await vite.ssrLoadModule(
     "/stores/settingsStore.ts"
@@ -891,17 +943,28 @@ test("acknowledged Vertex source change wins over older startup sync", async (t)
   const before = enterpriseLocalWriteCount();
   const apply = useSettingsStore.getState().setVertexAuthSource("apiKey");
   assert.equal(useSettingsStore.getState().vertexAuthSource, "adc");
-  assert.equal(enterpriseLocalWriteCount(), before);
+  changed({
+    current: {
+      bedrockRegion: "us-east-1",
+      azureEndpoint: "",
+      vertexProject: "",
+      vertexLocation: "us-central1",
+      vertexAuthSource: "apiKey",
+    },
+    version: 2,
+    facts: NO_OVERRIDES,
+  });
   save.resolve({ success: true });
   assert.equal(await apply, true);
   getter.resolve("adc");
   await sync;
   assert.equal(useSettingsStore.getState().vertexAuthSource, "apiKey");
-  assert.equal(enterpriseLocalWriteCount(), before + 1);
+  assert.ok(enterpriseLocalWriteCount() > before);
+  const confirmed = enterpriseLocalWriteCount();
   globalThis.window.electronAPI.saveVertexAuthSource = async () => ({ success: false });
   assert.equal(await useSettingsStore.getState().setVertexAuthSource("adc"), false);
   assert.equal(useSettingsStore.getState().vertexAuthSource, "apiKey");
-  assert.equal(enterpriseLocalWriteCount(), before + 1);
+  assert.equal(enterpriseLocalWriteCount(), confirmed);
 });
 
 // change-driving I3/B6: a first-list race must preserve an event without

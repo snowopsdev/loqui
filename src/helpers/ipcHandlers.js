@@ -3944,6 +3944,40 @@ class IPCHandlers {
       this._acknowledgedSave("custom:dictationCleanup", "key", key)
     );
 
+    // Atomic tuples/events share the transaction's authority. Profile fact
+    // changes advance this authority even when the five route fields stay equal.
+    const enterpriseState = () => ({
+      ...this.environmentManager.getEnterpriseRouteState(),
+      facts: require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env),
+    });
+    this.environmentManager.subscribeEnterpriseRouteChanged?.((state) => {
+      broadcastToWindows("enterprise-route-changed", {
+        ...state,
+        facts: require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env),
+      });
+    });
+    ipcMain.handle("get-enterprise-route-state", async () => {
+      await this.vertexAuthSourceReady;
+      return enterpriseState();
+    });
+
+    ipcMain.handle("save-enterprise-route-patch", async (_event, input) => {
+      await this.vertexAuthSourceReady;
+      if (
+        !input ||
+        typeof input !== "object" ||
+        Array.isArray(input) ||
+        Object.keys(input).length !== 2 ||
+        !Object.hasOwn(input, "patch") ||
+        !Object.hasOwn(input, "expected")
+      ) {
+        throw new Error("Expected exactly patch and expected");
+      }
+      return this.environmentManager.saveEnterpriseRoutePatch(input.patch, {
+        expected: input.expected,
+      });
+    });
+
     // Enterprise provider key handlers
     ipcMain.handle("get-bedrock-region", async () => {
       await this.vertexAuthSourceReady;

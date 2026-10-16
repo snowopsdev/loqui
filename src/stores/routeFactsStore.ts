@@ -1,17 +1,20 @@
 import { create } from "zustand";
+import type { EnterpriseRouteState } from "../types/electron";
 import { normalizeRouteVerificationOptions } from "../helpers/routeVerificationOptions.mjs";
 import type {
   CredentialId,
   CredentialSlot,
   EnterpriseMainFacts,
-  EnterpriseRouteSettings,
   RouteFacts,
   RouteHealthMetadata,
   RouteVerificationOptions,
 } from "../lib/routeGraph";
 import {
-  enterpriseLocalWriteCount,
-  reconcileEnterpriseSettingsFromMain,
+  enterpriseRouteVersion,
+  enterpriseSettingsAreConfirmed,
+  ensureEnterpriseRouteSubscribed,
+  reconcileEnterpriseRouteState,
+  subscribeEnterpriseAuthority,
   useSettingsStore,
 } from "./settingsStore";
 
@@ -70,6 +73,7 @@ export interface RouteFactsApi {
   };
   // R2-1/R3-1: main's enterprise settings (including migrated Vertex source) and its
   // environment overrides (enterprise-route-facts). All local reads.
+  getEnterpriseRouteState?: () => Promise<EnterpriseRouteState>;
   getBedrockRegion?: () => Promise<string | null>;
   getAzureEndpoint?: () => Promise<string | null>;
   getVertexProject?: () => Promise<string | null>;
@@ -230,16 +234,39 @@ function mergeCredentials(facts: RouteFacts, rows: readonly CredentialRow[]): Ro
     : facts;
 }
 
-// R2-1/R3-1: main is the source of truth for where an enterprise request goes.
-// Once per window, the settings store's five enterprise fields are
-// reconciled to main's values (main wins, unless a local write went to main
-// after the read began); every load then re-reads main's environment
-// overrides. facts.enterpriseMain publishes only after both, so until the
-// sync lands every enterprise route resolves unknown (Task 1).
-let enterpriseSynced = false;
-let enterpriseSync: Promise<void> | undefined;
-
-const asText = (value: unknown): string => (typeof value === "string" ? value : "");
+// Only atomic, versioned main state can establish enterprise readiness.
+let enterpriseSync: Promise<EnterpriseMainFacts | undefined> | undefined;
+let latestEnterpriseFacts: EnterpriseMainFacts | undefined;
+let latestEnterpriseFactsVersion = -1;
+let enterpriseTracking = false;
+function confirmedEnterpriseFacts(): EnterpriseMainFacts | null {
+  return enterpriseSettingsAreConfirmed() &&
+    latestEnterpriseFactsVersion === enterpriseRouteVersion()
+    ? (latestEnterpriseFacts ?? null)
+    : null;
+}
+function ensureEnterpriseTracking(): void {
+  ensureEnterpriseRouteSubscribed();
+  if (enterpriseTracking) return;
+  enterpriseTracking = true;
+  subscribeEnterpriseAuthority((state) => {
+    if (state && state.version === enterpriseRouteVersion()) {
+      const facts = enterpriseMainFacts(state.facts);
+      if (state.version > latestEnterpriseFactsVersion) {
+        latestEnterpriseFacts = facts;
+        latestEnterpriseFactsVersion = state.version;
+      }
+      // Equal versions repeat one complete authority snapshot; they never
+      // replace its facts with a differently configured reply.
+    }
+    useRouteFactsStore.setState((s) => ({
+      facts: {
+        ...s.facts,
+        enterpriseMain: confirmedEnterpriseFacts(),
+      },
+    }));
+  });
+}
 
 function enterpriseMainFacts(raw: unknown): EnterpriseMainFacts | undefined {
   const r = raw as Partial<EnterpriseMainFacts> | null | undefined;
@@ -264,58 +291,31 @@ function enterpriseMainFacts(raw: unknown): EnterpriseMainFacts | undefined {
 }
 
 async function loadEnterpriseMain(api: RouteFactsApi): Promise<EnterpriseMainFacts | undefined> {
-  const {
-    getBedrockRegion,
-    getAzureEndpoint,
-    getVertexProject,
-    getVertexLocation,
-    getVertexAuthSource,
-    enterpriseRouteFacts,
-  } = api;
-  // A build that cannot confirm main's configuration stays unknown.
-  if (
-    !getBedrockRegion ||
-    !getAzureEndpoint ||
-    !getVertexProject ||
-    !getVertexLocation ||
-    !getVertexAuthSource ||
-    !enterpriseRouteFacts
-  ) {
+  ensureEnterpriseTracking();
+  if (!api.getEnterpriseRouteState) {
+    // Older five-getter bridges cannot prove a coherent tuple.
+    useRouteFactsStore.setState((s) => ({ facts: { ...s.facts, enterpriseMain: null } }));
     return undefined;
   }
-  if (!enterpriseSynced && !enterpriseSync) {
+  if (!enterpriseSync) {
     enterpriseSync = (async () => {
-      const since = enterpriseLocalWriteCount();
-      const [bedrockRegion, azureEndpoint, vertexProject, vertexLocation, vertexAuthSource] =
-        await Promise.all([
-          getBedrockRegion(),
-          getAzureEndpoint(),
-          getVertexProject(),
-          getVertexLocation(),
-          getVertexAuthSource(),
-        ]);
+      const state = await api.getEnterpriseRouteState();
+      const facts = enterpriseMainFacts(state?.facts);
+      if (!facts) return undefined;
+      if (state.version < enterpriseRouteVersion()) return undefined;
       if (
-        [bedrockRegion, azureEndpoint, vertexProject, vertexLocation].some(
-          (value) => value !== null && typeof value !== "string"
-        ) ||
-        (vertexAuthSource !== "adc" && vertexAuthSource !== "apiKey")
+        state.version === latestEnterpriseFactsVersion &&
+        JSON.stringify(facts) !== JSON.stringify(latestEnterpriseFacts)
       )
-        throw new Error("Malformed enterprise settings");
-      const main: EnterpriseRouteSettings = {
-        bedrockRegion: asText(bedrockRegion),
-        azureEndpoint: asText(azureEndpoint),
-        vertexProject: asText(vertexProject),
-        vertexLocation: asText(vertexLocation),
-        vertexAuthSource,
-      };
-      reconcileEnterpriseSettingsFromMain(main, since);
-      enterpriseSynced = true;
+        return undefined;
+      if (!reconcileEnterpriseRouteState({ ...state, facts })) return undefined;
+      latestEnterpriseFacts = facts;
+      return enterpriseSettingsAreConfirmed() ? facts : undefined;
     })().finally(() => {
       enterpriseSync = undefined;
     });
   }
-  await enterpriseSync;
-  return enterpriseMainFacts(await enterpriseRouteFacts());
+  return enterpriseSync;
 }
 
 const LOADERS: Record<RouteFactKey, (api: RouteFactsApi) => Promise<void>> = {
@@ -401,7 +401,9 @@ const LOADERS: Record<RouteFactKey, (api: RouteFactsApi) => Promise<void>> = {
       "enterprise",
       () => loadEnterpriseMain(api),
       (value) => value,
-      (f, enterpriseMain) => ({ ...f, enterpriseMain })
+      // Recheck at final publication: a synchronous event or newer raw draft
+      // can arrive after the atomic read reconciles but before this await resumes.
+      (f) => ({ ...f, enterpriseMain: confirmedEnterpriseFacts() })
     ),
 };
 

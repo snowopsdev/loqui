@@ -66,6 +66,18 @@ const PERSISTED_KEYS = [
 let envWriteQueue = Promise.resolve();
 let envWriteEpoch = 0;
 let envWriteFenced = false;
+// Session authority shared by every EnvironmentManager instance. Never supplied by a renderer.
+let enterpriseRouteVersion = 0;
+const enterpriseRouteListeners = new Set();
+function publishEnterpriseRouteState(state) {
+  for (const listener of enterpriseRouteListeners) {
+    try {
+      listener(state);
+    } catch {
+      /* A notification cannot undo durable persistence. */
+    }
+  }
+}
 // Per-key native durability is sufficient to avoid re-copying a newly saved
 // secret to plaintext while an older all-key migration remains incomplete.
 const nativeCommittedKeys = new Set();
@@ -328,6 +340,10 @@ class EnvironmentManager {
       for (const [key, value] of Object.entries(patch)) {
         if (value) process.env[key] = value;
         else delete process.env[key];
+      }
+      if (Object.hasOwn(patch, "BEDROCK_PROFILE")) {
+        enterpriseRouteVersion++;
+        publishEnterpriseRouteState(this.getEnterpriseRouteState());
       }
     });
   }
@@ -666,6 +682,8 @@ class EnvironmentManager {
       await envWriteQueue.catch(() => {});
       for (const envVarName of PERSISTED_KEYS) delete process.env[envVarName];
       nativeCommittedKeys.clear();
+      enterpriseRouteVersion++;
+      publishEnterpriseRouteState({ current: null, version: enterpriseRouteVersion });
       delete process.env.CUSTOM_REASONING_API_KEY;
       const erased = await Promise.allSettled([
         fsPromises.rm(path.join(app.getPath("userData"), ".env"), { force: true }),
@@ -709,6 +727,19 @@ class EnvironmentManager {
     };
   }
 
+  getEnterpriseRouteState() {
+    const current = this.getEnterpriseRouteSettings();
+    return {
+      current: isEnterpriseRouteSettings(current) ? current : null,
+      version: enterpriseRouteVersion,
+    };
+  }
+
+  subscribeEnterpriseRouteChanged(listener) {
+    enterpriseRouteListeners.add(listener);
+    return () => enterpriseRouteListeners.delete(listener);
+  }
+
   saveEnterpriseRoutePatch(patch, { expected } = {}) {
     // Renderer/public callers must compare the complete committed base.
     // Only the internal startup migration calls _commitEnterpriseRoutePatch
@@ -741,7 +772,7 @@ class EnvironmentManager {
       if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
       const current = this.getEnterpriseRouteSettings();
       if (expected && ENTERPRISE_ROUTE_KEYS.some((key) => current[key] !== expected[key])) {
-        outcome = { success: false, conflict: true, current };
+        outcome = { success: false, conflict: true, current, version: enterpriseRouteVersion };
         return;
       }
       const next = { ...current, ...patch };
@@ -757,7 +788,9 @@ class EnvironmentManager {
         if (next[key]) process.env[envKey] = next[key];
         else delete process.env[envKey];
       }
-      outcome = { success: true, current: next };
+      enterpriseRouteVersion++;
+      outcome = { success: true, current: next, version: enterpriseRouteVersion };
+      publishEnterpriseRouteState({ current: next, version: enterpriseRouteVersion });
     });
     if (!written || envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
     return outcome;

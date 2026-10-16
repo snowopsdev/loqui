@@ -589,6 +589,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Enterprise provider key management
   getBedrockRegion: () => ipcRenderer.invoke("get-bedrock-region"),
+  getEnterpriseRouteState: () => ipcRenderer.invoke("get-enterprise-route-state"),
+  onEnterpriseRouteChanged: registerListener(
+    "enterprise-route-changed",
+    (cb) => (_event, state) => cb(state)
+  ),
+  saveEnterpriseRoutePatch: (input) => ipcRenderer.invoke("save-enterprise-route-patch", input),
   saveBedrockRegion: (value) => ipcRenderer.invoke("save-bedrock-region", value),
   getBedrockProfile: () => ipcRenderer.invoke("get-bedrock-profile"),
   saveBedrockProfile: (value) => ipcRenderer.invoke("save-bedrock-profile", value),

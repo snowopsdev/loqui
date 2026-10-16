@@ -194,6 +194,8 @@ export interface RouteFacts {
 }
 
 export interface RouteCapabilities {
+  // Renderer-normalized Corti auth target agreement. Absent in legacy pure fixtures.
+  cortiSpeechTargetValid?: boolean;
   meetingProviders: readonly string[];
   transcriptionProviderBaseUrls: readonly { id: string; baseUrl: string }[];
   // Raw provider id → bare host[:port]. "corti" is the Corti speech host for the
@@ -803,6 +805,16 @@ function meetingDestination(s: RouteSettingsSnapshot, input: SttRouteInput): Des
 function sttDestination(s: RouteSettingsSnapshot, id: RouteId, input: SttRouteInput): Destination {
   const mode = input.mode.trim();
   const providerId = input.cloudProvider.trim();
+  if (
+    mode !== "local" &&
+    providerId === "corti" &&
+    s.capabilities.cortiSpeechTargetValid === false
+  ) {
+    return {
+      ...remote(s, providerId, cloudModelName(s, providerId, input.cloudModel), UNSUPPORTED),
+      host: null,
+    };
+  }
   if (mode === "local") {
     const family = sttFamily(input.localProvider);
     if (family === null) {

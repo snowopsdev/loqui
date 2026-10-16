@@ -83,6 +83,7 @@ test.before(() => {
     credentials: authority,
     _acknowledgedSave: Ctor.prototype._acknowledgedSave,
     environmentManager: {
+      getEnterpriseRouteState: () => ({ current: null, version: 0 }),
       saveBedrockProfile: () => ({ success: true }),
       saveVertexProject: () => ({ success: true }),
     },

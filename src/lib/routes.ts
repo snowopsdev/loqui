@@ -179,21 +179,20 @@ function routeCapabilities(): RouteCapabilities {
 
 // Corti speech connects to api.<region>.corti.app (cortiTranscription.js:39,
 // cortiStreaming.js:48); the registry baseUrl names only the US host. An empty
-// region means US (transcriptionRoute.ts:305). Only a bare label becomes part
-// of a host name.
-function cortiHost(environment: string): string {
-  const region = /^[a-z0-9-]+$/i.test(environment ?? "") ? environment.toLowerCase() : "us";
-  return `api.${region}.corti.app`;
-}
-
-// The static capabilities plus the hosts that follow settings. A new object
-// only when the Corti host differs from the cached one.
+// region means US (transcriptionRoute.ts:305). The shared exact normalizer
+// admits only executor-valid regions and tenant paths. Invalid raw settings
+// remain visible but carry no speech host or readiness.
 function capabilitiesFor(settings: SettingsState): RouteCapabilities {
   const statics = routeCapabilities();
-  const corti = cortiHost(settings.cortiEnvironment);
-  return statics.providerHosts.corti === corti
-    ? statics
-    : { ...statics, providerHosts: { ...statics.providerHosts, corti } };
+  const target = normalizeRouteVerificationOptions(settings);
+  return {
+    ...statics,
+    providerHosts: {
+      ...statics.providerHosts,
+      corti: target ? `api.${target.cortiEnvironment}.corti.app` : "",
+    },
+    cortiSpeechTargetValid: target !== null,
+  };
 }
 
 // Every supplied settings snapshot gets its own projection. A main binding for

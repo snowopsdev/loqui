@@ -15,14 +15,9 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const ALLOWED = [
   "credentials.list",
-  "enterpriseRouteFacts",
-  "getAzureEndpoint",
-  "getBedrockRegion",
   "getDiarizationModelStatus",
+  "getEnterpriseRouteState",
   "getSearchModelStatus",
-  "getVertexAuthSource",
-  "getVertexLocation",
-  "getVertexProject",
   "keyring.list",
   "listParakeetModels",
   "listWhisperModels",
@@ -59,6 +54,22 @@ function recordingApi() {
       modelsDownloaded: true,
     }),
     getSearchModelStatus: ok("getSearchModelStatus", { downloaded: true }),
+    getEnterpriseRouteState: ok("getEnterpriseRouteState", {
+      current: {
+        bedrockRegion: "us-east-1",
+        azureEndpoint: "",
+        vertexProject: "",
+        vertexLocation: "us-central1",
+        vertexAuthSource: "adc",
+      },
+      version: 0,
+      facts: {
+        bedrockEndpoint: { set: false, host: null },
+        bedrockProfile: false,
+        vertexApiKeyEnv: false,
+        vertexProjectEnv: false,
+      },
+    }),
     // R2-1: main's enterprise settings and environment facts are local reads.
     getBedrockRegion: ok("getBedrockRegion", ""),
     getAzureEndpoint: ok("getAzureEndpoint", ""),
@@ -157,7 +168,7 @@ async function mount(t) {
   };
 }
 
-test("mounting the route hooks loads facts from local calls only and never starts Codex", async (t) => {
+test("change-driving Task6: mounting the route hooks loads facts from local calls only and never starts Codex", async (t) => {
   // I2: v1 called personalInference.codexStatus() on every mount (personalInference.js:248-251 → codex.status()).
   const h = await mount(t);
   assert.deepEqual(
@@ -171,11 +182,15 @@ test("mounting the route hooks loads facts from local calls only and never start
   await h.fire("openwhispr-local-models-changed");
   assert.equal(h.count("listWhisperModels"), 4);
   assert.equal(
-    h.count("enterpriseRouteFacts"),
+    h.count("getEnterpriseRouteState"),
     4,
     "main's environment is re-read with every refresh"
   );
-  assert.equal(h.count("getAzureEndpoint"), 1, "main's enterprise settings sync once per window");
+  assert.equal(
+    h.count("getAzureEndpoint"),
+    0,
+    "five separate getter replies cannot grant authority"
+  );
   const keyringReads = h.count("keyring.list");
   await h.act(() => h.subscriptions.keyring());
   assert.equal(h.count("keyring.list"), keyringReads + 1);

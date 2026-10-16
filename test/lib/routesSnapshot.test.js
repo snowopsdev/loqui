@@ -144,7 +144,7 @@ test("buildRouteSnapshot reads the real store shape, registry capabilities and m
   assert.equal(typeof s.models["cloud:openai:gpt-4o-mini-transcribe"].name, "string");
 });
 
-test("the Corti host follows the selected region", async (t) => {
+test("change-driving Task6: the Corti host follows the selected region", async (t) => {
   // I7 (I1 follow-up): Corti speech connects to api.<region>.corti.app
   // (src/helpers/cortiTranscription.js:39, src/helpers/cortiStreaming.js:48);
   // the registry baseUrl names only the US host. Change-driving: v1 had no region input.
@@ -159,11 +159,7 @@ test("the Corti host follows the selected region", async (t) => {
     "api.us.corti.app",
     "an empty region means US, like transcriptionRoute.ts:305"
   );
-  assert.equal(
-    host("eu/../evil"),
-    "api.us.corti.app",
-    "only a bare region label becomes part of a host"
-  );
+  assert.equal(host("eu/../evil"), "", "invalid environments have no executor-valid host");
   const corti = {
     ...base,
     transcriptionMode: "providers",
@@ -312,7 +308,7 @@ test("the enterprise slice is the store's raw enterprise settings, and their hos
   );
 });
 
-test("main wins: until main's enterprise settings are synced the route is unknown, then the snapshot shows main's host", async (t) => {
+test("change-driving Task6: main wins: until main's enterprise settings are synced the route is unknown, then the snapshot shows main's host", async (t) => {
   // R2-1, change-driving: localStorage and main differ. v2 disclosed the stale
   // localStorage host while the executor used main's (main.js:447-457).
   const { vite, routes } = await load(
@@ -339,12 +335,17 @@ test("main wins: until main's enterprise settings are synced the route is unknow
   assert.equal(chat().host, null, "never the stale host");
   await loadRouteFacts(
     {
-      getBedrockRegion: async () => "",
-      getAzureEndpoint: async () => "https://main.example.com/openai",
-      getVertexProject: async () => "",
-      getVertexLocation: async () => "",
-      getVertexAuthSource: async () => "adc",
-      enterpriseRouteFacts: async () => FACTS.enterpriseMain,
+      getEnterpriseRouteState: async () => ({
+        current: {
+          bedrockRegion: "",
+          azureEndpoint: "https://main.example.com/openai",
+          vertexProject: "",
+          vertexLocation: "",
+          vertexAuthSource: "adc",
+        },
+        version: 1,
+        facts: FACTS.enterpriseMain,
+      }),
     },
     ["enterprise"]
   );
@@ -353,7 +354,7 @@ test("main wins: until main's enterprise settings are synced the route is unknow
   assert.deepEqual(chat().state, { status: "ready" });
 });
 
-test("a Bedrock endpoint override in main's environment is the disclosed host", async (t) => {
+test("change-driving Task6: a Bedrock endpoint override in main's environment is the disclosed host", async (t) => {
   // R2-1: AWS_ENDPOINT_URL_BEDROCK_RUNTIME/AWS_ENDPOINT_URL beat the region in the SDK.
   const { vite, routes } = await load(t);
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
@@ -370,16 +371,21 @@ test("a Bedrock endpoint override in main's environment is the disclosed host", 
   });
   await loadRouteFacts(
     {
-      getBedrockRegion: async () => "us-east-1",
-      getAzureEndpoint: async () => "",
-      getVertexProject: async () => "",
-      getVertexLocation: async () => "",
-      getVertexAuthSource: async () => "adc",
-      enterpriseRouteFacts: async () => ({
-        bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" },
-        bedrockProfile: true,
-        vertexApiKeyEnv: false,
-        vertexProjectEnv: false,
+      getEnterpriseRouteState: async () => ({
+        current: {
+          bedrockRegion: "us-east-1",
+          azureEndpoint: "",
+          vertexProject: "",
+          vertexLocation: "",
+          vertexAuthSource: "adc",
+        },
+        version: 1,
+        facts: {
+          bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" },
+          bedrockProfile: true,
+          vertexApiKeyEnv: false,
+          vertexProjectEnv: false,
+        },
       }),
     },
     ["enterprise"]
@@ -606,7 +612,7 @@ test("a seal change during an outstanding facts load reaches every reader and su
 
 // change-driving B4: main fingerprints bind generation AND actual target/path.
 // The builder never derives a fingerprint and reprojects every supplied state.
-test("rejected route health binds canonical options for live and prospective snapshots", async (t) => {
+test("change-driving Task6: rejected route health binds canonical options for live and prospective snapshots", async (t) => {
   const { routes, copy, base } = await load(t);
   const state = {
     ...base,
@@ -663,8 +669,8 @@ test("rejected route health binds canonical options for live and prospective sna
   );
   assert.equal(
     resolve({ ...state, cortiEnvironment: "EU" }).state.status,
-    "ready",
-    "invalid verify options cannot match health"
+    "unreachable",
+    "invalid verify options cannot match health and invalid executor targets stay unsupported"
   );
   assert.equal(
     resolve(state, { ...facts, credentialHealth: undefined, rejected: new Set(["corti:speech"]) })

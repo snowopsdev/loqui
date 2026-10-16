@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { Mic, Square, X } from "../icons";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
@@ -9,6 +9,7 @@ import { GLASS_SURFACE } from "../ui/glass";
 import { useToast } from "../ui/useToast";
 import { formatMmSs } from "../../utils/formatDuration";
 import { useVoiceDraft } from "./useVoiceDraft";
+import { composerHeight, resolveComposerKey } from "./chatInputKeys";
 import type { AgentState } from "./types";
 
 interface ChatInputProps {
@@ -65,7 +66,7 @@ export function ChatInput({
   const { t } = useTranslation();
   const { toast } = useToast();
   const [inputText, setInputText] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const voice = useVoiceDraft({
     onTranscript: (text) => {
@@ -83,6 +84,12 @@ export function ChatInput({
   const isVoiceRecording = voice.status === "recording";
   const isVoiceTranscribing = voice.status === "transcribing";
 
+  const isIdle = agentState === "idle";
+  const isListening = agentState === "listening";
+  const isTranscribing = agentState === "transcribing";
+  const isBusy =
+    agentState === "thinking" || agentState === "streaming" || agentState === "tool-executing";
+
   const handleSubmit = useCallback(() => {
     const text = inputText.trim();
     if (!text || !onTextSubmit) return;
@@ -92,20 +99,32 @@ export function ChatInput({
   }, [inputText, onTextSubmit]);
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit();
-      }
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      const action = resolveComposerKey({
+        key: e.key,
+        shiftKey: e.shiftKey,
+        isComposing: e.nativeEvent.isComposing,
+        keyCode: e.nativeEvent.keyCode,
+        isBusy,
+        isQueued: false,
+        hasText: Boolean(inputText.trim()),
+      });
+      if (action !== "submit") return;
+      e.preventDefault();
+      handleSubmit();
     },
-    [handleSubmit]
+    [handleSubmit, inputText, isBusy]
   );
 
-  const isIdle = agentState === "idle";
-  const isListening = agentState === "listening";
-  const isTranscribing = agentState === "transcribing";
-  const isBusy =
-    agentState === "thinking" || agentState === "streaming" || agentState === "tool-executing";
+  // Grow with the text up to the cap, then scroll inside the box.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const { height, overflowY } = composerHeight(el.scrollHeight);
+    el.style.height = `${height}px`;
+    el.style.overflowY = overflowY;
+  }, [inputText]);
 
   useEffect(() => {
     if (isIdle) {
@@ -117,12 +136,11 @@ export function ChatInput({
     <div className={cn("shrink-0", className ?? "px-3 pb-3 pt-1")}>
       <div
         className={cn(
-          "flex items-center gap-2 min-h-11 ps-4 pe-1.5 rounded-full",
+          "flex items-end gap-2 min-h-11 ps-4 pe-1.5 py-1.5 rounded-[22px]",
           GLASS_SURFACE,
           "border border-black/10 dark:border-white/14",
           "transition-all duration-200",
-          isIdle &&
-            "focus-within:border-black/15 dark:focus-within:border-white/22 focus-within:ring-[3px] focus-within:ring-primary/8"
+          (isIdle || isBusy) && "focus-within:ring-2 focus-within:ring-ring"
         )}
       >
         {isListening && (
@@ -164,7 +182,7 @@ export function ChatInput({
               className={cn(
                 "flex items-center justify-center w-7 h-7 rounded-full shrink-0",
                 "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/8",
-                "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-colors duration-100"
               )}
             >
@@ -179,7 +197,7 @@ export function ChatInput({
                 "animate-[scale-in_0.15s_ease-out_backwards]",
                 GRADIENT_CIRCLE,
                 "hover:brightness-110 active:scale-95",
-                "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-all duration-100"
               )}
             >
@@ -198,22 +216,20 @@ export function ChatInput({
         )}
 
         {(isIdle || isBusy) && !isVoiceRecording && !isVoiceTranscribing && (
-          <div className="flex items-center gap-2 w-full">
-            <input
+          <div className="flex items-end gap-2 w-full">
+            <textarea
               dir="auto"
               ref={inputRef}
-              type="text"
+              rows={1}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={isBusy}
               autoFocus={autoFocus}
               placeholder={placeholder ?? t("agentMode.input.typeMessage")}
               className={cn(
-                "input-inline flex-1 outline-none bg-transparent caret-primary",
-                "text-[13px] text-foreground placeholder:text-muted-foreground/70",
-                "min-w-0 p-0",
-                isBusy && "text-muted-foreground/70 cursor-not-allowed"
+                "input-inline flex-1 resize-none outline-none bg-transparent caret-primary",
+                "text-[13px] leading-5 text-foreground placeholder:text-muted-foreground/70",
+                "min-w-0 py-1.5 px-0"
               )}
             />
             {isBusy && onCancel ? (
@@ -225,7 +241,7 @@ export function ChatInput({
                 className={cn(
                   "flex items-center justify-center w-7 h-7 rounded-full shrink-0",
                   "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/8",
-                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   "transition-colors duration-100"
                 )}
               >
@@ -239,7 +255,7 @@ export function ChatInput({
                 className={cn(
                   "rounded-full shrink-0",
                   voiceDraft && "animate-[scale-in_0.15s_ease-out_backwards]",
-                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   "transition-all duration-100",
                   inputText.trim()
                     ? "hover:brightness-110 active:scale-95"
@@ -261,7 +277,7 @@ export function ChatInput({
                 className={cn(
                   "flex items-center justify-center w-7 h-7 rounded-full shrink-0",
                   GRADIENT_CIRCLE,
-                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   "transition-all duration-100",
                   voice.streamingOnlyProvider
                     ? "opacity-30 saturate-0 cursor-default"

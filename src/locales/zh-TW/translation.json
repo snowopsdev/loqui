@@ -3564,7 +3564,13 @@
       "thinking": "正在思考...",
       "typeMessage": "輸入訊息...",
       "send": "傳送",
-      "voiceDraftStreamingOnly": "目前的轉錄服務商僅支援即時聽寫，因此無法使用語音輸入。請在「設定 → 語音轉文字」中選擇其他服務商。"
+      "voiceDraftStreamingOnly": "目前的轉錄服務商僅支援即時聽寫，因此無法使用語音輸入。請在「設定 → 語音轉文字」中選擇其他服務商。",
+      "queued": "回覆結束後傳送",
+      "unqueue": "完成後不傳送",
+      "queueDropped": "未傳送：對話或模型已變更。按 Enter 傳送到這裡。",
+      "unsent": "你先前的訊息未傳送。",
+      "restoreUnsent": "放回",
+      "discardUnsent": "捨棄"
     },
     "tools": {
       "search_notesName": "搜尋筆記",

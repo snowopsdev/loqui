@@ -12,7 +12,7 @@ interface PersistedMessageContext {
 interface UseChatMessageSenderOptions {
   conversationId: number | null;
   persistence: ChatPersistence;
-  streaming: Pick<ChatStreaming, "sendToAI">;
+  streaming: Pick<ChatStreaming, "sendToAI"> & Partial<Pick<ChatStreaming, "captureInference">>;
   createConversation: (text: string) => Promise<number>;
   onBeforeSend?: () => void;
   onMessagePersisted?: (context: PersistedMessageContext) => void | Promise<void>;
@@ -56,31 +56,58 @@ export function useChatMessageSender({
 
   return useCallback(
     async (text: string, options?: SendToAIOptions) => {
-      return await submissionLockRef.current!.run(async () => {
-        onSendingChange?.(true);
-        try {
-          onBeforeSend?.();
-          const convId = conversationId ?? (await createConversation(text));
-          const previousMessages = persistence.messages;
-          const userMessage: Message = {
-            id: crypto.randomUUID(),
-            role: "user",
-            content: text,
-            isStreaming: false,
+      // true: the user's message reached the conversation (shown and saved),
+      // even if the reply then failed; useChatStreaming renders reply errors
+      // in the thread. false: another send held the lock. A rejection:
+      // nothing reached the conversation (creating it or saving failed), so
+      // the optimistic message is taken out and the caller keeps the words.
+      // The voice-command path relies on false meaning "busy, retry".
+      let reachedConversation = false;
+      let optimisticId: string | null = null;
+      try {
+        return await submissionLockRef.current!.run(async () => {
+          // Capture before callbacks or awaits can change the recipient settings.
+          const admittedOptions = {
+            ...options,
+            inferenceSnapshot: streaming.captureInference?.(options),
           };
+          onSendingChange?.(true);
+          try {
+            onBeforeSend?.();
+            const convId = conversationId ?? (await createConversation(text));
+            const previousMessages = persistence.messages;
+            const userMessage: Message = {
+              id: crypto.randomUUID(),
+              role: "user",
+              content: text,
+              isStreaming: false,
+            };
 
-          persistence.setMessages((messages) => [...messages, userMessage]);
-          await persistence.saveUserMessage(text);
-          await onMessagePersisted?.({
-            conversationId: convId,
-            text,
-            isFirstMessage: previousMessages.length === 0,
-          });
-          await streaming.sendToAI(text, [...previousMessages, userMessage], options);
-        } finally {
-          onSendingChange?.(false);
+            persistence.setMessages((messages) => [...messages, userMessage]);
+            optimisticId = userMessage.id;
+            await persistence.saveUserMessage(text);
+            reachedConversation = true;
+            await onMessagePersisted?.({
+              conversationId: convId,
+              text,
+              isFirstMessage: previousMessages.length === 0,
+            });
+            await streaming.sendToAI(text, [...previousMessages, userMessage], admittedOptions);
+          } finally {
+            onSendingChange?.(false);
+          }
+        });
+      } catch (error) {
+        if (!reachedConversation) {
+          if (optimisticId) {
+            const id = optimisticId;
+            persistence.setMessages((messages) => messages.filter((m) => m.id !== id));
+          }
+          throw error;
         }
-      });
+        console.error("Chat reply failed after the message was saved", error);
+        return true;
+      }
     },
     [
       conversationId,

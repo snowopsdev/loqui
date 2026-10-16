@@ -3564,7 +3564,13 @@
       "thinking": "Pensando...",
       "typeMessage": "Digite uma mensagem...",
       "send": "Enviar",
-      "voiceDraftStreamingOnly": "A entrada por voz não está disponível com seu provedor de transcrição: ele só suporta ditado ao vivo. Escolha outro provedor em Configurações → Fala para texto."
+      "voiceDraftStreamingOnly": "A entrada por voz não está disponível com seu provedor de transcrição: ele só suporta ditado ao vivo. Escolha outro provedor em Configurações → Fala para texto.",
+      "queued": "Será enviado quando a resposta terminar",
+      "unqueue": "Não enviar ao terminar",
+      "queueDropped": "Não enviado: a conversa ou o modelo mudou. Pressione Enter para enviar aqui.",
+      "unsent": "Sua mensagem anterior não foi enviada.",
+      "restoreUnsent": "Recuperar",
+      "discardUnsent": "Descartar"
     },
     "tools": {
       "search_notesName": "Pesquisar notas",

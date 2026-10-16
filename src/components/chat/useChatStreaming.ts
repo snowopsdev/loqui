@@ -82,6 +82,8 @@ interface UseChatStreamingOptions {
 }
 
 export interface SendToAIOptions {
+  /** Effective inference target captured synchronously when the sender admits a message. */
+  inferenceSnapshot?: ChatInferenceSnapshot;
   /** Screenshot for this message; attached only when the resolved model can see it. */
   attachment?: ChatImageAttachment;
   /** Agent-response selection attached to this request without changing chat history. */
@@ -96,7 +98,14 @@ export interface SendToAIOptions {
   }) => void | Promise<void>;
 }
 
+export interface ChatInferenceSnapshot {
+  settings: ReturnType<typeof getSettings>;
+  inference: ReturnType<typeof resolveChatStreamingInference>;
+  webSearch: boolean;
+}
+
 export interface ChatStreaming {
+  captureInference: (options?: SendToAIOptions) => ChatInferenceSnapshot;
   agentState: AgentState;
   toolStatus: string;
   activeToolName: string;
@@ -219,6 +228,28 @@ export function useChatStreaming({
     };
   }, [cancelStream]);
 
+  const captureInference = useCallback(
+    (options?: SendToAIOptions): ChatInferenceSnapshot => {
+      const settings = getSettings();
+      const inference = resolveChatStreamingInference(settings, {
+        inferenceScope,
+        hasScreenContext: !!options?.attachment,
+        isProviderImageWired: providerSupportsImages,
+      });
+      const config = inference.config;
+      return {
+        settings,
+        inference: { ...inference, config: { ...config } },
+        webSearch: isProviderSearchEnabled(
+          config.scope === "dictationAgentVision" ? "dictationAgent" : config.scope,
+          config.provider,
+          config.mode
+        ),
+      };
+    },
+    [inferenceScope]
+  );
+
   const sendToAI = useCallback(
     async (userText: string, allMessages: Message[], options?: SendToAIOptions) => {
       const sendGeneration = ++sendGenerationRef.current;
@@ -230,12 +261,9 @@ export function useChatStreaming({
         responseAnnounced = true;
         if (!options?.suppressResponseContent) onResponseContent?.();
       };
-      const settings = getSettings();
-      const { config: llmConfig, attachScreenContext } = resolveChatStreamingInference(settings, {
-        inferenceScope,
-        hasScreenContext: !!options?.attachment,
-        isProviderImageWired: providerSupportsImages,
-      });
+      const snapshot = options?.inferenceSnapshot ?? captureInference(options);
+      const settings = snapshot.settings;
+      const { config: llmConfig, attachScreenContext } = snapshot.inference;
       const requestedAttachment = attachScreenContext ? (options?.attachment ?? null) : null;
       const llmMode = llmConfig.mode || "local";
       setAgentState("thinking");
@@ -389,11 +417,7 @@ export function useChatStreaming({
               customApiKey:
                 isCustomAgent || isLanAgent ? llmConfig.customApiKey || undefined : undefined,
               disableThinking: llmConfig.disableThinking,
-              webSearch: isProviderSearchEnabled(
-                llmConfig.scope === "dictationAgentVision" ? "dictationAgent" : llmConfig.scope,
-                llmConfig.provider,
-                llmConfig.mode
-              ),
+              webSearch: snapshot.webSearch,
             },
             aiTools
           );
@@ -551,7 +575,7 @@ export function useChatStreaming({
       completeToolActivity();
     },
     [
-      inferenceScope,
+      captureInference,
       t,
       setMessages,
       onStreamComplete,
@@ -567,6 +591,7 @@ export function useChatStreaming({
     toolStatus,
     activeToolName,
     sendToAI,
+    captureInference,
     cancelStream,
   };
 }

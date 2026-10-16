@@ -23,7 +23,7 @@ interface NoteConversationItem {
 interface UseEmbeddedChatReturn {
   messages: Message[];
   agentState: AgentState;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string) => Promise<boolean>;
   cancelStream: () => void;
   noteConversations: NoteConversationItem[];
   activeConversationId: number | null;
@@ -143,9 +143,7 @@ export function useEmbeddedChat({
     createConversation,
   });
   const sendMessage = useCallback(
-    async (text: string): Promise<void> => {
-      await sendMessageWithResult(text);
-    },
+    (text: string): Promise<boolean> => sendMessageWithResult(text),
     [sendMessageWithResult]
   );
 

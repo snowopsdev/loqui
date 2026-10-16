@@ -3617,7 +3617,13 @@
       "thinking": "Pensando...",
       "typeMessage": "Escribe un mensaje...",
       "send": "Enviar",
-      "voiceDraftStreamingOnly": "La entrada de voz no está disponible con tu proveedor de transcripción: solo admite dictado en directo. Elige otro proveedor en Ajustes → Voz a texto."
+      "voiceDraftStreamingOnly": "La entrada de voz no está disponible con tu proveedor de transcripción: solo admite dictado en directo. Elige otro proveedor en Ajustes → Voz a texto.",
+      "queued": "Se enviará cuando termine la respuesta",
+      "unqueue": "No enviar al terminar",
+      "queueDropped": "No se envió: cambió la conversación o el modelo. Pulsa Intro para enviarlo aquí.",
+      "unsent": "Tu mensaje anterior no se envió.",
+      "restoreUnsent": "Recuperarlo",
+      "discardUnsent": "Descartar"
     },
     "tools": {
       "search_notesName": "Buscar notas",

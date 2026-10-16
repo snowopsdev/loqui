@@ -1,3 +1,4 @@
+import { useChatRouteKey } from "./chatRouteKey";
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatPersistence } from "./useChatPersistence";
@@ -31,6 +32,7 @@ function NewChatEmptyState() {
 
 export default function ChatView() {
   const { t } = useTranslation();
+  const routeKey = useChatRouteKey("chatIntelligence");
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [isNewChat, setIsNewChat] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -82,7 +84,8 @@ export default function ChatView() {
     persistence,
     streaming,
     createConversation,
-    onBeforeSend: markChatStarted,
+    // Keep the first composer mounted until creation and persistence succeed.
+    onMessagePersisted: markChatStarted,
   });
 
   const handleArchive = useCallback(
@@ -175,6 +178,7 @@ export default function ChatView() {
                   agentState={streaming.agentState}
                   partialTranscript=""
                   onTextSubmit={handleTextSubmit}
+                  queueKey={`chat|${activeConversationId ?? "new"}|${routeKey}`}
                   onCancel={streaming.cancelStream}
                   autoFocus={isNewChat}
                   voiceDraft

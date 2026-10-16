@@ -85,7 +85,7 @@ test("the busy state is not a disabled field, and every focus ring is full opaci
   assert.doesNotMatch(source, /ring-(ring|primary)\/\d+/);
 });
 
-test("busy Enter consumes its default without submitting or changing the draft", async (t) => {
+test("busy Enter queues without submitting or changing the draft", async (t) => {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -105,6 +105,7 @@ test("busy Enter consumes its default without submitting or changing the draft",
       createElement(ChatInput, {
         partialTranscript: "",
         agentState: "thinking",
+        queueKey: "chat|1|route",
         onTextSubmit: (text) => submissions.push(text),
         onCancel() {},
       })
@@ -134,4 +135,121 @@ test("busy Enter consumes its default without submitting or changing the draft",
     assert.equal(tree.props(field).value, "Keep this draft");
     assert.deepEqual(submissions, []);
   }
+});
+
+test("every caller passes a queue key built from its destination and route", () => {
+  const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");
+  assert.match(
+    read("src/components/chat/ChatView.tsx"),
+    /queueKey=\{`chat\|\$\{activeConversationId \?\? "new"\}\|\$\{routeKey\}`\}/
+  );
+  assert.match(
+    read("src/components/notes/NoteEditor.tsx"),
+    /const embeddedQueueKey = `note\|\$\{note\.id\}\|/
+  );
+  assert.equal(
+    read("src/components/notes/NoteEditor.tsx").match(/queueKey=\{embeddedQueueKey\}/g)?.length,
+    2
+  );
+  assert.match(
+    read("src/components/notes/overview/ContainerOverview.tsx"),
+    /queueKey=\{`container\|\$\{space\.id\}\|/
+  );
+  assert.match(
+    read("src/components/dictation/AssistantPanel.tsx"),
+    /queueKey=\{`assistant\|\$\{persistence\.conversationId \?\? "new"\}\|\$\{routeKey\}\|/
+  );
+  assert.match(read("src/components/notes/EmbeddedChat.tsx"), /queueKey=\{queueKey\}/);
+  assert.match(
+    read("src/components/notes/overview/OverviewAskSection.tsx"),
+    /queueKey=\{queueKey\}/
+  );
+});
+
+test("the route key changes with the route and never carries a secret", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, rendererOptions("loqui-chat-route-key-"));
+  const { chatRouteKey } = await vite.ssrLoadModule("/components/chat/chatRouteKey.ts");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const state = {
+    ...useSettingsStore.getState(),
+    chatAgentMode: "providers",
+    chatAgentProvider: "openai",
+    chatAgentModel: "model-a",
+  };
+  const a = chatRouteKey(state, "chatIntelligence");
+  assert.notEqual(chatRouteKey({ ...state, chatAgentModel: "model-b" }, "chatIntelligence"), a);
+  assert.notEqual(chatRouteKey(state, "dictationAgent"), a);
+  const withKey = chatRouteKey(
+    { ...state, chatAgentCustomApiKey: "sk-secret" },
+    "chatIntelligence"
+  );
+  assert.equal(withKey, a);
+  assert.doesNotMatch(withKey, /sk-secret/);
+});
+
+test("AssistantPanel submits through sendWithSelectedContext", () => {
+  const panel = fs.readFileSync(
+    path.join(__dirname, "../../src/components/dictation/AssistantPanel.tsx"),
+    "utf8"
+  );
+  assert.match(panel, /sendWithSelectedContext\(text, selectedContext, \{/);
+  assert.doesNotMatch(panel, /void sendMessage\(text, context/);
+});
+
+test("unchanged multiline draft is resized when the textarea returns after voice state", async (t) => {
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  installHookDom(t);
+  const tree = installTree();
+  const create = globalThis.document.createElement;
+  globalThis.document.createElement = (...args) => {
+    const node = create(...args);
+    if (node.tagName === "TEXTAREA") node.scrollHeight = 140;
+    return node;
+  };
+  const vite = await createRendererServer(
+    t,
+    rendererOptions("loqui-composer-remount-", {
+      ...COMPOSER_MOCKS,
+      "/ui/LiveWaveform": `export const LiveWaveform = () => null;`,
+      "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: globalThis.__composerVoiceStatus ?? "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0 });`,
+    })
+  );
+  const { ChatInput } = await vite.ssrLoadModule("/components/chat/ChatInput.tsx");
+  root = createRoot(tree.container);
+  const render = (agentState) =>
+    React.act(async () =>
+      root.render(
+        createElement(ChatInput, {
+          agentState,
+          partialTranscript: "",
+          onTextSubmit() {},
+        })
+      )
+    );
+  await render("idle");
+  let field = tree.find((node) => node.tagName === "TEXTAREA");
+  await React.act(async () =>
+    tree.props(field).onChange({ target: { value: "line one\nline two" } })
+  );
+  assert.equal(field.style.height, "140px");
+  t.after(() => {
+    delete globalThis.__composerVoiceStatus;
+  });
+  globalThis.__composerVoiceStatus = "recording";
+  await render("idle");
+  assert.equal(
+    tree.find((node) => node.tagName === "TEXTAREA"),
+    null
+  );
+  globalThis.__composerVoiceStatus = "idle";
+  await render("idle");
+  field = tree.find((node) => node.tagName === "TEXTAREA");
+  assert.equal(tree.props(field).value, "line one\nline two");
+  assert.equal(field.style.height, "140px");
+  assert.equal(field.style.overflowY, "hidden");
 });

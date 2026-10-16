@@ -27,7 +27,7 @@ export interface ContainerConversationItem {
 interface UseContainerChatReturn {
   messages: Message[];
   agentState: AgentState;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string) => Promise<boolean>;
   cancelStream: () => void;
   conversations: ContainerConversationItem[];
   activeConversationId: number | null;
@@ -132,9 +132,7 @@ export function useContainerChat({
     createConversation,
   });
   const sendMessage = useCallback(
-    async (text: string): Promise<void> => {
-      await sendMessageWithResult(text);
-    },
+    (text: string): Promise<boolean> => sendMessageWithResult(text),
     [sendMessageWithResult]
   );
 

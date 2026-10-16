@@ -1,3 +1,4 @@
+import { useChatRouteKey } from "../../chat/chatRouteKey";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus } from "../../icons";
@@ -68,6 +69,7 @@ export function ContainerOverview({
   const notes = folder ? containerNotes : (spaceNotes ?? []);
 
   const chat = useContainerChat({ space, folder, notes });
+  const routeKey = useChatRouteKey("chatIntelligence");
 
   const spaceFolders = useMemo(
     () => folders.filter((f) => f.space_id === space.id),
@@ -130,6 +132,7 @@ export function ContainerOverview({
           messages={chat.messages}
           agentState={chat.agentState}
           onTextSubmit={chat.sendMessage}
+          queueKey={`container|${space.id}|${folder?.id ?? "root"}|${chat.activeConversationId ?? "new"}|${routeKey}`}
           onCancel={chat.cancelStream}
           conversations={chat.conversations}
           activeConversationId={chat.activeConversationId}

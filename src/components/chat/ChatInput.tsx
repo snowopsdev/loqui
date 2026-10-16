@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useId } from "react";
 import { Mic, Square, X } from "../icons";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
@@ -15,7 +15,10 @@ import type { AgentState } from "./types";
 interface ChatInputProps {
   agentState: AgentState;
   partialTranscript: string;
-  onTextSubmit?: (text: string) => void;
+  /** False or rejection means nothing was sent; preserve the words for retry. */
+  onTextSubmit?: (text: string) => void | boolean | Promise<void | boolean>;
+  /** Destination identity including conversation/context and effective route. */
+  queueKey?: string;
   onCancel?: () => void;
   autoFocus?: boolean;
   placeholder?: string;
@@ -57,6 +60,7 @@ export function ChatInput({
   agentState,
   partialTranscript,
   onTextSubmit,
+  queueKey,
   onCancel,
   autoFocus = false,
   placeholder,
@@ -67,6 +71,20 @@ export function ChatInput({
   const { toast } = useToast();
   const [inputText, setInputText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // A draft may leave the queue only for the destination that admitted it.
+  const [queuedFor, setQueuedFor] = useState<string | null>(null);
+  const [queueDropped, setQueueDropped] = useState(false);
+  const [unsent, setUnsent] = useState<string | null>(null);
+  const queued = queuedFor !== null;
+  const queuedHintId = useId();
+  const inputTextRef = useRef(inputText);
+  const writeDraft = useCallback((value: string) => {
+    inputTextRef.current = value;
+    setInputText(value);
+  }, []);
+  useLayoutEffect(() => {
+    inputTextRef.current = inputText;
+  }, [inputText]);
 
   const voice = useVoiceDraft({
     onTranscript: (text) => {
@@ -90,13 +108,23 @@ export function ChatInput({
   const isBusy =
     agentState === "thinking" || agentState === "streaming" || agentState === "tool-executing";
 
-  const handleSubmit = useCallback(() => {
-    const text = inputText.trim();
+  const handleSubmit = useCallback(async () => {
+    const text = inputTextRef.current.trim();
     if (!text || !onTextSubmit) return;
-    onTextSubmit(text);
-    setInputText("");
+    setQueuedFor(null);
+    setQueueDropped(false);
+    writeDraft("");
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [inputText, onTextSubmit]);
+    let sent: void | boolean = true;
+    try {
+      sent = await onTextSubmit(text);
+    } catch {
+      sent = false;
+    }
+    if (sent !== false) return;
+    if (!inputTextRef.current.trim()) writeDraft(text);
+    else setUnsent((held) => (held ? `${held}\n\n${text}` : text));
+  }, [onTextSubmit, writeDraft]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -106,18 +134,19 @@ export function ChatInput({
         isComposing: e.nativeEvent.isComposing,
         keyCode: e.nativeEvent.keyCode,
         isBusy,
-        isQueued: false,
+        isQueued: queued,
         hasText: Boolean(inputText.trim()),
       });
-      if (action === "queue") {
-        e.preventDefault();
-        return;
-      }
-      if (action !== "submit") return;
+      if (action === "none") return;
+      if (action === "queue" && !queueKey) return;
       e.preventDefault();
-      handleSubmit();
+      if (action === "submit") void handleSubmit();
+      else if (action === "queue") {
+        setQueuedFor(queueKey ?? null);
+        setQueueDropped(false);
+      } else setQueuedFor(null);
     },
-    [handleSubmit, inputText, isBusy]
+    [handleSubmit, inputText, isBusy, queued, queueKey]
   );
 
   // Grow with the text up to the cap, then scroll inside the box.
@@ -128,7 +157,21 @@ export function ChatInput({
     const { height, overflowY } = composerHeight(el.scrollHeight);
     el.style.height = `${height}px`;
     el.style.overflowY = overflowY;
-  }, [inputText]);
+  }, [inputText, isIdle, isBusy, isVoiceRecording, isVoiceTranscribing]);
+
+  // Destination changes leave the words for a deliberate send in the new location.
+  useEffect(() => {
+    if (queuedFor !== null && queuedFor !== queueKey) {
+      setQueuedFor(null);
+      setQueueDropped(true);
+    }
+  }, [queuedFor, queueKey]);
+  useEffect(() => {
+    if (isIdle && queuedFor !== null && queuedFor === queueKey) {
+      setQueuedFor(null);
+      void handleSubmit();
+    }
+  }, [isIdle, queuedFor, queueKey, handleSubmit]);
 
   useEffect(() => {
     if (isIdle) {
@@ -226,7 +269,12 @@ export function ChatInput({
               ref={inputRef}
               rows={1}
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => {
+                writeDraft(e.target.value);
+                setQueueDropped(false);
+                if (!e.target.value.trim()) setQueuedFor(null);
+              }}
+              aria-describedby={queued ? queuedHintId : undefined}
               onKeyDown={handleKeyDown}
               autoFocus={autoFocus}
               placeholder={placeholder ?? t("agentMode.input.typeMessage")}
@@ -239,7 +287,10 @@ export function ChatInput({
             {isBusy && onCancel ? (
               <button
                 type="button"
-                onClick={onCancel}
+                onClick={() => {
+                  setQueuedFor(null);
+                  onCancel?.();
+                }}
                 aria-label={t("common.cancel")}
                 title={t("common.cancel")}
                 className={cn(
@@ -253,7 +304,7 @@ export function ChatInput({
               </button>
             ) : isIdle && (inputText.trim() || !voiceDraft) ? (
               <button
-                onClick={handleSubmit}
+                onClick={() => void handleSubmit()}
                 disabled={!inputText.trim()}
                 aria-label={t("agentMode.input.send")}
                 className={cn(
@@ -294,6 +345,53 @@ export function ChatInput({
           </div>
         )}
       </div>
+      {queued && (
+        <p
+          id={queuedHintId}
+          className="mt-1 flex items-center gap-2 ps-4 text-[11px] text-muted-foreground"
+        >
+          {t("agentMode.input.queued")}
+          <button
+            type="button"
+            onClick={() => setQueuedFor(null)}
+            className="rounded-sm underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("agentMode.input.unqueue")}
+          </button>
+        </p>
+      )}
+      {queueDropped && (
+        <p role="status" className="mt-1 ps-4 text-[11px] text-muted-foreground">
+          {t("agentMode.input.queueDropped")}
+        </p>
+      )}
+      {unsent !== null && (
+        <div
+          role="alert"
+          className="mt-1 flex flex-wrap items-center gap-2 ps-4 text-[11px] text-muted-foreground"
+        >
+          {t("agentMode.input.unsent")}
+          <button
+            type="button"
+            onClick={() => {
+              const held = unsent;
+              const current = inputTextRef.current;
+              writeDraft(current.trim() ? `${held}\n\n${current}` : held);
+              setUnsent(null);
+            }}
+            className="rounded-sm underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("agentMode.input.restoreUnsent")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setUnsent(null)}
+            className="rounded-sm underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("agentMode.input.discardUnsent")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

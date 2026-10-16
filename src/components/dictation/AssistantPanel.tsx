@@ -1,3 +1,5 @@
+import { useChatRouteKey } from "../chat/chatRouteKey";
+import { sendWithSelectedContext } from "./assistantTextSubmit";
 import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Copy, Plus, X } from "../icons";
@@ -297,6 +299,9 @@ export function AssistantPanel({
   });
   const responseSelectionRootRef = useRef<HTMLDivElement | null>(null);
   const [selectedContext, setSelectedContext] = useState<AgentSelectionContext | null>(null);
+  const routeKey = useChatRouteKey("dictationAgent");
+  const selectedContextRef = useRef(selectedContext);
+  selectedContextRef.current = selectedContext;
 
   const clearSelectedContext = useCallback(() => {
     setSelectedContext(null);
@@ -321,13 +326,20 @@ export function AssistantPanel({
   ]);
 
   const handleTextSubmit = useCallback(
-    (text: string): void => {
-      if (!historyReady) return;
-      const context = selectedContext;
-      if (context) clearSelectedContext();
-      void sendMessage(text, context ? { selectedContext: context } : undefined);
+    (text: string): boolean | Promise<boolean> => {
+      // Not ready yet: report the refusal so ChatInput keeps the words.
+      if (!historyReady) return false;
+      return sendWithSelectedContext(text, selectedContext, {
+        send: sendMessage,
+        clear: clearSelectedContext,
+        current: () => selectedContextRef.current,
+        restore: (context) => {
+          setSelectedContext(context);
+          onSelectionContextChange(context);
+        },
+      });
     },
-    [clearSelectedContext, historyReady, selectedContext, sendMessage]
+    [clearSelectedContext, historyReady, onSelectionContextChange, selectedContext, sendMessage]
   );
 
   const showEmptyState =
@@ -534,6 +546,7 @@ export function AssistantPanel({
           agentState={historyReady && !submissionInFlight ? streaming.agentState : "thinking"}
           partialTranscript=""
           onTextSubmit={handleTextSubmit}
+          queueKey={`assistant|${persistence.conversationId ?? "new"}|${routeKey}|${selectedContext ? JSON.stringify(selectedContext) : ""}`}
           onCancel={
             historyReady && (!submissionInFlight || streaming.agentState !== "idle")
               ? streaming.cancelStream

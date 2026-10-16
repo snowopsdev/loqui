@@ -1,3 +1,4 @@
+import { useChatRouteKey } from "../chat/chatRouteKey";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { useUiLocale } from "../../hooks/useUiLocale";
@@ -243,6 +244,8 @@ export default function NoteEditor({
     noteContent: note.content,
     noteTranscript: note.transcript ?? undefined,
   });
+  const chatRouteKeyValue = useChatRouteKey("chatIntelligence");
+  const embeddedQueueKey = `note|${note.id}|${embeddedChat.activeConversationId ?? "new"}|${chatRouteKeyValue}`;
   const titleRef = useRef<HTMLDivElement>(null);
   const prevNoteIdRef = useRef<number>(note.id);
 
@@ -1022,6 +1025,7 @@ export default function NoteEditor({
               messages={embeddedChat.messages}
               agentState={embeddedChat.agentState}
               onTextSubmit={embeddedChat.sendMessage}
+              queueKey={embeddedQueueKey}
               onCancel={embeddedChat.cancelStream}
               noteConversations={embeddedChat.noteConversations}
               activeConversationId={embeddedChat.activeConversationId}
@@ -1038,6 +1042,7 @@ export default function NoteEditor({
           messages={embeddedChat.messages}
           agentState={embeddedChat.agentState}
           onTextSubmit={embeddedChat.sendMessage}
+          queueKey={embeddedQueueKey}
           onCancel={embeddedChat.cancelStream}
           noteConversations={embeddedChat.noteConversations}
           activeConversationId={embeddedChat.activeConversationId}

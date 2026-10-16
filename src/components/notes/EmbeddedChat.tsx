@@ -17,7 +17,8 @@ interface EmbeddedChatProps {
   onModeChange: (mode: EmbeddedChatMode) => void;
   messages: Message[];
   agentState: AgentState;
-  onTextSubmit: (text: string) => void;
+  onTextSubmit: (text: string) => void | boolean | Promise<void | boolean>;
+  queueKey?: string;
   onCancel: () => void;
   noteConversations?: ContainerConversationItem[];
   activeConversationId?: number | null;
@@ -44,6 +45,7 @@ export default function EmbeddedChat({
   messages,
   agentState,
   onTextSubmit,
+  queueKey,
   onCancel,
   noteConversations,
   activeConversationId,
@@ -138,6 +140,7 @@ export default function EmbeddedChat({
         agentState={agentState}
         partialTranscript=""
         onTextSubmit={onTextSubmit}
+        queueKey={queueKey}
         onCancel={onCancel}
         voiceDraft
       />

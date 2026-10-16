@@ -3564,7 +3564,13 @@
       "thinking": "Pensiero...",
       "typeMessage": "Scrivi un messaggio...",
       "send": "Invia",
-      "voiceDraftStreamingOnly": "L'input vocale non è disponibile con il tuo provider di trascrizione: supporta solo la dettatura dal vivo. Scegli un altro provider in Impostazioni → Da voce a testo."
+      "voiceDraftStreamingOnly": "L'input vocale non è disponibile con il tuo provider di trascrizione: supporta solo la dettatura dal vivo. Scegli un altro provider in Impostazioni → Da voce a testo.",
+      "queued": "Verrà inviato al termine della risposta",
+      "unqueue": "Non inviare al termine",
+      "queueDropped": "Non inviato: la conversazione o il modello sono cambiati. Premi Invio per inviarlo qui.",
+      "unsent": "Il messaggio precedente non è stato inviato.",
+      "restoreUnsent": "Ripristina",
+      "discardUnsent": "Scarta"
     },
     "tools": {
       "search_notesName": "Cerca nelle note",

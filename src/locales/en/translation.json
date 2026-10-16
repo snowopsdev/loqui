@@ -3733,7 +3733,13 @@
       "thinking": "Thinking...",
       "typeMessage": "Type a message...",
       "send": "Send",
-      "voiceDraftStreamingOnly": "Voice input isn't available with your transcription provider: it only supports live dictation. Choose another provider in Settings → Speech to Text."
+      "voiceDraftStreamingOnly": "Voice input isn't available with your transcription provider: it only supports live dictation. Choose another provider in Settings → Speech to Text.",
+      "queued": "Sends when the reply finishes",
+      "unqueue": "Don't send when done",
+      "queueDropped": "Not sent: the conversation or model changed. Press Enter to send it here.",
+      "unsent": "Your earlier message wasn't sent.",
+      "restoreUnsent": "Put it back",
+      "discardUnsent": "Discard"
     },
     "tools": {
       "search_notesName": "Search notes",

@@ -17,6 +17,7 @@ export interface ChatPersistence {
     scope?: ContainerScope
   ) => Promise<number>;
   loadConversation: (id: number) => Promise<void>;
+  /** Resolves only after the user message row has been saved. */
   saveUserMessage: (text: string) => Promise<void>;
   saveAssistantMessage: (content: string, toolCalls?: ToolCallInfo[]) => Promise<void>;
   handleNewChat: () => void;
@@ -80,9 +81,11 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
   }, []);
 
   const saveUserMessage = useCallback(async (text: string) => {
-    if (conversationIdRef.current) {
-      window.electronAPI?.addAgentMessage?.(conversationIdRef.current, "user", text);
-    }
+    const id = conversationIdRef.current;
+    const add = window.electronAPI?.addAgentMessage;
+    if (!id || !add) throw new Error("No conversation to save the message to");
+    const saved = await add(id, "user", text);
+    if (!saved) throw new Error("The conversation is no longer available");
   }, []);
 
   const saveAssistantMessage = useCallback(async (content: string, toolCalls?: ToolCallInfo[]) => {

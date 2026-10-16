@@ -3564,7 +3564,13 @@
       "thinking": "正在思考...",
       "typeMessage": "输入消息...",
       "send": "发送",
-      "voiceDraftStreamingOnly": "当前转录服务商仅支持实时听写，因此无法使用语音输入。请在“设置 → 语音转文字”中选择其他服务商。"
+      "voiceDraftStreamingOnly": "当前转录服务商仅支持实时听写，因此无法使用语音输入。请在“设置 → 语音转文字”中选择其他服务商。",
+      "queued": "回复结束后发送",
+      "unqueue": "完成后不发送",
+      "queueDropped": "未发送：对话或模型已更改。按 Enter 发送到这里。",
+      "unsent": "你之前的消息未发送。",
+      "restoreUnsent": "放回",
+      "discardUnsent": "丢弃"
     },
     "tools": {
       "search_notesName": "搜索笔记",

@@ -293,6 +293,7 @@ async function renderAssistantPanel(
       "/stores/settingsStore": `
         const state = { voiceAgentKey: [] };
         export function useSettingsStore(selector) { return selector(state); }
+        export function selectResolvedLLMConfig(state, scope) { return { scope, mode: "local", provider: "local", model: "test" }; }
       `,
       "/utils/hotkeys": `
         export function formatHotkeyListLabel() { return ""; }
@@ -457,6 +458,7 @@ test("starting a new conversation clears the displayed response and parent conte
       "/stores/settingsStore": `
         const state = { voiceAgentKey: [] };
         export function useSettingsStore(selector) { return selector(state); }
+        export function selectResolvedLLMConfig(state, scope) { return { scope, mode: "local", provider: "local", model: "test" }; }
       `,
       "/utils/hotkeys": `
         export function formatHotkeyListLabel() { return ""; }

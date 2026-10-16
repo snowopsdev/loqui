@@ -3733,7 +3733,13 @@
       "thinking": "Denkt nach...",
       "typeMessage": "Nachricht eingeben...",
       "send": "Senden",
-      "voiceDraftStreamingOnly": "Spracheingabe ist mit Ihrem Transkriptionsanbieter nicht verfügbar: Er unterstützt nur Live-Diktat. Wählen Sie unter Einstellungen → Sprache zu Text einen anderen Anbieter."
+      "voiceDraftStreamingOnly": "Spracheingabe ist mit Ihrem Transkriptionsanbieter nicht verfügbar: Er unterstützt nur Live-Diktat. Wählen Sie unter Einstellungen → Sprache zu Text einen anderen Anbieter.",
+      "queued": "Wird gesendet, sobald die Antwort fertig ist",
+      "unqueue": "Nicht automatisch senden",
+      "queueDropped": "Nicht gesendet: Unterhaltung oder Modell hat sich geändert. Drücke Enter, um es hier zu senden.",
+      "unsent": "Deine vorherige Nachricht wurde nicht gesendet.",
+      "restoreUnsent": "Zurückholen",
+      "discardUnsent": "Verwerfen"
     },
     "tools": {
       "search_notesName": "Notizen durchsuchen",

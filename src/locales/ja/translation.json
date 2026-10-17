@@ -4243,7 +4243,8 @@
       },
       "dayCount_other": "音声入力 {{count}} 件",
       "words_other": "{{count}} 語",
-      "session_other": "セッション · 録音 {{count}} 件 · {{duration}}"
+      "session_other": "セッション · 録音 {{count}} 件 · {{duration}}",
+      "loadFailed": "この音声入力を読み込めませんでした。もう一度お試しください。"
     }
   }
 }

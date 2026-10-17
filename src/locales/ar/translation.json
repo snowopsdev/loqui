@@ -4497,7 +4497,8 @@
       "session_many": "جلسة · {{count}} تسجيلًا · {{duration}}",
       "dayCount_other": "{{count}} إملاء",
       "words_other": "{{count}} كلمة",
-      "session_other": "جلسة · {{count}} تسجيل · {{duration}}"
+      "session_other": "جلسة · {{count}} تسجيل · {{duration}}",
+      "loadFailed": "تعذّر تحميل هذا الإملاء. حاول مرة أخرى."
     }
   }
 }

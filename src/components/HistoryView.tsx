@@ -26,11 +26,12 @@ import { useRecentNotes } from "../hooks/useRecentNotes";
 import { useWorkspaceNavigation } from "./workspaceNavigation";
 import {
   clearTranscriptFocus,
+  requestTranscriptFocus,
   setHomeFilter,
   setHomeQuery,
   useHomeViewStore,
 } from "../stores/homeViewStore";
-import { revealTranscription } from "../stores/transcriptionStore";
+import { retainTranscriptionForLanding } from "../stores/transcriptionStore";
 import { useToast } from "./ui/useToast";
 
 // Behavioural window shared with --motion-dwell-ring.
@@ -95,6 +96,9 @@ export default function HistoryView({
   );
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [ring, setRing] = useState<{ id: number; nonce: number } | null>(null);
+  const [landingError, setLandingError] = useState<{ nonce: number; retry: () => void } | null>(
+    null
+  );
   const filterRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const navigation = useWorkspaceNavigation();
@@ -141,14 +145,18 @@ export default function HistoryView({
     const generation = ++landingGenRef.current;
     for (const frame of framesRef.current) cancelAnimationFrame(frame);
     framesRef.current.clear();
+    setLandingError(null);
     if (focusTranscriptId == null) return;
     const id = focusTranscriptId;
     // Read current store ownership as well as the local generation: a newer
     // intent invalidates us synchronously, before React runs its next effect.
-    const ownsRequest = () =>
+    const ownsIntent = () =>
       aliveRef.current &&
       generation === landingGenRef.current &&
       useHomeViewStore.getState().focusNonce === focusNonce;
+    if (!ownsIntent()) return;
+    const retained = retainTranscriptionForLanding(id, ownsIntent);
+    const ownsRequest = () => ownsIntent() && retained.isCurrent();
     const frame = (callback: () => void) => {
       if (!ownsRequest()) return;
       const handle = requestAnimationFrame(() => {
@@ -162,6 +170,11 @@ export default function HistoryView({
     clearTranscriptFocus();
     const land = () => {
       if (!ownsRequest()) return;
+      if (retained.hasPendingPages) {
+        retained.afterPages(() => frame(land));
+        return;
+      }
+      const pageVersion = retained.pageVersion;
       const found = locateTranscript(feedRef.current, id);
       if (!found) return;
       if (found.inSession) setExpanded((prev) => new Set(prev).add(found.entryKey));
@@ -170,17 +183,37 @@ export default function HistoryView({
       frame(() =>
         frame(() => {
           if (!ownsRequest()) return;
+          // A page can regroup the target into a different session. Rebuild its
+          // expansion after that producer settles, without polling frames.
+          if (retained.hasPendingPages || retained.pageVersion !== pageVersion) {
+            retained.afterPages(() => frame(land));
+            return;
+          }
           const row = rootRef.current?.querySelector(`[data-transcript-id="${id}"]`);
           const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
           if (!ownsRequest()) return;
           row?.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+          retained.releaseAfterPages();
         })
       );
     };
     if (locateTranscript(feedRef.current, id)) land();
     else
       void (async () => {
-        const fetched = await window.electronAPI.getTranscriptionById(id).catch(() => null);
+        let fetched: TranscriptionItemType | null;
+        try {
+          fetched = await window.electronAPI.getTranscriptionById(id);
+        } catch {
+          if (!ownsRequest()) return;
+          setLandingError({
+            nonce: focusNonce,
+            retry: () => {
+              if (!ownsRequest()) return;
+              requestTranscriptFocus(id);
+            },
+          });
+          return;
+        }
         if (!ownsRequest()) return;
         if (!fetched || fetched.deleted_at) {
           if (!ownsRequest()) return;
@@ -188,9 +221,10 @@ export default function HistoryView({
           return;
         }
         if (!ownsRequest()) return;
-        revealTranscription(fetched);
+        retained.reveal(fetched);
         frame(land); // allow the store-backed feed to rebuild
       })();
+    return retained.release;
     // One landing per request nonce; its intentional id clear is not cancellation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusNonce]);
@@ -292,6 +326,21 @@ export default function HistoryView({
               />
             }
           />
+          {landingError?.nonce === focusNonce && (
+            <div
+              role="alert"
+              className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-ui text-foreground"
+            >
+              <p>{t("home.history.loadFailed")}</p>
+              <button
+                type="button"
+                onClick={landingError.retry}
+                className="rounded-md border border-input-border px-3 py-1.5 text-ui font-semibold text-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          )}
           {isLoading && history.length === 0 ? (
             <div className="rounded-2xl border border-border/70 bg-card/50 dark:border-white/10 dark:bg-surface-2/60">
               <div className="flex items-center justify-center gap-2 py-10">

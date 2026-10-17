@@ -257,3 +257,13 @@ test("[change-driving] every locale labels the explicit Vertex authentication so
   assert.equal(en.authSourceAdc, "Application Default Credentials (ADC)");
   assert.equal(en.authSourceApiKey, "API key");
 });
+
+test("history load failures are localized separately from absence, with explicit Retry in every locale", () => {
+  for (const lang of languages) {
+    const translation = load(lang, "translation");
+    const history = translation.home.history;
+    assert.ok(history.loadFailed?.trim(), `${lang}: loadFailed`);
+    assert.notEqual(history.loadFailed, history.olderMissing, lang);
+    assert.ok(translation.common.retry?.trim(), `${lang}: common.retry`);
+  }
+});

@@ -4273,7 +4273,8 @@
       "session_one": "Sitzung · {{count}} Aufnahme · {{duration}}",
       "dayCount_other": "{{count}} Diktate",
       "words_other": "{{count}} Wörter",
-      "session_other": "Sitzung · {{count}} Aufnahmen · {{duration}}"
+      "session_other": "Sitzung · {{count}} Aufnahmen · {{duration}}",
+      "loadFailed": "Dieses Diktat konnte nicht geladen werden. Versuche es erneut."
     }
   }
 }

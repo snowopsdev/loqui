@@ -4373,7 +4373,8 @@
       "session_many": "Сессия · {{count}} записей · {{duration}}",
       "dayCount_other": "{{count}} диктанта",
       "words_other": "{{count}} слова",
-      "session_other": "Сессия · {{count}} записи · {{duration}}"
+      "session_other": "Сессия · {{count}} записи · {{duration}}",
+      "loadFailed": "Не удалось загрузить эту диктовку. Попробуйте ещё раз."
     }
   }
 }

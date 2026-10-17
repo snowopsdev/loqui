@@ -4283,7 +4283,8 @@
       "session_other": "Sesión · {{count}} grabaciones · {{duration}}",
       "dayCount_many": "{{count}} dictados",
       "words_many": "{{count}} palabras",
-      "session_many": "Sesión · {{count}} grabaciones · {{duration}}"
+      "session_many": "Sesión · {{count}} grabaciones · {{duration}}",
+      "loadFailed": "No se pudo cargar ese dictado. Inténtalo de nuevo."
     }
   }
 }

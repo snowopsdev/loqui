@@ -4283,7 +4283,8 @@
       "session_other": "Session · {{count}} enregistrements · {{duration}}",
       "dayCount_many": "{{count}} dictées",
       "words_many": "{{count}} mots",
-      "session_many": "Session · {{count}} enregistrements · {{duration}}"
+      "session_many": "Session · {{count}} enregistrements · {{duration}}",
+      "loadFailed": "Impossible de charger cette dictée. Réessayez."
     }
   }
 }

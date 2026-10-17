@@ -14,6 +14,7 @@ const { row } = require("../helpers/harness/historyFixture");
 // A DOM host for the actual HistoryView and its production children, not a
 // second implementation of landing. Frames and IPC alone are controllable.
 async function mountHistory(t) {
+  let resolvePage;
   const timers = new Map();
   let timerId = 0;
   let root;
@@ -46,6 +47,7 @@ async function mountHistory(t) {
       this.style = { setProperty() {}, removeProperty() {} };
     }
     appendChild(child) {
+      delete this.text;
       child.parentNode = this;
       this.childNodes.push(child);
       return child;
@@ -55,6 +57,7 @@ async function mountHistory(t) {
       child.parentNode = null;
     }
     insertBefore(child, before) {
+      delete this.text;
       child.parentNode = this;
       this.childNodes.splice(this.childNodes.indexOf(before), 0, child);
     }
@@ -123,9 +126,13 @@ async function mountHistory(t) {
   // Same Promise and result shape as ElectronAPI.getTranscriptionById.
   globalThis.window.electronAPI = {
     getNotes: async () => [],
+    getTranscriptions: () =>
+      new Promise((resolve) => {
+        resolvePage = resolve;
+      }),
     getTranscriptionById: (id) => {
       requests.push(id);
-      return new Promise((resolve) => pending.set(id, resolve));
+      return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
     },
   };
   if (!i18next.isInitialized)
@@ -149,6 +156,8 @@ async function mountHistory(t) {
     transcriptions: [row(20), row(19, { timestamp: "2026-10-14 19:49:00" })],
   });
   let key = 0;
+  let loading = false;
+  let mounted = true;
   root = createRoot(container);
   function Host() {
     const history = store.useTranscriptions();
@@ -159,7 +168,7 @@ async function mountHistory(t) {
         key,
         history,
         capture: { kind: "ready" },
-        isLoading: false,
+        isLoading: loading,
         hotkey: "Ctrl+Space",
         aiCTADismissed: true,
         useCleanupModel: false,
@@ -181,6 +190,25 @@ async function mountHistory(t) {
   return {
     home,
     store,
+    startPage: () =>
+      React.act(async () => {
+        loading = true;
+        // Run the actual producer used by ControlPanel, with its loading wrapper.
+        void store.initializeTranscriptions(50, false).finally(() => {
+          loading = false;
+          if (mounted) root.render(React.createElement(Host));
+        });
+        root.render(React.createElement(Host));
+      }),
+    page: (items) => React.act(async () => resolvePage(items)),
+    reject: (id) =>
+      React.act(async () => pending.get(id).reject(new Error("Temporary IPC failure"))),
+    retry: () => walk(container, (n) => n.tagName === "BUTTON" && n.textContent === "Retry"),
+    onClick: (node) => node[Object.keys(node).find((k) => k.startsWith("__reactProps"))].onClick,
+    click: (node) =>
+      React.act(async () =>
+        node[Object.keys(node).find((k) => k.startsWith("__reactProps"))].onClick()
+      ),
     requests,
     scrolls,
     notices,
@@ -190,14 +218,18 @@ async function mountHistory(t) {
     copies,
     timers,
     scheduled: () => frameId,
-    unmount: () => React.act(async () => root.render(null)),
+    unmount: () =>
+      React.act(async () => {
+        mounted = false;
+        root.render(null);
+      }),
     request: (id) => React.act(async () => home.requestTranscriptFocus(id)),
     supersedeAndResolve: (newId, oldId, value) =>
       React.act(async () => {
         home.requestTranscriptFocus(newId);
-        pending.get(oldId)(value);
+        pending.get(oldId).resolve(value);
       }),
-    resolve: (id, value) => React.act(async () => pending.get(id)(value)),
+    resolve: (id, value) => React.act(async () => pending.get(id).resolve(value)),
     remount: async () => {
       key++;
       await render();
@@ -344,4 +376,220 @@ test("a newer same-instance intent invalidates a pending fetch before effects ca
     [20]
   );
   assert.deepEqual(h.notices, []);
+});
+
+for (const fetchFirst of [true, false])
+  test(`real pending page and get-by-id resolve ${fetchFirst ? "fetch first" : "page first"}: target scrolls and rings`, async (t) => {
+    const h = await mountHistory(t);
+    await h.startPage();
+    await h.request(1);
+    const target = row(1, { timestamp: "2026-09-01 08:00:00" });
+    if (fetchFirst) await h.resolve(1, target);
+    await h.page([row(20)]);
+    if (!fetchFirst) await h.resolve(1, target);
+    await h.frame();
+    await h.frame();
+    await h.frame();
+    assert.deepEqual(
+      h.scrolls.map(([id]) => id),
+      [1]
+    );
+    assert.equal(
+      h.container.querySelector('[data-transcript-id="1"]').getAttribute("data-focused"),
+      "true"
+    );
+    assert.deepEqual(
+      h.store.useTranscriptionStore.getState().transcriptions.map((r) => r.id),
+      [20, 1]
+    );
+    assert.deepEqual(h.notices, []);
+  });
+
+for (const leave of ["newB", "unmount"])
+  for (const fetched of [false, true])
+    test(`pending page cannot retain old A after ${leave}, fetch ${fetched ? "already revealed" : "pending"}`, async (t) => {
+      const h = await mountHistory(t);
+      await h.startPage();
+      await h.request(1);
+      if (fetched) await h.resolve(1, row(1));
+      if (leave === "newB") await h.request(20);
+      else await h.unmount();
+      if (!fetched) await h.resolve(1, row(1));
+      await h.page([row(20)]);
+      await h.frame();
+      await h.frame();
+      await h.frame();
+      assert.deepEqual(
+        h.store.useTranscriptionStore.getState().transcriptions.map((r) => r.id),
+        [20]
+      );
+      assert.deepEqual(
+        h.scrolls.map(([id]) => id),
+        leave === "newB" ? [20] : []
+      );
+      assert.deepEqual(h.notices, []);
+    });
+
+for (const remove of ["removeTranscription", "clearTranscriptions"])
+  for (const fetched of [true, false])
+    test(`${remove} during pending page is authoritative ${fetched ? "after" : "before"} target fetch`, async (t) => {
+      const h = await mountHistory(t);
+      await h.startPage();
+      await h.request(1);
+      if (fetched) await h.resolve(1, row(1));
+      await React.act(async () => h.store[remove](1));
+      if (!fetched) await h.resolve(1, row(1));
+      await h.page([row(20), row(1)]);
+      await h.frame();
+      await h.frame();
+      await h.frame();
+      assert.equal(
+        h.store.useTranscriptionStore.getState().transcriptions.some((r) => r.id === 1),
+        false
+      );
+      assert.deepEqual(h.scrolls, []);
+      assert.deepEqual(h.notices, []);
+    });
+
+test("current rejection is truthful and explicit Retry publishes a fresh request that succeeds", async (t) => {
+  const h = await mountHistory(t);
+  await h.request(1);
+  await h.reject(1);
+  assert.deepEqual(h.notices, []);
+  assert.match(h.container.textContent, /Could not load that dictation/);
+  const retry = h.retry();
+  assert.ok(retry);
+  assert.match(retry.getAttribute("class"), /focus-visible:ring-2 focus-visible:ring-ring/);
+  assert.deepEqual(
+    h.store.useTranscriptionStore.getState().transcriptions.map((r) => r.id),
+    [20, 19]
+  );
+  const nonce = h.home.useHomeViewStore.getState().focusNonce;
+  await h.click(retry);
+  assert.equal(h.home.useHomeViewStore.getState().focusNonce, nonce + 1);
+  assert.deepEqual(h.requests, [1, 1]);
+  await h.resolve(1, row(1));
+  await h.frame();
+  await h.frame();
+  await h.frame();
+  assert.deepEqual(
+    h.scrolls.map(([id]) => id),
+    [1]
+  );
+  assert.equal(h.retry(), undefined);
+});
+
+for (const leave of ["newB", "unmount"])
+  test(`stale rejection and old Retry are inert after ${leave}`, async (t) => {
+    const h = await mountHistory(t);
+    await h.request(1);
+    await h.reject(1);
+    const retry = h.retry();
+    assert.ok(retry);
+    const oldRetry = h.onClick(retry);
+    await h.request(2);
+    if (leave === "newB") await h.request(20);
+    else await h.unmount();
+    const nonce = h.home.useHomeViewStore.getState().focusNonce;
+    await React.act(async () => oldRetry());
+    await h.reject(2);
+    assert.equal(h.home.useHomeViewStore.getState().focusNonce, nonce);
+    assert.deepEqual(h.requests, [1, 2]);
+    assert.equal(h.retry(), undefined);
+    assert.deepEqual(h.notices, []);
+  });
+
+for (const missing of [null, row(1, { deleted_at: "2026-10-17 12:00:00" })])
+  test(`successful ${missing ? "deleted" : "null"} result uses absence notice without Retry`, async (t) => {
+    const h = await mountHistory(t);
+    await h.request(1);
+    await h.resolve(1, missing);
+    assert.equal(h.notices[0].title, "That dictation is no longer in your history.");
+    assert.equal(h.retry(), undefined);
+  });
+
+test("retention ends after scroll and pending page, so subsequent pages replace normally", async (t) => {
+  const h = await mountHistory(t);
+  await h.startPage();
+  await h.request(1);
+  await h.resolve(1, row(1));
+  await h.frame();
+  await h.frame();
+  await h.frame();
+  assert.deepEqual(h.scrolls, [], "landing waits for the pending page");
+  await h.page([row(20)]);
+  await h.frame();
+  await h.frame();
+  await h.frame();
+  assert.deepEqual(
+    h.scrolls.map(([id]) => id),
+    [1]
+  );
+  assert.ok(h.store.useTranscriptionStore.getState().transcriptions.some((r) => r.id === 1));
+  await h.startPage();
+  await h.page([row(20)]);
+  assert.deepEqual(
+    h.store.useTranscriptionStore.getState().transcriptions.map((r) => r.id),
+    [20]
+  );
+});
+
+test("discarded page semantics do not reinsert a retained discarded target", async (t) => {
+  const h = await mountHistory(t);
+  await h.startPage();
+  await h.request(1);
+  await h.resolve(1, row(1, { status: "discarded" }));
+  await h.page([row(20)]);
+  await h.frame();
+  await h.frame();
+  await h.frame();
+  assert.deepEqual(
+    h.store.useTranscriptionStore.getState().transcriptions.map((r) => r.id),
+    [20]
+  );
+  assert.deepEqual(h.scrolls, []);
+});
+
+test("an already loaded current target also survives a pending page without merging old history", async (t) => {
+  const h = await mountHistory(t);
+  await h.startPage();
+  await h.request(20);
+  await h.page([row(30)]);
+  await h.frame();
+  await h.frame();
+  await h.frame();
+  assert.deepEqual(h.requests, []);
+  assert.deepEqual(
+    h.scrolls.map(([id]) => id),
+    [20]
+  );
+  assert.equal(
+    h.container.querySelector('[data-transcript-id="20"]').getAttribute("data-focused"),
+    "true"
+  );
+  assert.deepEqual(
+    h.store.useTranscriptionStore.getState().transcriptions.map((r) => r.id),
+    [30, 20]
+  );
+});
+
+test("a page starting between landing frames rebuilds the current session before scroll", async (t) => {
+  const h = await mountHistory(t);
+  await h.request(20);
+  await h.frame();
+  await h.startPage();
+  await h.page([row(30)]);
+  for (let i = 0; i < 5; i++) await h.frame();
+  assert.deepEqual(
+    h.scrolls.map(([id]) => id),
+    [20]
+  );
+  assert.equal(
+    h.container.querySelector('[data-transcript-id="20"]').getAttribute("data-focused"),
+    "true"
+  );
+  assert.deepEqual(
+    h.store.useTranscriptionStore.getState().transcriptions.map((r) => r.id),
+    [30, 20]
+  );
 });

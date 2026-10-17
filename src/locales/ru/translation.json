@@ -4340,6 +4340,40 @@
       "nextIn_few": "{{title}} через {{count}} мин",
       "nextIn_many": "{{title}} через {{count}} мин",
       "nextIn_other": "{{title}} через {{count}} мин"
+    },
+    "history": {
+      "filterLabel": "Фильтр истории",
+      "filterPlaceholder": "Фильтровать этот список",
+      "chipsLabel": "Показать",
+      "menu": "Параметры истории",
+      "showDiscarded": "Показать отброшенные",
+      "clearAll": "Удалить всё…",
+      "expand": "Развернуть",
+      "collapse": "Свернуть",
+      "meetingRow": "Встреча",
+      "noteRow": "Заметка",
+      "nothingMatches": "По запросу «{{query}}» ничего не найдено.",
+      "clearFilter": "Сбросить фильтр",
+      "olderMissing": "Этого диктанта больше нет в истории.",
+      "chips": {
+        "all": "Все",
+        "dictations": "Диктанты",
+        "meetings": "Встречи",
+        "notes": "Заметки",
+        "failed": "Ошибки"
+      },
+      "dayCount_one": "{{count}} диктант",
+      "words_one": "{{count}} слово",
+      "session_one": "Сессия · {{count}} запись · {{duration}}",
+      "dayCount_few": "{{count}} диктанта",
+      "words_few": "{{count}} слова",
+      "session_few": "Сессия · {{count}} записи · {{duration}}",
+      "dayCount_many": "{{count}} диктантов",
+      "words_many": "{{count}} слов",
+      "session_many": "Сессия · {{count}} записей · {{duration}}",
+      "dayCount_other": "{{count}} диктанта",
+      "words_other": "{{count}} слова",
+      "session_other": "Сессия · {{count}} записи · {{duration}}"
     }
   }
 }

@@ -4246,6 +4246,34 @@
       "takeNotes": "Take notes",
       "nextIn_one": "{{title}} in {{count}} min",
       "nextIn_other": "{{title}} in {{count}} min"
+    },
+    "history": {
+      "filterLabel": "Filter history",
+      "filterPlaceholder": "Filter this list",
+      "chipsLabel": "Show",
+      "menu": "History options",
+      "showDiscarded": "Show discarded",
+      "clearAll": "Clear all…",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "meetingRow": "Meeting",
+      "noteRow": "Note",
+      "nothingMatches": "Nothing matches “{{query}}”.",
+      "clearFilter": "Clear filter",
+      "olderMissing": "That dictation is no longer in your history.",
+      "chips": {
+        "all": "All",
+        "dictations": "Dictations",
+        "meetings": "Meetings",
+        "notes": "Notes",
+        "failed": "Failed"
+      },
+      "dayCount_one": "{{count}} dictation",
+      "words_one": "{{count}} word",
+      "session_one": "Session · {{count}} capture · {{duration}}",
+      "dayCount_other": "{{count}} dictations",
+      "words_other": "{{count}} words",
+      "session_other": "Session · {{count}} captures · {{duration}}"
     }
   }
 }

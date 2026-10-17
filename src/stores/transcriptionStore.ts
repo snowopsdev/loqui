@@ -6,7 +6,7 @@ interface TranscriptionState {
   includeDiscarded: boolean;
 }
 
-const useTranscriptionStore = create<TranscriptionState>()(() => ({
+export const useTranscriptionStore = create<TranscriptionState>()(() => ({
   transcriptions: [],
   includeDiscarded: false,
 }));
@@ -116,4 +116,23 @@ export function useTranscriptions() {
 
 export function useShowDiscarded() {
   return useTranscriptionStore((state) => state.includeDiscarded);
+}
+
+/** Reveal one fetched row beyond the loaded page. Existing ids replace in place
+ * (record timestamps are immutable); new ids insert timestamp-DESC/id-DESC.
+ * Never mutate the supplied list/row or slice a revealed row off the page. */
+export function revealTranscription(item: TranscriptionItem): void {
+  useTranscriptionStore.setState((state) => {
+    const next = state.transcriptions.slice();
+    const existing = next.findIndex((row) => row.id === item.id);
+    if (existing !== -1) next[existing] = item;
+    else {
+      const index = next.findIndex(
+        (row) =>
+          row.timestamp < item.timestamp || (row.timestamp === item.timestamp && row.id < item.id)
+      );
+      next.splice(index === -1 ? next.length : index, 0, item);
+    }
+    return { transcriptions: next };
+  });
 }

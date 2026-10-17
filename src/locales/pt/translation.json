@@ -4253,6 +4253,37 @@
       "nextIn_one": "{{title}} dentro de {{count}} min",
       "nextIn_many": "{{title}} dentro de {{count}} min",
       "nextIn_other": "{{title}} dentro de {{count}} min"
+    },
+    "history": {
+      "filterLabel": "Filtrar histórico",
+      "filterPlaceholder": "Filtrar esta lista",
+      "chipsLabel": "Mostrar",
+      "menu": "Opções do histórico",
+      "showDiscarded": "Mostrar descartadas",
+      "clearAll": "Limpar tudo…",
+      "expand": "Expandir",
+      "collapse": "Recolher",
+      "meetingRow": "Reunião",
+      "noteRow": "Nota",
+      "nothingMatches": "Nenhum resultado para “{{query}}”.",
+      "clearFilter": "Limpar filtro",
+      "olderMissing": "Este ditado já não está no seu histórico.",
+      "chips": {
+        "all": "Tudo",
+        "dictations": "Ditados",
+        "meetings": "Reuniões",
+        "notes": "Notas",
+        "failed": "Falhas"
+      },
+      "dayCount_one": "{{count}} ditado",
+      "words_one": "{{count}} palavra",
+      "session_one": "Sessão · {{count}} gravação · {{duration}}",
+      "dayCount_other": "{{count}} ditados",
+      "words_other": "{{count}} palavras",
+      "session_other": "Sessão · {{count}} gravações · {{duration}}",
+      "dayCount_many": "{{count}} ditados",
+      "words_many": "{{count}} palavras",
+      "session_many": "Sessão · {{count}} gravações · {{duration}}"
     }
   }
 }

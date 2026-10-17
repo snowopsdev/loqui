@@ -4219,6 +4219,31 @@
       "nextAt": "{{title}}は{{time}}から",
       "takeNotes": "ノートを取る",
       "nextIn_other": "{{title}}まで{{count}}分"
+    },
+    "history": {
+      "filterLabel": "履歴を絞り込む",
+      "filterPlaceholder": "このリストを絞り込む",
+      "chipsLabel": "表示",
+      "menu": "履歴のオプション",
+      "showDiscarded": "破棄した録音を表示",
+      "clearAll": "すべて削除…",
+      "expand": "展開",
+      "collapse": "折りたたむ",
+      "meetingRow": "会議",
+      "noteRow": "ノート",
+      "nothingMatches": "「{{query}}」に一致する項目はありません。",
+      "clearFilter": "絞り込みを解除",
+      "olderMissing": "この音声入力は履歴にありません。",
+      "chips": {
+        "all": "すべて",
+        "dictations": "音声入力",
+        "meetings": "会議",
+        "notes": "ノート",
+        "failed": "失敗"
+      },
+      "dayCount_other": "音声入力 {{count}} 件",
+      "words_other": "{{count}} 語",
+      "session_other": "セッション · 録音 {{count}} 件 · {{duration}}"
     }
   }
 }

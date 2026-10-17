@@ -4246,6 +4246,34 @@
       "takeNotes": "Notizen machen",
       "nextIn_one": "{{title}} in {{count}} Min.",
       "nextIn_other": "{{title}} in {{count}} Min."
+    },
+    "history": {
+      "filterLabel": "Verlauf filtern",
+      "filterPlaceholder": "Diese Liste filtern",
+      "chipsLabel": "Anzeigen",
+      "menu": "Verlaufsoptionen",
+      "showDiscarded": "Verworfene anzeigen",
+      "clearAll": "Alle löschen…",
+      "expand": "Aufklappen",
+      "collapse": "Zuklappen",
+      "meetingRow": "Besprechung",
+      "noteRow": "Notiz",
+      "nothingMatches": "Keine Treffer für „{{query}}“.",
+      "clearFilter": "Filter löschen",
+      "olderMissing": "Dieses Diktat ist nicht mehr in deinem Verlauf.",
+      "chips": {
+        "all": "Alle",
+        "dictations": "Diktate",
+        "meetings": "Besprechungen",
+        "notes": "Notizen",
+        "failed": "Fehlgeschlagen"
+      },
+      "dayCount_one": "{{count}} Diktat",
+      "words_one": "{{count}} Wort",
+      "session_one": "Sitzung · {{count}} Aufnahme · {{duration}}",
+      "dayCount_other": "{{count}} Diktate",
+      "words_other": "{{count}} Wörter",
+      "session_other": "Sitzung · {{count}} Aufnahmen · {{duration}}"
     }
   }
 }

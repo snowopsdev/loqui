@@ -4219,6 +4219,31 @@
       "nextAt": "{{title}}於{{time}}開始",
       "takeNotes": "做筆記",
       "nextIn_other": "{{title}}將在{{count}}分鐘後開始"
+    },
+    "history": {
+      "filterLabel": "篩選歷史記錄",
+      "filterPlaceholder": "篩選此清單",
+      "chipsLabel": "顯示",
+      "menu": "歷史記錄選項",
+      "showDiscarded": "顯示已捨棄的錄音",
+      "clearAll": "全部清除…",
+      "expand": "展開",
+      "collapse": "收合",
+      "meetingRow": "會議",
+      "noteRow": "筆記",
+      "nothingMatches": "沒有符合「{{query}}」的內容。",
+      "clearFilter": "清除篩選",
+      "olderMissing": "此聽寫已不在歷史記錄中。",
+      "chips": {
+        "all": "全部",
+        "dictations": "聽寫",
+        "meetings": "會議",
+        "notes": "筆記",
+        "failed": "失敗"
+      },
+      "dayCount_other": "{{count}} 則聽寫",
+      "words_other": "{{count}} 個詞",
+      "session_other": "工作階段 · {{count}} 段錄音 · {{duration}}"
     }
   }
 }

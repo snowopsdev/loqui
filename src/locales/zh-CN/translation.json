@@ -4219,6 +4219,31 @@
       "nextAt": "{{title}}于{{time}}开始",
       "takeNotes": "记笔记",
       "nextIn_other": "{{title}}将在{{count}}分钟后开始"
+    },
+    "history": {
+      "filterLabel": "筛选历史记录",
+      "filterPlaceholder": "筛选此列表",
+      "chipsLabel": "显示",
+      "menu": "历史记录选项",
+      "showDiscarded": "显示已丢弃的录音",
+      "clearAll": "全部清除…",
+      "expand": "展开",
+      "collapse": "收起",
+      "meetingRow": "会议",
+      "noteRow": "笔记",
+      "nothingMatches": "没有与“{{query}}”匹配的内容。",
+      "clearFilter": "清除筛选",
+      "olderMissing": "此听写已不在历史记录中。",
+      "chips": {
+        "all": "全部",
+        "dictations": "听写",
+        "meetings": "会议",
+        "notes": "笔记",
+        "failed": "失败"
+      },
+      "dayCount_other": "{{count}} 条听写",
+      "words_other": "{{count}} 个词",
+      "session_other": "会话 · {{count}} 段录音 · {{duration}}"
     }
   }
 }

@@ -4458,6 +4458,46 @@
       "nextIn_few": "{{title}} بعد {{count}} دقائق",
       "nextIn_many": "{{title}} بعد {{count}} دقيقة",
       "nextIn_other": "{{title}} بعد {{count}} دقيقة"
+    },
+    "history": {
+      "filterLabel": "تصفية السجل",
+      "filterPlaceholder": "تصفية هذه القائمة",
+      "chipsLabel": "عرض",
+      "menu": "خيارات السجل",
+      "showDiscarded": "عرض التسجيلات المستبعدة",
+      "clearAll": "مسح الكل…",
+      "expand": "توسيع",
+      "collapse": "طي",
+      "meetingRow": "اجتماع",
+      "noteRow": "ملاحظة",
+      "nothingMatches": "لا توجد نتائج تطابق «{{query}}».",
+      "clearFilter": "مسح التصفية",
+      "olderMissing": "لم يعد هذا الإملاء موجودًا في سجلك.",
+      "chips": {
+        "all": "الكل",
+        "dictations": "الإملاءات",
+        "meetings": "الاجتماعات",
+        "notes": "الملاحظات",
+        "failed": "فشل"
+      },
+      "dayCount_zero": "{{count}} إملاء",
+      "words_zero": "{{count}} كلمة",
+      "session_zero": "جلسة · {{count}} تسجيل · {{duration}}",
+      "dayCount_one": "{{count}} إملاء",
+      "words_one": "{{count}} كلمة",
+      "session_one": "جلسة · {{count}} تسجيل · {{duration}}",
+      "dayCount_two": "{{count}} إملاءان",
+      "words_two": "{{count}} كلمتان",
+      "session_two": "جلسة · {{count}} تسجيلان · {{duration}}",
+      "dayCount_few": "{{count}} إملاءات",
+      "words_few": "{{count}} كلمات",
+      "session_few": "جلسة · {{count}} تسجيلات · {{duration}}",
+      "dayCount_many": "{{count}} إملاءً",
+      "words_many": "{{count}} كلمةً",
+      "session_many": "جلسة · {{count}} تسجيلًا · {{duration}}",
+      "dayCount_other": "{{count}} إملاء",
+      "words_other": "{{count}} كلمة",
+      "session_other": "جلسة · {{count}} تسجيل · {{duration}}"
     }
   }
 }

@@ -42,7 +42,9 @@ test("one capture owner supplies both controls and hidden navigation is inert", 
   const sidebar = read("src/components/ControlPanelSidebar.tsx");
   assert.equal((panel.match(/useCaptureStatus\(\)/g) ?? []).length, 1);
   assert.equal((panel.match(/<CaptureControl\b/g) ?? []).length, 1);
-  assert.equal((panel.match(/capture=\{capture\}/g) ?? []).length, 2);
+  assert.equal((panel.match(/capture=\{capture\}/g) ?? []).length, 3);
+  assert.match(panel, /<HistoryView[\s\S]*?capture=\{capture\}/);
+  assert.doesNotMatch(read("src/components/HistoryView.tsx"), /useCaptureStatus\(\)/);
   assert.match(panel, /inert=\{sidebarMode === "hidden"\}/);
   assert.doesNotMatch(sidebar, /useCaptureStatus\(\)/);
   assert.match(sidebar, /navigation.openNote\(note.id\)/);

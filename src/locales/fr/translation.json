@@ -4253,6 +4253,37 @@
       "nextIn_one": "{{title}} dans {{count}} min",
       "nextIn_many": "{{title}} dans {{count}} min",
       "nextIn_other": "{{title}} dans {{count}} min"
+    },
+    "history": {
+      "filterLabel": "Filtrer l’historique",
+      "filterPlaceholder": "Filtrer cette liste",
+      "chipsLabel": "Afficher",
+      "menu": "Options de l’historique",
+      "showDiscarded": "Afficher les enregistrements écartés",
+      "clearAll": "Tout effacer…",
+      "expand": "Développer",
+      "collapse": "Réduire",
+      "meetingRow": "Réunion",
+      "noteRow": "Note",
+      "nothingMatches": "Aucun résultat pour « {{query}} ».",
+      "clearFilter": "Effacer le filtre",
+      "olderMissing": "Cette dictée ne figure plus dans votre historique.",
+      "chips": {
+        "all": "Tout",
+        "dictations": "Dictées",
+        "meetings": "Réunions",
+        "notes": "Notes",
+        "failed": "Échecs"
+      },
+      "dayCount_one": "{{count}} dictée",
+      "words_one": "{{count}} mot",
+      "session_one": "Session · {{count}} enregistrement · {{duration}}",
+      "dayCount_other": "{{count}} dictées",
+      "words_other": "{{count}} mots",
+      "session_other": "Session · {{count}} enregistrements · {{duration}}",
+      "dayCount_many": "{{count}} dictées",
+      "words_many": "{{count}} mots",
+      "session_many": "Session · {{count}} enregistrements · {{duration}}"
     }
   }
 }

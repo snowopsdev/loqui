@@ -4253,6 +4253,37 @@
       "nextIn_one": "{{title}} tra {{count}} min",
       "nextIn_many": "{{title}} tra {{count}} min",
       "nextIn_other": "{{title}} tra {{count}} min"
+    },
+    "history": {
+      "filterLabel": "Filtra cronologia",
+      "filterPlaceholder": "Filtra questo elenco",
+      "chipsLabel": "Mostra",
+      "menu": "Opzioni cronologia",
+      "showDiscarded": "Mostra scartate",
+      "clearAll": "Cancella tutto…",
+      "expand": "Espandi",
+      "collapse": "Comprimi",
+      "meetingRow": "Riunione",
+      "noteRow": "Nota",
+      "nothingMatches": "Nessun risultato per «{{query}}».",
+      "clearFilter": "Rimuovi filtro",
+      "olderMissing": "Questa dettatura non è più nella cronologia.",
+      "chips": {
+        "all": "Tutto",
+        "dictations": "Dettature",
+        "meetings": "Riunioni",
+        "notes": "Note",
+        "failed": "Non riuscite"
+      },
+      "dayCount_one": "{{count}} dettatura",
+      "words_one": "{{count}} parola",
+      "session_one": "Sessione · {{count}} registrazione · {{duration}}",
+      "dayCount_other": "{{count}} dettature",
+      "words_other": "{{count}} parole",
+      "session_other": "Sessione · {{count}} registrazioni · {{duration}}",
+      "dayCount_many": "{{count}} dettature",
+      "words_many": "{{count}} parole",
+      "session_many": "Sessione · {{count}} registrazioni · {{duration}}"
     }
   }
 }

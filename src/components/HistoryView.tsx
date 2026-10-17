@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLiveClock, type CaptureStatusModel } from "../hooks/useCaptureStatus";
 import { useNow } from "../hooks/useNow";
@@ -10,7 +10,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import type { TranscriptionItem as TranscriptionItemType } from "../types/electron";
 import { formatDateGroup } from "../utils/dateFormatting";
 import { formatHotkeyLabel, parseHotkeyList } from "../utils/hotkeys";
-import { Archive, Loader2, Mic, Sparkles, Trash2, X } from "./icons";
+import { Loader2, Mic, Sparkles, X } from "./icons";
 import { cn } from "./lib/utils";
 import { Button } from "./ui/button";
 import EmptyStateCard from "./ui/EmptyStateCard";
@@ -18,6 +18,23 @@ import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
 import TranscriptionItem from "./ui/TranscriptionItem";
 import UpcomingMeetings from "./UpcomingMeetings";
 
+import { HistoryToolbar } from "./home/HistoryToolbar";
+import { HistoryMenu } from "./home/HistoryMenu";
+import { NoteFeedRow, SessionRow } from "./home/FeedRows";
+import { buildHomeFeed, countWords, locateTranscript } from "../lib/homeFeed";
+import { useRecentNotes } from "../hooks/useRecentNotes";
+import { useWorkspaceNavigation } from "./workspaceNavigation";
+import {
+  clearTranscriptFocus,
+  setHomeFilter,
+  setHomeQuery,
+  useHomeViewStore,
+} from "../stores/homeViewStore";
+import { revealTranscription } from "../stores/transcriptionStore";
+import { useToast } from "./ui/useToast";
+
+// Behavioural window shared with --motion-dwell-ring.
+const HISTORY_RING_MS = 1200;
 const EMPTY_PREVIEW_WIDTHS = ["w-full", "w-4/5", "w-3/5"];
 
 interface HistoryViewProps {
@@ -69,42 +86,138 @@ export default function HistoryView({
   const holdToTalk = useSettingsStore((s) => s.activationMode === "push");
   const next = useMemo(() => nextUpcomingEvent(events, now), [events, now]);
 
-  const groupedHistory = useMemo(() => {
-    if (history.length === 0) return [];
-
-    const groups: { label: string; items: TranscriptionItemType[] }[] = [];
-    let currentLabel: string | null = null;
-
-    for (const item of history) {
-      const label = formatDateGroup(item.timestamp, t, locale);
-
-      if (label !== currentLabel) {
-        groups.push({ label, items: [item] });
-        currentLabel = label;
-      } else {
-        groups[groups.length - 1].items.push(item);
-      }
-    }
-
-    return groups;
-  }, [history, t, locale]);
-
-  const discardedToggle = (
-    <button
-      onClick={onToggleDiscarded}
-      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-muted-foreground/70 hover:!text-foreground hover:!bg-black/5 dark:hover:!bg-white/5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30 transition-all duration-200"
-    >
-      <Archive size={11} />
-      <span>
-        {showDiscarded
-          ? t("controlPanel.history.discarded.hide")
-          : t("controlPanel.history.discarded.show")}
-      </span>
-    </button>
+  const { filter, query, focusTranscriptId, focusNonce } = useHomeViewStore();
+  const { toast } = useToast();
+  const recentNotes = useRecentNotes(50);
+  const feed = useMemo(
+    () => buildHomeFeed({ transcriptions: history, notes: recentNotes, filter, query }),
+    [history, recentNotes, filter, query]
   );
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [ring, setRing] = useState<{ id: number; nonce: number } | null>(null);
+  const filterRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const navigation = useWorkspaceNavigation();
+  const landingGenRef = useRef(0);
+  const aliveRef = useRef(false);
+  const framesRef = useRef(new Set<number>());
+  const feedRef = useRef(feed);
+  feedRef.current = feed;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing = target?.closest("input, textarea, [contenteditable='true']");
+      if (
+        event.defaultPrevented ||
+        event.key !== "/" ||
+        typing ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
+      event.preventDefault();
+      filterRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Mount lifetime is independent of the consumed focus id. Clearing that id
+  // must not cancel this request; leaving Home must cancel all of its work.
+  useEffect(() => {
+    aliveRef.current = true;
+    const frames = framesRef.current;
+    return () => {
+      aliveRef.current = false;
+      landingGenRef.current += 1;
+      for (const frame of frames) cancelAnimationFrame(frame);
+      frames.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    const generation = ++landingGenRef.current;
+    for (const frame of framesRef.current) cancelAnimationFrame(frame);
+    framesRef.current.clear();
+    if (focusTranscriptId == null) return;
+    const id = focusTranscriptId;
+    // Read current store ownership as well as the local generation: a newer
+    // intent invalidates us synchronously, before React runs its next effect.
+    const ownsRequest = () =>
+      aliveRef.current &&
+      generation === landingGenRef.current &&
+      useHomeViewStore.getState().focusNonce === focusNonce;
+    const frame = (callback: () => void) => {
+      if (!ownsRequest()) return;
+      const handle = requestAnimationFrame(() => {
+        framesRef.current.delete(handle);
+        if (!ownsRequest()) return;
+        callback();
+      });
+      framesRef.current.add(handle);
+    };
+    if (!ownsRequest()) return;
+    clearTranscriptFocus();
+    const land = () => {
+      if (!ownsRequest()) return;
+      const found = locateTranscript(feedRef.current, id);
+      if (!found) return;
+      if (found.inSession) setExpanded((prev) => new Set(prev).add(found.entryKey));
+      setRing({ id, nonce: focusNonce });
+      // Commit the expanded session before querying its real nested row.
+      frame(() =>
+        frame(() => {
+          if (!ownsRequest()) return;
+          const row = rootRef.current?.querySelector(`[data-transcript-id="${id}"]`);
+          const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+          if (!ownsRequest()) return;
+          row?.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+        })
+      );
+    };
+    if (locateTranscript(feedRef.current, id)) land();
+    else
+      void (async () => {
+        const fetched = await window.electronAPI.getTranscriptionById(id).catch(() => null);
+        if (!ownsRequest()) return;
+        if (!fetched || fetched.deleted_at) {
+          if (!ownsRequest()) return;
+          toast({ title: t("home.history.olderMissing") });
+          return;
+        }
+        if (!ownsRequest()) return;
+        revealTranscription(fetched);
+        frame(land); // allow the store-backed feed to rebuild
+      })();
+    // One landing per request nonce; its intentional id clear is not cancellation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusNonce]);
+
+  useEffect(() => {
+    if (!ring) return;
+    const clear = window.setTimeout(() => setRing(null), HISTORY_RING_MS);
+    return () => window.clearTimeout(clear);
+  }, [ring]);
+
+  const rowHandlers = {
+    onCopy: copyToClipboard,
+    onDelete: deleteTranscription,
+    onShowAudioInFolder,
+    onRetryTranscription,
+    onOpenSettings: () => onOpenSettings("transcription"),
+  };
+  const toggleSession = (key: string) =>
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   return (
-    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "@container px-6 pt-4 pb-6")}>
+    <div ref={rootRef} className={cn(PAGE_CONTENT_WIDTH_CLASS, "@container px-6 pt-4 pb-6")}>
       <ReadyStrip
         status={capture}
         now={nowMs}
@@ -125,7 +238,7 @@ export default function HistoryView({
               setAiCTADismissed(true);
             }}
             aria-label={t("common.close")}
-            className="absolute top-2 end-2 p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className="focus-visible:ring-2 focus-visible:ring-ring absolute top-2 end-2 p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
             <X size={14} />
           </button>
@@ -163,6 +276,22 @@ export default function HistoryView({
               </p>
             </div>
           )}
+          <HistoryToolbar
+            query={query}
+            onQueryChange={setHomeQuery}
+            filter={filter}
+            onFilterChange={setHomeFilter}
+            counts={feed.counts}
+            inputRef={filterRef}
+            menu={
+              <HistoryMenu
+                showDiscarded={showDiscarded}
+                onToggleDiscarded={onToggleDiscarded}
+                onClearAll={clearAllTranscriptions}
+                hasHistory={history.length > 0}
+              />
+            }
+          />
           {isLoading && history.length === 0 ? (
             <div className="rounded-2xl border border-border/70 bg-card/50 dark:border-white/10 dark:bg-surface-2/60">
               <div className="flex items-center justify-center gap-2 py-10">
@@ -170,7 +299,7 @@ export default function HistoryView({
                 <span className="text-sm text-muted-foreground">{t("controlPanel.loading")}</span>
               </div>
             </div>
-          ) : history.length === 0 ? (
+          ) : history.length === 0 && recentNotes.length === 0 ? (
             <>
               <p className="pt-2 pb-2.5 text-sm text-muted-foreground">
                 {t("controlPanel.history.sectionTitle")}
@@ -208,37 +337,69 @@ export default function HistoryView({
                 </span>
               </EmptyStateCard>
             </>
+          ) : feed.rows === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center">
+              <p className="text-ui text-foreground">
+                {t("home.history.nothingMatches", { query: query.trim() })}
+              </p>
+              <button
+                type="button"
+                className="mt-2 text-ui text-link hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  setHomeQuery("");
+                  setHomeFilter("all");
+                }}
+              >
+                {t("home.history.clearFilter")}
+              </button>
+            </div>
           ) : (
-            <div className="group">
-              {groupedHistory.map((group, index) => (
-                <div key={group.label} className={index > 0 ? "mt-6" : ""}>
-                  <div className="sticky -top-1 z-10 -mx-6 px-6 pt-2 pb-2.5 bg-background flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">{group.label}</span>
-                    {index === 0 && (
-                      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
-                        {discardedToggle}
-                        <button
-                          onClick={clearAllTranscriptions}
-                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-muted-foreground/70 hover:!text-destructive hover:!bg-destructive/8 dark:hover:!bg-destructive/10 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30 transition-all duration-200"
-                        >
-                          <Trash2 size={11} />
-                          <span>{t("controlPanel.history.clearAll")}</span>
-                        </button>
-                      </div>
+            <div>
+              {feed.groups.map((group, index) => (
+                <div key={group.dayKey} className={index > 0 ? "mt-6" : ""}>
+                  <div className="sticky -top-1 z-10 -mx-6 px-6 pt-2 pb-2.5 bg-background flex flex-wrap items-center justify-between gap-2 text-caption text-muted-foreground">
+                    <span>{formatDateGroup(new Date(group.at).toISOString(), t, locale)}</span>
+                    {group.captures > 0 && (
+                      <span>
+                        {t("home.history.dayCount", { count: group.captures })} ·{" "}
+                        {t("home.history.words", { count: group.words })}
+                      </span>
                     )}
                   </div>
                   <div className="relative z-0 overflow-clip rounded-2xl border border-border/70 bg-card/50 divide-y divide-border/60 dark:border-white/10 dark:bg-surface-2/60">
-                    {group.items.map((item) => (
-                      <TranscriptionItem
-                        key={item.id}
-                        item={item}
-                        onCopy={copyToClipboard}
-                        onDelete={deleteTranscription}
-                        onShowAudioInFolder={onShowAudioInFolder}
-                        onRetryTranscription={onRetryTranscription}
-                        onOpenSettings={() => onOpenSettings("transcription")}
-                      />
-                    ))}
+                    {group.entries.map((entry) =>
+                      entry.kind === "dictation" ? (
+                        <TranscriptionItem
+                          key={
+                            ring?.id === entry.item.id ? `${entry.key}-${ring.nonce}` : entry.key
+                          }
+                          item={entry.item}
+                          words={entry.words}
+                          focused={ring?.id === entry.item.id}
+                          {...rowHandlers}
+                        />
+                      ) : entry.kind === "session" ? (
+                        <SessionRow
+                          key={entry.key}
+                          entry={entry}
+                          expanded={expanded.has(entry.key)}
+                          onToggle={() => toggleSession(entry.key)}
+                        >
+                          {entry.items.map((item) => (
+                            <TranscriptionItem
+                              nested
+                              key={ring?.id === item.id ? `${item.id}-${ring.nonce}` : item.id}
+                              item={item}
+                              words={countWords(item.text)}
+                              focused={ring?.id === item.id}
+                              {...rowHandlers}
+                            />
+                          ))}
+                        </SessionRow>
+                      ) : (
+                        <NoteFeedRow key={entry.key} entry={entry} onOpen={navigation.openNote} />
+                      )
+                    )}
                   </div>
                 </div>
               ))}

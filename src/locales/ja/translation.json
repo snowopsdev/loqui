@@ -4163,5 +4163,23 @@
         "description": "このデバイスの音声、モデル、履歴"
       }
     }
+  },
+  "setupFlow": {
+    "progress": {
+      "nav": "Setup progress",
+      "dictate": "Get dictating",
+      "personalize": "Make it yours",
+      "ready": "Ready",
+      "label": "{{phase}} · {{step}}",
+      "goTo": "Go to {{step}}"
+    },
+    "steps": {
+      "welcome": "Hello",
+      "speech": "Voice",
+      "try": "Say something",
+      "cleanup": "Cleanup",
+      "shortcuts": "Shortcut",
+      "finish": "Ready"
+    }
   }
 }

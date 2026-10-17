@@ -2,10 +2,10 @@ import { Suspense, lazy, useMemo, useState } from "react";
 import { useTheme } from "../hooks/useTheme";
 import {
   clearOnboardingPreviewState,
+  ONBOARDING_SCENARIOS,
   ONBOARDING_STEPS,
   parseOnboardingPreviewConfig,
   type OnboardingPreviewConfig,
-  type OnboardingScenario,
   type OnboardingStep,
 } from "../utils/onboardingState";
 import "./preview.css";
@@ -40,18 +40,7 @@ export default function BrowserPreview() {
     return value === "2" || value === "3" ? value : "1";
   });
   const { theme, setTheme } = useTheme();
-  const scenarios: OnboardingScenario[] = [
-    "fresh",
-    "ready",
-    "downloading",
-    "download-interrupted",
-    "microphone-denied",
-    "codex-missing",
-    "codex-expired",
-    "invalid-provider-key",
-    "cleanup-failed",
-    "insufficient-memory",
-  ];
+  const scenarios = ONBOARDING_SCENARIOS;
   const updateConfig = (patch: Partial<OnboardingPreviewConfig>) => {
     const next = { ...config, ...patch };
     setConfig(next);

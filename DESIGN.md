@@ -289,6 +289,10 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 
 The persistent dictation control is a compact bordered capsule with a waveform and voice identity mark. Recording and processing remain legible through waveform and control state; assistant thinking can add a restrained glow. The pill expands into the assistant or live-transcript surface with 24px corners, then contracts back to the same anchor. Dictation thinking glows in the logo gradient (#FF8A5C → #FF5A1F → #D90078); Agent Mode thinking glows violet (#8787FF). Blue is not a Loqui state colour.
 
+### Onboarding
+
+Setup puts the first successful dictation before optional personalization. Its steps are Welcome, Voice, Say something, Cleanup, Shortcut, then Ready. Progress is grouped into “Get dictating” (Welcome, Voice, Say something) and “Make it yours” (Cleanup, Shortcut); Ready is a summary rather than a progress step. The step graph and phase labels live in `src/utils/onboardingFlow.ts`, with step names and progress strings under `setupFlow` in every locale. Preview scenario choices come from the same shared list used to validate preview URLs. Persisted progress remembers only previously visited step IDs, so users can return to an earlier step without making future steps appear complete.
+
 ### Settings
 
 **Routing is one model, drawn three ways.** `src/lib/routeGraph.ts` (pure, Node-loadable) resolves all 11 tasks, and `src/lib/routes.ts` adds the snapshot builder and hooks. Settings → Routing (the Patchbay), the editors' mode selectors and the voice pill use `ResolvedRoute`; the keyring exposes the main-owned credential health and recipient descriptions that supply route facts. Never compute "is this local?" or "is this ready?" anywhere else. Readiness reuses the executors' own validation, and a fact main has not confirmed reads `unknown`, never Ready.

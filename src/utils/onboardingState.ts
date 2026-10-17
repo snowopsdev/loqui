@@ -2,17 +2,24 @@ const ONBOARDING_VERSION = 2 as const;
 
 export type OnboardingStep = "welcome" | "speech" | "cleanup" | "try" | "shortcuts" | "finish";
 
-export type OnboardingScenario =
-  | "fresh"
-  | "ready"
-  | "downloading"
-  | "download-interrupted"
-  | "microphone-denied"
-  | "codex-missing"
-  | "codex-expired"
-  | "invalid-provider-key"
-  | "cleanup-failed"
-  | "insufficient-memory";
+export const ONBOARDING_SCENARIOS = [
+  "fresh",
+  "ready",
+  "downloading",
+  "download-interrupted",
+  "microphone-denied",
+  "codex-missing",
+  "codex-expired",
+  "invalid-provider-key",
+  "cleanup-failed",
+  "insufficient-memory",
+  "accessibility-missing",
+  "nothing-heard",
+  "low-disk",
+  "multilingual",
+] as const;
+
+export type OnboardingScenario = (typeof ONBOARDING_SCENARIOS)[number];
 
 export type OnboardingPreviewPlatform = "macos" | "linux";
 
@@ -21,6 +28,7 @@ export interface OnboardingProgress {
   step: OnboardingStep;
   explored: boolean;
   completed: boolean;
+  visited: OnboardingStep[];
 }
 
 export interface OnboardingReadiness {
@@ -45,30 +53,19 @@ declare global {
 export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   "welcome",
   "speech",
-  "cleanup",
   "try",
+  "cleanup",
   "shortcuts",
   "finish",
 ];
 
 const STEP_VALUES = new Set<string>(ONBOARDING_STEPS);
-const SCENARIO_VALUES = new Set<string>([
-  "fresh",
-  "ready",
-  "downloading",
-  "download-interrupted",
-  "microphone-denied",
-  "codex-missing",
-  "codex-expired",
-  "invalid-provider-key",
-  "cleanup-failed",
-  "insufficient-memory",
-]);
+const SCENARIO_VALUES = new Set<string>(ONBOARDING_SCENARIOS);
 
 const STORAGE_KEY = "loqui.onboarding.progress";
 const PREVIEW_STORAGE_PREFIX = "loqui.onboarding.preview.";
 
-function isOnboardingStep(value: unknown): value is OnboardingStep {
+export function isOnboardingStep(value: unknown): value is OnboardingStep {
   return typeof value === "string" && STEP_VALUES.has(value);
 }
 
@@ -89,7 +86,13 @@ function normalizeOnboardingPlatform(value: unknown): OnboardingPreviewPlatform 
 }
 
 function defaultOnboardingProgress(): OnboardingProgress {
-  return { version: ONBOARDING_VERSION, step: "welcome", explored: false, completed: false };
+  return {
+    version: ONBOARDING_VERSION,
+    step: "welcome",
+    explored: false,
+    completed: false,
+    visited: [],
+  };
 }
 
 function readStorage(storageKey = STORAGE_KEY): Record<string, unknown> | null {
@@ -112,6 +115,7 @@ export function readOnboardingProgress(storageKey = STORAGE_KEY): OnboardingProg
     step: normalizeOnboardingStep(stored.step),
     explored: stored.explored === true,
     completed: stored.completed === true,
+    visited: Array.isArray(stored.visited) ? stored.visited.filter(isOnboardingStep) : [],
   };
 }
 

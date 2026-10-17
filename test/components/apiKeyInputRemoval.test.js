@@ -811,3 +811,192 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
     }
   );
 });
+
+// Actual host nodes and React's delegated capture/bubble listeners. This is a
+// bounded Node DOM fixture, not native-browser layout/focus evidence. In
+// particular, never inspect __reactProps or call a captured onClick callback.
+function removalEventTree() {
+  const document = globalThis.document;
+  const { installTree } = require("../helpers/harness/fakeDomTree");
+  const tree = installTree();
+  const listeners = new Map();
+  tree.container.addEventListener = (type, callback, options) => {
+    const capture = typeof options === "boolean" ? options : !!options?.capture;
+    const key = `${type}:${capture}`;
+    const callbacks = listeners.get(key) ?? new Set();
+    callbacks.add(callback);
+    listeners.set(key, callbacks);
+  };
+  tree.container.removeEventListener = (type, callback, options) => {
+    const capture = typeof options === "boolean" ? options : !!options?.capture;
+    listeners.get(`${type}:${capture}`)?.delete(callback);
+  };
+  const makeElement = document.createElement;
+  document.createElement = (tag) => {
+    const element = makeElement(tag);
+    element.click = () => {
+      if (element.disabled) return;
+      const event = {
+        type: "click",
+        target: element,
+        button: 0,
+        bubbles: true,
+        cancelable: true,
+        defaultPrevented: false,
+        stopPropagation() {
+          this.cancelBubble = true;
+        },
+        preventDefault() {
+          this.defaultPrevented = true;
+        },
+      };
+      for (const capture of [true, false]) {
+        for (const callback of listeners.get(`click:${capture}`) ?? []) callback(event);
+        if (event.cancelBubble) break;
+      }
+    };
+    return element;
+  };
+  return tree;
+}
+
+test("[change-driving] rendered removal Undo survives its field and restores the original slot", async (t) => {
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4], GROQ_API_KEY: "groq-kept-fixture" });
+  installBrowserGlobals(t, {
+    window: { location: { search: "?panel=true" }, electronAPI: { credentials: main.api } },
+  });
+  installHookDom(t);
+  const tree = removalEventTree();
+  const vite = await rendererServer(t, "loqui-rendered-removal-", {
+    mockModules: { "/services/ReasoningService": "export default { clearApiKeyCache() {} };" },
+  });
+  const ApiKeyInput = (await vite.ssrLoadModule("/components/ui/ApiKeyInput.tsx")).default;
+  const { ToastProvider } = await vite.ssrLoadModule("/components/ui/Toast.tsx");
+  root = createRoot(tree.container);
+  const draw = (id) =>
+    React.act(async () =>
+      root.render(
+        React.createElement(
+          ToastProvider,
+          null,
+          id
+            ? React.createElement(ApiKeyInput, {
+                credentialId: id,
+                apiKey: "__stored__",
+                setApiKey: async () => {
+                  throw new Error("not a save");
+                },
+              })
+            : null
+        )
+      )
+    );
+  const button = (label) =>
+    tree.find((node) => node.tagName === "BUTTON" && node.textContent === label);
+  const click = async (node) => {
+    assert.ok(node, "the actual host button is rendered");
+    await React.act(async () => {
+      node.click();
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+  };
+  await draw("openai");
+  await click(button("personal.removeKey"));
+  assert.deepEqual(main.calls, [["remove", "openai"]]);
+  assert.equal(main.env.values.has("OPENAI_API_KEY"), false);
+  assert.match(tree.text(), /apiKeyInput.removed/, "the real toast renders the removal notice");
+  const undo = button("apiKeyInput.undo");
+  assert.ok(undo, "the real standard toast renders its structured Undo button");
+  assert.equal(undo.attributes.type, "button");
+  await draw("groq");
+  await draw(null);
+  assert.ok(
+    button("apiKeyInput.undo"),
+    "the provider retains Undo after field replacement/unmount"
+  );
+  const surface = () => {
+    const collect = (node) => ({
+      text: node.nodeType === 3 ? node.data : undefined,
+      attributes: node.attributes,
+      children: node.childNodes.map(collect),
+    });
+    return collect(tree.container);
+  };
+  assertSecretFree(surface());
+  assert.ok(
+    !JSON.stringify(surface()).includes(main.tokens[0]),
+    "the capability never enters DOM text/attributes"
+  );
+  await click(button("apiKeyInput.undo"));
+  assert.deepEqual(main.calls, [
+    ["remove", "openai"],
+    ["undoRemove", "<token>"],
+  ]);
+  assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[4]);
+  assert.equal(main.env.values.get("GROQ_API_KEY"), "groq-kept-fixture");
+  assert.match(tree.text(), /apiKeyInput.restored/);
+  assertSecretFree(surface());
+});
+
+test("[change-driving] standard toasts render multiple structured actions and retain legacy actions", async (t) => {
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t, { window: { location: { search: "?panel=true" } } });
+  installHookDom(t);
+  const tree = removalEventTree();
+  const vite = await rendererServer(t, "loqui-rendered-toast-actions-");
+  const { ToastProvider } = await vite.ssrLoadModule("/components/ui/Toast.tsx");
+  const { useToast } = await vite.ssrLoadModule("/components/ui/useToast.ts");
+  const clicked = [];
+  function Notice() {
+    const { toast } = useToast();
+    React.useEffect(() => {
+      toast({
+        title: "Action fixture",
+        duration: 0,
+        action: React.createElement(
+          "button",
+          { type: "button", onClick: () => clicked.push("legacy") },
+          "Legacy"
+        ),
+        actions: [
+          { label: "Keep open", dismissOnClick: false, onClick: () => clicked.push("keep") },
+          { label: "Finish", onClick: () => clicked.push("finish") },
+        ],
+      });
+    }, [toast]);
+    return null;
+  }
+  root = createRoot(tree.container);
+  await React.act(async () =>
+    root.render(React.createElement(ToastProvider, null, React.createElement(Notice)))
+  );
+  const button = (label) =>
+    tree.find((node) => node.tagName === "BUTTON" && node.textContent === label);
+  const click = async (label) => {
+    const target = button(label);
+    assert.ok(target, `${label} is an actual rendered action button`);
+    assert.equal(target.attributes.type, "button");
+    await React.act(async () => target.click());
+  };
+  const toastNode = () => tree.find((node) => node.attributes?.class?.includes("toast-surface"));
+  await click("Legacy");
+  await click("Keep open");
+  assert.deepEqual(clicked, ["legacy", "keep"]);
+  assert.doesNotMatch(
+    toastNode().attributes.class,
+    /opacity-0/,
+    "dismissOnClick=false keeps the toast"
+  );
+  await click("Finish");
+  assert.deepEqual(clicked, ["legacy", "keep", "finish"]);
+  assert.match(toastNode().attributes.class, /opacity-0/, "the default action starts dismissal");
+  await React.act(async () => new Promise((resolve) => setTimeout(resolve, 220)));
+  assert.equal(toastNode(), null, "the dismissed toast leaves the DOM");
+});

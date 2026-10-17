@@ -422,6 +422,20 @@ export const Toast: React.FC<
             </div>
           )}
           <TechnicalErrorDetails details={technicalDetails} onDark />
+          {actions && actions.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {actions.map((structuredAction, index) => (
+                <button
+                  key={`${structuredAction.label}-${index}`}
+                  type="button"
+                  onClick={() => handleStructuredAction(structuredAction)}
+                  className="inline-flex min-h-7 max-w-full items-center justify-center rounded-sm border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white/90 transition-colors hover:border-white/35 hover:bg-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {structuredAction.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {action && <div className="shrink-0 self-center">{action}</div>}

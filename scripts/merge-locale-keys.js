@@ -8,6 +8,7 @@
 // refuses to change an existing value. Strict runs are all-or-nothing.
 const fs = require("node:fs");
 const path = require("node:path");
+const { isDeepStrictEqual } = require("node:util");
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
 const baseKey = (key) => key.replace(PLURAL_SUFFIX, "");
@@ -66,7 +67,7 @@ function mergeStrict(target, source, trail, conflicts) {
       mergeStrict(target[key], value, at, conflicts);
     } else if (target[key] === undefined) {
       target[key] = value;
-    } else if (target[key] !== value) {
+    } else if (!isDeepStrictEqual(target[key], value)) {
       conflicts.push(at);
     }
   }
@@ -87,7 +88,7 @@ function mergeFragment(fragment, { localesRoot, strict = false }) {
     if (strict) {
       const conflicts = [];
       mergeStrict(json, fragment[lang], "", conflicts);
-      if (conflicts.length) throw new Error(`${lang}: keys already exist with other values: ${conflicts.join(", ")}`);
+      if (conflicts.length) throw new Error(`Locale fragment rejected: ${lang}: keys already exist with other values: ${conflicts.join(", ")}`);
     } else {
       mergeLoose(json, fragment[lang]);
     }

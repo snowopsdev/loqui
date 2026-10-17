@@ -38,11 +38,49 @@ test("the plain CLI keeps Plan 03's contract: optional root, overwrite, missing-
 
 test("--strict refuses a changed existing value and writes nothing", (t) => {
   const root = makeRoot(t);
+  const before = Object.fromEntries(["en", "de", "ar"].map((lang) => [lang, fs.readFileSync(path.join(root, lang, "translation.json"), "utf8")]));
   const frag = writeFragment(root, { en: { sidebar: { home: "Today" } }, de: { sidebar: { home: "Heute" } }, ar: { sidebar: { home: "اليوم" } } });
   const result = run(["--strict", frag, root]);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /already exist/);
-  assert.equal(read(root, "en").sidebar.home, "home-en");
+  assert.match(result.stderr, /^Locale fragment rejected: (?:ar|de|en): keys already exist with other values: sidebar\.home\n?$/);
+  for (const lang of ["en", "de", "ar"]) {
+    assert.equal(fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"), before[lang]);
+  }
+});
+
+test("--strict accepts identical nested array leaves on rerun", (t) => {
+  const root = makeRoot(t);
+  const nested = [["same", { values: [1, 2] }], ["also same"]];
+  const frag = writeFragment(root, {
+    en: { content: { nested } },
+    de: { content: { nested } },
+    ar: { content: { nested } },
+  });
+  assert.equal(run(["--strict", frag, root]).status, 0);
+  assert.equal(run(["--strict", frag, root]).status, 0);
+  for (const lang of ["en", "de", "ar"]) assert.deepEqual(read(root, lang).content.nested, nested);
+});
+
+test("--strict rejects a changed array leaf without writing any locale", (t) => {
+  const root = makeRoot(t);
+  const seed = writeFragment(root, {
+    en: { content: { nested: [["original"]] } },
+    de: { content: { nested: [["original"]] } },
+    ar: { content: { nested: [["original"]] } },
+  });
+  assert.equal(run(["--strict", seed, root]).status, 0);
+  const before = Object.fromEntries(["en", "de", "ar"].map((lang) => [lang, fs.readFileSync(path.join(root, lang, "translation.json"), "utf8")]));
+  const changed = writeFragment(root, {
+    en: { content: { nested: [["changed"]] } },
+    de: { content: { nested: [["changed"]] } },
+    ar: { content: { nested: [["changed"]] } },
+  });
+  const result = run(["--strict", changed, root]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /^Locale fragment rejected: (?:ar|de|en): keys already exist with other values: content\.nested\n?$/);
+  for (const lang of ["en", "de", "ar"]) {
+    assert.equal(fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"), before[lang]);
+  }
 });
 
 test("--strict works from any argument position and is idempotent", (t) => {

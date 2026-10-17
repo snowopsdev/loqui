@@ -165,6 +165,11 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 
 - **Progress** (downloads, installs): ink fill on a muted track with an `--color-input-border` edge, and ink percentage text. Orange stays reserved for live voice.
 
+### AI and Agent
+- `--color-ai` (#d90078 light, #ff5fae Plum Night): machine-authored content. AI chips (12% fill, 1px 30% border), slash-menu AI items, the bubble toolbar's Ask AI. Small text uses `--color-ai-text` (#b8006a light).
+- `--color-agent` (#7b7bf7 light, #8787ff Plum Night): the Agent's presence. The streaming rail, the spark avatar, citation numerals. Small text uses `--color-agent-text` (#4a4ad8 light, #a5a5ff Plum Night).
+- Neither is ever a call to action, and neither is orange: orange means live voice (D1).
+
 ### Named Rules
 
 **The Two-Brand-Accent Rule.** Orange marks live voice, the focus accent and, in the light theme (as the deeper #E84E16), the active navigation marker; the everyday primary action is the ink CTA, and Plum Night marks active navigation in magenta #E6007A. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.
@@ -177,13 +182,23 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 
 **Character:** A neutral, highly legible sans keeps controls and transcripts quick to scan. Display and body use the same family; size, weight, and spacing create hierarchy rather than a decorative pairing.
 
-### Hierarchy
+### UI ramp (WS-R11 B)
+Tailwind utilities from `@theme` in `src/index.css`. Chrome, lists, menus and dialogs use these and nothing else.
 
-- **Display** (700, 40px, 1.15 line-height, -0.025em tracking): Global h1 scale where a page title is genuinely the display heading.
-- **Headline** (600, 1.15 line-height, -0.025em tracking): h2 through h6; size is assigned by the specific screen.
-- **Onboarding title** (500, 32px, 1.2 line-height): Main setup-step heading.
-- **Body** (usually 12–16px in controls and workspace copy): Short labels and supporting text use compact Tailwind sizes; `.brand-body` uses a 1.6 line-height when applied.
-- **Label** (500, 13px; section labels may be 10px uppercase with 0.08em tracking): Sidebar items, section names, and secondary controls.
+| Utility | Size / line / weight / tracking | Use |
+|---|---|---|
+| `text-display` | 32px / 1.15 / 650 / -0.02em | Rare page hero |
+| `text-title` | 22px / 1.25 / 600 / -0.015em | View titles, dialog titles |
+| `text-heading` | 17px / 1.35 / 600 | Section headings |
+| `text-body` | 15px / 1.55 / 400 | Transcripts, chat answers, previews |
+| `text-ui` | 13px / 1.4 / 500 | Labels, nav rows, buttons, menu rows |
+| `text-caption` | 12px / 1.4 / 450 | Metadata, timestamps, helper text |
+| `text-micro` | 11px / 1.3 / 500 / +0.02em | `kbd` and badges only |
+
+No size below 11px. Readable text floors at 12px. Hierarchy comes from size and weight, never opacity: metadata is full `text-muted-foreground`.
+
+### Note document ramp (WS-R6 B)
+Inside the note editor (`.rich-text-editor-content`) and the note title: title 32/1.15/600; h1 24/1.25/650; h2 19/1.3/600; h3 16/1.4/600; body 16/1.65 with a 68ch measure; code 14 mono. Chat answers use 15/1.6 at 68ch.
 
 ### Named Rules
 

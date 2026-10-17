@@ -61,6 +61,43 @@
   --color-locality-network: #3b6ea8;
   --color-locality-remote: #ad5008;
 
+  /* Machine and Agent roles (DESIGN.md "Colors"). Fuchsia marks content a
+     model wrote (AI chips, slash AI items, Ask AI); violet marks the Agent
+     (chat rail, spark, citations). Fills/rails use the base token (>= 3:1),
+     small text uses the -text token (>= 4.5:1). */
+  --color-ai: #d90078;
+  --color-ai-text: #b8006a;
+  --color-agent: #7b7bf7;
+  --color-agent-text: #4a4ad8;
+
+  /* UI type ramp (DESIGN.md "Typography"). Chrome only: the note document
+     ramp lives on .rich-text-editor-content. Nothing below 11px; readable
+     text floors at 12px (caption). */
+  --text-display: 2rem;
+  --text-display--line-height: 1.15;
+  --text-display--font-weight: 650;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.25;
+  --text-title--font-weight: 600;
+  --text-title--letter-spacing: -0.015em;
+  --text-heading: 1.0625rem;
+  --text-heading--line-height: 1.35;
+  --text-heading--font-weight: 600;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.55;
+  --text-body--font-weight: 400;
+  --text-ui: 0.8125rem;
+  --text-ui--line-height: 1.4;
+  --text-ui--font-weight: 500;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--font-weight: 450;
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.3;
+  --text-micro--font-weight: 500;
+  --text-micro--letter-spacing: 0.02em;
+
   /* Surface hierarchy — light mode equivalents */
   --color-surface-0: #ffffff;
   --color-surface-1: #fafafa;
@@ -96,6 +133,13 @@
   --motion-base: 240ms;
   --motion-slow: 360ms;
   --motion-hero: 520ms;
+  /* Loop and dwell cadences (Plan 06, CR-06-4). A loop runs only in its
+     active state; reduced motion stops it (the policy below). */
+  --motion-loop-travel: 1400ms; /* the capture rail's "Cleaning up…" band */
+  --motion-loop-pulse: 1200ms;  /* chat "thinking" dots */
+  --motion-loop-blink: 1000ms;  /* streaming cursor */
+  --motion-stagger: 150ms;      /* step between items of one loop */
+  --motion-dwell-ring: 1200ms;  /* a deep-linked history row's focus ring */
   /* One-shot landing flash on a searched setting (Settings search). The animation uses this
    duration and JS removes data-flash on animationend, so this is the only place it lives. */
   --motion-flash: 1400ms;
@@ -273,6 +317,10 @@
   --color-locality-device: #5ee0ad;
   --color-locality-network: #9bb4d6;
   --color-locality-remote: #fbbf6a;
+  --color-ai: #ff5fae;
+  --color-ai-text: #ff5fae;
+  --color-agent: #8787ff;
+  --color-agent-text: #a5a5ff;
 
   /* Surface hierarchy — plum depth system */
   --color-surface-0: #1c1218;

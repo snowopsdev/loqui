@@ -43,6 +43,7 @@ export default function BrowserPreview() {
   const { theme, setTheme } = useTheme();
   const scenarios = ONBOARDING_SCENARIOS;
   const updateConfig = (patch: Partial<OnboardingPreviewConfig>) => {
+    window.loquiPreviewBridge?.reset();
     const next = { ...config, ...patch };
     setConfig(next);
     window.loquiBrowserPreviewConfig = next;
@@ -250,6 +251,32 @@ export default function BrowserPreview() {
                   ))}
                 </select>
               </label>
+              {setup && (
+                <button
+                  type="button"
+                  className="browser-preview-button"
+                  onPointerDown={(event) => {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    window.loquiPreviewBridge?.simulateHotkey("down");
+                  }}
+                  onPointerUp={() => window.loquiPreviewBridge?.simulateHotkey("up")}
+                  onPointerCancel={() => window.loquiPreviewBridge?.simulateHotkey("up")}
+                  onKeyDown={(event) => {
+                    if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+                      event.preventDefault();
+                      window.loquiPreviewBridge?.simulateHotkey("down");
+                    }
+                  }}
+                  onKeyUp={(event) => {
+                    if (event.key === " " || event.key === "Enter") {
+                      event.preventDefault();
+                      window.loquiPreviewBridge?.simulateHotkey("up");
+                    }
+                  }}
+                >
+                  Hold shortcut
+                </button>
+              )}
               <label className="browser-preview-select">
                 <span>Platform</span>
                 <select

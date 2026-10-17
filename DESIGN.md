@@ -371,3 +371,7 @@ Pure onboarding notice builders use the spec §5.3 input shape. Until Plan 04 la
 keeps the failure and Retry visible until dismissal. The second merger replaces
 that adapter with the real `notify` and removes its Variant A mapping test;
 Plan 04 notice types, Undo and Sealed contracts remain outside this task.
+
+### Onboarding preview bridge (Plan 05 Task 8)
+
+The development toolbar owns scenario selection and simulated shortcut presses. Its in-memory bridge satisfies the real preload types and feeds the same download hooks as desktop: catalog-specific totals, singleton admission, monotonic progress and retained network bytes. Trial events preserve their admitted demo/take identity and deny microphone acquisition before listening. Reset/cancel settle owned work; cancellation is discarded without Undo while Plan 04 holds remain absent. The legacy Speech preview presentation remains until Task 13. No recording, provider call, credential access or workspace lifecycle authority is added.

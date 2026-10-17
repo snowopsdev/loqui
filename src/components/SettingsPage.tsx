@@ -4,8 +4,7 @@ import { RoutingSection } from "./settings/routing/RoutingSection";
 import { stagedTargetForMode } from "./settings/routing/stagedTarget";
 import { useRouteChange, useRouteCommit } from "./settings/routing/useRouteChange";
 import { RouteSwitch } from "./settings/routing/RouteSwitch";
-import { useAudioStorageUsage } from "../hooks/useAudioStorageUsage";
-import { AudioStorageRow } from "./settings/AudioStorageRow";
+import { StorageList } from "./settings/StorageList";
 import UpdateSettings from "./settings/UpdateSettings";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,7 +16,6 @@ import {
   Copy,
   Cpu,
   FileAudio,
-  FolderOpen,
   HardDrive,
   Info,
   Key,
@@ -109,8 +107,7 @@ import { useToast } from "./ui/useToast";
 import { initializeNotesTree, loadFolders } from "../stores/noteStore.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
-import { clearMissingLocalModelSelections, useSettingsStore } from "../stores/settingsStore";
-import { formatBytes } from "../utils/formatBytes";
+import { useSettingsStore } from "../stores/settingsStore";
 
 import { useInferenceModeOptions } from "../hooks/useInferenceOptions";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
@@ -1015,27 +1012,10 @@ export default function SettingsPage({
   const { toast } = useToast();
 
   const [currentVersion, setCurrentVersion] = useState<string>("");
-  const [isRemovingModels, setIsRemovingModels] = useState(false);
-  const [cachePathHint, setCachePathHint] = useState(
-    typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)
-      ? "%USERPROFILE%\\.cache\\loqui-snowopsdev"
-      : "~/.cache/loqui-snowopsdev"
-  );
-  useEffect(() => {
-    window.electronAPI
-      ?.getModelCacheRoot?.()
-      .then((root) => {
-        if (root) setCachePathHint(root);
-      })
-      .catch(() => {});
-  }, []);
-
   const { checkWhisperInstallation } = useWhisper();
   const permissionsHook = usePermissions(showAlertDialog);
   const systemAudio = useSystemAudioPermission();
   useClipboard(showAlertDialog);
-  const audioStorage = useAudioStorageUsage(activeSection === "privacyData");
-  const [clearAudioError, setClearAudioError] = useState(false);
 
   // Lazy keep-alive: mount AI sections only after the user has visited them once,
   // then keep them mounted so model-download progress and IPC listeners survive
@@ -1051,35 +1031,6 @@ export default function SettingsPage({
   if (activeSection === "llms" && !hasMountedLlms) {
     setHasMountedLlms(true);
   }
-
-  const handleClearAllAudio = async () => {
-    setClearAudioError(false);
-    // Count what is on disk now. A failed read turns the row "unavailable"
-    // and opens no confirmation: a stale count is never shown as current.
-    const current = await audioStorage.refresh();
-    if (current.status !== "known") return;
-    showConfirmDialog({
-      title: t("settingsPage.privacy.clearAllAudioTitle"),
-      description: t("settingsPage.privacy.clearAllAudioCounted", {
-        summary: t("settingsPage.privacy.audioStorageFiles", {
-          count: current.fileCount,
-          size: formatBytes(current.totalBytes),
-        }),
-      }),
-      confirmText: t("settingsPage.privacy.clearAllAudioAction"),
-      cancelText: t("common.cancel"),
-      variant: "destructive",
-      onConfirm: () =>
-        void (async () => {
-          const outcome = await audioStorage.clearAll();
-          if (outcome === "cleared") {
-            toast({ title: t("settingsPage.privacy.clearAllAudioDone"), variant: "default" });
-          } else {
-            setClearAudioError(true);
-          }
-        })(),
-    });
-  };
 
   // Wayland paste tool status for diagnostics.
   const [ydotoolStatus, setYdotoolStatus] = useState<{
@@ -1371,54 +1322,6 @@ export default function SettingsPage({
       },
     });
   };
-
-  const handleRemoveModels = useCallback(() => {
-    if (isRemovingModels) return;
-
-    showConfirmDialog({
-      title: t("settingsPage.developer.removeModels.title"),
-      description: t("settingsPage.developer.removeModels.description", { path: cachePathHint }),
-      confirmText: t("settingsPage.developer.removeModels.confirmText"),
-      variant: "destructive",
-      onConfirm: async () => {
-        setIsRemovingModels(true);
-        try {
-          const results = await Promise.allSettled([
-            window.electronAPI?.deleteAllWhisperModels?.(),
-            window.electronAPI?.deleteAllParakeetModels?.(),
-            window.electronAPI?.modelDeleteAll?.(),
-          ]);
-
-          const anyFailed = results.some(
-            (r) =>
-              r.status === "rejected" || (r.status === "fulfilled" && r.value && !r.value.success)
-          );
-
-          if (anyFailed) {
-            showAlertDialog({
-              title: t("settingsPage.developer.removeModels.failedTitle"),
-              description: t("settingsPage.developer.removeModels.failedDescription"),
-            });
-          } else {
-            // Every local model is gone, so no local selection can still resolve.
-            clearMissingLocalModelSelections(() => false);
-            window.dispatchEvent(new Event("openwhispr-models-cleared"));
-            showAlertDialog({
-              title: t("settingsPage.developer.removeModels.successTitle"),
-              description: t("settingsPage.developer.removeModels.successDescription"),
-            });
-          }
-        } catch {
-          showAlertDialog({
-            title: t("settingsPage.developer.removeModels.failedTitle"),
-            description: t("settingsPage.developer.removeModels.failedDescriptionShort"),
-          });
-        } finally {
-          setIsRemovingModels(false);
-        }
-      },
-    });
-  }, [isRemovingModels, cachePathHint, showConfirmDialog, showAlertDialog, t]);
 
   const renderWhisperVadSettings = () => (
     <div>
@@ -2718,14 +2621,6 @@ EOF`,
                     </select>
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
-                  <AudioStorageRow
-                    usage={audioStorage.usage}
-                    clearError={clearAudioError}
-                    onClear={() => void handleClearAllAudio()}
-                    onRetry={() => void audioStorage.refresh()}
-                  />
-                </SettingsPanelRow>
               </SettingsPanel>
             </div>
 
@@ -2779,6 +2674,11 @@ EOF`,
                   </SettingsRow>
                 </SettingsPanelRow>
               </SettingsPanel>
+            </div>
+
+            {/* Storage: counted deletes and reset (SET-R7 A) */}
+            <div className="border-t border-border/70 pt-6">
+              <StorageList />
             </div>
 
             {/* Permissions */}
@@ -2888,94 +2788,6 @@ EOF`,
             {/* Developer Tools */}
             <div className="border-t border-border/70 pt-6">
               <DeveloperSection />
-            </div>
-
-            {/* Data Management */}
-            <div className="border-t border-border/70 pt-6">
-              <SectionHeader
-                title={t("settingsPage.developer.dataManagementTitle")}
-                description={t("settingsPage.developer.dataManagementDescription")}
-              />
-
-              <div className="space-y-4">
-                <SettingsPanel>
-                  <SettingsPanelRow>
-                    <SettingsRow
-                      label={t("settingsPage.developer.modelCache")}
-                      description={
-                        <span dir="ltr" className="block break-all">
-                          {cachePathHint}
-                        </span>
-                      }
-                    >
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => window.electronAPI?.openWhisperModelsFolder?.()}
-                        >
-                          <FolderOpen className="me-1.5 h-3.5 w-3.5" />
-                          {t("settingsPage.developer.open")}
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={handleRemoveModels}
-                          disabled={isRemovingModels}
-                        >
-                          {isRemovingModels
-                            ? t("settingsPage.developer.removing")
-                            : t("settingsPage.developer.clearCache")}
-                        </Button>
-                      </div>
-                    </SettingsRow>
-                  </SettingsPanelRow>
-                </SettingsPanel>
-
-                <SettingsPanel>
-                  <SettingsPanelRow>
-                    <SettingsRow
-                      label={t("settingsPage.developer.resetAppData")}
-                      description={t("settingsPage.developer.resetAppDataDescription")}
-                    >
-                      <Button
-                        onClick={() => {
-                          showConfirmDialog({
-                            title: t("settingsPage.developer.resetAll.title"),
-                            description: t("settingsPage.developer.resetAll.description"),
-                            onConfirm: async () => {
-                              try {
-                                await window.electronAPI?.cleanupApp();
-                                showAlertDialog({
-                                  title: t("settingsPage.developer.resetAll.successTitle"),
-                                  description: t(
-                                    "settingsPage.developer.resetAll.successDescription"
-                                  ),
-                                });
-                                setTimeout(() => window.electronAPI?.relaunchApp(), 1000);
-                              } catch {
-                                showAlertDialog({
-                                  title: t("settingsPage.developer.resetAll.failedTitle"),
-                                  description: t(
-                                    "settingsPage.developer.resetAll.failedDescription"
-                                  ),
-                                });
-                              }
-                            },
-                            variant: "destructive",
-                            confirmText: t("settingsPage.developer.resetAll.confirmText"),
-                          });
-                        }}
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive"
-                      >
-                        {t("common.reset")}
-                      </Button>
-                    </SettingsRow>
-                  </SettingsPanelRow>
-                </SettingsPanel>
-              </div>
             </div>
           </div>
         );

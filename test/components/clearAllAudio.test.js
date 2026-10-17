@@ -27,13 +27,17 @@ test("only a clean delete of a readable store that reads back empty counts as cl
   assert.equal(resolveClearAudioOutcome(null, null), "partial");
 });
 
-test("Clear All re-reads before confirming and never confirms a stale count", () => {
-  const handler = page.match(/const handleClearAllAudio = async \(\) => \{[\s\S]*?\n {2}\};/)[0];
-  assert.match(handler, /const current = await audioStorage\.refresh\(\);/);
-  assert.match(handler, /if \(current\.status !== "known"\) return;/);
-  assert.match(handler, /showConfirmDialog\(\{/);
-  assert.match(handler, /variant: "destructive"/);
-  assert.match(handler, /t\("settingsPage\.privacy\.clearAllAudioCounted"/);
-  assert.doesNotMatch(page, /\/\/ silent fail/);
-  assert.doesNotMatch(page, /audioStorageUsage\b/, "the old zero-default state is gone");
+// baseline source guard: the mounted Storage tests cover this behavior.
+test("Storage's Delete… re-reads before confirming and never confirms a stale count", () => {
+  const list = fs.readFileSync(
+    path.join(__dirname, "../../src/components/settings/StorageList.tsx"),
+    "utf8"
+  );
+  const open = list.match(
+    /const openDelete = async \(kind: StorageKind\) => \{[\s\S]*?\n {2}\};/
+  )[0];
+  assert.match(open, /const row = \(await load\(\)\)\[kind\];/);
+  assert.match(open, /if \(row\.status === "ready"/);
+  assert.match(list, /outcomeFromResult/);
+  assert.doesNotMatch(page, /handleClearAllAudio|audioStorageUsage\b/, "the old row is gone");
 });

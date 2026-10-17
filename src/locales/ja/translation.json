@@ -4064,5 +4064,78 @@
     "inUseBy": "使用中のタスク",
     "showFewer": "表示を減らす",
     "showAll_other": "すべて表示（{{count}}件）"
+  },
+  "storage": {
+    "title": "ストレージ",
+    "loading": "集計中…",
+    "countFailed": "集計できませんでした。集計が完了するまで削除できません。",
+    "countAgain": "再集計",
+    "delete": "削除…",
+    "deleting": "削除中…",
+    "open": "開く",
+    "retry": "再試行",
+    "danger": "危険な操作",
+    "failed": {
+      "partial": "{{total}} 件中 {{deleted}} 件を削除しました。{{remaining}} 件を削除できませんでした。",
+      "unknown": "Loqui は削除された内容を確認できませんでした。再試行の前に再集計してください。",
+      "stale": "この画面を開いた後に保存内容が変わりました。件数が同じ場合もあります。削除する前に現在の内容と件数を確認してください。",
+      "historyRows": "文字起こし：{{total}} 件中 {{deleted}} 件を削除しました。",
+      "historyAudio": "音声ファイル：{{total}} 件中 {{deleted}} 件を削除しました。{{remaining}} 件を削除できませんでした。",
+      "historyAudioUnknown": "音声ファイル：Loqui は削除された件数を確認できませんでした。"
+    },
+    "audio": {
+      "title": "音声入力の録音",
+      "empty": "保存された音声ファイルはありません",
+      "summary_other": "{{count}} ファイル · {{size}}",
+      "confirmTitle_other": "録音 {{count}} 件を削除しますか？",
+      "confirmBody_other": "このフォルダー内の録音 {{count}} 件（{{size}}）を完全に削除します。文字起こしに紐づいていない録音も含まれます。文字起こしは残ります。プロバイダーに送信済みのコピーには影響しません。",
+      "confirmButton_other": "録音 {{count}} 件を削除",
+      "done_other": "録音 {{count}} 件を削除しました。"
+    },
+    "models": {
+      "title": "ダウンロード済みモデル",
+      "empty": "ダウンロード済みモデルはありません",
+      "summary_other": "{{count}} モデル · {{size}}",
+      "confirmTitle_other": "モデル {{count}} 件を削除しますか？",
+      "confirmBody_other": "このフォルダー内のダウンロード済みモデル {{count}} 件（{{size}}）を完全に削除します。これらを使うタスクでは、モデルの再選択が必要になります。",
+      "confirmButton_other": "モデル {{count}} 件を削除",
+      "done_other": "モデル {{count}} 件を削除しました。",
+      "familyFailed": "{{family}} を削除できませんでした。",
+      "families": {
+        "whisper": "Whisper 音声モデル",
+        "parakeet": "Parakeet 音声モデル",
+        "llm": "ローカル言語モデル"
+      }
+    },
+    "history": {
+      "title": "文字起こし履歴",
+      "empty": "保存された文字起こしや音声はありません",
+      "summary_other": "文字起こし {{count}} 件",
+      "summaryWithHidden_other": "文字起こし {{count}} 件（{{hidden}}を含む）",
+      "hidden_other": "破棄または削除済み {{count}} 件",
+      "transcripts_other": "文字起こし {{count}} 件",
+      "transcriptsWithHidden_other": "文字起こし {{count}} 件（{{discarded}}、{{deleted}}）",
+      "discarded_other": "破棄済み {{count}} 件",
+      "softDeleted_other": "削除済み {{count}} 件",
+      "audioFiles_other": "音声ファイル {{count}} 件（{{size}}）",
+      "audioFilesShort_other": "音声ファイル {{count}} 件",
+      "confirmTitle": "文字起こし履歴をすべて削除しますか？",
+      "confirmBody": "{{transcripts}}と{{audio}}を完全に削除し、このデバイスの Insights カウンターをリセットします。プロバイダーに送信済みのコピーには影響しません。",
+      "confirmButton": "{{transcripts}}と{{audio}}を削除",
+      "done_other": "文字起こし {{count}} 件と保存されたすべての音声を削除しました。"
+    },
+    "reset": {
+      "title": "Loqui をリセット",
+      "description": "設定、履歴、音声、ダウンロード済みモデル、保存済みプロバイダーキーを削除します。",
+      "button": "リセット…",
+      "confirmTitle": "Loqui をリセットしますか？",
+      "confirmBody": "設定、履歴、音声、ダウンロード済みモデル、保存済みプロバイダーキーを削除し、Loqui を再起動します。この操作は取り消せません。",
+      "confirmButton": "Loqui をリセット",
+      "typeLabel": "確認のため「{{word}}」と入力してください",
+      "word": "リセット",
+      "running": "リセット中…",
+      "failed": "リセットが完了しなかったため、Loqui は自動で再起動しません。次の処理に失敗しました：",
+      "done": "リセットが完了しました。Loqui を再起動しています…"
+    }
   }
 }

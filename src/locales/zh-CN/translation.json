@@ -4064,5 +4064,78 @@
     "inUseBy": "使用此模型的任务",
     "showFewer": "收起",
     "showAll_other": "显示全部 {{count}} 个"
+  },
+  "storage": {
+    "title": "存储",
+    "loading": "正在统计…",
+    "countFailed": "无法统计。完成统计前无法删除任何内容。",
+    "countAgain": "重新统计",
+    "delete": "删除…",
+    "deleting": "正在删除…",
+    "open": "打开",
+    "retry": "重试",
+    "danger": "危险区域",
+    "failed": {
+      "partial": "已删除 {{total}} 项中的 {{deleted}} 项。{{remaining}} 项无法删除。",
+      "unknown": "Loqui 无法确认删除了哪些内容。请重新统计后再试。",
+      "stale": "打开此对话框后，存储的内容已发生变化，即使数量没有变化也是如此。请在删除前查看当前内容和数量。",
+      "historyRows": "转写：已删除 {{total}} 条中的 {{deleted}} 条。",
+      "historyAudio": "音频文件：已删除 {{total}} 个中的 {{deleted}} 个。{{remaining}} 个无法删除。",
+      "historyAudioUnknown": "音频文件：Loqui 无法确认删除了多少个文件。"
+    },
+    "audio": {
+      "title": "听写音频",
+      "empty": "没有存储的音频文件",
+      "summary_other": "{{count}} 个文件 · {{size}}",
+      "confirmTitle_other": "删除 {{count}} 条录音？",
+      "confirmBody_other": "这将永久删除此文件夹中的 {{count}} 条录音（{{size}}），包括未关联任何转写的录音。转写将保留。已发送给服务提供商的副本不受影响。",
+      "confirmButton_other": "删除 {{count}} 条录音",
+      "done_other": "已删除 {{count}} 条录音。"
+    },
+    "models": {
+      "title": "已下载的模型",
+      "empty": "未下载任何模型",
+      "summary_other": "{{count}} 个模型 · {{size}}",
+      "confirmTitle_other": "删除 {{count}} 个模型？",
+      "confirmBody_other": "这将永久删除此文件夹中已下载的 {{count}} 个模型（{{size}}）。使用这些模型的任务会要求你重新选择模型。",
+      "confirmButton_other": "删除 {{count}} 个模型",
+      "done_other": "已删除 {{count}} 个模型。",
+      "familyFailed": "无法删除{{family}}。",
+      "families": {
+        "whisper": "Whisper 语音模型",
+        "parakeet": "Parakeet 语音模型",
+        "llm": "本地语言模型"
+      }
+    },
+    "history": {
+      "title": "转写历史",
+      "empty": "没有保存的转写或音频",
+      "summary_other": "{{count}} 条转写",
+      "summaryWithHidden_other": "{{count}} 条转写，包括{{hidden}}",
+      "hidden_other": "{{count}} 条已丢弃或已删除的转写",
+      "transcripts_other": "{{count}} 条转写",
+      "transcriptsWithHidden_other": "{{count}} 条转写（{{discarded}}，{{deleted}}）",
+      "discarded_other": "{{count}} 条已丢弃",
+      "softDeleted_other": "{{count}} 条已删除",
+      "audioFiles_other": "{{count}} 个音频文件（{{size}}）",
+      "audioFilesShort_other": "{{count}} 个音频文件",
+      "confirmTitle": "删除所有转写历史？",
+      "confirmBody": "这将永久删除{{transcripts}}和{{audio}}，并重置此设备上的 Insights 计数器。已发送给服务提供商的副本不受影响。",
+      "confirmButton": "删除{{transcripts}}和{{audio}}",
+      "done_other": "已删除 {{count}} 条转写和所有保存的音频。"
+    },
+    "reset": {
+      "title": "重置 Loqui",
+      "description": "删除设置、历史、音频、已下载的模型和保存的服务提供商密钥。",
+      "button": "重置…",
+      "confirmTitle": "重置 Loqui？",
+      "confirmBody": "这将删除设置、历史、音频、已下载的模型和已保存的服务提供商密钥，然后重启 Loqui。此操作无法撤销。",
+      "confirmButton": "重置 Loqui",
+      "typeLabel": "输入“{{word}}”以确认",
+      "word": "重置",
+      "running": "正在重置…",
+      "failed": "重置未完成，因此 Loqui 不会自动重启。以下步骤失败：",
+      "done": "重置完成。Loqui 正在重启…"
+    }
   }
 }

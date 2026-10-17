@@ -1,0 +1,853 @@
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const fs = require("node:fs");
+const path = require("node:path");
+const React = require("react");
+const { createRoot } = require("react-dom/client");
+const { renderToStaticMarkup } = require("react-dom/server");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHookDom,
+} = require("../lib/rendererTestHarness");
+const { withI18nMock } = require("../lib/i18nTestMock");
+const { deferred } = require("../helpers/harness/deferred");
+const { resolveTokens } = require("../helpers/harness/cssTokens");
+
+// Renders key(name=value,...) so nested, counted strings stay readable.
+const T =
+  "(k, o) => (o ? k + '(' + Object.entries(o).map(([a, b]) => a + '=' + b).join(',') + ')' : k)";
+const serverOptions = (prefix) => withI18nMock({ cachePrefix: prefix }, { t: T });
+
+const AUDIO_IDENTITY = "a".repeat(64);
+const HISTORY_IDENTITY = "b".repeat(64);
+const AUDIO = {
+  kind: "audio",
+  files: 214,
+  bytes: 1_200_000_000,
+  directory: "/tmp/loqui-test/audio",
+  audioIdentity: AUDIO_IDENTITY,
+};
+const HISTORY = {
+  kind: "history",
+  total: 1482,
+  discarded: 12,
+  softDeleted: 3,
+  files: 214,
+  bytes: 1_200_000_000,
+  directory: "/tmp/loqui-test/audio",
+  audioIdentity: AUDIO_IDENTITY,
+  historyIdentity: HISTORY_IDENTITY,
+};
+const MODELS = {
+  kind: "models",
+  count: 3,
+  bytes: 9_800_000_000,
+  directory: "/tmp/loqui-test/cache",
+};
+const ready = (snapshot) => ({ status: "ready", snapshot });
+const noop = () => {};
+
+// baseline guard: Plan 01 tokens already satisfy these pairs; the class test below pins their use.
+test("[baseline guard] destructive text clears 4.5:1 on the surfaces Storage puts it on (I13)", async () => {
+  const { contrastRatio } = await import("../../src/utils/contrast.ts");
+  const { light, dark } = resolveTokens(
+    fs.readFileSync(path.join(__dirname, "../../src/index.css"), "utf8")
+  );
+  for (const surface of ["--color-background", "--color-card"]) {
+    const ratio = contrastRatio(light["--color-destructive"], light[surface]);
+    assert.ok(ratio >= 4.5, `light destructive on ${surface} is ${ratio}:1`);
+  }
+  for (const surface of ["--color-surface-raised", "--color-surface-2"]) {
+    const ratio = contrastRatio(dark["--color-destructive"], dark[surface]);
+    assert.ok(ratio >= 4.5, `dark destructive on ${surface} is ${ratio}:1`);
+  }
+});
+
+// change-driving (every subtest): StorageList.tsx does not exist.
+test("[change-driving] storage list markup", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, serverOptions("loqui-storage-view-test-"));
+  const s = await vite.ssrLoadModule("/components/settings/StorageList.tsx");
+  const view = (props = {}) =>
+    renderToStaticMarkup(
+      React.createElement(s.StorageListView, {
+        audio: ready(AUDIO),
+        models: ready(MODELS),
+        history: ready(HISTORY),
+        onDelete: noop,
+        onOpenModels: noop,
+        onRefresh: noop,
+        onReset: noop,
+        ...props,
+      })
+    );
+  const content = (snapshot, extra = {}) =>
+    renderToStaticMarkup(
+      React.createElement(s.CountedDeleteContent, {
+        snapshot,
+        phase: "review",
+        last: null,
+        onConfirm: noop,
+        onCancel: noop,
+        onRecount: noop,
+        ...extra,
+      })
+    );
+
+  await t.test("[change-driving] rows show main's counts, including hidden history rows", () => {
+    const html = view();
+    assert.ok(html.includes("storage.audio.summary(count=214,size=1.2 GB)"));
+    assert.ok(html.includes("storage.models.summary(count=3,size=9.8 GB)"));
+    assert.ok(
+      html.includes(
+        "storage.history.summaryWithHidden(count=1482,hidden=storage.history.hidden(count=15))"
+      )
+    );
+    assert.doesNotMatch(
+      html,
+      /data-variant="destructive"/,
+      "solid destructive only inside dialogs"
+    );
+  });
+
+  await t.test(
+    "[change-driving] destructive triggers sit on and hover to the background, never muted (I13)",
+    () => {
+      const tags = view().match(/<button[^>]*data-storage-(?:delete|reset)=[^>]*>/g);
+      assert.equal(tags.length, 4);
+      for (const tag of tags) {
+        const classes = /class="([^"]*)"/.exec(tag)[1].split(/\s+/);
+        assert.ok(classes.includes("text-destructive"), tag);
+        assert.ok(
+          classes.includes("bg-background") && classes.includes("hover:bg-background"),
+          tag
+        );
+        assert.ok(!classes.some((c) => c === "hover:bg-muted" || c.startsWith("bg-muted")), tag);
+      }
+    }
+  );
+
+  await t.test(
+    "[change-driving] an uncountable or loading row says so and cannot delete (I12)",
+    () => {
+      const html = view({
+        audio: { status: "error", error: "ENOTDIR" },
+        history: { status: "error", error: "audio: ENOTDIR" },
+        models: { status: "loading" },
+      });
+      assert.ok(html.includes("storage.countFailed"));
+      // Plan 02's unavailable state (spec §5.6), ported from audioStorageRow.test.js: the audio row says the
+      // folder couldn't be read, offers Count again (the Retry), and never says "no audio".
+      assert.ok(html.includes("settingsPage.privacy.audioStorageUnavailable"));
+      assert.ok(!html.includes("storage.audio.empty"));
+      assert.ok(html.includes("storage.loading"));
+      for (const kind of ["audio", "models", "history"]) {
+        assert.match(html, new RegExp(`<button[^>]*data-storage-delete="${kind}"[^>]*disabled=""`));
+      }
+      assert.match(html, /data-storage-action="refresh"/);
+      assert.ok(!html.includes("summary(count=0"), "unreadable is never shown as zero");
+    }
+  );
+
+  await t.test("[change-driving] the audio confirm repeats count, size and folder", () => {
+    const html = content(AUDIO);
+    assert.ok(html.includes("storage.audio.confirmTitle(count=214)"));
+    assert.ok(html.includes("storage.audio.confirmBody(count=214,size=1.2 GB)"));
+    assert.match(html, /<code dir="ltr"[^>]*>\/tmp\/loqui-test\/audio<\/code>/);
+    assert.ok(html.includes("storage.audio.confirmButton(count=214)"));
+    assert.match(html, /data-variant="destructive"/);
+  });
+
+  await t.test(
+    "[change-driving] the history confirm counts and names transcripts and audio (C2)",
+    () => {
+      const html = content(HISTORY);
+      assert.ok(
+        html.includes(
+          "storage.history.confirmBody(transcripts=storage.history.transcriptsWithHidden(count=1482,discarded=storage.history.discarded(count=12),deleted=storage.history.softDeleted(count=3)),audio=storage.history.audioFiles(count=214,size=1.2 GB))"
+        )
+      );
+      assert.ok(
+        html.includes(
+          "storage.history.confirmButton(transcripts=storage.history.transcripts(count=1482),audio=storage.history.audioFilesShort(count=214))"
+        )
+      );
+    }
+  );
+});
+
+// ---- Mounted container: the real handlers against a fake window.electronAPI ----
+
+function find(node, predicate) {
+  if (Array.isArray(node)) return node.map((item) => find(item, predicate)).find(Boolean);
+  if (!node || typeof node !== "object") return null;
+  return predicate(node) ? node : find(node.props?.children, predicate);
+}
+const settle = () =>
+  React.act(async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const UNREADABLE = { fileCount: 0, totalBytes: 0, readable: false }; // Plan 02's unreadable usage
+const PREVIEW = {
+  audio: {
+    files: 214,
+    bytes: 1_200_000_000,
+    directory: "/tmp/loqui-test/audio",
+    audioIdentity: AUDIO_IDENTITY,
+  },
+  history: {
+    total: 1482,
+    discarded: 12,
+    softDeleted: 3,
+    withAudio: 199,
+    historyIdentity: HISTORY_IDENTITY,
+  },
+};
+
+function fakeApi({ storage = {}, ...rest } = {}) {
+  const calls = [];
+  const disk = { whisper: true, llm: true };
+  const api = {
+    storage: {
+      preview: async () => PREVIEW,
+      deleteAudio: async (expected) => {
+        calls.push(["deleteAudio", expected]);
+        return { ok: true, deleted: 214, failed: 0, readable: true, remaining: 0, errors: [] };
+      },
+      deleteHistory: async (expected) => {
+        calls.push(["deleteHistory", expected]);
+        return {
+          ok: true,
+          deleted: 1482,
+          remaining: 0,
+          errors: [],
+          audio: { deleted: 214, failed: 0, readable: true, remaining: 0 },
+        };
+      },
+      ...storage,
+    },
+    // Plan 02's hook (useAudioStorageUsage) reads this for the audio row.
+    getAudioStorageUsage: async () => ({
+      fileCount: 214,
+      totalBytes: 1_200_000_000,
+      readable: true,
+    }),
+    listWhisperModels: async () => ({
+      success: true,
+      models: [{ model: "base", downloaded: disk.whisper, size_bytes: 147_951_465 }],
+    }),
+    listParakeetModels: async () => ({ success: true, models: [] }),
+    modelGetAll: async () => [
+      { id: "qwen3.5-2b-q4_k_m", isDownloaded: disk.llm, downloadedSize: 1_329_766_560 },
+    ],
+    getModelCacheRoot: async () => "/tmp/loqui-test/cache",
+    deleteAllWhisperModels: async () => {
+      disk.whisper = false;
+      return { success: true };
+    },
+    deleteAllParakeetModels: async () => ({ success: true }),
+    modelDeleteAll: async () => {
+      disk.llm = false;
+      return { success: true };
+    },
+    cleanupApp: async () => ({ success: true, message: "Cleanup completed", errors: [] }),
+    relaunchApp: async () => {
+      calls.push(["relaunch"]);
+    },
+    ...rest,
+  };
+  return { api, calls };
+}
+
+async function mount(t, api) {
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  const events = [];
+  installBrowserGlobals(t, {
+    initialStorage: {
+      cleanupMode: "local",
+      cleanupModel: "qwen3.5-2b-q4_k_m",
+      useLocalWhisper: "true",
+      uploadUseLocalWhisper: "true",
+    },
+    window: {
+      electronAPI: api,
+      dispatchEvent: (event) => {
+        events.push(event.type);
+        return true;
+      },
+    },
+  });
+  const container = installHookDom(t);
+  const vite = await createRendererServer(t, serverOptions("loqui-storage-list-test-"));
+  const s = await vite.ssrLoadModule("/components/settings/StorageList.tsx");
+  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const toasts = [];
+  const toastApi = {
+    toast: (props) => {
+      toasts.push(props);
+      return String(toasts.length);
+    },
+    dismiss() {},
+    toastCount: 0,
+    dictationErrorActionCount: 0,
+    dismissByPresentation() {},
+  };
+  let tree;
+  function Probe() {
+    tree = s.StorageList();
+    return null;
+  }
+  root = createRoot(container);
+  await React.act(async () =>
+    root.render(
+      React.createElement(ToastContext.Provider, { value: toastApi }, React.createElement(Probe))
+    )
+  );
+  await settle();
+  const part = (type) => find(tree, (node) => node.type === type);
+  return {
+    s,
+    toasts,
+    events,
+    store: useSettingsStore,
+    view: () => part(s.StorageListView).props,
+    dialog: () => part(s.CountedDeleteDialog)?.props ?? null,
+    reset: () => part(s.ResetDialog)?.props ?? null,
+  };
+}
+
+async function confirmDelete(h, kind) {
+  await React.act(async () => h.view().onDelete(kind));
+  await React.act(async () => h.dialog().onConfirm());
+  await settle();
+}
+
+// change-driving (every mounted test): the container does not exist.
+test("[change-driving] history delete sends the reviewed counts and identities and reports main's numbers (C2)", async (t) => {
+  const { api, calls } = fakeApi();
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onDelete("history"));
+  assert.deepEqual(h.dialog().snapshot, {
+    kind: "history",
+    total: 1482,
+    discarded: 12,
+    softDeleted: 3,
+    files: 214,
+    bytes: 1_200_000_000,
+    directory: "/tmp/loqui-test/audio",
+    audioIdentity: AUDIO_IDENTITY,
+    historyIdentity: HISTORY_IDENTITY,
+  });
+  await React.act(async () => h.dialog().onConfirm());
+  await settle();
+  assert.deepEqual(calls, [
+    [
+      "deleteHistory",
+      { total: 1482, files: 214, audioIdentity: AUDIO_IDENTITY, historyIdentity: HISTORY_IDENTITY },
+    ],
+  ]);
+  assert.equal(h.dialog(), null);
+  assert.deepEqual(
+    h.toasts.map((x) => x.title),
+    ["storage.history.done(count=1482)"]
+  );
+});
+
+test("[change-driving] a rejected delete keeps the reviewed snapshot with an unknown outcome (I12)", async (t) => {
+  const { api } = fakeApi({
+    storage: {
+      deleteAudio: async () => {
+        throw new Error("IPC channel closed");
+      },
+    },
+  });
+  const h = await mount(t, api);
+  await confirmDelete(h, "audio");
+  const d = h.dialog();
+  assert.equal(d.phase, "failed");
+  assert.equal(d.snapshot.files, 214);
+  assert.deepEqual(d.last.outcome, {
+    ok: false,
+    deleted: null,
+    remaining: null,
+    errors: ["ipc-failed: IPC channel closed"],
+  });
+  assert.deepEqual(h.toasts, []);
+  const html = renderToStaticMarkup(React.createElement(h.s.CountedDeleteContent, d));
+  assert.match(html, /role="alert"/);
+  assert.ok(html.includes("storage.failed.unknown"));
+  assert.ok(html.includes("ipc-failed: IPC channel closed"));
+  assert.match(html, /data-storage-action="recount"/);
+});
+
+test("[change-driving] a partial result from main shows its exact counts and errors (M4)", async (t) => {
+  const { api } = fakeApi({
+    storage: {
+      deleteAudio: async () => ({
+        ok: false,
+        deleted: 211,
+        failed: 3,
+        readable: true,
+        remaining: 3,
+        errors: ["delete-failed: OpenWhispr-7.webm: EBUSY"],
+      }),
+    },
+  });
+  const h = await mount(t, api);
+  await confirmDelete(h, "audio");
+  const d = h.dialog();
+  assert.equal(d.phase, "failed");
+  assert.deepEqual(d.last.outcome, {
+    ok: false,
+    deleted: 211,
+    remaining: 3,
+    errors: ["delete-failed: OpenWhispr-7.webm: EBUSY"],
+  });
+  const html = renderToStaticMarkup(React.createElement(h.s.CountedDeleteContent, d));
+  assert.match(html, /role="alert"/);
+  assert.ok(html.includes("storage.failed.partial(deleted=211,total=214,remaining=3)"));
+  assert.ok(html.includes("delete-failed: OpenWhispr-7.webm: EBUSY"));
+  assert.deepEqual(h.toasts, []);
+});
+
+test("[change-driving] ok:true with an unknown remainder is still a failure (I12)", async (t) => {
+  const { api } = fakeApi({
+    storage: {
+      deleteAudio: async () => ({
+        ok: true,
+        deleted: 214,
+        failed: 0,
+        readable: true,
+        remaining: null,
+        errors: ["recount-failed: EACCES"],
+      }),
+    },
+  });
+  const h = await mount(t, api);
+  await confirmDelete(h, "audio");
+  assert.equal(h.dialog().phase, "failed");
+  assert.equal(h.dialog().last.outcome.ok, false);
+  assert.deepEqual(h.toasts, []);
+});
+
+test("[change-driving] a failed recount after a delete shows an error row, never zero (I12)", async (t) => {
+  let previews = 0;
+  const { api } = fakeApi({
+    storage: {
+      preview: async () => {
+        previews++;
+        if (previews > 2) throw new Error("EACCES"); // 1: mount, 2: Delete… re-read, 3: after the delete
+        return PREVIEW;
+      },
+    },
+    // load() calls preview first, then the hook's refresh(), so this sees the same read number.
+    getAudioStorageUsage: async () =>
+      previews > 2 ? UNREADABLE : { fileCount: 214, totalBytes: 1_200_000_000, readable: true },
+  });
+  const h = await mount(t, api);
+  await confirmDelete(h, "audio");
+  assert.deepEqual(
+    h.toasts.map((x) => x.title),
+    ["storage.audio.done(count=214)"],
+    "success came from main's typed result"
+  );
+  assert.deepEqual(
+    h.view().audio,
+    { status: "error", error: "unavailable" },
+    "Plan 02's hook: unavailable, not zero"
+  );
+  assert.deepEqual(h.view().history, { status: "error", error: "EACCES" });
+});
+
+test("[change-driving] the dialog keeps the reviewed snapshot while a delete runs (I12)", async (t) => {
+  const pending = deferred();
+  let files = 214;
+  const sent = [];
+  const { api } = fakeApi({
+    storage: {
+      preview: async () => ({ ...PREVIEW, audio: { ...PREVIEW.audio, files } }),
+      deleteAudio: (expected) => {
+        sent.push(expected);
+        return pending.promise;
+      },
+    },
+    getAudioStorageUsage: async () => ({
+      fileCount: files,
+      totalBytes: 1_200_000_000,
+      readable: true,
+    }),
+  });
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onDelete("audio"));
+  await React.act(async () => {
+    h.dialog().onConfirm();
+  });
+  assert.equal(h.dialog().phase, "running");
+  files = 5;
+  await React.act(async () => h.view().onRefresh());
+  await settle();
+  assert.equal(h.view().audio.snapshot.files, 5, "the row refreshed");
+  assert.equal(h.dialog().snapshot.files, 214, "the dialog did not");
+  await React.act(async () => h.dialog().onConfirm());
+  await React.act(async () => h.dialog().onOpenChange(false));
+  assert.deepEqual(
+    sent,
+    [{ files: 214, audioIdentity: AUDIO_IDENTITY }],
+    "reviewed identity stays fixed while running"
+  );
+  assert.equal(sent.length, 1, "a second click while running is ignored");
+  assert.equal(h.dialog().phase, "running", "a running dialog cannot be closed");
+  pending.resolve({ ok: true, deleted: 214, failed: 0, readable: true, remaining: 0, errors: [] });
+  await settle();
+  assert.equal(h.dialog(), null);
+});
+
+test("[change-driving] main's stale refusal brings back the new counts for review (C2)", async (t) => {
+  let total = 1482;
+  const { api } = fakeApi({
+    storage: {
+      preview: async () => ({ ...PREVIEW, history: { ...PREVIEW.history, total } }),
+      deleteHistory: async () => {
+        total = 1483;
+        return {
+          ok: false,
+          deleted: 0,
+          remaining: 1483,
+          errors: ["stale"],
+          audio: { deleted: 0, failed: 0, readable: true, remaining: 214 },
+        };
+      },
+    },
+  });
+  const h = await mount(t, api);
+  await confirmDelete(h, "history");
+  const d = h.dialog();
+  assert.equal(d.phase, "review");
+  assert.equal(d.snapshot.total, 1483);
+  assert.deepEqual(d.last.outcome.errors, ["stale"]);
+  const html = renderToStaticMarkup(React.createElement(h.s.CountedDeleteContent, d));
+  assert.ok(html.includes("storage.failed.stale"));
+  assert.ok(html.includes("storage.history.transcripts(count=1483)"));
+  assert.deepEqual(h.toasts, []);
+});
+
+test("[change-driving] same-count stale refusal refreshes identities and the next confirmation sends the new pair", async (t) => {
+  const newAudioIdentity = "c".repeat(64);
+  const newHistoryIdentity = "d".repeat(64);
+  let changed = false;
+  const sent = [];
+  const { api } = fakeApi({
+    storage: {
+      preview: async () =>
+        changed
+          ? {
+              audio: { ...PREVIEW.audio, audioIdentity: newAudioIdentity },
+              history: { ...PREVIEW.history, historyIdentity: newHistoryIdentity },
+            }
+          : PREVIEW,
+      deleteHistory: async (expected) => {
+        sent.push(expected);
+        if (!changed) {
+          changed = true;
+          return {
+            ok: false,
+            deleted: 0,
+            remaining: 1482,
+            errors: ["stale"],
+            audio: { deleted: 0, failed: 0, readable: true, remaining: 214 },
+          };
+        }
+        return {
+          ok: true,
+          deleted: 1482,
+          remaining: 0,
+          errors: [],
+          audio: { deleted: 214, failed: 0, readable: true, remaining: 0 },
+        };
+      },
+    },
+  });
+  const h = await mount(t, api);
+  await confirmDelete(h, "history");
+  assert.equal(h.dialog().phase, "review");
+  assert.equal(h.dialog().snapshot.total, 1482, "counts need not change");
+  assert.equal(h.dialog().snapshot.audioIdentity, newAudioIdentity);
+  assert.equal(h.dialog().snapshot.historyIdentity, newHistoryIdentity);
+  assert.deepEqual(h.toasts, []);
+  await React.act(async () => h.dialog().onConfirm());
+  await settle();
+  assert.deepEqual(sent, [
+    { total: 1482, files: 214, audioIdentity: AUDIO_IDENTITY, historyIdentity: HISTORY_IDENTITY },
+    {
+      total: 1482,
+      files: 214,
+      audioIdentity: newAudioIdentity,
+      historyIdentity: newHistoryIdentity,
+    },
+  ]);
+  assert.equal(h.dialog(), null);
+});
+
+test("[change-driving] models: typed per-family outcomes; selections stay after a partial delete", async (t) => {
+  const { api } = fakeApi({
+    deleteAllParakeetModels: async () => {
+      throw new Error("EBUSY");
+    },
+    modelDeleteAll: async () => ({ success: false, error: "MODEL_BUSY" }),
+  });
+  const h = await mount(t, api);
+  assert.equal(h.view().models.snapshot.count, 2);
+  await confirmDelete(h, "models");
+  const d = h.dialog();
+  assert.equal(d.phase, "failed");
+  assert.deepEqual(d.last.outcome, {
+    ok: false,
+    deleted: 1,
+    remaining: 1,
+    errors: ["parakeet: EBUSY", "llm: MODEL_BUSY"],
+    families: [
+      { family: "whisper", ok: true },
+      { family: "parakeet", ok: false, error: "EBUSY" },
+      { family: "llm", ok: false, error: "MODEL_BUSY" },
+    ],
+  });
+  assert.equal(
+    h.store.getState().cleanupModel,
+    "qwen3.5-2b-q4_k_m",
+    "a file is left, so selections stay"
+  );
+  assert.ok(h.events.includes("openwhispr-models-cleared"));
+  const html = renderToStaticMarkup(React.createElement(h.s.CountedDeleteContent, d));
+  assert.ok(html.includes("storage.models.familyFailed(family=storage.models.families.parakeet)"));
+  assert.ok(html.includes("storage.failed.partial(deleted=1,total=2,remaining=1)"));
+});
+
+// The audio row runs on Plan 02's useAudioStorageUsage (its own tests stay unchanged); these pin that
+// the Storage list keeps its unavailable state and clearAllAudio.test.js's "re-reads before confirming
+// and never confirms a stale count". change-driving: the container does not exist.
+test("[change-driving] an unreadable or rejected first read is unavailable, and opens no confirmation (Plan 02, §5.6)", async (t) => {
+  const reject = async () => {
+    throw new Error("ipc down");
+  };
+  for (const [index, [preview, getAudioStorageUsage]] of [
+    [
+      async () => ({ ...PREVIEW, audio: { error: "ENOTDIR: not a directory" } }),
+      async () => UNREADABLE,
+    ],
+    [reject, reject],
+  ].entries()) {
+    await t.test(`unreadable case ${index}`, async (t) => {
+      const { api, calls } = fakeApi({ storage: { preview }, getAudioStorageUsage });
+      const h = await mount(t, api);
+      assert.deepEqual(h.view().audio, { status: "error", error: "unavailable" });
+      await React.act(async () => h.view().onDelete("audio"));
+      assert.equal(h.dialog(), null);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
+test("[change-driving] Delete… re-reads before confirming; a failed re-read opens nothing (Plan 02, §5.6)", async (t) => {
+  let previews = 0;
+  let files = 214;
+  const { api, calls } = fakeApi({
+    storage: {
+      preview: async () => {
+        previews++;
+        if (previews === 3) throw new Error("EACCES");
+        return { ...PREVIEW, audio: { ...PREVIEW.audio, files } };
+      },
+    },
+    getAudioStorageUsage: async () =>
+      previews >= 3 ? UNREADABLE : { fileCount: files, totalBytes: 1_200_000_000, readable: true },
+  });
+  const h = await mount(t, api); // read 1
+  files = 210;
+  await React.act(async () => h.view().onDelete("audio")); // read 2
+  assert.equal(
+    h.dialog().snapshot.files,
+    210,
+    "the confirm shows the fresh count, not the row's older one"
+  );
+  await React.act(async () => h.dialog().onCancel());
+  await React.act(async () => h.view().onDelete("audio")); // read 3 fails
+  assert.equal(h.dialog(), null, "no confirmation on a failed read");
+  assert.deepEqual(
+    h.view().audio,
+    { status: "error", error: "unavailable" },
+    "the stale count is not kept"
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("[change-driving] models: selections are cleared only when every model file is gone", async (t) => {
+  const { api } = fakeApi();
+  const h = await mount(t, api);
+  await confirmDelete(h, "models");
+  assert.equal(h.dialog(), null);
+  assert.equal(h.store.getState().cleanupModel, "");
+  assert.deepEqual(
+    h.toasts.map((x) => x.title),
+    ["storage.models.done(count=2)"]
+  );
+});
+
+test("[change-driving] a partial reset stays open with its errors and never relaunches (I12)", async (t) => {
+  let attempts = 0;
+  const { api, calls } = fakeApi({
+    cleanupApp: async () => {
+      attempts++;
+      return attempts === 1
+        ? { success: false, message: "Cleanup completed", errors: ["DB file: EBUSY"] }
+        : { success: true, message: "Cleanup completed", errors: [] };
+    },
+  });
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onReset());
+  assert.equal(h.reset().confirmDisabled, true, "the word has not been typed");
+  await React.act(async () => h.reset().onConfirm());
+  assert.equal(attempts, 0);
+  await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+  assert.equal(h.reset().confirmDisabled, false);
+  await React.act(async () => h.reset().onConfirm());
+  await settle();
+  assert.equal(h.reset().phase, "failed");
+  assert.deepEqual(h.reset().errors, ["DB file: EBUSY"]);
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.match(html, /role="alert"/);
+  assert.ok(html.includes("DB file: EBUSY"));
+  await wait(1100);
+  assert.deepEqual(calls, [], "no relaunch after a failed reset");
+
+  await React.act(async () => h.reset().onConfirm()); // "Try again"
+  await settle();
+  assert.equal(h.reset().phase, "done");
+  await wait(1100);
+  assert.deepEqual(calls, [["relaunch"]]);
+});
+
+test("[change-driving] a rejected reset keeps the dialog open with the IPC error (I12)", async (t) => {
+  const { api, calls } = fakeApi({
+    cleanupApp: async () => {
+      throw new Error("main crashed");
+    },
+  });
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onReset());
+  await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+  await React.act(async () => h.reset().onConfirm());
+  await settle();
+  assert.equal(h.reset().phase, "failed");
+  assert.deepEqual(h.reset().errors, ["ipc-failed: main crashed"]);
+  await wait(1100);
+  assert.deepEqual(calls, []);
+});
+
+// change-driving: even an empty recount cannot override a typed family failure.
+test("[change-driving] models: failed family with zero recount keeps raw selections and fails", async (t) => {
+  const { api } = fakeApi();
+  const erase = api.modelDeleteAll;
+  api.modelDeleteAll = async () => {
+    await erase();
+    return { success: false, error: "PARTIAL_FAILURE" };
+  };
+  const h = await mount(t, api);
+  await confirmDelete(h, "models");
+  assert.equal(h.dialog().phase, "failed");
+  assert.equal(h.dialog().last.outcome.remaining, 0);
+  assert.equal(h.store.getState().cleanupModel, "qwen3.5-2b-q4_k_m");
+  assert.deepEqual(h.toasts, []);
+});
+
+// change-driving: the hook's failed fresh read must block the confirmation too.
+test("[change-driving] audio Delete refuses a failed hook read even with a valid main preview", async (t) => {
+  const { api, calls } = fakeApi({ getAudioStorageUsage: async () => UNREADABLE });
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onDelete("audio"));
+  assert.equal(h.dialog(), null);
+  assert.deepEqual(calls, []);
+});
+
+// change-driving: capability is independent of storage inventory (Task 13).
+test("[change-driving] downloaded models count even when hardware is unsupported", async (t) => {
+  const { api } = fakeApi({
+    listParakeetModels: async () => ({
+      success: true,
+      supported: false,
+      models: [{ downloaded: true, size_bytes: 100 }],
+    }),
+    checkParakeetInstallation: async () => ({ supported: false }),
+  });
+  const h = await mount(t, api);
+  assert.equal(h.view().models.snapshot.count, 3);
+  assert.equal(h.view().models.snapshot.bytes, 147951465 + 1329766560 + 100);
+});
+
+// change-driving: a missing family success cannot retire even an empty inventory.
+test("[change-driving] models: malformed family outcome with zero recount preserves selection", async (t) => {
+  const { api } = fakeApi();
+  const erase = api.modelDeleteAll;
+  api.modelDeleteAll = async () => {
+    await erase();
+    return undefined;
+  };
+  const h = await mount(t, api);
+  await confirmDelete(h, "models");
+  assert.equal(h.dialog().phase, "failed");
+  assert.equal(h.dialog().last.outcome.remaining, 0);
+  assert.deepEqual(h.dialog().last.outcome.errors, ["llm: no success result"]);
+  assert.equal(h.store.getState().cleanupModel, "qwen3.5-2b-q4_k_m");
+});
+
+// change-driving: state updates alone cannot fence two same-turn confirmations.
+test("[change-driving] duplicate-reset confirmations invoke cleanup only once", async (t) => {
+  const pending = deferred();
+  let attempts = 0;
+  const { api } = fakeApi({
+    cleanupApp: () => {
+      attempts++;
+      return pending.promise;
+    },
+  });
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onReset());
+  await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+  const confirm = h.reset().onConfirm;
+  await React.act(async () => {
+    confirm();
+    confirm();
+  });
+  const callsWhileRunning = attempts;
+  pending.resolve({ success: false, errors: ["fixture reset refused"] });
+  await settle();
+  assert.equal(callsWhileRunning, 1);
+  assert.equal(h.reset().phase, "failed");
+});
+
+// change-driving: all typed deletes still need a complete, valid inventory recount.
+test("[change-driving] malformed model recount preserves raw selections and unknown remainder", async (t) => {
+  const { api } = fakeApi();
+  let deleted = false;
+  const list = api.modelGetAll;
+  const erase = api.modelDeleteAll;
+  api.modelGetAll = async () => (deleted ? [{}] : list());
+  api.modelDeleteAll = async () => {
+    const result = await erase();
+    deleted = true;
+    return result;
+  };
+  const h = await mount(t, api);
+  await confirmDelete(h, "models");
+  assert.equal(h.dialog()?.phase, "failed");
+  assert.equal(h.dialog().last.outcome.remaining, null);
+  assert.match(h.dialog().last.outcome.errors[0], /^recount-failed: llm:/);
+  assert.equal(h.store.getState().cleanupModel, "qwen3.5-2b-q4_k_m");
+  assert.deepEqual(h.toasts, []);
+});

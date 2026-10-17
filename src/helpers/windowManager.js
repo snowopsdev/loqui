@@ -979,7 +979,6 @@ class WindowManager {
     this._isDictatingToggle = isDictationRecording(nextState);
     this.meetingDetectionEngine?.setUserRecording(this._isDictatingToggle);
     this._sendAgentDictationPillState();
-    this._controlPanelLevelSentAt = null;
     this._sendControlPanelDictationState();
     this.onDictationStateChanged?.();
   }

@@ -952,6 +952,55 @@ test("control panel audio levels are recording-only and throttled at the 66/67ms
   assert.deepEqual(levels(), [0.2, 0.4]);
 });
 
+test("control panel audio cadence survives recording input-kind changes", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 20_000 });
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow();
+  manager.controlPanelWindow = panel.window;
+  const levels = () =>
+    panel.sent.filter((m) => m.channel === "dictation-level-changed").map((m) => m.payload);
+
+  manager.setDictationLifecycleState("recording", "dictation");
+  manager.setDictationAudioLevel(0.1);
+  assert.deepEqual(levels(), [0.1], "the initially eligible sample is sent");
+
+  t.mock.timers.tick(1);
+  manager.setDictationLifecycleState("recording", "translation");
+  manager.setDictationAudioLevel(0.2);
+  t.mock.timers.tick(65);
+  manager.setDictationAudioLevel(0.3);
+  assert.deepEqual(levels(), [0.1], "input-kind changes do not reset the last send time");
+
+  t.mock.timers.tick(1);
+  manager.setDictationAudioLevel(0.4);
+  assert.deepEqual(levels(), [0.1, 0.4], "a sample is eligible at 67ms");
+});
+
+test("control panel audio cadence survives recording stopping and restarting", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 30_000 });
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow();
+  manager.controlPanelWindow = panel.window;
+  const levels = () =>
+    panel.sent.filter((m) => m.channel === "dictation-level-changed").map((m) => m.payload);
+
+  manager.setDictationLifecycleState("recording", "dictation");
+  manager.setDictationAudioLevel(0.1);
+  assert.deepEqual(levels(), [0.1], "the initially eligible sample is sent");
+
+  t.mock.timers.tick(1);
+  manager.setDictationLifecycleState("idle", "dictation");
+  manager.setDictationLifecycleState("recording", "dictation");
+  manager.setDictationAudioLevel(0.2);
+  t.mock.timers.tick(65);
+  manager.setDictationAudioLevel(0.3);
+  assert.deepEqual(levels(), [0.1], "restarting recording does not reset the last send time");
+
+  t.mock.timers.tick(1);
+  manager.setDictationAudioLevel(0.4);
+  assert.deepEqual(levels(), [0.1, 0.4], "a sample is eligible at 67ms");
+});
+
 test("loading or missing control panels do not queue audio-level listeners", () => {
   const manager = new WindowManager();
   const panel = makeControlPanelWindow({ loading: true });

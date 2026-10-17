@@ -1207,7 +1207,8 @@
     "openSettings": "Ouvrir les Réglages Système",
     "connectCalendar": "Connectez votre calendrier",
     "connectCalendarDescription": "Consultez vos réunions et rejoignez-les sans quitter Loqui.",
-    "connectCalendarButton": "Connecter le calendrier"
+    "connectCalendarButton": "Connecter le calendrier",
+    "todayLabel": "Aujourd’hui"
   },
   "cleanupPrompt": "Correction",
   "developerSection": {
@@ -4234,6 +4235,24 @@
       "meeting": "Réunion",
       "assistant": "Assistant",
       "translation": "Traduction"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "État de la dictée",
+      "ready": "Prêt",
+      "listening": "À l’écoute",
+      "listeningFor": "À l’écoute {{time}}",
+      "cleaningUp": "Nettoyage…",
+      "offline": "Micro déconnecté",
+      "hold": "Maintenez <kbd>{{key}}</kbd> pour dicter",
+      "press": "Appuyez sur <kbd>{{key}}</kbd> pour dicter",
+      "nextNow": "{{title}} est en cours",
+      "nextAt": "{{title}} à {{time}}",
+      "takeNotes": "Prendre des notes",
+      "nextIn_one": "{{title}} dans {{count}} min",
+      "nextIn_many": "{{title}} dans {{count}} min",
+      "nextIn_other": "{{title}} dans {{count}} min"
     }
   }
 }

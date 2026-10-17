@@ -3454,7 +3454,8 @@
     "openSettings": "Открыть Системные настройки",
     "connectCalendar": "Подключите календарь",
     "connectCalendarDescription": "Просматривайте встречи и присоединяйтесь к ним, не выходя из Loqui.",
-    "connectCalendarButton": "Подключить календарь"
+    "connectCalendarButton": "Подключить календарь",
+    "todayLabel": "Сегодня"
   },
   "notesView": {
     "searchPlaceholder": "Поиск заметок…",
@@ -4320,6 +4321,25 @@
       "meeting": "Встреча",
       "assistant": "Ассистент",
       "translation": "Перевод"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "Состояние диктовки",
+      "ready": "Готово",
+      "listening": "Слушаю",
+      "listeningFor": "Слушаю {{time}}",
+      "cleaningUp": "Обработка…",
+      "offline": "Микрофон недоступен",
+      "hold": "Удерживайте <kbd>{{key}}</kbd> для диктовки",
+      "press": "Нажмите <kbd>{{key}}</kbd> для диктовки",
+      "nextNow": "{{title}} уже идёт",
+      "nextAt": "{{title}} в {{time}}",
+      "takeNotes": "Делать заметки",
+      "nextIn_one": "{{title}} через {{count}} мин",
+      "nextIn_few": "{{title}} через {{count}} мин",
+      "nextIn_many": "{{title}} через {{count}} мин",
+      "nextIn_other": "{{title}} через {{count}} мин"
     }
   }
 }

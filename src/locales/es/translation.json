@@ -3470,7 +3470,8 @@
     "openSettings": "Abrir Ajustes del Sistema",
     "connectCalendar": "Conecta tu calendario",
     "connectCalendarDescription": "Ve tus reuniones y únete a ellas sin salir de Loqui.",
-    "connectCalendarButton": "Conectar calendario"
+    "connectCalendarButton": "Conectar calendario",
+    "todayLabel": "Hoy"
   },
   "notesView": {
     "searchPlaceholder": "Buscar notas…",
@@ -4234,6 +4235,24 @@
       "meeting": "Reunión",
       "assistant": "Asistente",
       "translation": "Traducción"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "Estado del dictado",
+      "ready": "Listo",
+      "listening": "Escuchando",
+      "listeningFor": "Escuchando {{time}}",
+      "cleaningUp": "Limpiando…",
+      "offline": "Micrófono desconectado",
+      "hold": "Mantén <kbd>{{key}}</kbd> para dictar",
+      "press": "Pulsa <kbd>{{key}}</kbd> para dictar",
+      "nextNow": "{{title}} está en curso",
+      "nextAt": "{{title}} a las {{time}}",
+      "takeNotes": "Tomar notas",
+      "nextIn_one": "{{title}} en {{count}} min",
+      "nextIn_other": "{{title}} en {{count}} min",
+      "nextIn_many": "{{title}} en {{count}} min"
     }
   }
 }

@@ -1207,7 +1207,8 @@
     "openSettings": "Systemeinstellungen öffnen",
     "connectCalendar": "Kalender verbinden",
     "connectCalendarDescription": "Sieh deine Meetings und tritt ihnen bei, ohne Loqui zu verlassen.",
-    "connectCalendarButton": "Kalender verbinden"
+    "connectCalendarButton": "Kalender verbinden",
+    "todayLabel": "Heute"
   },
   "cleanupPrompt": "Textbereinigung",
   "developerSection": {
@@ -4228,6 +4229,23 @@
       "meeting": "Besprechung",
       "assistant": "Assistent",
       "translation": "Übersetzung"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "Diktierstatus",
+      "ready": "Bereit",
+      "listening": "Hört zu",
+      "listeningFor": "Hört zu {{time}}",
+      "cleaningUp": "Wird bereinigt…",
+      "offline": "Mikrofon offline",
+      "hold": "Zum Diktieren <kbd>{{key}}</kbd> gedrückt halten",
+      "press": "Zum Diktieren <kbd>{{key}}</kbd> drücken",
+      "nextNow": "{{title}} läuft jetzt",
+      "nextAt": "{{title}} um {{time}}",
+      "takeNotes": "Notizen machen",
+      "nextIn_one": "{{title}} in {{count}} Min.",
+      "nextIn_other": "{{title}} in {{count}} Min."
     }
   }
 }

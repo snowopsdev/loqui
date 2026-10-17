@@ -3416,7 +3416,8 @@
     "openSettings": "システム設定を開く",
     "connectCalendar": "カレンダーを接続",
     "connectCalendarDescription": "Loqui を離れずに会議を確認して参加できます。",
-    "connectCalendarButton": "カレンダーを接続"
+    "connectCalendarButton": "カレンダーを接続",
+    "todayLabel": "今日"
   },
   "notesView": {
     "searchPlaceholder": "ノートを検索…",
@@ -4202,6 +4203,22 @@
       "meeting": "会議",
       "assistant": "アシスタント",
       "translation": "翻訳"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "音声入力の状態",
+      "ready": "準備完了",
+      "listening": "聞き取り中",
+      "listeningFor": "聞き取り中 {{time}}",
+      "cleaningUp": "整形中…",
+      "offline": "マイク未接続",
+      "hold": "<kbd>{{key}}</kbd>を押し続けて音声入力",
+      "press": "<kbd>{{key}}</kbd>を押して音声入力",
+      "nextNow": "{{title}}は開催中です",
+      "nextAt": "{{title}}は{{time}}から",
+      "takeNotes": "ノートを取る",
+      "nextIn_other": "{{title}}まで{{count}}分"
     }
   }
 }

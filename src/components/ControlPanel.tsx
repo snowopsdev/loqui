@@ -908,6 +908,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                 {activeView === "home" && <FinishDictationSetupCard />}
                 {activeView === "home" && (
                   <HistoryView
+                    capture={capture}
                     history={history}
                     isLoading={isLoading}
                     hotkey={hotkey}

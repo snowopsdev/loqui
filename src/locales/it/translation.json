@@ -3417,7 +3417,8 @@
     "openSettings": "Apri Impostazioni di Sistema",
     "connectCalendar": "Collega il tuo calendario",
     "connectCalendarDescription": "Vedi le tue riunioni e partecipa senza uscire da Loqui.",
-    "connectCalendarButton": "Collega calendario"
+    "connectCalendarButton": "Collega calendario",
+    "todayLabel": "Oggi"
   },
   "notesView": {
     "searchPlaceholder": "Cerca note…",
@@ -4234,6 +4235,24 @@
       "meeting": "Riunione",
       "assistant": "Assistente",
       "translation": "Traduzione"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "Stato della dettatura",
+      "ready": "Pronto",
+      "listening": "In ascolto",
+      "listeningFor": "In ascolto {{time}}",
+      "cleaningUp": "Pulizia in corso…",
+      "offline": "Microfono scollegato",
+      "hold": "Tieni premuto <kbd>{{key}}</kbd> per dettare",
+      "press": "Premi <kbd>{{key}}</kbd> per dettare",
+      "nextNow": "{{title}} è in corso",
+      "nextAt": "{{title}} alle {{time}}",
+      "takeNotes": "Prendi appunti",
+      "nextIn_one": "{{title}} tra {{count}} min",
+      "nextIn_many": "{{title}} tra {{count}} min",
+      "nextIn_other": "{{title}} tra {{count}} min"
     }
   }
 }

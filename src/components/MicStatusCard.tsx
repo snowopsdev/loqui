@@ -56,14 +56,26 @@ const LABEL_KEY = {
 
 // Static glyphs. The live meter belongs to the Capture button and the edge
 // rail; Plan 01's motion rule allows at most two focal motions at once.
-function StateGlyph({ status }: Pick<MicStatusCardProps, "status">) {
+export function CaptureGlyph({ status }: { status: CaptureStatus }) {
   if (status.kind === "listening")
-    return <span aria-hidden className="size-2 rounded-full bg-live" />;
+    return <span aria-hidden className="size-2 shrink-0 rounded-full bg-link dark:bg-live" />;
   if (status.kind === "processing")
-    return <Loader2 size={12} aria-hidden className="text-warning" />;
+    return (
+      <Loader2
+        size={12}
+        aria-hidden
+        className="shrink-0 text-warning-foreground dark:text-warning"
+      />
+    );
   if (status.kind === "offline")
-    return <AlertTriangle size={12} aria-hidden className="text-warning" />;
-  return <span aria-hidden className="size-2 rounded-full bg-success" />;
+    return (
+      <AlertTriangle
+        size={12}
+        aria-hidden
+        className="shrink-0 text-warning-foreground dark:text-warning"
+      />
+    );
+  return <span aria-hidden className="size-2 shrink-0 rounded-full bg-success" />;
 }
 
 export function MicStatusCard({
@@ -104,7 +116,7 @@ export function MicStatusCard({
         title={label}
         className="mx-auto flex size-10 items-center justify-center rounded-md hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <StateGlyph status={status} />
+        <CaptureGlyph status={status} />
         <span className="sr-only" role="status" aria-live="polite">
           {label}
         </span>
@@ -121,7 +133,7 @@ export function MicStatusCard({
       className="mx-2 mb-1 flex w-[calc(100%-1rem)] min-w-0 flex-col gap-1 rounded-lg border border-border/70 bg-background/60 px-2.5 py-2 text-start hover:bg-background dark:border-white/10 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="flex items-center gap-2">
-        <StateGlyph status={status} />
+        <CaptureGlyph status={status} />
         <span
           role="status"
           aria-live="polite"

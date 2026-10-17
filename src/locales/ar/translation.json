@@ -1435,7 +1435,8 @@
     "openSettings": "فتح إعدادات النظام",
     "connectCalendar": "اربط تقويمك",
     "connectCalendarDescription": "شاهد اجتماعاتك وانضم إليها دون مغادرة Loqui.",
-    "connectCalendarButton": "ربط التقويم"
+    "connectCalendarButton": "ربط التقويم",
+    "todayLabel": "اليوم"
   },
   "notes": {
     "sidebar": {
@@ -4436,6 +4437,27 @@
       "meeting": "الاجتماع",
       "assistant": "المساعد",
       "translation": "الترجمة"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "حالة الإملاء",
+      "ready": "جاهز",
+      "listening": "جارٍ الاستماع",
+      "listeningFor": "جارٍ الاستماع {{time}}",
+      "cleaningUp": "جارٍ التنقيح…",
+      "offline": "الميكروفون غير متصل",
+      "hold": "اضغط مطولًا على <kbd>{{key}}</kbd> للإملاء",
+      "press": "اضغط على <kbd>{{key}}</kbd> للإملاء",
+      "nextNow": "{{title}} جارٍ الآن",
+      "nextAt": "{{title}} في {{time}}",
+      "takeNotes": "تدوين ملاحظات",
+      "nextIn_zero": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_one": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_two": "{{title}} بعد {{count}} دقيقتين",
+      "nextIn_few": "{{title}} بعد {{count}} دقائق",
+      "nextIn_many": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_other": "{{title}} بعد {{count}} دقيقة"
     }
   }
 }

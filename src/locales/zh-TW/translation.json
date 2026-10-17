@@ -3416,7 +3416,8 @@
     "openSettings": "打開系統設定",
     "connectCalendar": "連接您的日曆",
     "connectCalendarDescription": "無需離開 Loqui 即可查看並加入您的會議。",
-    "connectCalendarButton": "連接日曆"
+    "connectCalendarButton": "連接日曆",
+    "todayLabel": "今天"
   },
   "notesView": {
     "searchPlaceholder": "搜尋筆記…",
@@ -4202,6 +4203,22 @@
       "meeting": "會議",
       "assistant": "助理",
       "translation": "翻譯"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "語音輸入狀態",
+      "ready": "就緒",
+      "listening": "正在聆聽",
+      "listeningFor": "正在聆聽 {{time}}",
+      "cleaningUp": "正在整理…",
+      "offline": "麥克風離線",
+      "hold": "按住<kbd>{{key}}</kbd>進行語音輸入",
+      "press": "按下<kbd>{{key}}</kbd>進行語音輸入",
+      "nextNow": "{{title}}正在進行",
+      "nextAt": "{{title}}於{{time}}開始",
+      "takeNotes": "做筆記",
+      "nextIn_other": "{{title}}將在{{count}}分鐘後開始"
     }
   }
 }

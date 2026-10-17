@@ -3417,7 +3417,8 @@
     "openSettings": "Abrir Configurações do Sistema",
     "connectCalendar": "Conecte seu calendário",
     "connectCalendarDescription": "Veja suas reuniões e entre nelas sem sair do Loqui.",
-    "connectCalendarButton": "Conectar calendário"
+    "connectCalendarButton": "Conectar calendário",
+    "todayLabel": "Hoje"
   },
   "notesView": {
     "searchPlaceholder": "Pesquisar notas…",
@@ -4234,6 +4235,24 @@
       "meeting": "Reunião",
       "assistant": "Assistente",
       "translation": "Tradução"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "Estado do ditado",
+      "ready": "Pronto",
+      "listening": "A ouvir",
+      "listeningFor": "A ouvir {{time}}",
+      "cleaningUp": "A limpar…",
+      "offline": "Microfone desligado",
+      "hold": "Mantenha <kbd>{{key}}</kbd> premida para ditar",
+      "press": "Prima <kbd>{{key}}</kbd> para ditar",
+      "nextNow": "{{title}} está a decorrer",
+      "nextAt": "{{title}} às {{time}}",
+      "takeNotes": "Tirar notas",
+      "nextIn_one": "{{title}} dentro de {{count}} min",
+      "nextIn_many": "{{title}} dentro de {{count}} min",
+      "nextIn_other": "{{title}} dentro de {{count}} min"
     }
   }
 }

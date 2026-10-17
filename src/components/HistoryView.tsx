@@ -1,5 +1,9 @@
 import { Fragment, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useLiveClock, type CaptureStatusModel } from "../hooks/useCaptureStatus";
+import { useNow } from "../hooks/useNow";
+import { nextUpcomingEvent, startMeetingNotes } from "../lib/upcomingEvents";
+import { ReadyStrip } from "./home/ReadyStrip";
 import { useUiLocale } from "../hooks/useUiLocale";
 import { useUpcomingEvents } from "../hooks/useUpcomingEvents";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -17,6 +21,7 @@ import UpcomingMeetings from "./UpcomingMeetings";
 const EMPTY_PREVIEW_WIDTHS = ["w-full", "w-4/5", "w-3/5"];
 
 interface HistoryViewProps {
+  capture: CaptureStatusModel;
   history: TranscriptionItemType[];
   isLoading: boolean;
   hotkey: string;
@@ -35,6 +40,7 @@ interface HistoryViewProps {
 }
 
 export default function HistoryView({
+  capture,
   history,
   isLoading,
   hotkey,
@@ -56,6 +62,12 @@ export default function HistoryView({
   const personalDataRetentionEnabled = useSettingsStore((s) => s.dataRetentionEnabled);
   const dataRetentionEnabled = personalDataRetentionEnabled;
   const { events, isLoading: eventsLoading, isConnected } = useUpcomingEvents();
+
+  const now = useNow(30_000);
+  const tick = useLiveClock(capture.kind === "listening");
+  const nowMs = capture.kind === "listening" ? tick : now.getTime();
+  const holdToTalk = useSettingsStore((s) => s.activationMode === "push");
+  const next = useMemo(() => nextUpcomingEvent(events, now), [events, now]);
 
   const groupedHistory = useMemo(() => {
     if (history.length === 0) return [];
@@ -92,7 +104,19 @@ export default function HistoryView({
   );
 
   return (
-    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 pt-4 pb-6")}>
+    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "@container px-6 pt-4 pb-6")}>
+      <ReadyStrip
+        status={capture}
+        now={nowMs}
+        hotkeyLabel={formatHotkeyLabel(parseHotkeyList(hotkey)[0])}
+        holdToTalk={holdToTalk}
+        next={
+          next
+            ? { title: next.event.summary || t("upcoming.untitledEvent"), start: next.start }
+            : null
+        }
+        onTakeNotes={() => next && startMeetingNotes(next.event)}
+      />
       {!useCleanupModel && !aiCTADismissed && (
         <div className="mb-3 relative rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/10 p-3">
           <button
@@ -222,7 +246,7 @@ export default function HistoryView({
           )}
         </div>
 
-        <div className="hidden w-80 shrink-0 md:block">
+        <div className="hidden w-80 shrink-0 @min-[960px]:block">
           <UpcomingMeetings
             events={events}
             isLoading={eventsLoading}

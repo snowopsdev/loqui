@@ -4,7 +4,13 @@ const { installBrowserGlobals } = require("../lib/rendererTestHarness");
 const { createProbeRoot, findElement } = require("../lib/probeRoot");
 const { rendererServer, routeTestApi, toastCapture } = require("../lib/routeTestApi");
 const { MIGRATED_STORAGE, TEST_COPY, testFacts } = require("../lib/routeStateFixture");
-const { TEAM_A, TEAM_B, ENDPOINT_CASES, endpointState } = require("../lib/endpointIdentityFixture");
+const {
+  TEAM_A,
+  TEAM_B,
+  ENDPOINT_CASES,
+  endpointState,
+  AZURE_ENDPOINT_CASES,
+} = require("../lib/endpointIdentityFixture");
 
 test("change-driving: mounted route application reviews semantic paths before Apply and exact Undo", async (t) => {
   const writes = [];
@@ -52,10 +58,10 @@ test("change-driving: mounted route application reviews semantic paths before Ap
   const bar = await probes.mount("bar", () => StagedRouteBar({ shortcut: false }));
   const canonical = () =>
     Object.fromEntries(ROUTE_PATCH_KEYS.map((key) => [key, useSettingsStore.getState()[key]]));
-  const reset = async (entry) => {
+  const reset = async (entry, url = TEAM_A) => {
     await probes.act(() => {
       drafts.useRouteDraftStore.getState().discard();
-      const state = endpointState(entry);
+      const state = endpointState(entry, url);
       main = Object.fromEntries(
         [
           "azureEndpoint",
@@ -125,6 +131,98 @@ test("change-driving: mounted route application reviews semantic paths before Ap
         }
       }
     );
+  }
+  // Reach the raw Azure values through the production editor, not a direct store write.
+  const Editor = (await vite.ssrLoadModule("/components/settings/InferenceConfigEditor.tsx"))
+    .default;
+  const azureEntry = ENDPOINT_CASES.find((item) => item.key === "azureEndpoint");
+  const azure = {
+    ...azureEntry,
+    overrides: { ...azureEntry.overrides, cleanupMode: "providers", chatAgentMode: "providers" },
+  };
+  for (const { from, to, staged } of AZURE_ENDPOINT_CASES) {
+    for (const [beforeUrl, afterUrl] of [
+      [from, to],
+      [to, from],
+    ]) {
+      await t.test(
+        `${staged ? "change-driving" : "baseline guard"}: Azure editor ${beforeUrl} → ${afterUrl}`,
+        async (caseTest) => {
+          caseTest.after(async () => {
+            await probes.mount("azure-field", () => null);
+            await probes.mount("azure-config", () => null);
+            await probes.mount("azure-selector", () => null);
+            await probes.mount("azure-editor", () => null);
+          });
+          await reset(azure, beforeUrl);
+          const before = canonical();
+          const editor = await probes.mount("azure-editor", () =>
+            Editor({ scope: "dictationCleanup" })
+          );
+          const selectorElement = () =>
+            findElement(editor(), (node) => node.type?.name === "ReasoningModelSelector");
+          const selector = await probes.mount("azure-selector", () =>
+            selectorElement().type(selectorElement().props)
+          );
+          const configElement = () =>
+            findElement(selector(), (node) => node.type?.name === "EnterpriseProviderConfig");
+          const config = await probes.mount("azure-config", () =>
+            configElement().type(configElement().props)
+          );
+          const draftElement = () =>
+            findElement(
+              config(),
+              (node) => node.type?.name === "DraftField" && node.props.value === beforeUrl
+            );
+          const field = await probes.mount("azure-field", () =>
+            draftElement().type(draftElement().props)
+          );
+          const input = () =>
+            findElement(field(), (node) => typeof node.props?.onBlur === "function");
+          await probes.act(() => input().props.onChange({ target: { value: afterUrl } }));
+          assert.deepEqual(canonical(), before, "typing keeps exact canonical raw settings");
+          assert.equal(writes.length, 0);
+          await probes.act(() => input().props.onBlur());
+          await probes.settle();
+          if (staged) {
+            assert.deepEqual(canonical(), before, "leaving the editor cannot bypass Apply");
+            assert.equal(writes.length, 0);
+            assert.deepEqual(
+              bar().props.plan.changes.map((change) => change.id),
+              azure.ids
+            );
+            assert.deepEqual(bar().props.plan.patch, { azureEndpoint: afterUrl });
+            await apply();
+          }
+          assert.equal(useSettingsStore.getState().azureEndpoint, afterUrl);
+          assert.equal(writes.length, 1);
+          assert.deepEqual(writes[0].patch, { azureEndpoint: afterUrl });
+          assert.equal(writes[0].expected.azureEndpoint, beforeUrl);
+          const identity = drafts.useRouteDraftStore.getState().draftIdentity;
+          await probes.act(() => toasts.at(-1).actions[0].onClick());
+          await probes.settle();
+          if (staged) {
+            assert.equal(
+              useSettingsStore.getState().azureEndpoint,
+              afterUrl,
+              "Undo awaits reverse review"
+            );
+            assert.equal(writes.length, 1);
+            assert.deepEqual(
+              bar().props.plan.changes.map((change) => change.id),
+              azure.ids
+            );
+            assert.deepEqual(bar().props.plan.patch, { azureEndpoint: beforeUrl });
+            assert.ok(drafts.useRouteDraftStore.getState().draftIdentity > identity);
+            await apply();
+          }
+          assert.deepEqual(canonical(), before, "Undo restores every raw setting exactly");
+          assert.equal(writes.length, 2);
+          assert.deepEqual(writes[1].patch, { azureEndpoint: beforeUrl });
+          assert.equal(writes[1].expected.azureEndpoint, afterUrl);
+        }
+      );
+    }
   }
   await t.test(
     "baseline guard: an awaiting semantic-path Apply cannot consume a replacement draft lifetime",

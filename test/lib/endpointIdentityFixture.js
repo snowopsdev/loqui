@@ -96,4 +96,63 @@ const endpointState = (entry, url = TEAM_A) => ({
   ...entry.overrides,
   [entry.key]: url,
 });
-module.exports = { TEAM_A, TEAM_B, ENDPOINT_CASES, endpointState };
+// Literal expected transport URLs, checked against the real enterprise factory/SDK.
+const AZURE_ENDPOINT_CASES = [
+  {
+    from: TEAM_A + "/.",
+    to: TEAM_A + "//",
+    targets: [TEAM_A + "/responses", TEAM_A + "//responses"],
+    staged: true,
+  },
+  {
+    from: TEAM_A + "//",
+    to: TEAM_A + "///",
+    targets: [TEAM_A + "//responses", TEAM_A + "///responses"],
+    staged: true,
+  },
+  {
+    from: "https://fixture.openai.azure.com/openai/.",
+    to: "https://fixture.openai.azure.com/openai//",
+    targets: [
+      "https://fixture.openai.azure.com/openai/v1/responses?api-version=2024-10-21",
+      "https://fixture.openai.azure.com/openai//v1/responses?api-version=2024-10-21",
+    ],
+    staged: true,
+  },
+  {
+    from: "https://fixture.services.ai.azure.com/openai/v1/.",
+    to: "https://fixture.services.ai.azure.com/openai/v1//",
+    targets: [
+      "https://fixture.services.ai.azure.com/openai/v1/responses",
+      "https://fixture.services.ai.azure.com/openai/v1//responses",
+    ],
+    staged: true,
+  },
+  {
+    from: "https://gateway.example/openai",
+    to: "https://gateway.example/openai/",
+    targets: Array(2).fill("https://gateway.example/openai/responses"),
+    staged: false,
+  },
+  {
+    from: TEAM_A + "/%2e",
+    to: TEAM_A + "/",
+    targets: Array(2).fill(TEAM_A + "/responses"),
+    staged: false,
+  },
+  {
+    from: TEAM_A + "/child/..",
+    to: TEAM_A,
+    targets: Array(2).fill(TEAM_A + "/responses"),
+    staged: false,
+  },
+  {
+    from: "https://fixture.cognitiveservices.azure.com/openai/.",
+    to: "https://FIXTURE.cognitiveservices.azure.com:443/openai/",
+    targets: Array(2).fill(
+      "https://fixture.cognitiveservices.azure.com/openai/v1/responses?api-version=2024-10-21"
+    ),
+    staged: false,
+  },
+];
+module.exports = { TEAM_A, TEAM_B, ENDPOINT_CASES, endpointState, AZURE_ENDPOINT_CASES };

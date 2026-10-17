@@ -383,8 +383,30 @@ function endpointIdentity(route: ResolvedRoute, snapshot: RouteSettingsSnapshot)
   const provider = input.provider.trim();
   try {
     if ((mode === "providers" || mode === "enterprise") && provider === "azure") {
-      // createAzure receives the raw base; its SDK removes one trailing slash.
-      return new URL(snapshot.enterprise.azureEndpoint.replace(/\/$/, "")).href;
+      // enterpriseAiProviders uses createAzure's default responses model, with
+      // no deployment-based URL option. @ai-sdk/azure 4.0.79 classifies the base
+      // first, but appends to the RAW base before parsing the request URL. Parsing
+      // the base alone loses terminal dot segments and meaningful separators.
+      const raw = snapshot.enterprise.azureEndpoint;
+      const base = new URL(raw);
+      const azureHost = [
+        ".openai.azure.com",
+        ".services.ai.azure.com",
+        ".cognitiveservices.azure.com",
+      ].some((suffix) => base.hostname.endsWith(suffix));
+      const pathname = base.pathname.replace(/\/+$/, "");
+      const versioned = azureHost && pathname.toLowerCase().endsWith("/openai/v1");
+      const target = new URL(
+        `${raw.replace(/\/$/, "")}${azureHost && !versioned ? "/v1" : ""}/responses`
+      );
+      const foundry =
+        base.hostname.endsWith(".services.ai.azure.com") && pathname.startsWith("/api/projects/");
+      const configuredApiVersion = azureHost && !versioned && !foundry;
+      // The SDK overwrites this query key with the same configured version on
+      // both sides. Tag that override separately: the snapshot intentionally
+      // excludes API version, so an explicit version is conservatively distinct.
+      if (configuredApiVersion) target.searchParams.delete("api-version");
+      return JSON.stringify([target.href, configuredApiVersion]);
     }
     const endpoint =
       mode === "self-hosted"

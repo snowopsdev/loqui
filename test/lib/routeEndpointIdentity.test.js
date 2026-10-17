@@ -2,7 +2,13 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { installBrowserGlobals, createRendererServer } = require("./rendererTestHarness");
 const { MIGRATED_STORAGE, TEST_COPY, testFacts, routeBaseState } = require("./routeStateFixture");
-const { TEAM_A, TEAM_B, ENDPOINT_CASES, endpointState } = require("./endpointIdentityFixture");
+const {
+  TEAM_A,
+  TEAM_B,
+  ENDPOINT_CASES,
+  endpointState,
+  AZURE_ENDPOINT_CASES,
+} = require("./endpointIdentityFixture");
 
 test("change-driving: semantic endpoint identities stage every effective recipient", async (t) => {
   installBrowserGlobals(t, { initialStorage: MIGRATED_STORAGE });
@@ -196,4 +202,61 @@ test("change-driving: semantic endpoint identities stage every effective recipie
       }
     }
   );
+});
+
+test("change-driving: Azure comparison follows the real factory's appended request targets", async (t) => {
+  installBrowserGlobals(t, { initialStorage: MIGRATED_STORAGE });
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-azure-effective-target-" });
+  const { planPatch } = await vite.ssrLoadModule("/lib/routePlanner.ts");
+  const { getEnterpriseAIModel } = require("../../src/helpers/enterpriseAiProviders");
+  const entry = ENDPOINT_CASES.find((item) => item.key === "azureEndpoint");
+  const ctx = {
+    facts: testFacts({ credentials: new Map([["azure", true]]) }),
+    copy: TEST_COPY,
+    sealed: false,
+  };
+  let actual;
+  const stop = new Error("fixture stops at the actual SDK fetch boundary");
+  t.mock.method(globalThis, "fetch", async (url) => {
+    actual.push(String(url));
+    throw stop;
+  });
+  for (const { from, to, targets, staged } of AZURE_ENDPOINT_CASES) {
+    await t.test(
+      `${staged ? "change-driving" : "baseline guard"}: actual SDK ${from} ↔ ${to}`,
+      async () => {
+        actual = [];
+        for (const azureEndpoint of [from, to]) {
+          const model = await getEnterpriseAIModel("azure", "deployment", "fixture", {
+            azureEndpoint,
+            frozenCredentials: true,
+          });
+          await assert.rejects(
+            model.doGenerate({
+              prompt: [{ role: "user", content: [{ type: "text", text: "fixture" }] }],
+            }),
+            (error) => error === stop
+          );
+        }
+        assert.deepEqual(actual, targets, "literal transport targets from the installed SDK");
+        assert.equal(actual[0] !== actual[1], staged);
+        for (const [before, after] of [
+          [from, to],
+          [to, from],
+        ]) {
+          const state = endpointState(entry, before);
+          const plan = planPatch(state, ctx, entry.id, { azureEndpoint: after });
+          assert.equal(plan.kind, staged ? "staged" : "instant");
+          assert.equal(plan.blocker, null);
+          assert.deepEqual(
+            plan.changes.map((change) => change.id),
+            staged ? entry.ids : []
+          );
+          assert.deepEqual(plan.patch, { azureEndpoint: after });
+          assert.deepEqual(plan.undoPatch, { azureEndpoint: before });
+          assert.equal(state.azureEndpoint, before);
+        }
+      }
+    );
+  }
 });

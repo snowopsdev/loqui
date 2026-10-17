@@ -1,13 +1,9 @@
 import * as React from "react";
+import type { TechnicalErrorDetailsData } from "./TechnicalErrorDetails";
 
 export type ToastPresentation = "standard" | "dictation-error";
 
-export interface TechnicalErrorDetailsData {
-  status?: number;
-  exceptionType?: string;
-  requestId?: string;
-  underlyingError?: string;
-}
+export type { TechnicalErrorDetailsData } from "./TechnicalErrorDetails";
 
 export interface ToastActionConfig {
   label: string;

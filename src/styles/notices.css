@@ -151,6 +151,11 @@
   opacity: 1;
 }
 
+.notice-chip__close:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
 .words-card {
   flex: none;
   width: 100%;

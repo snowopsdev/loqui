@@ -38,19 +38,14 @@ test("[change-driving] local model tabs: Whisper is Whisper, and Oruk is explain
   );
   const { LOCAL_ASR_ORGANIZATIONS } = await vite.ssrLoadModule("/helpers/localASROrganization.ts");
   const { default: Picker } = await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx");
-  const { ToastProvider } = await vite.ssrLoadModule("/components/ui/Toast.tsx");
   const render = (props) =>
     renderToStaticMarkup(
-      React.createElement(
-        ToastProvider,
-        null,
-        React.createElement(Picker, {
-          useLocalWhisper: true,
-          onLocalModelSelect: noop,
-          onModeChange: noop,
-          ...props,
-        })
-      )
+      React.createElement(Picker, {
+        useLocalWhisper: true,
+        onLocalModelSelect: noop,
+        onModeChange: noop,
+        ...props,
+      })
     );
 
   await t.test("change-driving: the Whisper family is labelled Whisper, not OpenAI", () => {

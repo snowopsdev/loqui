@@ -12,7 +12,7 @@ const {
   primeRouteFacts,
   rendererServer,
   routeTestApi,
-  toastCapture,
+  noticeCapture,
 } = require("../lib/routeTestApi");
 const { TEST_COPY } = require("../lib/routeStateFixture");
 
@@ -241,7 +241,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
   const routes = await vite.ssrLoadModule("/lib/routes.ts");
   const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
   await primeRouteFacts(vite);
-  const { wrap, toasts } = await toastCapture(vite);
+  const { wrap, notices } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
 
   const act = async (fn) => {
@@ -667,7 +667,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
       await probes.settle();
       assert.equal(chat().host, "aiplatform.googleapis.com");
       assert.equal(chat().state.status, "needsKey");
-      const removedToast = toasts.at(-1);
+      const removedToast = notices.at(-1);
       assert.equal(removedToast.title, "apiKeyInput.removed");
       await probes.mount("vertex-api-key", () => null);
       await act(() => removedToast.actions[0].onClick());
@@ -855,7 +855,7 @@ for (const inheritedVision of [false, true])
     const owner = inheritedVision ? "assistantVision" : "dictationCleanup";
     const enable = inheritedVision ? { voiceAgentScreenContext: true } : { useCleanupModel: true };
     assert.equal(await drafts.requestRoutePatch(owner, enable, TEST_COPY), "staged");
-    const { wrap } = await toastCapture(vite);
+    const { wrap } = await noticeCapture(vite, t);
     const probes = createProbeRoot(t, { wrap });
     const panel = await probes.mount("panel", () => StagedRoutePanel({ routeId: owner }));
     const setup = () =>
@@ -935,7 +935,7 @@ test("baseline guard: enterprise A→B→A field intent supersedes waiting metad
   const held = [];
   api.credentials.list = () => new Promise((resolve) => held.push(() => resolve(list())));
   const pending = [];
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const config = await probes.mount("config", () =>
     Config({
@@ -1007,7 +1007,7 @@ test("change-driving: first-read Codex sign-in refreshes readiness without commi
     cleanupModel: "fixture-codex",
   });
   await drafts.requestRoutePatch("dictationCleanup", { useCleanupModel: true }, TEST_COPY);
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const panel = await probes.mount("panel", () =>
     StagedRoutePanel({ routeId: "dictationCleanup" })
@@ -1232,7 +1232,7 @@ test("change-driving FIX1: enterprise setup keeps one owner lifetime through ref
     target: { mode: "providers", provider: "azure", model: "owner-a-current" },
   };
   drafts.useRouteDraftStore.getState().stage(first);
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probe = await stableEnterpriseProjection(
     t,
     (context) =>
@@ -1294,7 +1294,7 @@ test("change-driving FIX1: coupled enterprise setup follows its displayed route"
   drafts.useRouteDraftStore
     .getState()
     .stage({ routeId: "chat", kind: "patch", patch: { azureEndpoint: WEST } });
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probe = await stableEnterpriseProjection(
     t,
     (context) =>

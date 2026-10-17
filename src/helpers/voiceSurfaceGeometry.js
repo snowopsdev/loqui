@@ -1,5 +1,5 @@
 // Shared voice-surface geometry. windowConfig.js (main) sizes the native
-// window from it; the renderer's DictationErrorCard and presentation helpers
+// window from it; the renderer's WordsFirstCard and presentation helpers
 // must agree with it or the error card never reports its height and the
 // pill-to-panel clip origin drifts.
 const geometry = require("./voiceSurfaceGeometry.json");

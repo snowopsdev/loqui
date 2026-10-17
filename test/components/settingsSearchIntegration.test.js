@@ -85,8 +85,6 @@ async function mount(t, initialSection = "llms/supportModels", assistantEnabled 
         cachePrefix: "loqui-settings-search-integration-",
         resolveAlias: { "@": require("node:path").resolve(__dirname, "../../src") },
         mockModules: {
-          "/ui/useToast":
-            "const toast = () => {}; export function useToast() { return { toast }; }",
           "/ui/SidebarModal": "export default function SidebarModal() { return null; }",
           "/hooks/useSettings":
             "import { useSettingsStore } from '/stores/settingsStore.ts'; export function useSettings() { return useSettingsStore(); }",

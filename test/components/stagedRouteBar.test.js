@@ -8,7 +8,7 @@ const {
   primeRouteFacts,
   rendererServer,
   routeTestApi,
-  toastCapture,
+  noticeCapture,
 } = require("../lib/routeTestApi");
 
 const route = (over) => ({
@@ -168,7 +168,7 @@ test("change-driving: ⌘↵ applies only inside the Settings dialog", async (t)
     "/components/settings/routing/StagedRouteBar.tsx"
   );
   await primeRouteFacts(vite);
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const keydown = [];
   globalThis.document.addEventListener = (type, fn) => {
@@ -312,7 +312,7 @@ test("baseline guard: the toast hook suppresses superseded requests and expired 
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
   const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
   await primeRouteFacts(vite);
-  const { toasts, wrap } = await toastCapture(vite);
+  const { notices, wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const hook = await probes.mount("hook", () => useRouteChange());
   await probes.act(() =>
@@ -339,7 +339,7 @@ test("baseline guard: the toast hook suppresses superseded requests and expired 
     for (const release of waiting.splice(0)) release();
   });
   assert.equal(await request, "superseded");
-  assert.equal(toasts.length, 0);
+  assert.equal(notices.length, 0);
   await probes.act(() =>
     drafts.useRouteDraftStore.getState().stage({
       routeId: "chat",
@@ -357,7 +357,7 @@ test("baseline guard: the toast hook suppresses superseded requests and expired 
     for (const release of waiting.splice(0)) release();
   });
   assert.equal(await applying, null);
-  assert.equal(toasts.length, 0);
+  assert.equal(notices.length, 0);
 });
 
 // Change-driving: the bar must re-plan from current facts, including after a
@@ -376,7 +376,7 @@ test("baseline guard: live blockers keep the draft visible after Apply refuses",
   const { useRouteDraftStore } = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
   const { useRouteFactsStore } = await vite.ssrLoadModule("/stores/routeFactsStore.ts");
   await primeRouteFacts(vite);
-  const { toasts, wrap } = await toastCapture(vite);
+  const { notices, wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   await probes.act(() =>
     useSettingsStore.setState({
@@ -412,7 +412,7 @@ test("baseline guard: live blockers keep the draft visible after Apply refuses",
   await probes.act(() => hook().apply());
   assert.equal(useRouteDraftStore.getState().draft, owned);
   assert.equal(bar().props.plan.blocker, "needsKey");
-  assert.equal(toasts.length, 0, "a live readiness blocker is not a persistence failure");
+  assert.equal(notices.length, 0, "a live readiness blocker is not a persistence failure");
 });
 
 // Baseline guard for the reviewed Task7 result contract consumed by Task8.
@@ -470,7 +470,7 @@ test("baseline guard: a conflict refreshes canonical state, retains the draft an
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
   const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
   await primeRouteFacts(vite);
-  const { toasts, wrap } = await toastCapture(vite);
+  const { notices, wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   useSettingsStore.setState({
     chatAgentMode: "local",
@@ -501,7 +501,7 @@ test("baseline guard: a conflict refreshes canonical state, retains the draft an
   assert.equal(drafts.useRouteDraftStore.getState().draft, owned);
   assert.ok(bar(), "the retained draft remains reviewable");
   assert.deepEqual(
-    toasts.map(({ title, variant }) => ({ title, variant })),
-    [{ title: "common.error", variant: "destructive" }]
+    notices.map(({ title, kind }) => ({ title, kind })),
+    [{ title: "common.error", kind: "alert" }]
   );
 });

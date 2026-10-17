@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useDialogs } from "./useDialogs";
-import { useToast } from "../components/ui/useToast";
+import { notify } from "../components/ui/notices";
 import type {
   LocalLLMDownloadProgressEvent,
   LocalModelDownloadStatus,
@@ -97,7 +97,7 @@ export function useModelDownload({
 }: UseModelDownloadOptions) {
   const { t } = useTranslation();
   const { showAlertDialog } = useDialogs();
-  const { toast } = useToast();
+
   const [downloads, setDownloads] = useState<Record<string, LocalModelDownloadStatus>>({});
   const [cancellingModels, setCancellingModels] = useState<Set<string>>(new Set());
   const [downloadErrors, setDownloadErrors] = useState<Record<string, string>>({});
@@ -299,9 +299,10 @@ export function useModelDownload({
         downloads[modelId] ||
         (modelType !== "llm" && Object.keys(downloads).length > 0)
       ) {
-        toast({
+        notify({
+          kind: "notice",
           title: t("hooks.modelDownload.downloadInProgress.title"),
-          description: t("hooks.modelDownload.downloadInProgress.description"),
+          body: t("hooks.modelDownload.downloadInProgress.description"),
         });
         return;
       }
@@ -349,9 +350,10 @@ export function useModelDownload({
             updateDownload(activeDownload);
             keepActiveDownloadState = activeDownload.modelId === modelId;
           }
-          toast({
+          notify({
+            kind: "notice",
             title: t("hooks.modelDownload.downloadInProgress.title"),
-            description: t("hooks.modelDownload.downloadInProgress.description"),
+            body: t("hooks.modelDownload.downloadInProgress.description"),
           });
         } else if (!isCancellation(result?.error, result?.code)) {
           const message = getDownloadErrorMessage(
@@ -402,7 +404,6 @@ export function useModelDownload({
       settleDownload,
       showAlertDialog,
       t,
-      toast,
       updateDownload,
     ]
   );
@@ -413,9 +414,10 @@ export function useModelDownload({
         if (modelType === "whisper") {
           const result = await window.electronAPI?.deleteWhisperModel(modelId);
           if (result?.success) {
-            toast({
+            notify({
+              kind: "receipt",
               title: t("hooks.modelDownload.modelDeleted.title"),
-              description: t("hooks.modelDownload.modelDeleted.descriptionWithSpace", {
+              body: t("hooks.modelDownload.modelDeleted.descriptionWithSpace", {
                 sizeMb: result.freed_mb,
               }),
             });
@@ -423,9 +425,10 @@ export function useModelDownload({
         } else if (modelType === "parakeet") {
           const result = await window.electronAPI?.deleteParakeetModel(modelId);
           if (result?.success) {
-            toast({
+            notify({
+              kind: "receipt",
               title: t("hooks.modelDownload.modelDeleted.title"),
-              description: t("hooks.modelDownload.modelDeleted.descriptionWithSpace", {
+              body: t("hooks.modelDownload.modelDeleted.descriptionWithSpace", {
                 sizeMb: result.freed_mb,
               }),
             });
@@ -436,9 +439,10 @@ export function useModelDownload({
           const result = await window.electronAPI?.modelDelete?.(modelId);
           if (!result?.success) throw new Error(result?.error ?? "");
           clearMissingLocalModelSelections((id) => id !== modelId);
-          toast({
+          notify({
+            kind: "receipt",
             title: t("hooks.modelDownload.modelDeleted.title"),
-            description: t("hooks.modelDownload.modelDeleted.description"),
+            body: t("hooks.modelDownload.modelDeleted.description"),
           });
         }
         notifyLocalModelsChanged();
@@ -451,7 +455,7 @@ export function useModelDownload({
         });
       }
     },
-    [modelType, showAlertDialog, t, toast]
+    [modelType, showAlertDialog, t]
   );
 
   const cancelDownload = useCallback(
@@ -469,9 +473,10 @@ export function useModelDownload({
               ? await window.electronAPI?.cancelParakeetDownload()
               : await window.electronAPI?.modelCancelDownload?.(targetModel);
         if (result?.success) {
-          toast({
+          notify({
+            kind: "receipt",
             title: t("hooks.modelDownload.downloadCancelled.title"),
-            description: t("hooks.modelDownload.downloadCancelled.description"),
+            body: t("hooks.modelDownload.downloadCancelled.description"),
           });
           return true;
         }
@@ -481,7 +486,7 @@ export function useModelDownload({
       clearCancelling(targetModel);
       return false;
     },
-    [cancellingModels, clearCancelling, downloads, modelType, t, toast]
+    [cancellingModels, clearCancelling, downloads, modelType, t]
   );
 
   const downloadingModel = Object.keys(downloads)[0] || null;

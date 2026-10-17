@@ -7,7 +7,7 @@ const {
   installBrowserGlobals,
   installHookDom,
 } = require("../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
 const { installTree } = require("../helpers/harness/fakeDomTree");
 
 function deferred() {
@@ -61,10 +61,7 @@ async function mountSpeechStep(t, { cancelResult = { success: true } } = {}) {
   });
   installHookDom(t);
   const tree = installTree();
-  const vite = await createRendererServer(
-    t,
-    rendererOptions("loqui-onboarding-download-", { "/ui/useToast": TOAST_MOCK })
-  );
+  const vite = await createRendererServer(t, rendererOptions("loqui-onboarding-download-", {}));
   const { default: OnboardingFlow } = await vite.ssrLoadModule("/components/OnboardingFlow.tsx");
   root = createRoot(tree.container);
   await React.act(async () => {

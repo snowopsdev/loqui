@@ -5,7 +5,6 @@ import { getCachedPlatform } from "./utils/platform";
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import "./index.css";
-import { useToast } from "./components/ui/useToast";
 import { useHotkey } from "./hooks/useHotkey";
 import { formatHotkeyListLabel } from "./utils/hotkeys";
 import { useWindowDrag } from "./hooks/useWindowDrag";
@@ -65,9 +64,8 @@ export default function App() {
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const buttonRef = useRef(null);
   const pillPresenceRef = useRef(null);
-  const { toastCount, dictationErrorActionCount } = useToast();
   const { noticeCount, wordsCardVisible } = useNoticeWindowState();
-  const noticesOnScreen = noticeCount + toastCount > 0 || wordsCardVisible;
+  const noticesOnScreen = noticeCount > 0 || wordsCardVisible;
   const noticeHotkey = usePillHotkey(
     "noticePrimary",
     wordsCardVisible,
@@ -181,7 +179,7 @@ export default function App() {
 
   const assistant = useAssistantPanel({
     requestMainWindowSize,
-    dictationErrorActionCount,
+    wordsCardVisible,
     recordingControlsRef,
     onPanelOpened,
   });
@@ -255,8 +253,8 @@ export default function App() {
   // Must run before the size owner's ladder effect below: the error teardown
   // drops the live transcript's open ref, which the ladder reads this commit.
   useEffect(() => {
-    if (dictationErrorActionCount > 0) handleDictationError();
-  }, [dictationErrorActionCount, handleDictationError]);
+    if (wordsCardVisible) handleDictationError();
+  }, [wordsCardVisible, handleDictationError]);
 
   // Direction is part of the interaction's geometry, not a live decoration.
   // Hold the origin through processing and panel exit so every close animation
@@ -313,8 +311,8 @@ export default function App() {
 
   const { wordsCardHandoffActive, panelReturnResizeActive } = useMainWindowSizeOwner({
     requestMainWindowSize,
-    wordsCardVisible: wordsCardVisible || dictationErrorActionCount > 0,
-    noticeCount: noticeCount + toastCount,
+    wordsCardVisible,
+    noticeCount,
     isCommandMenuOpen,
     isCompactPill: windowFitsCompactPill,
     isDictationActive: isRecording || isVisuallyProcessing,

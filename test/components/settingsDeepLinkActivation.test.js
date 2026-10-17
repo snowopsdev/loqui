@@ -95,7 +95,7 @@ async function mount(t, { acknowledge = async () => true } = {}) {
         "import {forwardRef} from 'react'; export const SettingsSearchField = forwardRef(function F(){return null});",
       "/hooks/useDialogs": `const noop=()=>{}; const dialogs={confirmDialog:{open:false},alertDialog:{open:false},showConfirmDialog:noop,showAlertDialog:noop,hideConfirmDialog:noop,hideAlertDialog:noop}; export const useDialogs=()=>dialogs;`,
       "/hooks/useHotkey": "export const useHotkey=()=>({hotkey:'fixture'});",
-      "/ui/useToast": "const toast=()=>{}; export const useToast=()=>({toast});",
+
       "/hooks/useSettings": "export const useSettings=()=>({useCleanupModel:false});",
       "/hooks/useCollapsibleSidebar": "export const useCollapsibleSidebar=()=>({collapsed:false});",
       "/stores/settingsStore":

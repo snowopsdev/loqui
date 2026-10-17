@@ -8,11 +8,10 @@ const {
   installBrowserGlobals,
   installHookDom,
 } = require("../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
 const { installTree } = require("../helpers/harness/fakeDomTree");
 
 const COMPOSER_MOCKS = {
-  "/ui/useToast": TOAST_MOCK,
   "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
 };
 

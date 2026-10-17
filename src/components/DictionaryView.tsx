@@ -9,7 +9,7 @@ import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
 import { cn } from "./lib/utils";
 import { ConfirmDialog } from "./ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
 import SnippetsView from "./SnippetsView";
 import { useSettings } from "../hooks/useSettings";
 import { getAgentName } from "../utils/agentName";
@@ -27,7 +27,6 @@ export default function DictionaryView() {
     setAutoLearnCorrections,
   } = useSettings();
   const agentName = getAgentName();
-  const { toast } = useToast();
 
   const [newWord, setNewWord] = useState("");
   const [bulkText, setBulkText] = useState("");
@@ -114,13 +113,9 @@ export default function DictionaryView() {
   const handleExport = useCallback(async () => {
     const result = await window.electronAPI?.exportDictionary?.(customDictionary);
     if (result?.error) {
-      toast({
-        title: t("dictionary.exportFailed"),
-        description: result.error,
-        variant: "destructive",
-      });
+      notify({ kind: "alert", title: t("dictionary.exportFailed"), body: result.error });
     }
-  }, [customDictionary, toast, t]);
+  }, [customDictionary, t]);
 
   const emptyState = (
     <div className="flex flex-col items-center text-center py-8">

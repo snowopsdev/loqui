@@ -89,9 +89,7 @@ async function renderTree(t, direction) {
           hideConfirmDialog: () => {},
         });
       `,
-      "/ui/useToast": `
-        export const useToast = () => ({ toast: () => "toast", dismiss: () => {} });
-      `,
+
       "/stores/settingsStore": `
         export const useSettingsStore = (selector) => selector({ noteFilesEnabled: true });
       `,

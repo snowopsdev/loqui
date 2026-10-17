@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { installBrowserGlobals } = require("../lib/rendererTestHarness");
 const { createProbeRoot, findElement } = require("../lib/probeRoot");
-const { rendererServer, routeTestApi, toastCapture } = require("../lib/routeTestApi");
+const { rendererServer, routeTestApi, noticeCapture } = require("../lib/routeTestApi");
 const { MIGRATED_STORAGE, TEST_COPY, testFacts } = require("../lib/routeStateFixture");
 const {
   TEAM_A,
@@ -52,7 +52,7 @@ test("change-driving: mounted route application reviews semantic paths before Ap
   const { StagedRouteBar } = await vite.ssrLoadModule(
     "/components/settings/routing/StagedRouteBar.tsx"
   );
-  const { wrap, toasts } = await toastCapture(vite);
+  const { wrap, notices, clearNotices } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const hook = await probes.mount("application", () => useRouteChange());
   const bar = await probes.mount("bar", () => StagedRouteBar({ shortcut: false }));
@@ -77,7 +77,7 @@ test("change-driving: mounted route application reviews semantic paths before Ap
         facts: testFacts({ credentials: new Map([["azure", true]]) }),
       });
     });
-    toasts.length = 0;
+    clearNotices();
     writes.length = 0;
   };
   const apply = async () => {
@@ -106,7 +106,7 @@ test("change-driving: mounted route application reviews semantic paths before Ap
         await apply();
         assert.equal(useSettingsStore.getState()[entry.key], TEAM_B);
         assert.equal(drafts.useRouteDraftStore.getState().draft, null);
-        const undo = toasts.at(-1).actions[0].onClick;
+        const undo = notices.at(-1).actions[0].onClick;
         await probes.act(() => undo());
         assert.equal(
           useSettingsStore.getState()[entry.key],
@@ -199,7 +199,7 @@ test("change-driving: mounted route application reviews semantic paths before Ap
           assert.deepEqual(writes[0].patch, { azureEndpoint: afterUrl });
           assert.equal(writes[0].expected.azureEndpoint, beforeUrl);
           const identity = drafts.useRouteDraftStore.getState().draftIdentity;
-          await probes.act(() => toasts.at(-1).actions[0].onClick());
+          await probes.act(() => notices.at(-1).actions[0].onClick());
           await probes.settle();
           if (staged) {
             assert.equal(
@@ -262,7 +262,7 @@ test("change-driving: mounted route application reviews semantic paths before Ap
       assert.notEqual(owner, replacement);
       assert.equal(drafts.useRouteDraftStore.getState().draft, replacement);
       assert.equal(useSettingsStore.getState()[entry.key], TEAM_A);
-      assert.equal(toasts.length, 0);
+      assert.equal(notices.length, 0);
       assert.deepEqual(
         bar().props.plan.changes.map((change) => change.id),
         entry.ids
@@ -307,7 +307,7 @@ test("change-driving: mounted route application reviews semantic paths before Ap
       );
       await apply();
       assert.equal(useSettingsStore.getState().dictationAgentRemoteUrl, TEAM_B);
-      await probes.act(() => toasts.at(-1).actions[0].onClick());
+      await probes.act(() => notices.at(-1).actions[0].onClick());
       await apply();
       assert.equal(useSettingsStore.getState().dictationAgentRemoteUrl, TEAM_A);
       await probes.act(() =>

@@ -8,7 +8,7 @@ const {
   primeRouteFacts,
   rendererServer,
   routeTestApi,
-  toastCapture,
+  noticeCapture,
 } = require("../lib/routeTestApi");
 
 test("change-driving: staged panel markup", async (t) => {
@@ -136,7 +136,7 @@ test("change-driving: staged panel behaviour", async (t) => {
     "/components/settings/routing/StagedRoutePanel.tsx"
   );
   await primeRouteFacts(vite);
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const viewOf = (tree) => findElement(tree, (node) => typeof node.props?.onTarget === "function");
 
@@ -454,7 +454,7 @@ test("change-driving FIX1: provider and endpoint edits preserve a pending enable
   );
   const { TEST_COPY } = require("../lib/routeStateFixture");
   await primeRouteFacts(vite);
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   useSettingsStore.setState({
     useDictationTranslation: false,
@@ -526,7 +526,7 @@ test("change-driving FIX1: inherited vision setup edits the actual assistant wit
   );
   const { TEST_COPY } = require("../lib/routeStateFixture");
   await primeRouteFacts(vite);
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   useSettingsStore.setState({
     useDictationAgent: true,
@@ -695,7 +695,7 @@ test("baseline guard Task9: coupled Upload displays the prospective dictation se
     { mode: "self-hosted", remoteUrl: "https://new.fixture.test/v1", model: "whisper-1" },
     TEST_COPY
   );
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const tree = await probes.mount("upload", () => StagedRoutePanel({ routeId: "uploadStt" }));
   const view = findElement(tree(), (node) => node.type === StagedRoutePanelView);

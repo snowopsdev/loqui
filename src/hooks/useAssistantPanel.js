@@ -20,7 +20,7 @@ const ASSISTANT_CONTENT_FADE_FALLBACK_MS = 260;
  */
 export function useAssistantPanel({
   requestMainWindowSize,
-  dictationErrorActionCount,
+  wordsCardVisible,
   recordingControlsRef,
   onPanelOpened,
 }) {
@@ -200,7 +200,7 @@ export function useAssistantPanel({
 
   const getSelectionContext = useCallback(() => selectionContextRef.current, []);
 
-  const ownsNativeWindow = open || (errorDownplayActive && dictationErrorActionCount > 0);
+  const ownsNativeWindow = open || (errorDownplayActive && wordsCardVisible);
   const assistantPanelBusy = thinking || busy || pendingCommand !== null;
 
   useEffect(() => {
@@ -273,7 +273,7 @@ export function useAssistantPanel({
   }, [beginClose]);
 
   useEffect(() => {
-    if (dictationErrorActionCount > 0) {
+    if (wordsCardVisible) {
       if (!errorDownplayRequestedRef.current) return;
       errorDownplayRequestedRef.current = false;
       beginClose(true);
@@ -283,7 +283,7 @@ export function useAssistantPanel({
     if (errorDownplayActive) {
       setErrorDownplayActive(false);
     }
-  }, [errorDownplayActive, beginClose, dictationErrorActionCount]);
+  }, [errorDownplayActive, beginClose, wordsCardVisible]);
 
   // The assistant slice of a dictation error: decide whether the panel rides
   // through the error (existing content) or retreats behind it (empty panel).

@@ -108,7 +108,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Toggle } from "./ui/toggle";
 import { useSettingsLayout } from "./ui/useSettingsLayout";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
 
 import { initializeNotesTree, loadFolders } from "../stores/noteStore.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -969,7 +969,6 @@ export default function SettingsPage({
 
   const startOnboarding = useStartOnboarding();
   const { t, i18n } = useTranslation();
-  const { toast } = useToast();
 
   const [currentVersion, setCurrentVersion] = useState<string>("");
   const { checkWhisperInstallation } = useWhisper();
@@ -1214,16 +1213,16 @@ export default function SettingsPage({
     try {
       const result = await window.electronAPI?.noteFilesRebuild?.();
       if (result && !result.success) {
-        toast({
+        notify({
+          kind: "alert",
           title: t("settings.noteFiles.rebuildError.title"),
-          description: result.error || t("settings.noteFiles.rebuildError.description"),
-          variant: "destructive",
+          body: result.error || t("settings.noteFiles.rebuildError.description"),
         });
       }
     } finally {
       setNoteFilesRebuilding(false);
     }
-  }, [toast, t]);
+  }, [t]);
 
   useEffect(() => {
     let mounted = true;
@@ -1260,16 +1259,16 @@ export default function SettingsPage({
   useEffect(() => {
     const cleanup = window.electronAPI?.onLinuxPttPermissionDenied?.(() => {
       setLinuxPttAvailable(false);
-      toast({
+      notify({
+        kind: "alert",
         title: t("settingsPage.general.hotkey.linuxPttPermissionTitle"),
-        description: t("settingsPage.general.hotkey.linuxPttPermissionDescription"),
-        variant: "destructive",
-        duration: 15000,
+        body: t("settingsPage.general.hotkey.linuxPttPermissionDescription"),
+        persistent: true,
       });
       setActivationMode("tap");
     });
     return () => cleanup?.();
-  }, [toast, t, setActivationMode]);
+  }, [t, setActivationMode]);
 
   const resetAccessibilityPermissions = () => {
     const message = t("settingsPage.permissions.resetAccessibility.description");

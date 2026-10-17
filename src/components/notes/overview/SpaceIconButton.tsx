@@ -4,7 +4,7 @@ import { updateSpaceMeta } from "../../../stores/noteStore";
 import type { SpaceItem } from "../../../types/electron";
 import { EmojiPickerContent } from "../../ui/EmojiPicker";
 import { Popover, PopoverTrigger } from "../../ui/popover";
-import { useToast } from "../../ui/useToast";
+import { notify } from "../../ui/notices";
 import { ContainerIcon } from "./ContainerIcon";
 
 interface SpaceIconButtonProps {
@@ -16,7 +16,7 @@ interface SpaceIconButtonProps {
 // Personal space is fixed, but its emoji is free to customize.
 export function SpaceIconButton({ space, size = 20 }: SpaceIconButtonProps) {
   const { t } = useTranslation();
-  const { toast } = useToast();
+
   const [open, setOpen] = useState(false);
 
   const changeEmoji = async (emoji: string | null) => {
@@ -25,10 +25,10 @@ export function SpaceIconButton({ space, size = 20 }: SpaceIconButtonProps) {
       const result = await updateSpaceMeta(space.id, { emoji });
       if (!result.success) throw new Error(result.error);
     } catch (error) {
-      toast({
+      notify({
+        kind: "alert",
         title: t("notes.spaces.couldNotChangeEmoji"),
-        description: error instanceof Error ? error.message : undefined,
-        variant: "destructive",
+        body: error instanceof Error ? error.message : undefined,
       });
     }
   };

@@ -29,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
-import { useToast } from "../ui/useToast";
+import { notify } from "../ui/notices";
 import { defaultFolderDisplayName } from "./shared";
 import { treeHorizontalIntent, treeRowActionClearanceStyle } from "./treeDirection";
 
@@ -48,7 +48,7 @@ export default function SpacesTree({
   onNewNote,
 }: Props) {
   const { t, i18n } = useTranslation();
-  const { toast } = useToast();
+
   const spaces = useSpaces();
   const folders = useFolders();
   const notes = useNotesByContainer();
@@ -69,7 +69,7 @@ export default function SpacesTree({
   if (!space) return null;
   const personalFolders = folders.filter((folder) => folder.space_id === space.id);
   const reportError = (error: unknown) =>
-    toast({ title: t("common.error"), description: String(error), variant: "destructive" });
+    notify({ kind: "alert", title: t("common.error"), body: String(error) });
   const startCreate = (noteId: number | null = null) => {
     setEditing("new");
     setDraft("");

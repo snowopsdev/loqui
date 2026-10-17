@@ -9,7 +9,6 @@ const {
 } = require("../lib/rendererTestHarness");
 
 const { installClickableTree: installTree } = require("../lib/clickableTree");
-const { TOAST_MOCK } = require("../helpers/harness/rendererMocks");
 
 function deferred() {
   let resolve;
@@ -46,7 +45,7 @@ async function mountCleanupStep(t, personalInference) {
   const tree = installTree();
   const vite = await createRendererServer(t, {
     cachePrefix: "loqui-onboarding-wiring-test-",
-    mockModules: { "/ui/useToast": TOAST_MOCK },
+    mockModules: {},
   });
   const { default: OnboardingFlow } = await vite.ssrLoadModule("/components/OnboardingFlow.tsx");
   const settings = await vite.ssrLoadModule("/stores/settingsStore.ts");

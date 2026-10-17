@@ -7,7 +7,7 @@ const {
   installBrowserGlobals,
   installHookDom,
 } = require("../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
 const { installTree } = require("../helpers/harness/fakeDomTree");
 const act = (fn) =>
   React.act(async () => {
@@ -36,7 +36,6 @@ const MOCKS = {
   "/hooks/useWindowDrag": `export const useWindowDrag = () => ({ handleMouseDown() {}, handleMouseUp() {} });`,
   "/hooks/useCopyFeedback": `export const useCopyFeedback = () => ({ copied: false, copy() {}, copyText() {}, confirmCopied() {} });`,
   "/ui/MarkdownRenderer": `import React from "react"; export const MarkdownRenderer = ({ content }) => React.createElement("p", null, content);`,
-  "/ui/useToast": TOAST_MOCK,
 };
 async function setup(t, api) {
   let root;

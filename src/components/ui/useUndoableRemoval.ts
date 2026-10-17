@@ -1,8 +1,8 @@
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MULTI_FIELD_CREDENTIALS, type CredentialSlot } from "../../lib/credentialSlots";
 import type { CredentialsAPI } from "../../types/electron";
-import { ToastContext, type ToastContextType } from "./useToast";
+import { dismissNotice, notify, type NoticeInput } from "./notices";
 
 export const UNDO_WINDOW_MS = 8000;
 export type UndoFailureReason = "expired" | "replaced" | "unknown" | "persistFailed";
@@ -18,7 +18,7 @@ export const UNDO_FAILURE_KEY = {
 export type CredentialsRemovalApi = Pick<CredentialsAPI, "remove" | "undoRemove">;
 export interface RemovalDeps {
   api?: CredentialsRemovalApi;
-  toast?: ToastContextType["toast"] | null;
+  notify?: ((notice: NoticeInput) => string) | null;
   now?: () => number;
   schedule?: (fn: () => void, ms: number) => unknown;
   cancel?: (handle: unknown) => void;
@@ -51,21 +51,28 @@ const cancelDefault = (handle: unknown) => clearTimeout(handle as ReturnType<typ
 const remaining = (expiresAt: number, now: () => number) =>
   Math.max(0, Math.min(UNDO_WINDOW_MS, expiresAt - now()));
 
+type RemovalDeadline = Required<Pick<RemovalDeps, "now" | "schedule" | "cancel">>;
+
 // These values belong to this removal, not to the next rendered field. No token
-// is put into toast data/copy; only its action closure retains the capability.
+// is put into notice data/copy; only its action closure retains the capability.
 function offerUndo(
-  toast: ToastContextType["toast"],
+  notify: (notice: NoticeInput) => string,
   api: CredentialsRemovalApi,
   id: CredentialSlot,
   token: string,
   expiresAt: number,
-  now: () => number,
+  deadline: RemovalDeadline,
   t: (key: string) => string,
   retry = false
 ) {
   let pending = false;
   let finished = false;
-  toast({
+  let deadlineHandle: unknown;
+  const noticeId = notify({
+    kind: "receipt",
+    onDismiss: () => {
+      if (deadlineHandle !== undefined) deadline.cancel(deadlineHandle);
+    },
     title: t(
       retry
         ? "apiKeyInput.undoRetry"
@@ -73,21 +80,22 @@ function offerUndo(
           ? "apiKeyInput.removedCredential"
           : "apiKeyInput.removed"
     ),
-    duration: remaining(expiresAt, now),
     actions: [
       {
         label: t("apiKeyInput.undo"),
-        dismissOnClick: true,
+        primary: true,
         onClick: async () => {
           if (pending || finished) return;
           pending = true;
-          const outcome = await undoRemoval(api, token, expiresAt, now);
+          const outcome = await undoRemoval(api, token, expiresAt, deadline.now);
           finished = true;
-          if (outcome.kind === "restored") toast({ title: t("apiKeyInput.restored") });
+          if (outcome.kind === "restored")
+            notify({ kind: "receipt", title: t("apiKeyInput.restored") });
           else if (outcome.kind === "retry")
-            offerUndo(toast, api, id, token, expiresAt, now, t, true);
+            offerUndo(notify, api, id, token, expiresAt, deadline, t, true);
           else
-            toast({
+            notify({
+              kind: "notice",
               title: t(
                 outcome.kind === "failed"
                   ? UNDO_FAILURE_KEY[outcome.reason]
@@ -98,6 +106,13 @@ function offerUndo(
       },
     ],
   });
+  // The tier timer can pause on hover or restart for a persistence retry;
+  // main's captured capability deadline cannot. Remove that affordance at
+  // the original deadline without adding authority/token data to the notice.
+  deadlineHandle = deadline.schedule(
+    () => dismissNotice(noticeId),
+    remaining(expiresAt, deadline.now)
+  );
 }
 
 export function useUndoableRemoval(
@@ -105,10 +120,9 @@ export function useUndoableRemoval(
   deps: RemovalDeps = {}
 ) {
   const { t } = useTranslation();
-  const context = useContext(ToastContext);
   const api =
     deps.api ?? (typeof window === "undefined" ? undefined : window.electronAPI?.credentials);
-  const toast = deps.toast === undefined ? context?.toast : deps.toast;
+  const announce = deps.notify === undefined ? notify : deps.notify;
   const [notice, setNotice] = useState<RemovalNotice | null>(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef<{ handle: unknown; cancel: (handle: unknown) => void } | null>(null);
@@ -180,7 +194,12 @@ export function useUndoableRemoval(
     const capturedOwner = owner.current;
     const id = credentialId!;
     const capturedApi = api!;
-    const now = deps.now ?? Date.now;
+    const deadline: RemovalDeadline = {
+      now: deps.now ?? Date.now,
+      schedule: deps.schedule ?? scheduleDefault,
+      cancel: deps.cancel ?? cancelDefault,
+    };
+    const now = deadline.now;
     pending.current = true;
     setBusy(true);
     clear();
@@ -191,7 +210,8 @@ export function useUndoableRemoval(
         if (current()) setNotice({ kind: "error", message: "unavailable" });
         return;
       }
-      if (toast) offerUndo(toast, capturedApi, id, result.undoToken, result.expiresAt, now, t);
+      if (announce)
+        offerUndo(announce, capturedApi, id, result.undoToken, result.expiresAt, deadline, t);
       else if (current())
         arm({ api: capturedApi, token: result.undoToken, expiresAt: result.expiresAt, now }, false);
     } catch {

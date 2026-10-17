@@ -6,7 +6,7 @@ import { formatDecimalBytes } from "../../utils/formatBytes";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { useToast } from "../ui/useToast";
+import { notify } from "../ui/notices";
 import { useAudioStorageUsage } from "../../hooks/useAudioStorageUsage";
 import {
   audioRowFromUsage,
@@ -505,7 +505,7 @@ const doneTitle = (t: T, s: StorageSnapshot, o: DeleteOutcome) =>
 
 export function StorageList() {
   const { t } = useTranslation();
-  const { toast } = useToast();
+
   const [rows, setRows] = useState<Rows>(LOADING);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [reset, setReset] = useState<ResetState | null>(null);
@@ -588,7 +588,7 @@ export function StorageList() {
     if (outcome.ok === true) {
       intent.current = null;
       setDialog((current) => (current?.owner === owner ? null : current));
-      toast({ title: doneTitle(t, reviewed, outcome), variant: "success", duration: 4500 });
+      notify({ kind: "receipt", title: doneTitle(t, reviewed, outcome) });
       return;
     }
     const last = { snapshot: reviewed, outcome };

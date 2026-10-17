@@ -82,7 +82,12 @@ test("renderer presentation consumes the shared live-transcript geometry", async
 });
 
 test("WordsFirstCard reports full content height after wrapping", async (t) => {
+  const listeners = new Map();
   const card = {
+    addEventListener: (type, callback) => listeners.set(type, callback),
+    removeEventListener: (type, callback) => {
+      if (listeners.get(type) === callback) listeners.delete(type);
+    },
     getBoundingClientRect: () => ({ width: 500 }),
     offsetHeight: 120,
     scrollHeight: 137,
@@ -110,6 +115,7 @@ test("WordsFirstCard reports full content height after wrapping", async (t) => {
   globalThis.cancelAnimationFrame = () => {};
   t.after(() => {
     globalThis.__dictationErrorCardCleanup?.();
+    assert.equal(listeners.size, 0, "measurement listener is released on unmount");
     delete globalThis.__dictationErrorCard;
     delete globalThis.__dictationErrorCardCleanup;
     if (originalResizeObserver === undefined) delete globalThis.ResizeObserver;
@@ -165,4 +171,11 @@ test("WordsFirstCard reports full content height after wrapping", async (t) => {
   assert.deepEqual(reportedHeights, [137, 207]);
   resize();
   assert.deepEqual(reportedHeights, [137, 207], "unchanged observations do not resize again");
+  card.scrollHeight = 250;
+  listeners.get("toggle")();
+  assert.deepEqual(
+    reportedHeights,
+    [137, 207, 250],
+    "expanded diagnostics report their full height"
+  );
 });

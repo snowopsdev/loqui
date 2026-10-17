@@ -9,7 +9,7 @@ const {
   primeRouteFacts,
   rendererServer,
   routeTestApi,
-  toastCapture,
+  noticeCapture,
 } = require("../lib/routeTestApi");
 
 test("change-driving: mode selectors go through the route planner (I1)", async (t) => {
@@ -33,7 +33,7 @@ test("change-driving: mode selectors go through the route planner (I1)", async (
     await vite.ssrLoadModule("/components/settings/InferenceConfigEditor.tsx")
   ).default;
   await primeRouteFacts(vite);
-  const { toasts, wrap } = await toastCapture(vite);
+  const { notices, wrap, clearNotices } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const selector = (tree) =>
     findElement(
@@ -92,7 +92,7 @@ test("change-driving: mode selectors go through the route planner (I1)", async (
 
   // Change-driving (SET-Q10): the old toast said "On Device" with no Undo.
   await t.test(
-    "change-driving: chat: Local applies at once and toasts the destination with Undo",
+    "change-driving: chat: Local applies at once and notices the destination with Undo",
     async () => {
       await probes.act(() => useRouteDraftStore.getState().discard());
       await probes.act(() =>
@@ -102,7 +102,7 @@ test("change-driving: mode selectors go through the route planner (I1)", async (
           chatAgentModel: "openai/gpt-oss-120b",
         })
       );
-      toasts.length = 0;
+      clearNotices();
       const tree = await probes.mount("chat", () =>
         InferenceConfigEditor({ scope: "chatIntelligence" })
       );
@@ -110,9 +110,9 @@ test("change-driving: mode selectors go through the route planner (I1)", async (
       await probes.settle();
       assert.equal(useSettingsStore.getState().chatAgentMode, "local");
       assert.equal(useRouteDraftStore.getState().draft, null);
-      assert.equal(toasts.length, 1);
-      assert.match(toasts[0].title, /routes\.toast\.local/);
-      assert.equal(toasts[0].actions?.[0]?.label, "routes.toast.undo");
+      assert.equal(notices.length, 1);
+      assert.match(notices[0].title, /routes\.toast\.local/);
+      assert.equal(notices[0].actions?.[0]?.label, "routes.toast.undo");
     }
   );
 
@@ -157,7 +157,7 @@ test(
       await vite.ssrLoadModule("/components/settings/InferenceConfigEditor.tsx")
     ).default;
     await primeRouteFacts(vite);
-    const { toasts, wrap } = await toastCapture(vite);
+    const { notices, wrap } = await noticeCapture(vite, t);
     const probes = createProbeRoot(t, { wrap });
     const list = api.credentials.list;
     const held = [];
@@ -200,7 +200,7 @@ test(
         await probes.settle();
         assert.equal(drafts.useRouteDraftStore.getState().draft, null);
         assert.equal(useSettingsStore.getState()[key], "local");
-        assert.equal(toasts.length, 0);
+        assert.equal(notices.length, 0);
       });
     }
   }
@@ -222,7 +222,7 @@ test(
       "/components/settings/MeetingSettings.tsx"
     );
     await primeRouteFacts(vite);
-    const { wrap } = await toastCapture(vite);
+    const { wrap } = await noticeCapture(vite, t);
     const probes = createProbeRoot(t, { wrap });
     useSettingsStore.setState({
       meetingTranscriptionMode: "local",

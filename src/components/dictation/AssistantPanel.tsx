@@ -36,7 +36,7 @@ import {
   isEditableTarget,
 } from "../../utils/assistantSelection";
 import { AssistantEmptyState } from "./AssistantEmptyState";
-import { useToast } from "../ui/useToast";
+import { notify } from "../ui/notices";
 import {
   resolveAssistantPanelBusy,
   restoreAssistantConversation,
@@ -107,7 +107,7 @@ export function AssistantPanel({
   onSelectionContextChange,
 }: AssistantPanelProps) {
   const { t } = useTranslation();
-  const { toast } = useToast();
+
   const { handleMouseDown, handleMouseUp } = useWindowDrag();
   const voiceAgentKey = useSettingsStore((state) => state.voiceAgentKey);
   const readableVoiceHotkey = formatHotkeyListLabel(voiceAgentKey);
@@ -173,7 +173,7 @@ export function AssistantPanel({
       onReset: persistence.handleNewChat,
       onError: (error: unknown) => {
         console.error("Failed to restore Assistant conversation", error);
-        toast({ title: t("common.error"), variant: "destructive" });
+        notify({ kind: "alert", title: t("common.error") });
       },
       isActive: () => active,
     });

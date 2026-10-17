@@ -13,16 +13,9 @@ test("the recording window fits the compact listening pill footprint", async () 
   assert.ok(WINDOW_SIZES.RECORDING.height >= VOICE_PILL_FOOTPRINT.recording.height);
 });
 
-test("dictation error windows share the assistant width and grow for the transcript action", () => {
+test("the words card window shares the assistant width", () => {
   const { WINDOW_SIZES } = require("../../src/helpers/windowConfig");
-  assert.equal(WINDOW_SIZES.DICTATION_ERROR.width, WINDOW_SIZES.ASSISTANT.width);
-  assert.equal(
-    WINDOW_SIZES.DICTATION_ERROR_WITH_TRANSCRIPT.width,
-    WINDOW_SIZES.DICTATION_ERROR.width
-  );
-  assert.ok(
-    WINDOW_SIZES.DICTATION_ERROR_WITH_TRANSCRIPT.height > WINDOW_SIZES.DICTATION_ERROR.height
-  );
+  assert.equal(WINDOW_SIZES.DICTATION_ERROR_WITH_TRANSCRIPT.width, WINDOW_SIZES.ASSISTANT.width);
 });
 
 test("dictation error windows grow to their full content and stay within the work area", () => {

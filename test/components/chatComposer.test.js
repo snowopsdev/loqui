@@ -12,7 +12,7 @@ const {
   installBrowserGlobals,
   installHookDom,
 } = require("../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
 
 const loadKeys = () => import("../../src/components/chat/chatInputKeys.ts");
 const source = fs.readFileSync(
@@ -20,7 +20,6 @@ const source = fs.readFileSync(
   "utf8"
 );
 const COMPOSER_MOCKS = {
-  "/ui/useToast": TOAST_MOCK,
   "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
 };
 const base = { shiftKey: false, isComposing: false, isBusy: false, isQueued: false, hasText: true };

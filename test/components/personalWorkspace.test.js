@@ -12,8 +12,6 @@ const {
 
 const { withI18nMock } = require("../lib/i18nTestMock");
 
-const { TOAST_MOCK } = require("../helpers/harness/rendererMocks");
-
 function find(node, predicate) {
   if (Array.isArray(node)) return node.map((item) => find(item, predicate)).find(Boolean);
   if (!node || typeof node !== "object") return null;
@@ -31,7 +29,6 @@ async function harness(t, module, options = {}) {
     withI18nMock({
       resolveAlias: { "@": path.resolve(__dirname, "../../src") },
       mockModules: {
-        "/ui/useToast": TOAST_MOCK,
         ...(options.mocks ?? {}),
       },
     })

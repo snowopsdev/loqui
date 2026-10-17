@@ -6,7 +6,7 @@ import { SendIcon } from "../ui/SendIcon";
 import { LiveWaveform } from "../ui/LiveWaveform";
 import { GRADIENT_CIRCLE } from "../ui/gradientCircle";
 import { GLASS_SURFACE } from "../ui/glass";
-import { useToast } from "../ui/useToast";
+import { notify } from "../ui/notices";
 import { formatMmSs } from "../../utils/formatDuration";
 import { useVoiceDraft } from "./useVoiceDraft";
 import { composerHeight, resolveComposerKey } from "./chatInputKeys";
@@ -68,7 +68,7 @@ export function ChatInput({
   voiceDraft = false,
 }: ChatInputProps) {
   const { t } = useTranslation();
-  const { toast } = useToast();
+
   const [inputText, setInputText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // A draft may leave the queue only for the destination that admitted it.
@@ -92,10 +92,10 @@ export function ChatInput({
       requestAnimationFrame(() => inputRef.current?.focus());
     },
     onError: (message) => {
-      toast({
+      notify({
+        kind: "alert",
         title: t("notes.upload.transcriptionFailed"),
-        description: message || undefined,
-        variant: "destructive",
+        body: message || undefined,
       });
     },
   });

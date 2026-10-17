@@ -6,7 +6,7 @@ const {
   routeTestApi,
   rendererServer,
   primeRouteFacts,
-  toastCapture,
+  noticeCapture,
 } = require("../lib/routeTestApi");
 
 // Added after implementation: mounted baseline guards of the actual production
@@ -65,7 +65,7 @@ for (const [provider, initialModel, nextModel, modelKey] of [
       [modelKey]: initialModel,
     });
     await primeRouteFacts(vite);
-    const { toasts, wrap } = await toastCapture(vite);
+    const { notices, wrap } = await noticeCapture(vite, t);
     const probes = createProbeRoot(t, { wrap });
     const parent = await probes.mount("picker", () => {
       const state = useSettingsStore();
@@ -94,15 +94,15 @@ for (const [provider, initialModel, nextModel, modelKey] of [
       initialModel,
       "focus never changes selection"
     );
-    assert.equal(toasts.length, 0);
+    assert.equal(notices.length, 0);
     await probes.act(() => radio().props.onKeyDown({ key: " ", preventDefault() {} }));
     await probes.settle();
     assert.equal(useSettingsStore.getState().localTranscriptionProvider, provider);
     assert.equal(useSettingsStore.getState()[modelKey], nextModel);
     assert.equal(useRouteDraftStore.getState().draft, null);
-    assert.equal(toasts.length, 1);
-    assert.equal(toasts[0].actions[0].label, "routes.toast.undo");
-    await probes.act(() => toasts[0].actions[0].onClick());
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].actions[0].label, "routes.toast.undo");
+    await probes.act(() => notices[0].actions[0].onClick());
     await probes.settle();
     assert.equal(useSettingsStore.getState()[modelKey], initialModel);
     assert.deepEqual(downloads, []);
@@ -144,7 +144,7 @@ test("baseline guard: Reasoning selector -> local picker -> actual cartridge -> 
     chatAgentModel: initial.id,
   });
   await primeRouteFacts(vite);
-  const { toasts, wrap } = await toastCapture(vite);
+  const { notices, wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   const parent = await probes.mount("selector", () => {
     const state = useSettingsStore();
@@ -178,8 +178,8 @@ test("baseline guard: Reasoning selector -> local picker -> actual cartridge -> 
   await probes.act(() => radio.props.onClick());
   await probes.settle();
   assert.equal(useSettingsStore.getState().chatAgentModel, next.id);
-  assert.equal(toasts.length, 1);
-  await probes.act(() => toasts[0].actions[0].onClick());
+  assert.equal(notices.length, 1);
+  await probes.act(() => notices[0].actions[0].onClick());
   await probes.settle();
   assert.equal(useSettingsStore.getState().chatAgentModel, initial.id);
   assert.deepEqual(calls, []);

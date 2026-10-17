@@ -1,5 +1,4 @@
 const path = require("node:path");
-const React = require("react");
 const { createRendererServer } = require("./rendererTestHarness");
 const { withI18nMock } = require("./i18nTestMock");
 
@@ -104,23 +103,20 @@ async function primeRouteFacts(vite) {
   await loadRouteFacts(globalThis.window.electronAPI);
 }
 
-async function toastCapture(vite) {
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
-  const toasts = [];
-  const value = {
-    toast: (props) => {
-      toasts.push(props);
-      return String(toasts.length);
-    },
-    dismiss() {},
-    toastCount: 0,
-    dictationErrorActionCount: 0,
-    dismissByPresentation() {},
-  };
-  return {
-    toasts,
-    wrap: (children) => React.createElement(ToastContext.Provider, { value }, children),
-  };
+async function noticeCapture(vite, t) {
+  const store = await vite.ssrLoadModule("/components/ui/notices.ts");
+  store.getNotices().forEach((n) => store.dismissNotice(n.id));
+  store.__setNoticeClockForTests();
+  const notices = [];
+  const sync = () => notices.splice(0, notices.length, ...store.getNotices());
+  const unsubscribe = store.subscribeNotices(sync);
+  t.after(() => {
+    unsubscribe();
+    store.getNotices().forEach((n) => store.dismissNotice(n.id));
+    store.__setNoticeClockForTests();
+  });
+  const clearNotices = () => store.getNotices().forEach((n) => store.dismissNotice(n.id));
+  return { notices, clearNotices, store, wrap: (children) => children };
 }
 
 function rendererServer(t, cachePrefix, extra = {}) {
@@ -130,4 +126,4 @@ function rendererServer(t, cachePrefix, extra = {}) {
   );
 }
 
-module.exports = { SRC, routeTestApi, primeRouteFacts, toastCapture, rendererServer };
+module.exports = { SRC, routeTestApi, primeRouteFacts, noticeCapture, rendererServer };

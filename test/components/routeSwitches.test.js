@@ -10,7 +10,7 @@ const {
   primeRouteFacts,
   rendererServer,
   routeTestApi,
-  toastCapture,
+  noticeCapture,
 } = require("../lib/routeTestApi");
 
 test("change-driving: enable switches and web search go through the route planner", async (t) => {
@@ -49,7 +49,7 @@ test("change-driving: enable switches and web search go through the route planne
     await vite.ssrLoadModule("/components/settings/InferenceConfigEditor.tsx")
   ).default;
   await primeRouteFacts(vite);
-  const { toasts, wrap } = await toastCapture(vite);
+  const { notices, wrap, clearNotices } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
 
   const live = () => useSettingsStore.getState();
@@ -58,7 +58,7 @@ test("change-driving: enable switches and web search go through the route planne
     await probes.act(() => {
       useRouteDraftStore.getState().discard();
       useSettingsStore.setState(state);
-      toasts.length = 0;
+      clearNotices();
     });
   };
   const isToggle = (node) =>
@@ -95,14 +95,14 @@ test("change-driving: enable switches and web search go through the route planne
         kind: "patch",
         patch: { useCleanupModel: true },
       });
-      assert.equal(toasts.length, 0);
+      assert.equal(notices.length, 0);
 
       await reset({ ...cloud, useCleanupModel: true });
       await flip(cleanup, false);
       assert.equal(live().useCleanupModel, false);
       assert.equal(draft(), null);
-      assert.match(toasts[0].title, /routes\.toast\.off/);
-      assert.equal(toasts[0].actions?.[0]?.label, "routes.toast.undo");
+      assert.match(notices[0].title, /routes\.toast\.off/);
+      assert.equal(notices[0].actions?.[0]?.label, "routes.toast.undo");
 
       await reset({
         cleanupMode: "local",
@@ -290,7 +290,7 @@ test("change-driving FIX1: disabled remote features expose missing model/key set
         );
         const { TEST_COPY } = require("../lib/routeStateFixture");
         await primeRouteFacts(vite);
-        const { wrap } = await toastCapture(vite);
+        const { wrap } = await noticeCapture(vite, t);
         const probes = createProbeRoot(t, { wrap });
         useSettingsStore.setState({
           [enabledKey]: false,
@@ -383,7 +383,7 @@ test("baseline guard FIX1: a coupled vision credential is reachable before assis
   );
   const { TEST_COPY } = require("../lib/routeStateFixture");
   await primeRouteFacts(vite);
-  const { wrap } = await toastCapture(vite);
+  const { wrap } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
   useSettingsStore.setState({
     useDictationAgent: false,

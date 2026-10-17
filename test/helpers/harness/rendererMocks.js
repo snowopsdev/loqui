@@ -20,19 +20,6 @@ export const Trans = ({ i18nKey }) => i18nKey;
 export const I18nextProvider = ({ children }) => children;
 `;
 
-const TOAST_MOCK = `
-export const useToast = () => ({
-  toast(props) {
-    (globalThis.__toasts ??= []).push(props);
-    return String(globalThis.__toasts.length);
-  },
-  dismiss() {},
-  dismissByPresentation() {},
-  toastCount: 0,
-  dictationErrorActionCount: 0,
-});
-`;
-
 function rendererOptions(cachePrefix, mockModules = {}) {
   return {
     cachePrefix,
@@ -42,4 +29,4 @@ function rendererOptions(cachePrefix, mockModules = {}) {
   };
 }
 
-module.exports = { I18N_KEYS_MOCK, TOAST_MOCK, rendererOptions };
+module.exports = { I18N_KEYS_MOCK, rendererOptions };

@@ -396,7 +396,6 @@ class WindowManager {
     switch (sizeKey) {
       case "ASSISTANT":
         return fitAssistantWindowToWorkArea(WINDOW_SIZES.ASSISTANT, workArea);
-      case "DICTATION_ERROR":
       case "DICTATION_ERROR_WITH_TRANSCRIPT":
         return fitDictationErrorWindowToWorkArea(WINDOW_SIZES[sizeKey], workArea);
       case "ASSISTANT_CONTENT":

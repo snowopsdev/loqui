@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
 import { FolderOpen, Copy, Check } from "./icons";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
 import { Toggle } from "./ui/toggle";
 import { useSettingsLayout } from "./ui/useSettingsLayout";
 import logger from "../utils/logger";
@@ -15,7 +15,6 @@ export default function DeveloperSection() {
   const [isLoading, setIsLoading] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
   const [copiedPath, setCopiedPath] = useState(false);
-  const { toast } = useToast();
 
   const loadDebugState = useCallback(async () => {
     try {
@@ -25,15 +24,15 @@ export default function DeveloperSection() {
       setLogPath(state.logPath);
     } catch (error) {
       logger.error("Failed to load debug state", { error }, "developer");
-      toast({
+      notify({
+        kind: "alert",
         title: t("developerSection.toasts.loadFailed.title"),
-        description: t("developerSection.toasts.loadFailed.description"),
-        variant: "destructive",
+        body: t("developerSection.toasts.loadFailed.description"),
       });
     } finally {
       setIsLoading(false);
     }
-  }, [t, toast]);
+  }, [t]);
 
   useEffect(() => {
     loadDebugState();
@@ -54,20 +53,20 @@ export default function DeveloperSection() {
       setDebugEnabled(newState);
       await loadDebugState();
 
-      toast({
+      notify({
+        kind: "receipt",
         title: newState
           ? t("developerSection.toasts.debugEnabled.title")
           : t("developerSection.toasts.debugDisabled.title"),
-        description: newState
+        body: newState
           ? t("developerSection.toasts.debugEnabled.description")
           : t("developerSection.toasts.debugDisabled.description"),
-        variant: "success",
       });
     } catch (error) {
-      toast({
+      notify({
+        kind: "alert",
         title: t("developerSection.toasts.updateFailed.title"),
-        description: t("developerSection.toasts.updateFailed.description"),
-        variant: "destructive",
+        body: t("developerSection.toasts.updateFailed.description"),
       });
     } finally {
       setIsToggling(false);
@@ -81,10 +80,10 @@ export default function DeveloperSection() {
         throw new Error(result.error || "Failed to open folder");
       }
     } catch (error) {
-      toast({
+      notify({
+        kind: "alert",
         title: t("developerSection.toasts.openLogsFailed.title"),
-        description: t("developerSection.toasts.openLogsFailed.description"),
-        variant: "destructive",
+        body: t("developerSection.toasts.openLogsFailed.description"),
       });
     }
   };
@@ -95,18 +94,17 @@ export default function DeveloperSection() {
     try {
       await navigator.clipboard.writeText(logPath);
       setCopiedPath(true);
-      toast({
+      notify({
+        kind: "receipt",
         title: t("developerSection.toasts.copied.title"),
-        description: t("developerSection.toasts.copied.description"),
-        variant: "success",
-        duration: 2000,
+        body: t("developerSection.toasts.copied.description"),
       });
       setTimeout(() => setCopiedPath(false), 2000);
     } catch (error) {
-      toast({
+      notify({
+        kind: "alert",
         title: t("developerSection.toasts.copyFailed.title"),
-        description: t("developerSection.toasts.copyFailed.description"),
-        variant: "destructive",
+        body: t("developerSection.toasts.copyFailed.description"),
       });
     }
   };

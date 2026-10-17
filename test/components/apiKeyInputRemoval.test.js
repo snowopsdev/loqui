@@ -5,7 +5,7 @@ const test = require("node:test");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
 const { installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
-const { rendererServer, toastCapture } = require("../lib/routeTestApi");
+const { rendererServer, noticeCapture } = require("../lib/routeTestApi");
 const { deferred } = require("../helpers/harness/deferred");
 const { fakeCredentialEnv, fakeCodexFs } = require("../helpers/harness/fakeCredentialEnv");
 const { createCredentialAuthority } = require("../../src/helpers/credentialAuthority.js");
@@ -107,9 +107,9 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
     });
   };
 
-  // Mounts `render(props)` (a component called as a function) under a capturing toast context.
-  async function mount(st, render, props, { withToasts = true } = {}) {
-    const capture = await toastCapture(vite);
+  // Mounts the actual field/hook and observes the production module store.
+  async function mount(st, render, props) {
+    const capture = await noticeCapture(vite, st);
     let tree;
     let current = props;
     function Probe() {
@@ -124,16 +124,12 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
       await React.act(async () => root.unmount());
     };
     st.after(unmount);
-    const draw = () =>
-      React.act(async () =>
-        root.render(
-          withToasts ? capture.wrap(React.createElement(Probe)) : React.createElement(Probe)
-        )
-      );
+    const draw = () => React.act(async () => root.render(React.createElement(Probe)));
     await draw();
     return {
       tree: () => tree,
-      toasts: capture.toasts,
+      notices: capture.notices,
+      store: capture.store,
       unmount,
       rerender: async (next) => {
         current = { ...current, ...next };
@@ -148,7 +144,7 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
       },
     };
   }
-  const field = (st, props, options) => mount(st, ApiKeyInput, props, options);
+  const field = (st, props) => mount(st, ApiKeyInput, props);
   // The ApiKeyInput element a real OpenAICompatiblePanel (Task 9) renders, mounted with exactly its props.
   async function panelKeyField(st, panelProps) {
     const panel = await mount(st, OpenAICompatiblePanel, panelProps);
@@ -157,7 +153,7 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
     await panel.unmount();
     return { element, field: await field(st, element.props) };
   }
-  const runToastAction = async (toast) =>
+  const runCapturedAction = async (toast) =>
     React.act(async () => {
       await toast.actions[0].onClick();
     });
@@ -201,7 +197,7 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
   );
 
   await t.test(
-    "change-driving: OpenRouter (R2-5): Remove in the compatible panel removes by token, toasts Undo, and Undo restores the key after the field unmounted",
+    "change-driving: OpenRouter (R2-5): Remove in the compatible panel removes by token, shows Undo, and Undo restores the key after the field unmounted",
     async (st) => {
       // change-driving: OpenRouter's panel passed no identity, so Remove permanently erased the key.
       const main = mainCredentials({ OPENROUTER_API_KEY: SECRETS[0] });
@@ -223,25 +219,25 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
       assert.deepEqual(main.calls, [["remove", "openrouter"]]);
       assert.deepEqual(saved, [], "removal never goes through the secret setter");
       assert.equal(main.env.values.has("OPENROUTER_API_KEY"), false);
-      const [removedToast] = c.toasts;
-      assert.equal(removedToast.title, "apiKeyInput.removed");
-      assert.equal(removedToast.actions[0].label, "apiKeyInput.undo");
-      assert.equal(removedToast.actions[0].dismissOnClick, true);
+      const [removedNotice] = c.notices;
+      assert.equal(removedNotice.title, "apiKeyInput.removed");
+      assert.equal(removedNotice.actions[0].label, "apiKeyInput.undo");
+      assert.equal(removedNotice.actions[0].primary, true);
       assert.ok(
-        removedToast.duration > 7000 && removedToast.duration <= 8000,
-        "the toast lives exactly as long as main's window"
+        removedNotice.expiresAt - removedNotice.createdAt === 7000,
+        "the receipt action lives 7s; main retains its original 8s authority"
       );
       await c.unmount(); // switching provider tabs unmounts the field; the toast keeps the Undo
-      await runToastAction(removedToast);
+      await runCapturedAction(removedNotice);
       assert.deepEqual(main.calls, [
         ["remove", "openrouter"],
         ["undoRemove", "<token>"],
       ]);
       assert.equal(main.env.values.get("OPENROUTER_API_KEY"), SECRETS[0]);
-      assert.equal(c.toasts.at(-1).title, "apiKeyInput.restored");
-      assertSecretFree({ results: main.results, toasts: c.toasts });
+      assert.equal(c.notices.at(-1).title, "apiKeyInput.restored");
+      assertSecretFree({ results: main.results, notices: c.notices });
       assert.ok(
-        !JSON.stringify(c.toasts).includes(main.tokens[0]),
+        !JSON.stringify(c.notices).includes(main.tokens[0]),
         "the undo token never reaches a toast"
       );
     }
@@ -276,12 +272,12 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
         "",
         "credentials-changed cleared the sentinel"
       );
-      await runToastAction(c.toasts[0]);
+      await runCapturedAction(c.notices[0]);
       assert.equal(useSettingsStore.getState().noteFormattingCustomApiKey, "__stored__");
       assert.equal(main.env.values.get("NOTE_FORMATTING_CUSTOM_API_KEY"), SECRETS[1]);
       assertSecretFree({
         results: main.results,
-        toasts: c.toasts,
+        notices: c.notices,
         store: useSettingsStore.getState(),
       });
     }
@@ -312,11 +308,11 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
       assert.deepEqual(main.calls, [["remove", "corti:speech"]]);
       assert.equal(main.env.values.has("CORTI_CLIENT_ID"), false);
       assert.equal(main.env.values.has("CORTI_CLIENT_SECRET"), false);
-      assert.equal(c.toasts[0].title, "apiKeyInput.removedCredential");
-      await runToastAction(c.toasts[0]);
+      assert.equal(c.notices[0].title, "apiKeyInput.removedCredential");
+      await runCapturedAction(c.notices[0]);
       assert.equal(main.env.values.get("CORTI_CLIENT_ID"), SECRETS[2]);
       assert.equal(main.env.values.get("CORTI_CLIENT_SECRET"), SECRETS[3]);
-      assertSecretFree({ results: main.results, toasts: c.toasts });
+      assertSecretFree({ results: main.results, notices: c.notices });
     }
   );
 
@@ -340,11 +336,11 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
       );
       await c.click(byAction("save-key"));
       await settle();
-      await runToastAction(c.toasts[0]);
-      assert.equal(c.toasts.at(-1).title, "apiKeyInput.undoReplaced");
-      assert.equal(c.toasts.at(-1).actions, undefined, "no second attempt is offered");
+      await runCapturedAction(c.notices[0]);
+      assert.equal(c.notices.at(-1).title, "apiKeyInput.undoReplaced");
+      assert.equal(c.notices.at(-1).actions, undefined, "no second attempt is offered");
       assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[5]);
-      assertSecretFree({ results: main.results, toasts: c.toasts });
+      assertSecretFree({ results: main.results, notices: c.notices });
     }
   );
 
@@ -352,7 +348,7 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
     "change-driving: an Undo after main's window closed says it is too late",
     async (st) => {
       // change-driving.
-      let clock = 1_000_000;
+      let clock = Date.now();
       const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] }, { now: () => clock });
       useCredentials(st, main);
       const c = await field(st, {
@@ -363,8 +359,8 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
       await c.click(byAction("remove-key"));
       await settle();
       clock += 8_000;
-      await runToastAction(c.toasts[0]);
-      assert.equal(c.toasts.at(-1).title, "apiKeyInput.undoExpired");
+      await runCapturedAction(c.notices[0]);
+      assert.equal(c.notices.at(-1).title, "apiKeyInput.undoExpired");
       assert.equal(main.env.values.has("OPENAI_API_KEY"), false);
     }
   );
@@ -389,15 +385,75 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
           throw new Error("locked");
         }
       };
-      await runToastAction(c.toasts[0]);
-      const retry = c.toasts.at(-1);
+      await runCapturedAction(c.notices[0]);
+      const retry = c.notices.at(-1);
       assert.equal(retry.title, "apiKeyInput.undoRetry");
       assert.equal(retry.actions[0].label, "apiKeyInput.undo");
-      await runToastAction(retry);
+      await runCapturedAction(retry);
       assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[4]);
-      assert.equal(c.toasts.at(-1).title, "apiKeyInput.restored");
+      assert.equal(c.notices.at(-1).title, "apiKeyInput.restored");
     }
   );
+
+  await t.test("a retried notice never extends main's original credential expiry", async (st) => {
+    let clock = 1_000_000;
+    const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] }, { now: () => clock });
+    useCredentials(st, main);
+    let removal;
+    const scheduled = new Map();
+    let sequence = 0;
+    const c = await mount(st, () => {
+      removal = removalModule.useUndoableRemoval("openai", {
+        api: main.api,
+        now: () => clock,
+        schedule: (fn, ms) => {
+          const id = ++sequence;
+          scheduled.set(id, { fn, at: clock + ms });
+          return id;
+        },
+        cancel: (id) => scheduled.delete(id),
+      });
+      return null;
+    });
+    c.store.__setNoticeClockForTests({ now: () => clock, setTimeout: () => 1, clearTimeout() {} });
+    await React.act(async () => removal.remove());
+    const originalExpiry = main.results[0].expiresAt;
+    const first = c.store.getNotices()[0];
+    assert.equal(first.kind, "receipt");
+    assert.equal(first.expiresAt - first.createdAt, 7000);
+    clock += 6000;
+    main.env.persistImpl = async (_name, value) => {
+      if (value) throw new Error("fixture locked");
+    };
+    await React.act(async () => c.store.runNoticeAction(first.id, first.actions[0]));
+    const retry = c.store.getNotices()[0];
+    assert.equal(retry.title, "apiKeyInput.undoRetry");
+    assert.equal(retry.expiresAt - retry.createdAt, 7000, "tier lifetime stays 7s");
+    assert.equal(main.results[0].expiresAt, originalExpiry);
+    c.store.pauseNotice(retry.id);
+    clock = originalExpiry;
+    await React.act(async () => {
+      for (const [id, timer] of [...scheduled])
+        if (timer.at <= clock) {
+          scheduled.delete(id);
+          timer.fn();
+        }
+    });
+    assert.deepEqual(
+      c.store.getNotices(),
+      [],
+      "original deadline removes even a hover-paused Retry affordance"
+    );
+    const before = main.calls.length;
+    await React.act(async () => c.store.runNoticeAction(retry.id, retry.actions[0]));
+    assert.equal(main.calls.length, before, "dismissed revision cannot activate Undo");
+    await React.act(async () => retry.actions[0].onClick());
+    assert.equal(c.store.getNotices().at(-1).title, "apiKeyInput.undoExpired");
+    assert.equal(main.env.values.has("OPENAI_API_KEY"), false);
+    assert.equal(main.tokens.length, 1, "retry never creates a new capability");
+    assert.ok(!JSON.stringify(c.store.getNotices()).includes(main.tokens[0]));
+    assert.ok(c.store.getNotices().every((n) => n.title !== "apiKeyInput.restored"));
+  });
 
   await t.test(
     "change-driving: a refused removal keeps the key and shows Task 2's removeFailed alert",
@@ -419,28 +475,31 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
         textOf(find(c.tree(), (n) => n.props?.role === "alert")),
         "apiKeyInput.removeFailed"
       );
-      assert.deepEqual(c.toasts, []);
+      assert.deepEqual(c.notices, []);
       assert.ok(find(c.tree(), byAction("remove-key")), "the key is still there to remove again");
       assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[4]);
     }
   );
 
   await t.test(
-    "change-driving: without a toast host the field shows the inline Removed · Undo, and Undo restores through the token",
+    "change-driving: without a provider wrapper the module store retains Removed · Undo and restores through the token",
     async (st) => {
-      // change-driving: fallback for a field rendered outside the app's ToastProvider.
+      // The module store is available without a context provider.
       const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] });
       useCredentials(st, main);
-      const c = await field(
-        st,
-        { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) },
-        { withToasts: false }
-      );
+      const c = await field(st, {
+        apiKey: "__stored__",
+        credentialId: "openai",
+        setApiKey: async () => ({ ok: true }),
+      });
       await c.click(byAction("remove-key"));
       await settle();
-      assert.match(textOf(c.tree()), /apiKeyInput\.removed/);
-      assert.ok(!textOf(c.tree()).includes(main.tokens[0]), "the token is never rendered");
-      await c.click(byAction("undo-remove"));
+      assert.equal(c.notices[0].title, "apiKeyInput.removed");
+      assert.ok(
+        !JSON.stringify(c.notices).includes(main.tokens[0]),
+        "the token stays in the action closure"
+      );
+      await runCapturedAction(c.notices[0]);
       await settle();
       assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[4]);
       assert.equal(find(c.tree(), byAction("undo-remove")), undefined);
@@ -504,7 +563,7 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
       function Probe() {
         latest = removalModule.useUndoableRemoval("groq", {
           api,
-          toast: null,
+          notify: null,
           now: () => 1000,
           schedule: (fn, ms) => {
             scheduled.push({ fn, ms });
@@ -654,7 +713,7 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
         assert.equal(main.env.values.has(name), false);
       assert.equal(main.env.values.get("BEDROCK_PROFILE"), "fixture-profile");
       await c.unmount();
-      await runToastAction(c.toasts[0]);
+      await runCapturedAction(c.notices[0]);
       assert.equal(main.env.values.get("BEDROCK_ACCESS_KEY_ID"), "fixture-access");
       assert.equal(main.env.values.get("BEDROCK_SECRET_ACCESS_KEY"), "fixture-secret");
       assert.equal(main.env.values.get("BEDROCK_SESSION_TOKEN"), "fixture-session");
@@ -674,7 +733,7 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
         setApiKey: async () => ({ ok: true }),
       });
       await c.click(byAction("remove-key"));
-      const toast = c.toasts[0];
+      const toast = c.notices[0];
       await c.rerender({ credentialId: "groq" });
       let wrongApiCalls = 0;
       globalThis.window.electronAPI = {
@@ -688,8 +747,8 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
         },
       };
       await c.unmount();
-      await runToastAction(toast);
-      await runToastAction(toast); // stale/double action is inert after success
+      await runCapturedAction(toast);
+      await runCapturedAction(toast); // stale/double action is inert after success
       assert.equal(wrongApiCalls, 0);
       assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[4]);
       assert.deepEqual(main.calls, [
@@ -724,7 +783,7 @@ test("[change-driving] api key input: undoable removal through main", async (t) 
       );
       assertSecretFree({
         tree: textOf(c.tree()),
-        toasts: c.toasts,
+        notices: c.notices,
         outcome: await removalModule.undoRemoval(api, "opaque", 9000, () => 1000),
       });
     }
@@ -875,14 +934,16 @@ test("[change-driving] rendered removal Undo survives its field and restores the
     mockModules: { "/services/ReasoningService": "export default { clearApiKeyCache() {} };" },
   });
   const ApiKeyInput = (await vite.ssrLoadModule("/components/ui/ApiKeyInput.tsx")).default;
-  const { ToastProvider } = await vite.ssrLoadModule("/components/ui/Toast.tsx");
+  const { NoticeStack } = await vite.ssrLoadModule("/components/ui/NoticeStack.tsx");
+  await noticeCapture(vite, t);
   root = createRoot(tree.container);
   const draw = (id) =>
     React.act(async () =>
       root.render(
         React.createElement(
-          ToastProvider,
+          React.Fragment,
           null,
+          React.createElement(NoticeStack, { placement: "panel" }),
           id
             ? React.createElement(ApiKeyInput, {
                 credentialId: id,
@@ -942,7 +1003,7 @@ test("[change-driving] rendered removal Undo survives its field and restores the
   assertSecretFree(surface());
 });
 
-test("[change-driving] standard toasts render multiple structured actions and retain legacy actions", async (t) => {
+test("[change-driving] notices render migrated structured actions and keepOpen retains the notice", async (t) => {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -950,32 +1011,28 @@ test("[change-driving] standard toasts render multiple structured actions and re
   installBrowserGlobals(t, { window: { location: { search: "?panel=true" } } });
   installHookDom(t);
   const tree = removalEventTree();
-  const vite = await rendererServer(t, "loqui-rendered-toast-actions-");
-  const { ToastProvider } = await vite.ssrLoadModule("/components/ui/Toast.tsx");
-  const { useToast } = await vite.ssrLoadModule("/components/ui/useToast.ts");
+  const vite = await rendererServer(t, "loqui-rendered-notice-actions-");
+  const { NoticeStack } = await vite.ssrLoadModule("/components/ui/NoticeStack.tsx");
+  const { store } = await noticeCapture(vite, t);
   const clicked = [];
-  function Notice() {
-    const { toast } = useToast();
-    React.useEffect(() => {
-      toast({
-        title: "Action fixture",
-        duration: 0,
-        action: React.createElement(
-          "button",
-          { type: "button", onClick: () => clicked.push("legacy") },
-          "Legacy"
-        ),
-        actions: [
-          { label: "Keep open", dismissOnClick: false, onClick: () => clicked.push("keep") },
-          { label: "Finish", onClick: () => clicked.push("finish") },
-        ],
-      });
-    }, [toast]);
-    return null;
-  }
+  store.notify({
+    kind: "receipt",
+    title: "Action fixture",
+    persistent: true,
+    actions: [
+      {
+        label: "Migrated action",
+        primary: true,
+        keepOpen: true,
+        onClick: () => clicked.push("migrated"),
+      },
+      { label: "Keep open", keepOpen: true, onClick: () => clicked.push("keep") },
+      { label: "Finish", onClick: () => clicked.push("finish") },
+    ],
+  });
   root = createRoot(tree.container);
   await React.act(async () =>
-    root.render(React.createElement(ToastProvider, null, React.createElement(Notice)))
+    root.render(React.createElement(NoticeStack, { placement: "panel" }))
   );
   const button = (label) =>
     tree.find((node) => node.tagName === "BUTTON" && node.textContent === label);
@@ -985,18 +1042,20 @@ test("[change-driving] standard toasts render multiple structured actions and re
     assert.equal(target.attributes.type, "button");
     await React.act(async () => target.click());
   };
-  const toastNode = () => tree.find((node) => node.attributes?.class?.includes("toast-surface"));
-  await click("Legacy");
+  await click("Migrated action");
+  await React.act(async () => {
+    const more = tree.find((node) => node.attributes?.["aria-label"] === "notices.moreActions");
+    assert.ok(more, "secondary actions remain reachable behind More");
+    more.click();
+  });
   await click("Keep open");
-  assert.deepEqual(clicked, ["legacy", "keep"]);
-  assert.doesNotMatch(
-    toastNode().attributes.class,
-    /opacity-0/,
-    "dismissOnClick=false keeps the toast"
-  );
+  assert.deepEqual(clicked, ["migrated", "keep"]);
+  assert.equal(store.getNotices().length, 1, "keepOpen retains the real notice");
   await click("Finish");
-  assert.deepEqual(clicked, ["legacy", "keep", "finish"]);
-  assert.match(toastNode().attributes.class, /opacity-0/, "the default action starts dismissal");
-  await React.act(async () => new Promise((resolve) => setTimeout(resolve, 220)));
-  assert.equal(toastNode(), null, "the dismissed toast leaves the DOM");
+  assert.deepEqual(clicked, ["migrated", "keep", "finish"]);
+  assert.deepEqual(store.getNotices(), []);
+  assert.equal(
+    tree.find((node) => node.attributes?.class === "notice-chip"),
+    null
+  );
 });

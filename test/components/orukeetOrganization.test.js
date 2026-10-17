@@ -25,8 +25,7 @@ async function renderer(t) {
 }
 
 async function render(vite, element) {
-  const { ToastProvider } = await vite.ssrLoadModule("/components/ui/Toast.tsx");
-  return renderToStaticMarkup(React.createElement(ToastProvider, null, element));
+  return renderToStaticMarkup(element);
 }
 
 test("all three model pickers restore the Oruk tab from the persisted Orukeet choice", async (t) => {
@@ -86,7 +85,6 @@ test("change-driving FIX1: unsupported Oruk browse tab leaves disabled engines w
   globalThis.window.electronAPI.onWhisperDownloadProgress = () => noop;
   globalThis.window.electronAPI.onParakeetDownloadProgress = () => noop;
   const { default: Picker } = await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx");
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
   const commits = [];
   let tree;
   function Harness() {
@@ -101,13 +99,7 @@ test("change-driving FIX1: unsupported Oruk browse tab leaves disabled engines w
   const root = createRoot(container);
   try {
     await React.act(async () => {
-      root.render(
-        React.createElement(
-          ToastContext.Provider,
-          { value: { toast: noop } },
-          React.createElement(Harness)
-        )
-      );
+      root.render(React.createElement(Harness));
     });
     function find(node) {
       if (Array.isArray(node)) return node.map(find).find(Boolean);

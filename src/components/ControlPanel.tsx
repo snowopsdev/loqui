@@ -21,7 +21,7 @@ import { useDialogs } from "../hooks/useDialogs";
 import { useHotkey } from "../hooks/useHotkey";
 
 import { AlertDialog, ConfirmDialog } from "./ui/dialog";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
 
 import { useSettings } from "../hooks/useSettings";
 
@@ -128,7 +128,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   );
 
   const { hotkey } = useHotkey();
-  const { toast } = useToast();
   const { useCleanupModel } = useSettings();
 
   // Suppressed while a deep-linked invitation is open so the two never stack.
@@ -299,14 +298,14 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       if (isAccessibilitySkipped()) return;
       setSettingsSection("privacyData");
       setShowSettings(true);
-      toast({
+      notify({
+        kind: "notice",
         title: t("controlPanel.accessibilityMissing.title"),
-        description: t("controlPanel.accessibilityMissing.description"),
-        duration: 10000,
+        body: t("controlPanel.accessibilityMissing.description"),
       });
     });
     return () => cleanup?.();
-  }, [toast, t]);
+  }, [t]);
 
   const handleMeetingRecordingRequestHandled = useCallback(
     () => setMeetingRecordingRequest(null),
@@ -324,21 +323,20 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     async (text: string) => {
       try {
         await navigator.clipboard.writeText(text);
-        toast({
+        notify({
+          kind: "receipt",
           title: t("controlPanel.history.copiedTitle"),
-          description: t("controlPanel.history.copiedDescription"),
-          variant: "success",
-          duration: 2000,
+          body: t("controlPanel.history.copiedDescription"),
         });
       } catch (err) {
-        toast({
+        notify({
+          kind: "alert",
           title: t("controlPanel.history.couldNotCopyTitle"),
-          description: t("controlPanel.history.couldNotCopyDescription"),
-          variant: "destructive",
+          body: t("controlPanel.history.couldNotCopyDescription"),
         });
       }
     },
-    [toast, t]
+    [t]
   );
 
   const deleteTranscription = useCallback(
@@ -380,11 +378,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           if (result.success) {
             clearStore();
 
-            toast({
-              title: t("controlPanel.history.clearAllSuccess"),
-              variant: "success",
-              duration: 2000,
-            });
+            notify({ kind: "receipt", title: t("controlPanel.history.clearAllSuccess") });
           } else {
             showAlertDialog({
               title: t("controlPanel.history.clearAllErrorTitle"),
@@ -400,26 +394,20 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       },
       variant: "destructive",
     });
-  }, [showConfirmDialog, showAlertDialog, toast, t]);
+  }, [showConfirmDialog, showAlertDialog, t]);
 
   const showAudioInFolder = useCallback(
     async (id: number) => {
       try {
         const result = await window.electronAPI.showAudioInFolder(id);
         if (!result?.success) {
-          toast({
-            title: t("controlPanel.history.audioNotFound"),
-            variant: "destructive",
-          });
+          notify({ kind: "alert", title: t("controlPanel.history.audioNotFound") });
         }
       } catch {
-        toast({
-          title: t("controlPanel.history.audioNotFound"),
-          variant: "destructive",
-        });
+        notify({ kind: "alert", title: t("controlPanel.history.audioNotFound") });
       }
     },
-    [toast, t]
+    [t]
   );
 
   const retryTranscription = useCallback(
@@ -492,12 +480,13 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                     );
                     // The chain still translates the raw transcript, so say why cleanup
                     // was dropped rather than reporting a clean success (#2091).
-                    toast({
-                      title: t("app.toasts.cleanupFailed.title"),
-                      description: cleanupError.messageKey
+                    notify({
+                      kind: "notice",
+                      id: "cleanup-failed",
+                      title: t("notices.cleanupFailed.title"),
+                      body: cleanupError.messageKey
                         ? t(cleanupError.messageKey)
                         : cleanupError.message,
-                      variant: "destructive",
                     });
                   },
                   onEmptyTranslate: () =>
@@ -563,10 +552,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
               // The row keeps its raw transcript, so the retry must not look like it
               // cleaned anything — report why, the way dictation does (#2091).
               const failure = cleanupError as Error & { messageKey?: string };
-              toast({
-                title: t("app.toasts.cleanupFailed.title"),
-                description: failure.messageKey ? t(failure.messageKey) : failure.message,
-                variant: "destructive",
+              notify({
+                kind: "notice",
+                id: "cleanup-failed",
+                title: t("notices.cleanupFailed.title"),
+                body: failure.messageKey ? t(failure.messageKey) : failure.message,
               });
             }
           }
@@ -606,7 +596,8 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           }
 
           updateInStore(finalTranscription);
-          toast({
+          notify({
+            kind: "receipt",
             title: t(
               options?.isRecover
                 ? "controlPanel.history.discarded.recovered"
@@ -614,20 +605,17 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             ),
           });
         } else {
-          toast({
+          notify({
+            kind: "alert",
             title: t("controlPanel.history.retryError"),
-            description: result.messageKey ? t(result.messageKey) : result.error,
-            variant: "destructive",
+            body: result.messageKey ? t(result.messageKey) : result.error,
           });
         }
       } catch {
-        toast({
-          title: t("controlPanel.history.retryError"),
-          variant: "destructive",
-        });
+        notify({ kind: "alert", title: t("controlPanel.history.retryError") });
       }
     },
-    [toast, t, useCleanupModel]
+    [t, useCleanupModel]
   );
 
   const toggleShowDiscarded = useCallback(() => {

@@ -112,20 +112,20 @@ export function useMainWindowSizeOwner({
     const prev = lastSizeKeyRef.current;
     lastSizeKeyRef.current = target;
     if (target === prev && !returningFromPanel) return undefined;
-    if (target === "DICTATION_ERROR" || target === "DICTATION_ERROR_WITH_TRANSCRIPT") {
+    if (target === "DICTATION_ERROR_WITH_TRANSCRIPT") {
       // Establish the final width immediately. The hidden error card then
       // measures wrapping at that width and performs one content-height resize.
       void requestMainWindowSize(target);
       return undefined;
     }
-    if (prev === "DICTATION_ERROR" || prev === "DICTATION_ERROR_WITH_TRANSCRIPT") {
+    if (prev === "DICTATION_ERROR_WITH_TRANSCRIPT") {
       // Keep the same pill root hidden until Electron has restored the compact
       // bounds. Revealing it in the old error footprint makes it jump once when
       // React mounts it and again when the native resize reaches Chromium.
       void handoffRef.current?.releaseAfter(async () => {
         let settledTarget = target;
         await requestMainWindowSize(settledTarget);
-        // A menu/toast edge can supersede BASE while its native resize is
+        // A menu/notice edge can supersede BASE while its native resize is
         // queued. Follow the size owner's latest target before revealing.
         while (!wordsCardVisibleRef.current && lastSizeKeyRef.current !== settledTarget) {
           settledTarget = lastSizeKeyRef.current;
@@ -152,7 +152,7 @@ export function useMainWindowSizeOwner({
         // bounds alone and let the ownership branch reveal the pill.
         if (panelSizeReservationRef.current) return;
         await panelReturnHandoff.releaseAfter(async () => {
-          // A menu/toast edge can supersede the target while the fade runs.
+          // A menu/notice edge can supersede the target while the fade runs.
           // Follow the size owner's latest target before revealing. A dictation
           // error takes over the window on its own path, so bail to it rather
           // than chase a target it is already moving (same guard as the

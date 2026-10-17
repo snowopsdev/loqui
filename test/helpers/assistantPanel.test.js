@@ -304,9 +304,6 @@ async function renderAssistantPanel(
           return React.createElement("div", { className }, content);
         }
       `,
-      "/ui/useToast": `
-        export function useToast() { return { toast() {} }; }
-      `,
     },
   });
   const [{ default: viteI18next }, { initReactI18next }] = await Promise.all([
@@ -463,9 +460,6 @@ test("starting a new conversation clears the displayed response and parent conte
       "/utils/hotkeys": `
         export function formatHotkeyListLabel() { return ""; }
       `,
-      "/ui/useToast": `
-        export function useToast() { return { toast() {} }; }
-      `,
     },
   });
   const [{ default: viteI18next }, { initReactI18next }] = await Promise.all([
@@ -485,7 +479,7 @@ test("starting a new conversation clears the displayed response and parent conte
     vite.ssrLoadModule("/hooks/useAssistantPanel.js"),
   ]);
   const { createRoot } = require("react-dom/client");
-  let dictationErrorActionCount = 0;
+  let wordsCardVisible = false;
   let assistant;
   const requestMainWindowSize = async () => ({ success: true });
   const recordingControlsRef = { current: null };
@@ -493,7 +487,7 @@ test("starting a new conversation clears the displayed response and parent conte
   function Harness() {
     assistant = useAssistantPanel({
       requestMainWindowSize,
-      dictationErrorActionCount,
+      wordsCardVisible,
       recordingControlsRef,
     });
     return React.createElement(AssistantPanel, {
@@ -559,7 +553,7 @@ test("starting a new conversation clears the displayed response and parent conte
   ]);
 
   await React.act(async () => assistant.noteDictationError({ recoverAssistant: true }));
-  dictationErrorActionCount = 1;
+  wordsCardVisible = true;
   await React.act(async () => root.render(React.createElement(Harness)));
   assert.equal(assistant.closing, true);
   await React.act(async () => assistant.completeContentFade());
@@ -765,7 +759,7 @@ test("a failed Assistant resize releases its open claim so opening can retry", a
         resizeCalls += 1;
         throw new Error("resize failed");
       },
-      dictationErrorActionCount: 0,
+      wordsCardVisible: false,
       recordingControlsRef: { current: null },
     });
     return null;
@@ -829,7 +823,7 @@ test("a caret-delivered command returns the hidden Assistant to the idle pill", 
   function Harness() {
     assistant = useAssistantPanel({
       requestMainWindowSize: async () => ({ success: true }),
-      dictationErrorActionCount: 0,
+      wordsCardVisible: false,
       recordingControlsRef: { current: null },
     });
     return null;
@@ -878,7 +872,7 @@ test("a follow-up into an open panel strips caret delivery and stays panel-first
   function Harness() {
     assistant = useAssistantPanel({
       requestMainWindowSize: async () => ({ success: true }),
-      dictationErrorActionCount: 0,
+      wordsCardVisible: false,
       recordingControlsRef: { current: null },
     });
     return null;

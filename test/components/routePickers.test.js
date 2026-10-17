@@ -9,7 +9,7 @@ const {
   primeRouteFacts,
   rendererServer,
   routeTestApi,
-  toastCapture,
+  noticeCapture,
 } = require("../lib/routeTestApi");
 
 const endpointField = (tree) =>
@@ -61,7 +61,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
   const SelfHostedPanel = (await vite.ssrLoadModule("/components/SelfHostedPanel.tsx")).default;
   await primeRouteFacts(vite);
-  const { toasts, wrap } = await toastCapture(vite);
+  const { notices, wrap, clearNotices } = await noticeCapture(vite, t);
   const probes = createProbeRoot(t, { wrap });
 
   // Cartridges subscribe to resolved routes; reset their live stores inside act.
@@ -69,7 +69,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
     probes.act(() => {
       useRouteDraftStore.getState().discard();
       useSettingsStore.setState(state);
-      toasts.length = 0;
+      clearNotices();
     });
   const dictationCloud = (over = {}) => ({
     transcriptionMode: "providers",
@@ -106,7 +106,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
       await probes.settle();
       assert.equal(useSettingsStore.getState().cloudTranscriptionModel, "whisper-1");
       assert.equal(useRouteDraftStore.getState().draft, null);
-      assert.equal(toasts.length, 1);
+      assert.equal(notices.length, 1);
     }
   );
 
@@ -574,7 +574,7 @@ for (const provider of ["nvidia", "cohere"])
         cloudTranscriptionModel: "whisper-1",
       };
       useSettingsStore.setState(initial);
-      const { wrap, toasts } = await toastCapture(vite);
+      const { wrap, notices } = await noticeCapture(vite, t);
       const probes = createProbeRoot(t, { wrap });
       const tree = await probes.mount("picker", () => {
         const commit = useRouteCommit("dictationStt");
@@ -592,7 +592,7 @@ for (const provider of ["nvidia", "cohere"])
       for (const [key, value] of Object.entries(initial))
         assert.equal(useSettingsStore.getState()[key], value, `mount preserves ${key}`);
       assert.equal(useRouteDraftStore.getState().draft, null);
-      assert.deepEqual(toasts, []);
+      assert.deepEqual(notices, []);
       if (mode === "local") {
         const unsupported = findElement(
           tree(),
@@ -618,6 +618,6 @@ for (const provider of ["nvidia", "cohere"])
         await probes.settle();
         assert.equal(useSettingsStore.getState().localTranscriptionProvider, "whisper");
         assert.equal(useSettingsStore.getState().whisperModel, "base");
-        assert.equal(toasts.length, 1);
+        assert.equal(notices.length, 1);
       }
     });

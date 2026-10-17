@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { Plus, Sparkles, X } from "../icons";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
-import { useToast } from "../ui/useToast";
+import { notify } from "../ui/notices";
 import NoteEditor from "./NoteEditor";
 import SpacesTree from "./SpacesTree";
 import { ContainerOverview } from "./overview/ContainerOverview";
@@ -247,7 +247,6 @@ export default function PersonalNotesView({
     },
     [commitDraft, persistPendingWrites, takePendingSnapshots]
   );
-  const { toast } = useToast();
 
   const noteFormatting = useSettingsStore(
     useShallow((settings) => {
@@ -548,14 +547,10 @@ export default function PersonalNotesView({
       if (result.success && result.folder) {
         await handleMoveToFolder(noteId, result.folder.id);
       } else if (result.error) {
-        toast({
-          title: t("notes.folders.couldNotCreate"),
-          description: result.error,
-          variant: "destructive",
-        });
+        notify({ kind: "alert", title: t("notes.folders.couldNotCreate"), body: result.error });
       }
     },
-    [privateSpaceId, handleMoveToFolder, toast, t]
+    [privateSpaceId, handleMoveToFolder, t]
   );
 
   const {

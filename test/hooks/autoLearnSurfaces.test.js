@@ -54,7 +54,6 @@ async function setup(t, initialStorage = {}) {
       cachePrefix: "loqui-auto-learn-surfaces-",
       resolveAlias: { "@": path.resolve(__dirname, "../../src") },
       mockModules: {
-        "/ui/useToast": "const toast = () => {}; export function useToast() { return { toast }; }",
         "/hooks/useWhisper":
           "const checkWhisperInstallation = () => {}; export function useWhisper() { return { checkWhisperInstallation }; }",
         "/hooks/usePermissions": "export function usePermissions() { return {}; }",

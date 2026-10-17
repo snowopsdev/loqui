@@ -12,40 +12,34 @@ import {
   type RouteChangeOutcome,
   type RouteRequestResult,
 } from "../../../stores/routeDraftStore";
-import { useToast } from "../../ui/useToast";
+import { notify } from "../../ui/notices";
 
 export function useRouteChange() {
   const { t } = useTranslation();
-  const { toast } = useToast();
   const copy = useRouteCopy();
   const reportSaveFailure = useCallback(() => {
-    toast({ title: t("common.error"), variant: "destructive", duration: 5000 });
-  }, [t, toast]);
+    notify({ kind: "alert", title: t("common.error") });
+  }, [t]);
 
   const announce = useCallback(
     (outcome: RouteChangeOutcome) => {
       if (!outcome.applied) return;
       const message = routeChangeMessage(outcome.plan, t, copy.list);
       const undo = outcome.undo;
-      toast({
+      notify({
+        kind: "receipt",
         title: message.title,
-        description: message.description,
-        variant: "success",
-        duration: 7000,
+        body: message.description,
         actions: undo
           ? [
               {
                 label: t("routes.toast.undo"),
-                dismissOnClick: true,
+                primary: true,
                 onClick: async () => {
                   const undone = await undo();
                   // Undo never moves data off the device by itself: that case waits in the Apply bar.
                   if (undone === "staged") {
-                    toast({
-                      title: t("routes.toast.undoStaged"),
-                      variant: "default",
-                      duration: 5000,
-                    });
+                    notify({ kind: "notice", title: t("routes.toast.undoStaged") });
                     return;
                   }
                   if (undone === "save-failed") {
@@ -55,12 +49,7 @@ export function useRouteChange() {
                   if (undone === "superseded") return;
                   if (undone.applied) {
                     const back = routeChangeMessage(undone.plan, t, copy.list);
-                    toast({
-                      title: back.title,
-                      description: back.description,
-                      variant: "success",
-                      duration: 4000,
-                    });
+                    notify({ kind: "receipt", title: back.title, body: back.description });
                   }
                 },
               },
@@ -68,7 +57,7 @@ export function useRouteChange() {
           : undefined,
       });
     },
-    [t, toast, copy, reportSaveFailure]
+    [t, copy, reportSaveFailure]
   );
 
   // Save failures and stale completions never announce success. An ACK that

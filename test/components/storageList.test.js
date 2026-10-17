@@ -286,30 +286,15 @@ async function mount(t, api) {
   const container = installHookDom(t);
   const vite = await createRendererServer(t, serverOptions("loqui-storage-list-test-"));
   const s = await vite.ssrLoadModule("/components/settings/StorageList.tsx");
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
+  const { notices } = await require("../lib/routeTestApi").noticeCapture(vite, t);
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
-  const toasts = [];
-  const toastApi = {
-    toast: (props) => {
-      toasts.push(props);
-      return String(toasts.length);
-    },
-    dismiss() {},
-    toastCount: 0,
-    dictationErrorActionCount: 0,
-    dismissByPresentation() {},
-  };
   let tree;
   function Probe() {
     tree = s.StorageList();
     return null;
   }
   root = createRoot(container);
-  await React.act(async () =>
-    root.render(
-      React.createElement(ToastContext.Provider, { value: toastApi }, React.createElement(Probe))
-    )
-  );
+  await React.act(async () => root.render(React.createElement(Probe)));
   await settle();
   const part = (type) => find(tree, (node) => node.type === type);
   return {
@@ -319,7 +304,7 @@ async function mount(t, api) {
       root = null;
       if (current) await React.act(async () => current.unmount());
     },
-    toasts,
+    notices,
     events,
     store: useSettingsStore,
     view: () => part(s.StorageListView).props,
@@ -360,7 +345,7 @@ test("[change-driving] history delete sends the reviewed counts and identities a
   ]);
   assert.equal(h.dialog(), null);
   assert.deepEqual(
-    h.toasts.map((x) => x.title),
+    h.notices.map((x) => x.title),
     ["storage.history.done(count=1482)"]
   );
 });
@@ -384,7 +369,7 @@ test("[change-driving] a rejected delete keeps the reviewed snapshot with an unk
     remaining: null,
     errors: ["ipc-failed: IPC channel closed"],
   });
-  assert.deepEqual(h.toasts, []);
+  assert.deepEqual(h.notices, []);
   const html = renderToStaticMarkup(React.createElement(h.s.CountedDeleteContent, d));
   assert.match(html, /role="alert"/);
   assert.ok(html.includes("storage.failed.unknown"));
@@ -419,7 +404,7 @@ test("[change-driving] a partial result from main shows its exact counts and err
   assert.match(html, /role="alert"/);
   assert.ok(html.includes("storage.failed.partial(deleted=211,total=214,remaining=3)"));
   assert.ok(html.includes("delete-failed: OpenWhispr-7.webm: EBUSY"));
-  assert.deepEqual(h.toasts, []);
+  assert.deepEqual(h.notices, []);
 });
 
 test("[change-driving] ok:true with an unknown remainder is still a failure (I12)", async (t) => {
@@ -439,7 +424,7 @@ test("[change-driving] ok:true with an unknown remainder is still a failure (I12
   await confirmDelete(h, "audio");
   assert.equal(h.dialog().phase, "failed");
   assert.equal(h.dialog().last.outcome.ok, false);
-  assert.deepEqual(h.toasts, []);
+  assert.deepEqual(h.notices, []);
 });
 
 test("[change-driving] a failed recount after a delete shows an error row, never zero (I12)", async (t) => {
@@ -459,7 +444,7 @@ test("[change-driving] a failed recount after a delete shows an error row, never
   const h = await mount(t, api);
   await confirmDelete(h, "audio");
   assert.deepEqual(
-    h.toasts.map((x) => x.title),
+    h.notices.map((x) => x.title),
     ["storage.audio.done(count=214)"],
     "success came from main's typed result"
   );
@@ -540,7 +525,7 @@ test("[change-driving] main's stale refusal brings back the new counts for revie
   const html = renderToStaticMarkup(React.createElement(h.s.CountedDeleteContent, d));
   assert.ok(html.includes("storage.failed.stale"));
   assert.ok(html.includes("storage.history.transcripts(count=1483)"));
-  assert.deepEqual(h.toasts, []);
+  assert.deepEqual(h.notices, []);
 });
 
 test("[change-driving] same-count stale refusal refreshes identities and the next confirmation sends the new pair", async (t) => {
@@ -585,7 +570,7 @@ test("[change-driving] same-count stale refusal refreshes identities and the nex
   assert.equal(h.dialog().snapshot.total, 1482, "counts need not change");
   assert.equal(h.dialog().snapshot.audioIdentity, newAudioIdentity);
   assert.equal(h.dialog().snapshot.historyIdentity, newHistoryIdentity);
-  assert.deepEqual(h.toasts, []);
+  assert.deepEqual(h.notices, []);
   await React.act(async () => h.dialog().onConfirm());
   await settle();
   assert.deepEqual(sent, [
@@ -699,7 +684,7 @@ test("[change-driving] models: selections are cleared only when every model file
   assert.equal(h.dialog(), null);
   assert.equal(h.store.getState().cleanupModel, "");
   assert.deepEqual(
-    h.toasts.map((x) => x.title),
+    h.notices.map((x) => x.title),
     ["storage.models.done(count=2)"]
   );
 });
@@ -768,7 +753,7 @@ test("[change-driving] models: failed family with zero recount keeps raw selecti
   assert.equal(h.dialog().phase, "failed");
   assert.equal(h.dialog().last.outcome.remaining, 0);
   assert.equal(h.store.getState().cleanupModel, "qwen3.5-2b-q4_k_m");
-  assert.deepEqual(h.toasts, []);
+  assert.deepEqual(h.notices, []);
 });
 
 // change-driving: the hook's failed fresh read must block the confirmation too.
@@ -854,7 +839,7 @@ test("[change-driving] malformed model recount preserves raw selections and unkn
   assert.equal(h.dialog().last.outcome.remaining, null);
   assert.match(h.dialog().last.outcome.errors[0], /^recount-failed: llm:/);
   assert.equal(h.store.getState().cleanupModel, "qwen3.5-2b-q4_k_m");
-  assert.deepEqual(h.toasts, []);
+  assert.deepEqual(h.notices, []);
 });
 
 const AUDIO_REFUSED = {

@@ -7,7 +7,6 @@ import CleanupFailureNoticeListener from "./components/CleanupFailureNoticeListe
 import TinfoilModelSwitchNoticeListener from "./components/TinfoilModelSwitchNoticeListener.tsx";
 import GpuPackMigrationNoticeListener from "./components/GpuPackMigrationNoticeListener.tsx";
 import { I18nDirectionProvider } from "./components/I18nDirectionProvider.tsx";
-import { ToastProvider } from "./components/ui/Toast.tsx";
 import { SettingsProvider } from "./hooks/useSettings";
 import { bindDocumentLanguage } from "./utils/i18nDocument";
 
@@ -29,12 +28,10 @@ root.render(
       <I18nextProvider i18n={i18n}>
         <I18nDirectionProvider>
           <SettingsProvider>
-            <ToastProvider>
-              <TinfoilModelSwitchNoticeListener />
-              <CleanupFailureNoticeListener />
-              <GpuPackMigrationNoticeListener />
-              <AppRouter />
-            </ToastProvider>
+            <TinfoilModelSwitchNoticeListener />
+            <CleanupFailureNoticeListener />
+            <GpuPackMigrationNoticeListener />
+            <AppRouter />
           </SettingsProvider>
         </I18nDirectionProvider>
       </I18nextProvider>

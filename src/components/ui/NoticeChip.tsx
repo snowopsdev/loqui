@@ -36,6 +36,7 @@ export function NoticeChip({
       data-expanded={expanded ? "true" : undefined}
       role={notice.kind === "alert" ? "alert" : "status"}
       aria-live={notice.kind === "alert" ? "assertive" : "polite"}
+      aria-atomic="true"
       style={{ "--notice-stagger": stagger } as CSSProperties}
       onMouseEnter={() => pauseNotice(notice.id)}
       onMouseLeave={() => resumeNotice(notice.id)}

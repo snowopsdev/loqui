@@ -29,7 +29,7 @@ async function renderOverview(t, space) {
         export const updateSpaceMeta = async () => ({ success: true });
       `,
       "/hooks/useContainerChat": "export const useContainerChat = () => ({});",
-      "/ui/useToast": "export const useToast = () => ({ toast() {} });",
+
       "/OverviewExplainerBanner": "export const OverviewExplainerBanner = () => null;",
       "/OverviewAskSection": "export const OverviewAskSection = () => null;",
       "/OverviewNoteList": "export const OverviewNoteList = () => null;",

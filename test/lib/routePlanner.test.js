@@ -473,7 +473,7 @@ test("change-driving: route planner", async (t) => {
       const samePlace = planner.planPatch(live(), ctx(azureKey), "chat", {
         azureEndpoint: "https://myres.openai.azure.com/openai/",
       });
-      assert.equal(samePlace.kind, "instant", "a path-only edit keeps the recipient");
+      assert.equal(samePlace.kind, "instant", "the Azure SDK normalizes this trailing slash");
       assert.deepEqual(samePlace.changes, []);
 
       await live().applyRoutePatch(p.patch);

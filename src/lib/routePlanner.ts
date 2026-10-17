@@ -1,4 +1,5 @@
 import { INFERENCE_SCOPES } from "../config/inferenceScopes";
+import { resolveTranscriptionRoute } from "../helpers/transcriptionRoute";
 import { isProviderValidForMode } from "../models/ModelRegistry";
 import type { SettingsState } from "../stores/settingsStore";
 import type {
@@ -348,8 +349,70 @@ function withPatchedSearch(snapshot: RouteSettingsSnapshot, written: Patch): Rou
   return llm === snapshot.llm ? snapshot : { ...snapshot, llm };
 }
 
+// Display hosts deliberately omit paths. Review identity must retain the
+// effective endpoint, including inherited settings, without exposing credentials.
+function endpointIdentity(route: ResolvedRoute, snapshot: RouteSettingsSnapshot): string | null {
+  if (route.state.status === "off" || route.locality === "device") return null;
+  const context = STT_CONTEXT_OF[route.id];
+  if (context) {
+    // Meeting has no custom/self-hosted executor. Never invent a transport for it.
+    if (context === "meeting") return null;
+    const input = snapshot.stt[context];
+    const resolved = resolveTranscriptionRoute({
+      settings: {
+        transcriptionMode: input.mode.trim(),
+        useLocalWhisper: false,
+        remoteTranscriptionUrl: input.remoteUrl.trim(),
+        remoteTranscriptionModel: input.remoteModel,
+        cloudTranscriptionProvider: input.cloudProvider.trim(),
+        cloudTranscriptionModel: input.cloudModel,
+        cloudTranscriptionBaseUrl: input.cloudBaseUrl,
+      },
+      providers: snapshot.capabilities.transcriptionProviderBaseUrls,
+    });
+    // Reuse the executor's normalization, suffixes and Azure deployment rules.
+    return resolved.transport === "http-batch" ? new URL(resolved.endpoint).href : null;
+  }
+  const scope =
+    route.id === "assistantVision" && !snapshot.enabled.visionOverride
+      ? "dictationAgent"
+      : LLM_SCOPE_OF[route.id];
+  if (!scope) return null;
+  const input = snapshot.llm[scope];
+  const mode = input.mode.trim();
+  const provider = input.provider.trim();
+  try {
+    if ((mode === "providers" || mode === "enterprise") && provider === "azure") {
+      // createAzure receives the raw base; its SDK removes one trailing slash.
+      return new URL(snapshot.enterprise.azureEndpoint.replace(/\/$/, "")).href;
+    }
+    const endpoint =
+      mode === "self-hosted"
+        ? input.remoteUrl
+        : mode === "providers" && provider === "custom"
+          ? input.cloudBaseUrl
+          : null;
+    // personalInference.validateRequest canonicalizes the URL and removes one
+    // trailing slash, then createOpenAI removes one more. Do not collapse all
+    // slashes: additional path separators can select another gateway recipient.
+    return endpoint === null ? null : new URL(endpoint).href.replace(/\/$/, "").replace(/\/$/, "");
+  } catch {
+    // Invalid inputs remain governed by the graph's readiness/unknown blockers.
+    return null;
+  }
+}
+
+function endpointEdit(
+  before: ResolvedRoute,
+  after: ResolvedRoute,
+  beforeSnapshot: RouteSettingsSnapshot,
+  afterSnapshot: RouteSettingsSnapshot
+): boolean {
+  return endpointIdentity(before, beforeSnapshot) !== endpointIdentity(after, afterSnapshot);
+}
+
 // Instant when nothing new leaves the device: the route is off or ends on the
-// device, or it keeps the same recipient (locality, provider and host) and
+// device, or it keeps the same effective recipient and
 // its payload did not grow. Turning on a route that leaves the device adds a
 // recipient. An off-device recipient the graph cannot name (host null, or
 // state `unknown`) is never assumed to be the same one (R2-1 staging gap).
@@ -536,7 +599,8 @@ export function planPatch(
     if (
       fingerprint(after) !== fingerprint(before) ||
       unnamedRecipientEdit(before, after, written) ||
-      recipientInputEdit(before, after, written)
+      recipientInputEdit(before, after, written) ||
+      endpointEdit(before, after, beforeSnapshot, afterSnapshot)
     ) {
       changes.push({ id: before.id, before, after, coupled: before.id !== routeId });
     }
@@ -548,7 +612,8 @@ export function planPatch(
       change,
       beforeSnapshot,
       afterSnapshot,
-      recipientInputEdit(change.before, change.after, written)
+      recipientInputEdit(change.before, change.after, written) ||
+        endpointEdit(change.before, change.after, beforeSnapshot, afterSnapshot)
     )
   );
   const found = new Set(changes.map((change) => routeBlocker(change.after)));

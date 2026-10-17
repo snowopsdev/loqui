@@ -264,3 +264,19 @@ test("[baseline guard] a primary row appearing on the final frame always wins ov
   assert.equal(fallback.scrolled.length, 0);
   assert.deepEqual(done, [true]);
 });
+
+test("[change-driving] cancel then reflash flushes the absent marker before restarting on the same element", async () => {
+  const { flashSetting } = await flash();
+  const el = fakeElement();
+  const cancel = flashSetting(el);
+  cancel();
+  assert.equal(el.dataset.flash, undefined);
+  const before = el.offsetReads;
+  flashSetting(el);
+  assert.equal(
+    el.offsetReads,
+    before + 1,
+    "a cancelled flag still needs a style flush before reissue"
+  );
+  assert.equal(el.dataset.flash, "true");
+});

@@ -5,7 +5,6 @@ export const FLASH_ANIMATION = "settings-flash";
 const owners = new WeakMap<HTMLElement, () => void>();
 
 export function flashSetting(el: HTMLElement): () => void {
-  const restarting = !!el.dataset.flash;
   owners.get(el)?.();
   const clear = () => {
     el.removeEventListener("animationend", onEnd);
@@ -18,11 +17,10 @@ export function flashSetting(el: HTMLElement): () => void {
     if (e.target === el && e.animationName === FLASH_ANIMATION) clear();
   };
   owners.set(el, clear);
-  if (restarting) {
-    // Jumping to a row that is still flashing: force a reflow so the animation restarts.
-    delete el.dataset.flash;
-    void el.offsetWidth;
-  }
+  // Flush the absent marker even after cancellation: removal and reissue can otherwise
+  // be batched into one style update and continue the old animation on the same row.
+  delete el.dataset.flash;
+  void el.offsetWidth;
   el.dataset.flash = "true";
   el.addEventListener("animationend", onEnd);
   // If the stylesheet did not start an animation, no animationend will ever arrive.

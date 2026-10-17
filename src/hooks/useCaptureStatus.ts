@@ -101,9 +101,13 @@ export function useCaptureStatus(): CaptureStatusModel {
     await window.electronAPI?.toggleDictationFromControlPanel?.();
   }, []);
   const stop = useCallback(async () => {
-    if (status.source === "meeting") await stopRecording();
-    else await toggleDictation();
-  }, [status.source, toggleDictation]);
+    const currentMeeting = useMeetingRecordingStore.getState();
+    if (currentMeeting.isRecording) {
+      await stopRecording();
+      return;
+    }
+    if (stateRef.current.state === "recording") await toggleDictation();
+  }, [toggleDictation]);
 
   return { ...status, readLevel, toggleDictation, stop };
 }

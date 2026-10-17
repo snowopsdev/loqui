@@ -74,6 +74,7 @@ async function mount(t) {
         import React from "react";
         const listeners = new Set();
         let meeting = { isRecording: false, recordingStartedAt: null, micCaptureStatus: "inactive", currentMicLevel: 0.25 };
+        globalThis.__setCaptureMeeting = (patch) => { meeting = { ...meeting, ...patch }; for (const listener of listeners) listener(meeting); };
         export const useMeetingRecordingStore = Object.assign((selector) => React.useSyncExternalStore((notify) => { listeners.add(notify); return () => listeners.delete(notify); }, () => selector(meeting)), { getState: () => meeting, setState: (patch) => { meeting = { ...meeting, ...patch }; for (const listener of listeners) listener(meeting); }, subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); } });
         export const stopRecording = async () => { globalThis.__stops = (globalThis.__stops || 0) + 1; };
       `,
@@ -95,6 +96,8 @@ async function mount(t) {
     now: () => now,
     intervals,
     push: async (snapshot) => React.act(async () => push(snapshot)),
+    setMeeting: async (patch) => React.act(async () => globalThis.__setCaptureMeeting(patch)),
+    meetingStops: () => globalThis.__stops || 0,
     pushLevel: (level) => levelPush(level),
     pull: async (snapshot) =>
       React.act(async () => {
@@ -154,18 +157,60 @@ test("unmount unsubscribes and ignores late results", async (t) => {
   assert.equal(h.offLevelCount(), 1);
   await h.pull({ state: "recording", inputKind: "assistant" });
   assert.equal(h.status(), before);
+  assert.equal(
+    before.readLevel(),
+    0.25,
+    "late recording pull cannot redirect retained level reader"
+  );
 });
 
-test("reads dictation and meeting levels and dispatches stop to the live source", async (t) => {
+test("explicit dictation toggle can start while stop only stops a live dictation", async (t) => {
   const h = await mount(t);
-  assert.equal(h.status().readLevel(), 0.25);
-  h.pushLevel(0.6);
+  await h.status().toggleDictation();
+  assert.equal(h.order.filter((entry) => entry === "toggle").length, 1);
   await h.push({ state: "recording", inputKind: "dictation" });
+  const retainedStop = h.status().stop;
+  h.pushLevel(0.6);
   assert.equal(h.status().readLevel(), 0.6);
-  await h.status().stop();
-  assert.ok(h.order.includes("toggle"));
+  await retainedStop();
+  assert.equal(h.order.filter((entry) => entry === "toggle").length, 2);
   await h.push({ state: "idle", inputKind: "dictation" });
   assert.equal(h.status().readLevel(), 0.25, "idle reads the meeting microphone level");
+});
+
+test("stop is a no-op in ready, permission-offline, and processing states", async (t) => {
+  const h = await mount(t);
+  await h.status().stop();
+  assert.equal(h.order.filter((entry) => entry === "toggle").length, 0);
+  await h.refreshMicOnFocus(false);
+  await h.status().stop();
+  assert.equal(h.order.filter((entry) => entry === "toggle").length, 0);
+  await h.push({ state: "processing", inputKind: "dictation" });
+  await h.status().stop();
+  assert.equal(h.order.filter((entry) => entry === "toggle").length, 0);
+});
+
+test("a retained stop callback cannot start capture after an idle push", async (t) => {
+  const h = await mount(t);
+  await h.push({ state: "recording", inputKind: "dictation" });
+  const retainedStop = h.status().stop;
+  await h.push({ state: "idle", inputKind: "dictation" });
+  await retainedStop();
+  assert.equal(h.order.filter((entry) => entry === "toggle").length, 0);
+});
+
+test("stop dispatches live meeting stop even when its mic is lost", async (t) => {
+  for (const micCaptureStatus of ["active", "unavailable", "reconnecting"]) {
+    await t.test(micCaptureStatus, async (t) => {
+      const h = await mount(t);
+      await h.setMeeting({ isRecording: true, recordingStartedAt: 123, micCaptureStatus });
+      const retainedStop = h.status().stop;
+      const stopsBefore = h.meetingStops();
+      await retainedStop();
+      assert.equal(h.meetingStops(), stopsBefore + 1);
+      assert.equal(h.order.filter((entry) => entry === "toggle").length, 0);
+    });
+  }
 });
 
 test("microphone permission refreshes on focus", async (t) => {

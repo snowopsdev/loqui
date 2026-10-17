@@ -74,7 +74,28 @@ let notices: readonly Notice[] = [];
 let seq = 0;
 const revisions = new Map<string, number>();
 const timers = new Map<string, unknown>();
+const activeActions = new Map<string, object>();
 const listeners = new Set<() => void>();
+
+function idHasBeenUsed(id: string): boolean {
+  return revisions.has(id) || notices.some((notice) => notice.id === id);
+}
+
+function nextNoticeId(): string {
+  let id: string;
+  do {
+    id = `notice-${++seq}`;
+  } while (idHasBeenUsed(id));
+  return id;
+}
+
+function nextRecoveryId(baseId: string): string {
+  let id: string;
+  do {
+    id = `${baseId}~${++seq}`;
+  } while (idHasBeenUsed(id));
+  return id;
+}
 
 function emit(next: readonly Notice[]): void {
   notices = next;
@@ -116,7 +137,7 @@ function remove(target: Notice, reason: NoticeRemoval): void {
 
 export function notify(raw: NoticeInput): string {
   let input = normalize(raw);
-  let id = input.id ?? `notice-${++seq}`;
+  let id = input.id ?? nextNoticeId();
   // Recovered words leave only when the user or an action removes them (R2-C3).
   const held = notices.find((n) => n.id === id && n.words);
   if (held && !input.words) {
@@ -124,7 +145,7 @@ export function notify(raw: NoticeInput): string {
     input = { ...input, kind: "alert", words: held.words } as NoticeInput;
   } else if (held && input.words !== held.words) {
     // Different words never overwrite: the new words get their own notice.
-    id = `${id}~${++seq}`;
+    id = nextRecoveryId(id);
   }
   const revision = (revisions.get(id) ?? 0) + 1;
   revisions.set(id, revision);
@@ -138,7 +159,7 @@ export function notify(raw: NoticeInput): string {
     createdAt: now,
     expiresAt: lifetime === null ? null : now + lifetime,
     remainingMs: null,
-    busy: false,
+    busy: activeActions.has(id),
   } as Notice;
   let next = [...notices.filter((n) => n.id !== id), notice];
   const evicted: Notice[] = [];
@@ -204,15 +225,24 @@ export function resumeNotice(id: string): void {
  */
 export async function runNoticeAction(id: string, action: NoticeAction): Promise<void> {
   const started = notices.find((n) => n.id === id);
-  if (!started || started.busy) return;
+  if (!started || started.busy || activeActions.has(id)) return;
+  const ownership = {};
+  activeActions.set(id, ownership);
   replace(started, { busy: true });
   try {
     await action.onClick();
   } finally {
-    const current = notices.find((n) => n.id === id);
-    if (current && current.revision === started.revision) {
-      if (action.keepOpen) replace(current, { busy: false });
-      else remove(current, "action");
+    if (activeActions.get(id) === ownership) {
+      activeActions.delete(id);
+      const current = notices.find((n) => n.id === id);
+      if (current && current.revision === started.revision) {
+        if (action.keepOpen) replace(current, { busy: false });
+        else remove(current, "action");
+      } else if (current?.busy) {
+        // A same-ID status update is a new revision, but the original action
+        // still owns the busy state until it settles. Keep that revision alive.
+        replace(current, { busy: false });
+      }
     }
   }
 }
@@ -284,4 +314,5 @@ export function __setNoticeClockForTests(next?: NoticeClock): void {
   notices = [];
   seq = 0;
   revisions.clear();
+  activeActions.clear();
 }

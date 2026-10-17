@@ -244,3 +244,49 @@ test("notices that arrive in the same 40ms window stagger 0, 1, 2", async (t) =>
   assert.equal(list.some((n) => n.id === a), false); // capped at three
   assert.deepEqual([b, c, d].map((id) => m.staggerIndex(list, id)), [0, 1, 0]);
 });
+
+test("different recovered words skip occupied generated IDs and preserve every transcript", async (t) => {
+  const { m } = await fresh(t);
+  const reasons = [];
+  const first = m.notify({ id: "recovery~1", kind: "alert", title: "A", words: "first", onDismiss: (r) => reasons.push(`first:${r}`) });
+  const second = m.notify({ id: "recovery~2", kind: "alert", title: "B", words: "second", onDismiss: (r) => reasons.push(`second:${r}`) });
+  const base = m.notify({ id: "recovery", kind: "alert", title: "C", words: "third" });
+  const fourth = m.notify({ id: "recovery", kind: "alert", title: "D", words: "fourth" });
+
+  assert.equal(fourth, "recovery~3");
+  assert.deepEqual(m.wordsNotices(m.getNotices()).map((n) => [n.id, n.words]), [
+    [first, "first"],
+    [second, "second"],
+    [base, "third"],
+    [fourth, "fourth"],
+  ]);
+  assert.deepEqual(reasons, []);
+});
+
+test("same-ID status replacement keeps an in-flight action busy until it settles", async (t) => {
+  const { m } = await fresh(t);
+  let release;
+  let runs = 0;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const id = m.notify({ id: "paste-again", kind: "alert", title: "Couldn't paste" });
+  const firstAction = m.runNoticeAction(id, {
+    label: "Paste again",
+    keepOpen: true,
+    onClick: async () => {
+      runs++;
+      m.notify({ id, kind: "notice", title: "Pasting again" });
+      await gate;
+    },
+  });
+
+  assert.equal(m.getNotices()[0].busy, true);
+  assert.deepEqual([m.getNotices()[0].title, m.getNotices()[0].revision], ["Pasting again", 2]);
+  await m.runNoticeAction(id, { label: "Paste again", onClick: () => { runs++; } });
+  assert.equal(runs, 1, "same-ID status updates must not admit a concurrent retry");
+  assert.equal(m.getNotices()[0].busy, true);
+
+  release();
+  await firstAction;
+  assert.equal(m.getNotices()[0].busy, false);
+  assert.deepEqual([m.getNotices()[0].title, m.getNotices()[0].revision], ["Pasting again", 2]);
+});

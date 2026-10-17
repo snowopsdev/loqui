@@ -302,6 +302,8 @@ Setup recordings remain private across completion and restart. Privacy is captur
 
 The overlay follows the live `onboardingCompleted` flag and fails closed when storage is absent or denied. A policy change affects future admissions without replacing a live manager. Pending work keeps its original manager and audio snapshot; a delayed public save persists only its captured audio and cannot clear a newer recording. Task22 must migrate the temporary Blob identity guards and privacy context into Plan04’s sole owned-audio setter, snapshot savers and private hold/restore contract. No Plan04 lifecycle or hold is supplied here.
 
+Streaming warmup and start assemble dictionary hints with the existing selected provider/model keyword rule and session-options builder; provider adapters retain their vocabulary limits. Startup privacy tests execute the real admission, audio pipeline and IPC adapter through injected hardware/transport boundaries.
+
 ### Settings
 
 **Routing is one model, drawn three ways.** `src/lib/routeGraph.ts` (pure, Node-loadable) resolves all 11 tasks, and `src/lib/routes.ts` adds the snapshot builder and hooks. Settings → Routing (the Patchbay), the editors' mode selectors and the voice pill use `ResolvedRoute`; the keyring exposes the main-owned credential health and recipient descriptions that supply route facts. Never compute "is this local?" or "is this ready?" anywhere else. Readiness reuses the executors' own validation, and a fact main has not confirmed reads `unknown`, never Ready.

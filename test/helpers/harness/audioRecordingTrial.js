@@ -197,8 +197,8 @@ async function mountTrial(t, initialPrivate = true) {
 module.exports = { mountTrial, deferred, flush };
 
 // The real streaming finalization boundary, initialized with captured audio as
-// in audioManagerStreamingFinalization.test.js. Current streaming start has an
-// inherited usesKeywords ReferenceError, so this fixture does not fake success.
+// in audioManagerStreamingFinalization.test.js. These independent finalization
+// tests do not prove startup; configureStreamingStartup below executes that path.
 function configureStreamingFinalization(h) {
   const manager = h.manager();
   manager.setPrivateSession(true);
@@ -224,3 +224,101 @@ function configureStreamingFinalization(h) {
   return manager;
 }
 module.exports.configureStreamingFinalization = configureStreamingFinalization;
+
+// Execute real warmup/start/finalization and provider adapters. Only the IPC
+// transport and browser audio primitives are injected; no initialized recording.
+function configureStreamingStartup(t, h, overrides = {}) {
+  Object.assign(globalThis.__trialBoundarySettings, {
+    useLocalWhisper: false,
+    transcriptionMode: "providers",
+    cloudTranscriptionProvider: "openai",
+    cloudTranscriptionModel: "gpt-4o-mini-transcribe",
+    openaiApiKey: "fixture-only",
+    preferredLanguage: "en",
+    customDictionary: ["Loqui", "Gizmo Labs"],
+    ...overrides,
+  });
+  const manager = h.manager();
+  delete manager.getStreamingProvider;
+  const connect = deferred();
+  const calls = [];
+  const listeners = {};
+  const api = h.window.electronAPI;
+  const register = (kind) => (callback) => {
+    listeners[kind] = callback;
+    return () => {
+      delete listeners[kind];
+    };
+  };
+  for (const [prefix, partial, final, error, end] of [
+    [
+      "dictationRealtime",
+      "onDictationRealtimePartial",
+      "onDictationRealtimeFinal",
+      "onDictationRealtimeError",
+      "onDictationRealtimeSessionEnd",
+    ],
+    [
+      "deepgramStreaming",
+      "onDeepgramPartialTranscript",
+      "onDeepgramFinalTranscript",
+      "onDeepgramError",
+      "onDeepgramSessionEnd",
+    ],
+  ]) {
+    api[`${prefix}Warmup`] = async (options) => {
+      calls.push(["warmup", options]);
+      return { success: true };
+    };
+    api[`${prefix}Start`] = (options) => {
+      calls.push(["start", options]);
+      return connect.promise;
+    };
+    api[`${prefix}Stop`] = async () => {
+      calls.push(["stop"]);
+      return { success: true };
+    };
+    api[`${prefix}Send`] = () => {};
+    api[`${prefix}Finalize`] = () => {};
+    api[partial] = register("partial");
+    api[final] = register("final");
+    api[error] = register("error");
+    api[end] = register("end");
+  }
+  const previous = globalThis.AudioWorkletNode;
+  globalThis.AudioWorkletNode = class {
+    port = { postMessage() {}, onmessage: null };
+    connect() {}
+    disconnect() {}
+  };
+  t.after(() => {
+    if (previous === undefined) delete globalThis.AudioWorkletNode;
+    else globalThis.AudioWorkletNode = previous;
+  });
+  Object.assign(manager, {
+    _streamingCancellationGeneration: 0,
+    streamingCleanupFns: [],
+    _streamingStartSettlementWaiters: [],
+    warmupFailureStreak: 0,
+    getOrCreateAudioContext: async () => ({
+      createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
+      createAnalyser: () => ({}),
+      audioWorklet: { addModule: async () => {} },
+    }),
+    getWorkletBlobUrl: () => "fixture-worklet",
+    _warmMicDriverIfCold: async () => {},
+    awaitStreamingTextSettled: async () => {},
+    processTranscription: async (text) => text,
+  });
+  return {
+    manager,
+    calls,
+    connect,
+    listeners,
+    async waitConnect() {
+      for (let i = 0; i < 100 && !calls.some(([kind]) => kind === "start"); i++) await flush();
+      assert.equal(calls.filter(([kind]) => kind === "start").length, 1, JSON.stringify(h.events));
+    },
+  };
+}
+module.exports.configureStreamingStartup = configureStreamingStartup;

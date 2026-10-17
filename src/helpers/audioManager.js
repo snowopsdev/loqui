@@ -3348,6 +3348,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this.cacheMicrophoneDeviceId(),
         (async () => {
           const settings = getSettings();
+          const usesKeywords =
+            settings.cloudTranscriptionProvider === "openai" &&
+            usesTranscriptionKeywords(settings.cloudTranscriptionModel);
+          const dictionary = this.getCustomDictionaryPrompt();
           const res = await provider.warmup(
             buildStreamingSessionOptions({
               providerName,
@@ -3703,6 +3707,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       //    so Deepgram receives data immediately (no idle timeout).
       const result = await (async () => {
         const streamingSettings = getSettings();
+        const usesKeywords =
+          streamingSettings.cloudTranscriptionProvider === "openai" &&
+          usesTranscriptionKeywords(streamingSettings.cloudTranscriptionModel);
+        const dictionary = this.getCustomDictionaryPrompt();
         const res = await provider.start(
           buildStreamingSessionOptions({
             providerName: this.getStreamingProviderName(),

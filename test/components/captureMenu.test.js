@@ -81,6 +81,31 @@ test("a live meeting says Stop recording", async (t) => {
   assert.match(html, /aria-label="capture\.stopRecording"/);
 });
 
+for (const state of ["normal", "hover"]) {
+  test(`live Capture retains ink foreground after actual Button composition (${state})`, async (t) => {
+    const { html } = await renderCapture(t, {
+      status: { kind: "listening", source: "dictation", startedAt: 0 },
+    });
+    // Inspect the rendered production Button, after cva/cn/tailwind-merge.
+    const tag = html.match(/<button\b[^>]*data-variant="live"[^>]*>/)?.[0];
+    assert.ok(tag, "production live Button rendered");
+    const classes = new Set(tag.match(/class="([^"]*)"/)[1].split(/\s+/));
+    const prefix = state === "hover" ? "hover:" : "";
+    assert.ok(classes.has(`${prefix}text-live-foreground`), `${state} uses live ink`);
+    assert.ok(!classes.has(`${prefix}text-foreground`), `${state} has no neutral override`);
+    assert.ok(
+      !classes.has(`${prefix}text-foreground/80`),
+      `${state} has no faded neutral override`
+    );
+    assert.ok(
+      classes.has(
+        `${prefix}bg-[image:var(--gradient-brand-glass${state === "hover" ? "-hover" : ""})]`
+      )
+    );
+    assert.match(html, /class="[^"]*fill-current/);
+  });
+}
+
 test("cleaning up is announced and busy, not orange", async (t) => {
   const { html } = await renderCapture(t, {
     status: { kind: "processing", source: "dictation", startedAt: null },

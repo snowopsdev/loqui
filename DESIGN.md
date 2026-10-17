@@ -323,8 +323,9 @@ Repeated recording actions share one admission through note save and recording
 startup, while plain notes remain independently available.
 
 Only live listening uses the orange live Button and level bars, alongside an
-elapsed clock and the source-specific Stop label. Processing is neutral, busy and
-announced as “Cleaning up…”. The clock and meter mount only while listening;
+elapsed clock and the source-specific Stop label. Its label and current-colour
+Stop glyph retain live ink in both themes, including hover. Processing is neutral,
+busy and announced as “Cleaning up…”. The clock and meter mount only while listening;
 spinner motion uses shared motion tokens and stops under reduced motion. Both
 split segments and menu items retain full opaque focus rings, logical spacing and
 Radix’s keyboard and dismissal semantics. ControlPanel owns one capture-status

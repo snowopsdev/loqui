@@ -119,7 +119,8 @@ export default function CaptureMenu({
         onClick={onStop}
         className={cn(
           segmentClass,
-          "gap-2 tabular-nums rounded-none focus-visible:ring-offset-0 motion-reduce:transform-none"
+          // The neutral split styles must not replace the live Button's ink.
+          "text-live-foreground hover:text-live-foreground gap-2 tabular-nums rounded-none focus-visible:ring-offset-0 motion-reduce:transform-none"
         )}
       >
         <Square size={10} aria-hidden className="fill-current" />

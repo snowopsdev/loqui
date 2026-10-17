@@ -1,6 +1,6 @@
 import { withDraftDiscard } from "../stores/routeDraftStore";
 import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Brain, Keyboard, Mic, Shield, Sliders, Waypoints, Wrench } from "./icons";
 import SettingsPage, { SettingsSectionType } from "./SettingsPage";
@@ -84,40 +84,45 @@ export default function SettingsModal({
     return items;
   }, [t]);
 
-  const initial = parseSettingsPath(initialSection);
-  const [activeSection, setActiveSection] = React.useState<SettingsSectionType>(initial.section);
-  const [initialSubTab, setInitialSubTab] = useState<string | undefined>(initial.subTab);
+  // Publish a request identity only with the destination it actually activates.
+  // A raw incoming id must never replay the previous section's retained tab.
+  const [navigation, setNavigation] = useState(() => ({
+    ...parseSettingsPath(initialSection),
+    activationId,
+  }));
+  const {
+    section: activeSection,
+    subTab: initialSubTab,
+    activationId: appliedActivationId,
+  } = navigation;
   const [prevOpen, setPrevOpen] = useState(open);
 
   if (open && !prevOpen && initialSection) {
     setPrevOpen(open);
-    const next = parseSettingsPath(initialSection);
-    setActiveSection(next.section);
-    setInitialSubTab(next.subTab);
+    setNavigation({ ...parseSettingsPath(initialSection), activationId });
   } else if (open !== prevOpen) {
     setPrevOpen(open);
-    if (!open) setInitialSubTab(undefined);
+    if (!open) setNavigation((current) => ({ ...current, subTab: undefined }));
   }
 
   // A new request also navigates a modal that is already open; undefined clears a stale path.
   useEffect(() => {
     if (open) {
-      const next = parseSettingsPath(initialSection);
-      setActiveSection(next.section);
-      setInitialSubTab(next.subTab);
+      setNavigation({ ...parseSettingsPath(initialSection), activationId });
     }
   }, [open, initialSection, activationId]);
 
   const handleNavigateToPath = useCallback((path: string) => {
-    const next = parseSettingsPath(path);
-    setActiveSection(next.section);
-    setInitialSubTab(next.subTab);
+    setNavigation((current) => ({
+      ...parseSettingsPath(path),
+      activationId: current.activationId,
+    }));
   }, []);
 
   // A new activation must reach useSubTab even after the user selected another tab.
   const [searchPath, setSearchPath] = useState<string | null>(null);
   const navigateFromSearch = useCallback((path: string) => {
-    setInitialSubTab(undefined);
+    setNavigation((current) => ({ ...current, subTab: undefined }));
     setSearchPath(path);
   }, []);
   useEffect(() => {
@@ -130,8 +135,7 @@ export default function SettingsModal({
   const handleSectionChange = (section: SettingsSectionType) => {
     search.clear();
     setSearchPath(null);
-    setActiveSection(section);
-    setInitialSubTab(undefined);
+    setNavigation((current) => ({ ...current, section, subTab: undefined }));
   };
 
   const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);
@@ -173,7 +177,7 @@ export default function SettingsModal({
             onNavigateToSection={handleSectionChange}
             onNavigateToPath={handleNavigateToPath}
             initialSubTab={initialSubTab}
-            activationId={activationId}
+            activationId={appliedActivationId}
           />
         </div>
       </>

@@ -23,6 +23,7 @@ async function mount(t, { acknowledge = async () => true } = {}) {
   });
   let push;
   const acknowledgments = [];
+  const publications = [];
   installBrowserGlobals(t, {
     initialStorage: { semanticReindexVersion: "2" },
     window: {
@@ -55,18 +56,23 @@ async function mount(t, { acknowledge = async () => true } = {}) {
   const tabsStart = pageSource.indexOf("function LlmsTabs(");
   const tabsEnd = pageSource.indexOf("\nfunction GpuDeviceSelector", tabsStart);
   assert.ok(tabsStart >= 0 && tabsEnd > tabsStart);
+  const speechStart = pageSource.indexOf("function SpeechToTextTabs(");
+  const speechEnd = pageSource.indexOf("\nfunction LlmsTabs", speechStart);
+  assert.ok(speechStart >= 0 && speechEnd > speechStart);
   const ts = require("typescript");
   const hookSource = ts.transpileModule(
     `
     import React, { useEffect } from 'react';
     import { useTranslation } from 'react-i18next';
     import { useLocalStorage } from '/hooks/useLocalStorage.ts';
-    import { LLM_SUB_TABS as LLM_TABS } from '/lib/settingsPaths.ts';
+    import { LLM_SUB_TABS as LLM_TABS, SPEECH_SUB_TABS as SPEECH_TABS } from '/lib/settingsPaths.ts';
     const SectionHeader = () => null, ProviderTabs = () => null, TabPanel = () => null;
     const Wand2 = () => null, Sparkles = () => null, Languages = () => null;
     const BookOpen = () => null, HardDrive = () => null, MessageSquare = () => null;
+    const Mic = () => null, Upload = () => null, FileAudio = () => null;
     ${pageSource.slice(hookStart, hookEnd)}
     export ${pageSource.slice(tabsStart, tabsEnd)}
+    export ${pageSource.slice(speechStart, speechEnd)}
   `,
     {
       compilerOptions: {
@@ -118,19 +124,28 @@ async function mount(t, { acknowledge = async () => true } = {}) {
   });
   const ControlPanel = (await vite.ssrLoadModule("/components/ControlPanel.tsx")).default;
   const SettingsModal = (await vite.ssrLoadModule("/components/SettingsModal.tsx")).default;
-  const { LlmsTabs } = await vite.ssrLoadModule("/subtabProbe.ts");
+  const { LlmsTabs, SpeechToTextTabs } = await vite.ssrLoadModule("/subtabProbe.ts");
   let modal,
     settingsProps,
     tab,
     selectTab,
+    speechTab,
+    selectSpeechTab,
     draft,
     setDraft,
     visible = false;
   let mounts = 0;
   function PageProbe(props) {
+    publications.push({
+      section: props.activeSection,
+      subTab: props.initialSubTab,
+      activationId: props.activationId,
+    });
     const noop = () => null;
     const tabs = LlmsTabs({
-      initialTab: props.initialSubTab,
+      // Match SettingsPage's real active-section gate; hidden retained tabs
+      // must never receive another destination's initial sub-tab.
+      initialTab: props.activeSection === "llms" ? props.initialSubTab : undefined,
       activationId: props.activationId,
       renderDictationCleanup: noop,
       renderDictationAgent: noop,
@@ -142,6 +157,16 @@ async function mount(t, { acknowledge = async () => true } = {}) {
     const selector = find(tabs, (node) => node.props && "selectedId" in node.props);
     tab = selector.props.selectedId;
     selectTab = selector.props.onSelect;
+    const speech = SpeechToTextTabs({
+      initialTab: props.activeSection === "speechToText" ? props.initialSubTab : undefined,
+      activationId: props.activationId,
+      renderDictation: noop,
+      renderNoteRecording: noop,
+      renderUpload: noop,
+    });
+    const speechSelector = find(speech, (node) => node.props && "selectedId" in node.props);
+    speechTab = speechSelector.props.selectedId;
+    selectSpeechTab = speechSelector.props.onSelect;
     [draft, setDraft] = React.useState("");
     React.useEffect(() => {
       mounts++;
@@ -169,6 +194,7 @@ async function mount(t, { acknowledge = async () => true } = {}) {
   await React.act(async () => root.render(React.createElement(PanelProbe)));
   return {
     acknowledgments,
+    publications,
     visible: () => visible,
     deliver: (id, path) =>
       React.act(async () => {
@@ -178,8 +204,9 @@ async function mount(t, { acknowledge = async () => true } = {}) {
       }),
     section: () => modal.props.activeSection,
     navigateSection: (section) => React.act(async () => modal.props.onSectionChange(section)),
-    tab: () => tab,
-    selectTab: (next) => React.act(async () => selectTab(next)),
+    tab: (section = "llms") => (section === "speechToText" ? speechTab : tab),
+    selectTab: (next, section = "llms") =>
+      React.act(async () => (section === "speechToText" ? selectSpeechTab : selectTab)(next)),
     props: () => settingsProps,
     setDraft: (value) => React.act(async () => setDraft(value)),
     draft: () => draft,
@@ -254,5 +281,49 @@ test("a closed modal stays closed when an already acknowledged request is replay
   await h.deliver("acknowledged", "llms/dictationCleanup");
   assert.equal(h.visible(), false);
   assert.deepEqual(h.acknowledgments, ["acknowledged"]);
+  assert.equal(h.mounts(), 1);
+});
+
+for (const scenario of [
+  { section: "llms", path: "llms/dictationCleanup", manual: "supportModels" },
+  { section: "speechToText", path: "speechToText/dictation", manual: "upload" },
+]) {
+  test(`a privacy request preserves the retained ${scenario.section} sub-tab when returning by sidebar`, async (t) => {
+    const h = await mount(t);
+    await h.deliver("original", scenario.path);
+    await h.selectTab(scenario.manual, scenario.section);
+    await h.setDraft("retained editor state");
+    await h.deliver("privacy", "privacyData");
+    assert.equal(h.section(), "privacyData");
+    assert.ok(
+      h.publications
+        .filter((entry) => entry.activationId === "privacy")
+        .every((entry) => entry.section === "privacyData" && entry.subTab === undefined),
+      "the new identity is first published only with its own parsed destination"
+    );
+    await h.navigateSection(scenario.section);
+    assert.equal(h.tab(scenario.section), scenario.manual);
+    assert.equal(h.draft(), "retained editor state");
+    assert.equal(h.mounts(), 1);
+  });
+}
+
+test("a speech request applies its target sub-tab while retaining the previous LLM selection", async (t) => {
+  const h = await mount(t);
+  await h.deliver("cleanup", "llms/dictationCleanup");
+  await h.selectTab("supportModels");
+  await h.deliver("meeting", "speechToText/noteRecording");
+  assert.equal(h.section(), "speechToText");
+  assert.equal(h.tab("speechToText"), "noteRecording");
+  await h.navigateSection("llms");
+  assert.equal(h.tab(), "supportModels");
+});
+
+test("a repeated speech link reactivates its sub-tab with the section gate applied", async (t) => {
+  const h = await mount(t);
+  await h.deliver("first-speech", "speechToText/dictation");
+  await h.selectTab("upload", "speechToText");
+  await h.deliver("second-speech", "speechToText/dictation");
+  assert.equal(h.tab("speechToText"), "dictation");
   assert.equal(h.mounts(), 1);
 });

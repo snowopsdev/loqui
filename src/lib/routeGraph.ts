@@ -44,6 +44,7 @@ export interface ResolvedRoute {
   kind: RouteKind;
   locality: Locality;
   provider: string | null; // English providerDisplayName, logs only; UI uses providerDisplayLabel(providerId, t)
+  recipient: EnterpriseRecipientFact | null;
   providerId: string | null; // raw id ("openai", "custom"); null for device and network
   host: string | null; // effective endpoint host:port; configured loopback keeps its host; null for built-in engines or unknown/invalid hosts
   model: string | null;
@@ -162,7 +163,19 @@ export interface RouteHealthMetadata {
   health: readonly CredentialHealthFact[];
 }
 
+export type EnterpriseRecipientTag = string;
+export type EnterpriseRecipientFact =
+  { status: "ready"; tag: EnterpriseRecipientTag } | { status: "unknown" };
+export type EnterpriseRecipientFacts = Readonly<
+  Record<EnterpriseProviderId, EnterpriseRecipientFact>
+>;
+export const UNKNOWN_ENTERPRISE_RECIPIENTS: EnterpriseRecipientFacts = Object.freeze({
+  azure: Object.freeze({ status: "unknown" }),
+  bedrock: Object.freeze({ status: "unknown" }),
+  vertex: Object.freeze({ status: "unknown" }),
+});
 export interface RouteFacts {
+  enterpriseRecipients: EnterpriseRecipientFacts;
   // Main checkParakeetInstallation.supported; absent/null is unknown, not READY.
   sherpaSupported?: boolean | null;
   // Raw model ids per family; null = this family's inventory is not known.
@@ -262,6 +275,7 @@ export interface EnterpriseRouteSettings {
 
 // Hosts and booleans only; produced by src/helpers/enterpriseRouteFacts.js in main.
 export interface EnterpriseMainFacts {
+  enterpriseRecipients?: EnterpriseRecipientFacts;
   // AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL. host null = set but unusable.
   bedrockEndpoint: { set: boolean; host: string | null };
   bedrockProfile: boolean; // non-empty BEDROCK_PROFILE; profile value never leaves main
@@ -1098,6 +1112,11 @@ export function resolveRoute(s: RouteSettingsSnapshot, id: RouteId): ResolvedRou
     locality: dest.locality,
     provider: dest.providerId ? providerDisplayName(dest.providerId) : null,
     providerId: dest.providerId,
+    recipient: ["azure", "bedrock", "vertex"].includes(dest.providerId || "")
+      ? (s.facts.enterpriseRecipients?.[dest.providerId as EnterpriseProviderId] ?? {
+          status: "unknown",
+        })
+      : null,
     // Built-in engines already have dest.host === null. Preserve the host for
     // configured loopback endpoints: device locality still permits them in
     // Sealed mode, while the host distinguishes them from Loqui's own engines.

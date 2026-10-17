@@ -50,6 +50,7 @@ export const useAudioRecording = (options = {}) => {
   const pushForceStoppedRef = useRef(false);
   const stopLockRef = useRef(false);
   const preparationGenerationRef = useRef(0);
+  const pressCandidateRef = useRef(null);
   const wasRecordingRef = useRef(false);
   const wasMicUnavailableRef = useRef(false);
   const demoKindRef = useRef("dictation");
@@ -114,6 +115,7 @@ export const useAudioRecording = (options = {}) => {
       stopRequestedDuringStartRef.current = false;
       pushForceStoppedRef.current = false;
       let recordingStarted = false;
+      let candidate = null;
       try {
         if (!audioManagerRef.current) return false;
 
@@ -123,6 +125,42 @@ export const useAudioRecording = (options = {}) => {
           ? (getAssistantSelectionContextRef.current?.() ?? null)
           : null;
 
+        const manager = audioManagerRef.current;
+        manager._recordingPrivate = trialMode;
+        candidate =
+          pressCandidateRef.current ??
+          manager.getOrCreatePressCandidate(
+            {
+              voiceAgentRequested,
+              translationRequested,
+              assistantSelectionContext,
+              streaming: manager.shouldUseStreaming(),
+              streamingProviderName: manager.shouldUseStreaming()
+                ? manager.getStreamingProviderName()
+                : null,
+            },
+            { newPress: true }
+          );
+        pressCandidateRef.current = candidate;
+        if (!manager.isPressCandidateAllowed(candidate)) {
+          manager.cancelPreparedMicCapture(candidate);
+          manager._showUnknownRecipientBlockedStart();
+          return false;
+        }
+        const intents = candidate.intents;
+        voiceAgentRequested = intents.voiceAgentRequested;
+        translationRequested = intents.translationRequested;
+        // The input reads belong to the press, before visual/target/mic awaits.
+        if (!manager._pressReadsSession || manager._pressReadsSession !== candidate) {
+          manager.setVoiceAgentRequested(voiceAgentRequested);
+          manager.setAssistantSelectionContext(intents.assistantSelectionContext);
+          manager.setTranslationRequested(translationRequested);
+          if (voiceAgentRequested && candidate.settings.voiceAgentScreenContext)
+            manager.beginScreenContextCapture();
+          if (voiceAgentRequested && !intents.assistantSelectionContext)
+            manager.beginSelectionCapture();
+          manager._pressReadsSession = candidate;
+        }
         const preparationGeneration = ++preparationGenerationRef.current;
         setIsStopping(false);
         setIsPreparing(true);
@@ -130,12 +168,16 @@ export const useAudioRecording = (options = {}) => {
         // microphone; AudioManager confirms the same value once recording.
         setIsAssistantVoice(voiceAgentRequested);
         await waitForVisualFrames();
-        if (preparationGeneration !== preparationGenerationRef.current) return false;
+        if (preparationGeneration !== preparationGenerationRef.current) {
+          audioManagerRef.current.cancelPreparedMicCapture?.(candidate);
+          if (pressCandidateRef.current === candidate) pressCandidateRef.current = null;
+          return false;
+        }
 
         // Start acquisition only after the compact thinking frame has reached
         // the compositor. startRecording() joins this prepared capture, so the
         // device still opens exactly once.
-        void audioManagerRef.current.prepareMicCapture?.();
+        void audioManagerRef.current.prepareMicCapture?.({ candidate });
 
         // The floating dictation panel is non-focusable, so the foreground app is
         // still the user's actual editing target here. Refresh it for recordings
@@ -148,43 +190,18 @@ export const useAudioRecording = (options = {}) => {
         }
 
         demoKindRef.current = getOnboardingDemoKind(voiceAgentRequested);
-        audioManagerRef.current.setVoiceAgentRequested(voiceAgentRequested);
-        audioManagerRef.current.setAssistantSelectionContext(assistantSelectionContext);
-        audioManagerRef.current.setTranslationRequested(translationRequested);
-        // Covers the toggle path with freshly-set flags; the signature dedup
-        // makes this a no-op when the prepare handler already reported the
-        // same kind ahead of the flags being set.
         reportLifecycle("preparing");
-        if (voiceAgentRequested) {
-          logger.info(
-            "Voice agent recording start",
-            { screenContextEnabled: !!getSettings().voiceAgentScreenContext },
-            "reasoning"
-          );
-        }
-        // getSettings() already reflects a managed policy that forces the
-        // setting off; the predicate additionally fails closed while the
-        // policy is still loading or errored.
-        if (voiceAgentRequested && getSettings().voiceAgentScreenContext) {
-          audioManagerRef.current.beginScreenContextCapture();
-        }
-
-        // The selection to edit is whatever was highlighted at press time, so
-        // read it now: it resolves while the user speaks instead of adding a
-        // round trip after transcription.
-        if (voiceAgentRequested && !assistantSelectionContext) {
-          audioManagerRef.current.beginSelectionCapture();
-        }
 
         // Retry STT config fetch if it wasn't loaded on mount (e.g. auth wasn't ready).
         // Await it only when it can change the start decision (signed-in
         // OpenWhispr-cloud streaming); for local STT or a signed-out session the
         // fetch stalls on auth resolution and would delay the mic open (#1673).
 
-        const didStart = audioManagerRef.current.shouldUseStreaming()
-          ? await audioManagerRef.current.startStreamingRecording()
-          : await audioManagerRef.current.startRecording();
+        const didStart = candidate.intents.streaming
+          ? await audioManagerRef.current.startStreamingRecording(false, candidate)
+          : await audioManagerRef.current.startRecording(false, candidate);
         recordingStarted = didStart;
+        if (didStart && pressCandidateRef.current === candidate) pressCandidateRef.current = null;
         if (didStart) {
           dismissNotice(DICTATION_STATUS_NOTICE_ID);
           // Arm Esc as soon as a recording exists, including one whose stop
@@ -231,6 +248,8 @@ export const useAudioRecording = (options = {}) => {
         if (stopRequestedDuringStartRef.current && !recordingStarted) setIsStopping(false);
         stopRequestedDuringStartRef.current = false;
         if (!recordingStarted) {
+          audioManagerRef.current?.cancelPreparedMicCapture?.(candidate);
+          if (pressCandidateRef.current === candidate) pressCandidateRef.current = null;
           setIsPreparing(false);
           setIsAssistantVoice(false);
           // Covers every exit above that never started a recording — the
@@ -245,7 +264,7 @@ export const useAudioRecording = (options = {}) => {
         }
       }
     },
-    [reportLifecycle]
+    [reportLifecycle, trialMode]
   );
 
   const performStopRecording = useCallback(async () => {
@@ -504,10 +523,14 @@ export const useAudioRecording = (options = {}) => {
           setTranscript(result.text);
           if (result.assistantConversation) {
             window.electronAPI?.hideDictationPreview?.();
-            const { screenContext, transcript, selectedContext, deliverySessionId } =
+            const { screenContext, transcript, selectedContext, deliverySessionId, operation } =
               result.assistantConversation;
             const command = {
-              text: expandSnippets(transcript, getSettings().snippets),
+              text: expandSnippets(
+                transcript,
+                operation ? (operation.settings.snippets ?? []) : getSettings().snippets
+              ),
+              operation: operation ?? null,
               attachment: screenContext
                 ? { image: screenContext.data, mediaType: screenContext.mediaType }
                 : null,
@@ -796,22 +819,60 @@ export const useAudioRecording = (options = {}) => {
     const disposePrepare = window.electronAPI.onPrepareDictation?.(async (options) => {
       if (!audioManagerRef.current || startLockRef.current) return;
       if (!canStartDictation(audioManagerRef.current.getState())) return;
+      const manager = audioManagerRef.current;
+      manager._recordingPrivate = trialMode;
+      const voiceAgentRequested = options?.inputKind === "assistant";
+      const translationRequested = options?.inputKind === "translation";
+      const assistantSelectionContext = voiceAgentRequested
+        ? (getAssistantSelectionContextRef.current?.() ?? null)
+        : null;
+      const streaming = manager.shouldUseStreaming();
+      const candidate = manager.getOrCreatePressCandidate(
+        {
+          voiceAgentRequested,
+          translationRequested,
+          assistantSelectionContext,
+          streaming,
+          streamingProviderName: streaming ? manager.getStreamingProviderName() : null,
+        },
+        { newPress: true }
+      );
+      pressCandidateRef.current = candidate;
+      if (!manager.isPressCandidateAllowed(candidate)) {
+        manager.cancelPreparedMicCapture(candidate);
+        if (pressCandidateRef.current === candidate) pressCandidateRef.current = null;
+        manager._showUnknownRecipientBlockedStart();
+        setIsPreparing(false);
+        return;
+      }
+      manager.setVoiceAgentRequested(voiceAgentRequested);
+      manager.setAssistantSelectionContext(assistantSelectionContext);
+      manager.setTranslationRequested(translationRequested);
+      if (voiceAgentRequested && candidate.settings.voiceAgentScreenContext)
+        manager.beginScreenContextCapture();
+      if (voiceAgentRequested && !assistantSelectionContext) manager.beginSelectionCapture();
+      manager._pressReadsSession = candidate;
       const generation = ++preparationGenerationRef.current;
-      setIsAssistantVoice(false);
+      setIsAssistantVoice(voiceAgentRequested);
       setIsPreparing(true);
       // The prepare event precedes the flag-setting start, so the kind must come
       // from the payload — the audioManager flags still describe the PREVIOUS
       // recording at this point.
       reportLifecycle("preparing", options?.inputKind);
       await waitForVisualFrames();
-      if (generation !== preparationGenerationRef.current || startLockRef.current) return;
-      void audioManagerRef.current.prepareMicCapture?.();
+      if (generation !== preparationGenerationRef.current || startLockRef.current) {
+        manager.cancelPreparedMicCapture?.(candidate);
+        if (pressCandidateRef.current === candidate) pressCandidateRef.current = null;
+        return;
+      }
+      void manager.prepareMicCapture?.({ candidate });
     });
 
     const disposeCancelPreparation = window.electronAPI.onCancelDictationPreparation?.(() => {
       preparationGenerationRef.current += 1;
       setIsPreparing(false);
-      audioManagerRef.current?.cancelPreparedMicCapture?.();
+      audioManagerRef.current?.cancelPreparedMicCapture?.(pressCandidateRef.current);
+      pressCandidateRef.current = null;
       if (reportedLifecycleRef.current?.startsWith("preparing:")) reportLifecycle("idle");
     });
 
@@ -861,7 +922,8 @@ export const useAudioRecording = (options = {}) => {
       preparationGenerationRef.current += 1;
       setIsPreparing(false);
       setIsStopping(false);
-      audioManagerRef.current.cancelPreparedMicCapture?.();
+      audioManagerRef.current.cancelPreparedMicCapture?.(pressCandidateRef.current);
+      pressCandidateRef.current = null;
       window.electronAPI?.unregisterCancelHotkey?.();
       const state = audioManagerRef.current.getState();
       if (getSettings().pauseMediaOnDictation) {

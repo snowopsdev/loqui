@@ -363,7 +363,10 @@ test("change-driving N2: atomic main settings and facts publish together; newer 
   assert.equal(settings.vertexLocation, "", "main's empty value replaces the renderer default");
   assert.equal(settings.vertexAuthSource, "adc", "source is synced from main after migration");
   assert.equal(storage.getItem("azureEndpoint"), "https://main.example.com/openai");
-  assert.deepEqual(facts().enterpriseMain, proxy);
+  assert.deepEqual(facts().enterpriseMain, {
+    ...proxy,
+    enterpriseRecipients: store.EMPTY_ROUTE_FACTS.enterpriseRecipients,
+  });
 
   // Later loads read an atomic tuple too; facts changes advance authority even when tuple fields stay equal.
   await store.loadRouteFacts(
@@ -382,7 +385,10 @@ test("change-driving N2: atomic main settings and facts publish together; newer 
   );
   assert.equal(calls.filter((c) => c === "getEnterpriseRouteState").length, 2);
   assert.equal(calls.filter((c) => c === "enterpriseRouteFacts").length, 2);
-  assert.deepEqual(facts().enterpriseMain, NO_OVERRIDES);
+  assert.deepEqual(facts().enterpriseMain, {
+    ...NO_OVERRIDES,
+    enterpriseRecipients: store.EMPTY_ROUTE_FACTS.enterpriseRecipients,
+  });
   assert.equal(
     useSettingsStore.getState().azureEndpoint,
     "https://main.example.com/openai",

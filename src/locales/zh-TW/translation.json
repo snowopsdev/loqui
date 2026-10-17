@@ -4197,5 +4197,12 @@
       "choose": "選擇其他模型"
     },
     "pasteFailed": "無法貼上您的文字"
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "無法驗證此錄音的傳送目標。您的文字已保留。請在設定中恢復原始目標後重試，或開始新錄音。",
+      "recipientChanged": "此錄音已固定使用開始錄音時的傳送目標。您的文字已保留。請在設定中恢復該目標後重試，或開始新錄音。",
+      "recipientTitle": "錄音傳送目標無法使用"
+    }
   }
 }

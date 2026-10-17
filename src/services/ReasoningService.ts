@@ -1,4 +1,5 @@
 import { BaseReasoningService, type ReasoningConfig } from "./BaseReasoningService";
+import i18n from "../i18n";
 import { getSettings } from "../stores/settingsStore";
 import { resolveInferenceProvider } from "../models/ModelRegistry";
 import { wrapCleanupTranscript } from "../config/prompts";
@@ -26,6 +27,18 @@ export type AgentStreamChunk =
     }
   | { type: "done"; finishReason?: string };
 
+function inferenceFailure(error: { code?: string; error?: string; message?: string }): Error {
+  const code = error.code;
+  if (code === "recipientUnknown" || code === "recipientChanged")
+    return Object.assign(new Error(String(i18n.t(`voiceOverlay.errors.${code}`))), {
+      code,
+      messageKey: `voiceOverlay.errors.${code}`,
+    });
+  return Object.assign(new Error(error.error || error.message || "Text processing failed."), {
+    code,
+  });
+}
+
 function bridge(): PersonalInferenceAPI {
   const api = window.electronAPI?.personalInference;
   if (!api) throw new Error("Text processing is not available in this environment.");
@@ -49,6 +62,10 @@ class ReasoningService extends BaseReasoningService {
     const custom = provider === "custom" || provider === "lan";
     return {
       requestId: crypto.randomUUID(),
+      correlationId: config.correlationId ?? null,
+      dictationOperation: config.dictationOperation === true ? true : undefined,
+      dictationSessionId: config.dictationSessionId ?? null,
+      enterpriseRecipientTag: config.enterpriseRecipientTag ?? null,
       provider,
       model,
       inferenceScope,
@@ -74,7 +91,7 @@ class ReasoningService extends BaseReasoningService {
     agentName: string | null = null,
     config: ReasoningConfig = {}
   ): Promise<string> {
-    const settings = getSettings();
+    const settings = (config.settingsView ?? getSettings()) as ReturnType<typeof getSettings>;
     const implicit = !config.provider && !config.baseUrl && !config.lanUrl;
     if (implicit)
       config = {
@@ -96,10 +113,10 @@ class ReasoningService extends BaseReasoningService {
         agentName,
         config,
         ctx: {
-          getSystemPrompt: this.getSystemPrompt.bind(this),
-          getCustomDictionary: this.getCustomDictionary.bind(this),
-          getPreferredLanguage: this.getPreferredLanguage.bind(this),
-          getUiLanguage: this.getUiLanguage.bind(this),
+          getSystemPrompt: (name) => this.getSystemPrompt(name, config),
+          getCustomDictionary: () => this.getCustomDictionary(config),
+          getPreferredLanguage: () => this.getPreferredLanguage(config),
+          getUiLanguage: () => this.getUiLanguage(config),
           calculateMaxTokens: this.calculateMaxTokens.bind(this),
           getApiKey: async () => {
             throw new Error("Credentials are only available in the main process.");
@@ -112,7 +129,7 @@ class ReasoningService extends BaseReasoningService {
     }
     const request: TextRequest = {
       ...this.requestConfig(provider || "", model, config),
-      systemPrompt: config.systemPrompt || this.getSystemPrompt(agentName),
+      systemPrompt: config.systemPrompt || this.getSystemPrompt(agentName, config),
       messages: [
         {
           role: "user",
@@ -134,7 +151,15 @@ class ReasoningService extends BaseReasoningService {
     // audioManager keeps the original transcript.
     this.activeRequests.add(request.requestId);
     try {
-      return (await bridge().textGenerate(request)).text;
+      const result = await bridge().textGenerate(request);
+      return result.text;
+    } catch (error) {
+      if (
+        (error as { code?: string })?.code === "recipientUnknown" ||
+        (error as { code?: string })?.code === "recipientChanged"
+      )
+        throw inferenceFailure(error as { code: string });
+      throw error;
     } finally {
       this.activeRequests.delete(request.requestId);
     }
@@ -203,7 +228,7 @@ class ReasoningService extends BaseReasoningService {
       });
       void api
         .textStream(request)
-        .catch((error) => enqueue({ type: "error", error: error.message }));
+        .catch((error) => enqueue({ type: "error", error: error.message, code: error.code }));
       const filter =
         ["local", "lan"].includes(provider) && config.disableThinking !== false
           ? createStreamingThinkFilter()
@@ -217,7 +242,7 @@ class ReasoningService extends BaseReasoningService {
         while (queue.length) {
           const event = queue.shift()!;
           if (event.type === "end") return;
-          if (event.type === "error") throw new Error(event.error || "Text processing failed.");
+          if (event.type === "error") throw inferenceFailure(event);
           if (event.type === "chunk") {
             if (event.chunk?.type === "content") {
               const text = filter ? filter(event.chunk.text || "") : event.chunk.text;
@@ -287,8 +312,8 @@ class ReasoningService extends BaseReasoningService {
     for (const requestId of this.activeRequests) void bridge().textCancel(requestId);
     this.activeRequests.clear();
   }
-  async isAvailable(): Promise<boolean> {
-    const settings = getSettings();
+  async isAvailable(settingsView?: Record<string, unknown>): Promise<boolean> {
+    const settings = (settingsView ?? getSettings()) as ReturnType<typeof getSettings>;
     const provider =
       settings.cleanupMode === "local"
         ? "local"

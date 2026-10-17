@@ -4231,5 +4231,12 @@
       "choose": "Scegline un altro"
     },
     "pasteFailed": "Impossibile incollare le tue parole"
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "Non è stato possibile verificare la destinazione di questa registrazione. Le tue parole sono conservate. Ripristina la destinazione originale nelle impostazioni per riprovare, oppure avvia una nuova registrazione.",
+      "recipientChanged": "Questa registrazione mantiene la destinazione originale. Le tue parole sono conservate. Ripristina quella destinazione nelle impostazioni per riprovare, oppure avvia una nuova registrazione.",
+      "recipientTitle": "Destinazione della registrazione non disponibile"
+    }
   }
 }

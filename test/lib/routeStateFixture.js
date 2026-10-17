@@ -126,6 +126,11 @@ function testFacts(overrides = {}) {
       ["deepgram", { key: true }],
     ]),
     // Task 3's sync from main has landed, with no environment override (R2-1).
+    enterpriseRecipients: {
+      azure: { status: "unknown" },
+      bedrock: { status: "unknown" },
+      vertex: { status: "unknown" },
+    },
     enterpriseMain: {
       bedrockEndpoint: { set: false, host: null },
       bedrockProfile: false,

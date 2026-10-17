@@ -18,7 +18,7 @@ import {
   selectResolvedUploadTranscription,
   useSettingsStore,
   type SettingsState,
-} from "../stores/settingsStore";
+} from "../stores/settingsStore.ts";
 import { ensureRouteFactsSubscribed, useRouteFactsStore } from "../stores/routeFactsStore";
 import { ensureSealedSubscribed, getSealed, useSealedStore } from "../stores/sealedStore";
 import { getDictionaryHintWords } from "../utils/snippets";
@@ -29,6 +29,7 @@ import {
   type CredentialId,
   type CredentialVerificationIdentity,
   resolveRoutes,
+  resolveRoute,
   type LlmRouteInput,
   type LlmRouteScope,
   type ModelInfo,
@@ -393,4 +394,20 @@ export function useResolvedRoutes(): ResolvedRoute[] {
 export function useResolvedRoute(id: RouteId): ResolvedRoute {
   const routes = useResolvedRoutes();
   return routes.find((route) => route.id === id) as ResolvedRoute;
+}
+
+/** Shares the graph's destination selection even while readiness facts are unknown. */
+export function selectRouteProvider(
+  settings: SettingsState,
+  id: RouteId
+): { status: "known"; providerId: string | null } | { status: "unknown" } {
+  try {
+    const route = resolveRoute(routeSnapshotFromSettings(settings), id);
+    return route.state.status === "unreachable" &&
+      ["unsupported", "retired"].includes(route.state.detail ?? "")
+      ? { status: "unknown" }
+      : { status: "known", providerId: route.providerId };
+  } catch {
+    return { status: "unknown" };
+  }
 }

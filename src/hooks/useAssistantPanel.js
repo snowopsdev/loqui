@@ -33,6 +33,8 @@ export function useAssistantPanel({
   const [busy, setBusy] = useState(false);
   const [footerPhase, setFooterPhase] = useState("pill");
   const [pendingCommand, setPendingCommand] = useState(null);
+  // Presentation outlives AudioManager idle and pending-command consumption.
+  const [activeOperation, setActiveOperation] = useState(null);
   const [conversationId, setConversationId] = useState(null);
 
   const openRef = useRef(open);
@@ -140,10 +142,12 @@ export function useAssistantPanel({
       // the external caret would snap that surface away mid-read.
       const delivery = openRef.current ? null : (command.delivery ?? null);
       beginThinking();
+      setActiveOperation(command.operation ?? null);
       setPendingCommand({
         id: commandIdRef.current,
         text: command.text,
         attachment: command.attachment ?? null,
+        operation: command.operation ?? null,
         selectedContext: command.selectedContext ?? null,
         delivery,
       });
@@ -168,6 +172,7 @@ export function useAssistantPanel({
   }, []);
 
   const handleCommandDiscarded = useCallback((id) => {
+    if (id === commandIdRef.current) setActiveOperation(null);
     setPendingCommand((current) => discardPendingAssistantCommand(current, id));
   }, []);
 
@@ -179,6 +184,7 @@ export function useAssistantPanel({
   const handleCommandSettled = useCallback(
     (id, { showPanel = true } = {}) => {
       if (id !== commandIdRef.current) return;
+      setActiveOperation(null);
       if (!mountedRef.current || closingRef.current) return;
       setThinking(false);
       if (showPanel) {
@@ -224,6 +230,7 @@ export function useAssistantPanel({
     setThinking(closeState.thinking);
     setBusy(closeState.busy);
     setPendingCommand(closeState.pendingCommand);
+    setActiveOperation(null);
     setConversationId(closeState.conversationId);
     selectionContextRef.current = null;
     hasContentRef.current = false;
@@ -318,6 +325,7 @@ export function useAssistantPanel({
     busy,
     footerPhase,
     pendingCommand,
+    activeOperation,
     conversationId,
     openRef,
     setBusy,

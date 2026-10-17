@@ -81,6 +81,11 @@ function harness(t, behavior = {}) {
       return "fixture-secret";
     },
     saveCredential: async () => {},
+    getEnterpriseConfig: async () => ({
+      vertexAuthSource: "apiKey",
+      vertexProject: "",
+      vertexLocation: "us-central1",
+    }),
     modelFactory: async (provider, id, key, baseUrl) => {
       assert.equal(key, "fixture-secret");
       modelCalls.push({ provider, id, baseUrl });

@@ -88,7 +88,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     credentialSave: (ref, value) =>
       ipcRenderer.invoke("personal-inference:credential-save", ref, value),
     models: (request) => ipcRenderer.invoke("personal-inference:models", request),
-    textGenerate: (request) => ipcRenderer.invoke("personal-inference:text-generate", request),
+    textGenerate: async (request) => {
+      const result = await ipcRenderer.invoke("personal-inference:text-generate", request);
+      if (["recipientUnknown", "recipientChanged"].includes(result?.code))
+        throw Object.assign(new Error(result.code), {
+          code: result.code,
+          messageKey: `voiceOverlay.errors.${result.code}`,
+        });
+      return result;
+    },
     textStream: (request) => ipcRenderer.invoke("personal-inference:text-stream", request),
     textCancel: (requestId) => ipcRenderer.invoke("personal-inference:text-cancel", requestId),
     textToolResult: (result) => ipcRenderer.invoke("personal-inference:text-tool-result", result),
@@ -755,10 +763,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   assemblyAiStreamingWarmup: (options) =>
     ipcRenderer.invoke("assemblyai-streaming-warmup", options),
   assemblyAiStreamingStart: (options) => ipcRenderer.invoke("assemblyai-streaming-start", options),
-  assemblyAiStreamingSend: (audioBuffer) =>
-    ipcRenderer.send("assemblyai-streaming-send", audioBuffer),
-  assemblyAiStreamingForceEndpoint: () => ipcRenderer.send("assemblyai-streaming-force-endpoint"),
-  assemblyAiStreamingStop: () => ipcRenderer.invoke("assemblyai-streaming-stop"),
+  assemblyAiStreamingSend: (audioBuffer, operation) =>
+    operation === undefined
+      ? ipcRenderer.send("assemblyai-streaming-send", audioBuffer)
+      : ipcRenderer.send("assemblyai-streaming-send", audioBuffer, operation),
+  assemblyAiStreamingForceEndpoint: (operation) =>
+    operation === undefined
+      ? ipcRenderer.send("assemblyai-streaming-force-endpoint")
+      : ipcRenderer.send("assemblyai-streaming-force-endpoint", operation),
+  assemblyAiStreamingStop: (operation) =>
+    operation === undefined
+      ? ipcRenderer.invoke("assemblyai-streaming-stop")
+      : ipcRenderer.invoke("assemblyai-streaming-stop", operation),
   assemblyAiStreamingStatus: () => ipcRenderer.invoke("assemblyai-streaming-status"),
   onAssemblyAiPartialTranscript: registerListener(
     "assemblyai-partial-transcript",
@@ -780,9 +796,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Deepgram Streaming
   deepgramStreamingWarmup: (options) => ipcRenderer.invoke("deepgram-streaming-warmup", options),
   deepgramStreamingStart: (options) => ipcRenderer.invoke("deepgram-streaming-start", options),
-  deepgramStreamingSend: (audioBuffer) => ipcRenderer.send("deepgram-streaming-send", audioBuffer),
-  deepgramStreamingFinalize: () => ipcRenderer.send("deepgram-streaming-finalize"),
-  deepgramStreamingStop: () => ipcRenderer.invoke("deepgram-streaming-stop"),
+  deepgramStreamingSend: (audioBuffer, operation) =>
+    operation === undefined
+      ? ipcRenderer.send("deepgram-streaming-send", audioBuffer)
+      : ipcRenderer.send("deepgram-streaming-send", audioBuffer, operation),
+  deepgramStreamingFinalize: (operation) =>
+    operation === undefined
+      ? ipcRenderer.send("deepgram-streaming-finalize")
+      : ipcRenderer.send("deepgram-streaming-finalize", operation),
+  deepgramStreamingStop: (operation) =>
+    operation === undefined
+      ? ipcRenderer.invoke("deepgram-streaming-stop")
+      : ipcRenderer.invoke("deepgram-streaming-stop", operation),
   deepgramStreamingStatus: () => ipcRenderer.invoke("deepgram-streaming-status"),
   onDeepgramPartialTranscript: registerListener(
     "deepgram-partial-transcript",
@@ -804,9 +829,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Gemini Live Streaming
   geminiStreamingWarmup: (options) => ipcRenderer.invoke("gemini-streaming-warmup", options),
   geminiStreamingStart: (options) => ipcRenderer.invoke("gemini-streaming-start", options),
-  geminiStreamingSend: (audioBuffer) => ipcRenderer.send("gemini-streaming-send", audioBuffer),
-  geminiStreamingFinalize: () => ipcRenderer.send("gemini-streaming-finalize"),
-  geminiStreamingStop: () => ipcRenderer.invoke("gemini-streaming-stop"),
+  geminiStreamingSend: (audioBuffer, operation) =>
+    operation === undefined
+      ? ipcRenderer.send("gemini-streaming-send", audioBuffer)
+      : ipcRenderer.send("gemini-streaming-send", audioBuffer, operation),
+  geminiStreamingFinalize: (operation) =>
+    operation === undefined
+      ? ipcRenderer.send("gemini-streaming-finalize")
+      : ipcRenderer.send("gemini-streaming-finalize", operation),
+  geminiStreamingStop: (operation) =>
+    operation === undefined
+      ? ipcRenderer.invoke("gemini-streaming-stop")
+      : ipcRenderer.invoke("gemini-streaming-stop", operation),
   geminiStreamingStatus: () => ipcRenderer.invoke("gemini-streaming-status"),
   onGeminiPartialTranscript: registerListener(
     "gemini-partial-transcript",
@@ -825,9 +859,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Corti streaming (BYOK)
   cortiStreamingWarmup: (options) => ipcRenderer.invoke("corti-streaming-warmup", options),
   cortiStreamingStart: (options) => ipcRenderer.invoke("corti-streaming-start", options),
-  cortiStreamingSend: (audioBuffer) => ipcRenderer.send("corti-streaming-send", audioBuffer),
-  cortiStreamingFinalize: () => ipcRenderer.send("corti-streaming-finalize"),
-  cortiStreamingStop: () => ipcRenderer.invoke("corti-streaming-stop"),
+  cortiStreamingSend: (audioBuffer, operation) =>
+    operation === undefined
+      ? ipcRenderer.send("corti-streaming-send", audioBuffer)
+      : ipcRenderer.send("corti-streaming-send", audioBuffer, operation),
+  cortiStreamingFinalize: (operation) =>
+    operation === undefined
+      ? ipcRenderer.send("corti-streaming-finalize")
+      : ipcRenderer.send("corti-streaming-finalize", operation),
+  cortiStreamingStop: (operation) =>
+    operation === undefined
+      ? ipcRenderer.invoke("corti-streaming-stop")
+      : ipcRenderer.invoke("corti-streaming-stop", operation),
   cortiStreamingStatus: () => ipcRenderer.invoke("corti-streaming-status"),
   onCortiPartialTranscript: registerListener(
     "corti-partial-transcript",
@@ -899,8 +942,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Dictation realtime streaming
   dictationRealtimeWarmup: (options) => ipcRenderer.invoke("dictation-realtime-warmup", options),
   dictationRealtimeStart: (options) => ipcRenderer.invoke("dictation-realtime-start", options),
-  dictationRealtimeSend: (buffer) => ipcRenderer.send("dictation-realtime-send", buffer),
-  dictationRealtimeStop: () => ipcRenderer.invoke("dictation-realtime-stop"),
+  dictationRealtimeSend: (buffer, operation) =>
+    operation === undefined
+      ? ipcRenderer.send("dictation-realtime-send", buffer)
+      : ipcRenderer.send("dictation-realtime-send", buffer, operation),
+  dictationRealtimeStop: (operation) =>
+    operation === undefined
+      ? ipcRenderer.invoke("dictation-realtime-stop")
+      : ipcRenderer.invoke("dictation-realtime-stop", operation),
   onDictationRealtimePartial: registerListener(
     "dictation-realtime-partial",
     (callback) => (_event, data) => callback(data)

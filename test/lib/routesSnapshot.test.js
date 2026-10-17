@@ -14,6 +14,11 @@ const FACTS = Object.freeze({
     ["groq", { key: true }],
   ]),
   // Synced from main, no environment override (R2-1).
+  enterpriseRecipients: {
+    azure: { status: "unknown" },
+    bedrock: { status: "unknown" },
+    vertex: { status: "unknown" },
+  },
   enterpriseMain: {
     bedrockEndpoint: { set: false, host: null },
     bedrockProfile: false,

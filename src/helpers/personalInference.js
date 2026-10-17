@@ -3,6 +3,40 @@ const { createAbortError } = require("./abortError");
 const { CodexAppServer } = require("./codexAppServer");
 const { isSecureHttpEndpoint } = require("../utils/urlUtils.ts");
 
+const {
+  captureEnterpriseEnvironment,
+  resolveEnterpriseCredentialMaterial,
+  resolveEnterpriseExecutor,
+} = require("./enterpriseRecipientIdentity");
+const ENTERPRISE_PROVIDERS = new Set(["azure", "bedrock", "vertex"]);
+const isEnterpriseProvider = (provider) => ENTERPRISE_PROVIDERS.has(provider);
+function recipientFailure(code) {
+  return Object.assign(new Error(code), { code, messageKey: `voiceOverlay.errors.${code}` });
+}
+function validateDictationRecipientFields(input) {
+  const hasSession = input.dictationSessionId != null;
+  const hasTag = input.enterpriseRecipientTag != null;
+  if (input.dictationOperation !== undefined && input.dictationOperation !== true)
+    throw recipientFailure("recipientUnknown");
+  if (
+    hasSession &&
+    (typeof input.dictationSessionId !== "string" ||
+      !input.dictationSessionId.trim() ||
+      input.dictationSessionId.length > 100)
+  )
+    throw recipientFailure("recipientUnknown");
+  if (
+    hasTag &&
+    (typeof input.enterpriseRecipientTag !== "string" ||
+      !/^sha256:[a-f0-9]{64}$/.test(input.enterpriseRecipientTag))
+  )
+    throw recipientFailure("recipientUnknown");
+  if (input.dictationOperation === true) {
+    if (!hasSession || (isEnterpriseProvider(input.provider) && !hasTag))
+      throw recipientFailure("recipientUnknown");
+  } else if (hasSession || hasTag) throw recipientFailure("recipientUnknown");
+}
+
 const PROVIDERS = new Set([
   "openai",
   "anthropic",
@@ -91,6 +125,14 @@ function validateCredentialRef(ref) {
   return ref;
 }
 function validateRequest(input) {
+  if (input) {
+    validateDictationRecipientFields(input);
+    if (
+      input.correlationId != null &&
+      (typeof input.correlationId !== "string" || input.correlationId.length > 100)
+    )
+      throw new Error("Invalid correlation id.");
+  }
   if (!input || !PROVIDERS.has(input.provider))
     throw new Error("Choose a supported text provider.");
   if (typeof input.requestId !== "string" || input.requestId.length > 100 || !input.requestId)
@@ -170,13 +212,24 @@ function validateRequest(input) {
   return { ...input, baseUrl, inferenceScope: scope, credentialRef: expectedRef };
 }
 
-async function createModel(provider, model, apiKey, baseURL, disableThinking, enterprise) {
+async function createModel(
+  provider,
+  model,
+  apiKey,
+  baseURL,
+  disableThinking,
+  enterprise,
+  enterpriseCredentialMaterial,
+  fetchImpl
+) {
   if (["bedrock", "azure", "vertex"].includes(provider))
     return require("./enterpriseAiProviders").getEnterpriseAIModel(
       provider,
       model,
       apiKey,
-      enterprise
+      enterprise,
+      enterpriseCredentialMaterial,
+      fetchImpl
     );
   const { createOpenAI } = require("@ai-sdk/openai");
   if (provider === "openai") return createOpenAI({ apiKey })(model);
@@ -217,6 +270,7 @@ function registerPersonalInferenceIPC({
   modelFactory = createModel,
   getEnterpriseConfig = () => ({}),
   waitForAdmission = async () => {},
+  fetchImpl,
 }) {
   const recipients = require("./recipientAuthority").createRecipientAuthority();
   const active = new Map();
@@ -458,15 +512,44 @@ function registerPersonalInferenceIPC({
         : await getCredential(request.credentialRef);
       if (!apiKey && !["local", "lan", "custom", "bedrock", "vertex"].includes(request.provider))
         throw new Error(`Configure the ${request.provider} API key in Settings.`);
+      const enterpriseConfigSnapshot = isEnterpriseProvider(request.provider)
+        ? await getEnterpriseConfig(request.provider)
+        : undefined;
+      const enterpriseEnvironmentSnapshot = isEnterpriseProvider(request.provider)
+        ? captureEnterpriseEnvironment(request.provider, process.env)
+        : undefined;
+      const enterprise = isEnterpriseProvider(request.provider)
+        ? resolveEnterpriseExecutor(
+            request.provider,
+            enterpriseConfigSnapshot,
+            enterpriseEnvironmentSnapshot
+          )
+        : undefined;
+      if (enterprise && enterprise.status !== "ready") throw recipientFailure("recipientUnknown");
+      if (
+        request.dictationOperation &&
+        enterprise &&
+        enterprise.tag !== request.enterpriseRecipientTag
+      )
+        throw recipientFailure("recipientChanged");
+      const material = enterprise
+        ? resolveEnterpriseCredentialMaterial(
+            request.provider,
+            enterpriseConfigSnapshot,
+            apiKey,
+            enterpriseEnvironmentSnapshot
+          )
+        : undefined;
+      controller.signal.throwIfAborted();
       const model = await modelFactory(
         request.provider,
         request.model,
         apiKey,
         request.baseUrl,
         request.disableThinking,
-        ["bedrock", "azure", "vertex"].includes(request.provider)
-          ? await getEnterpriseConfig(request.provider)
-          : undefined
+        enterprise?.executor,
+        material,
+        fetchImpl
       );
       const { streamText, generateText, isStepCount, jsonSchema } = require("ai");
       let tools = request.tools?.length
@@ -559,7 +642,15 @@ function registerPersonalInferenceIPC({
         }
     }
   }
-  handle("text-generate", (event, request) => execute(event, request, false));
+  handle("text-generate", async (event, request) => {
+    try {
+      return await execute(event, request, false);
+    } catch (error) {
+      if (["recipientUnknown", "recipientChanged"].includes(error?.code))
+        return { error: error.code, code: error.code };
+      throw error;
+    }
+  });
   handle("text-stream", async (event, request) => {
     try {
       await execute(event, request, true);

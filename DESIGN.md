@@ -284,6 +284,8 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 
 The persistent dictation control is a compact bordered capsule with a waveform and voice identity mark. Recording and processing remain legible through waveform and control state; assistant thinking can add a restrained glow. The pill expands into the assistant or live-transcript surface with 24px corners, then contracts back to the same anchor. Dictation thinking glows in the logo gradient (#FF8A5C → #FF5A1F → #D90078); Agent Mode thinking glows violet (#8787FF). Blue is not a Loqui state colour.
 
+Each dictation captures its route, prompts, hosted-search choice, privacy and requested context before the first capture await. An Agent command keeps that operation through the assistant panel’s busy completion, including its original selection and screenshot. Changing Settings never reroutes those words; a typed follow-up admits the current settings as a new request. An unverifiable selected enterprise destination blocks before the microphone opens, and a changed destination preserves the words for recovery.
+
 ### Notices
 
 `notify()` owns all transient feedback; no provider wrapper is required. Credential and route Undo use action receipts (7 seconds); main retains the original credential removal deadline (8 seconds), including on retry. That original deadline removes the credential Undo affordance even while hover pauses the receipt.

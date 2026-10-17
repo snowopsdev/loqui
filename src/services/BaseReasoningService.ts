@@ -6,6 +6,11 @@ import type { InferenceScope } from "../config/inferenceScopes";
 import type { ScreenContextImage } from "../types/electron";
 
 export interface ReasoningConfig {
+  settingsView?: Record<string, unknown>;
+  correlationId?: string | null;
+  dictationOperation?: true;
+  dictationSessionId?: string | null;
+  enterpriseRecipientTag?: string | null;
   maxTokens?: number;
   temperature?: number;
   contextSize?: number;
@@ -32,27 +37,34 @@ export interface ReasoningConfig {
 export abstract class BaseReasoningService {
   protected isProcessing = false;
 
-  protected getCustomDictionary(): string[] {
-    return getDictionaryHintWords(getSettings());
+  protected getCustomDictionary(config: ReasoningConfig = {}): string[] {
+    return getDictionaryHintWords(
+      (config.settingsView ?? getSettings()) as ReturnType<typeof getSettings>
+    );
   }
 
   // Auto must remain auto here: zh-CN/zh-TW instructions make cleanup write its
   // entire response in Chinese before the transcription language is known. The
   // final deterministic script pass handles likely-Chinese output instead. See #975.
-  protected getPreferredLanguage(): string {
-    return resolveCleanupLanguage(getSettings().preferredLanguage);
+  protected getPreferredLanguage(config: ReasoningConfig = {}): string {
+    return resolveCleanupLanguage(
+      (config.settingsView ?? getSettings()).preferredLanguage as string
+    );
   }
 
-  protected getUiLanguage(): string {
-    return getSettings().uiLanguage || "en";
+  protected getUiLanguage(config: ReasoningConfig = {}): string {
+    return String((config.settingsView ?? getSettings()).uiLanguage || "en");
   }
 
-  protected getSystemPrompt(agentName: string | null): string {
+  protected getSystemPrompt(agentName: string | null, config: ReasoningConfig = {}): string {
     return getCleanupSystemPrompt(
       agentName,
-      this.getCustomDictionary(),
-      this.getPreferredLanguage(),
-      this.getUiLanguage()
+      this.getCustomDictionary(config),
+      this.getPreferredLanguage(config),
+      this.getUiLanguage(config),
+      config.settingsView
+        ? ((config.settingsView.customPrompts ?? {}) as Record<string, string>)
+        : undefined
     );
   }
 
@@ -65,7 +77,7 @@ export abstract class BaseReasoningService {
     return Math.max(minTokens, Math.min(textLength * multiplier, maxTokens));
   }
 
-  abstract isAvailable(): Promise<boolean>;
+  abstract isAvailable(settingsView?: Record<string, unknown>): Promise<boolean>;
 
   abstract processText(
     text: string,

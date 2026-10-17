@@ -528,3 +528,26 @@ test("baseline guard N2: pending legacy persistence cannot enter canonical autho
   await tick();
   assert.equal(r.useSettingsStore.getState().azureEndpoint, INITIAL.AZURE_OPENAI_ENDPOINT);
 });
+
+test("recipient identity fails closed on a failed refresh and recovers only from the actual main facts", async (t) => {
+  const ipc = enterpriseRouteIpc(t, INITIAL);
+  const r = await renderer(t, ipc);
+  await r.loadRouteFacts(globalThis.window.electronAPI, ["enterprise"]);
+  const first = r.useRouteFactsStore.getState().facts.enterpriseRecipients.azure;
+  assert.equal(first.status, "ready");
+  await r.loadRouteFacts(
+    {
+      getEnterpriseRouteState: async () => {
+        throw new Error("synthetic facts unavailable");
+      },
+    },
+    ["enterprise"]
+  );
+  assert.equal(r.useRouteFactsStore.getState().facts.enterpriseRecipients.azure.status, "unknown");
+  await r.loadRouteFacts(globalThis.window.electronAPI, ["enterprise"]);
+  assert.deepEqual(r.useRouteFactsStore.getState().facts.enterpriseRecipients.azure, first);
+  await r.loadRouteFacts(legacyApi(ipc), ["enterprise"]);
+  assert.equal(r.useRouteFactsStore.getState().facts.enterpriseRecipients.azure.status, "unknown");
+  await r.loadRouteFacts(globalThis.window.electronAPI, ["enterprise"]);
+  assert.deepEqual(r.useRouteFactsStore.getState().facts.enterpriseRecipients.azure, first);
+});

@@ -22,10 +22,14 @@ function requestHost(url) {
   }
 }
 
-function enterpriseRouteFacts(env = process.env) {
+function enterpriseRouteFacts(env = process.env, source = {}) {
   const runtime = env.AWS_ENDPOINT_URL_BEDROCK_RUNTIME;
   const raw = typeof runtime === "string" ? runtime : env.AWS_ENDPOINT_URL;
   return {
+    enterpriseRecipients: require("./enterpriseRecipientIdentity").buildEnterpriseRecipientFacts(
+      source,
+      env
+    ),
     bedrockEndpoint:
       typeof raw === "string"
         ? { set: true, host: requestHost(`${raw.replace(/\/$/, "")}/model/fixture/converse`) }

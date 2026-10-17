@@ -10,6 +10,8 @@ type RecordingError = {
 };
 
 export function getRecordingErrorTitle(error: RecordingError, t: TFunction): string {
+  if (error.code === "recipientUnknown" || error.code === "recipientChanged")
+    return t("voiceOverlay.errors.recipientTitle");
   if (error.code?.startsWith("SELECTION_EDIT_")) {
     return t("hooks.audioRecording.selectionEditing.notAppliedTitle");
   }

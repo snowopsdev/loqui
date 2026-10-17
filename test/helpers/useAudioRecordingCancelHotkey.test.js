@@ -14,6 +14,9 @@ const {
 // emit the same onStateChange sequence the real AudioManager does.
 const FAKE_AUDIO_MANAGER_SOURCE = `
 export default class FakeAudioManager {
+  isPressCandidateAllowed() { return true; }
+  getOrCreatePressCandidate(intents) { return { intents, settings: {}, routes: { dictationStt: { providerId: null }, voiceAssistant: { providerId: null }, translation: { providerId: null } } }; }
+
   constructor() {
     this.voiceAgentRequested = false;
     this.translationRequested = false;

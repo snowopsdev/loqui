@@ -4224,5 +4224,12 @@
       "choose": "Anderes wählen"
     },
     "pasteFailed": "Deine Worte konnten nicht eingefügt werden"
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "Das Ziel dieser Aufnahme konnte nicht bestätigt werden. Deine Worte bleiben erhalten. Stelle zum Wiederholen das ursprüngliche Ziel in den Einstellungen wieder her oder starte eine neue Aufnahme.",
+      "recipientChanged": "Diese Aufnahme ist an ihr ursprüngliches Ziel gebunden. Deine Worte bleiben erhalten. Stelle zum Wiederholen dieses Ziel in den Einstellungen wieder her oder starte eine neue Aufnahme.",
+      "recipientTitle": "Aufnahmeziel nicht verfügbar"
+    }
   }
 }

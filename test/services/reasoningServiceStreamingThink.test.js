@@ -2,7 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
-async function setup(t, { chunks = ["Answer"], finish = true, error, onStream, startLocal } = {}) {
+async function setup(
+  t,
+  { chunks = ["Answer"], finish = true, error, errorCode, onStream, startLocal } = {}
+) {
   const listeners = new Set();
   const requests = [];
   const cancellations = [];
@@ -20,7 +23,7 @@ async function setup(t, { chunks = ["Answer"], finish = true, error, onStream, s
       if (onStream) return onStream(request, emit);
       for (const text of chunks)
         emit({ type: "chunk", requestId: request.requestId, chunk: { type: "content", text } });
-      if (error) emit({ type: "error", requestId: request.requestId, error });
+      if (error) emit({ type: "error", requestId: request.requestId, error, code: errorCode });
       else if (finish) {
         emit({
           type: "chunk",
@@ -227,4 +230,38 @@ test("local failures and removed providers never redirect to another provider", 
     /Unsupported/
   );
   assert.equal(requests.length, 0);
+});
+
+test("ReasoningService preserves and localizes recipient codes in generated and streamed failures", async (t) => {
+  const f = await setup(t, {
+    error: "recipientChanged",
+    errorCode: "recipientChanged",
+    chunks: [],
+  });
+  // The production service uses app i18n; this fixture checks the visible copy,
+  // while locale validation checks every translated key separately.
+  f.api.textGenerate = async () => {
+    throw Object.assign(new Error("recipientUnknown"), { code: "recipientUnknown" });
+  };
+  await assert.rejects(
+    f.service.processText("raw words", "fixture", null, {
+      provider: "openai",
+      systemPrompt: "Reply",
+    }),
+    (error) => {
+      assert.equal(error.code, "recipientUnknown");
+      assert.equal(error.messageKey, "voiceOverlay.errors.recipientUnknown");
+      assert.match(error.message, /words are preserved/);
+      return true;
+    }
+  );
+  await assert.rejects(
+    collect(f.service.processTextStreamingAI(messages, "fixture", "openai", config)),
+    (error) => {
+      assert.equal(error.code, "recipientChanged");
+      assert.equal(error.messageKey, "voiceOverlay.errors.recipientChanged");
+      assert.match(error.message, /original destination/);
+      return true;
+    }
+  );
 });

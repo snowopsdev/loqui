@@ -108,6 +108,7 @@ test("change-driving: a cloud route with a confirmed key is remote, named, hoste
       locality: "remote",
       provider: "OpenAI",
       providerId: "openai",
+      recipient: null,
       host: "api.openai.com",
       model: "GPT-4o Mini Transcribe",
       sends: "your audio",
@@ -1123,6 +1124,25 @@ test("change-driving: agreement: enterprise hosts and refusals match enterpriseA
       const enterprise = { ...base, ...overrides };
       const graphHost = enterpriseRequestHost(provider, enterprise, main);
       const sdkHost = await executorHost(provider, enterprise, apiKey);
+      const {
+        resolveEnterpriseExecutor,
+        buildEnterpriseRecipientFacts,
+      } = require("../../src/helpers/enterpriseRecipientIdentity");
+      const identity = resolveEnterpriseExecutor(provider, enterprise, process.env);
+      if (identity.status === "unknown") {
+        assert.equal(
+          sdkHost,
+          null,
+          "an unresolvable normalized executor refuses before provider transport"
+        );
+        assert.equal(
+          buildEnterpriseRecipientFacts(enterprise, process.env)[provider].status,
+          "unknown"
+        );
+        // Configured-host display is partial information; selected enterprise
+        // unknown facts are refused before mic in audioManagerSessionRoute.
+        continue;
+      }
       const missingVertexKey =
         provider === "vertex" &&
         enterprise.vertexAuthSource === "apiKey" &&

@@ -1,70 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const Module = require("node:module");
-
-const handlersModulePath = require.resolve("../../src/helpers/ipcHandlers");
-const originalLoad = Module._load;
-const handlers = new Map();
-let target;
-
-const electronStub = {
-  app: {
-    getPath: () => "/tmp",
-    getName: () => "test",
-    getVersion: () => "0.0.0",
-    isPackaged: false,
-    on: () => {},
-    requestSingleInstanceLock: () => true,
-  },
-  ipcMain: {
-    handle: (channel, fn) => handlers.set(channel, fn),
-    on: () => {},
-    removeHandler: () => {},
-  },
-  net: {
-    fetch: async () => {
-      throw new Error("no network in route facts");
-    },
-  },
-  BrowserWindow: class BrowserWindow {
-    static getAllWindows() {
-      return [];
-    }
-    static fromWebContents() {
-      return null;
-    }
-  },
-  shell: {},
-  dialog: {},
-  screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) },
-  systemPreferences: { getMediaAccessStatus: () => "granted" },
-  session: { fromPartition: () => ({}) },
-  clipboard: {},
-  nativeImage: {},
-  globalShortcut: {},
-  utilityProcess: {},
-  MessageChannelMain: class {},
-};
-
-Module._load = function loadWithMocks(request, parent, isMain) {
-  if (request === "electron") return electronStub;
-  if (parent?.filename === handlersModulePath) {
-    if (request === "./debugLogger") return new Proxy({}, { get: () => () => {} });
-    if (request === "./windowBroadcast") return { broadcastToWindows: () => {} };
-  }
-  return originalLoad.call(this, request, parent, isMain);
-};
-
-function anything() {
-  return new Proxy(function () {}, {
-    get: (target, property) => {
-      if (property === Symbol.toPrimitive || property === "toString") return () => "";
-      if (property === "then") return undefined;
-      return anything();
-    },
-    apply: () => anything(),
-  });
-}
+const { enterpriseRouteIpc } = require("./harness/enterpriseRouteIpc");
+let handlers, target;
+test.beforeEach((t) => {
+  const fixture = enterpriseRouteIpc(t, {});
+  handlers = fixture.handlers;
+  target = fixture.target;
+});
 
 const ENV = [
   "BEDROCK_PROFILE",
@@ -78,43 +20,20 @@ const ENV = [
   "VERTEX_PROJECT",
   "VERTEX_LOCATION",
 ];
-const savedEnv = new Map(ENV.map((name) => [name, process.env[name]]));
 function injectEnv(values) {
   for (const name of ENV) delete process.env[name];
   Object.assign(process.env, values);
 }
-
-test.before(() => {
-  delete require.cache[handlersModulePath];
-  const IPCHandlers = require(handlersModulePath);
-  const Ctor = IPCHandlers.default || IPCHandlers;
-  const EnvironmentManager = require("../../src/helpers/environment");
-  // The real getters over an injected environment; the constructor only loads dotenv files.
-  target = {
-    vertexAuthSourceReady: Promise.resolve(),
-    environmentManager: Object.create(EnvironmentManager.prototype),
-  };
-  Ctor.prototype.setupHandlers.call(
-    new Proxy(target, {
-      get: (value, property) => (property in value ? value[property] : anything()),
-    })
-  );
-});
-
-test.after(() => {
-  Module._load = originalLoad;
-  for (const [name, value] of savedEnv) {
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  }
-});
 
 test("[change-driving] enterprise-route-facts reports main's overrides as hosts and booleans, never a value", async () => {
   // R2-1, change-driving: the channel does not exist yet.
   const facts = () => handlers.get("enterprise-route-facts")({});
   assert.ok(handlers.get("enterprise-route-facts"), "registered by the production setupHandlers");
   injectEnv({});
-  assert.deepEqual(await facts(), {
+  const initial = await facts();
+  assert.equal(initial.enterpriseRecipients.azure.status, "unknown");
+  const { enterpriseRecipients: _initialRecipients, ...initialExisting } = initial;
+  assert.deepEqual(initialExisting, {
     bedrockEndpoint: { set: false, host: null },
     bedrockProfile: false,
     vertexApiKeyEnv: false,
@@ -127,7 +46,9 @@ test("[change-driving] enterprise-route-facts reports main's overrides as hosts 
     GOOGLE_VERTEX_PROJECT: "fixture-project",
   });
   const withOverrides = await facts();
-  assert.deepEqual(withOverrides, {
+  const { enterpriseRecipients: overrideRecipients, ...overrideExisting } = withOverrides;
+  assert.equal(overrideRecipients.bedrock.status, "ready");
+  assert.deepEqual(overrideExisting, {
     bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" },
     bedrockProfile: false,
     vertexApiKeyEnv: true,

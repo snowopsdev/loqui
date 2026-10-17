@@ -1,3 +1,8 @@
+/** Internal identity carried through dictation transport controls; main admission is Task7. */
+export interface DictationStreamingOperationOptions {
+  correlationId?: string | null;
+  dictationSessionId?: string | null;
+}
 import type { SettingsLink } from "../utils/settingsDeepLink";
 
 type SettingsLinkResult =

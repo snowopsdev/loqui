@@ -113,6 +113,11 @@ function baseSnapshot() {
       credentials: new Map(), // loaded: no credential present
       credentialFields: new Map(), // loaded: no field present
       // Synced from main, no environment override (R2-1).
+      enterpriseRecipients: {
+        azure: { status: "unknown" },
+        bedrock: { status: "unknown" },
+        vertex: { status: "unknown" },
+      },
       enterpriseMain: {
         bedrockEndpoint: { set: false, host: null },
         bedrockProfile: false,
@@ -202,6 +207,9 @@ function makeRoute(overrides = {}) {
     locality: "device",
     provider: null,
     providerId: null,
+    recipient: ["azure", "bedrock", "vertex"].includes(overrides.providerId)
+      ? { status: "unknown" }
+      : null,
     host: null,
     model: "Base",
     state: { status: "ready" },

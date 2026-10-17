@@ -264,7 +264,7 @@ test("cancelling while the streaming microphone opens never enters recording", a
     streamingFallbackChunks: [],
     _streamingFallbackSegments: [],
     streamingTextDebounce: null,
-    preparedMicCapture: { take: async () => null },
+    preparedMicCapture: { take: async () => null, cancel() {} },
     micRecovery: { stop() {} },
     isRecordingAllowedByPolicy: () => true,
     getAudioConstraints: async () => ({}),

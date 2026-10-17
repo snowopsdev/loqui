@@ -5,6 +5,10 @@ interface TextTool {
 }
 export interface TextRequest {
   requestId: string;
+  correlationId?: string | null;
+  dictationOperation?: true;
+  dictationSessionId?: string | null;
+  enterpriseRecipientTag?: string | null;
   provider: string;
   model: string;
   credentialRef?: string;

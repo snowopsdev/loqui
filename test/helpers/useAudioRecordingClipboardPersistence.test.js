@@ -65,6 +65,9 @@ async function mountCompletionHarness(
   t,
   {
     settings,
+    onAssistantCommand = NOOP,
+    onOnboardingAssistantCommand = NOOP,
+    onboardingCompleted = false,
     writeClipboard = async () => ({ success: true }),
     replaceSelectedText = async () => ({ success: true }),
     saveTranscription = async () => true,
@@ -98,6 +101,7 @@ async function mountCompletionHarness(
   const saves = [];
   const noopDispose = () => () => {};
   installBrowserGlobals(t, {
+    initialStorage: onboardingCompleted ? { onboardingCompleted: "true" } : {},
     window: {
       electronAPI: {
         onToggleDictation: noopDispose,
@@ -150,7 +154,7 @@ async function mountCompletionHarness(
   const { useAudioRecording } = await vite.ssrLoadModule("/hooks/useAudioRecording.js");
 
   function Harness() {
-    useAudioRecording({ onDemoEvent: NOOP });
+    useAudioRecording({ onDemoEvent: NOOP, onAssistantCommand, onOnboardingAssistantCommand });
     return null;
   }
 
@@ -353,3 +357,31 @@ test("the Insights timestamp rides along on the persistence call", async (t) => 
     ],
   ]);
 });
+
+for (const [destination, onboardingCompleted] of [
+  ["the assistant panel", true],
+  ["the onboarding demo", false],
+]) {
+  test(`an Agent command reaches ${destination} with its dictation operation`, async (t) => {
+    const commands = [];
+    const operation = Object.freeze({
+      sessionId: "rec-4",
+      settings: Object.freeze({ snippets: [], dictationAgentMode: "local" }),
+      enterpriseRecipientTags: Object.freeze({}),
+    });
+    const harness = await mountCompletionHarness(t, {
+      settings: {},
+      onboardingCompleted,
+      onAssistantCommand: (command) => commands.push(command),
+      onOnboardingAssistantCommand: (command) => commands.push(command),
+    });
+    await harness.complete({
+      success: true,
+      text: "draft a reply",
+      assistantConversation: { transcript: "draft a reply", screenContext: null, operation },
+    });
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0].text, "draft a reply");
+    assert.equal(commands[0].operation, operation);
+  });
+}

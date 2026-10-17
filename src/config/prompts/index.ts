@@ -12,10 +12,11 @@ export interface ResolvePromptOptions {
   language?: string;
   customDictionary?: string[];
   targetLanguageLabel?: string;
+  customPrompts?: Readonly<Record<string, string>>;
 }
 
 export function resolvePrompt(kind: PromptKind, opts: ResolvePromptOptions): string {
-  const custom = useSettingsStore.getState().customPrompts[kind];
+  const custom = (opts.customPrompts ?? useSettingsStore.getState().customPrompts)[kind];
   const template = custom || getDefaultPromptText(kind, opts.uiLanguage);
   return applySubstitutions(template, opts);
 }

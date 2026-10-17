@@ -1,3 +1,4 @@
+import type { DictationOperation } from "../components/chat/useChatStreaming";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatStreaming } from "../components/chat/useChatStreaming";
@@ -6,6 +7,7 @@ import type { ChatImageAttachment, Message } from "../components/chat/types";
 import type { OnboardingDemoEvent } from "../types/electron";
 
 export interface OnboardingAssistantCommand {
+  operation?: DictationOperation | null;
   text: string;
   attachment: ChatImageAttachment | null;
 }
@@ -57,6 +59,7 @@ export function useOnboardingAssistantDemo(publish: (event: DemoEventInput) => v
       setMessages([userMessage]);
       void sendToAI(request, [userMessage], {
         attachment: command.attachment ?? undefined,
+        operation: command.operation ?? undefined,
         suppressResponseContent: true,
         onComplete: ({ content }) => {
           repliedRef.current = true;

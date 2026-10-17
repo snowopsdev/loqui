@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { UNKNOWN_ENTERPRISE_RECIPIENTS, type EnterpriseRecipientFacts } from "../lib/routeGraph";
 import type { EnterpriseRouteState } from "../types/electron";
 import { normalizeRouteVerificationOptions } from "../helpers/routeVerificationOptions.mjs";
 import type {
@@ -93,6 +94,7 @@ export interface RouteFactsApi {
 }
 
 export const EMPTY_ROUTE_FACTS: RouteFacts = {
+  enterpriseRecipients: UNKNOWN_ENTERPRISE_RECIPIENTS,
   installed: { whisper: null, sherpa: null, llm: null },
   sherpaSupported: null,
   credentials: null,
@@ -250,6 +252,11 @@ let enterpriseSync: Promise<EnterpriseMainFacts | undefined> | undefined;
 let latestEnterpriseFacts: EnterpriseMainFacts | undefined;
 let latestEnterpriseFactsVersion = -1;
 let enterpriseTracking = false;
+let enterpriseRecipientsValid = false;
+const confirmedEnterpriseRecipients = () =>
+  enterpriseRecipientsValid
+    ? (confirmedEnterpriseFacts()?.enterpriseRecipients ?? UNKNOWN_ENTERPRISE_RECIPIENTS)
+    : UNKNOWN_ENTERPRISE_RECIPIENTS;
 function confirmedEnterpriseFacts(): EnterpriseMainFacts | null {
   return enterpriseSettingsAreConfirmed() &&
     latestEnterpriseFactsVersion === enterpriseRouteVersion()
@@ -266,6 +273,7 @@ function ensureEnterpriseTracking(): void {
       if (state.version > latestEnterpriseFactsVersion) {
         latestEnterpriseFacts = facts;
         latestEnterpriseFactsVersion = state.version;
+        enterpriseRecipientsValid = facts !== undefined;
       }
       // Equal versions repeat one complete authority snapshot; they never
       // replace its facts with a differently configured reply.
@@ -274,6 +282,7 @@ function ensureEnterpriseTracking(): void {
       facts: {
         ...s.facts,
         enterpriseMain: confirmedEnterpriseFacts(),
+        enterpriseRecipients: confirmedEnterpriseRecipients(),
       },
     }));
   });
@@ -293,7 +302,19 @@ function enterpriseMainFacts(raw: unknown): EnterpriseMainFacts | undefined {
   ) {
     return undefined; // malformed: not a fact
   }
+  const enterpriseRecipients = Object.fromEntries(
+    ["azure", "bedrock", "vertex"].map((provider) => {
+      const fact = r.enterpriseRecipients?.[provider as keyof EnterpriseRecipientFacts];
+      return [
+        provider,
+        fact?.status === "ready" && /^sha256:[a-f0-9]{64}$/.test(fact.tag)
+          ? { status: "ready", tag: fact.tag }
+          : { status: "unknown" },
+      ];
+    })
+  ) as EnterpriseRecipientFacts;
   return {
+    enterpriseRecipients,
     bedrockEndpoint: { set: endpoint.set, host: endpoint.set ? endpoint.host : null },
     bedrockProfile: r.bedrockProfile,
     vertexApiKeyEnv: r.vertexApiKeyEnv,
@@ -305,26 +326,59 @@ async function loadEnterpriseMain(api: RouteFactsApi): Promise<EnterpriseMainFac
   ensureEnterpriseTracking();
   if (!api.getEnterpriseRouteState) {
     // Older five-getter bridges cannot prove a coherent tuple.
-    useRouteFactsStore.setState((s) => ({ facts: { ...s.facts, enterpriseMain: null } }));
+    enterpriseRecipientsValid = false;
+    useRouteFactsStore.setState((s) => ({
+      facts: {
+        ...s.facts,
+        enterpriseMain: null,
+        enterpriseRecipients: UNKNOWN_ENTERPRISE_RECIPIENTS,
+      },
+    }));
     return undefined;
   }
   if (!enterpriseSync) {
+    const requestedVersion = enterpriseRouteVersion();
+    const invalidate = () => {
+      if (requestedVersion !== enterpriseRouteVersion()) return;
+      enterpriseRecipientsValid = false;
+      useRouteFactsStore.setState((s) => ({
+        facts: {
+          ...s.facts,
+          enterpriseRecipients: UNKNOWN_ENTERPRISE_RECIPIENTS,
+        },
+      }));
+    };
     enterpriseSync = (async () => {
       const state = await api.getEnterpriseRouteState();
       const facts = enterpriseMainFacts(state?.facts);
-      if (!facts) return undefined;
+      if (!facts) {
+        invalidate();
+        return undefined;
+      }
       if (state.version < enterpriseRouteVersion()) return undefined;
       if (
         state.version === latestEnterpriseFactsVersion &&
         JSON.stringify(facts) !== JSON.stringify(latestEnterpriseFacts)
-      )
+      ) {
+        invalidate();
         return undefined;
-      if (!reconcileEnterpriseRouteState({ ...state, facts })) return undefined;
+      }
+      if (!reconcileEnterpriseRouteState({ ...state, facts })) {
+        invalidate();
+        return undefined;
+      }
       latestEnterpriseFacts = facts;
+      latestEnterpriseFactsVersion = state.version;
+      enterpriseRecipientsValid = true;
       return enterpriseSettingsAreConfirmed() ? facts : undefined;
-    })().finally(() => {
-      enterpriseSync = undefined;
-    });
+    })()
+      .catch((error) => {
+        invalidate();
+        throw error;
+      })
+      .finally(() => {
+        enterpriseSync = undefined;
+      });
   }
   return enterpriseSync;
 }
@@ -421,7 +475,11 @@ const LOADERS: Record<RouteFactKey, (api: RouteFactsApi) => Promise<void>> = {
       (value) => value,
       // Recheck at final publication: a synchronous event or newer raw draft
       // can arrive after the atomic read reconciles but before this await resumes.
-      (f) => ({ ...f, enterpriseMain: confirmedEnterpriseFacts() })
+      (f) => ({
+        ...f,
+        enterpriseMain: confirmedEnterpriseFacts(),
+        enterpriseRecipients: confirmedEnterpriseRecipients(),
+      })
     ),
 };
 

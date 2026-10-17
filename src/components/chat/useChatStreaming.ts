@@ -12,7 +12,13 @@ import { providerSupportsImages } from "../../services/ai/inferenceProviders";
 import ReasoningService, { type AgentStreamChunk } from "../../services/ReasoningService";
 import { createToolRegistry } from "../../services/tools";
 import type { ToolRegistry } from "../../services/tools/ToolRegistry";
-import { getSettings, useSettingsStore } from "../../stores/settingsStore";
+import type {
+  EnterpriseProviderId,
+  EnterpriseRecipientTag,
+  ResolvedRoute,
+  RouteId,
+} from "../../lib/routes";
+import { getSettings, useSettingsStore, type SettingsState } from "../../stores/settingsStore";
 import type { ContainerScope } from "../../types/chat";
 import {
   buildAgentRequestText,
@@ -83,7 +89,20 @@ interface UseChatStreamingOptions {
   onResponseContent?: () => void;
 }
 
+/** Non-secret authority for a spoken operation and its later presentation. */
+export interface DictationOperation {
+  sessionId: string;
+  settings: Readonly<Record<string, unknown>>;
+  enterpriseRecipientTags: Readonly<Partial<Record<EnterpriseProviderId, EnterpriseRecipientTag>>>;
+  requestOptions?: Readonly<{ providerSearch: Readonly<Partial<Record<string, boolean>>> }>;
+  presentation?: Readonly<{
+    routes: Readonly<Partial<Record<RouteId, ResolvedRoute>>> | null;
+    intents: Readonly<Record<string, unknown>>;
+  }>;
+}
+
 export interface SendToAIOptions {
+  operation?: DictationOperation;
   /** Request ownership survives navigation and unmount; completion persists to its admitted conversation. */
   owner?: {
     conversationId: number;
@@ -111,6 +130,7 @@ export interface SendToAIOptions {
 }
 
 export interface ChatInferenceSnapshot {
+  operation?: DictationOperation;
   settings: ReturnType<typeof getSettings>;
   inference: ReturnType<typeof resolveChatStreamingInference>;
   webSearch: boolean;
@@ -248,7 +268,9 @@ export function useChatStreaming({
 
   const captureInference = useCallback(
     (options?: SendToAIOptions): ChatInferenceSnapshot => {
-      const settings = getSettings();
+      const settings = (
+        options?.operation ? { ...getSettings(), ...options.operation.settings } : getSettings()
+      ) as SettingsState;
       const inference = resolveChatStreamingInference(settings, {
         inferenceScope,
         hasScreenContext: !!options?.attachment,
@@ -257,14 +279,17 @@ export function useChatStreaming({
       const config = inference.config;
       return {
         settings,
+        operation: options?.operation,
         noteContext: noteContextRef.current,
         searchScope: searchScopeRef.current ? { ...searchScopeRef.current } : undefined,
         inference: { ...inference, config: { ...config } },
-        webSearch: isProviderSearchEnabled(
-          config.scope === "dictationAgentVision" ? "dictationAgent" : config.scope,
-          config.provider,
-          config.mode
-        ),
+        webSearch: options?.operation
+          ? options.operation.requestOptions?.providerSearch[config.scope] === true
+          : isProviderSearchEnabled(
+              config.scope === "dictationAgentVision" ? "dictationAgent" : config.scope,
+              config.provider,
+              config.mode
+            ),
       };
     },
     [inferenceScope]
@@ -361,7 +386,9 @@ export function useChatStreaming({
       let systemPrompt = appendDictionarySuffix(
         getAgentSystemPrompt(
           registry?.getAll().map((t) => t.name),
-          combinedContext || undefined
+          combinedContext || undefined,
+          settings.customPrompts ?? {},
+          settings.uiLanguage
         ),
         getDictionaryHintWords(settings),
         settings.uiLanguage
@@ -442,6 +469,14 @@ export function useChatStreaming({
             llmConfig.provider,
             {
               systemPrompt,
+              settingsView: settings as unknown as Record<string, unknown>,
+              correlationId: snapshot.operation?.sessionId ?? null,
+              dictationSessionId: snapshot.operation?.sessionId ?? null,
+              dictationOperation: snapshot.operation ? true : undefined,
+              enterpriseRecipientTag:
+                snapshot.operation?.enterpriseRecipientTags[
+                  llmConfig.provider as EnterpriseProviderId
+                ] ?? null,
               // Policy and managed enforcement judge the scope that actually
               // answers: the panel's Chat fallback as Chat, and the vision
               // override as the agent scope whose image lane it is.

@@ -909,3 +909,213 @@ test("a follow-up into an open panel strips caret delivery and stays panel-first
   });
   assert.deepEqual(assistant.pendingCommand.delivery, delivery);
 });
+
+test("a voice command keeps its dictation operation until the panel sends it", async (t) => {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  const container = installInteractiveDom(t);
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-assistant-operation-hook-test-",
+  });
+  const { useAssistantPanel } = await vite.ssrLoadModule("/hooks/useAssistantPanel.js");
+  const { createRoot } = require("react-dom/client");
+  let assistant;
+  function Harness() {
+    assistant = useAssistantPanel({
+      requestMainWindowSize: async () => ({ success: true }),
+      dictationErrorActionCount: 0,
+      recordingControlsRef: { current: null },
+    });
+    return null;
+  }
+  root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(Harness)));
+  const operation = {
+    sessionId: "rec-5",
+    settings: { dictationAgentMode: "local" },
+    enterpriseRecipientTags: {},
+  };
+  await React.act(async () => {
+    assistant.handleCommand({
+      text: "draft a reply",
+      attachment: null,
+      selectedContext: null,
+      delivery: null,
+      operation,
+    });
+  });
+  assert.equal(assistant.pendingCommand.operation, operation);
+  const admittedId = assistant.pendingCommand.id;
+  await React.act(async () => {
+    assistant.setBusy(true);
+    assistant.handleCommandConsumed(admittedId);
+  });
+  assert.equal(assistant.pendingCommand, null);
+  assert.equal(
+    assistant.activeOperation,
+    operation,
+    "frozen presentation survives pending consumption/audio idle"
+  );
+  await React.act(async () => assistant.handleCommandSettled(admittedId));
+  assert.equal(assistant.activeOperation, null, "completion releases the presentation owner");
+  await React.act(async () => {
+    assistant.handleCommand({
+      text: "another",
+      attachment: null,
+      selectedContext: null,
+      delivery: null,
+    });
+  });
+  assert.equal(assistant.pendingCommand.operation, null);
+});
+
+test("the panel sends a voice command with its dictation operation", async (t) => {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  const container = installInteractiveDom(t);
+  const sent = [];
+  globalThis.__assistantPanelSent = sent;
+  t.after(() => {
+    delete globalThis.__assistantPanelSent;
+  });
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-assistant-panel-operation-test-",
+    mockModules: {
+      "/components/icons": `
+        import React from "react";
+        const Icon = () => React.createElement("span");
+        export const Check = Icon;
+        export const Copy = Icon;
+        export const Plus = Icon;
+        export const X = Icon;
+      `,
+      "/chat/useChatPersistence": `
+        import { useState } from "react";
+        export function useChatPersistence() {
+          const [messages, setMessages] = useState([]);
+          return {
+            messages,
+            setMessages,
+            conversationId: null,
+            async createConversation() { return 1; },
+            async loadConversation() {},
+            saveUserMessage() {},
+            saveAssistantMessage() {},
+            handleNewChat() {},
+          };
+        }
+      `,
+      "/chat/useChatStreaming": `
+        export function useChatStreaming() {
+          return { agentState: "idle", activeToolName: null, toolStatus: "", cancelStream() {} };
+        }
+      `,
+      "/chat/useChatMessageSender": `
+        export function useChatMessageSender() {
+          return async (text, options) => {
+            globalThis.__assistantPanelSent.push({ text, options });
+            return true;
+          };
+        }
+      `,
+      "/chat/ChatInput": `
+        import React from "react";
+        export function ChatInput() { return React.createElement("input"); }
+      `,
+      "/dictation/AssistantEmptyState": `
+        import React from "react";
+        export function AssistantEmptyState() { return React.createElement("div", null, "Empty state"); }
+      `,
+      "/dictation/BrandMarkIcon": `
+        import React from "react";
+        export function BrandMarkIcon() { return React.createElement("span"); }
+      `,
+      "/ui/MarkdownRenderer": `
+        import React from "react";
+        export function MarkdownRenderer({ content }) { return React.createElement("div", null, content); }
+      `,
+      "/ui/button": `
+        import React from "react";
+        export function Button(props) { return React.createElement("button", props); }
+      `,
+      "/hooks/useWindowDrag": `
+        export function useWindowDrag() { return { handleMouseDown() {}, handleMouseUp() {} }; }
+      `,
+      "/hooks/useCopyFeedback": `
+        export function useCopyFeedback() {
+          return { copied: false, async copy() {}, confirmCopied() {} };
+        }
+      `,
+      "/stores/settingsStore": `
+        export const selectResolvedLLMConfig = () => ({ mode: "local", provider: "local", model: "fixture" });
+        const state = { voiceAgentKey: [] };
+        export function useSettingsStore(selector) { return selector(state); }
+      `,
+      "/utils/hotkeys": `
+        export function formatHotkeyListLabel() { return ""; }
+      `,
+      "/ui/useToast": `
+        export function useToast() { return { toast() {} }; }
+      `,
+    },
+  });
+  const [{ default: viteI18next }, { initReactI18next }] = await Promise.all([
+    vite.ssrLoadModule("i18next"),
+    vite.ssrLoadModule("react-i18next"),
+  ]);
+  const translation = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "../../src/locales/en/translation.json"), "utf8")
+  );
+  await viteI18next.use(initReactI18next).init({
+    lng: "en",
+    resources: { en: { translation } },
+    interpolation: { escapeValue: false },
+  });
+  const { AssistantPanel } = await vite.ssrLoadModule("/components/dictation/AssistantPanel.tsx");
+  const { createRoot } = require("react-dom/client");
+  const operation = {
+    sessionId: "rec-6",
+    settings: { dictationAgentMode: "local" },
+    enterpriseRecipientTags: {},
+  };
+  root = createRoot(container);
+  await React.act(async () =>
+    root.render(
+      React.createElement(AssistantPanel, {
+        pendingCommand: {
+          id: 1,
+          text: "draft a reply",
+          attachment: null,
+          selectedContext: null,
+          delivery: null,
+          operation,
+        },
+        onCommandConsumed: noop,
+        onCommandDiscarded: noop,
+        onCommandSettled: noop,
+        initialConversationId: null,
+        onConversationIdChange: noop,
+        voiceState: "idle",
+        thinking: false,
+        open: true,
+        footerPhase: "pill",
+        horizontalDirection: "right",
+        onClose: noop,
+        onBusyChange: noop,
+        onResponseReadyChange: noop,
+        onResponseContent: noop,
+        onConversationReset: noop,
+        onSelectionContextChange: noop,
+      })
+    )
+  );
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].text, "draft a reply");
+  assert.equal(sent[0].options.operation, operation);
+});

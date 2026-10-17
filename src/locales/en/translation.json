@@ -4224,5 +4224,12 @@
       "choose": "Choose another"
     },
     "pasteFailed": "Couldn’t paste your words"
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "This recording’s destination could not be verified. Your words are preserved. Restore the original destination in Settings to retry, or start a new recording.",
+      "recipientChanged": "This recording is pinned to its original destination. Your words are preserved. Restore that destination in Settings to retry, or start a new recording.",
+      "recipientTitle": "Recording destination unavailable"
+    }
   }
 }

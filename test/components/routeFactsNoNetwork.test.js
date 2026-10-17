@@ -151,13 +151,18 @@ function functionBody(src, signature) {
   assert.fail(`${signature}: unbalanced braces`);
 }
 
-test("[source guard, baseline after Task 1] enterpriseRouteFacts.js is import-free and returns hosts and booleans only (R2-1)", () => {
+test("[source guard] enterprise facts depend only on the deterministic crypto tagger and expose no credential values", () => {
   const file = "src/helpers/enterpriseRouteFacts.js";
-  assert.doesNotMatch(
-    stripComments(read(file)),
-    /\brequire\s*\(|^\s*import\b|\bimport\s*\(/m,
-    `${file} stays import-free`
+  const requires = [...stripComments(read(file)).matchAll(/require\("([^"]+)"\)/g)].map(
+    (match) => match[1]
   );
+  assert.deepEqual(requires, ["./enterpriseRecipientIdentity"]);
+  const identity = stripComments(read("src/helpers/enterpriseRecipientIdentity.js"));
+  assert.deepEqual(
+    [...identity.matchAll(/require\("([^"]+)"\)/g)].map((match) => match[1]),
+    ["node:crypto"]
+  );
+  assert.doesNotMatch(identity, /\bfetch\s*\(|ipcRenderer|net\.connect|readFile|child_process/);
   const { enterpriseRouteFacts } = require(path.join(root, file));
   // An injected environment full of secrets: none of them may come back, only the shape below.
   const env = {
@@ -170,6 +175,7 @@ test("[source guard, baseline after Task 1] enterpriseRouteFacts.js is import-fr
     assert.deepEqual(Object.keys(facts).sort(), [
       "bedrockEndpoint",
       "bedrockProfile",
+      "enterpriseRecipients",
       "vertexApiKeyEnv",
       "vertexProjectEnv",
     ]);
@@ -294,8 +300,9 @@ test("[source guard, baseline after Task 11] enterprise describeVerify follows m
   const ipc = stripComments(read("src/helpers/ipcHandlers.js"));
   assert.match(
     ipc,
-    /facts: require\("\.\/enterpriseRouteFacts"\)\.enterpriseRouteFacts\(process\.env\)/,
-    "atomic enterprise facts derive from main environment"
+    /enterpriseRouteFacts\(process\.env,\s*\{/,
+
+    "atomic enterprise facts derive from main environment and committed config"
   );
   assert.match(ipc, /getEnterpriseRouteState\(\)/);
   const target = functionBody(

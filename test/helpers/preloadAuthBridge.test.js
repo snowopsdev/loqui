@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-function loadPreloadApi() {
+function loadPreloadApi(invokeResult) {
   let exposedApi;
   const listeners = new Map();
   const invocations = [];
@@ -12,7 +12,7 @@ function loadPreloadApi() {
   const ipcRenderer = {
     invoke: async (...args) => {
       invocations.push(args);
-      return undefined;
+      return typeof invokeResult === "function" ? invokeResult(...args) : invokeResult;
     },
     on: (channel, listener) => listeners.set(channel, listener),
     removeListener: (channel, listener) => {
@@ -135,9 +135,56 @@ test("prepare-dictation forwards the input kind without the Electron event", () 
   assert.equal(listeners.has("prepare-dictation"), false);
 });
 
-test('personal preload has no hosted account, billing, sync, or update bridge',()=>{
- const {api}=loadPreloadApi();
- for(const name of ['authGetToken','cloudCheckout','cloudTranscribe','cloudReason','setActiveAccountScope','checkForUpdates','cloudApiRequest']) assert.equal(api[name],undefined,name);
- assert.equal(typeof api.personalInference.textGenerate,'function');
- assert.equal(typeof api.modelImportGguf,'function');
+test("personal preload has no hosted account, billing, sync, or update bridge", () => {
+  const { api } = loadPreloadApi();
+  for (const name of [
+    "authGetToken",
+    "cloudCheckout",
+    "cloudTranscribe",
+    "cloudReason",
+    "setActiveAccountScope",
+    "checkForUpdates",
+    "cloudApiRequest",
+  ])
+    assert.equal(api[name], undefined, name);
+  assert.equal(typeof api.personalInference.textGenerate, "function");
+  assert.equal(typeof api.modelImportGguf, "function");
+});
+
+test("preload preserves only allowlisted recipient failure codes and unrelated success/failure semantics", async () => {
+  for (const code of ["recipientUnknown", "recipientChanged"]) {
+    const { api } = loadPreloadApi({ error: code, code });
+    await assert.rejects(api.personalInference.textGenerate({ requestId: "fixture" }), (error) => {
+      assert.equal(error.code, code);
+      assert.equal(error.messageKey, `voiceOverlay.errors.${code}`);
+      return true;
+    });
+  }
+  const success = { text: "typed answer" };
+  assert.equal(await loadPreloadApi(success).api.personalInference.textGenerate({}), success);
+  const unrelated = new Error("ordinary provider failure");
+  await assert.rejects(
+    loadPreloadApi(() => {
+      throw unrelated;
+    }).api.personalInference.textGenerate({}),
+    (error) => error === unrelated
+  );
+});
+
+test("dictation streaming send and stop preserve optional exact operation identity", async () => {
+  const { api, invocations, sends } = loadPreloadApi();
+  const operation = { correlationId: "rec-A", dictationSessionId: "rec-A" };
+  const bytes = new ArrayBuffer(2);
+  for (const [send, stop, prefix] of [
+    ["deepgramStreamingSend", "deepgramStreamingStop", "deepgram-streaming"],
+    ["assemblyAiStreamingSend", "assemblyAiStreamingStop", "assemblyai-streaming"],
+    ["geminiStreamingSend", "geminiStreamingStop", "gemini-streaming"],
+    ["cortiStreamingSend", "cortiStreamingStop", "corti-streaming"],
+    ["dictationRealtimeSend", "dictationRealtimeStop", "dictation-realtime"],
+  ]) {
+    api[send](bytes, operation);
+    await api[stop](operation);
+    assert.deepEqual(sends.at(-1), [`${prefix}-send`, bytes, operation]);
+    assert.deepEqual(invocations.at(-1), [`${prefix}-stop`, operation]);
+  }
 });

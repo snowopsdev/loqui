@@ -531,6 +531,8 @@ class IPCHandlers {
           input.model,
           input.apiKey,
           input.enterprise,
+          undefined,
+          undefined,
           execution
         ),
         aborted,
@@ -4182,14 +4184,24 @@ class IPCHandlers {
 
     // Atomic tuples/events share the transaction's authority. Profile fact
     // changes advance this authority even when the five route fields stay equal.
+    const publishedEnterpriseFacts = () =>
+      require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env, {
+        azureEndpoint: this.environmentManager.getAzureEndpoint(),
+        azureApiVersion: this.environmentManager.getAzureApiVersion(),
+        bedrockRegion: this.environmentManager.getBedrockRegion(),
+        bedrockProfile: this.environmentManager.getBedrockProfile(),
+        vertexProject: this.environmentManager.getVertexProject(),
+        vertexLocation: this.environmentManager.getVertexLocation(),
+        vertexAuthSource: this.environmentManager.getVertexAuthSource(),
+      });
     const enterpriseState = () => ({
       ...this.environmentManager.getEnterpriseRouteState(),
-      facts: require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env),
+      facts: publishedEnterpriseFacts(),
     });
     this.environmentManager.subscribeEnterpriseRouteChanged?.((state) => {
       broadcastToWindows("enterprise-route-changed", {
         ...state,
-        facts: require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env),
+        facts: publishedEnterpriseFacts(),
       });
     });
     ipcMain.handle("get-enterprise-route-state", async () => {
@@ -4314,7 +4326,7 @@ class IPCHandlers {
     // Local environment facts; migration completes before readiness is published.
     ipcMain.handle("enterprise-route-facts", async () => {
       await this.vertexAuthSourceReady;
-      return require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env);
+      return publishedEnterpriseFacts();
     });
 
     // Enterprise provider test connection
@@ -8348,6 +8360,7 @@ class IPCHandlers {
           prompt,
           keyterms,
           baseUrl,
+          correlationId,
           model,
           diarize,
           timestamps,
@@ -8363,7 +8376,7 @@ class IPCHandlers {
         const fs = require("fs");
         let cleanupUpload = null;
         let captureDir = null;
-        const job = this._uploadCancelRegistry.register(requestId);
+        const job = this._uploadCancelRegistry.register(requestId, { correlationId });
         const completedText = (text) => {
           job.signal?.throwIfAborted();
           if (typeof text !== "string" || !text.trim()) {

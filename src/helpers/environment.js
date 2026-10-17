@@ -155,6 +155,8 @@ class EnvironmentManager {
         }
       } catch {}
     }
+    enterpriseRouteVersion++;
+    publishEnterpriseRouteState(this.getEnterpriseRouteState());
   }
 
   // Encryption initializes lazily. Probing it eagerly would touch the macOS
@@ -341,7 +343,9 @@ class EnvironmentManager {
         if (value) process.env[key] = value;
         else delete process.env[key];
       }
-      if (Object.hasOwn(patch, "BEDROCK_PROFILE")) {
+      if (
+        ["BEDROCK_PROFILE", "AZURE_OPENAI_API_VERSION"].some((key) => Object.hasOwn(patch, key))
+      ) {
         enterpriseRouteVersion++;
         publishEnterpriseRouteState(this.getEnterpriseRouteState());
       }
@@ -536,7 +540,9 @@ class EnvironmentManager {
     return this._getKey("AZURE_OPENAI_API_VERSION");
   }
   saveAzureApiVersion(value) {
-    return this._saveKey("AZURE_OPENAI_API_VERSION", value);
+    return this._commitEnvPatch({ AZURE_OPENAI_API_VERSION: value }).then(() => ({
+      success: true,
+    }));
   }
 
   // Enterprise providers — GCP Vertex AI

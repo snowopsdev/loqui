@@ -4231,5 +4231,12 @@
       "choose": "Escolher outro"
     },
     "pasteFailed": "Não foi possível colar suas palavras"
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "Não foi possível verificar o destino desta gravação. Suas palavras foram preservadas. Restaure o destino original nas configurações para tentar novamente ou inicie uma nova gravação.",
+      "recipientChanged": "Esta gravação mantém o destino original. Suas palavras foram preservadas. Restaure esse destino nas configurações para tentar novamente ou inicie uma nova gravação.",
+      "recipientTitle": "Destino da gravação indisponível"
+    }
   }
 }

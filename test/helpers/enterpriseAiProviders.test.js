@@ -128,16 +128,14 @@ test("explicit Bedrock credential sources cannot fall through to populated AWS e
         bedrockRegion: "us-west-2",
         ...enterprise,
       }),
-      (error) =>
-        error?.name === "CredentialsProviderError" &&
-        /accessKeyId and secretAccessKey/.test(error.message),
+      (error) => error?.code === "recipientUnknown",
       label
     );
   }
   assert.equal(fetchCalls, 0);
 });
 
-test("Bedrock environment fallback remains available without an explicit credential source", async (t) => {
+test("Bedrock ambient credentials cannot choose an unselected authentication source", async (t) => {
   const environmentKeys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"];
   const originalEnvironment = new Map(
     environmentKeys.map((key) => [
@@ -171,16 +169,13 @@ test("Bedrock environment fallback remains available without an explicit credent
     }
   });
 
-  const model = await getEnterpriseAIModel("bedrock", "anthropic.claude-haiku", "", {
-    bedrockRegion: "us-west-2",
-  });
   await assert.rejects(
-    model.doGenerate({ prompt: [{ role: "user", content: [{ type: "text", text: "Hello" }] }] })
+    getEnterpriseAIModel("bedrock", "anthropic.claude-haiku", "", {
+      bedrockRegion: "us-west-2",
+    }),
+    (error) => error.code === "recipientUnknown"
   );
-
-  assert.match(request.url, /^https:\/\/bedrock-runtime\.us-west-2\.amazonaws\.com\//);
-  assert.match(request.headers.authorization, /^AWS4-HMAC-SHA256 /);
-  assert.equal(request.headers["x-amz-security-token"], "environment-session-token");
+  assert.equal(request, undefined, "no ambient credential or provider request is admitted");
 });
 
 test("manual Azure setup preserves legacy endpoints and API-key auth", async (t) => {

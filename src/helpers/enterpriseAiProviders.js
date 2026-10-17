@@ -9,7 +9,7 @@
 // who never select an enterprise provider.
 
 // Explicit verification never follows a credential-bearing redirect. General
-// model construction keeps the existing SDK transport defaults.
+// model construction uses explicitly captured executor inputs.
 function checkVerification(execution) {
   if (!execution) return;
   execution.signal.throwIfAborted();
@@ -27,7 +27,43 @@ const verificationFetch = (execution) => (input, init) => {
   return fetch(input, { ...init, signal, redirect: "error" });
 };
 
-async function getEnterpriseAIModel(provider, model, apiKey, enterprise, execution) {
+async function getEnterpriseAIModel(
+  provider,
+  model,
+  apiKey,
+  enterprise,
+  credentialMaterial,
+  fetchImpl,
+  execution
+) {
+  if (!enterprise?.frozenCredentials) {
+    // Older non-dictation main callers enter the same normalizer here. Once
+    // resolved, SDK factories see only explicit executor and credential inputs.
+    if (!enterprise?.authSource) {
+      const identity = require("./enterpriseRecipientIdentity");
+      const env = identity.captureEnterpriseEnvironment(provider, process.env);
+      const resolved = identity.resolveEnterpriseExecutor(provider, enterprise, env);
+      if (resolved.status !== "ready")
+        throw Object.assign(
+          new Error(
+            provider === "azure"
+              ? "Configure your Azure endpoint and API key."
+              : provider === "vertex"
+                ? "Choose a supported Vertex authentication source."
+                : "recipientUnknown"
+          ),
+          { code: "recipientUnknown", messageKey: "voiceOverlay.errors.recipientUnknown" }
+        );
+      credentialMaterial = identity.resolveEnterpriseCredentialMaterial(
+        provider,
+        enterprise,
+        apiKey,
+        env
+      );
+      enterprise = resolved.executor;
+    }
+    return createExplicitModel(provider, model, apiKey, enterprise, credentialMaterial, fetchImpl);
+  }
   // Main passes the probe's one overall budget. Direct frozen-factory callers
   // also get a bounded lifetime; general chat/auth keeps its existing defaults.
   const verification = enterprise?.frozenCredentials
@@ -44,6 +80,55 @@ async function getEnterpriseAIModel(provider, model, apiKey, enterprise, executi
     default:
       throw new Error(`Unsupported enterprise provider: ${provider}`);
   }
+}
+
+async function createExplicitModel(provider, model, apiKey, executor, material, fetchImpl) {
+  const transport = fetchImpl ? { fetch: fetchImpl } : {};
+  if (provider === "azure") {
+    if (!apiKey)
+      throw Object.assign(new Error("Configure your Azure endpoint and API key."), {
+        code: "recipientUnknown",
+        messageKey: "voiceOverlay.errors.recipientUnknown",
+      });
+    return require("@ai-sdk/azure").createAzure({
+      apiKey,
+      baseURL: executor.endpoint,
+      apiVersion: executor.apiVersion,
+      ...transport,
+    })(model);
+  }
+  if (provider === "bedrock") {
+    if (!material || material.authSource !== executor.authSource)
+      throw new Error("Invalid Bedrock credential source");
+    const credentials =
+      executor.authSource === "profile"
+        ? await require("@aws-sdk/credential-providers").fromNodeProviderChain({
+            profile: executor.profile,
+          })()
+        : material;
+    if (!credentials.accessKeyId || !credentials.secretAccessKey)
+      throw new Error("Invalid Bedrock credentials");
+    return require("@ai-sdk/amazon-bedrock").createAmazonBedrock({
+      region: executor.region,
+      baseURL: executor.endpointOverride,
+      apiKey: "",
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      ...(credentials.sessionToken ? { sessionToken: credentials.sessionToken } : {}),
+      ...transport,
+    })(model);
+  }
+  if (provider === "vertex") {
+    if (executor.authSource === "apiKey" && !material?.vertexApiKey)
+      throw new Error("Configure a Vertex API key in Settings.");
+    return require("@ai-sdk/google-vertex").createVertex({
+      apiKey: executor.authSource === "adc" ? "" : material.vertexApiKey,
+      project: executor.project ?? undefined,
+      location: executor.location,
+      ...transport,
+    })(model);
+  }
+  throw new Error("Unsupported enterprise provider");
 }
 
 async function createBedrockModel(model, enterprise, execution) {
@@ -164,9 +249,7 @@ async function createVertexModel(model, apiKey, enterprise, execution) {
   checkVerification(execution);
   const { createVertex } = require("@ai-sdk/google-vertex");
   if (enterprise?.vertexAuthSource === "apiKey") {
-    const effectiveKey = enterprise.frozenCredentials
-      ? apiKey
-      : apiKey || process.env.GOOGLE_VERTEX_API_KEY || "";
+    const effectiveKey = apiKey;
     if (!effectiveKey) throw new Error("Configure a Vertex API key in Settings.");
     // Main's committed stored key wins over the supported legacy fallback.
     checkVerification(execution);

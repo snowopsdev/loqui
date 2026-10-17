@@ -4231,5 +4231,12 @@
       "choose": "Elegir otro"
     },
     "pasteFailed": "No se pudieron pegar tus palabras"
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "No se pudo verificar el destino de esta grabación. Tus palabras se conservan. Restaura el destino original en Ajustes para reintentar o inicia una nueva grabación.",
+      "recipientChanged": "Esta grabación mantiene su destino original. Tus palabras se conservan. Restaura ese destino en Ajustes para reintentar o inicia una nueva grabación.",
+      "recipientTitle": "Destino de grabación no disponible"
+    }
   }
 }

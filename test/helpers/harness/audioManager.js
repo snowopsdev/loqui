@@ -12,7 +12,9 @@ const defaultMockModules = (settingsKey) => ({
   "/utils/logger":
     "export default { debug() {}, info() {}, warn() {}, error() {}, logReasoning() {} };",
   "/stores/settingsStore": `
-    export const getSettings = () => globalThis.${settingsKey};
+    export * from "/stores/settingsStore.ts";
+    import { useSettingsStore } from "/stores/settingsStore.ts";
+    export const getSettings = () => ({ ...useSettingsStore.getState(), ...globalThis.${settingsKey} });
     export const getEffectiveCleanupModel = () => null;
     export const selectResolvedLLMConfig = () => ({ model: null, provider: null });
     export const isCloudCleanupMode = () => false;
@@ -52,4 +54,11 @@ async function loadAudioManager(t, { cachePrefix, settingsKey, settings, mockMod
   };
 }
 
-module.exports = { loadAudioManager };
+function realSettingsStoreSource(settingsKey) {
+  return `
+    export * from "/stores/settingsStore.ts";
+    import { useSettingsStore } from "/stores/settingsStore.ts";
+    export const getSettings = () => ({ ...useSettingsStore.getState(), ...globalThis.${settingsKey} });
+  `;
+}
+module.exports = { loadAudioManager, realSettingsStoreSource };

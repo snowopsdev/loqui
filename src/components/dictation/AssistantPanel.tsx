@@ -1,3 +1,4 @@
+import type { DictationOperation } from "../chat/useChatStreaming";
 import type { ChatSelection } from "../chat/useChatPersistence";
 import { useChatRouteKey } from "../chat/chatRouteKey";
 import { sendWithSelectedContext } from "./assistantTextSubmit";
@@ -47,6 +48,7 @@ import {
 } from "../../helpers/assistantResponseDelivery";
 
 interface AssistantCommand {
+  operation: DictationOperation | null;
   id: number;
   text: string;
   attachment: ChatImageAttachment | null;
@@ -205,6 +207,7 @@ export function AssistantPanel({
     }
     void sendMessage(pendingCommand.text, {
       attachment: pendingCommand.attachment ?? undefined,
+      operation: pendingCommand.operation ?? undefined,
       selectedContext: pendingCommand.selectedContext ?? undefined,
       suppressResponseContent: targetsCapturedInput,
       onComplete: delivery

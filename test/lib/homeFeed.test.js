@@ -99,6 +99,101 @@ test("a note between two dictations breaks the session", async () => {
   );
 });
 
+test("a hidden note remains a session boundary under the Dictations chip", async () => {
+  const { buildHomeFeed } = await load();
+  const feed = buildHomeFeed({
+    transcriptions: [
+      dictation(2, "2026-10-14 10:04:00", "outer words"),
+      dictation(1, "2026-10-14 10:00:00", "outer words"),
+    ],
+    notes: [note(9, "2026-10-14 10:02:00", "invisible note")],
+    filter: "dictations",
+    query: "",
+  });
+  assert.deepEqual(
+    feed.groups.flatMap((group) => group.entries).map((entry) => entry.kind),
+    ["dictation", "dictation"]
+  );
+  assert.deepEqual(feed.counts, { all: 3, dictations: 2, meetings: 0, notes: 1, failed: 0 });
+  assert.equal(feed.rows, 2);
+  assert.equal(feed.captures, 2);
+  assert.deepEqual([feed.groups[0].captures, feed.groups[0].words], [2, 4]);
+});
+
+test("search-hidden records remain boundaries while counts and totals use matches", async () => {
+  const { buildHomeFeed } = await load();
+  const cases = [
+    {
+      label: "note",
+      transcriptions: [
+        dictation(2, "2026-10-14 10:04:00", "outer match"),
+        dictation(1, "2026-10-14 10:00:00", "outer match"),
+      ],
+      notes: [note(9, "2026-10-14 10:02:00", "hidden middle")],
+      expectedCounts: { all: 2, dictations: 2, meetings: 0, notes: 0, failed: 0 },
+    },
+    ...["pending", "failed", "discarded", "completed"].map((status) => ({
+      label: `${status} capture`,
+      transcriptions: [
+        dictation(2, "2026-10-14 10:04:00", "outer match"),
+        dictation(3, "2026-10-14 10:02:00", "hidden middle", { status }),
+        dictation(1, "2026-10-14 10:00:00", "outer match"),
+      ],
+      notes: [],
+      expectedCounts: {
+        all: 2,
+        dictations: 2,
+        meetings: 0,
+        notes: 0,
+        failed: 0,
+      },
+    })),
+  ];
+
+  for (const scenario of cases) {
+    const feed = buildHomeFeed({
+      transcriptions: scenario.transcriptions,
+      notes: scenario.notes,
+      filter: "all",
+      query: "outer match",
+    });
+    assert.deepEqual(
+      feed.groups.flatMap((group) => group.entries).map((entry) => entry.kind),
+      ["dictation", "dictation"],
+      scenario.label
+    );
+    assert.deepEqual(feed.counts, scenario.expectedCounts, scenario.label);
+    assert.equal(feed.rows, 2, scenario.label);
+    assert.equal(feed.captures, 2, scenario.label);
+    assert.deepEqual([feed.groups[0].captures, feed.groups[0].words], [2, 4], scenario.label);
+  }
+});
+
+test("matching uninterrupted dictations still fold under the Dictations chip", async () => {
+  const { buildHomeFeed } = await load();
+  const feed = buildHomeFeed({
+    transcriptions: [
+      dictation(2, "2026-10-14 10:04:00", "matching words"),
+      dictation(1, "2026-10-14 10:00:00", "matching words"),
+    ],
+    notes: [],
+    filter: "dictations",
+    query: "matching",
+  });
+  const entries = feed.groups.flatMap((group) => group.entries);
+  assert.deepEqual(
+    entries.map((entry) => entry.kind),
+    ["session"]
+  );
+  assert.deepEqual(
+    entries[0].items.map((item) => item.id),
+    [2, 1]
+  );
+  assert.equal(feed.counts.dictations, 2);
+  assert.equal(feed.rows, 1);
+  assert.equal(feed.captures, 2);
+});
+
 test("chips filter by kind; counts follow the search, not the chip", async () => {
   const { buildHomeFeed } = await load();
   const input = {

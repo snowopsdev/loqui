@@ -79,11 +79,11 @@ export function buildHomeFeed(input: {
   const gap = input.sessionGapMs ?? SESSION_GAP_MS;
   const needle = input.query.trim().toLocaleLowerCase();
 
-  const searched: Flat[] = [];
+  const timeline: Flat[] = [];
   for (const item of input.transcriptions) {
     const at = parseDbTimestamp(item.timestamp);
-    if (Number.isNaN(at) || !matches([item.text, item.raw_text], needle)) continue;
-    searched.push({
+    if (Number.isNaN(at)) continue;
+    timeline.push({
       kind: "dictation",
       key: `dictation-${item.id}`,
       at,
@@ -93,10 +93,17 @@ export function buildHomeFeed(input: {
   }
   for (const note of input.notes) {
     const at = parseDbTimestamp(note.updated_at);
-    if (Number.isNaN(at) || !matches([note.title, note.content], needle)) continue;
+    if (Number.isNaN(at)) continue;
     const kind = note.note_type === "meeting" ? "meeting" : "note";
-    searched.push({ kind, key: `${kind}-${note.id}`, at, note });
+    timeline.push({ kind, key: `${kind}-${note.id}`, at, note });
   }
+
+  timeline.sort((a, b) => b.at - a.at);
+  const matchesQuery = (entry: Flat) =>
+    entry.kind === "dictation"
+      ? matches([entry.item.text, entry.item.raw_text], needle)
+      : matches([entry.note.title, entry.note.content], needle);
+  const searched = timeline.filter(matchesQuery);
 
   const isFailed = (entry: Flat) => entry.kind === "dictation" && entry.item.status === "failed";
   const counts: Record<HomeFilter, number> = {
@@ -107,8 +114,10 @@ export function buildHomeFeed(input: {
     failed: searched.filter(isFailed).length,
   };
 
-  const visible = searched
-    .filter((entry) => {
+  const visible = timeline
+    .map((entry, timelineIndex) => ({ entry, timelineIndex }))
+    .filter(({ entry }) => {
+      if (!matchesQuery(entry)) return false;
       switch (input.filter) {
         case "dictations":
           return entry.kind === "dictation";
@@ -121,16 +130,18 @@ export function buildHomeFeed(input: {
         default:
           return true;
       }
-    })
-    .sort((a, b) => b.at - a.at);
+    });
 
   const entries: HomeEntry[] = [];
-  for (const entry of visible) {
+  const entryTimelineIndices: number[] = [];
+  for (const { entry, timelineIndex } of visible) {
     const previous = entries.at(-1);
     const canJoin =
       entry.kind === "dictation" &&
       isFoldable(entry.item) &&
       previous &&
+      // Session adjacency follows the recorded timeline, not current visibility.
+      entryTimelineIndices.at(-1) === timelineIndex - 1 &&
       (previous.kind === "session" ||
         (previous.kind === "dictation" && isFoldable(previous.item))) &&
       localDayKey(previous.at) === localDayKey(entry.at);
@@ -147,10 +158,12 @@ export function buildHomeFeed(input: {
           words: merged.reduce((sum, item) => sum + countWords(item.text), 0),
           durationMs: merged.reduce((sum, item) => sum + (item.audio_duration_ms ?? 0), 0),
         };
+        entryTimelineIndices[entryTimelineIndices.length - 1] = timelineIndex;
         continue;
       }
     }
     entries.push(entry);
+    entryTimelineIndices.push(timelineIndex);
   }
 
   const groups: HomeDayGroup[] = [];

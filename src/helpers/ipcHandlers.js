@@ -1,3 +1,4 @@
+const { registerSettingsLinkIpc } = require("./settingsLinks");
 const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
 const {
   ipcMain,
@@ -1368,6 +1369,7 @@ class IPCHandlers {
       }
       return false;
     });
+    registerSettingsLinkIpc(ipcMain, this.windowManager);
 
     ipcMain.handle("snap-to-meeting-mode", () => {
       this.windowManager.snapControlPanelToMeetingMode();

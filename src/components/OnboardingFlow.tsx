@@ -17,7 +17,6 @@ import {
   reasoningModelBelongsToProvider,
 } from "../stores/settingsStore";
 import { usePermissions } from "../hooks/usePermissions";
-import { useToast } from "./ui/useToast";
 import { Button } from "./ui/button";
 import { Toggle } from "./ui/toggle";
 import LanguageSelector from "./ui/LanguageSelector";
@@ -780,7 +779,6 @@ function DesktopTrial({
   ready: boolean;
   onFinished: (text: string, cleaned: boolean) => void;
 }) {
-  const { toast } = useToast();
   const [demoId] = useState(() => `onboarding-${Date.now().toString(36)}`);
   const [partial, setPartial] = useState("");
   const [result, setResult] = useState("");
@@ -790,7 +788,7 @@ function DesktopTrial({
     if (event.status === "success") setResult(event.text ?? "");
     if (event.status === "error") setError(event.message ?? "Recording failed.");
   }, []);
-  const recording = useAudioRecording(toast, { trialMode: true, onDemoEvent });
+  const recording = useAudioRecording({ trialMode: true, onDemoEvent });
   useEffect(() => {
     void window.electronAPI?.beginOnboardingDemo?.({ id: demoId, kind: "dictation" });
     return () => {

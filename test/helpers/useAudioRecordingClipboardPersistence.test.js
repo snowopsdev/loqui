@@ -150,7 +150,7 @@ async function mountCompletionHarness(
   const { useAudioRecording } = await vite.ssrLoadModule("/hooks/useAudioRecording.js");
 
   function Harness() {
-    useAudioRecording(NOOP, { onDemoEvent: NOOP });
+    useAudioRecording({ onDemoEvent: NOOP });
     return null;
   }
 
@@ -191,7 +191,7 @@ test("clipboard-only rejection cannot cancel non-preview transcription persisten
     [
       "Final non-preview text",
       "Raw non-preview text",
-      { clientTranscriptionId: "client-non-preview" },
+      { clientTranscriptionId: "client-non-preview", sessionId: null, private: false },
     ],
   ]);
   assert.ok(
@@ -223,7 +223,7 @@ test("clipboard-only unsuccessful bridge response is logged without cancelling p
     [
       "Text with an unsuccessful clipboard response",
       "Raw text with an unsuccessful clipboard response",
-      { clientTranscriptionId: "client-clipboard-unsuccessful" },
+      { clientTranscriptionId: "client-clipboard-unsuccessful", sessionId: null, private: false },
     ],
   ]);
   assert.ok(
@@ -253,7 +253,11 @@ test("clipboard-only delivery uses the main-process bridge for a streaming-capab
 
   assert.deepEqual(harness.bridgeWrites, ["Final streaming text"]);
   assert.deepEqual(harness.saves, [
-    ["Final streaming text", "Raw streaming text", { clientTranscriptionId: "client-streaming" }],
+    [
+      "Final streaming text",
+      "Raw streaming text",
+      { clientTranscriptionId: "client-streaming", sessionId: null, private: false },
+    ],
   ]);
   assert.deepEqual(harness.navigatorWrites, []);
 });
@@ -281,7 +285,7 @@ test("failed selection-edit clipboard rejection cannot cancel persistence", asyn
     [
       "Edited selection text",
       "Raw selection instruction",
-      { clientTranscriptionId: "client-selection" },
+      { clientTranscriptionId: "client-selection", sessionId: null, private: false },
     ],
   ]);
   assert.ok(
@@ -343,6 +347,8 @@ test("the Insights timestamp rides along on the persistence call", async (t) => 
       {
         clientTranscriptionId: "client-analytics",
         analyticsOccurredAt: "2026-09-04T09:00:00.000Z",
+        sessionId: null,
+        private: false,
       },
     ],
   ]);

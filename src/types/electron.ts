@@ -1,3 +1,7 @@
+import type { SettingsLink } from "../utils/settingsDeepLink";
+
+type SettingsLinkResult =
+  { delivered: true } | { delivered: false; reason: "timeout" | "replaced" };
 import type { PillHotkeySlot } from "../hooks/usePillHotkey";
 export type VertexAuthSource = "adc" | "apiKey";
 export interface EnterpriseRouteSettings {
@@ -1718,7 +1722,10 @@ declare global {
       onLinuxPttPermissionDenied?: (callback: () => void) => () => void;
 
       // Settings shortcut (Cmd+, / Ctrl+,)
-      onShowSettings?: (callback: () => void) => () => void;
+      openSettingsAt?: (settingsPath: string) => Promise<SettingsLinkResult>;
+      pendingSettingsLink?: () => Promise<SettingsLink | null>;
+      ackSettingsLink?: (id: string) => Promise<boolean>;
+      onShowSettings?: (callback: (link?: SettingsLink) => void) => () => void;
 
       // Accessibility permission events (macOS)
       markMacAccessibilityFeaturesReady?: (expectedAccountScope?: ActiveAccountScope) => void;

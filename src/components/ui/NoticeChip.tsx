@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Check, Info, X } from "../icons";
+import { TechnicalErrorDetails } from "./TechnicalErrorDetails";
 import { dismissNotice, pauseNotice, resumeNotice, runNoticeAction, type Notice } from "./notices";
 
 const ICONS = { receipt: Check, notice: Info, alert: AlertTriangle } as const;
@@ -26,6 +27,7 @@ export function NoticeChip({
   const actions = notice.actions ?? [];
   const primary = actions.find((a) => a.primary) ?? actions[0];
   const secondary = actions.filter((a) => a !== primary);
+  const hasMore = Boolean(secondary.length || notice.body || notice.details);
   const moreId = `notice-more-${notice.id}`;
   return (
     <div
@@ -54,7 +56,7 @@ export function NoticeChip({
             {primary.label}
           </button>
         ) : null}
-        {secondary.length > 0 ? (
+        {hasMore ? (
           <button
             type="button"
             className="notice-chip__more"
@@ -75,24 +77,32 @@ export function NoticeChip({
           <X size={12} aria-hidden="true" />
         </button>
       </div>
-      {expanded && secondary.length > 0 ? (
+      {expanded && hasMore ? (
         <div
           id={moreId}
-          className="notice-chip__more-actions"
+          className="notice-chip__expanded"
           role="group"
           aria-label={t("notices.moreActions")}
         >
-          {secondary.map((action) => (
-            <button
-              key={action.label}
-              type="button"
-              className="notice-chip__secondary"
-              disabled={notice.busy}
-              onClick={() => void runNoticeAction(notice.id, action)}
-            >
-              {action.label}
-            </button>
-          ))}
+          {notice.body ? (
+            <p className="notice-chip__expanded-body" dir="auto">
+              {notice.body}
+            </p>
+          ) : null}
+          <TechnicalErrorDetails details={notice.details} />
+          <div className="notice-chip__more-actions">
+            {secondary.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className="notice-chip__secondary"
+                disabled={notice.busy}
+                onClick={() => void runNoticeAction(notice.id, action)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>

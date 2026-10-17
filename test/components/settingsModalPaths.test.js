@@ -93,3 +93,16 @@ test("[baseline guard] closing and reopening with a new path moves to it", async
   assert.equal(h.modal().activeSection, "speechToText");
   assert.equal(h.page().initialSubTab, "noteRecording");
 });
+
+test("a deep link moves an already-open modal and an empty path clears stale sub-tabs", async (t) => {
+  let props = { open: true, onOpenChange() {}, initialSection: "speechToText/upload" };
+  const h = await mount(t, () => props);
+  props = { ...props, initialSection: "llms/dictationCleanup" };
+  await h.render();
+  assert.equal(h.modal().activeSection, "llms");
+  assert.equal(h.page().initialSubTab, "dictationCleanup");
+  props = { ...props, initialSection: undefined };
+  await h.render();
+  assert.equal(h.modal().activeSection, "general");
+  assert.equal(h.page().initialSubTab, undefined);
+});

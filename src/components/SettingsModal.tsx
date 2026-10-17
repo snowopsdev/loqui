@@ -92,6 +92,15 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
     if (!open) setInitialSubTab(undefined);
   }
 
+  // A new request also navigates a modal that is already open; undefined clears a stale path.
+  useEffect(() => {
+    if (open) {
+      const next = parseSettingsPath(initialSection);
+      setActiveSection(next.section);
+      setInitialSubTab(next.subTab);
+    }
+  }, [open, initialSection]);
+
   const handleNavigateToPath = useCallback((path: string) => {
     const next = parseSettingsPath(path);
     setActiveSection(next.section);

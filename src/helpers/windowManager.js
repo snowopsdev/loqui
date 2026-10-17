@@ -45,10 +45,13 @@ const { centeredBounds, clampedBounds } = require("./onboardingWindowBounds");
 const { ONBOARDING_DEMO_KINDS, isOnboardingInputAllowed } = require("./onboardingInputPolicy");
 const { createHotkeyRepeatGate } = require("./hotkeyRepeatGate");
 
+const { createSettingsLinkQueue } = require("./settingsLinks");
+
 class WindowManager {
   constructor() {
     this.mainWindow = null;
     this.controlPanelWindow = null;
+    this.settingsLinks = createSettingsLinkQueue();
     this._resizeMaskTokenCounter = 0;
     this._controlPanelVisibilityTimer = null;
     this._onboardingRestoreBounds = null;
@@ -2240,11 +2243,19 @@ class WindowManager {
     }
   }
 
-  async openSettings() {
-    await this.createControlPanelWindow();
-    if (this.controlPanelWindow && !this.controlPanelWindow.isDestroyed()) {
-      this.controlPanelWindow.webContents.send("show-settings");
-    }
+  async openSettings(settingsPath = null) {
+    const { link, done } = this.settingsLinks.enqueue(settingsPath);
+    // Delivery can expire even while the first page is still loading.
+    void this.createControlPanelWindow()
+      .then(() => {
+        const current = this.settingsLinks.peek();
+        const panel = this.controlPanelWindow;
+        if (current?.id === link.id && panel && !panel.isDestroyed()) {
+          panel.webContents.send("show-settings", current);
+        }
+      })
+      .catch((error) => debugLogger.warn("Could not open Settings", { error: error?.message }));
+    return done;
   }
 
   showLoadFailureDialog(windowName, errorCode, errorDescription, validatedURL) {

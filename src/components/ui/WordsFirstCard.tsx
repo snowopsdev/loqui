@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "../icons";
+import { TechnicalErrorDetails } from "./TechnicalErrorDetails";
 import { Button } from "./button";
 import { useCopyFeedback } from "../../hooks/useCopyFeedback";
 import { dismissNotice, runNoticeAction, type Notice } from "./notices";
@@ -53,11 +54,14 @@ export function WordsFirstCard({
       }
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(card);
-    return () => observer.disconnect();
-  }, [words, notice.title, copyFailed, moreCount, onHeight]);
+    card.addEventListener("toggle", measure, true);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(card);
+    return () => {
+      card.removeEventListener("toggle", measure, true);
+      observer?.disconnect();
+    };
+  }, [words, notice.title, notice.details, copyFailed, moreCount, onHeight]);
 
   const copy = async () => {
     const ok = await copyText(words);
@@ -126,6 +130,7 @@ export function WordsFirstCard({
           {t("notices.wordsCard.more", { count: moreCount })}
         </button>
       ) : null}
+      <TechnicalErrorDetails details={notice.details} />
       <p className="words-card__hint">{t("notices.wordsCard.hint")}</p>
     </section>
   );

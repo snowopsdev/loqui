@@ -4175,6 +4175,27 @@
       "hint": "将文字拖入应用，或再次粘贴。",
       "dragHint": "拖到你刚才输入文字的文本框中",
       "more_other": "还有 {{count}} 段未发送的文字"
-    }
+    },
+    "pasted": "已粘贴",
+    "actions": {
+      "pasteAgain": "再次粘贴"
+    },
+    "cleanupFailed": {
+      "title": "已粘贴未经整理的文本",
+      "retry": "重试文本整理",
+      "settings": "设置",
+      "cleaned": "已复制整理后的文本",
+      "cleanedBody": "请将其粘贴到所需位置。",
+      "noChanges": "整理未作任何更改",
+      "retryFailed": "文本整理再次失败。您的原文未更改。",
+      "noModel": "请在设置中选择文本整理模型。",
+      "unavailable": "原来的文本整理操作已不可用。您的原文仍保留在这里。"
+    },
+    "modelChanged": {
+      "title": "模型已更改",
+      "accept": "接受",
+      "choose": "选择其他模型"
+    },
+    "pasteFailed": "无法粘贴您的文字"
   }
 }

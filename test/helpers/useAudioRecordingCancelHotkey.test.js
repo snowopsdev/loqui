@@ -121,12 +121,9 @@ async function mountHarness(t) {
   });
   const { useAudioRecording } = await vite.ssrLoadModule("/hooks/useAudioRecording.js");
   const api = {};
-  // Stable across renders: the hook's main effect depends on toast, and a new
-  // function each render would re-run it and add unrelated unregister calls.
-  const toast = () => "";
   const options = { onDemoEvent: NOOP };
   function Harness() {
-    Object.assign(api, useAudioRecording(toast, options));
+    Object.assign(api, useAudioRecording(options));
     return null;
   }
   root = createRoot(container);

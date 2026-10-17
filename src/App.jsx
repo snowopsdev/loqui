@@ -1,5 +1,5 @@
 import { NoticeStack, useNoticeWindowState } from "./components/ui/NoticeStack";
-import { getNotices, runNoticeAction, wordsCardNotice } from "./components/ui/notices";
+import { notify, getNotices, runNoticeAction, wordsCardNotice } from "./components/ui/notices";
 import { usePillHotkey } from "./hooks/usePillHotkey";
 import { getCachedPlatform } from "./utils/platform";
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
@@ -65,8 +65,7 @@ export default function App() {
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const buttonRef = useRef(null);
   const pillPresenceRef = useRef(null);
-  const { toast, dismiss, toastCount, dictationErrorActionCount, dismissByPresentation } =
-    useToast();
+  const { toastCount, dictationErrorActionCount } = useToast();
   const { noticeCount, wordsCardVisible } = useNoticeWindowState();
   const noticesOnScreen = noticeCount + toastCount > 0 || wordsCardVisible;
   const noticeHotkey = usePillHotkey(
@@ -101,10 +100,6 @@ export default function App() {
     if (window.electronAPI?.getPlatform?.() === "linux") return;
     window.electronAPI?.setMainWindowInteractivity?.(shouldCapture);
   }, []);
-  const dismissDictationError = React.useCallback(
-    () => dismissByPresentation("dictation-error"),
-    [dismissByPresentation]
-  );
 
   useEffect(() => {
     setWindowInteractivity(false);
@@ -129,7 +124,7 @@ export default function App() {
   }, []);
 
   useWindowResizeCompensation();
-  useMainProcessNotifications({ toast, dismiss, t });
+  useMainProcessNotifications({ t });
 
   const mainWindowResizeCoordinatorRef = useRef(null);
   useEffect(() => {
@@ -222,23 +217,13 @@ export default function App() {
     cancelRecording,
     cancelProcessing,
     getAudioLevel,
-  } = useAudioRecording(toast, {
+  } = useAudioRecording({
     onToggle: handleDictationToggle,
     onDemoEvent: publishOnboardingDemoEvent,
     onAssistantCommand: assistant.handleCommand,
     onOnboardingAssistantCommand: runOnboardingAssistantDemo,
-    dismissDictationError,
     onDictationError: handleDictationError,
     getAssistantSelectionContext: assistant.getSelectionContext,
-    onShowTranscript: (text) => {
-      // While the Agent panel is open the main window's transcript is suppressed
-      // (openPanel refuses under assistantOpenRef); the companion hosts it instead.
-      if (assistantOpenRef.current) {
-        window.electronAPI?.showAgentDictationFinalTranscript?.(text);
-        return;
-      }
-      liveTranscriptApiRef.current?.showFinalText(text);
-    },
     assistantOpenRef,
   });
   const isVisuallyProcessing = isProcessing || isPreparing || isStopping;
@@ -356,12 +341,6 @@ export default function App() {
     setWindowInteractivity,
   ]);
 
-  useEffect(() => {
-    if (isRecording && dictationErrorActionCount > 0) {
-      dismissByPresentation("dictation-error");
-    }
-  }, [isRecording, dictationErrorActionCount, dismissByPresentation]);
-
   // Sync auto-hide from main process — setState directly to avoid IPC echo
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onFloatingIconAutoHideChanged?.((enabled) => {
@@ -404,9 +383,9 @@ export default function App() {
   const refuse = useCallback(
     (messageKey) => {
       void window.electronAPI?.showDictationPanel?.();
-      toast({ title: t(messageKey), variant: "default" });
+      notify({ kind: "notice", title: t(messageKey) });
     },
-    [toast, t]
+    [t]
   );
 
   const closeCommandMenu = useCallback(() => setIsCommandMenuOpen(false), []);

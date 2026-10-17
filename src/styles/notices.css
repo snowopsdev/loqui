@@ -67,6 +67,19 @@
   background: color-mix(in oklch, var(--color-foreground) 8%, transparent);
   font: 600 11px/1 var(--font-family-sans);
 }
+.notice-chip__expanded {
+  min-width: 0;
+  padding: 0 10px 7px;
+  white-space: normal;
+}
+.notice-chip__expanded-body {
+  margin-block: 5px;
+  font: 400 12px/1.4 var(--font-family-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  user-select: text;
+}
 .notice-chip__more-actions {
   display: flex;
   flex-wrap: wrap;

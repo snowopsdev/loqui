@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
+import { buildModelSwitchNotice } from "./voiceNotices";
+import { useResolvedRoute } from "../lib/routes";
 import {
   consumeTinfoilModelSwitches,
   useTinfoilModelSwitchStore,
@@ -8,9 +10,9 @@ import {
 import { isDictationPanelWindow } from "../utils/windowContext";
 
 /** Alerts the user when a retired Tinfoil model was switched out from under them. */
-export default function TinfoilModelSwitchToastListener() {
+export default function TinfoilModelSwitchNoticeListener() {
   const { t } = useTranslation();
-  const { toast } = useToast();
+  const cleanupRoute = useResolvedRoute("dictationCleanup");
 
   const switchCount = useTinfoilModelSwitchStore((s) => s.events.length);
 
@@ -21,12 +23,13 @@ export default function TinfoilModelSwitchToastListener() {
       window.electronAPI?.showDictationPanel?.();
     }
     for (const event of consumeTinfoilModelSwitches()) {
-      toast({
-        title: t("reasoning.tinfoil.modelRetiredTitle"),
-        description: t("reasoning.tinfoil.modelRetired", { from: event.from, to: event.to }),
-      });
+      notify(
+        buildModelSwitchNotice(event, t, {
+          openSettings: () => void window.electronAPI?.openSettingsAt?.(cleanupRoute.settingsPath),
+        })
+      );
     }
-  }, [switchCount, toast, t]);
+  }, [switchCount, t, cleanupRoute.settingsPath]);
 
   return null;
 }

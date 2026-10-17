@@ -4209,6 +4209,27 @@
       "more_one": "{{count}} texto más sin enviar",
       "more_many": "{{count}} textos más sin enviar",
       "more_other": "{{count}} textos más sin enviar"
-    }
+    },
+    "pasted": "Pegado",
+    "actions": {
+      "pasteAgain": "Pegar de nuevo"
+    },
+    "cleanupFailed": {
+      "title": "Pegado sin limpieza",
+      "retry": "Reintentar limpieza",
+      "settings": "Ajustes",
+      "cleaned": "Texto limpio copiado",
+      "cleanedBody": "Pégalo donde quieras.",
+      "noChanges": "La limpieza no hizo cambios",
+      "retryFailed": "La limpieza volvió a fallar. Tus palabras no han cambiado.",
+      "noModel": "Elige un modelo de limpieza en Ajustes.",
+      "unavailable": "La operación de limpieza original ya no está disponible. Tus palabras siguen aquí."
+    },
+    "modelChanged": {
+      "title": "Modelo cambiado",
+      "accept": "Aceptar",
+      "choose": "Elegir otro"
+    },
+    "pasteFailed": "No se pudieron pegar tus palabras"
   }
 }

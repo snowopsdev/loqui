@@ -4209,6 +4209,27 @@
       "more_one": "Mais {{count}} texto não enviado",
       "more_many": "Mais {{count}} textos não enviados",
       "more_other": "Mais {{count}} textos não enviados"
-    }
+    },
+    "pasted": "Colado",
+    "actions": {
+      "pasteAgain": "Colar novamente"
+    },
+    "cleanupFailed": {
+      "title": "Colado sem revisão",
+      "retry": "Tentar a revisão novamente",
+      "settings": "Configurações",
+      "cleaned": "Texto revisado copiado",
+      "cleanedBody": "Cole onde quiser.",
+      "noChanges": "A revisão não fez alterações",
+      "retryFailed": "A revisão falhou novamente. Suas palavras não foram alteradas.",
+      "noModel": "Escolha um modelo de revisão nas Configurações.",
+      "unavailable": "A operação de revisão original não está mais disponível. Suas palavras continuam aqui."
+    },
+    "modelChanged": {
+      "title": "Modelo alterado",
+      "accept": "Aceitar",
+      "choose": "Escolher outro"
+    },
+    "pasteFailed": "Não foi possível colar suas palavras"
   }
 }

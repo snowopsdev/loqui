@@ -4202,6 +4202,27 @@
       "dragHint": "In das Feld ziehen, in dem du geschrieben hast",
       "more_one": "{{count}} weiterer ungesendeter Text",
       "more_other": "{{count}} weitere ungesendete Texte"
-    }
+    },
+    "pasted": "Eingefügt",
+    "actions": {
+      "pasteAgain": "Erneut einfügen"
+    },
+    "cleanupFailed": {
+      "title": "Ohne Überarbeitung eingefügt",
+      "retry": "Überarbeitung wiederholen",
+      "settings": "Einstellungen",
+      "cleaned": "Überarbeiteter Text kopiert",
+      "cleanedBody": "Füge ihn dort ein, wo du ihn brauchst.",
+      "noChanges": "Die Überarbeitung hat nichts geändert",
+      "retryFailed": "Die Überarbeitung ist erneut fehlgeschlagen. Deine Worte sind unverändert.",
+      "noModel": "Wähle in den Einstellungen ein Modell zur Überarbeitung.",
+      "unavailable": "Die ursprüngliche Überarbeitung ist nicht mehr verfügbar. Deine Worte sind noch hier."
+    },
+    "modelChanged": {
+      "title": "Modell geändert",
+      "accept": "Akzeptieren",
+      "choose": "Anderes wählen"
+    },
+    "pasteFailed": "Deine Worte konnten nicht eingefügt werden"
   }
 }

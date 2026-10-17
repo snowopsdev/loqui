@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
 import { isDictationPanelWindow } from "../utils/windowContext";
 
 /**
@@ -9,9 +9,8 @@ import { isDictationPanelWindow } from "../utils/windowContext";
  * main process (it happens before any window exists) and cleared once shown.
  * See #1606.
  */
-export default function GpuPackMigrationToastListener() {
+export default function GpuPackMigrationNoticeListener() {
   const { t } = useTranslation();
-  const { toast } = useToast();
 
   useEffect(() => {
     // Only the control panel shows it — the dictation panel is transient and
@@ -20,19 +19,20 @@ export default function GpuPackMigrationToastListener() {
     let cancelled = false;
     window.electronAPI?.getGpuPackMigrationNotice?.().then((notice) => {
       if (cancelled || !notice) return;
-      toast({
+      notify({
         title: t("app.toasts.gpuPackMigration.title"),
-        description: t("app.toasts.gpuPackMigration.description", {
+        body: t("app.toasts.gpuPackMigration.description", {
           packs: notice.packs.join(", "),
         }),
-        duration: 15000,
+        kind: "notice",
+        persistent: true,
       });
       window.electronAPI?.dismissGpuPackMigrationNotice?.();
     });
     return () => {
       cancelled = true;
     };
-  }, [toast, t]);
+  }, [t]);
 
   return null;
 }

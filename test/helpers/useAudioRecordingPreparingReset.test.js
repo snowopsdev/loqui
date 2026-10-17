@@ -93,7 +93,7 @@ test("a failed dictation start reports the lifecycle back to idle instead of sti
 
   let api;
   function Harness() {
-    api = useAudioRecording(() => {}, { onDemoEvent: () => {} });
+    api = useAudioRecording({ onDemoEvent: () => {} });
     return null;
   }
 

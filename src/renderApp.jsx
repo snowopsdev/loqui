@@ -3,9 +3,9 @@ import ReactDOM from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import AppRouter from "./AppRouter.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.tsx";
-import CleanupFailureToastListener from "./components/CleanupFailureToastListener.tsx";
-import TinfoilModelSwitchToastListener from "./components/TinfoilModelSwitchToastListener.tsx";
-import GpuPackMigrationToastListener from "./components/GpuPackMigrationToastListener.tsx";
+import CleanupFailureNoticeListener from "./components/CleanupFailureNoticeListener.tsx";
+import TinfoilModelSwitchNoticeListener from "./components/TinfoilModelSwitchNoticeListener.tsx";
+import GpuPackMigrationNoticeListener from "./components/GpuPackMigrationNoticeListener.tsx";
 import { I18nDirectionProvider } from "./components/I18nDirectionProvider.tsx";
 import { ToastProvider } from "./components/ui/Toast.tsx";
 import { SettingsProvider } from "./hooks/useSettings";
@@ -30,9 +30,9 @@ root.render(
         <I18nDirectionProvider>
           <SettingsProvider>
             <ToastProvider>
-              <TinfoilModelSwitchToastListener />
-              <CleanupFailureToastListener />
-              <GpuPackMigrationToastListener />
+              <TinfoilModelSwitchNoticeListener />
+              <CleanupFailureNoticeListener />
+              <GpuPackMigrationNoticeListener />
               <AppRouter />
             </ToastProvider>
           </SettingsProvider>

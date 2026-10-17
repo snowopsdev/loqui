@@ -17,6 +17,8 @@ import { canStartDictation } from "../utils/dictationReadiness";
 import { waitForVisualFrames } from "../utils/visualFrame";
 import { resolveLifecycleInputKind } from "../helpers/dictationRouting";
 import { createAssistantResponseDelivery } from "../helpers/assistantResponseDelivery";
+import { notify, dismissNotice, getNotices } from "../components/ui/notices";
+import { buildDictationErrorNotice, DICTATION_STATUS_NOTICE_ID } from "../components/voiceNotices";
 import { recordCleanupFailure } from "../stores/cleanupFailureStore";
 
 // Maps a failed selection-replacement code to its `selectionEditing.*` toast
@@ -29,7 +31,9 @@ const SELECTION_EDIT_DETAIL_KEY_BY_CODE = {
 };
 const COMPANION_AUDIO_LEVEL_INTERVAL_MS = 80;
 
-export const useAudioRecording = (toast, options = {}) => {
+let localRecoveryKey = 0;
+
+export const useAudioRecording = (options = {}) => {
   const { t } = useTranslation();
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -59,10 +63,8 @@ export const useAudioRecording = (toast, options = {}) => {
     onToggle,
     onAssistantCommand,
     onOnboardingAssistantCommand,
-    dismissDictationError,
     onDictationError,
     getAssistantSelectionContext,
-    onShowTranscript,
     onDemoEvent,
     assistantOpenRef,
     trialMode = false,
@@ -81,10 +83,6 @@ export const useAudioRecording = (toast, options = {}) => {
   const onOnboardingAssistantCommandRef = useRef(onOnboardingAssistantCommand);
   useEffect(() => {
     onOnboardingAssistantCommandRef.current = onOnboardingAssistantCommand;
-  });
-  const onShowTranscriptRef = useRef(onShowTranscript);
-  useEffect(() => {
-    onShowTranscriptRef.current = onShowTranscript;
   });
   const getAssistantSelectionContextRef = useRef(getAssistantSelectionContext);
   useEffect(() => {
@@ -188,7 +186,7 @@ export const useAudioRecording = (toast, options = {}) => {
           : await audioManagerRef.current.startRecording();
         recordingStarted = didStart;
         if (didStart) {
-          dismissDictationError?.();
+          dismissNotice(DICTATION_STATUS_NOTICE_ID);
           // Arm Esc as soon as a recording exists, including one whose stop
           // landed mid-start: its processing must be cancellable too (D3).
           // onStateChange releases it at idle; a start that is already idle
@@ -247,7 +245,7 @@ export const useAudioRecording = (toast, options = {}) => {
         }
       }
     },
-    [dismissDictationError, reportLifecycle]
+    [reportLifecycle]
   );
 
   const performStopRecording = useCallback(async () => {
@@ -301,44 +299,53 @@ export const useAudioRecording = (toast, options = {}) => {
     reportLifecycle("idle");
 
     const getRecoverableTranscript = (fallback = "") =>
-      buildLiveTranscriptionPreview(
-        audioManagerRef.current?.streamingFinalText,
-        audioManagerRef.current?.streamingPartialText
-      ).trim() || fallback.trim();
+      fallback.trim()
+        ? fallback
+        : buildLiveTranscriptionPreview(
+            audioManagerRef.current?.streamingFinalText,
+            audioManagerRef.current?.streamingPartialText
+          );
 
-    const showDictationError = ({ title, description, transcript = "", duration }) => {
+    // Only a delivered Paste again or explicit Dismiss removes held words.
+    const showDictationError = (
+      { title, description, transcript = "", recoveryHeld = false, sessionId = null },
+      extraActions = []
+    ) => {
       const recoverAssistant = Boolean(audioManagerRef.current?.voiceAgentRequested);
       onDictationError?.({ recoverAssistant });
-      const recoverableTranscript = getRecoverableTranscript(transcript);
-      const actions = [
-        {
-          label: t("common.retry"),
-          icon: "retry",
-          dismissOnClick: false,
-          onClick: () => performStartRecording(lastStartOptionsRef.current),
-        },
-      ];
-
-      if (recoverableTranscript) {
-        actions.push({
-          label: t("hooks.audioRecording.errorActions.viewTranscript"),
-          icon: "transcript",
-          onClick: () => {
-            onShowTranscriptRef.current?.(recoverableTranscript);
+      const noticeId = notify(
+        buildDictationErrorNotice(
+          {
+            title,
+            description,
+            words: getRecoverableTranscript(transcript),
+            recoveryHeld,
+            sessionKey: sessionId ?? `local-${++localRecoveryKey}`,
           },
-        });
-      }
-
-      toast({
-        title,
-        description,
-        variant: "destructive",
-        presentation: "dictation-error",
-        // A card holding the only copy of the user's words stays until they
-        // act on it: View transcript, Retry, close, or the next dictation.
-        duration: recoverableTranscript ? 0 : duration,
-        actions,
-      });
+          t,
+          {
+            extraActions,
+            retry: () => {
+              void performStartRecording(lastStartOptionsRef.current);
+            },
+            pasteAgain: async (words) => {
+              const pasted = await audioManagerRef.current?.safePaste(words, {
+                restoreClipboard: false,
+                allowClipboardFallback: true,
+              });
+              if (pasted !== true) return;
+              if (getNotices().some((n) => n.id === noticeId && n.revision === revision)) {
+                dismissNotice(noticeId, "action");
+              }
+              notify({ kind: "receipt", title: t("notices.pasted") });
+            },
+          }
+        )
+      );
+      const revision = getNotices().find((n) => n.id === noticeId)?.revision;
+      if (noticeId !== DICTATION_STATUS_NOTICE_ID)
+        dismissNotice(DICTATION_STATUS_NOTICE_ID, "replaced");
+      return noticeId;
     };
 
     audioManagerRef.current.setCallbacks({
@@ -375,17 +382,19 @@ export const useAudioRecording = (toast, options = {}) => {
           const unavailable = micCaptureStatus === "unavailable";
           if (unavailable && !wasMicUnavailableRef.current) {
             wasMicUnavailableRef.current = true;
-            toast({
+            notify({
+              id: "mic",
               title: t("hooks.audioRecording.micDisconnected.title"),
-              description: t("hooks.audioRecording.micDisconnected.description"),
-              variant: "default",
+              body: t("hooks.audioRecording.micDisconnected.description"),
+              kind: "notice",
             });
           } else if (micCaptureStatus === "active" && wasMicUnavailableRef.current) {
             wasMicUnavailableRef.current = false;
-            toast({
+            notify({
+              id: "mic",
               title: t("hooks.audioRecording.micRestored.title"),
-              description: t("hooks.audioRecording.micRestored.description"),
-              variant: "default",
+              body: t("hooks.audioRecording.micRestored.description"),
+              kind: "receipt",
             });
           } else if (micCaptureStatus === "inactive") {
             wasMicUnavailableRef.current = false;
@@ -396,6 +405,7 @@ export const useAudioRecording = (toast, options = {}) => {
         }
       },
       onError: (error) => {
+        const sessionId = audioManagerRef.current?.activeSession?.id ?? null;
         setIsPreparing(false);
         setIsStopping(false);
         if (error?.code === "TRANSCRIPTION_CANCELLED" || error?.code === "REASON_CANCELLED") return;
@@ -412,12 +422,12 @@ export const useAudioRecording = (toast, options = {}) => {
         if (error?.variant === "default") {
           // Informational outcomes (SCREEN_CONTEXT_SKIPPED after a successful
           // text-only retry) are notices, not failures: no card, no Retry.
-          toast({ title, description, variant: "default" });
+          notify({ kind: "notice", title, body: description });
         } else {
           showDictationError({
             title,
             description,
-            duration: error?.code === "AUTH_EXPIRED" ? 8000 : undefined,
+            sessionId,
           });
         }
         if (getSettings().pauseMediaOnDictation) {
@@ -465,13 +475,19 @@ export const useAudioRecording = (toast, options = {}) => {
         }
       },
       onTranscriptionComplete: async (result) => {
+        const session = audioManagerRef.current?.activeSession ?? null;
+        const sessionId = session?.id ?? null;
+        const sessionPrivate = session?.private === true;
+        // Capture the operation before persistence or paste can yield.
+        const retryCleanup = result.cleanupFailure?.retryCleanup;
         if (result.success) {
-          dismissDictationError?.();
+          dismissNotice(DICTATION_STATUS_NOTICE_ID);
           const transcribedText = result.text?.trim();
 
           if (!transcribedText) {
             window.electronAPI?.hideDictationPreview?.();
             showDictationError({
+              sessionId,
               title: t("hooks.audioRecording.noAudio.title"),
               description: t("hooks.audioRecording.noAudio.description"),
             });
@@ -528,10 +544,10 @@ export const useAudioRecording = (toast, options = {}) => {
           }
 
           if (result.warning) {
-            toast({
+            notify({
               title: t("hooks.audioRecording.partialTranscription.title"),
-              description: t("hooks.audioRecording.partialTranscription.description"),
-              variant: "default",
+              body: t("hooks.audioRecording.partialTranscription.description"),
+              kind: "notice",
             });
           }
 
@@ -551,6 +567,8 @@ export const useAudioRecording = (toast, options = {}) => {
             : audioManagerRef.current
                 .saveTranscription(result.text, result.rawText ?? result.text, {
                   clientTranscriptionId: result.clientTranscriptionId,
+                  sessionId,
+                  private: sessionPrivate,
                   // Spread rather than set: a result with no analytics timestamp
                   // must not gain the key as undefined, matching how audioManager
                   // carries this field and keeping the options object exactly what
@@ -589,8 +607,8 @@ export const useAudioRecording = (toast, options = {}) => {
 
           const keepInClipboard = async (delivery) => {
             try {
-              const clipboardResult = await window.electronAPI.writeClipboard(result.text);
-              if (clipboardResult?.success === false) {
+              const clipboardResult = await window.electronAPI?.writeClipboard?.(result.text);
+              if (clipboardResult?.success !== true) {
                 throw new Error("clipboard-write-failed");
               }
               return true;
@@ -611,6 +629,7 @@ export const useAudioRecording = (toast, options = {}) => {
             const keptInClipboard = await keepInClipboard("push-force-stopped");
             window.electronAPI?.hideDictationPreview?.();
             showDictationError({
+              sessionId,
               title: t("hooks.audioRecording.pushForceStopped.title"),
               // Never promise a clipboard that rejected the write; the transcript
               // action on this pill is the recovery path either way.
@@ -642,6 +661,7 @@ export const useAudioRecording = (toast, options = {}) => {
                 const detailKey =
                   SELECTION_EDIT_DETAIL_KEY_BY_CODE[replacement?.code] || "unavailable";
                 showDictationError({
+                  sessionId,
                   title: t("hooks.audioRecording.selectionEditing.notAppliedTitle"),
                   description: t(`hooks.audioRecording.selectionEditing.${detailKey}`),
                   transcript: result.rawText ?? result.text,
@@ -669,19 +689,31 @@ export const useAudioRecording = (toast, options = {}) => {
             // final transcript after the paste reads as a stray surface. A
             // failed paste keeps the final flash so the transcript stays
             // visible somewhere.
+            if (!pasteSucceeded && !result.selectionEdit?.sessionId) {
+              showDictationError({
+                sessionId,
+                title: t("notices.pasteFailed"),
+                transcript: result.rawText ?? result.text,
+              });
+            }
             if (pasteSucceeded) {
               window.electronAPI?.hideDictationPreview?.();
-              if (result.cleanupFailure) recordCleanupFailure(result.cleanupFailure);
+              if (result.cleanupFailure)
+                recordCleanupFailure({
+                  ...result.cleanupFailure,
+                  rawText: result.text,
+                  retryCleanup,
+                });
             }
           } else if (keepTranscriptionInClipboard && !result.assistantConversation) {
             await keepInClipboard("clipboard-only");
           }
 
           if (result.source === "openai" && getSettings().useLocalWhisper) {
-            toast({
+            notify({
               title: t("hooks.audioRecording.fallback.title"),
-              description: t("hooks.audioRecording.fallback.description"),
-              variant: "default",
+              body: t("hooks.audioRecording.fallback.description"),
+              kind: "notice",
             });
           }
 
@@ -694,16 +726,16 @@ export const useAudioRecording = (toast, options = {}) => {
       },
       onTranslationFallback: ({ reason }) => {
         // Fail-open: the raw text was still pasted; the toast removes the silence.
-        toast({
+        notify({
           title:
             reason === "unreachable"
               ? t("hooks.audioRecording.translationFallback.unreachableTitle")
               : t("hooks.audioRecording.translationFallback.failedTitle"),
-          description:
+          body:
             reason === "unreachable"
               ? t("hooks.audioRecording.translationFallback.unreachableDescription")
               : t("hooks.audioRecording.translationFallback.failedDescription"),
-          variant: "destructive",
+          kind: "alert",
         });
       },
     });
@@ -815,11 +847,9 @@ export const useAudioRecording = (toast, options = {}) => {
       }
     };
   }, [
-    toast,
     onToggle,
     performStartRecording,
     performStopRecording,
-    dismissDictationError,
     onDictationError,
     reportLifecycle,
     t,

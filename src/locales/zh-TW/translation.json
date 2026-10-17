@@ -4175,6 +4175,27 @@
       "hint": "將文字拖曳到應用程式中，或再次貼上。",
       "dragHint": "拖曳到你剛才輸入文字的欄位中",
       "more_other": "還有 {{count}} 段未傳送的文字"
-    }
+    },
+    "pasted": "已貼上",
+    "actions": {
+      "pasteAgain": "再次貼上"
+    },
+    "cleanupFailed": {
+      "title": "已貼上未經整理的文字",
+      "retry": "重試文字整理",
+      "settings": "設定",
+      "cleaned": "已複製整理後的文字",
+      "cleanedBody": "請將其貼到所需位置。",
+      "noChanges": "整理未做任何變更",
+      "retryFailed": "文字整理再次失敗。您的原文未變更。",
+      "noModel": "請在設定中選擇文字整理模型。",
+      "unavailable": "原本的文字整理操作已無法使用。您的原文仍保留在這裡。"
+    },
+    "modelChanged": {
+      "title": "模型已變更",
+      "accept": "接受",
+      "choose": "選擇其他模型"
+    },
+    "pasteFailed": "無法貼上您的文字"
   }
 }

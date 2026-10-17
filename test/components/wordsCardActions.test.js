@@ -267,3 +267,67 @@ test("the pill stack sends observed card content height to the native resize bri
   await React.act(async () => resize());
   assert.deepEqual(heights, [137]);
 });
+
+for (const words of [undefined, WORDS]) {
+  test(`notice diagnostics remain disclosed and copyable ${words ? "beside held words" : "from More without secondary actions"}`, async (t) => {
+    const writes = [];
+    const stack = await mountStack(t, {
+      electronAPI: {
+        writeClipboard: async (text) => {
+          writes.push(text);
+          return { success: true };
+        },
+      },
+    });
+    stack.notices.notify({
+      id: "diagnostics",
+      kind: words ? "alert" : "notice",
+      title: "Cleanup unavailable",
+      ...(words ? { words } : {}),
+      details: {
+        status: 503,
+        exceptionType: "ServiceUnavailableException",
+        requestId: "request-503",
+        underlyingError: "Bedrock overloaded",
+      },
+    });
+    await stack.render();
+    if (!words) {
+      const more = stack.find((node) => node.attributes?.class === "notice-chip__more");
+      assert.ok(more, "diagnostics alone make More reachable");
+      await stack.clickNode(more);
+    }
+    assert.ok(
+      stack.find((node) => node.tagName === "DETAILS"),
+      "native disclosure remains available"
+    );
+    assert.match(stack.text(), /reasoning.enterprise.technicalDetails.title/);
+    assert.match(stack.text(), /request-503/);
+    await stack.clickNode(
+      stack.find(
+        (node) => node.attributes?.["aria-label"] === "reasoning.enterprise.technicalDetails.copy"
+      )
+    );
+    assert.deepEqual(writes, [
+      "reasoning.enterprise.technicalDetails.httpStatus: 503\nreasoning.enterprise.technicalDetails.awsException: ServiceUnavailableException\nreasoning.enterprise.technicalDetails.awsRequestId: request-503\nreasoning.enterprise.technicalDetails.underlyingError: Bedrock overloaded",
+    ]);
+    assert.equal(stack.notices.getNotices()[0].words, words);
+  });
+}
+
+test("More exposes the complete selectable explanation and exact recovery command beyond ellipsis", async (t) => {
+  const stack = await mountStack(t);
+  const body =
+    "A long cause that is truncated in the row.\n\nPlease reauthenticate:\n\naws sso login --profile company-sso";
+  stack.notices.notify({ kind: "notice", title: "Cleanup unavailable", body });
+  await stack.render();
+  assert.equal(
+    stack.find((node) => node.attributes?.class === "notice-chip__expanded-body"),
+    null
+  );
+  await stack.clickNode(stack.find((node) => node.attributes?.class === "notice-chip__more"));
+  const explanation = stack.find((node) => node.attributes?.class === "notice-chip__expanded-body");
+  assert.ok(explanation, "More works even with no secondary actions or diagnostics");
+  assert.equal(explanation.attributes.dir, "auto");
+  assert.equal(explanation.textContent, body);
+});

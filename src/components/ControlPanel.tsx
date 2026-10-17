@@ -1,3 +1,4 @@
+import { subscribeSettingsDeepLinks } from "../utils/settingsDeepLink";
 import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
@@ -58,7 +59,7 @@ import {
 import { isAccessibilitySkipped } from "../utils/permissions";
 import { getCachedPlatform } from "../utils/platform";
 import HistoryView from "./HistoryView";
-import BackgroundActionToastListener from "./notes/BackgroundActionToastListener";
+import BackgroundActionNoticeListener from "./notes/BackgroundActionNoticeListener";
 import FinishDictationSetupCard from "./FinishDictationSetupCard";
 
 const platform = getCachedPlatform();
@@ -281,12 +282,14 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     return () => cleanup?.();
   }, []);
 
-  useEffect(() => {
-    const cleanup = window.electronAPI?.onShowSettings?.(() => {
-      setShowSettings(true);
-    });
-    return () => cleanup?.();
-  }, []);
+  useEffect(
+    () =>
+      subscribeSettingsDeepLinks(window.electronAPI, (section) => {
+        setSettingsSection(section);
+        setShowSettings(true);
+      }),
+    []
+  );
 
   // When accessibility is missing on macOS, open the permissions settings page
   useEffect(() => {
@@ -859,7 +862,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           </div>
         </main>
       </div>
-      <BackgroundActionToastListener />
+      <BackgroundActionNoticeListener />
     </div>
   );
 }

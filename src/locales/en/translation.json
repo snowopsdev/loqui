@@ -4202,6 +4202,27 @@
       "dragHint": "Drag into the field you were typing in",
       "more_one": "{{count}} more unsent",
       "more_other": "{{count}} more unsent"
-    }
+    },
+    "pasted": "Pasted",
+    "actions": {
+      "pasteAgain": "Paste again"
+    },
+    "cleanupFailed": {
+      "title": "Pasted without cleanup",
+      "retry": "Retry cleanup",
+      "settings": "Settings",
+      "cleaned": "Cleaned text copied",
+      "cleanedBody": "Paste it where you want it.",
+      "noChanges": "Cleanup made no changes",
+      "retryFailed": "Cleanup failed again. Your words are unchanged.",
+      "noModel": "Choose a cleanup model in Settings.",
+      "unavailable": "The original cleanup operation is no longer available. Your words are still here."
+    },
+    "modelChanged": {
+      "title": "Model changed",
+      "accept": "Accept",
+      "choose": "Choose another"
+    },
+    "pasteFailed": "Couldn’t paste your words"
   }
 }

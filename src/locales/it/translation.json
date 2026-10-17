@@ -4209,6 +4209,27 @@
       "more_one": "{{count}} altro testo non inviato",
       "more_many": "{{count}} altri testi non inviati",
       "more_other": "{{count}} altri testi non inviati"
-    }
+    },
+    "pasted": "Incollato",
+    "actions": {
+      "pasteAgain": "Incolla di nuovo"
+    },
+    "cleanupFailed": {
+      "title": "Incollato senza revisione",
+      "retry": "Riprova la revisione",
+      "settings": "Impostazioni",
+      "cleaned": "Testo rivisto copiato",
+      "cleanedBody": "Incollalo dove vuoi.",
+      "noChanges": "La revisione non ha apportato modifiche",
+      "retryFailed": "La revisione è fallita di nuovo. Le tue parole sono invariate.",
+      "noModel": "Scegli un modello di revisione nelle Impostazioni.",
+      "unavailable": "L’operazione di revisione originale non è più disponibile. Le tue parole sono ancora qui."
+    },
+    "modelChanged": {
+      "title": "Modello cambiato",
+      "accept": "Accetta",
+      "choose": "Scegline un altro"
+    },
+    "pasteFailed": "Impossibile incollare le tue parole"
   }
 }

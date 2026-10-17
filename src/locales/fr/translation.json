@@ -4209,6 +4209,27 @@
       "more_one": "{{count}} autre texte non envoyé",
       "more_many": "{{count}} autres textes non envoyés",
       "more_other": "{{count}} autres textes non envoyés"
-    }
+    },
+    "pasted": "Collé",
+    "actions": {
+      "pasteAgain": "Coller à nouveau"
+    },
+    "cleanupFailed": {
+      "title": "Collé sans nettoyage",
+      "retry": "Réessayer le nettoyage",
+      "settings": "Paramètres",
+      "cleaned": "Texte nettoyé copié",
+      "cleanedBody": "Collez-le où vous voulez.",
+      "noChanges": "Le nettoyage n’a rien modifié",
+      "retryFailed": "Le nettoyage a encore échoué. Vos mots sont inchangés.",
+      "noModel": "Choisissez un modèle de nettoyage dans les paramètres.",
+      "unavailable": "L’opération de nettoyage d’origine n’est plus disponible. Vos mots sont toujours ici."
+    },
+    "modelChanged": {
+      "title": "Modèle changé",
+      "accept": "Accepter",
+      "choose": "En choisir un autre"
+    },
+    "pasteFailed": "Impossible de coller vos mots"
   }
 }

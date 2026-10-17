@@ -1,28 +1,27 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useToast } from "../ui/useToast";
+import { notify } from "../ui/notices";
 import { useActionProcessingStore, consumeErrorEvents } from "../../stores/actionProcessingStore";
 
 /**
- * Headless. Mount once inside ToastProvider so background-action errors
+ * Headless. Mount once so background-action errors
  * surface even after the user navigates away from the notes view.
  */
-export default function BackgroundActionToastListener() {
+export default function BackgroundActionNoticeListener() {
   const { t } = useTranslation();
-  const { toast } = useToast();
 
   const errorCount = useActionProcessingStore((s) => s.errorEvents.length);
 
   useEffect(() => {
     if (errorCount === 0) return;
     for (const event of consumeErrorEvents()) {
-      toast({
+      notify({
         title: t("notes.enhance.title"),
-        description: event.messageKey ? t(event.messageKey, event.messageParams) : event.message,
-        variant: "destructive",
+        body: event.messageKey ? t(event.messageKey, event.messageParams) : event.message,
+        kind: "alert",
       });
     }
-  }, [errorCount, toast, t]);
+  }, [errorCount, t]);
 
   return null;
 }

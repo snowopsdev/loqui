@@ -1,3 +1,4 @@
+import type { PillHotkeySlot } from "../hooks/usePillHotkey";
 export type VertexAuthSource = "adc" | "apiKey";
 export interface EnterpriseRouteSettings {
   bedrockRegion: string;
@@ -1658,6 +1659,17 @@ declare global {
       openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 
       // Hotkey management
+      acquirePillHotkey?: (
+        slot: PillHotkeySlot,
+        options?: { ttlMs?: number }
+      ) => Promise<{ leaseId: number; held: boolean; reason?: string }>;
+      releasePillHotkey?: (leaseId: number) => Promise<void>;
+      onPillHotkeyPressed?: (
+        callback: (press: { slot: PillHotkeySlot; leaseId: number }) => void
+      ) => () => void;
+      onPillHotkeyReleased?: (
+        callback: (released: { slot: PillHotkeySlot; leaseId: number }) => void
+      ) => () => void;
       updateHotkey: (key: string) => Promise<{ success: boolean; message: string }>;
       setHotkeyListeningMode?: (enabled: boolean) => Promise<{ success: boolean }>;
       getHotkeyModeInfo?: (hotkey?: string) => Promise<{

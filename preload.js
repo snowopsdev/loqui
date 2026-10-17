@@ -566,6 +566,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onCancelHotkeyPressed: registerListener("cancel-hotkey-pressed", (cb) => () => cb()),
   registerCancelHotkey: (key) => ipcRenderer.invoke("register-cancel-hotkey", key),
   unregisterCancelHotkey: () => ipcRenderer.invoke("unregister-cancel-hotkey"),
+  acquirePillHotkey: (slot, options) => ipcRenderer.invoke("acquire-pill-hotkey", slot, options),
+  releasePillHotkey: (leaseId) => ipcRenderer.invoke("release-pill-hotkey", leaseId),
+  onPillHotkeyPressed: registerListener(
+    "pill-hotkey-pressed",
+    (callback) => (_event, press) => callback(press)
+  ),
+  onPillHotkeyReleased: registerListener(
+    "pill-hotkey-released",
+    (callback) => (_event, released) => callback(released)
+  ),
 
   // External link opener
   openExternal: (url) => ipcRenderer.invoke("open-external", url),

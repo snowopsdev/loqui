@@ -195,6 +195,10 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     onChanged: unsubscribe,
   };
   return {
+    acquirePillHotkey: async () => ({ leaseId: 0, held: false }),
+    releasePillHotkey: async () => {},
+    onPillHotkeyPressed: unsubscribe,
+    onPillHotkeyReleased: unsubscribe,
     personalInference,
     probeSelfHosted: async () => ({ ok: false as const, code: "network" as const }),
     getEnterpriseRouteState: async () => enterpriseState(),

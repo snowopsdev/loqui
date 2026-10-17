@@ -4,6 +4,7 @@ const { createLinuxWindowInputRegion } = require("./linuxWindowInputRegion");
 // Aliased: this class has an openExternalUrl method wrapping the helper.
 const { openExternalUrl: openUrlInExternalBrowser } = require("./externalUrlOpener");
 const HotkeyManager = require("./hotkeyManager");
+const { createHotkeyLeases } = require("./hotkeyLeases");
 const { isGlobeLikeHotkey } = HotkeyManager;
 const DragManager = require("./dragManager");
 const MainWindowPlacementCoordinator = require("./mainWindowPlacementCoordinator");
@@ -83,6 +84,7 @@ class WindowManager {
     };
     this.tray = null;
     this.hotkeyManager = new HotkeyManager();
+    this.hotkeyLeases = createHotkeyLeases({ hotkeyManager: this.hotkeyManager });
     this.dragManager = new DragManager();
     this._mainWindowPlacementCoordinator = new MainWindowPlacementCoordinator();
     this.isQuitting = false;
@@ -122,7 +124,7 @@ class WindowManager {
     });
 
     this.setMainWindowInteractivity(false);
-    this.registerMainWindowEvents();
+    this.registerMainWindowEvents(this.mainWindow.webContents.id);
     this.registerAssistantSelectionContextMenu();
 
     // Register load event handlers BEFORE loading to catch all events
@@ -1962,7 +1964,7 @@ class WindowManager {
     return this.mainWindow.isVisible();
   }
 
-  registerMainWindowEvents() {
+  registerMainWindowEvents(ownerId = this.mainWindow?.webContents.id) {
     if (!this.mainWindow) {
       return;
     }
@@ -2014,6 +2016,7 @@ class WindowManager {
     this.mainWindow.on("move", () => this.positionAgentDictationPill());
 
     this.mainWindow.on("closed", () => {
+      this.hotkeyLeases.releaseOwner(ownerId);
       this.dragManager.cleanup();
       const pillWindow = this.agentDictationPillWindow;
       if (pillWindow && !pillWindow.isDestroyed()) pillWindow.close();

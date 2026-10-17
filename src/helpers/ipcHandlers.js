@@ -3730,17 +3730,97 @@ class IPCHandlers {
       return this.windowManager.getHyprlandConfigStatus();
     });
 
-    ipcMain.handle("register-cancel-hotkey", async (event, key) => {
-      const hotkeyManager = this.windowManager.hotkeyManager;
+    const watchedLeaseOwners = new WeakSet();
+    let cancelOperation = null;
+    let cancelQueue = Promise.resolve();
+    const enqueueCancel = (operation) => {
+      const next = cancelQueue.then(operation, operation);
+      cancelQueue = next.catch(() => {});
+      return next;
+    };
+    const releaseCancel = () => {
+      cancelOperation = null;
+      this._cancelHotkeyOwnerId = null;
+      return enqueueCancel(() => this.windowManager.hotkeyManager.unregisterSlot("cancel"));
+    };
+    const watchLeaseOwner = (contents) => {
+      if (watchedLeaseOwners.has(contents)) return;
+      watchedLeaseOwners.add(contents);
+      const id = contents.id;
+      const releaseAll = () => {
+        this.windowManager.hotkeyLeases.releaseOwner(id);
+        if (this._cancelHotkeyOwnerId === id) void releaseCancel();
+      };
+      contents.once("destroyed", releaseAll);
+      contents.on("render-process-gone", releaseAll);
+      contents.on("did-start-navigation", (details) => {
+        if (details.isMainFrame && !details.isSameDocument) releaseAll();
+      });
+    };
+    const isPillOwner = (contents) => {
       const mainWindow = this.windowManager.mainWindow;
-      return hotkeyManager.registerSlot("cancel", key, () => {
-        mainWindow?.webContents?.send("cancel-hotkey-pressed");
+      return Boolean(mainWindow && contents === mainWindow.webContents && !contents.isDestroyed());
+    };
+
+    ipcMain.handle("register-cancel-hotkey", async (event, key) => {
+      if (!isPillOwner(event.sender)) return { success: false };
+      const contents = event.sender;
+      watchLeaseOwner(contents);
+      const operation = {};
+      cancelOperation = operation;
+      this._cancelHotkeyOwnerId = contents.id;
+      return enqueueCancel(async () => {
+        if (cancelOperation !== operation) return { success: false, reason: "released" };
+        const hotkeyManager = this.windowManager.hotkeyManager;
+        const result = await hotkeyManager.registerSlot("cancel", key, () => {
+          if (cancelOperation === operation && !contents.isDestroyed()) {
+            contents.send("cancel-hotkey-pressed");
+          }
+        });
+        if (cancelOperation !== operation) {
+          await hotkeyManager.unregisterSlot("cancel");
+          return { success: false, reason: "released" };
+        }
+        return result;
       });
     });
 
-    ipcMain.handle("unregister-cancel-hotkey", async () => {
-      this.windowManager.hotkeyManager.unregisterSlot("cancel");
+    ipcMain.handle("unregister-cancel-hotkey", async (event) => {
+      if (this._cancelHotkeyOwnerId === event.sender.id) await releaseCancel();
       return { success: true };
+    });
+
+    ipcMain.handle("acquire-pill-hotkey", async (event, slot, options = {}) => {
+      if ((slot !== "undoCancel" && slot !== "noticePrimary") || !isPillOwner(event.sender)) {
+        return { leaseId: 0, held: false, reason: "error" };
+      }
+      const contents = event.sender;
+      watchLeaseOwner(contents);
+      let leaseId = 0;
+      let released = false;
+      const result = await this.windowManager.hotkeyLeases.acquire({
+        slot,
+        ownerId: contents.id,
+        ttlMs: Number(options?.ttlMs) || undefined,
+        onPress: () => {
+          if (leaseId && !released && !contents.isDestroyed()) {
+            contents.send("pill-hotkey-pressed", { slot, leaseId });
+          }
+        },
+        onRelease: () => {
+          released = true;
+          if (leaseId && !contents.isDestroyed()) {
+            contents.send("pill-hotkey-released", { slot, leaseId });
+          }
+        },
+      });
+      leaseId = result.leaseId;
+      // Owner loss/TTL can happen between the backend answer and this reply.
+      return released ? { leaseId, held: false, reason: "released" } : result;
+    });
+
+    ipcMain.handle("release-pill-hotkey", (event, leaseId) => {
+      this.windowManager.hotkeyLeases.release(Number(leaseId), event.sender.id);
     });
 
     ipcMain.handle("start-window-drag", async (event) => {

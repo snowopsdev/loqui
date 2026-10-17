@@ -110,3 +110,28 @@ test("system profile bridge invokes only its channel", async () => {
   assert.equal(invocations.length, 1);
   assert.equal(invocations[0][0], "get-system-profile");
 });
+
+test("trial controls invoke only their channels with the demo id", async () => {
+  const { api, invocations } = loadPreloadApi();
+  await api.toggleOnboardingDemo("demo-7");
+  await api.cancelOnboardingDemo("demo-7");
+  await api.undoOnboardingDemoCancel("demo-7");
+  assert.deepEqual(invocations, [
+    ["onboarding-demo-toggle", "demo-7"],
+    ["onboarding-demo-cancel", "demo-7"],
+    ["onboarding-demo-undo-cancel", "demo-7"],
+  ]);
+});
+
+test("hotkey listener strips the Electron event and disposes cleanly", () => {
+  const { api, listeners } = loadPreloadApi();
+  const payload = { phase: "down", at: 5 };
+  let received;
+  const unsubscribe = api.onDictationHotkeyEvent((event) => {
+    received = event;
+  });
+  listeners.get("dictation-hotkey-event")?.({ sender: "ipc" }, payload);
+  assert.equal(received, payload);
+  unsubscribe();
+  assert.equal(listeners.has("dictation-hotkey-event"), false);
+});

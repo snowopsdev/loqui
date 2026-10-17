@@ -1136,7 +1136,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     return stream;
   }
 
-  async startRecording(forceDefaultMic = false) {
+  async startRecording(forceDefaultMic = false, onboardingTake = undefined) {
     let prepared = null;
     let preparedAdopted = false;
     let freshTap = null;
@@ -1233,15 +1233,19 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // or the one built before the mic opened. A tap started now would miss
       // the opening, so an unusable pre-roll leaves the WebM path in charge.
       this._batchPcmTap = preRoll ? prepared.pcmTap : freshTap;
-      this.createBatchRecorder(micStream, preRoll);
+      this._onboardingTake = onboardingTake;
+      this.createBatchRecorder(micStream, preRoll, onboardingTake);
       freshTap?.attach(micStream);
       preparedAdopted = true;
       this.isRecording = true;
-      this.onStateChange?.({
-        isRecording: true,
-        isProcessing: false,
-        micCaptureStatus: "active",
-      });
+      this.onStateChange?.(
+        {
+          isRecording: true,
+          isProcessing: false,
+          micCaptureStatus: "active",
+        },
+        onboardingTake
+      );
       logger.info(
         "Recording start timing",
         {
@@ -1317,7 +1321,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         // Pinned mic is gone (Chromium rotates IDs / device unplugged). Retry once on the default mic. See #900.
         logger.warn("Pinned microphone unavailable, retrying on default mic", {}, "audio");
         this.cachedMicDeviceId = null;
-        return this.startRecording(true);
+        return this.startRecording(true, onboardingTake);
       }
 
       let errorTitle = "Recording Error";
@@ -1340,17 +1344,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           "Your microphones stayed muted and produced no audio. Please check your sound input settings and try again.";
       }
 
-      this.onError?.({
-        title: errorTitle,
-        description: errorDescription,
-      });
+      this.onError?.(
+        {
+          title: errorTitle,
+          description: errorDescription,
+        },
+        onboardingTake
+      );
       return false;
     } finally {
       this._startInProgress = false;
     }
   }
 
-  createBatchRecorder(micStream, adoption = null) {
+  createBatchRecorder(micStream, adoption = null, onboardingTake = this._onboardingTake) {
     // Adopting the pre-roll recorder keeps every chunk captured since key-down:
     // rebinding the handlers below transfers ownership with no gap and no
     // re-encode, and the seeded chunks become the recording's opening.
@@ -1397,15 +1404,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       micStream.getTracks().forEach((track) => track.stop());
       this._markCaptureStreamReleased();
-      await this.finalizeBatchRecording(segment);
+      await this.finalizeBatchRecording(segment, onboardingTake);
     };
 
     if (!adoption) recorder.start(RECORDING_TIMESLICE_MS);
     return recorder;
   }
 
-  async finalizeBatchRecording(finalSegment) {
+  async finalizeBatchRecording(finalSegment, onboardingTake = this._onboardingTake) {
     const processingPipeline = this._startProcessingPipeline();
+    processingPipeline.onboardingTake = onboardingTake;
     const wasCancelled = () => this._shouldAbandonProcessingPipeline(processingPipeline);
     this.micRecovery.stop();
     this.teardownSpeechGate();
@@ -1416,11 +1424,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this._batchPcmTap = null;
     this.isRecording = false;
     this.isProcessing = true;
-    this.onStateChange?.({
-      isRecording: false,
-      isProcessing: true,
-      micCaptureStatus: "inactive",
-    });
+    this.onStateChange?.(
+      {
+        isRecording: false,
+        isProcessing: true,
+        micCaptureStatus: "inactive",
+      },
+      onboardingTake
+    );
 
     const segments = finalSegment ? [...this._batchSegments, finalSegment] : this._batchSegments;
     this._batchSegments = [];
@@ -1477,7 +1488,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       );
       if (!this._settleProcessingPipeline(processingPipeline)) return;
       this._localSpeechGateState = null;
-      this.onTranscriptionComplete?.({ success: true, text: "" });
+      this.onTranscriptionComplete?.({ success: true, text: "" }, onboardingTake);
       return;
     }
     // Non-commit sessions stop concurrently with the decode below.
@@ -1720,6 +1731,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   _startProcessingPipeline() {
     const pipeline = {
       cancellationGeneration: this._processingCancellationGeneration ?? 0,
+      onboardingTake: this._onboardingTake,
     };
     this._activeProcessingPipeline = pipeline;
     return pipeline;
@@ -1772,6 +1784,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   async processAudio(audioBlob, metadata = {}, processingPipeline = null) {
     const pipeline = processingPipeline ?? this._startProcessingPipeline();
     if (processingPipeline && this._activeProcessingPipeline !== processingPipeline) return;
+    const onboardingTake = pipeline.onboardingTake;
     const wasCancelled = () => this._shouldAbandonProcessingPipeline(pipeline);
     const pipelineStart = performance.now();
     const settings = getSettings();
@@ -1799,7 +1812,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         "audio"
       );
       if (!this._settleProcessingPipeline(pipeline)) return;
-      this.onTranscriptionComplete?.({ success: true, text: "" });
+      this.onTranscriptionComplete?.({ success: true, text: "" }, onboardingTake);
       return;
     }
 
@@ -1857,7 +1870,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           : {}),
         ...this._takePendingResultExtras(),
       };
-      this.onTranscriptionComplete?.(result);
+      this.onTranscriptionComplete?.(result, onboardingTake);
 
       const roundTripDurationMs = Math.round(performance.now() - pipelineStart);
 
@@ -1912,14 +1925,17 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       } else if (error.message === "No audio detected") {
         noAudioDetected = true;
       } else {
-        this.onError?.({
-          title: error.selectionEditFatal ? "Selection Edit Failed" : "Transcription Error",
-          description: error.selectionEditFatal
-            ? error.message
-            : `Transcription failed: ${error.message}`,
-          code: error.code,
-          messageKey: error.messageKey,
-        });
+        this.onError?.(
+          {
+            title: error.selectionEditFatal ? "Selection Edit Failed" : "Transcription Error",
+            description: error.selectionEditFatal
+              ? error.message
+              : `Transcription failed: ${error.message}`,
+            code: error.code,
+            messageKey: error.messageKey,
+          },
+          onboardingTake
+        );
 
         // Save failed transcription with audio so the user can retry later
         if (this.lastAudioBlob) {
@@ -1933,7 +1949,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // Every provider reports genuine silence through this one post-processing
       // outcome. The pill can now leave thinking before the error surface takes
       // ownership, instead of receiving an IPC event mid-pipeline.
-      if (shouldNotifyNoAudio) this.onNoAudio?.();
+      if (shouldNotifyNoAudio) this.onNoAudio?.(onboardingTake);
     }
   }
 
@@ -3412,7 +3428,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     for (const resolve of this._streamingStartSettlementWaiters.splice(0)) resolve();
   }
 
-  async startStreamingRecording(forceDefaultMic = false) {
+  async startStreamingRecording(forceDefaultMic = false, onboardingTake = undefined) {
     let acquiredStream = null;
     let usedPreparedCapture = false;
     let sessionId = null;
@@ -3433,6 +3449,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       sessionId = (this._streamingSessionGeneration || 0) + 1;
       this._streamingSessionGeneration = sessionId;
       this._activeStreamingSessionId = sessionId;
+      this._onboardingTake = onboardingTake;
       const ownsSession = () => this._activeStreamingSessionId === sessionId;
       const cancellationGeneration = this._streamingCancellationGeneration;
       startWasCancelled = () => cancellationGeneration !== this._streamingCancellationGeneration;
@@ -3521,7 +3538,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         if (!ownsSession()) return;
         this.streamingPartialText = text;
         this.streamingTextBump?.();
-        this.onPartialTranscript?.(text);
+        this.onPartialTranscript?.(text, onboardingTake);
       });
 
       const finalCleanup = provider.onFinal((text) => {
@@ -3541,10 +3558,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const errorCleanup = provider.onError((error) => {
         if (!ownsSession()) return;
         logger.error("Streaming provider error", { error }, "streaming");
-        this.onError?.({
-          title: "Streaming Error",
-          description: error,
-        });
+        this.onError?.(
+          {
+            title: "Streaming Error",
+            description: error,
+          },
+          onboardingTake
+        );
         if (this.isStreaming) {
           logger.warn("Connection lost during streaming, auto-stopping", {}, "streaming");
           this.stopStreamingRecording().catch((e) => {
@@ -3573,12 +3593,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         // cancelStreamingRecording may already be awaiting this start's
         // settlement before it can disconnect the provider.
         this._settleStreamingStart();
-        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+        this.onStateChange?.(
+          { isRecording: false, isProcessing: false, isStreaming: false },
+          onboardingTake
+        );
         return false;
       }
       this.isRecording = true;
       this.recordingStartTime = Date.now();
-      this.onStateChange?.({ isRecording: true, isProcessing: false, isStreaming: true });
+      this.onStateChange?.(
+        { isRecording: true, isProcessing: false, isStreaming: true },
+        onboardingTake
+      );
       await this.beginMicRecovery(stream);
 
       // 4. Connect WebSocket — audio is already flowing from the pipeline above,
@@ -3657,8 +3683,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         }
         this.isRecording = false;
         this.recordingStartTime = null;
-        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
-        return this.startStreamingRecording(true);
+        this.onStateChange?.(
+          { isRecording: false, isProcessing: false, isStreaming: false },
+          onboardingTake
+        );
+        return this.startStreamingRecording(true, onboardingTake);
       }
 
       logger.error(
@@ -3683,12 +3712,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           "Your microphones stayed muted and produced no audio. Please check your sound input settings and try again.";
       }
 
-      this.onError?.({
-        code: error.code,
-        messageKey: error.messageKey,
-        title: errorTitle,
-        description: errorDescription,
-      });
+      this.onError?.(
+        {
+          code: error.code,
+          messageKey: error.messageKey,
+          title: errorTitle,
+          description: errorDescription,
+        },
+        onboardingTake
+      );
 
       await this.cleanupStreaming();
       if (this._activeStreamingSessionId === sessionId) {
@@ -3696,7 +3728,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       }
       this.isRecording = false;
       this.recordingStartTime = null;
-      this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+      this.onStateChange?.(
+        { isRecording: false, isProcessing: false, isStreaming: false },
+        onboardingTake
+      );
       return false;
     } finally {
       this._startInProgress = false;
@@ -3844,6 +3879,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async _finalizeStreamingRecording(sessionId) {
+    const onboardingTake = this._onboardingTake;
     if (
       sessionId !== null &&
       sessionId !== undefined &&
@@ -3883,7 +3919,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.isRecording = false;
     this.isProcessing = true;
     this.recordingStartTime = null;
-    this.onStateChange?.({ isRecording: false, isProcessing: true, isStreaming: false });
+    this.onStateChange?.(
+      { isRecording: false, isProcessing: true, isStreaming: false },
+      onboardingTake
+    );
 
     this.micRecovery.stop();
     // Let an in-flight mic swap settle so its fallback segment isn't lost and
@@ -4017,13 +4056,19 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         if (wasCancelled()) return true;
         this.pendingSelectionEdit = null;
         this.isProcessing = false;
-        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
-        this.onError?.({
-          title: "Text Processing Failed",
-          description: error.message,
-          code: error.code,
-          messageKey: error.messageKey,
-        });
+        this.onStateChange?.(
+          { isRecording: false, isProcessing: false, isStreaming: false },
+          onboardingTake
+        );
+        this.onError?.(
+          {
+            title: "Text Processing Failed",
+            description: error.message,
+            code: error.code,
+            messageKey: error.messageKey,
+          },
+          onboardingTake
+        );
         return false;
       }
       if (wasCancelled()) return true;
@@ -4041,15 +4086,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         model: streamingSttModel || null,
       };
       if (wasCancelled()) return true;
-      this.onTranscriptionComplete?.({
-        success: true,
-        text: finalText,
-        rawText: rawStreamingText || finalText,
-        source: `${this.getStreamingProviderName()}-streaming`,
-        clientTranscriptionId,
-        analyticsOccurredAt: resultAnalyticsOccurredAt,
-        ...this._takePendingResultExtras(),
-      });
+      this.onTranscriptionComplete?.(
+        {
+          success: true,
+          text: finalText,
+          rawText: rawStreamingText || finalText,
+          source: `${this.getStreamingProviderName()}-streaming`,
+          clientTranscriptionId,
+          analyticsOccurredAt: resultAnalyticsOccurredAt,
+          ...this._takePendingResultExtras(),
+        },
+        onboardingTake
+      );
 
       logger.info(
         "Streaming total processing",
@@ -4062,14 +4110,17 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
 
     this.isProcessing = false;
-    this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+    this.onStateChange?.(
+      { isRecording: false, isProcessing: false, isStreaming: false },
+      onboardingTake
+    );
 
     if (wasCancelled()) return true;
 
     if (!finalText) {
       // Match the batch pipeline: settle processing first, then publish the
       // empty outcome so the warning cannot interrupt the thinking transition.
-      this.onTranscriptionComplete?.({ success: true, text: "" });
+      this.onTranscriptionComplete?.({ success: true, text: "" }, onboardingTake);
     }
 
     if (this.shouldUseStreaming()) {

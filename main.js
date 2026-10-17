@@ -923,6 +923,7 @@ async function startApp() {
 
       // Handle dictation if Globe/Fn is one of the dictation hotkeys
       const dictationUsesGlobe = hotkeyManager.getSlotHotkeys("dictation").some(isGlobeLikeHotkey);
+      if (dictationUsesGlobe) windowManager.reportDictationHotkey("down");
       if (dictationUsesGlobe) {
         if (mainWindowLive && windowManager.isDictationProcessing()) {
           debugLogger?.debug("[Globe] Ignored — dictation processing");
@@ -937,7 +938,7 @@ async function startApp() {
               return;
             }
             windowManager.showDictationPanel();
-            windowManager.sendPrepareDictation();
+            const onboardingTake = windowManager.sendPrepareDictation();
             const pressTime = now;
             globeKeyDownTime = pressTime;
             globeKeyIsRecording = false;
@@ -945,7 +946,7 @@ async function startApp() {
               if (globeKeyDownTime === pressTime && !globeKeyIsRecording) {
                 globeKeyIsRecording = true;
                 debugLogger?.debug("[Globe] Starting dictation (push hold)");
-                windowManager.sendStartDictation();
+                windowManager.sendStartDictation({ onboardingTake });
               }
             }, MIN_HOLD_DURATION_MS);
           } else {
@@ -983,6 +984,7 @@ async function startApp() {
       }
 
       if (hotkeyManager.getSlotHotkeys("dictation").some(isGlobeLikeHotkey)) {
+        windowManager.reportDictationHotkey("up");
         const activationMode = windowManager.getActivationMode();
         if (activationMode === "push") {
           if (globeKeyDownTime === 0 && !globeKeyIsRecording) {
@@ -1043,6 +1045,8 @@ async function startApp() {
     let rightModActiveKey = null;
 
     globeKeyManager.on("right-modifier-down", async (modifier) => {
+      if (hotkeyManager.slotHasHotkey("dictation", modifier))
+        windowManager.reportDictationHotkey("down");
       // Check voice agent slot for right-modifier
       if (hotkeyManager.slotHasHotkey("voiceAgent", modifier)) {
         windowManager.sendToggleVoiceAgent();
@@ -1062,7 +1066,7 @@ async function startApp() {
         const now = Date.now();
         if (now - rightModLastStopTime < POST_STOP_COOLDOWN_MS) return;
         windowManager.showDictationPanel();
-        windowManager.sendPrepareDictation();
+        const onboardingTake = windowManager.sendPrepareDictation();
         const pressTime = now;
         rightModActiveKey = modifier;
         rightModDownTime = pressTime;
@@ -1070,7 +1074,7 @@ async function startApp() {
         setTimeout(() => {
           if (rightModDownTime === pressTime && !rightModIsRecording) {
             rightModIsRecording = true;
-            windowManager.sendStartDictation();
+            windowManager.sendStartDictation({ onboardingTake });
           }
         }, MIN_HOLD_DURATION_MS);
       } else {
@@ -1079,6 +1083,8 @@ async function startApp() {
     });
 
     globeKeyManager.on("right-modifier-up", async (modifier) => {
+      if (hotkeyManager.slotHasHotkey("dictation", modifier))
+        windowManager.reportDictationHotkey("up");
       if (hotkeyManager.slotHasHotkey("dictation", modifier)) {
         if (!isLiveWindow(windowManager.mainWindow)) return;
 
@@ -1129,6 +1135,8 @@ async function startApp() {
     let mouseButtonActiveButton = null;
 
     globeKeyManager.on("mouse-button-down", async (button) => {
+      if (hotkeyManager.slotHasHotkey("dictation", button))
+        windowManager.reportDictationHotkey("down");
       if (hotkeyManager.isInListeningMode && hotkeyManager.isInListeningMode()) return;
       if (!isMouseButtonHotkey(button)) return;
 
@@ -1151,7 +1159,7 @@ async function startApp() {
         const now = Date.now();
         if (now - mouseButtonLastStopTime < POST_STOP_COOLDOWN_MS) return;
         windowManager.showDictationPanel();
-        windowManager.sendPrepareDictation();
+        const onboardingTake = windowManager.sendPrepareDictation();
         const pressTime = now;
         mouseButtonActiveButton = button;
         mouseButtonDownTime = pressTime;
@@ -1159,7 +1167,7 @@ async function startApp() {
         setTimeout(() => {
           if (mouseButtonDownTime === pressTime && !mouseButtonIsRecording) {
             mouseButtonIsRecording = true;
-            windowManager.sendStartDictation();
+            windowManager.sendStartDictation({ onboardingTake });
           }
         }, MIN_HOLD_DURATION_MS);
       } else {
@@ -1168,6 +1176,8 @@ async function startApp() {
     });
 
     globeKeyManager.on("mouse-button-up", async (button) => {
+      if (hotkeyManager.slotHasHotkey("dictation", button))
+        windowManager.reportDictationHotkey("up");
       if (hotkeyManager.isInListeningMode && hotkeyManager.isInListeningMode()) return;
       if (!isMouseButtonHotkey(button)) return;
 
@@ -1275,6 +1285,7 @@ async function startApp() {
     // drives other windows (matching their globalShortcut callbacks and macOS).
     const dispatchNativeKeyDown = (key) => {
       if (hotkeyManager.slotHasHotkey("dictation", key)) {
+        windowManager.reportDictationHotkey("down");
         if (!isLiveWindow(windowManager.mainWindow)) return;
         if (windowManager.getActivationMode() === "push") {
           windowManager.startWindowsPushToTalk(key);
@@ -1295,6 +1306,7 @@ async function startApp() {
     // Only dictation drives push-to-talk, so only its key-up matters.
     const dispatchNativeKeyUp = (key) => {
       if (!hotkeyManager.slotHasHotkey("dictation", key)) return;
+      windowManager.reportDictationHotkey("up");
       if (windowManager.winPushState?.active) {
         windowManager.handleWindowsPushKeyUp(key);
       } else if (

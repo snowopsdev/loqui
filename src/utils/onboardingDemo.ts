@@ -1,6 +1,8 @@
 import type { OnboardingDemoKind } from "../types/electron";
 
-export function getOnboardingDemoKind(voiceAgentRequested: boolean): OnboardingDemoKind {
+export function getOnboardingDemoKind(
+  voiceAgentRequested: boolean
+): Exclude<OnboardingDemoKind, "shortcut"> {
   return voiceAgentRequested ? "assistant" : "dictation";
 }
 

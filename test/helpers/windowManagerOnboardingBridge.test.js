@@ -1,0 +1,289 @@
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const ts = require("typescript");
+const { bridgeFixture } = require("./harness/onboardingBridgeFixture");
+
+const plain = (value) => JSON.parse(JSON.stringify(value));
+async function begin(f, id = "demo-A", kind = "dictation") {
+  assert.equal(await f.setupApi.beginOnboardingDemo({ id, kind }), true);
+}
+function prepared(f) {
+  return f.sent.findLast(([name]) => name === "prepare-dictation")?.[1]?.onboardingTake;
+}
+
+test("real IPC/preload gates trial controls and cancels preparation plus active processing", async () => {
+  const f = bridgeFixture();
+  await begin(f);
+  assert.equal(await f.setupApi.toggleOnboardingDemo("old"), false);
+  assert.equal(await f.setupApi.cancelOnboardingDemo("old"), false);
+  assert.equal(await f.setupApi.undoOnboardingDemoCancel("demo-A"), false, "no Plan04 authority");
+  assert.equal(await f.setupApi.toggleOnboardingDemo("demo-A"), true);
+  assert.ok(prepared(f)?.takeId, "main admits a take before preparation");
+  f.sent.length = 0;
+  assert.equal(await f.setupApi.cancelOnboardingDemo("demo-A"), true);
+  assert.deepEqual(
+    f.sent.map(([name]) => name),
+    ["cancel-dictation-preparation", "cancel-dictation"]
+  );
+  f.sent.length = 0;
+  await f.setupApi.endOnboardingDemo("demo-A");
+  assert.deepEqual(
+    f.sent.map(([name]) => name),
+    ["cancel-dictation-preparation", "cancel-dictation"]
+  );
+  await begin(f, "short", "shortcut");
+  f.sent.length = 0;
+  assert.equal(await f.setupApi.toggleOnboardingDemo("short"), false);
+  assert.equal(await f.setupApi.cancelOnboardingDemo("short"), false);
+  assert.equal(await f.setupApi.undoOnboardingDemoCancel("short"), false);
+  assert.equal(f.sent.length, 0);
+});
+
+test("real publish refuses delayed old start/error/result across leave/reenter, even reused demo ID", async () => {
+  const f = bridgeFixture();
+  await begin(f);
+  await f.setupApi.toggleOnboardingDemo("demo-A");
+  const old = prepared(f);
+  await f.setupApi.endOnboardingDemo("demo-A");
+  await begin(f); // Deliberately reuse the caller's ID: take IDs must still differ.
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...old,
+      kind: "dictation",
+      status: "listening",
+    }),
+    false
+  );
+  await f.setupApi.toggleOnboardingDemo("demo-A");
+  const current = prepared(f);
+  assert.notDeepEqual(current, old);
+  for (const status of ["listening", "error", "success", "processing", "cancelled"]) {
+    assert.equal(
+      await f.overlayApi.publishOnboardingDemoEvent({ ...old, kind: "dictation", status }),
+      false,
+      status
+    );
+  }
+  assert.equal(f.broadcasts.length, 0);
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...current,
+      kind: "dictation",
+      status: "success",
+    }),
+    false
+  );
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...current,
+      kind: "dictation",
+      status: "error",
+      code: "NotAllowedError",
+    }),
+    true,
+    "current acquisition failure arrives before listening"
+  );
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...current,
+      kind: "dictation",
+      status: "listening",
+    }),
+    false,
+    "a failed take cannot reopen"
+  );
+  await f.setupApi.toggleOnboardingDemo("demo-A");
+  const next = prepared(f);
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...next,
+      kind: "dictation",
+      status: "listening",
+    }),
+    true
+  );
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...old,
+      kind: "dictation",
+      status: "success",
+      text: "stale",
+    }),
+    false
+  );
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...next,
+      kind: "dictation",
+      status: "success",
+      rawText: "um hi",
+      text: "Hi",
+      cleanup: "applied",
+    }),
+    true
+  );
+  assert.equal(plain(f.broadcasts.at(-1)[1]).rawText, "um hi");
+});
+
+// Evaluate the real main.js callback expressions without launching Electron or
+// native listeners. AST selection tolerates nested blocks; callbacks are unedited.
+function nativeCallbacks(f, schedule = setTimeout) {
+  const source = fs.readFileSync(path.join(__dirname, "../../main.js"), "utf8");
+  const ast = ts.createSourceFile(
+    "main.js",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JS
+  );
+  const expressions = new Map();
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ["dispatchNativeKeyDown", "dispatchNativeKeyUp"].includes(node.name.getText(ast))
+    )
+      expressions.set(node.name.getText(ast), node.initializer.getText(ast));
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(ast) === "globeKeyManager.on" &&
+      ts.isStringLiteral(node.arguments[0])
+    )
+      expressions.set(node.arguments[0].text, node.arguments[1].getText(ast));
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  const hotkeyManager = {
+    slotHasHotkey: (slot) => slot === "dictation",
+    getSlotHotkeys: (slot) => (slot === "dictation" ? ["GLOBE"] : []),
+    getCurrentHotkey: () => "GLOBE",
+  };
+  const scope = {
+    textEditMonitor: null,
+    windowManager: f.manager,
+    hotkeyManager,
+    isLiveWindow: (w) => w && !w.isDestroyed(),
+    isGlobeLikeHotkey: (key) => key === "GLOBE",
+    isMouseButtonHotkey: (key) => key === "Mouse4",
+    debugLogger: { debug() {} },
+    Date,
+    setTimeout: schedule,
+    globeKeyIsRecording: false,
+    globeKeyDownTime: 0,
+    globeLastStopTime: 0,
+    rightModDownTime: 0,
+    rightModIsRecording: false,
+    rightModLastStopTime: 0,
+    rightModActiveKey: null,
+    mouseButtonDownTime: 0,
+    mouseButtonIsRecording: false,
+    mouseButtonLastStopTime: 0,
+    mouseButtonActiveButton: null,
+    MIN_HOLD_DURATION_MS: 150,
+    POST_STOP_COOLDOWN_MS: 300,
+  };
+  return Object.fromEntries(
+    [...expressions].map(([name, code]) => [name, vm.runInNewContext(`(${code})`, scope)])
+  );
+}
+
+test("native/global reports exclude capture mode centrally and retain native capture forwarding", async () => {
+  const f = bridgeFixture();
+  await begin(f, "short", "shortcut");
+  const events = [];
+  f.setupApi.onDictationHotkeyEvent((event) => events.push(event));
+  const callbacks = nativeCallbacks(f);
+  const globalCallback = f.manager.createHotkeyCallback();
+  for (const listening of [true, false]) {
+    f.setListening(listening);
+    events.length = 0;
+    assert.equal(f.manager.reportDictationHotkey("tap"), !listening);
+    await globalCallback("F8");
+    await callbacks["globe-down"]();
+    await callbacks["globe-up"]();
+    await callbacks["right-modifier-down"]("RightOption");
+    await callbacks["right-modifier-up"]("RightOption");
+    await callbacks["mouse-button-down"]("Mouse4");
+    await callbacks["mouse-button-up"]("Mouse4");
+    callbacks.dispatchNativeKeyDown("F8");
+    callbacks.dispatchNativeKeyUp("F8");
+    assert.deepEqual(
+      events.map((e) => e.phase),
+      listening ? [] : ["tap", "tap", "down", "up", "down", "up", "down", "up", "down", "up"]
+    );
+    assert.ok(events.every((e) => Number.isFinite(e.at)));
+  }
+  // Separate native capture listeners are always forwarded, including capture mode.
+  f.setListening(true);
+  let captures = 0;
+  f.setupApi.onGlobeKeyPressed(() => {
+    captures += 1;
+  });
+  await callbacks["globe-down"]();
+  assert.equal(captures, 1);
+  await f.setupApi.endOnboardingDemo("short");
+  assert.equal(f.manager.reportDictationHotkey("tap"), false);
+});
+
+test("a scheduled native start cannot borrow a later demo or normal-mode preparation", async () => {
+  const f = bridgeFixture();
+  await begin(f);
+  const oldTake = f.manager.sendPrepareDictation();
+  await f.setupApi.endOnboardingDemo("demo-A");
+  await begin(f, "B");
+  f.sent.length = 0;
+  f.manager.sendStartDictation({ onboardingTake: oldTake });
+  f.manager.sendStartDictation({ onboardingTake: undefined }); // timer captured before setup
+  assert.equal(f.sent.length, 0);
+  const current = f.manager.sendPrepareDictation();
+  f.sent.length = 0;
+  f.manager.sendStartDictation({ onboardingTake: current });
+  assert.equal(f.sent[0][0], "start-dictation");
+  assert.deepEqual(plain(f.sent[0][1].onboardingTake), plain(current));
+});
+
+test("real native hold timer retains preparation identity across leave/reenter", async () => {
+  for (const startsInDemo of [true, false]) {
+    const f = bridgeFixture();
+    if (startsInDemo) await begin(f);
+    else await f.setupApi.setOnboardingActive(false);
+    f.manager._cachedActivationMode = "push";
+    const timers = [];
+    const callbacks = nativeCallbacks(f, (fn) => {
+      timers.push(fn);
+      return timers.length;
+    });
+    await callbacks["globe-down"]();
+    assert.equal(timers.length, 1);
+    if (startsInDemo) await f.setupApi.endOnboardingDemo("demo-A");
+    await begin(f, "B");
+    f.sent.length = 0;
+    await timers[0]();
+    assert.equal(f.sent.length, 0, startsInDemo ? "old demo timer" : "pre-setup timer");
+  }
+});
+
+test("fallback cancellation cannot manufacture Plan04 tracking fields", async () => {
+  const f = bridgeFixture();
+  await begin(f);
+  f.manager.lastCancelledDictation = null;
+  await f.setupApi.toggleOnboardingDemo("demo-A");
+  const take = prepared(f);
+  await f.setupApi.cancelOnboardingDemo("demo-A");
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...take,
+      kind: "dictation",
+      status: "cancelled",
+      sessionId: "spoof",
+      cancelled: { undoUntil: Date.now() + 10000 },
+    }),
+    true
+  );
+  assert.equal(f.manager.lastCancelledDictation, null);
+  assert.equal("sessionId" in f.broadcasts.at(-1)[1], false);
+  assert.equal("cancelled" in f.broadcasts.at(-1)[1], false);
+  assert.equal(await f.setupApi.undoOnboardingDemoCancel("demo-A"), false);
+});

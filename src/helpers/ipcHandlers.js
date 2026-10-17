@@ -70,7 +70,7 @@ const { GeminiLiveStreaming, GEMINI_LIVE_MODEL } = require("./geminiLiveStreamin
 const CortiStreaming = require("./cortiStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const { getCortiToken } = require("./cortiAuth");
-const { ONBOARDING_DEMO_KINDS, ONBOARDING_DEMO_STATUSES } = require("./onboardingInputPolicy");
+const { ONBOARDING_DEMO_KINDS, publishDemoEvent } = require("./onboardingInputPolicy");
 const { focusWindowsHotkeyCaptureWindow } = require("./hotkeyCaptureFocus");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
@@ -1258,12 +1258,13 @@ class IPCHandlers {
       ) {
         return false;
       }
+      if (this._onboardingDemoSession) this.windowManager.endOnboardingDemo();
       this._onboardingDemoSession = {
         id: session.id,
         kind: session.kind,
         startedAt: Date.now(),
       };
-      return this.windowManager.beginOnboardingDemo(session.kind);
+      return this.windowManager.beginOnboardingDemo(session.kind, this._onboardingDemoSession);
     });
 
     ipcMain.handle("onboarding-demo-end", (_event, id) => {
@@ -1278,6 +1279,17 @@ class IPCHandlers {
       if (this._onboardingDemoSession?.id !== id) return false;
       return this.windowManager.stopOnboardingDemoRecording();
     });
+
+    const isCurrentDemo = (id) => this._onboardingDemoSession?.id === id;
+    ipcMain.handle("onboarding-demo-toggle", (_event, id) =>
+      isCurrentDemo(id) ? this.windowManager.toggleOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-cancel", (_event, id) =>
+      isCurrentDemo(id) ? this.windowManager.cancelOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-undo-cancel", (_event, id) =>
+      isCurrentDemo(id) ? this.windowManager.undoOnboardingDemoCancel() : false
+    );
 
     // Cache advisory setup facts for this launch; the NVIDIA probe spawns a
     // process. Main still checks current disk space when admitting downloads.
@@ -1297,24 +1309,9 @@ class IPCHandlers {
     });
 
     ipcMain.handle("onboarding-demo-publish", (_event, event) => {
-      const session = this._onboardingDemoSession;
-      if (!session || !event || event.kind !== session.kind) return false;
-      if (!ONBOARDING_DEMO_STATUSES.has(event.status)) return false;
-      const text = typeof event.text === "string" ? event.text.slice(0, 20000) : undefined;
-      const message = typeof event.message === "string" ? event.message.slice(0, 500) : undefined;
-      const tool = typeof event.tool === "string" ? event.tool.slice(0, 64) : undefined;
-      const level = Number.isFinite(event.level)
-        ? Math.min(1, Math.max(0, event.level))
-        : undefined;
-      broadcastToWindows("onboarding-demo-event", {
-        demoId: session.id,
-        kind: session.kind,
-        status: event.status,
-        text,
-        message,
-        tool,
-        level,
-      });
+      const payload = publishDemoEvent(event, this._onboardingDemoSession, this.windowManager);
+      if (!payload) return false;
+      broadcastToWindows("onboarding-demo-event", payload);
       return true;
     });
 

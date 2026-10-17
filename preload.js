@@ -135,6 +135,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     (callback) => (_event, payload) => callback(payload)
   ),
   getSystemProfile: () => ipcRenderer.invoke("get-system-profile"),
+  toggleOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-toggle", id),
+  cancelOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-cancel", id),
+  undoOnboardingDemoCancel: (id) => ipcRenderer.invoke("onboarding-demo-undo-cancel", id),
+  onDictationHotkeyEvent: registerListener(
+    "dictation-hotkey-event",
+    (callback) => (_event, payload) => callback(payload)
+  ),
   probeSelfHosted: (baseUrl) => ipcRenderer.invoke("probe-self-hosted", baseUrl),
   testProviderConnection: (config) => ipcRenderer.invoke("test-provider-connection", config),
   pasteText: (text, options) => ipcRenderer.invoke("paste-text", text, options),
@@ -146,11 +153,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
   hideWindow: () => ipcRenderer.invoke("hide-window"),
   showDictationPanel: () => ipcRenderer.invoke("show-dictation-panel"),
   captureDictationTarget: () => ipcRenderer.invoke("capture-dictation-target"),
-  onToggleDictation: registerListener("toggle-dictation", (callback) => () => callback()),
-  onToggleVoiceAgent: registerListener("toggle-voice-agent", (callback) => () => callback()),
+  onToggleDictation: registerListener(
+    "toggle-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
+  onToggleVoiceAgent: registerListener(
+    "toggle-voice-agent",
+    (callback) => (_event, options) => callback(options)
+  ),
   onToggleTranslation: registerListener("toggle-translation", (callback) => () => callback()),
   onOpenAssistantPanel: registerListener("open-assistant-panel", (callback) => () => callback()),
-  onStartDictation: registerListener("start-dictation", (callback) => () => callback()),
+  onStartDictation: registerListener(
+    "start-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
   onStopDictation: registerListener("stop-dictation", (callback) => () => callback()),
   onPrepareDictation: registerListener(
     "prepare-dictation",

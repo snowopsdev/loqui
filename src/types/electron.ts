@@ -758,18 +758,42 @@ export interface SystemProfile {
 
 export type SystemFacts = Omit<SystemProfile, "totalMemoryBytes">;
 
-export type OnboardingDemoKind = "dictation" | "assistant";
+export type OnboardingDemoKind = "dictation" | "assistant" | "shortcut";
+/** Main-admitted preparation/start identity; separate from Plan04's recording session. */
+export interface OnboardingDemoTake {
+  demoId: string;
+  takeId: string;
+}
+export interface DictationStartOptions {
+  onboardingTake?: OnboardingDemoTake;
+}
+export interface DictationHotkeyEvent {
+  phase: "down" | "up" | "tap";
+  at: number;
+}
 /**
  * "partial" streams the transcript, "processing" carries the final transcript,
  * "replying" streams the assistant demo's reply, and "level" mirrors the
  * microphone level while listening.
  */
 type OnboardingDemoStatus =
-  "listening" | "level" | "processing" | "partial" | "replying" | "success" | "error";
+  | "listening"
+  | "level"
+  | "processing"
+  | "partial"
+  | "replying"
+  | "success"
+  | "error"
+  | "cancelled"
+  | "cancelClosed";
 export interface OnboardingDemoEvent {
   demoId: string;
+  takeId?: string;
   kind: OnboardingDemoKind;
   status: OnboardingDemoStatus;
+  rawText?: string;
+  code?: string;
+  cleanup?: "applied" | "skipped" | "failed";
   text?: string;
   message?: string;
   /** Tool the assistant is running while it replies (a tool registry name). */
@@ -899,9 +923,15 @@ declare global {
       beginOnboardingDemo?: (session: { id: string; kind: OnboardingDemoKind }) => Promise<boolean>;
       endOnboardingDemo?: (id: string) => Promise<boolean>;
       stopOnboardingDemo?: (id: string) => Promise<boolean>;
-      publishOnboardingDemoEvent?: (event: Omit<OnboardingDemoEvent, "demoId">) => Promise<boolean>;
+      publishOnboardingDemoEvent?: (
+        event: Omit<OnboardingDemoEvent, "demoId"> & Partial<OnboardingDemoTake>
+      ) => Promise<boolean>;
       onOnboardingDemoEvent?: (callback: (event: OnboardingDemoEvent) => void) => () => void;
       getSystemProfile?: () => Promise<SystemFacts>;
+      toggleOnboardingDemo?: (id: string) => Promise<boolean>;
+      cancelOnboardingDemo?: (id: string) => Promise<boolean>;
+      undoOnboardingDemoCancel?: (id: string) => Promise<boolean>;
+      onDictationHotkeyEvent?: (callback: (event: DictationHotkeyEvent) => void) => () => void;
       probeSelfHosted?: (baseUrl: string) => Promise<
         | { ok: true; count: number }
         | {
@@ -980,14 +1010,18 @@ declare global {
       hideWindow: () => Promise<void>;
       showDictationPanel: () => Promise<void>;
       captureDictationTarget?: () => Promise<{ success: boolean; pid: number | null }>;
-      onToggleDictation: (callback: () => void) => () => void;
-      onToggleVoiceAgent?: (callback: () => void) => () => void;
+      onToggleDictation: (callback: (options?: DictationStartOptions) => void) => () => void;
+      onToggleVoiceAgent?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onToggleTranslation?: (callback: () => void) => () => void;
       onOpenAssistantPanel?: (callback: () => void) => () => void;
-      onStartDictation?: (callback: () => void) => () => void;
+      onStartDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onStopDictation?: (callback: () => void) => () => void;
       onPrepareDictation?: (
-        callback: (options?: { inputKind?: "dictation" | "assistant" | "translation" }) => void
+        callback: (
+          options?: DictationStartOptions & {
+            inputKind?: "dictation" | "assistant" | "translation";
+          }
+        ) => void
       ) => () => void;
       onCancelDictationPreparation?: (callback: () => void) => () => void;
       onCancelDictation?: (callback: () => void) => () => void;

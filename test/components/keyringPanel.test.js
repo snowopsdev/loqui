@@ -177,7 +177,7 @@ function fakeKeyring(initial) {
   return api;
 }
 
-test("keyring panel", async (t) => {
+test("[change-driving] keyring panel", async (t) => {
   installBrowserGlobals(t, { window: { dispatchEvent() {} } });
   installHookDom(t);
   const vite = await createRendererServer(

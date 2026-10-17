@@ -21,7 +21,7 @@ test("persistSecret rejects when the encrypted write fails and restores the prev
 
 // change-driving: both real persistence modes acknowledge only after rename.
 for (const encryptionAvailable of [true, false]) {
-  test(`persistSecret awaits durable persistence (encrypted: ${encryptionAvailable})`, async (t) => {
+  test(`[change-driving] persistSecret awaits durable persistence (encrypted: ${encryptionAvailable})`, async (t) => {
     const { realCredentialEnv } = require("./harness/realCredentialEnv");
     const { env, fs } = realCredentialEnv(t, {}, { encryptionAvailable });
     fs.holdNext(

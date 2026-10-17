@@ -3,7 +3,7 @@ const test = require("node:test");
 
 const load = () => import("../../src/lib/settingsPaths.ts");
 
-test("route paths open the right section and sub-tab", async () => {
+test("[change-driving] route paths open the right section and sub-tab", async () => {
   const { parseSettingsPath } = await load();
   assert.deepEqual(parseSettingsPath("stt/dictation"), {
     section: "speechToText",
@@ -20,7 +20,7 @@ test("route paths open the right section and sub-tab", async () => {
   assert.deepEqual(parseSettingsPath("privacyData"), { section: "privacyData" });
 });
 
-test("every route settingsPath lands on a sub-tab that exists", async () => {
+test("[change-driving] every route settingsPath lands on a sub-tab that exists", async () => {
   const { parseSettingsPath, SPEECH_SUB_TABS, LLM_SUB_TABS } = await load();
   const { ROUTE_SETTINGS_PATH } = await import("../../src/lib/routeGraph.ts");
   for (const [id, path] of Object.entries(ROUTE_SETTINGS_PATH)) {
@@ -31,7 +31,7 @@ test("every route settingsPath lands on a sub-tab that exists", async () => {
   }
 });
 
-test("legacy deep links keep landing where they used to", async () => {
+test("[change-driving] legacy deep links keep landing where they used to", async () => {
   const { parseSettingsPath } = await load();
   assert.deepEqual(parseSettingsPath("transcription"), {
     section: "speechToText",
@@ -52,14 +52,14 @@ test("legacy deep links keep landing where they used to", async () => {
   });
 });
 
-test("unknown or empty paths fall back to Preferences instead of a blank page", async () => {
+test("[change-driving] unknown or empty paths fall back to Preferences instead of a blank page", async () => {
   const { parseSettingsPath } = await load();
   for (const p of [undefined, null, "", "nope", "nope/x", "/dictation"]) {
     assert.deepEqual(parseSettingsPath(p), { section: "general" }, String(p));
   }
 });
 
-test("an unknown sub-tab drops to the section instead of a hidden tab", async () => {
+test("[change-driving] an unknown sub-tab drops to the section instead of a hidden tab", async () => {
   const { parseSettingsPath } = await load();
   assert.deepEqual(parseSettingsPath("llms/nope"), { section: "llms" });
   assert.deepEqual(parseSettingsPath("stt/chatIntelligence"), { section: "speechToText" });

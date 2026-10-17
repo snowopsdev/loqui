@@ -37,7 +37,7 @@ function privacy(getSealed) {
   return handle;
 }
 
-test("a seal event that arrives while the first fetch is in flight wins over the fetch", async (t) => {
+test("[change-driving] a seal event that arrives while the first fetch is in flight wins over the fetch", async (t) => {
   // I14: event version versus fetch ordering.
   const fetch = deferred();
   const p = privacy(() => fetch.promise);
@@ -53,7 +53,7 @@ test("a seal event that arrives while the first fetch is in flight wins over the
   assert.equal(sealed.getSealed(), false);
 });
 
-test("the fetch applies when no event arrived, and the store subscribes once", async (t) => {
+test("[change-driving] the fetch applies when no event arrived, and the store subscribes once", async (t) => {
   const p = privacy(async () => true);
   const sealed = await freshSealed(t, p.api);
   sealed.ensureSealedSubscribed();
@@ -64,7 +64,7 @@ test("the fetch applies when no event arrived, and the store subscribes once", a
   assert.equal(p.subscriptions, 1);
 });
 
-test("a failed fetch leaves the seal unknown until an event says otherwise", async (t) => {
+test("[change-driving] a failed fetch leaves the seal unknown until an event says otherwise", async (t) => {
   const p = privacy(() => Promise.reject(new Error("privacy unavailable")));
   const sealed = await freshSealed(t, p.api);
   sealed.ensureSealedSubscribed();
@@ -74,7 +74,7 @@ test("a failed fetch leaves the seal unknown until an event says otherwise", asy
   assert.deepEqual(sealed.useSealedStore.getState(), { sealed: true, known: true });
 });
 
-test("without a privacy API nothing can be sealed, and that is known", async (t) => {
+test("[change-driving] without a privacy API nothing can be sealed, and that is known", async (t) => {
   const sealed = await freshSealed(t, {});
   sealed.ensureSealedSubscribed();
   await flush();

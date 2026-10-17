@@ -35,7 +35,7 @@ async function load(t, windowProps = {}, initialStorage = {}) {
   return { vite, routes, storage, copy, base: useSettingsStore.getState() };
 }
 
-test("routes.ts re-exports the pure graph unchanged", async (t) => {
+test("[change-driving] routes.ts re-exports the pure graph unchanged", async (t) => {
   // M5: one module identity for the graph whether imported via routes.ts or routeGraph.ts.
   const { vite, routes } = await load(t);
   const graph = await vite.ssrLoadModule("/lib/routeGraph.ts");
@@ -52,7 +52,7 @@ test("routes.ts re-exports the pure graph unchanged", async (t) => {
   }
 });
 
-test("buildRouteSnapshot reads the real store shape, registry capabilities and model sizes", async (t) => {
+test("[change-driving] buildRouteSnapshot reads the real store shape, registry capabilities and model sizes", async (t) => {
   const { routes, copy, base } = await load(t);
   const state = {
     ...base,
@@ -175,7 +175,7 @@ test("change-driving Task6: the Corti host follows the selected region", async (
   );
 });
 
-test("Corti text routes disclose the API-key host, whatever the region", async (t) => {
+test("[change-driving] Corti text routes disclose the API-key host, whatever the region", async (t) => {
   // I7 (I1 follow-up): personal inference always sends Corti text
   // to https://ai.eu.corti.app/v1 (src/helpers/personalInference.js:78,
   // src/config/constants.ts:123). The builder supplies it as
@@ -199,7 +199,7 @@ test("Corti text routes disclose the API-key host, whatever the region", async (
   }
 });
 
-test("the enterprise slice is the store's raw enterprise settings, and their hosts follow edits", async (t) => {
+test("[change-driving] the enterprise slice is the store's raw enterprise settings, and their hosts follow edits", async (t) => {
   // R2-1, change-driving: v1 had no enterprise input, so every Bedrock, Azure
   // and Vertex route had host null and Azure was ready with a key and no endpoint.
   const { routes, copy, base } = await load(t);
@@ -398,7 +398,7 @@ test("change-driving Task6: a Bedrock endpoint override in main's environment is
   assert.deepEqual(chat.state, { status: "ready" });
 });
 
-test("key readiness comes from main-confirmed presence, never the renderer's key fields", async (t) => {
+test("[change-driving] key readiness comes from main-confirmed presence, never the renderer's key fields", async (t) => {
   // I3: a "__stored__" sentinel or an empty field in the settings store has no say.
   const { routes, copy, base } = await load(t);
   const dictation = (fields, credentials) =>
@@ -433,7 +433,7 @@ test("key readiness comes from main-confirmed presence, never the renderer's key
   );
 });
 
-test("an empty LLM inventory proves a missing model while a failed Whisper inventory stays unknown", async (t) => {
+test("[change-driving] an empty LLM inventory proves a missing model while a failed Whisper inventory stays unknown", async (t) => {
   // I9 end to end: the v1 builder turned this case into "ready".
   const { routes, copy, base } = await load(t);
   const state = {
@@ -463,7 +463,7 @@ test("an empty LLM inventory proves a missing model while a failed Whisper inven
   assert.deepEqual(routes.resolveRoute(s, "semanticSearch").state, { status: "unknown" });
 });
 
-test("Appendix B agreement 2: dictionaryInUse is getDictionaryHintWords, so a snippet trigger alone counts", async (t) => {
+test("[change-driving] Appendix B agreement 2: dictionaryInUse is getDictionaryHintWords, so a snippet trigger alone counts", async (t) => {
   // I15.
   const { routes, copy, base } = await load(t);
   const snapshot = (fields) =>
@@ -493,7 +493,7 @@ test("Appendix B agreement 2: dictionaryInUse is getDictionaryHintWords, so a sn
   );
 });
 
-test("Appendix B agreement 3: provider search is disclosed exactly when the request path would use it", async (t) => {
+test("[change-driving] Appendix B agreement 3: provider search is disclosed exactly when the request path would use it", async (t) => {
   // I15: isProviderSearchEnabled reads localStorage personalWebSearch:<scope>.
   const { routes, copy, base, storage } = await load(t);
   const chat = (provider, model) => ({
@@ -516,7 +516,7 @@ test("Appendix B agreement 3: provider search is disclosed exactly when the requ
   assert.doesNotMatch(sends(chat("openai", "gpt-5.6-sol")), /P:webSearch/);
 });
 
-test("routeCopy translates every payload part and joins lists with Intl.ListFormat", async (t) => {
+test("[change-driving] routeCopy translates every payload part and joins lists with Intl.ListFormat", async (t) => {
   const { routes } = await load(t);
   const copy = routes.routeCopy((key) => `T:${key}`, "en");
   assert.equal(Object.keys(copy.parts).length, 16);
@@ -527,7 +527,7 @@ test("routeCopy translates every payload part and joins lists with Intl.ListForm
   assert.equal(routes.routeCopy((key) => key, "not a locale!").list(["a", "b"]), "a and b");
 });
 
-test("routeSnapshotFromSettings reads the facts store, the sealed store and the app's i18n", async (t) => {
+test("[change-driving] routeSnapshotFromSettings reads the facts store, the sealed store and the app's i18n", async (t) => {
   const { vite, routes, base } = await load(t);
   const { useRouteFactsStore } = await vite.ssrLoadModule("/stores/routeFactsStore.ts");
   const { useSealedStore } = await vite.ssrLoadModule("/stores/sealedStore.ts");
@@ -541,7 +541,7 @@ test("routeSnapshotFromSettings reads the facts store, the sealed store and the 
   assert.equal(s.copy.list(["a", "b"]), "a and b");
 });
 
-test("routeSnapshotFromSettings makes no IPC and no subscription; an unknown seal maps to false (§5.1, §5.4)", async (t) => {
+test("[change-driving] routeSnapshotFromSettings makes no IPC and no subscription; an unknown seal maps to false (§5.1, §5.4)", async (t) => {
   // §5.1: "current facts + sealedStore + i18n; no subscriptions, no IPC".
   const touched = [];
   const electronAPI = new Proxy({}, { get: (_, key) => (touched.push(String(key)), undefined) });
@@ -563,7 +563,7 @@ test("routeSnapshotFromSettings makes no IPC and no subscription; an unknown sea
   assert.deepEqual(useSealedStore.getState(), { sealed: false, known: false });
 });
 
-test("a seal change during an outstanding facts load reaches every reader and survives the load", async (t) => {
+test("[change-driving] a seal change during an outstanding facts load reaches every reader and survives the load", async (t) => {
   // I14: the v1 facts refresh carried `sealed` and could overwrite a newer seal event.
   let emitSealed;
   let releaseWhisper;

@@ -100,7 +100,7 @@ function enterpriseApi(calls, main = {}, envFacts = NO_OVERRIDES) {
   };
 }
 
-test("cold start: every fact is unknown until main answers, then each family is filled", async (t) => {
+test("[change-driving] cold start: every fact is unknown until main answers, then each family is filled", async (t) => {
   // I9: unknown is null, never an empty "nothing installed".
   const { store, facts } = await freshStore(t);
   assert.deepEqual(facts().installed, { whisper: null, sherpa: null, llm: null });
@@ -132,7 +132,7 @@ test("cold start: every fact is unknown until main answers, then each family is 
   assert.equal(f.searchModelReady, false);
 });
 
-test("a failed Whisper inventory leaves only Whisper unknown; an empty LLM inventory is known-empty", async (t) => {
+test("[change-driving] a failed Whisper inventory leaves only Whisper unknown; an empty LLM inventory is known-empty", async (t) => {
   // I9: the v1 loader nulled every family when one call failed.
   const { store, facts } = await freshStore(t);
   await store.loadRouteFacts(
@@ -148,7 +148,7 @@ test("a failed Whisper inventory leaves only Whisper unknown; an empty LLM inven
   assert.equal(facts().speakerIdModelsReady, true);
 });
 
-test("a transient failure keeps the last known value and a later answer replaces it", async (t) => {
+test("[change-driving] a transient failure keeps the last known value and a later answer replaces it", async (t) => {
   // I9: error recovery.
   const { store, facts } = await freshStore(t);
   await store.loadRouteFacts(api());
@@ -175,7 +175,7 @@ test("a transient failure keeps the last known value and a later answer replaces
   assert.equal(facts().speakerIdModelsReady, false);
 });
 
-test("support-model failures on a cold start stay unknown, never ready", async (t) => {
+test("[change-driving] support-model failures on a cold start stay unknown, never ready", async (t) => {
   // I9: support-model failure.
   const { store, facts } = await freshStore(t);
   await store.loadRouteFacts(
@@ -185,7 +185,7 @@ test("support-model failures on a cold start stay unknown, never ready", async (
   assert.equal(facts().searchModelReady, null, "a malformed answer is not a fact");
 });
 
-test("each family publishes as soon as its own call resolves", async (t) => {
+test("[change-driving] each family publishes as soon as its own call resolves", async (t) => {
   // I9: independent publication; I2: one slow call never holds the others back.
   const { store, facts } = await freshStore(t);
   const whisper = deferred();
@@ -199,7 +199,7 @@ test("each family publishes as soon as its own call resolves", async (t) => {
   assert.deepEqual(sorted(facts().installed.whisper), ["base"]);
 });
 
-test("an older, slower response never overwrites a newer one", async (t) => {
+test("[change-driving] an older, slower response never overwrites a newer one", async (t) => {
   // I9: per-key generation.
   const { store, facts } = await freshStore(t);
   const older = deferred();
@@ -210,7 +210,7 @@ test("an older, slower response never overwrites a newer one", async (t) => {
   assert.deepEqual(sorted(facts().installed.whisper), ["small"]);
 });
 
-test("credential presence follows main's generations, not arrival order", async (t) => {
+test("[change-driving] credential presence follows main's generations, not arrival order", async (t) => {
   // I3: readiness comes from main, refreshed by credentials.onChanged.
   let changed;
   let listCalls = 0;
@@ -240,7 +240,7 @@ test("credential presence follows main's generations, not arrival order", async 
   assert.equal(facts().credentials.get("groq"), true);
 });
 
-test("credential field presence comes from the same rows and generations as presence", async (t) => {
+test("[change-driving] credential field presence comes from the same rows and generations as presence", async (t) => {
   // R3-1: Vertex's persisted source selects the host. These rows carry readiness
   // only; saving/removing/Undoing a key cannot change the committed host.
   let changed;
@@ -292,7 +292,7 @@ test("credential field presence comes from the same rows and generations as pres
   );
 });
 
-test("a credential event before the first list re-reads the list instead of inventing a partial map", async (t) => {
+test("[change-driving] a credential event before the first list re-reads the list instead of inventing a partial map", async (t) => {
   // I3: no presence is assumed for credentials main has not listed.
   let changed;
   let listCalls = 0;
@@ -435,7 +435,7 @@ test("baseline guard Task9: failed/malformed facts stay unknown and unacknowledg
   assert.notEqual(racing.facts().enterpriseMain, null, "the complete canonical facts remain valid");
 });
 
-test("legacy keyring statuses refresh without granting rejection authority", async (t) => {
+test("[change-driving] legacy keyring statuses refresh without granting rejection authority", async (t) => {
   // I3: a stale rejected verdict is re-read when main's keyring changes.
   let keyringChanged;
   let rows = [{ id: "groq", status: "rejected" }];
@@ -459,7 +459,7 @@ test("legacy keyring statuses refresh without granting rejection authority", asy
   assert.deepEqual([...facts().rejected], []);
 });
 
-test("focus and local-model events refresh the facts, once per window", async (t) => {
+test("[change-driving] focus and local-model events refresh the facts, once per window", async (t) => {
   const listeners = {};
   let whisperCalls = 0;
   const { store } = await freshStore(t, {
@@ -616,7 +616,7 @@ test("production credential uncertainty survives stale lists and reaches normal/
     ],
   ];
   for (const [slot, key, scope, routeId, mode, provider] of scenarios)
-    await t.test(slot, async (st) => {
+    await t.test("[change-driving] " + slot, async (st) => {
       const real = realCredentialEnv(st, { [key]: "fixture-secret", VERTEX_AUTH_SOURCE: "adc" });
       const authority = createCredentialAuthority({
         env: real.env,
@@ -764,7 +764,7 @@ test("production unknown enterprise/speech slots remain non-ready across a defer
   ];
   for (const [slot, initial] of scenarios)
     await t.test(
-      `${slot}:${initial.VERTEX_AUTH_SOURCE || initial.BEDROCK_PROFILE || "static"}`,
+      `[change-driving] ${slot}:${initial.VERTEX_AUTH_SOURCE || initial.BEDROCK_PROFILE || "static"}`,
       async (st) => {
         const { env, fs } = realCredentialEnv(st, {
           VERTEX_AUTH_SOURCE: "adc",

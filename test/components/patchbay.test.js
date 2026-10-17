@@ -97,7 +97,7 @@ function mountHook(_st, useHook, getProps) {
   };
 }
 
-test("patchbay", async (t) => {
+test("[change-driving] patchbay", async (t) => {
   installBrowserGlobals(t);
   installHookDom(t);
   const vite = await createRendererServer(
@@ -151,7 +151,7 @@ test("patchbay", async (t) => {
   const selectTask = (b, id) => React.act(async () => b.current().selectTask(id));
 
   await t.test(
-    "the view: every task and destination is a real button; cables are hidden from assistive tech",
+    "[change-driving] the view: every task and destination is a real button; cables are hidden from assistive tech",
     () => {
       // change-driving: the view does not exist yet.
       const dests = d.buildDestinations(baseSnapshot, baseRoutes);
@@ -192,7 +192,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the view: selecting a task marks compatible and incompatible destinations, with the key state of the slot the task uses",
+    "[change-driving] the view: selecting a task marks compatible and incompatible destinations, with the key state of the slot the task uses",
     () => {
       // change-driving: PatchbayView does not exist yet.
       const dests = d.buildDestinations(baseSnapshot, baseRoutes);
@@ -236,7 +236,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the view: the meter counts what stays, the footer names what leaves and where, and sealed mode says so",
+    "[change-driving] the view: the meter counts what stays, the footer names what leaves and where, and sealed mode says so",
     () => {
       // change-driving: PatchbayView does not exist yet.
       const dests = d.buildDestinations(baseSnapshot, baseRoutes);
@@ -275,7 +275,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the view: a status message can carry an Undo, and narrow boards drop the cables and keep the list",
+    "[change-driving] the view: a status message can carry an Undo, and narrow boards drop the cables and keep the list",
     () => {
       // change-driving: PatchbayView does not exist yet.
       const dests = d.buildDestinations(baseSnapshot, baseRoutes);
@@ -305,7 +305,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the board: a compatible pick calls requestRouteChange with the destination's target, then clears the selection",
+    "[change-driving] the board: a compatible pick calls requestRouteChange with the destination's target, then clears the selection",
     async (st) => {
       // change-driving: nothing builds a planner request from a destination yet.
       const { deps, calls } = makeDeps();
@@ -325,7 +325,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the board: an instant change says where it went, lists coupled routes and offers one Undo",
+    "[change-driving] the board: an instant change says where it went, lists coupled routes and offers one Undo",
     async (st) => {
       // change-driving (I1, I6).
       const { deps, calls, state } = makeDeps();
@@ -356,7 +356,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the board: an Undo that needs review says so instead of claiming the change was undone",
+    "[change-driving] the board: an Undo that needs review says so instead of claiming the change was undone",
     async (st) => {
       // change-driving (I1).
       const { deps, state } = makeDeps();
@@ -375,24 +375,27 @@ test("patchbay", async (t) => {
     }
   );
 
-  await t.test("the board: a refused pick never reaches the planner and says why", async (st) => {
-    // change-driving: usePatchbayBoard does not exist yet.
-    const { deps, calls } = makeDeps();
-    const b = mountHook(st, boardModule.usePatchbayBoard, () => deps);
-    await b.render();
-    await selectTask(b, "dictationStt");
-    await pick(b, "anthropic");
-    assert.deepEqual(calls, []);
-    assert.equal(b.current().message, 'patchbay.no.capability{"provider":"Anthropic"}');
-    assert.equal(
-      b.current().selectedId,
-      "dictationStt",
-      "the selection stays so the user can pick again"
-    );
-  });
+  await t.test(
+    "[change-driving] the board: a refused pick never reaches the planner and says why",
+    async (st) => {
+      // change-driving: usePatchbayBoard does not exist yet.
+      const { deps, calls } = makeDeps();
+      const b = mountHook(st, boardModule.usePatchbayBoard, () => deps);
+      await b.render();
+      await selectTask(b, "dictationStt");
+      await pick(b, "anthropic");
+      assert.deepEqual(calls, []);
+      assert.equal(b.current().message, 'patchbay.no.capability{"provider":"Anthropic"}');
+      assert.equal(
+        b.current().selectedId,
+        "dictationStt",
+        "the selection stays so the user can pick again"
+      );
+    }
+  );
 
   await t.test(
-    "the board: choosing a task first gets pickTaskFirst; a current-destination pick reaches no-op admission",
+    "[change-driving] the board: choosing a task first gets pickTaskFirst; a current-destination pick reaches no-op admission",
     async (st) => {
       // Change-driving (I2): every compatible pick must settle its route ticket.
       const { deps, calls, state } = makeDeps();
@@ -413,22 +416,25 @@ test("patchbay", async (t) => {
     }
   );
 
-  await t.test("the board: a no-op plan reports that the task already runs there", async (st) => {
-    // change-driving: usePatchbayBoard does not exist yet.
-    const { deps, state } = makeDeps();
-    state.next = { applied: false, blocker: null, plan: plan([], "noop") };
-    const b = mountHook(st, boardModule.usePatchbayBoard, () => deps);
-    await b.render();
-    await selectTask(b, "chat");
-    await pick(b, "device");
-    assert.equal(
-      b.current().message,
-      'patchbay.hint.already{"task":"routes.names.chat","place":"patchbay.place.device"}'
-    );
-  });
+  await t.test(
+    "[change-driving] the board: a no-op plan reports that the task already runs there",
+    async (st) => {
+      // change-driving: usePatchbayBoard does not exist yet.
+      const { deps, state } = makeDeps();
+      state.next = { applied: false, blocker: null, plan: plan([], "noop") };
+      const b = mountHook(st, boardModule.usePatchbayBoard, () => deps);
+      await b.render();
+      await selectTask(b, "chat");
+      await pick(b, "device");
+      assert.equal(
+        b.current().message,
+        'patchbay.hint.already{"task":"routes.names.chat","place":"patchbay.place.device"}'
+      );
+    }
+  );
 
   await t.test(
-    "mounted board no-op admission clears only its same-route draft and supersedes an older held intent",
+    "[change-driving] mounted board no-op admission clears only its same-route draft and supersedes an older held intent",
     async (st) => {
       // Change-driving (I2): exercise the real board and routeDraftStore ticket/draft ownership.
       const previousApi = globalThis.window.electronAPI;
@@ -538,7 +544,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the board: a superseded request settles silently and frees the board (R2-8)",
+    "[change-driving] the board: a superseded request settles silently and frees the board (R2-8)",
     async (st) => {
       // change-driving: before R2-8 the board read `.plan` of every non-"staged" result and threw on a string.
       const { deps, state, calls } = makeDeps();
@@ -559,7 +565,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the board: sealed mode refuses off-device picks and still allows this device (I14)",
+    "[change-driving] the board: sealed mode refuses off-device picks and still allows this device (I14)",
     async (st) => {
       // change-driving: usePatchbayBoard does not exist yet.
       const { deps, calls } = makeDeps({ sealed: true });
@@ -575,7 +581,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the board: support tasks are locked and never selected; Escape clears a selection exactly once",
+    "[change-driving] the board: support tasks are locked and never selected; Escape clears a selection exactly once",
     async (st) => {
       // change-driving: usePatchbayBoard does not exist yet.
       const { deps } = makeDeps();
@@ -599,26 +605,29 @@ test("patchbay", async (t) => {
     }
   );
 
-  await t.test("the board: a second click while a request is pending is ignored", async (st) => {
-    // change-driving: usePatchbayBoard does not exist yet.
-    const { deps, calls, state } = makeDeps();
-    const gate = defer();
-    state.next = () => gate.promise;
-    const b = mountHook(st, boardModule.usePatchbayBoard, () => deps);
-    await b.render();
-    await selectTask(b, "chat");
-    const openai = b.current().destinations.find((x) => x.id === "openai");
-    await React.act(async () => {
-      void b.current().pickDestination(openai);
-      void b.current().pickDestination(openai);
-    });
-    assert.equal(calls.length, 1);
-    gate.resolve("staged");
-    await tick();
-  });
+  await t.test(
+    "[change-driving] the board: a second click while a request is pending is ignored",
+    async (st) => {
+      // change-driving: usePatchbayBoard does not exist yet.
+      const { deps, calls, state } = makeDeps();
+      const gate = defer();
+      state.next = () => gate.promise;
+      const b = mountHook(st, boardModule.usePatchbayBoard, () => deps);
+      await b.render();
+      await selectTask(b, "chat");
+      const openai = b.current().destinations.find((x) => x.id === "openai");
+      await React.act(async () => {
+        void b.current().pickDestination(openai);
+        void b.current().pickDestination(openai);
+      });
+      assert.equal(calls.length, 1);
+      gate.resolve("staged");
+      await tick();
+    }
+  );
 
   await t.test(
-    "the Routing page shows the staged panel under the board only while a draft exists",
+    "[change-driving] the Routing page shows the staged panel under the board only while a draft exists",
     async () => {
       // change-driving (Task 8's panel is rendered by this page).
       const store = drafts.useRouteDraftStore;
@@ -652,7 +661,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "the Patchbay container sends picks through requestRouteChange and writes no settings itself",
+    "[change-driving] the Patchbay container sends picks through requestRouteChange and writes no settings itself",
     () => {
       // change-driving (source guard): Patchbay.tsx does not exist yet. Afterwards it pins the owner
       // rule (picks only through requestRouteChange; no provider/model/endpoint/enable-switch writes,
@@ -674,7 +683,7 @@ test("patchbay", async (t) => {
   );
 
   await t.test(
-    "M3 guard: the Patchbay uses logical properties and shared motion tokens only",
+    "[change-driving] M3 guard: the Patchbay uses logical properties and shared motion tokens only",
     () => {
       // change-driving: the .patchbay rules do not exist yet.
       const css = fs.readFileSync(path.join(__dirname, "../../src/index.css"), "utf8");

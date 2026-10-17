@@ -99,7 +99,7 @@ const SETTINGS_SURFACES = [
   "--color-surface-3",
 ];
 
-test("Plum Night destructive text meets 4.5:1 on the settings surfaces", async () => {
+test("[baseline guard] Plum Night destructive text meets 4.5:1 on the settings surfaces", async () => {
   const { contrastRatio } = await load();
   const { dark } = resolveTokens(css);
   for (const s of SETTINGS_SURFACES) {
@@ -108,7 +108,7 @@ test("Plum Night destructive text meets 4.5:1 on the settings surfaces", async (
   }
 });
 
-test("Plum Night ring, locality, warning and destructive marks meet 3:1 on the settings surfaces", async () => {
+test("[baseline guard] Plum Night ring, locality, warning and destructive marks meet 3:1 on the settings surfaces", async () => {
   const { contrastRatio } = await load();
   const { dark } = resolveTokens(css);
   const marks = [

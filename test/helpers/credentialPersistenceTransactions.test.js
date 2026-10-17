@@ -66,7 +66,7 @@ test("enterprise and plaintext secret commits share the same complete transactio
 // change-driving B6: removal and Undo both restore the previous whole-slot state on second-field failure.
 for (const operation of ["remove", "undo"]) {
   for (const rollbackFails of [false, true]) {
-    test(`${operation}: second-field failure${rollbackFails ? " plus rollback failure publishes actual new generation" : " rolls back every field"}`, async (t) => {
+    test(`[change-driving] ${operation}: second-field failure${rollbackFails ? " plus rollback failure publishes actual new generation" : " rolls back every field"}`, async (t) => {
       const { authority, env, fs, events } = setup(t, {
         CORTI_CLIENT_ID: "fixture-id",
         CORTI_CLIENT_SECRET: "fixture-secret",

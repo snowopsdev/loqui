@@ -265,7 +265,7 @@ function GpuStatusBadge() {
             onClick={handleDelete}
             size="sm"
             variant="ghost"
-            className="h-6 shrink-0 px-2 text-xs text-muted-foreground hover:text-destructive"
+            className="h-6 shrink-0 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-background"
           >
             {t("gpu.remove")}
           </Button>

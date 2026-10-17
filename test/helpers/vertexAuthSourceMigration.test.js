@@ -74,32 +74,35 @@ test("the production profile detector recognizes each selected marker without re
 
 // change-driving: Task 2 acknowledged credential boundary.
 test("ambient Vertex credentials do not make a fresh profile inherit an existing-install migration", async (t) => {
-  await t.test("fresh profile defaults to ADC despite an ambient key", async (st) => {
-    const fresh = migrationEnv(
-      st,
-      { GOOGLE_VERTEX_API_KEY: "fixture-legacy-key" },
-      { encryptionAvailable: false }
-    );
-    const freshWrites = [];
-    const saveFresh = fresh.env.saveVertexAuthSource.bind(fresh.env);
-    fresh.env.saveVertexAuthSource = async (source, options) => {
-      freshWrites.push(source);
-      return saveFresh(source, options);
-    };
-    assert.equal(
-      await initializeVertexAuthSource({
-        hasExistingSettingsProfile: false,
-        environment: fresh.env,
-        credentials: fresh.credentials,
-      }),
-      "adc"
-    );
-    assert.equal(fresh.env.getVertexAuthSource(), "adc");
-    assert.deepEqual(freshWrites, ["adc"]);
-  });
+  await t.test(
+    "[change-driving] fresh profile defaults to ADC despite an ambient key",
+    async (st) => {
+      const fresh = migrationEnv(
+        st,
+        { GOOGLE_VERTEX_API_KEY: "fixture-legacy-key" },
+        { encryptionAvailable: false }
+      );
+      const freshWrites = [];
+      const saveFresh = fresh.env.saveVertexAuthSource.bind(fresh.env);
+      fresh.env.saveVertexAuthSource = async (source, options) => {
+        freshWrites.push(source);
+        return saveFresh(source, options);
+      };
+      assert.equal(
+        await initializeVertexAuthSource({
+          hasExistingSettingsProfile: false,
+          environment: fresh.env,
+          credentials: fresh.credentials,
+        }),
+        "adc"
+      );
+      assert.equal(fresh.env.getVertexAuthSource(), "adc");
+      assert.deepEqual(freshWrites, ["adc"]);
+    }
+  );
 
   await t.test(
-    "existing profile preserves the migrated choice on later initialization",
+    "[baseline guard] existing profile preserves the migrated choice on later initialization",
     async (st) => {
       const existing = migrationEnv(
         st,
@@ -137,30 +140,33 @@ test("ambient Vertex credentials do not make a fresh profile inherit an existing
 test("an existing inherited valid source becomes durable before startup admission", async (t) => {
   for (const source of ["adc", "apiKey"]) {
     let savedSource;
-    await t.test(`${source}: first launch persists the inherited selection`, async (st) => {
-      const fixture = migrationEnv(
-        st,
-        { VERTEX_AUTH_SOURCE: source },
-        { encryptionAvailable: false }
-      );
-      assert.equal(
-        await initializeVertexAuthSource({
-          hasExistingSettingsProfile: true,
-          environment: fixture.env,
-          credentials: fixture.credentials,
-        }),
-        source
-      );
-      const bytes =
-        [...fixture.fs.files.entries()]
-          .find(([file]) => file.endsWith("/.env"))?.[1]
-          ?.toString("utf8") ?? "";
-      const match = bytes.match(/^VERTEX_AUTH_SOURCE=(adc|apiKey)$/m);
-      assert.ok(match, "the accepted ambient source must be in the persisted .env snapshot");
-      savedSource = match[1];
-    });
     await t.test(
-      `${source}: later launch preserves disk choice despite opposite key presence`,
+      `[change-driving] ${source}: first launch persists the inherited selection`,
+      async (st) => {
+        const fixture = migrationEnv(
+          st,
+          { VERTEX_AUTH_SOURCE: source },
+          { encryptionAvailable: false }
+        );
+        assert.equal(
+          await initializeVertexAuthSource({
+            hasExistingSettingsProfile: true,
+            environment: fixture.env,
+            credentials: fixture.credentials,
+          }),
+          source
+        );
+        const bytes =
+          [...fixture.fs.files.entries()]
+            .find(([file]) => file.endsWith("/.env"))?.[1]
+            ?.toString("utf8") ?? "";
+        const match = bytes.match(/^VERTEX_AUTH_SOURCE=(adc|apiKey)$/m);
+        assert.ok(match, "the accepted ambient source must be in the persisted .env snapshot");
+        savedSource = match[1];
+      }
+    );
+    await t.test(
+      `[baseline guard] ${source}: later launch preserves disk choice despite opposite key presence`,
       async (st) => {
         // New fixture and authority represent another process with no inherited
         // source: dotenv has loaded exactly the source saved by the first boot.

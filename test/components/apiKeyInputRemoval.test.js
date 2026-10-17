@@ -89,7 +89,7 @@ function assertSecretFree(surface) {
   for (const secret of SECRETS) assert.ok(!text.includes(secret), `leaked ${secret}`);
 }
 
-test("api key input: undoable removal through main", async (t) => {
+test("[change-driving] api key input: undoable removal through main", async (t) => {
   installBrowserGlobals(t, { window: { electronAPI: {}, dispatchEvent() {} } });
   installHookDom(t);
   const vite = await rendererServer(t, "loqui-api-key-removal-test-", {

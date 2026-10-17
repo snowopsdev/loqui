@@ -5,7 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 
-test("merges nested keys into every locale and refuses incomplete fragments", (t) => {
+test("[change-driving] merges nested keys into every locale and refuses incomplete fragments", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-merge-locales-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   for (const lang of ["en", "de"]) {

@@ -91,7 +91,7 @@ test("change-driving: authenticated discovery runs only from the List models but
 
   // Change-driving: the button does not exist; it must name the host and the slot.
   await t.test(
-    "List models names the host and saved slot, then makes exactly one call",
+    "[change-driving] List models names the host and saved slot, then makes exactly one call",
     async () => {
       calls.length = 0;
       const panel = await probes.mount("panel", () => Panel(props()));

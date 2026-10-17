@@ -109,7 +109,7 @@ test.after(() => {
   }
 });
 
-test("enterprise-route-facts reports main's overrides as hosts and booleans, never a value", async () => {
+test("[change-driving] enterprise-route-facts reports main's overrides as hosts and booleans, never a value", async () => {
   // R2-1, change-driving: the channel does not exist yet.
   const facts = () => handlers.get("enterprise-route-facts")({});
   assert.ok(handlers.get("enterprise-route-facts"), "registered by the production setupHandlers");
@@ -148,7 +148,7 @@ test("enterprise-route-facts reports main's overrides as hosts and booleans, nev
   }
 });
 
-test("the existing getters return main's enterprise settings exactly as the executor receives them", async () => {
+test("[baseline guard] the existing getters return main's enterprise settings exactly as the executor receives them", async () => {
   // R2-1: these are the values main.js:447-457 hands enterpriseAiProviders.js.
   injectEnv({
     BEDROCK_REGION: "eu-west-1",

@@ -23,7 +23,7 @@ function findAll(node, predicate, out = []) {
   return out;
 }
 
-test("settings nav and title bar", async (t) => {
+test("[change-driving] settings nav and title bar", async (t) => {
   installBrowserGlobals(t);
   const vite = await createRendererServer(t, { cachePrefix: "loqui-settings-nav-test-" });
   const { SettingsNav } = await vite.ssrLoadModule("/components/ui/SettingsNav.tsx");
@@ -291,9 +291,49 @@ test("[change-driving] inference radio rows receive separators from their direct
       onSelect() {},
     })
   );
-  assert.match(
-    html,
-    /role="radiogroup"[^>]*class="divide-y divide-border\/60 dark:divide-border-subtle\/50"/
+  assertSeparatedRows(html);
+  const wrapped = html.replace(
+    /(<div role="radiogroup"[^>]*>)([\s\S]*)(<\/div><\/div>)$/,
+    "$1<div>$2</div>$3"
   );
-  assert.equal((html.match(/role="radio"/g) ?? []).length, 2);
+  assert.notEqual(wrapped, html, "fixture inserts an extra wrapper inside the actual radiogroup");
+  assert.throws(
+    () => assertSeparatedRows(wrapped),
+    /direct row/,
+    "a wrapper must not recreate the old separator defect"
+  );
 });
+
+// Parse this rendered fragment's element hierarchy, rather than counting all
+// descendant radios (which also passes when a wrapper defeats divide-y).
+function assertSeparatedRows(html) {
+  const root = { children: [] };
+  const stack = [root];
+  for (const [tag] of html.matchAll(/<[^>]+>/g)) {
+    if (tag.startsWith("</")) {
+      stack.pop();
+      continue;
+    }
+    const name = tag.match(/^<([\w-]+)/)?.[1];
+    if (!name) continue;
+    const node = { name, tag, children: [] };
+    stack.at(-1).children.push(node);
+    if (!/\/>$/.test(tag) && !["input", "img", "br", "hr", "meta", "link"].includes(name))
+      stack.push(node);
+  }
+  const find = (node) =>
+    /role="radiogroup"/.test(node.tag ?? "") ? node : node.children.map(find).find(Boolean);
+  const group = find(root);
+  assert.ok(group, "radiogroup exists");
+  assert.match(group.tag, /class="divide-y divide-border\/60 dark:divide-border-subtle\/50"/);
+  assert.equal(group.children.length, 2, "exactly two direct row children receive separators");
+  for (const row of group.children) {
+    assert.equal(row.name, "div", "direct row is SettingsPanelRow");
+    assert.equal(
+      row.children.filter((child) => child.name === "button" && /role="radio"/.test(child.tag))
+        .length,
+      1,
+      "each direct row owns its radio without another wrapper"
+    );
+  }
+}

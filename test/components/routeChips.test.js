@@ -5,7 +5,7 @@ const { renderToStaticMarkup } = require("react-dom/server");
 const { installBrowserGlobals, createRendererServer } = require("../lib/rendererTestHarness");
 const { withI18nMock } = require("../lib/i18nTestMock");
 
-test("route chips", async (t) => {
+test("[change-driving] route chips", async (t) => {
   installBrowserGlobals(t);
   const vite = await createRendererServer(
     t,

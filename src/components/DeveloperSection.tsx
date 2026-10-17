@@ -223,7 +223,7 @@ export default function DeveloperSection() {
         <div className="rounded-xl border border-warning/20 bg-warning/5 dark:bg-warning/10">
           <div className="px-5 py-4">
             <p className="text-xs text-muted-foreground leading-relaxed">
-              <span className="font-medium text-warning">
+              <span className="font-medium text-foreground">
                 {t("developerSection.performanceNote.label")}
               </span>{" "}
               {t("developerSection.performanceNote.description")}

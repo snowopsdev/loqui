@@ -648,7 +648,7 @@ test("[change-driving] an unreadable or rejected first read is unavailable, and 
     ],
     [reject, reject],
   ].entries()) {
-    await t.test(`unreadable case ${index}`, async (t) => {
+    await t.test(`[baseline guard] unreadable case ${index}`, async (t) => {
       const { api, calls } = fakeApi({ storage: { preview }, getAudioStorageUsage });
       const h = await mount(t, api);
       assert.deepEqual(h.view().audio, { status: "error", error: "unavailable" });
@@ -876,7 +876,7 @@ const HISTORY_REFUSED = {
 // change-driving FIX1: both success and error metadata continuations must retain owner identity.
 test("[change-driving FIX1] cancelled recount cannot replace newer running history", async (t) => {
   for (const rejected of [false, true])
-    await t.test(`old recount rejected=${rejected}`, async (t) => {
+    await t.test(`[baseline guard] old recount rejected=${rejected}`, async (t) => {
       const pending = Promise.withResolvers();
       const deletion = deferred();
       let hold = false;

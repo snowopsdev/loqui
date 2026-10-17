@@ -215,7 +215,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
 
   // Change-driving (I1 follow-up): the region Select called setCortiEnvironment directly.
   await t.test(
-    "speech: a Corti region switch is staged; the tenant commits on leave and stages the active account path",
+    "[change-driving] speech: a Corti region switch is staged; the tenant commits on leave and stages the active account path",
     async () => {
       const corti = dictationCloud({
         cloudTranscriptionProvider: "corti",
@@ -294,7 +294,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   );
 
   await t.test(
-    "text: a custom endpoint moving from loopback to a remote host is staged",
+    "[change-driving] text: a custom endpoint moving from loopback to a remote host is staged",
     async () => {
       await reset({
         chatAgentMode: "providers",
@@ -355,7 +355,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   );
 
   await t.test(
-    "self-hosted: Use this server on loopback applies at once (local → loopback)",
+    "[change-driving] self-hosted: Use this server on loopback applies at once (local → loopback)",
     async () => {
       await reset({
         transcriptionMode: "local",

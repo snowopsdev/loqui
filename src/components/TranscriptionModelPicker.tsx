@@ -1161,7 +1161,7 @@ export default function TranscriptionModelPicker({
                         onClick={handleGpuDelete}
                         size="sm"
                         variant="ghost"
-                        className="h-6 shrink-0 px-2 text-xs text-muted-foreground hover:text-destructive"
+                        className="h-6 shrink-0 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-background"
                       >
                         {t("gpu.remove")}
                       </Button>
@@ -1196,7 +1196,7 @@ export default function TranscriptionModelPicker({
                         onClick={handleGpuDelete}
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-background"
                       >
                         {t("gpu.remove")}
                       </Button>

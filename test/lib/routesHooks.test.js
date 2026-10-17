@@ -203,7 +203,7 @@ test("change-driving Task6: mounting the route hooks loads facts from local call
   );
 });
 
-test("the hooks re-render from the settings, facts and sealed stores", async (t) => {
+test("[change-driving] the hooks re-render from the settings, facts and sealed stores", async (t) => {
   // I3, I14, M5: one hook subscribes to all three sources.
   const h = await mount(t);
   await h.act(() =>
@@ -228,7 +228,7 @@ test("the hooks re-render from the settings, facts and sealed stores", async (t)
   );
 });
 
-test("turning provider search on re-renders the chat disclosure", async (t) => {
+test("[change-driving] turning provider search on re-renders the chat disclosure", async (t) => {
   // I15: the preference lives in localStorage, outside every store.
   const h = await mount(t);
   await h.act(() =>

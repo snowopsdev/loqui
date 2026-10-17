@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const load = () => import("../../src/utils/formatBytes.ts");
 
-test("decimal sizes match what model hosts publish", async () => {
+test("[change-driving] decimal sizes match what model hosts publish", async () => {
   const { formatDecimalBytes } = await load();
   assert.equal(formatDecimalBytes(34_800_000), "34.8 MB");
   assert.equal(formatDecimalBytes((6.6 + 28.2) * 1_000_000), "34.8 MB");
@@ -12,14 +12,14 @@ test("decimal sizes match what model hosts publish", async () => {
   assert.equal(formatDecimalBytes(1_000), "1 KB");
 });
 
-test("unusable sizes read as zero rather than NaN", async () => {
+test("[change-driving] unusable sizes read as zero rather than NaN", async () => {
   const { formatDecimalBytes } = await load();
   for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.equal(formatDecimalBytes(bad), "0 MB");
   }
 });
 
-test("the binary formatter is unchanged", async () => {
+test("[baseline guard] the binary formatter is unchanged", async () => {
   const { formatBytes } = await load();
   assert.equal(formatBytes(1024), "1 KB");
 });

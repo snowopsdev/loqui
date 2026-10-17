@@ -143,27 +143,22 @@ test("[change-driving] rendered unchecked mode indicators meet 3:1 on rest and h
     2,
     "the selector rendered one checked and one unchecked indicator"
   );
-  const uncheckedClass = indicators.find((className) =>
-    className.includes("border-muted-foreground")
+  const uncheckedClass = indicators.find(
+    (className) => !className.split(/\s+/).includes("bg-ring")
   );
-  assert.ok(uncheckedClass, "the rendered unchecked radio exposes its outline class");
   assert.ok(
-    indicators.some((className) => className.includes("border-ring")),
-    "the checked indicator keeps its existing ring role"
+    uncheckedClass,
+    "select the actual unchecked indicator independently of its color role"
   );
   const tokens = resolveTokens(css);
   const { contrastRatio } = await load();
-  const themeCases = [
-    { theme: "light", tokenSet: tokens.light, roleClass: "border-muted-foreground" },
-    { theme: "dark", tokenSet: tokens.dark, roleClass: "border-muted-foreground" },
-  ];
-  assert.ok(
-    uncheckedClass.split(/\s+/).some((className) => className === "border-muted-foreground"),
-    `expected actual unchecked indicator class to use the readable control-outline role, got: ${uncheckedClass}`
-  );
-  for (const { theme, tokenSet, roleClass } of themeCases) {
-    const tokenName = roleClass.replace(/^dark:/, "").replace(/^border-/, "");
-    const color = tokenSet[`--color-${tokenName}`];
+  for (const [theme, tokenSet] of [
+    ["light", tokens.light],
+    ["dark", tokens.dark],
+  ]) {
+    const roleClass = effectiveBorder(uncheckedClass, theme);
+    const color = tokenSet[`--color-${roleClass.replace(/^border-/, "")}`];
+    assert.ok(color, `known rendered border color: ${theme} ${roleClass}`);
     const composite = await surfaces(tokenSet, theme);
     for (const surfaceName of ["panel", "hoverRow"]) {
       const surface = composite[surfaceName];
@@ -174,6 +169,11 @@ test("[change-driving] rendered unchecked mode indicators meet 3:1 on rest and h
       );
     }
   }
+  assert.equal(
+    effectiveBorder("border-muted-foreground dark:border-border-subtle", "dark"),
+    "border-border-subtle",
+    "a low-contrast dark override cannot hide behind a readable base role"
+  );
 });
 
 // I13 token CCR: the light focus ring moves from the brand orange to its
@@ -218,3 +218,16 @@ test("status text roles that cannot clear 4.5:1 stay off Settings text", async (
     "destructive text is 4.06:1 on the selected tile"
   );
 });
+
+function effectiveBorder(classes, theme) {
+  const names = classes.split(/\s+/);
+  const isColor = (name) => /^border-(?![0-9]+$)(?:[a-z]+(?:-[a-z0-9]+)*)$/.test(name);
+  const base = names.filter(isColor);
+  const dark = names
+    .filter((name) => name.startsWith("dark:"))
+    .map((name) => name.slice(5))
+    .filter(isColor);
+  const effective = theme === "dark" && dark.length ? dark : base;
+  assert.equal(effective.length, 1, `one unambiguous ${theme} outline color in ${classes}`);
+  return effective[0];
+}

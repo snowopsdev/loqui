@@ -91,7 +91,7 @@ async function mount(t, getProps) {
   return { tree: () => tree, group, radios, press, focused, tabStops };
 }
 
-test("mode selector", async (t) => {
+test("[change-driving] mode selector", async (t) => {
   await t.test(
     "[change-driving] it is a named radio group with one tab stop on the checked radio",
     async (t) => {

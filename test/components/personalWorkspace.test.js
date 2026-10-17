@@ -384,7 +384,7 @@ async function bedrockProfileEditor(t, gates) {
 }
 
 for (const success of [false, true]) {
-  test(`Bedrock same-value resubmission owns its ${success ? "successful" : "refused"} outcome after intervening edits`, async (t) => {
+  test(`[change-driving] Bedrock same-value resubmission owns its ${success ? "successful" : "refused"} outcome after intervening edits`, async (t) => {
     const first = deferred();
     const retry = deferred();
     const editor = await bedrockProfileEditor(t, [first, retry]);
@@ -428,7 +428,7 @@ for (const success of [false, true]) {
     }
   });
 
-  test(`Bedrock ${success ? "successful" : "refused"} ACK preserves a newer unsent profile draft`, async (t) => {
+  test(`[baseline guard] Bedrock ${success ? "successful" : "refused"} ACK preserves a newer unsent profile draft`, async (t) => {
     const first = deferred();
     const editor = await bedrockProfileEditor(t, [first]);
     let saving;
@@ -455,7 +455,7 @@ for (const success of [false, true]) {
   });
 }
 
-test("Bedrock profile submissions preserve A then queued B then resubmitted A order", async (t) => {
+test("[baseline guard] Bedrock profile submissions preserve A then queued B then resubmitted A order", async (t) => {
   const gates = [deferred(), deferred(), deferred()];
   const editor = await bedrockProfileEditor(t, gates);
   const saving = [];

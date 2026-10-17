@@ -102,11 +102,8 @@ export default function InferenceConfigEditor({
     config.mode
   );
 
-  const setField = useCallback(
-    <K extends keyof Omit<typeof config, "scope">>(field: K) =>
-      (value: NonNullable<(typeof config)[K]>) => {
-        setResolvedLLMConfig(scope, { [field]: value });
-      },
+  const setDisableThinking = useCallback(
+    (value: boolean) => setResolvedLLMConfig(scope, { disableThinking: value }),
     [scope]
   );
 
@@ -145,7 +142,7 @@ export default function InferenceConfigEditor({
   const routePatch = (patch: SettingsPatch) => void requestPatch(routeId, patch);
 
   // The scope's custom-endpoint key saves through main and is acknowledged
-  // (I3, R2-3); setField would route it through the fire-and-forget setter.
+  // (I3, R2-3); a generic field setter would route it through the fire-and-forget setter.
   const customKeyField = INFERENCE_SCOPES[scope].storeKeys.customApiKey;
   const saveCustomKey: AcknowledgedSecretSave = (value) =>
     customKeyField && isSecretStoreKey(customKeyField)
@@ -228,7 +225,7 @@ export default function InferenceConfigEditor({
             </h4>
             <p className="text-xs text-muted-foreground">{t("reasoning.disableThinking.help")}</p>
           </div>
-          <Toggle checked={config.disableThinking} onChange={setField("disableThinking")} />
+          <Toggle checked={config.disableThinking} onChange={setDisableThinking} />
         </div>
       )}
     </div>

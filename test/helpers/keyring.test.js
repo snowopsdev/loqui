@@ -430,7 +430,7 @@ test("describeVerify names the hosts and slot names each Verify sends to", async
   await assert.rejects(keyring.describeVerify("codex"), /Unknown credential identity/);
 });
 
-test("enterprise disclosure follows the enterprise SDK rules", () => {
+test("[baseline guard] enterprise disclosure follows the enterprise SDK rules", () => {
   assert.deepEqual(enterpriseVerifyTarget("azure", { azureEndpoint: "http://acme.example" }, {}), {
     hosts: [],
     fields: ["key"],

@@ -331,7 +331,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
   // Change-driving: the endpoint Field called settings.setAzureEndpoint per keystroke
   // (EnterpriseProviderConfig.tsx:145-148), which persisted to main at once (settingsStore.ts:2060-2063).
   await t.test(
-    "an active Azure endpoint edit changes no committed destination before Apply",
+    "[change-driving] an active Azure endpoint edit changes no committed destination before Apply",
     async () => {
       await reset({
         chatAgentMode: "enterprise",
@@ -388,7 +388,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
   // Change-driving: the region Field called setBedrockRegion and rewrote the model per keystroke
   // (EnterpriseProviderConfig.tsx:114-118), outside review and Undo.
   await t.test(
-    "a Bedrock region edit is staged with the model's region prefix, and Undo restores both",
+    "[change-driving] a Bedrock region edit is staged with the model's region prefix, and Undo restores both",
     async () => {
       await reset({
         chatAgentMode: "enterprise",
@@ -434,7 +434,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
 
   // change-driving Task11: bounded refusal is never rendered as success.
   await t.test(
-    "Task11: recipientChanged refreshes disclosure and requires a new click",
+    "[change-driving] Task11: recipientChanged refreshes disclosure and requires a new click",
     async () => {
       await reset({
         chatAgentMode: "enterprise",
@@ -458,7 +458,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
   // Change-driving (R2-6): Test connection sent a credential-bearing request behind a generic label
   // (EnterpriseProviderConfig.tsx:86-100, :195-206).
   await t.test(
-    "Test connection names main's host and fields, and the request goes to that host",
+    "[change-driving] Test connection names main's host and fields, and the request goes to that host",
     async () => {
       await reset({
         chatAgentMode: "enterprise",
@@ -504,7 +504,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
 
   // Change-driving (R2-9): enterprise setup existed only after Apply, so Azure was applied first.
   await t.test(
-    "staged Azure: endpoint and deployment are set up inside the panel without committing",
+    "[change-driving] staged Azure: endpoint and deployment are set up inside the panel without committing",
     async () => {
       await reset({
         chatAgentMode: "providers",
@@ -561,7 +561,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
 
   // Change-driving (R2-9): Codex was applied before any sign-in ("Sign in after applying").
   await t.test(
-    "staged Codex: Connect is inside the panel; mounting starts nothing and the route stays staged",
+    "[change-driving] staged Codex: Connect is inside the panel; mounting starts nothing and the route stays staged",
     async () => {
       await reset({
         chatAgentMode: "providers",

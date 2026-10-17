@@ -4259,6 +4259,38 @@
         "bodyOther": "Everything below is true right now.",
         "openWorkspace": "Open workspace"
       }
+    },
+    "hello": {
+      "start": "Get started",
+      "micTitle": "Let Loqui hear you",
+      "micBody": "Loqui listens only while you dictate. Nothing on this screen is recorded.",
+      "allowMic": "Allow microphone",
+      "micReady": "{{device}} is listening",
+      "micReadyGeneric": "Your microphone is listening",
+      "micLabel": "Microphone",
+      "systemDefault": "System default",
+      "builtIn": "Built-in microphone",
+      "unnamedMic": "Unnamed microphone",
+      "notHearing": "Not hearing you? Choose another microphone.",
+      "savedMicMissing": "Your saved microphone isn't connected, so Loqui is using the system default.",
+      "deniedTitle": "Loqui can't use your microphone",
+      "deniedBodyMac": "Allow it in System Settings, then come back. Loqui checks again when you return.",
+      "deniedBodyOther": "Allow it in your system's privacy or sound settings, then come back. Loqui checks again when you return.",
+      "openSettings": "Open System Settings",
+      "recheck": "I've turned it on",
+      "unavailableTitle": "Loqui can't open your microphone",
+      "unavailableBody": "Another app may be using it, or no input device is connected.",
+      "retryOpen": "Try again",
+      "openSound": "Open Sound settings",
+      "starting": "Opening your microphone…"
+    },
+    "privacy": {
+      "title": "Privacy defaults",
+      "historyTitle": "Keep local history",
+      "historyBodyMac": "Save transcripts on this Mac. Change anytime in Privacy & Data.",
+      "historyBodyOther": "Save transcripts on this computer. Change anytime in Privacy & Data.",
+      "updatesTitle": "Download updates automatically",
+      "updatesBody": "Check signed releases daily. You choose when to restart."
     }
   }
 }

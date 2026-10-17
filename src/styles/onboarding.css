@@ -632,3 +632,91 @@
 .onb-progress__step:not(:disabled) {
   background: var(--color-nav-marker);
 }
+
+.onb-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+
+.onb-card__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.onb-muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-muted-foreground);
+}
+
+.onb-mic-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.onb-mic-row__icon {
+  width: 18px;
+  height: 18px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-select-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  font-size: 13px;
+  transition: border-color var(--motion-fast) var(--motion-ease-std);
+}
+
+/* R3 C "nothing heard": the device select is what to check first. */
+.onb-select-row[data-attention] {
+  border-color: var(--color-live);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-live) 18%, transparent);
+}
+
+.onb-select-row select {
+  min-height: 36px;
+  padding-inline: 10px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 6px;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font: inherit;
+}
+
+.onb-select-row select:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.onb-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.onb-toggle-row__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onb-warning {
+  margin: 0;
+  color: var(--color-foreground);
+  font-size: 13px;
+  line-height: 1.45;
+}

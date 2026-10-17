@@ -23,7 +23,12 @@ import { Toggle } from "./ui/toggle";
 import LanguageSelector from "./ui/LanguageSelector";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
 import CodexConnection from "./CodexConnection";
-import WelcomeScreen from "./onboarding/WelcomeScreen";
+import { micPickerModel, selectionFor, type AudioInput } from "../utils/onboardingMic";
+import { HelloStep } from "./onboarding/HelloStep";
+import { PrivacyDefaults } from "./onboarding/PrivacyDefaults";
+import { useMicrophoneAccess } from "./onboarding/useMicrophoneAccess";
+import { useMicLevelPreview } from "./onboarding/useMicLevelPreview";
+import "../styles/onboarding-welcome.css";
 import "../styles/onboarding-guided.css";
 import "../styles/onboarding.css";
 import { getDefaultHotkey } from "../utils/hotkeys";
@@ -830,7 +835,9 @@ function ShortcutsStep({
 function FinishStep({
   readiness,
   onResume,
+  privacy,
 }: {
+  privacy: ReactNode;
   readiness: OnboardingReadiness;
   onResume: (step: OnboardingStep) => void;
 }) {
@@ -895,6 +902,7 @@ function FinishStep({
           );
         })}
       </div>
+      {privacy}
       <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-xs leading-relaxed text-muted-foreground">
         <p className="font-semibold text-foreground">Next</p>
         <p className="mt-1">
@@ -1003,6 +1011,48 @@ export default function OnboardingFlow({
         : getCachedPlatform()
   ) as "darwin" | "linux" | "win32";
   const device = platform === "darwin" ? "Mac" : "Other";
+  // T12: the existing dictation preference is the only microphone selection authority.
+  const mic = useMicrophoneAccess();
+  const micMode = useSettingsStore((s) => s.microphoneSelectionMode);
+  const micId = useSettingsStore((s) => s.selectedMicDeviceId);
+  const micLabel = useSettingsStore((s) => s.selectedMicDeviceLabel);
+  const [helloInputs, setHelloInputs] = useState<AudioInput[]>([]);
+  const micPicker = micPickerModel(helloInputs, micMode, micId, micLabel);
+  const helloPreview = useMicLevelPreview(
+    step === "welcome" && mic.access === "granted",
+    micPicker.previewDeviceId
+  );
+  // T18 consumes this device-bound evidence. Never transfer an old device's proof.
+  const micSelection = JSON.stringify([micMode, micId, micLabel, micPicker.previewDeviceId]);
+  const [micHeardSelection, setMicHeard] = useState<string | null>(null);
+  const listeningSelection = useRef<string | null>(null);
+  useEffect(() => {
+    setMicHeard(null);
+  }, [micSelection]);
+  useEffect(() => setHelloInputs(helloPreview.inputs), [helloPreview.inputs]);
+  useEffect(() => {
+    if (helloPreview.status !== "live") listeningSelection.current = null;
+    else {
+      listeningSelection.current ??= micSelection;
+      if (helloPreview.heardVoice && listeningSelection.current === micSelection)
+        setMicHeard(micSelection);
+    }
+  }, [helloPreview.status, helloPreview.heardVoice, micSelection]);
+  // Until T18, the legacy readiness list continues to use its trial evidence.
+  const micHeard = micHeardSelection === micSelection;
+  void micHeard;
+  const pickMicrophone = (value: string) => {
+    setMicHeard(null);
+    const { mode, device: picked } = selectionFor(value, helloInputs);
+    const store = useSettingsStore.getState();
+    if (picked) store.setSelectedMicDevice(picked.deviceId, picked.label);
+    store.setMicrophoneSelectionMode(mode);
+  };
+  const changeUpdates = (value: boolean) => {
+    setUpdatesEnabled(value);
+    void window.electronAPI?.updates?.preferences?.({ enabled: value });
+  };
+
   const scenario = config?.scenario ?? "fresh";
   const speechLanguage =
     spokenLanguages[0] || (preferredLanguage === "auto" ? "en-US" : preferredLanguage) || "en-US";
@@ -1321,43 +1371,68 @@ export default function OnboardingFlow({
     );
   if (step === "shortcuts")
     content = <ShortcutsStep platform={platform} permissions={permissions} />;
-  if (step === "finish") content = <FinishStep readiness={readiness} onResume={goTo} />;
-
-  if (step === "welcome") {
+  if (step === "finish")
     content = (
-      <WelcomeScreen
-        platform={platform}
-        updatesEnabled={updatesEnabled}
-        onUpdatesChange={(value) => {
-          setUpdatesEnabled(value);
-          void window.electronAPI?.updates?.preferences?.({ enabled: value });
-        }}
-        dataRetentionEnabled={dataRetentionEnabled}
-        onDataRetentionChange={setDataRetentionEnabled}
-        onContinue={advance}
-        onExplore={finishLater}
+      <FinishStep
+        readiness={readiness}
+        onResume={goTo}
+        privacy={
+          <PrivacyDefaults
+            platform={platform}
+            historyEnabled={dataRetentionEnabled}
+            onHistoryChange={setDataRetentionEnabled}
+            updatesEnabled={updatesEnabled}
+            onUpdatesChange={changeUpdates}
+          />
+        }
       />
     );
-  }
 
   // T11 interim: keep each legacy body until its owning step task replaces it.
   const legacy = (node: ReactNode) => (
     <div className="onboarding-welcome onboarding-guided onb-legacy">{node}</div>
   );
-  const stepView = (): StepView => ({
-    rail: {
-      title: t(`setupFlow.rail.${step}.title`),
-      body: t(`setupFlow.rail.${step}.body${device}`),
-      mode: { kind: "idle" },
-    },
-    primary:
-      step === "finish"
-        ? { label: t("setupFlow.rail.finish.openWorkspace"), onClick: () => finish() }
-        : { label: t("setupFlow.continue"), onClick: advance },
-    onSkip: step === "welcome" || step === "finish" ? undefined : skip,
-    finishLaterLabel: t(step === "welcome" ? "setupFlow.lookAroundFirst" : "setupFlow.finishLater"),
-    content: legacy(content),
-  });
+  const stepView = (): StepView => {
+    if (step === "welcome")
+      return {
+        rail: {
+          title: t(`setupFlow.rail.${step}.title`),
+          body: t(`setupFlow.rail.${step}.body${device}`),
+          mode:
+            helloPreview.status === "live"
+              ? { kind: "listening", heardVoice: helloPreview.heardVoice }
+              : { kind: "idle" },
+          readLevel: helloPreview.readLevel,
+        },
+        primary: { label: t("setupFlow.hello.start"), onClick: advance },
+        finishLaterLabel: t("setupFlow.lookAroundFirst"),
+        content: (
+          <HelloStep
+            platform={platform}
+            access={mic.access}
+            preview={helloPreview}
+            picker={micPicker}
+            onPickMicrophone={pickMicrophone}
+            onAllow={() => void mic.request()}
+            onRecheck={() => void mic.check()}
+          />
+        ),
+      };
+    return {
+      rail: {
+        title: t(`setupFlow.rail.${step}.title`),
+        body: t(`setupFlow.rail.${step}.body${device}`),
+        mode: { kind: "idle" },
+      },
+      primary:
+        step === "finish"
+          ? { label: t("setupFlow.rail.finish.openWorkspace"), onClick: () => finish() }
+          : { label: t("setupFlow.continue"), onClick: advance },
+      onSkip: step === "finish" ? undefined : skip,
+      finishLaterLabel: t("setupFlow.finishLater"),
+      content: legacy(content),
+    };
+  };
   const view = stepView();
   const footerStatus =
     step !== "speech" && downloadState === "downloading" ? (

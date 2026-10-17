@@ -37,6 +37,41 @@ function installTree() {
         child.parentNode = null;
         return child;
       },
+      // React's controlled native select reads the live options collection.
+      get options() {
+        if (node.tagName !== "SELECT") return undefined;
+        const options = [];
+        const collect = (parent) => {
+          for (const child of parent.childNodes) {
+            if (child.tagName === "OPTION") options.push(child);
+            else collect(child);
+          }
+        };
+        collect(node);
+        return options;
+      },
+      get selected() {
+        return node._selected ?? false;
+      },
+      set selected(value) {
+        node._selected = Boolean(value);
+        let select = node.parentNode;
+        while (select && select.tagName !== "SELECT") select = select.parentNode;
+        if (value && select && !select.multiple) {
+          for (const option of select.options) if (option !== node) option._selected = false;
+        }
+      },
+      get value() {
+        if (node.tagName === "OPTION") return node.attributes.value ?? node.textContent;
+        if (node.tagName === "SELECT")
+          return (node.options.find((option) => option.selected) ?? node.options[0])?.value ?? "";
+        return node._value ?? "";
+      },
+      set value(value) {
+        if (node.tagName === "SELECT") {
+          for (const option of node.options) option.selected = option.value === String(value);
+        } else node._value = String(value);
+      },
       get firstChild() {
         return node.childNodes[0] ?? null;
       },

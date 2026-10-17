@@ -181,3 +181,22 @@ test("expectKey binds all values to one matching key interpolation", () => {
     assert.AssertionError
   );
 });
+
+test("controlled native selects expose actual option values and update selected state", async (t) => {
+  const ui = await mountComponent(t, "/SelectFixture", {
+    props: { value: "usb" },
+    mocks: {
+      "/SelectFixture": `import React from "react"; export default function Select({ value }) { return React.createElement("select", { value, onChange() {} }, React.createElement("option", { value: "system" }, "System"), React.createElement("optgroup", { label: "Devices" }, React.createElement("option", { value: "usb" }, "USB"))); }`,
+    },
+  });
+  const [select] = ui.findAll((node) => node.tagName === "SELECT");
+  assert.deepEqual(
+    select.options.map((node) => node.value),
+    ["system", "usb"]
+  );
+  assert.equal(select.options[1].selected, true);
+  await ui.rerender({ value: "system" });
+  assert.equal(select.options[0].selected, true);
+  assert.equal(select.options[1].selected, false);
+  assert.equal(select.value, "system");
+});

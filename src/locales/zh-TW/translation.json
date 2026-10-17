@@ -4163,5 +4163,18 @@
         "description": "此裝置上的音訊、模型和歷史記錄"
       }
     }
+  },
+  "notices": {
+    "dismiss": "關閉",
+    "moreActions": "更多操作",
+    "wordsCard": {
+      "copy": "複製",
+      "copied": "已複製",
+      "copyFailed": "無法複製",
+      "copyFailedHint": "剪貼簿未能接收文字。你的文字仍保留在這裡：可以選取或拖曳。",
+      "hint": "將文字拖曳到應用程式中，或再次貼上。",
+      "dragHint": "拖曳到你剛才輸入文字的欄位中",
+      "more_other": "還有 {{count}} 段未傳送的文字"
+    }
   }
 }

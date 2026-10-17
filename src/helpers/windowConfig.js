@@ -150,6 +150,7 @@ const WINDOW_SIZES = {
     width: DICTATION_ERROR_WINDOW_LIMITS.width,
     height: 168,
   },
+  WITH_NOTICES: { width: 400, height: 168 },
   WITH_MENU: { width: 240, height: 280 },
   WITH_TOAST: { width: 400, height: 500 },
   EXPANDED: { width: 400, height: 500 },

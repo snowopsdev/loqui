@@ -1,3 +1,4 @@
+import { NoticeStack } from "./components/ui/NoticeStack";
 import UpdateSettings from "./components/settings/UpdateSettings";
 import { flushForUpdate } from "./utils/updateFlush";
 import React, { Suspense, useEffect, useState } from "react";
@@ -62,20 +63,23 @@ function MainApp() {
       }
     >
       {isControlPanel ? (
-        showOnboarding ? (
-          <OnboardingFlow
-            onComplete={() => {
-              localStorage.setItem("onboardingCompleted", "true");
-              window.electronAPI?.updates?.completeSetup();
-              setShowOnboarding(false);
-            }}
-          />
-        ) : (
-          <>
-            <UpdateSettings notice />
-            <ControlPanel />
-          </>
-        )
+        <>
+          {showOnboarding ? (
+            <OnboardingFlow
+              onComplete={() => {
+                localStorage.setItem("onboardingCompleted", "true");
+                window.electronAPI?.updates?.completeSetup();
+                setShowOnboarding(false);
+              }}
+            />
+          ) : (
+            <>
+              <UpdateSettings notice />
+              <ControlPanel />
+            </>
+          )}
+          <NoticeStack placement="panel" />
+        </>
       ) : (
         <App />
       )}

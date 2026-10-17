@@ -4163,5 +4163,18 @@
         "description": "此设备上的音频、模型和历史记录"
       }
     }
+  },
+  "notices": {
+    "dismiss": "关闭",
+    "moreActions": "更多操作",
+    "wordsCard": {
+      "copy": "复制",
+      "copied": "已复制",
+      "copyFailed": "无法复制",
+      "copyFailedHint": "剪贴板未能接收文本。你的文字仍保留在这里：可以选择或拖动。",
+      "hint": "将文字拖入应用，或再次粘贴。",
+      "dragHint": "拖到你刚才输入文字的文本框中",
+      "more_other": "还有 {{count}} 段未发送的文字"
+    }
   }
 }

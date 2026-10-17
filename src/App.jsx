@@ -1,3 +1,7 @@
+import { NoticeStack, useNoticeWindowState } from "./components/ui/NoticeStack";
+import { getNotices, runNoticeAction, wordsCardNotice } from "./components/ui/notices";
+import { usePillHotkey } from "./hooks/usePillHotkey";
+import { getCachedPlatform } from "./utils/platform";
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import "./index.css";
@@ -63,6 +67,18 @@ export default function App() {
   const pillPresenceRef = useRef(null);
   const { toast, dismiss, toastCount, dictationErrorActionCount, dismissByPresentation } =
     useToast();
+  const { noticeCount, wordsCardVisible } = useNoticeWindowState();
+  const noticesOnScreen = noticeCount + toastCount > 0 || wordsCardVisible;
+  const noticeHotkey = usePillHotkey(
+    "noticePrimary",
+    wordsCardVisible,
+    () => {
+      const card = wordsCardNotice(getNotices());
+      const primary = card?.actions?.find((action) => action.primary);
+      if (card && primary) void runNoticeAction(card.id, primary);
+    },
+    { ttlMs: 60_000 }
+  );
   const { t } = useTranslation();
   const { hotkey } = useHotkey();
   const { isDragging, handleMouseDown, handleMouseUp } = useWindowDrag();
@@ -310,10 +326,10 @@ export default function App() {
   // a menu opening over the compact pill resolves to EXPANDED geometry.
   const windowFitsCompactPill = voicePillIsRecording || voiceActivity.compactPill;
 
-  const { dictationErrorPillHandoffActive, panelReturnResizeActive } = useMainWindowSizeOwner({
+  const { wordsCardHandoffActive, panelReturnResizeActive } = useMainWindowSizeOwner({
     requestMainWindowSize,
-    dictationErrorActionCount,
-    toastCount,
+    wordsCardVisible: wordsCardVisible || dictationErrorActionCount > 0,
+    noticeCount: noticeCount + toastCount,
     isCommandMenuOpen,
     isCompactPill: windowFitsCompactPill,
     isDictationActive: isRecording || isVisuallyProcessing,
@@ -326,7 +342,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (isCommandMenuOpen || toastCount > 0 || assistant.mounted || liveTranscript.mounted) {
+    if (isCommandMenuOpen || noticesOnScreen || assistant.mounted || liveTranscript.mounted) {
       setWindowInteractivity(true);
     } else if (!isHovered) {
       setWindowInteractivity(false);
@@ -334,7 +350,7 @@ export default function App() {
   }, [
     isCommandMenuOpen,
     isHovered,
-    toastCount,
+    noticesOnScreen,
     assistant.mounted,
     liveTranscript.mounted,
     setWindowInteractivity,
@@ -413,8 +429,8 @@ export default function App() {
       floatingIconAutoHide &&
       !isRecording &&
       !isVisuallyProcessing &&
-      toastCount === 0 &&
-      !dictationErrorPillHandoffActive &&
+      !noticesOnScreen &&
+      !wordsCardHandoffActive &&
       !assistant.mounted &&
       !liveTranscript.mounted
     ) {
@@ -432,8 +448,8 @@ export default function App() {
     isRecording,
     isVisuallyProcessing,
     floatingIconAutoHide,
-    toastCount,
-    dictationErrorPillHandoffActive,
+    noticesOnScreen,
+    wordsCardHandoffActive,
     assistant.mounted,
     liveTranscript.mounted,
   ]);
@@ -595,8 +611,6 @@ export default function App() {
     liveTranscript.open && liveTranscript.entrancePhase === "encapsulate"
       ? LIVE_TRANSCRIPT_ENTRANCE_TIMING.encapsulateMs
       : LIVE_TRANSCRIPT_ENTRANCE_TIMING.horizontalMs;
-  const dictationErrorSuppressesPill =
-    dictationErrorActionCount > 0 || dictationErrorPillHandoffActive;
   // Keep one pill DOM node alive while final Agent actions own the footer. On
   // close it can fade and travel from the panel dock instead of mounting at
   // the resting dock halfway through the surface contraction.
@@ -614,7 +628,7 @@ export default function App() {
   // condense-then-blink. Live activity opts out of that fold: the pill is the
   // only owner left once beginClose hides the companion.
   const pillVisuallySuppressed = resolvePillVisualSuppression({
-    dictationErrorSuppressed: dictationErrorSuppressesPill,
+    dictationErrorSuppressed: false,
     assistantActionsSuppressed: assistantActionsSuppressPill,
     assistantClosing: assistant.closing,
     panelReturnResizeActive,
@@ -623,7 +637,7 @@ export default function App() {
 
   useLinuxPillInteractivity({
     pillRef: pillPresenceRef,
-    captureWindow: isCommandMenuOpen || toastCount > 0 || anyPanelMounted || isDragging,
+    captureWindow: isCommandMenuOpen || noticesOnScreen || anyPanelMounted || isDragging,
     pillInteractive: pillIsInteractive && !pillVisuallySuppressed,
   });
 
@@ -637,7 +651,6 @@ export default function App() {
         style={{
           "--voice-pill-travel-duration": `${voicePillTravelDuration}ms`,
         }}
-        data-dictation-error-suppressed={dictationErrorSuppressesPill || undefined}
         data-assistant-actions-suppressed={assistantActionsSuppressPill || undefined}
         aria-hidden={pillVisuallySuppressed || undefined}
       >
@@ -838,6 +851,13 @@ export default function App() {
           />
         )}
       </VoiceModePanelCore>
+      <NoticeStack
+        placement="pill"
+        horizontalDirection={voiceHorizontalDirection}
+        primaryHotkeyLabel={
+          noticeHotkey.held ? (getCachedPlatform() === "darwin" ? "⌥↵" : "Alt+Enter") : null
+        }
+      />
     </div>
   );
 }

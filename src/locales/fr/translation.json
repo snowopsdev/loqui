@@ -4195,5 +4195,20 @@
         "description": "Audio, modèles et historique sur cet appareil"
       }
     }
+  },
+  "notices": {
+    "dismiss": "Fermer",
+    "moreActions": "Autres actions",
+    "wordsCard": {
+      "copy": "Copier",
+      "copied": "Copié",
+      "copyFailed": "Échec de la copie",
+      "copyFailedHint": "Le presse-papiers n’a pas accepté le texte. Vos mots sont toujours ici : sélectionnez-les ou faites-les glisser.",
+      "hint": "Faites glisser les mots dans votre application ou collez-les à nouveau.",
+      "dragHint": "Faire glisser dans le champ où vous écriviez",
+      "more_one": "{{count}} autre texte non envoyé",
+      "more_many": "{{count}} autres textes non envoyés",
+      "more_other": "{{count}} autres textes non envoyés"
+    }
   }
 }

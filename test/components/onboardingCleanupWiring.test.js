@@ -8,7 +8,7 @@ const {
   installHookDom,
 } = require("../lib/rendererTestHarness");
 
-const { installTree } = require("../helpers/harness/fakeDomTree");
+const { installClickableTree: installTree } = require("../lib/clickableTree");
 const { TOAST_MOCK } = require("../helpers/harness/rendererMocks");
 
 function deferred() {

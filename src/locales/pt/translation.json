@@ -4195,5 +4195,20 @@
         "description": "Áudio, modelos e histórico neste dispositivo"
       }
     }
+  },
+  "notices": {
+    "dismiss": "Dispensar",
+    "moreActions": "Mais ações",
+    "wordsCard": {
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "copyFailed": "Não foi possível copiar",
+      "copyFailedHint": "A área de transferência não aceitou o texto. Suas palavras continuam aqui: selecione ou arraste o texto.",
+      "hint": "Arraste as palavras para o aplicativo ou cole novamente.",
+      "dragHint": "Arraste para o campo em que você estava digitando",
+      "more_one": "Mais {{count}} texto não enviado",
+      "more_many": "Mais {{count}} textos não enviados",
+      "more_other": "Mais {{count}} textos não enviados"
+    }
   }
 }

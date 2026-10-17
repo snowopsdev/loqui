@@ -1,6 +1,7 @@
 @import "tailwindcss";
 /* Dictation window feature styles (voice pill, assistant/live-transcript panels). */
 @import "./styles/dictation-panel.css";
+@import "./styles/notices.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -94,6 +95,7 @@
   --motion-instant: 90ms;
   --motion-fast: 150ms;
   --motion-base: 240ms;
+  --motion-stagger: 40ms;
   --motion-slow: 360ms;
   --motion-hero: 520ms;
   /* One-shot landing flash on a searched setting (Settings search). The animation uses this

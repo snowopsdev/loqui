@@ -4189,5 +4189,19 @@
         "description": "Audio, models and history on this device"
       }
     }
+  },
+  "notices": {
+    "dismiss": "Dismiss",
+    "moreActions": "More actions",
+    "wordsCard": {
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Couldn’t copy",
+      "copyFailedHint": "The clipboard didn’t take it. Your words are still here: select or drag them.",
+      "hint": "Drag the words into your app, or paste again.",
+      "dragHint": "Drag into the field you were typing in",
+      "more_one": "{{count}} more unsent",
+      "more_other": "{{count}} more unsent"
+    }
   }
 }

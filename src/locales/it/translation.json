@@ -4195,5 +4195,20 @@
         "description": "Audio, modelli e cronologia su questo dispositivo"
       }
     }
+  },
+  "notices": {
+    "dismiss": "Chiudi",
+    "moreActions": "Altre azioni",
+    "wordsCard": {
+      "copy": "Copia",
+      "copied": "Copiato",
+      "copyFailed": "Impossibile copiare",
+      "copyFailedHint": "Gli appunti non hanno accettato il testo. Le tue parole sono ancora qui: selezionale o trascinale.",
+      "hint": "Trascina le parole nella tua app o incollale di nuovo.",
+      "dragHint": "Trascina nel campo in cui stavi scrivendo",
+      "more_one": "{{count}} altro testo non inviato",
+      "more_many": "{{count}} altri testi non inviati",
+      "more_other": "{{count}} altri testi non inviati"
+    }
   }
 }

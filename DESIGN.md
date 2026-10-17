@@ -217,6 +217,7 @@ One language for every surface. **Hue is mode, shape is locality, motion is prog
 | `--motion-instant`                             | 90ms                          | press, colour change                                                                                  |
 | `--motion-fast`                                | 150ms                         | hover, label swaps, tooltips                                                                          |
 | `--motion-base`                                | 240ms                         | surface enter, toast, chip                                                                            |
+| `--motion-stagger`                             | 40ms                          | notice burst spacing                                                                                  |
 | `--motion-slow`                                | 360ms                         | morphs, panel growth                                                                                  |
 | `--motion-hero`                                | 520ms                         | spring settle (visual length)                                                                         |
 | `--motion-flash`                               | 1400ms                        | one-shot landing flash on a searched setting; animates a registered property, ended by `animationend` |
@@ -288,6 +289,18 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 ### Voice Pill
 
 The persistent dictation control is a compact bordered capsule with a waveform and voice identity mark. Recording and processing remain legible through waveform and control state; assistant thinking can add a restrained glow. The pill expands into the assistant or live-transcript surface with 24px corners, then contracts back to the same anchor. Dictation thinking glows in the logo gradient (#FF8A5C → #FF5A1F → #D90078); Agent Mode thinking glows violet (#8787FF). Blue is not a Loqui state colour.
+
+### Notices
+
+Three tiers, one look (VO-R14 B). Chips are 32px lines that hug the pill on its inner side; newest sits nearest the pill; at most three show. Controls wrap in narrow work areas; tall cards scroll so every action remains reachable.
+
+| Tier    | Use                                       | Lifetime                                      | ARIA            |
+| ------- | ----------------------------------------- | --------------------------------------------- | --------------- |
+| Receipt | pasted, copied, restored, mic back        | 3.5 s (7 s with an action)                    | `role="status"` |
+| Notice  | cleanup skipped, model changed, fallbacks | 10 s, or until acknowledged when `persistent` | `role="status"` |
+| Alert   | words or work at risk                     | 10 s; never while it carries recovered words  | `role="alert"`  |
+
+An alert that carries recovered words renders the **words-first card**: the transcript is the headline, selectable and draggable; the error is a one-line chip above it; primary is "Paste again" (⌥↵). Primaries use the ink button, never orange. Close is always visible. Copy says "Copied" only when the clipboard confirmed it, and "Couldn't copy" otherwise. Words leave only through Dismiss or a delivered Paste again; each failed dictation keeps its own card, and "N more" shows the others. Motion: enter `--motion-base --motion-ease-enter`, 8 px rise, `--motion-stagger` (40 ms) stagger for bursts; reduced motion fades only.
 
 ### Settings
 

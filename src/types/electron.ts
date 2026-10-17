@@ -1631,6 +1631,7 @@ declare global {
           | "DICTATION_ERROR_WITH_TRANSCRIPT"
           | "WITH_MENU"
           | "WITH_TOAST"
+          | "WITH_NOTICES"
           | "EXPANDED"
           | "ASSISTANT"
       ) => Promise<{

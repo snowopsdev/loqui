@@ -4195,5 +4195,20 @@
         "description": "Audio, modelos e historial en este dispositivo"
       }
     }
+  },
+  "notices": {
+    "dismiss": "Descartar",
+    "moreActions": "Más acciones",
+    "wordsCard": {
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "copyFailed": "No se pudo copiar",
+      "copyFailedHint": "El portapapeles no aceptó el texto. Tus palabras siguen aquí: selecciónalas o arrástralas.",
+      "hint": "Arrastra las palabras a tu aplicación o vuelve a pegarlas.",
+      "dragHint": "Arrastra al campo en el que estabas escribiendo",
+      "more_one": "{{count}} texto más sin enviar",
+      "more_many": "{{count}} textos más sin enviar",
+      "more_other": "{{count}} textos más sin enviar"
+    }
   }
 }

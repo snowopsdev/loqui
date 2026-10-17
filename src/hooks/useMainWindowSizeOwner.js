@@ -19,8 +19,8 @@ const PANEL_RETURN_FADE_MS = 180;
  */
 export function useMainWindowSizeOwner({
   requestMainWindowSize,
-  dictationErrorActionCount,
-  toastCount,
+  wordsCardVisible,
+  noticeCount,
   isCommandMenuOpen,
   isCompactPill,
   isDictationActive,
@@ -32,7 +32,7 @@ export function useMainWindowSizeOwner({
   liveTranscriptOpenRef,
 }) {
   const [handoffActive, setHandoffActive] = useState(false);
-  const actionCountRef = useRef(dictationErrorActionCount);
+  const wordsCardVisibleRef = useRef(wordsCardVisible);
   const dictationActiveRef = useRef(isDictationActive);
   const handoffRef = useRef(null);
   // Same masking for the panel-return shrink: snapping the native window from
@@ -53,7 +53,7 @@ export function useMainWindowSizeOwner({
       hideWindow: () => window.electronAPI?.hideWindow?.(),
     });
     handoffRef.current = handoff;
-    if (actionCountRef.current > 0) handoff.suppress();
+    if (wordsCardVisibleRef.current) handoff.suppress();
     const panelReturnHandoff = createPillVisibilityHandoff({
       onSuppressedChange: (suppressed) => {
         panelReturnSuppressedRef.current = suppressed;
@@ -76,11 +76,11 @@ export function useMainWindowSizeOwner({
   }, [isDictationActive]);
 
   useLayoutEffect(() => {
-    actionCountRef.current = dictationErrorActionCount;
-    if (dictationErrorActionCount > 0) {
+    wordsCardVisibleRef.current = wordsCardVisible;
+    if (wordsCardVisible) {
       handoffRef.current?.suppress();
     }
-  }, [dictationErrorActionCount]);
+  }, [wordsCardVisible]);
 
   const lastSizeKeyRef = useRef(null);
   const panelSizeReservationRef = useRef(false);
@@ -105,9 +105,9 @@ export function useMainWindowSizeOwner({
     const target = resolveMainWindowSizeKey({
       panelOpen: false,
       menuOpen: isCommandMenuOpen,
-      toastCount,
+      noticeCount,
       compactPill: isCompactPill,
-      dictationErrorActionCount,
+      wordsCardVisible,
     });
     const prev = lastSizeKeyRef.current;
     lastSizeKeyRef.current = target;
@@ -127,7 +127,7 @@ export function useMainWindowSizeOwner({
         await requestMainWindowSize(settledTarget);
         // A menu/toast edge can supersede BASE while its native resize is
         // queued. Follow the size owner's latest target before revealing.
-        while (actionCountRef.current === 0 && lastSizeKeyRef.current !== settledTarget) {
+        while (!wordsCardVisibleRef.current && lastSizeKeyRef.current !== settledTarget) {
           settledTarget = lastSizeKeyRef.current;
           await requestMainWindowSize(settledTarget);
         }
@@ -159,7 +159,7 @@ export function useMainWindowSizeOwner({
           // error-return chase above).
           let settledTarget = lastSizeKeyRef.current;
           await requestMainWindowSize(settledTarget);
-          while (actionCountRef.current === 0 && lastSizeKeyRef.current !== settledTarget) {
+          while (!wordsCardVisibleRef.current && lastSizeKeyRef.current !== settledTarget) {
             settledTarget = lastSizeKeyRef.current;
             await requestMainWindowSize(settledTarget);
           }
@@ -181,25 +181,21 @@ export function useMainWindowSizeOwner({
     liveTranscriptMounted,
     liveTranscriptOpenRef,
     isCommandMenuOpen,
-    toastCount,
+    noticeCount,
     isCompactPill,
-    dictationErrorActionCount,
+    wordsCardVisible,
     requestMainWindowSize,
   ]);
 
   useEffect(() => {
-    if (
-      dictationErrorActionCount > 0 ||
-      !handoffActive ||
-      (!assistantMounted && !liveTranscriptMounted)
-    ) {
+    if (wordsCardVisible || !handoffActive || (!assistantMounted && !liveTranscriptMounted)) {
       return;
     }
 
     // A panel already owns stable native bounds, so an error displayed inside
     // it has no compact resize to await. Release only the visual suppression.
     void handoffRef.current?.releaseAfter(async () => {});
-  }, [assistantMounted, dictationErrorActionCount, handoffActive, liveTranscriptMounted]);
+  }, [assistantMounted, wordsCardVisible, handoffActive, liveTranscriptMounted]);
 
-  return { dictationErrorPillHandoffActive: handoffActive, panelReturnResizeActive };
+  return { wordsCardHandoffActive: handoffActive, panelReturnResizeActive };
 }

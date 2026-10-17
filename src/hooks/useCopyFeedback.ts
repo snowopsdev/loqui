@@ -1,3 +1,4 @@
+import { writeClipboardText } from "../utils/writeClipboardText";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useCopyFeedback(
@@ -39,22 +40,7 @@ export function useCopyFeedback(
 
   // Writes without touching the copied state: the shared feedback belongs to
   // the full-text copy, not to a partial selection.
-  const copyText = useCallback(async (textToCopy: string) => {
-    if (!textToCopy.trim()) return false;
-
-    try {
-      const result = await window.electronAPI?.writeClipboard?.(textToCopy);
-      if (result?.success === false) throw new Error("clipboard-write-failed");
-      return true;
-    } catch {
-      try {
-        await navigator.clipboard.writeText(textToCopy);
-        return true;
-      } catch {
-        return false;
-      }
-    }
-  }, []);
+  const copyText = useCallback((textToCopy: string) => writeClipboardText(textToCopy), []);
 
   const copy = useCallback(async () => {
     const textToCopy = text.trim();

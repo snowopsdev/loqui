@@ -2477,10 +2477,7 @@
       "daysAgo": "{{count}} 天前"
     },
     "createMenu": {
-      "note": "笔记",
-      "assistantChat": "助手聊天",
-      "teamSpace": "团队空间",
-      "chooseType": "选择要创建的内容"
+      "teamSpace": "团队空间"
     },
     "editor": {
       "untitled": "无标题",
@@ -4166,5 +4163,27 @@
   },
   "workspace": {
     "noteMissing": "该笔记已被删除或移出此工作区。"
+  },
+  "capture": {
+    "group": "采集",
+    "moreOptions": "更多采集选项",
+    "actions": {
+      "dictate": "向 Loqui 听写",
+      "recordMeeting": "录制会议",
+      "upload": "上传音频…",
+      "newNote": "新建笔记",
+      "newChat": "新建聊天"
+    },
+    "short": {
+      "dictate": "听写",
+      "recordMeeting": "录制",
+      "upload": "上传",
+      "newNote": "新建笔记",
+      "newChat": "新建聊天"
+    },
+    "listening": "正在聆听 {{time}}",
+    "stopListening": "停止聆听",
+    "stopRecording": "停止录制",
+    "cleaningUp": "正在整理文本…"
   }
 }

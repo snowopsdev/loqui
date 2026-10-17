@@ -1619,10 +1619,7 @@
       "daysAgo": "منذ {{count}} ي"
     },
     "createMenu": {
-      "note": "ملاحظة",
-      "assistantChat": "دردشة مع المساعد",
-      "teamSpace": "مساحة فريق",
-      "chooseType": "اختر ما تريد إنشاءه"
+      "teamSpace": "مساحة فريق"
     },
     "editor": {
       "untitled": "بدون عنوان",
@@ -4400,5 +4397,27 @@
   },
   "workspace": {
     "noteMissing": "حُذفت هذه الملاحظة أو نُقلت إلى خارج مساحة العمل هذه."
+  },
+  "capture": {
+    "group": "التقاط",
+    "moreOptions": "المزيد من خيارات الالتقاط",
+    "actions": {
+      "dictate": "الإملاء في Loqui",
+      "recordMeeting": "تسجيل اجتماع",
+      "upload": "رفع ملف صوتي…",
+      "newNote": "ملاحظة جديدة",
+      "newChat": "محادثة جديدة"
+    },
+    "short": {
+      "dictate": "إملاء",
+      "recordMeeting": "تسجيل",
+      "upload": "رفع",
+      "newNote": "ملاحظة جديدة",
+      "newChat": "محادثة جديدة"
+    },
+    "listening": "جارٍ الاستماع {{time}}",
+    "stopListening": "إيقاف الاستماع",
+    "stopRecording": "إيقاف التسجيل",
+    "cleaningUp": "جارٍ تنقيح النص…"
   }
 }

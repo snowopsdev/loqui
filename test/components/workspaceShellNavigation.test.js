@@ -25,7 +25,10 @@ function find(node, predicate) {
   return predicate(node) ? node : find(node.props?.children, predicate);
 }
 
-async function mount(t, { initialStorage = {}, api = {}, strict = false } = {}) {
+async function mount(
+  t,
+  { initialStorage = {}, api = {}, strict = false, realCreateNote = false } = {}
+) {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -57,8 +60,10 @@ async function mount(t, { initialStorage = {}, api = {}, strict = false } = {}) 
       'import { create } from "zustand"; export const useSettingsStore = create(() => ({})); export const getSettings = () => ({});',
     "/stores/transcriptionStore":
       "const history = []; export const useTranscriptions = () => history; export const useShowDiscarded = () => false; export const initializeTranscriptions = async () => {}; export const updateTranscription = () => {}; export const removeTranscription = () => {}; export const clearTranscriptions = () => {};",
-    "/stores/meetingRecordingStore":
-      "export const useIsMeetingMode = () => false; export const useIsNarrowWindow = () => false; export const useMeetingRecordingStore = (select) => select({});",
+    "/stores/meetingRecordingStore": `import { create } from "zustand"; export const useIsMeetingMode = () => false; export const useIsNarrowWindow = () => false;
+       export const useMeetingRecordingStore = create(() => ({ isRecording: false, recordingNoteId: null, recordingFolderId: null, micCaptureStatus: "inactive" }));
+       export const starts = []; let activation = Promise.resolve(true); export const setActivation = (value) => { activation = value; };
+       export const startRecording = async (args) => { starts.push(args); await activation; useMeetingRecordingStore.setState({ isRecording: true, recordingNoteId: args.noteId, recordingFolderId: args.folderId }); return true; }; export const stopRecording = async () => {};`,
     "/hooks/useHotkey": 'export const useHotkey = () => ({ hotkey: "test" });',
     "/hooks/useSettings": "export const useSettings = () => ({});",
     "/hooks/useGpuBannerAvailability": "export const useGpuBannerAvailability = () => ({});",
@@ -85,13 +90,14 @@ async function mount(t, { initialStorage = {}, api = {}, strict = false } = {}) 
     "CommandSearch",
     "notes/PersonalNotesView",
     "notes/MeetingRecordingPill",
-    "notes/NewNoteMenu",
+    "CaptureControl",
     "notes/BackgroundActionToastListener",
     "notes/UploadAudioView",
     "chat/ChatView",
   ]) {
     mockModules[`/${name}`] = emptyComponent;
   }
+  if (realCreateNote) delete mockModules["/hooks/useCreateNote"];
   const options = withI18nMock({ mockModules });
   // The production hook returns a stable t; avoid the generic mock's per-render function.
   options.mockModules["react-i18next"] =
@@ -116,6 +122,7 @@ async function mount(t, { initialStorage = {}, api = {}, strict = false } = {}) 
   return {
     notes,
     home,
+    meeting: await vite.ssrLoadModule("/stores/meetingRecordingStore"),
     setDialogOpen: (open) => {
       dialogOpen = open;
     },
@@ -273,4 +280,87 @@ test("the single global shortcut listener delivers fresh chat requests and block
   assert.equal(h.creates.creates, 1, "Cmd+N creates a note even from Chat");
   assert.equal(await h.keydown({ key: "U", code: "KeyU", shiftKey: true }), true);
   assert.equal(h.view(), "upload");
+});
+
+test("real shell Record meeting admits one create/start through deferred save and activation, then reopens the live note", async (t) => {
+  const save = deferred();
+  const activation = deferred();
+  let saves = 0;
+  let subscriptions = 0;
+  let microphoneChecks = 0;
+  const h = await mount(t, {
+    realCreateNote: true,
+    api: {
+      saveNote: () => {
+        saves++;
+        return saves === 1
+          ? save.promise
+          : Promise.resolve({ success: true, note: fixtureNote(20) });
+      },
+      onDictationLifecycleChanged: () => {
+        subscriptions++;
+        return () => {};
+      },
+      checkMicrophoneAccess: async () => {
+        microphoneChecks++;
+        return { granted: true };
+      },
+    },
+  });
+  h.meeting.setActivation(activation.promise);
+  const retainedRecordMeeting = h.navigation().recordMeeting;
+  await React.act(async () => {
+    h.navigation().recordMeeting();
+    h.navigation().recordMeeting();
+  });
+  assert.equal(saves, 1);
+  await React.act(async () => save.resolve({ success: true, note: fixtureNote(19) }));
+  assert.equal(h.meeting.starts.length, 1);
+  await React.act(async () => h.navigation().recordMeeting());
+  assert.equal(saves, 1, "startup retains create admission");
+  await React.act(async () => h.navigation().newNote());
+  assert.equal(saves, 2, "plain note bypasses recording admission");
+  assert.equal(h.meeting.starts.length, 1, "plain note never starts capture");
+  assert.equal(h.notes.getActiveNoteIdValue(), 20);
+  await React.act(async () => activation.resolve(true));
+  assert.equal(h.notes.getActiveNoteIdValue(), 20, "startup leaves the newer plain note selected");
+  await React.act(async () => h.navigation().openNote(27));
+  await React.act(async () => h.navigation().openView("home"));
+  await React.act(async () => retainedRecordMeeting());
+  assert.equal(h.notes.getActiveNoteIdValue(), 19);
+  assert.equal(h.notes.getActiveFolderIdValue(), 2);
+  assert.equal(h.view(), "personal-notes");
+  assert.equal(saves, 2);
+  assert.equal(h.meeting.starts.length, 1);
+  assert.equal(subscriptions, 1, "one shared capture lifecycle subscription");
+  assert.equal(microphoneChecks, 1, "one shared capture permission check");
+});
+
+test("real shell shortcuts distinguish plain New note from Record meeting", async (t) => {
+  let saves = 0;
+  const h = await mount(t, {
+    realCreateNote: true,
+    api: { saveNote: async () => ({ success: true, note: fixtureNote(++saves) }) },
+  });
+  await h.keydown({ key: "n", code: "KeyN" });
+  assert.equal(saves, 1);
+  assert.equal(h.meeting.starts.length, 0);
+  await h.keydown({ key: "M", code: "KeyM", shiftKey: true });
+  assert.equal(saves, 2);
+  assert.equal(h.meeting.starts.length, 1);
+  assert.equal(h.meeting.starts[0].noteId, 2);
+});
+
+test("recording startup does not delay opening the created note or reclaim a newer view", async (t) => {
+  const activation = deferred();
+  const h = await mount(t, {
+    realCreateNote: true,
+    api: { saveNote: async () => ({ success: true, note: fixtureNote(18) }) },
+  });
+  h.meeting.setActivation(activation.promise);
+  await React.act(async () => h.navigation().recordMeeting());
+  assert.equal(h.view(), "personal-notes", "creation opens before async audio startup finishes");
+  await React.act(async () => h.navigation().openView("insights"));
+  await React.act(async () => activation.resolve(true));
+  assert.equal(h.view(), "insights", "startup completion does not navigate again");
 });

@@ -312,6 +312,24 @@ The persistent dictation control is a compact bordered capsule with a waveform a
 
 The control panel capture rail pulls the current dictation lifecycle on mount and follows main-process updates. The Agent pill, tray and hotkey gate keep the finite known lifecycle; the control panel can display a 1–64 character future state unchanged until the renderer learns it. Audio levels reach the control panel only while recording and at no more than 15 Hz. The dictation renderer continues sampling at 80 ms, including while the Agent panel is closed; main sends pill levels only while that panel is open.
 
+### Workspace Capture
+
+The topbar Capture split button is neutral while idle and remembers the last chosen
+capture action on this device. Its menu offers dictation, meeting recording, audio
+upload, a plain note, and a new chat with the existing shortcut hints. New chat
+opens the composer without sending a message. Plain New note skips recording;
+Record meeting creates a recording note, or opens the current meeting’s note.
+Repeated recording actions share one admission through note save and recording
+startup, while plain notes remain independently available.
+
+Only live listening uses the orange live Button and level bars, alongside an
+elapsed clock and the source-specific Stop label. Processing is neutral, busy and
+announced as “Cleaning up…”. The clock and meter mount only while listening;
+spinner motion uses shared motion tokens and stops under reduced motion. Both
+split segments and menu items retain full opaque focus rings, logical spacing and
+Radix’s keyboard and dismissal semantics. ControlPanel owns one capture-status
+hook result for this control and the later sidebar and Home consumers.
+
 ### Settings
 
 **Routing is one model, drawn three ways.** `src/lib/routeGraph.ts` (pure, Node-loadable) resolves all 11 tasks, and `src/lib/routes.ts` adds the snapshot builder and hooks. Settings → Routing (the Patchbay), the editors' mode selectors and the voice pill use `ResolvedRoute`; the keyring exposes the main-owned credential health and recipient descriptions that supply route facts. Never compute "is this local?" or "is this ready?" anywhere else. Readiness reuses the executors' own validation, and a fact main has not confirmed reads `unknown`, never Ready.

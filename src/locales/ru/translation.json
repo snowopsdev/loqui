@@ -2491,10 +2491,7 @@
       "daysAgo": "{{count}} дн. назад"
     },
     "createMenu": {
-      "note": "Заметка",
-      "assistantChat": "Чат с помощником",
-      "teamSpace": "Командное пространство",
-      "chooseType": "Выбрать, что создать"
+      "teamSpace": "Командное пространство"
     },
     "editor": {
       "untitled": "Без названия",
@@ -4284,5 +4281,27 @@
   },
   "workspace": {
     "noteMissing": "Эта заметка удалена или перемещена за пределы этого рабочего пространства."
+  },
+  "capture": {
+    "group": "Захват",
+    "moreOptions": "Другие варианты захвата",
+    "actions": {
+      "dictate": "Диктовать в Loqui",
+      "recordMeeting": "Записать встречу",
+      "upload": "Загрузить аудио…",
+      "newNote": "Новая заметка",
+      "newChat": "Новый чат"
+    },
+    "short": {
+      "dictate": "Диктовать",
+      "recordMeeting": "Записать",
+      "upload": "Загрузить",
+      "newNote": "Новая заметка",
+      "newChat": "Новый чат"
+    },
+    "listening": "Прослушивание {{time}}",
+    "stopListening": "Остановить прослушивание",
+    "stopRecording": "Остановить запись",
+    "cleaningUp": "Редактирование текста…"
   }
 }

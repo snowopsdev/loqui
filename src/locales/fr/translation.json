@@ -2826,10 +2826,7 @@
       "daysAgo": "il y a {{count}}j"
     },
     "createMenu": {
-      "note": "Note",
-      "assistantChat": "Chat avec l'assistant",
-      "teamSpace": "Espace d'équipe",
-      "chooseType": "Choisir quoi créer"
+      "teamSpace": "Espace d'équipe"
     },
     "editor": {
       "untitled": "Sans titre",
@@ -4198,5 +4195,27 @@
   },
   "workspace": {
     "noteMissing": "Cette note a été supprimée ou déplacée hors de cet espace de travail."
+  },
+  "capture": {
+    "group": "Capturer",
+    "moreOptions": "Plus d’options de capture",
+    "actions": {
+      "dictate": "Dicter dans Loqui",
+      "recordMeeting": "Enregistrer une réunion",
+      "upload": "Importer un fichier audio…",
+      "newNote": "Nouvelle note",
+      "newChat": "Nouvelle discussion"
+    },
+    "short": {
+      "dictate": "Dicter",
+      "recordMeeting": "Enregistrer",
+      "upload": "Importer",
+      "newNote": "Nouvelle note",
+      "newChat": "Nouvelle discussion"
+    },
+    "listening": "À l’écoute {{time}}",
+    "stopListening": "Arrêter l’écoute",
+    "stopRecording": "Arrêter l’enregistrement",
+    "cleaningUp": "Révision en cours…"
   }
 }

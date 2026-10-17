@@ -2531,10 +2531,7 @@
       "daysAgo": "hace {{count}}d"
     },
     "createMenu": {
-      "note": "Nota",
-      "assistantChat": "Chat con el asistente",
-      "teamSpace": "Espacio de equipo",
-      "chooseType": "Elegir qué crear"
+      "teamSpace": "Espacio de equipo"
     },
     "editor": {
       "untitled": "Sin título",
@@ -4198,5 +4195,27 @@
   },
   "workspace": {
     "noteMissing": "Esa nota se eliminó o se movió fuera de este espacio de trabajo."
+  },
+  "capture": {
+    "group": "Capturar",
+    "moreOptions": "Más opciones de captura",
+    "actions": {
+      "dictate": "Dictar en Loqui",
+      "recordMeeting": "Grabar reunión",
+      "upload": "Subir audio…",
+      "newNote": "Nueva nota",
+      "newChat": "Nuevo chat"
+    },
+    "short": {
+      "dictate": "Dictar",
+      "recordMeeting": "Grabar",
+      "upload": "Subir",
+      "newNote": "Nueva nota",
+      "newChat": "Nuevo chat"
+    },
+    "listening": "Escuchando {{time}}",
+    "stopListening": "Dejar de escuchar",
+    "stopRecording": "Detener grabación",
+    "cleaningUp": "Puliendo el texto…"
   }
 }

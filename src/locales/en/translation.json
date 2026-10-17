@@ -2825,10 +2825,7 @@
       "daysAgo": "{{count}}d"
     },
     "createMenu": {
-      "note": "Note",
-      "assistantChat": "Assistant chat",
-      "teamSpace": "Team space",
-      "chooseType": "Choose what to create"
+      "teamSpace": "Team space"
     },
     "editor": {
       "untitled": "Untitled",
@@ -4192,5 +4189,27 @@
   },
   "workspace": {
     "noteMissing": "That note was deleted or moved out of this workspace."
+  },
+  "capture": {
+    "group": "Capture",
+    "moreOptions": "More capture options",
+    "actions": {
+      "dictate": "Dictate into Loqui",
+      "recordMeeting": "Record meeting",
+      "upload": "Upload audio…",
+      "newNote": "New note",
+      "newChat": "New chat"
+    },
+    "short": {
+      "dictate": "Dictate",
+      "recordMeeting": "Record",
+      "upload": "Upload",
+      "newNote": "New note",
+      "newChat": "New chat"
+    },
+    "listening": "Listening {{time}}",
+    "stopListening": "Stop listening",
+    "stopRecording": "Stop recording",
+    "cleaningUp": "Cleaning up…"
   }
 }

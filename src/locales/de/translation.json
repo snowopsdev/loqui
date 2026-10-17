@@ -2825,10 +2825,7 @@
       "daysAgo": "vor {{count}}T"
     },
     "createMenu": {
-      "note": "Notiz",
-      "assistantChat": "Assistent-Chat",
-      "teamSpace": "Team-Bereich",
-      "chooseType": "Auswählen, was erstellt werden soll"
+      "teamSpace": "Team-Bereich"
     },
     "editor": {
       "untitled": "Unbenannt",
@@ -4192,5 +4189,27 @@
   },
   "workspace": {
     "noteMissing": "Diese Notiz wurde gelöscht oder aus diesem Arbeitsbereich verschoben."
+  },
+  "capture": {
+    "group": "Erfassen",
+    "moreOptions": "Weitere Erfassungsoptionen",
+    "actions": {
+      "dictate": "In Loqui diktieren",
+      "recordMeeting": "Besprechung aufnehmen",
+      "upload": "Audio hochladen…",
+      "newNote": "Neue Notiz",
+      "newChat": "Neuer Chat"
+    },
+    "short": {
+      "dictate": "Diktieren",
+      "recordMeeting": "Aufnehmen",
+      "upload": "Hochladen",
+      "newNote": "Neue Notiz",
+      "newChat": "Neuer Chat"
+    },
+    "listening": "Hört zu {{time}}",
+    "stopListening": "Zuhören beenden",
+    "stopRecording": "Aufnahme stoppen",
+    "cleaningUp": "Wird überarbeitet…"
   }
 }

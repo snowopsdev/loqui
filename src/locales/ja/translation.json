@@ -2507,10 +2507,7 @@
       "daysAgo": "{{count}}日前"
     },
     "createMenu": {
-      "note": "ノート",
-      "assistantChat": "アシスタントとのチャット",
-      "teamSpace": "チームスペース",
-      "chooseType": "作成する項目を選択"
+      "teamSpace": "チームスペース"
     },
     "upload": {
       "title": "音声をアップロード",
@@ -4166,5 +4163,27 @@
   },
   "workspace": {
     "noteMissing": "そのノートは削除されたか、このワークスペースの外に移動されました。"
+  },
+  "capture": {
+    "group": "キャプチャ",
+    "moreOptions": "その他のキャプチャオプション",
+    "actions": {
+      "dictate": "Loquiに音声入力",
+      "recordMeeting": "会議を録音",
+      "upload": "音声をアップロード…",
+      "newNote": "新しいノート",
+      "newChat": "新しいチャット"
+    },
+    "short": {
+      "dictate": "音声入力",
+      "recordMeeting": "録音",
+      "upload": "アップロード",
+      "newNote": "新しいノート",
+      "newChat": "新しいチャット"
+    },
+    "listening": "聞き取り中 {{time}}",
+    "stopListening": "聞き取りを停止",
+    "stopRecording": "録音を停止",
+    "cleaningUp": "文章を整えています…"
   }
 }

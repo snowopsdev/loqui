@@ -44,7 +44,8 @@ import ControlPanelSidebar from "./ControlPanelSidebar";
 import ControlPanelTopBar from "./ControlPanelTopBar";
 import MeetingRecordingMount from "./MeetingRecordingMount";
 import MeetingRecordingPill from "./notes/MeetingRecordingPill";
-import NewNoteMenu from "./notes/NewNoteMenu";
+import CaptureControl from "./CaptureControl";
+import { useCaptureStatus } from "../hooks/useCaptureStatus";
 
 import { useCreateNote } from "../hooks/useCreateNote";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
@@ -180,12 +181,16 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   // Invitations are owner/admin-only (server-enforced), so the sidebar row
   // only exists when the user can manage a workspace.
 
+  const capture = useCaptureStatus();
   const { createNote } = useCreateNote();
   // The note is created before the view switches so Notes mounts with it already open.
-  const handleNewNote = useCallback(async () => {
-    await createNote();
-    setActiveView("personal-notes");
-  }, [createNote, setActiveView]);
+  const handleNewNote = useCallback(
+    async (options?: { record?: boolean }) => {
+      await createNote(options);
+      setActiveView("personal-notes");
+    },
+    [createNote, setActiveView]
+  );
 
   const policyMinAppVersion = null;
 
@@ -692,8 +697,16 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
         setChatRequest({ kind: "focus", nonce: ++requestNonceRef.current });
         setActiveView("chat");
       },
-      newNote: () => void handleNewNote(),
-      recordMeeting: () => void handleNewNote(),
+      newNote: () => void handleNewNote({ record: false }),
+      recordMeeting: () => {
+        // Read current state even for callbacks retained across a recording activation.
+        const meeting = useMeetingRecordingStore.getState();
+        if (meeting.isRecording && meeting.recordingNoteId != null) {
+          void openNote(meeting.recordingNoteId);
+          return;
+        }
+        void handleNewNote({ record: true });
+      },
       openUpload: () => setActiveView("upload"),
       openSettings: (section) => {
         setSettingsSection(section);
@@ -841,7 +854,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                 isSidePanelLayout={isSidePanelLayout}
                 onExitSidePanel={handleExitSidePanel}
                 actions={
-                  <NewNoteMenu onNewNote={handleNewNote} onNewChat={() => setActiveView("chat")} />
+                  <CaptureControl
+                    capture={capture}
+                    hotkey={hotkey}
+                    showChat={navItems.some((item) => item.id === "chat")}
+                  />
                 }
               />
               <div className="scrollbar-hidden flex-1 overflow-y-auto">

@@ -132,6 +132,8 @@ interface SettingsPageProps {
   onNavigateToPath?: (path: string) => void;
   /** When a legacy section ID was used (e.g. `meetings`), land on the matching sub-tab. */
   initialSubTab?: string;
+  /** Reapply an unchanged deep-linked sub-tab for a new acknowledged request. */
+  activationId?: string;
 }
 
 const UI_LANGUAGE_OPTIONS: import("./ui/LanguageSelector").LanguageOption[] = [
@@ -625,12 +627,17 @@ const SPEECH_TABS: readonly SpeechTab[] = SPEECH_SUB_TABS;
 const LLM_TABS: readonly LlmTab[] = LLM_SUB_TABS;
 const AGENT_LLM_TABS = new Set<LlmTab>(["dictationAgent", "chatIntelligence"]);
 
-function useSubTab<T extends string>(storageKey: string, options: readonly T[], initial?: T) {
+function useSubTab<T extends string>(
+  storageKey: string,
+  options: readonly T[],
+  initial?: T,
+  activationId?: string
+) {
   const [tab, setTab] = useLocalStorage<T>(storageKey, initial ?? options[0]);
   useEffect(() => {
     if (initial && initial !== tab) setTab(initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial]);
+  }, [initial, activationId]);
   const safeTab = options.includes(tab) ? tab : options[0];
   return [safeTab, setTab] as const;
 }
@@ -665,17 +672,24 @@ function TabPanel({ active, children }: { active: boolean; children: React.React
 
 function SpeechToTextTabs({
   initialTab,
+  activationId,
   renderDictation,
   renderNoteRecording,
   renderUpload,
 }: {
+  activationId?: string;
   initialTab?: SpeechTab;
   renderDictation: () => React.ReactNode;
   renderNoteRecording: () => React.ReactNode;
   renderUpload: () => React.ReactNode;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useSubTab<SpeechTab>("settings.speechToTextTab", SPEECH_TABS, initialTab);
+  const [tab, setTab] = useSubTab<SpeechTab>(
+    "settings.speechToTextTab",
+    SPEECH_TABS,
+    initialTab,
+    activationId
+  );
 
   const subTabs = [
     { id: "dictation", name: t("settingsPage.speechToText.tabs.dictation") },
@@ -709,6 +723,7 @@ function SpeechToTextTabs({
 
 function LlmsTabs({
   initialTab,
+  activationId,
   renderDictationCleanup,
   renderDictationAgent,
   renderDictationTranslation,
@@ -716,6 +731,7 @@ function LlmsTabs({
   renderChatIntelligence,
   renderSupportModels,
 }: {
+  activationId?: string;
   initialTab?: LlmTab;
   renderDictationCleanup: () => React.ReactNode;
   renderDictationAgent: () => React.ReactNode;
@@ -727,7 +743,12 @@ function LlmsTabs({
   const { t } = useTranslation();
 
   const visibleTabIds = LLM_TABS;
-  const [tab, setTab] = useSubTab<LlmTab>("settings.llmsTab", visibleTabIds, initialTab);
+  const [tab, setTab] = useSubTab<LlmTab>(
+    "settings.llmsTab",
+    visibleTabIds,
+    initialTab,
+    activationId
+  );
 
   const subTabs = [
     { id: "dictationCleanup", name: t("settingsPage.llms.tabs.dictationCleanup") },
@@ -833,6 +854,7 @@ export default function SettingsPage({
   onNavigateToSection,
   onNavigateToPath,
   initialSubTab,
+  activationId,
 }: SettingsPageProps) {
   const { isCompact } = useSettingsLayout();
   const {
@@ -2759,6 +2781,7 @@ EOF`,
       {hasMountedSpeechToText && (
         <TabPanel active={activeSection === "speechToText"}>
           <SpeechToTextTabs
+            activationId={activationId}
             initialTab={
               activeSection === "speechToText"
                 ? (initialSubTab as SpeechTab | undefined)
@@ -2805,6 +2828,7 @@ EOF`,
       {hasMountedLlms && (
         <TabPanel active={activeSection === "llms"}>
           <LlmsTabs
+            activationId={activationId}
             initialTab={
               activeSection === "llms" ? (initialSubTab as LlmTab | undefined) : undefined
             }

@@ -17,9 +17,16 @@ interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialSection?: string;
+  /** Every acknowledged link reactivates navigation, even when its path is unchanged. */
+  activationId?: string;
 }
 
-export default function SettingsModal({ open, onOpenChange, initialSection }: SettingsModalProps) {
+export default function SettingsModal({
+  open,
+  onOpenChange,
+  initialSection,
+  activationId,
+}: SettingsModalProps) {
   const { t } = useTranslation();
 
   const sidebarItems: SidebarItem<SettingsSectionType>[] = useMemo(() => {
@@ -99,7 +106,7 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
       setActiveSection(next.section);
       setInitialSubTab(next.subTab);
     }
-  }, [open, initialSection]);
+  }, [open, initialSection, activationId]);
 
   const handleNavigateToPath = useCallback((path: string) => {
     const next = parseSettingsPath(path);
@@ -166,6 +173,7 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
             onNavigateToSection={handleSectionChange}
             onNavigateToPath={handleNavigateToPath}
             initialSubTab={initialSubTab}
+            activationId={activationId}
           />
         </div>
       </>

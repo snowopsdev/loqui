@@ -28,7 +28,7 @@ export function parseSettingsDeepLink(payload: unknown): string | undefined {
  */
 export function subscribeSettingsDeepLinks(
   api: SettingsLinkApi | undefined,
-  open: (section: string | undefined) => void
+  open: (section: string | undefined, activationId: string) => void
 ): () => void {
   const ack = api?.ackSettingsLink;
   if (!api?.onShowSettings || !ack) return () => {};
@@ -48,7 +48,7 @@ export function subscribeSettingsDeepLinks(
         (current) => {
           if (current && !disposed && attempt > confirmed) {
             confirmed = attempt;
-            open(parseSettingsDeepLink(link));
+            open(parseSettingsDeepLink(link), link.id);
           }
         },
         () => {}

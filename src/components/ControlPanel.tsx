@@ -94,6 +94,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const [settingsSection, setSettingsSection] = useState<string | undefined>(
     initialSettingsSection
   );
+  const [settingsActivationId, setSettingsActivationId] = useState<string | undefined>();
   const [aiCTADismissed, setAiCTADismissed] = useState(
     () => localStorage.getItem("aiCTADismissed") === "true"
   );
@@ -284,8 +285,9 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
   useEffect(
     () =>
-      subscribeSettingsDeepLinks(window.electronAPI, (section) => {
+      subscribeSettingsDeepLinks(window.electronAPI, (section, activationId) => {
         setSettingsSection(section);
+        setSettingsActivationId(activationId);
         setShowSettings(true);
       }),
     []
@@ -667,9 +669,13 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             open={showSettings}
             onOpenChange={(open) => {
               setShowSettings(open);
-              if (!open) setSettingsSection(undefined);
+              if (!open) {
+                setSettingsSection(undefined);
+                setSettingsActivationId(undefined);
+              }
             }}
             initialSection={settingsSection}
+            activationId={settingsActivationId}
           />
         </Suspense>
       )}

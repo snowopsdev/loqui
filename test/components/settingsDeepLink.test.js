@@ -31,7 +31,7 @@ test("ControlPanel subscribes through the acknowledged deep-link subscriber", ()
   const panel = read("src/components/ControlPanel.tsx");
   assert.match(
     panel,
-    /subscribeSettingsDeepLinks\(window\.electronAPI, \(section\) => \{\s*setSettingsSection\(section\);\s*setShowSettings\(true\);/
+    /subscribeSettingsDeepLinks\(window\.electronAPI, \(section, activationId\) => \{\s*setSettingsSection\(section\);\s*setSettingsActivationId\(activationId\);\s*setShowSettings\(true\);/
   );
   assert.doesNotMatch(panel, /onShowSettings\?\.\(\(\) =>/);
   // An already-open modal must move to the new section too.

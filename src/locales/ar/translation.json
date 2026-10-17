@@ -4442,6 +4442,57 @@
       "failedTitle": "The voice model didn't download",
       "announcePercent": "Voice model download {{percent}} percent.",
       "announceReady": "Voice model ready."
+    },
+    "brand": "Loqui setup",
+    "back": "Back",
+    "skipStep": "Skip this step",
+    "continue": "Continue",
+    "finishLater": "Finish later",
+    "lookAroundFirst": "Look around first",
+    "instrument": {
+      "idle": "Ready when you are",
+      "downloading": "Downloading · {{percent}}% · {{done}} of {{total}}",
+      "goodLevel": "Listening · good level",
+      "waiting": "Listening · waiting for your voice",
+      "processing": "Writing it down…",
+      "heard": "Heard you",
+      "downloadError": "Download stopped",
+      "micError": "Loqui can't hear your microphone",
+      "nothingHeard": "Nothing heard. Check your microphone.",
+      "error": "That didn't work. Try again."
+    },
+    "rail": {
+      "welcome": {
+        "title": "Talk. Loqui types.",
+        "bodyMac": "Dictate anywhere, keep notes and meetings in one place, and choose exactly what ever leaves your Mac.",
+        "bodyOther": "Dictate anywhere, keep notes and meetings in one place, and choose exactly what ever leaves your computer."
+      },
+      "speech": {
+        "title": "Pick how Loqui listens.",
+        "bodyMac": "One recommended voice. It runs on this Mac and works offline.",
+        "bodyOther": "One recommended voice. It runs on this computer and works offline."
+      },
+      "try": {
+        "title": "Say something.",
+        "bodyMac": "This test is not pasted into another app or saved to history.",
+        "bodyOther": "This test is not pasted into another app or saved to history."
+      },
+      "cleanup": {
+        "title": "Make it read well.",
+        "bodyMac": "See what cleanup does to your own words, then choose.",
+        "bodyOther": "See what cleanup does to your own words, then choose."
+      },
+      "shortcuts": {
+        "title": "Talk from any app.",
+        "bodyMac": "Press your shortcut anywhere. Change it if it clashes with another app.",
+        "bodyOther": "Press your shortcut anywhere. Change it if it clashes with another app."
+      },
+      "finish": {
+        "title": "Here is where you are.",
+        "bodyMac": "Everything below is true right now.",
+        "bodyOther": "Everything below is true right now.",
+        "openWorkspace": "Open workspace"
+      }
     }
   }
 }

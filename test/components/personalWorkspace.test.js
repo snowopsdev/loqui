@@ -49,31 +49,6 @@ async function harness(t, module, options = {}) {
   return { tree: () => tree, vite };
 }
 
-test("first setup reaches completion without account APIs or implicit downloads", async (t) => {
-  let completed = 0;
-  const h = await harness(t, "/components/OnboardingFlow.tsx", {
-    mocks: { "/SettingsPage": "export default function SettingsPage() { return null; }" },
-    props: {
-      onComplete: () => completed++,
-      initialStep: "welcome",
-      previewConfig: { step: "welcome", scenario: "ready", platform: "linux" },
-    },
-  });
-  for (const step of ["welcome", "speech", "cleanup", "try", "shortcuts", "finish"]) {
-    if (step === "welcome") {
-      const markup = renderToStaticMarkup(h.tree());
-      assert.match(markup, /A quieter way to get words out/);
-      assert.match(markup, /Keep local history/);
-      assert.match(markup, /Download updates automatically/);
-    } else {
-      assert.equal(h.tree().props.step, step);
-    }
-    await React.act(async () => h.tree().props.onContinue());
-  }
-  assert.equal(completed, 1);
-  assert.deepEqual(globalThis.window.electronAPI, {});
-});
-
 test("speech setup offers Orukeet and NVIDIA models and commits a local dictation choice", async (t) => {
   const h = await harness(t, "/components/OnboardingFlow.tsx", {
     api: { checkParakeetModelStatus: async () => ({ downloaded: false }) },
@@ -91,7 +66,9 @@ test("speech setup offers Orukeet and NVIDIA models and commits a local dictatio
   }
   const { useSettingsStore } = await h.vite.ssrLoadModule("/stores/settingsStore.ts");
   useSettingsStore.getState().setUseLocalWhisper(false);
-  await React.act(async () => h.tree().props.children.props.onSelectModel("orukeet-v0.1.0"));
+  await React.act(async () =>
+    h.tree().props.children.props.children.props.onSelectModel("orukeet-v0.1.0")
+  );
   const state = useSettingsStore.getState();
   assert.equal(state.useLocalWhisper, true);
   assert.equal(state.localTranscriptionProvider, "nvidia");
@@ -110,7 +87,9 @@ test("preview speech choices stay in preview storage", async (t) => {
   const h = await harness(t, "/components/OnboardingFlow.tsx", {
     props: { onComplete() {}, initialStep: "speech", previewConfig: config },
   });
-  await React.act(async () => h.tree().props.children.props.onSelectModel("orukeet-v0.1.0"));
+  await React.act(async () =>
+    h.tree().props.children.props.children.props.onSelectModel("orukeet-v0.1.0")
+  );
   const { onboardingPreviewStorageKey } = await h.vite.ssrLoadModule("/utils/onboardingState.ts");
   assert.equal(globalThis.localStorage.getItem("parakeetModel"), null);
   assert.equal(

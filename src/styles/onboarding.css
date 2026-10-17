@@ -112,3 +112,523 @@
   gap: 8px;
   margin-top: 10px;
 }
+
+/* Shell: pinned to the window (ONB-Q1), 56px header and a 64px footer that may
+   wrap to a second row at 200% zoom or with long labels, never a third (M04). */
+.onb-shell {
+  --onb-header: 56px;
+  --onb-footer: 64px;
+  display: grid;
+  grid-template-rows: var(--onb-header) minmax(0, 1fr) auto;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-family-sans);
+}
+
+.onb-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding-inline: 24px;
+  border-bottom: 1px solid var(--color-border);
+  -webkit-app-region: drag;
+}
+
+.onb-header button {
+  -webkit-app-region: no-drag;
+}
+
+/* macOS draws the traffic lights at x:20 (windowConfig.js); they stay on the
+   physical left in RTL too, so this is padding-left on purpose (Plan 02, ONB-Q1). */
+.onb-shell[data-platform="darwin"] .onb-header {
+  padding-left: 84px;
+}
+
+.onb-brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onb-brand__tile {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--color-live) 10%, var(--color-background));
+}
+
+.onb-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-inline-start: auto;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-progress__label {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onb-progress__list {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onb-progress__step {
+  position: relative;
+  width: 34px;
+  height: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--color-border-hover);
+}
+
+.onb-progress__step::after {
+  content: "";
+  position: absolute;
+  inset: -9px 0;
+}
+
+.onb-progress__step[data-state="done"] {
+  background: var(--color-nav-marker);
+}
+
+.onb-progress__step[data-state="current"] {
+  background: var(--color-nav-marker);
+}
+
+.onb-progress__step:not(:disabled) {
+  cursor: pointer;
+}
+
+.onb-header__later,
+.onb-footer__skip {
+  flex: none;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.onb-main {
+  display: grid;
+  grid-template-columns: minmax(280px, 36%) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.onb-controls {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 28px clamp(16px, 4vw, 48px);
+}
+
+.onb-step {
+  display: grid;
+  gap: 20px;
+  max-width: 640px;
+  animation: onb-step-in var(--motion-base) var(--motion-ease-enter) both;
+}
+
+@keyframes onb-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes onb-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.onb-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-height: var(--onb-footer);
+  padding: 11px 24px;
+  border-top: 1px solid var(--color-border);
+}
+
+.onb-footer__start {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+/* The rail: orange in light (ink 5.75:1, paper bars 3.12:1); warm Plum Night in dark.
+   ONB-Q16: 36px/650 title, tokens only. */
+.onb-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 30px 30px 0;
+  background: var(--color-live);
+  color: var(--color-live-foreground);
+}
+
+.dark .onb-rail {
+  border-inline-end: 1px solid var(--color-border);
+  background: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--color-live) 14%, var(--color-surface-1)),
+    var(--color-surface-1) 60%
+  );
+  color: var(--color-foreground);
+}
+
+.onb-rail h1 {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.onb-rail h1:focus {
+  outline: none;
+}
+
+.onb-rail__copy p {
+  max-width: 360px;
+  margin-top: 12px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.onb-instrument {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 20px;
+  height: 170px;
+  margin-top: auto;
+  padding-bottom: 14px;
+  view-transition-name: loqui-mark;
+}
+
+/* After the first success the mark lives in the header; the rail shows bars
+   again only while they carry state (M02). */
+.onb-shell[data-docked]
+  .onb-instrument:not([data-mode="download"]):not([data-mode="listening"]):not(
+    [data-mode="processing"]
+  ):not([data-mode="error"]) {
+  opacity: 0;
+  view-transition-name: none;
+}
+
+.onb-shell[data-docked] .onb-brand__tile {
+  view-transition-name: loqui-mark;
+}
+
+::view-transition-group(loqui-mark) {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--motion-ease-std);
+}
+
+.onb-bubble {
+  position: absolute;
+  inset: 0;
+  width: 250px;
+  max-width: 100%;
+  margin-inline: auto;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+
+.onb-bubble path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: onb-bubble-draw var(--motion-slow) var(--motion-ease-std) forwards;
+}
+
+@keyframes onb-bubble-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.onb-bar {
+  position: relative;
+  display: block;
+  width: 25px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--color-live-foreground) 14%, transparent);
+}
+
+.dark .onb-bar {
+  background: color-mix(in oklab, var(--color-foreground) 8%, transparent);
+}
+
+.onb-bar__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--color-background);
+  transform: scaleY(var(--fill, 1));
+  transform-origin: bottom;
+  transition:
+    transform var(--motion-fast) var(--motion-ease-std),
+    background-color var(--motion-fast) var(--motion-ease-std);
+}
+
+.dark .onb-bar__fill {
+  background: linear-gradient(180deg, var(--color-live), var(--color-nav-marker));
+}
+
+/* Idle breathe, about 6 s (11.5 × --motion-hero); runs only in the idle state. */
+.onb-instrument[data-mode="idle"] .onb-bar__fill {
+  animation: onb-breathe calc(var(--motion-hero) * 11.5) var(--motion-ease-std) infinite;
+}
+
+@keyframes onb-breathe {
+  50% {
+    transform: scaleY(0.85);
+  }
+}
+
+/* Error bars drop to 30% (the shape cue) and the caption names the problem.
+   Light: ink on the orange rail, 5.75:1 (warning amber would be 1.02:1, R2-I09).
+   Plum Night: warning amber on the dark rail, 8.73:1. */
+.onb-instrument[data-mode="error"] .onb-bar__fill {
+  background: var(--color-live-foreground);
+}
+
+.dark .onb-instrument[data-mode="error"] .onb-bar__fill {
+  background: var(--color-warning);
+}
+
+.onb-instrument[data-mode="error"] {
+  animation: onb-shake var(--motion-fast) var(--motion-ease-std) 1;
+}
+
+@keyframes onb-shake {
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+
+.onb-instrument__caption {
+  min-height: 31px;
+  margin: 0;
+  padding-block: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.onb-legacy {
+  display: block;
+  height: auto;
+  min-height: 0;
+  background: transparent;
+}
+
+@media (max-width: 900px) {
+  .onb-brand strong {
+    display: none;
+  }
+  .onb-progress__label {
+    max-width: 18ch;
+  }
+}
+
+@media (max-width: 760px) {
+  .onb-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .onb-rail {
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    min-height: 72px;
+    padding: 12px 20px;
+  }
+  .onb-rail h1 {
+    font-size: 22px;
+  }
+  .onb-rail__copy p {
+    display: none;
+  }
+  .onb-instrument {
+    display: none;
+  }
+  .onb-instrument__caption {
+    margin-inline-start: auto;
+    padding: 0;
+  }
+  .onb-progress__label {
+    display: none;
+  }
+  .onb-footer__start {
+    order: -1;
+    flex-basis: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-step {
+    animation: onb-fade var(--motion-base) var(--motion-ease-std) both !important;
+  }
+  .onb-instrument,
+  .onb-instrument[data-mode="idle"] .onb-bar__fill {
+    animation: none !important;
+  }
+  .onb-bubble path {
+    animation: none !important;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Hidden instruments do no decorative work (F10). Their captions remain visible. */
+.onb-shell[data-docked] .onb-instrument[data-mode="idle"] .onb-bar__fill {
+  animation: none;
+}
+.onb-progress__step:focus-visible,
+.onb-header__later:focus-visible,
+.onb-footer__skip:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 4px;
+}
+.onb-progress__step[data-state="current"] {
+  height: 5px;
+}
+.onb-rail__copy {
+  min-width: 0;
+}
+.onb-rail h1 {
+  overflow-wrap: anywhere;
+}
+.onb-legacy .onboarding-welcome {
+  height: auto;
+}
+.onb-legacy .onboarding-welcome-header,
+.onb-legacy .onboarding-welcome-actions {
+  display: none;
+}
+@media (max-width: 760px) {
+  .onb-instrument[data-mode="idle"] .onb-bar__fill {
+    animation: none;
+  }
+  .onb-main {
+    grid-template-rows: 72px minmax(0, 1fr);
+  }
+  .onb-rail {
+    padding-block: 8px;
+  }
+  .onb-rail__copy {
+    flex: 1;
+  }
+  .onb-instrument__caption {
+    max-width: 40%;
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-instrument {
+    transform: none;
+  }
+  .onb-bar__fill {
+    transition-property: background-color !important;
+  }
+}
+
+/* Two structural rows: status and actions. Long labels wrap inside their
+   controls instead of creating a third footer row (rendered M04/R5 gate). */
+.onb-footer {
+  align-content: center;
+}
+.onb-footer__actions {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.onb-footer__actions > button {
+  min-width: 0;
+  min-height: 40px;
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.onb-footer__skip {
+  margin-inline-start: auto;
+  flex-shrink: 1;
+}
+.onb-footer__actions > [data-onb-primary] {
+  margin-inline-start: auto;
+}
+.onb-footer__skip + [data-onb-primary] {
+  margin-inline-start: 0;
+}
+.onb-action-label {
+  min-width: 0;
+}
+.onb-footer__start:has(+ .onb-footer__actions) {
+  flex: 0 1 auto;
+}
+.onb-header__later {
+  flex-shrink: 1;
+  max-width: 55%;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .onb-footer__start:has(+ .onb-footer__actions) {
+    flex-basis: 100%;
+  }
+  .onb-footer__actions {
+    flex-basis: 100%;
+  }
+  .onb-footer__actions > button {
+    flex: 1 1 0;
+  }
+  .onb-footer__actions > [data-onb-primary] {
+    flex-grow: 1.4;
+  }
+}
+
+.onb-static-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 20px;
+  height: 140px;
+}
+.onb-instrument[data-mode="success"] .onb-static-bars {
+  align-items: center;
+}
+.onb-progress__step:not(:disabled) {
+  background: var(--color-nav-marker);
+}

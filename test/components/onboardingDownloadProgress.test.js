@@ -115,7 +115,7 @@ test("a download in flight follows the user to later steps as a footer chip", as
   const flow = await mountSpeechStep(t);
   await flow.click("onboarding.download.start");
   await flow.progress(flow.calls.downloads[0], 42);
-  await flow.click("Continue");
+  await flow.click("setupFlow.continue");
   assert.match(flow.text(), /onboarding\.download\.chip\(percent=42\)/);
 });
 
@@ -168,7 +168,7 @@ test("installation hides Cancel and follows the user as an installing chip", asy
     flow.find((node) => node.tagName === "BUTTON" && node.textContent === "common.cancel"),
     null
   );
-  await flow.click("Continue");
+  await flow.click("setupFlow.continue");
   assert.match(flow.text(), /onboarding\.download\.chipInstalling/);
 });
 

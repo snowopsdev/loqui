@@ -24,8 +24,6 @@ import LanguageSelector from "./ui/LanguageSelector";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
 import CodexConnection from "./CodexConnection";
 import WelcomeScreen from "./onboarding/WelcomeScreen";
-import { LoquiBrand } from "./LoquiBrand";
-import { ArrowRight, Check } from "lucide-react";
 import "../styles/onboarding-guided.css";
 import "../styles/onboarding.css";
 import { getDefaultHotkey } from "../utils/hotkeys";
@@ -50,7 +48,6 @@ import {
 } from "./icons";
 import type {
   OnboardingPreviewConfig,
-  OnboardingProgress,
   OnboardingReadiness,
   OnboardingScenario,
   OnboardingStep,
@@ -69,68 +66,29 @@ import {
 import modelRegistryData from "../models/modelRegistryData.json";
 import { pickDefaultModelId } from "../models/providerDefaultModel";
 
+import {
+  markVisited,
+  nextStep,
+  previousStep,
+  type OnboardingCompleteOptions,
+} from "../utils/onboardingFlow";
+import { OnboardingShell, type OnboardingShellProps } from "./onboarding/OnboardingShell";
+import type { InstrumentRailProps } from "./onboarding/InstrumentRail";
+
+interface StepView {
+  rail: InstrumentRailProps;
+  primary?: OnboardingShellProps["primary"];
+  onSkip?: () => void;
+  finishLaterLabel?: string;
+  content: ReactNode;
+}
+
 interface Props {
-  onComplete: (options?: { openSettings?: boolean }) => void;
+  onComplete: (options?: OnboardingCompleteOptions) => void;
   onExplore?: () => void;
   initialStep?: OnboardingStep;
   previewConfig?: OnboardingPreviewConfig;
 }
-
-const STEPS: Array<{ id: OnboardingStep; label: string }> = [
-  { id: "welcome", label: "Welcome" },
-  { id: "speech", label: "Speech" },
-  { id: "cleanup", label: "Cleanup" },
-  { id: "try", label: "Try dictation" },
-  { id: "shortcuts", label: "Use anywhere" },
-  { id: "finish", label: "Ready" },
-];
-
-const GUIDED_STEP_COPY: Record<
-  Exclude<OnboardingStep, "welcome">,
-  { title: string; description: string; cues: string[] }
-> = {
-  speech: {
-    title: "Choose the voice you use most.",
-    description:
-      "Pick a language and a local speech model. Download it only when you're ready to try dictation.",
-    cues: [
-      "Choose your spoken language",
-      "Pick a compatible local model",
-      "Download it when you decide",
-    ],
-  },
-  cleanup: {
-    title: "Make the transcript easier to read.",
-    description:
-      "Speech recognition writes your words. Cleanup can improve formatting, but your original transcript stays available.",
-    cues: [
-      "Cleanup is optional",
-      "Local and remote choices stay separate",
-      "The original words remain available",
-    ],
-  },
-  try: {
-    title: "Make one short dictation.",
-    description:
-      "Test recording inside Loqui first. This trial is not pasted into another app or saved to history.",
-    cues: ["Start when you are ready", "Speak one short sentence", "Review the words inside Loqui"],
-  },
-  shortcuts: {
-    title: "Keep Loqui one shortcut away.",
-    description:
-      "Shortcut and automatic paste are optional. You can always record inside the Loqui workspace.",
-    cues: [
-      "Keep or change the shortcut",
-      "Choose whether to paste automatically",
-      "Review platform permission needs",
-    ],
-  },
-  finish: {
-    title: "Your workspace is ready when you are.",
-    description: "Enter Loqui now. Unfinished setup stays available when you want to return.",
-    cues: ["Open the workspace", "Return to unfinished setup", "Add advanced features later"],
-  },
-};
 
 const cleanupModelCatalog: CleanupModelCatalog = {
   owns: reasoningModelBelongsToProvider,
@@ -150,113 +108,6 @@ const PREVIEW_DOWNLOAD_PROGRESS: DownloadProgress = {
   downloadedBytes: 265_000_000,
   totalBytes: 631_000_000,
 };
-
-function StepShell({
-  platform,
-  step,
-  children,
-  onBack,
-  onContinue,
-  onSkip,
-  continueLabel = "Continue",
-  skipLabel = "Continue later",
-  continueDisabled = false,
-  footerStatus,
-}: {
-  platform: string;
-  step: Exclude<OnboardingStep, "welcome">;
-  children: ReactNode;
-  onBack: () => void;
-  onContinue: () => void;
-  onSkip?: () => void;
-  continueLabel?: string;
-  skipLabel?: string;
-  continueDisabled?: boolean;
-  footerStatus?: ReactNode;
-}) {
-  const index = STEPS.findIndex((item) => item.id === step);
-  const mainRef = useRef<HTMLElement>(null);
-  const copy = GUIDED_STEP_COPY[step];
-
-  useEffect(() => {
-    mainRef.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
-  }, [step]);
-
-  return (
-    <div className="onboarding-welcome onboarding-guided" data-platform={platform}>
-      <header className="onboarding-welcome-header">
-        <div className="onboarding-welcome-brand">
-          <span className="onboarding-welcome-brand-mark" aria-hidden="true">
-            <LoquiBrand decorative />
-          </span>
-          <span className="onboarding-welcome-brand-copy">
-            <strong>Loqui setup</strong>
-            <small>A local-first voice workspace</small>
-          </span>
-        </div>
-        <div
-          className="onboarding-welcome-progress"
-          role="status"
-          aria-label={`${STEPS[index].label}, step ${index + 1} of ${STEPS.length}`}
-        >
-          <div className="onboarding-welcome-progress-label">
-            <span>
-              Step {index + 1} of {STEPS.length}
-            </span>
-            <strong>{STEPS[index].label}</strong>
-          </div>
-          <div className="onboarding-welcome-progress-track" aria-hidden="true">
-            {STEPS.map((item, itemIndex) => (
-              <i key={item.id} className={itemIndex <= index ? "is-current" : ""} />
-            ))}
-          </div>
-        </div>
-      </header>
-      <main ref={mainRef} className="onboarding-welcome-split onboarding-guided-split">
-        <section className="onboarding-welcome-story onboarding-guided-story">
-          <div className="onboarding-welcome-intro">
-            <h1 tabIndex={-1}>{copy.title}</h1>
-            <p>{copy.description}</p>
-          </div>
-          <div className="onboarding-guided-cues">
-            {copy.cues.map((cue) => (
-              <div key={cue}>
-                <span aria-hidden="true">
-                  <Check size={14} strokeWidth={2.6} />
-                </span>
-                {cue}
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="onboarding-guided-controls" aria-label={`${STEPS[index].label} setup`}>
-          {children}
-        </section>
-      </main>
-      <footer className="onboarding-welcome-actions">
-        <button className="onboarding-welcome-back" type="button" onClick={onBack}>
-          Back
-        </button>
-        {footerStatus}
-        <div>
-          {onSkip && (
-            <button className="onboarding-welcome-explore" type="button" onClick={onSkip}>
-              {skipLabel}
-            </button>
-          )}
-          <button
-            className="onboarding-welcome-primary"
-            type="button"
-            onClick={onContinue}
-            disabled={continueDisabled}
-          >
-            {continueLabel} <ArrowRight size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </footer>
-    </div>
-  );
-}
 
 function ChoiceCard({
   selected,
@@ -1062,16 +913,20 @@ export default function OnboardingFlow({
   previewConfig,
 }: Props) {
   const preview = Boolean(import.meta.env.DEV && window.loquiBrowserPreview);
-  const config = previewConfig ?? window.loquiBrowserPreviewConfig;
+  const config = previewConfig;
   const progressStorageKey = config ? onboardingPreviewStorageKey(config) : undefined;
   const storedProgress = useMemo(
     () => readOnboardingProgress(progressStorageKey),
     [progressStorageKey]
   );
-  const [progress, setProgress] = useState<OnboardingProgress>(storedProgress);
-  const [step, setStep] = useState<OnboardingStep>(
-    initialStep ?? config?.step ?? storedProgress.step
+  const firstStep = initialStep ?? config?.step ?? storedProgress.step;
+  const [step, setStep] = useState<OnboardingStep>(firstStep);
+  const [visited, setVisited] = useState<OnboardingStep[]>(() =>
+    markVisited(storedProgress.visited, firstStep)
   );
+  useEffect(() => {
+    writeOnboardingProgress({ step, visited }, progressStorageKey);
+  }, [progressStorageKey, step, visited]);
   const [selectedModel, setSelectedModel] = useState(() => {
     const saved = config
       ? localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechModel`)
@@ -1140,12 +995,14 @@ export default function OnboardingFlow({
   const spokenLanguages = useSettingsStore((s) => s.spokenLanguages);
   const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
   const permissions = usePermissions(undefined, { macAccessibilityChecksEnabled: true });
-  const platform =
+  const platform = (
     config?.platform === "macos"
       ? "darwin"
       : config?.platform === "linux"
         ? "linux"
-        : getCachedPlatform();
+        : getCachedPlatform()
+  ) as "darwin" | "linux" | "win32";
+  const device = platform === "darwin" ? "Mac" : "Other";
   const scenario = config?.scenario ?? "fresh";
   const speechLanguage =
     spokenLanguages[0] || (preferredLanguage === "auto" ? "en-US" : preferredLanguage) || "en-US";
@@ -1197,33 +1054,35 @@ export default function OnboardingFlow({
       .catch(() => {});
   }, []);
 
-  const persist = useCallback(
-    (next: Partial<OnboardingProgress>) => {
-      const value = writeOnboardingProgress(next, progressStorageKey);
-      setProgress(value);
-      return value;
+  const goTo = useCallback((next: OnboardingStep) => {
+    setStep(next);
+    setVisited((current) => markVisited(current, next));
+  }, []);
+  const finish = useCallback(
+    (options?: OnboardingCompleteOptions) => {
+      writeOnboardingProgress({ completed: true, step: "finish" }, progressStorageKey);
+      onComplete(options);
     },
-    [progressStorageKey]
+    [onComplete, progressStorageKey]
   );
-
-  const goTo = useCallback(
-    (next: OnboardingStep) => {
-      setStep(next);
-      persist({ step: next });
-    },
-    [persist]
-  );
-
-  const explore = useCallback(() => {
-    persist({ explored: true, step });
+  const finishLater = useCallback(() => {
+    writeOnboardingProgress({ explored: true, step, visited }, progressStorageKey);
     onExplore?.();
     onComplete();
-  }, [onComplete, onExplore, persist, step]);
-
-  const finish = useCallback(() => {
-    persist({ completed: true, step: "finish" });
-    onComplete();
-  }, [onComplete, persist]);
+  }, [onComplete, onExplore, progressStorageKey, step, visited]);
+  const skip = () => {
+    const next = nextStep(step);
+    if (next) goTo(next);
+    else finish();
+  };
+  const back = () => {
+    const previous = previousStep(step);
+    if (previous) goTo(previous);
+  };
+  const advance = () => {
+    if (step === "cleanup") applyCleanupToOtherTasks();
+    skip();
+  };
 
   const downloadModel = useCallback(() => {
     if (downloadState === "downloading" || speechSettling) return;
@@ -1386,28 +1245,6 @@ export default function OnboardingFlow({
     trialResult,
   ]);
 
-  const handleContinue = () => {
-    if (step === "welcome") return goTo("speech");
-    if (step === "speech") return goTo("cleanup");
-    if (step === "cleanup") {
-      applyCleanupToOtherTasks();
-      return goTo("try");
-    }
-    if (step === "try") return goTo("shortcuts");
-    if (step === "shortcuts") return goTo("finish");
-    return finish();
-  };
-
-  const handleBack = () => {
-    const index = STEPS.findIndex((item) => item.id === step);
-    if (index > 0) goTo(STEPS[index - 1].id);
-  };
-
-  const handleSkip = () => {
-    if (step === "finish") return finish();
-    explore();
-  };
-
   const simulatedTrialReady =
     preview && !["fresh", "downloading", "download-interrupted"].includes(scenario);
   const trialReady = selectedSpeechSupported && (speechModelReady || simulatedTrialReady);
@@ -1487,7 +1324,7 @@ export default function OnboardingFlow({
   if (step === "finish") content = <FinishStep readiness={readiness} onResume={goTo} />;
 
   if (step === "welcome") {
-    return (
+    content = (
       <WelcomeScreen
         platform={platform}
         updatesEnabled={updatesEnabled}
@@ -1497,34 +1334,55 @@ export default function OnboardingFlow({
         }}
         dataRetentionEnabled={dataRetentionEnabled}
         onDataRetentionChange={setDataRetentionEnabled}
-        onContinue={handleContinue}
-        onExplore={handleSkip}
+        onContinue={advance}
+        onExplore={finishLater}
       />
     );
   }
 
+  // T11 interim: keep each legacy body until its owning step task replaces it.
+  const legacy = (node: ReactNode) => (
+    <div className="onboarding-welcome onboarding-guided onb-legacy">{node}</div>
+  );
+  const stepView = (): StepView => ({
+    rail: {
+      title: t(`setupFlow.rail.${step}.title`),
+      body: t(`setupFlow.rail.${step}.body${device}`),
+      mode: { kind: "idle" },
+    },
+    primary:
+      step === "finish"
+        ? { label: t("setupFlow.rail.finish.openWorkspace"), onClick: () => finish() }
+        : { label: t("setupFlow.continue"), onClick: advance },
+    onSkip: step === "welcome" || step === "finish" ? undefined : skip,
+    finishLaterLabel: t(step === "welcome" ? "setupFlow.lookAroundFirst" : "setupFlow.finishLater"),
+    content: legacy(content),
+  });
+  const view = stepView();
+  const footerStatus =
+    step !== "speech" && downloadState === "downloading" ? (
+      <span className="onboarding-download-chip">
+        {speechInstalling
+          ? t("onboarding.download.chipInstalling")
+          : t("onboarding.download.chip", { percent: Math.round(speechProgress.percentage) })}
+      </span>
+    ) : undefined;
   return (
-    <StepShell
-      platform={platform}
+    <OnboardingShell
       step={step}
-      onBack={handleBack}
-      onContinue={handleContinue}
-      onSkip={step === "finish" ? undefined : handleSkip}
-      continueLabel={step === "finish" ? "Open workspace" : "Continue"}
-      skipLabel="Explore first"
-      footerStatus={
-        step !== "speech" && downloadState === "downloading" ? (
-          <span className="onboarding-download-chip">
-            {speechInstalling
-              ? t("onboarding.download.chipInstalling")
-              : t("onboarding.download.chip", {
-                  percent: Math.round(speechProgress.percentage),
-                })}
-          </span>
-        ) : undefined
+      visited={visited}
+      platform={platform}
+      rail={view.rail}
+      onNavigate={goTo}
+      onBack={step === "welcome" ? undefined : back}
+      onSkip={view.onSkip}
+      finishLater={
+        view.finishLaterLabel ? { label: view.finishLaterLabel, onClick: finishLater } : undefined
       }
+      primary={view.primary}
+      footerStart={footerStatus}
     >
-      {content}
-    </StepShell>
+      {view.content}
+    </OnboardingShell>
   );
 }

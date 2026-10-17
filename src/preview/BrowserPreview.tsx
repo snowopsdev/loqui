@@ -6,6 +6,7 @@ import {
   ONBOARDING_STEPS,
   parseOnboardingPreviewConfig,
   type OnboardingPreviewConfig,
+  type OnboardingScenario,
   type OnboardingStep,
 } from "../utils/onboardingState";
 import "./preview.css";

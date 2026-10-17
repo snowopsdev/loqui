@@ -8106,6 +8106,25 @@ class IPCHandlers {
       alive(record) &&
       dictationOperations.get(row.id) === record &&
       this[row.slot] === record.adapter;
+    const contentAuthorized = (row, record) => {
+      if (!owns(row, record)) return false;
+      try {
+        if (streamingAuthority(record.options) === record.authority) return true;
+      } catch {
+        // Removed/unreadable authority is a refusal, never a warm fallback.
+      }
+      record.cancelled = true;
+      record.adapter.discardPendingAudio();
+      return false;
+    };
+    const warmTransportReady = (row, record) => {
+      const adapter = record.adapter;
+      const socket = record.transport;
+      if (this[row.slot] !== adapter || !socket || socket.readyState !== 1) return false;
+      return ["realtime", "gemini"].includes(row.id)
+        ? adapter.isConnected && adapter.ws === socket
+        : adapter.warmConnection === socket && adapter.hasWarmConnection();
+    };
     const identityMatches = (record, event, identity) =>
       record &&
       record.sender === event.sender &&
@@ -8219,7 +8238,14 @@ class IPCHandlers {
             alive(prior)
           ) {
             await prior.promise;
-            return { success: true, alreadyWarm: true };
+            if (
+              dictationWarm.get(row.id) !== prior ||
+              dictationOperations.has(row.id) ||
+              !alive(prior) ||
+              streamingAuthority(options) !== authority
+            )
+              throw streamingOperationError("Streaming warmup superseded");
+            if (warmTransportReady(row, prior)) return { success: true, alreadyWarm: true };
           }
           if (prior) {
             prior.cancelled = true;
@@ -8261,7 +8287,15 @@ class IPCHandlers {
             )
               throw streamingOperationError("Streaming warmup superseded");
             await connectOwnedStreaming(row, record, material, true);
-            if (dictationWarm.get(row.id) !== record || !alive(record))
+            record.transport = ["realtime", "gemini"].includes(row.id)
+              ? adapter.ws
+              : adapter.warmConnection;
+            if (
+              dictationWarm.get(row.id) !== record ||
+              !alive(record) ||
+              streamingAuthority(options) !== authority ||
+              !warmTransportReady(row, record)
+            )
               throw streamingOperationError("Streaming warmup superseded");
           })();
           await record.promise;
@@ -8344,6 +8378,7 @@ class IPCHandlers {
             alive(warm) &&
             warm.sender === event.sender &&
             warm.authority === authority &&
+            warmTransportReady(row, warm) &&
             !options.forceNew;
           if (warm) {
             clearTimeout(warm.idleTimer);
@@ -8357,17 +8392,13 @@ class IPCHandlers {
           const adapter = useWarm ? warm.adapter : new row.Ctor();
           record.adapter = adapter;
           this[row.slot] = adapter;
-          adapter.setLifecycleGate(() => {
-            try {
-              return owns(row, record) && streamingAuthority(options) === authority;
-            } catch {
-              return false;
-            }
-          });
-          adapter.setEgressGate(() => owns(row, record));
+          adapter.setLifecycleGate(() => contentAuthorized(row, record));
+          adapter.setEgressGate(() => contentAuthorized(row, record));
           armFirstFrame(
             adapter,
-            firstFrameHandOff(event.sender, record.correlationId, () => owns(row, record))
+            firstFrameHandOff(event.sender, record.correlationId, () =>
+              contentAuthorized(row, record)
+            )
           );
           bindCallbacks(row, record);
           if (row.id === "deepgram")
@@ -8387,7 +8418,11 @@ class IPCHandlers {
               throw streamingOperationError("Streaming operation ended");
             await connectOwnedStreaming(row, record, material);
           }
-          if (!owns(row, record) || streamingAuthority(options) !== authority)
+          if (
+            !contentAuthorized(row, record) ||
+            !adapter.isConnected ||
+            adapter.ws?.readyState !== 1
+          )
             throw streamingOperationError("Streaming operation ended");
           record.pending = false;
           return { success: true, usedWarmConnection: !!useWarm };
@@ -8404,7 +8439,7 @@ class IPCHandlers {
       });
       ipcMain.on(`${row.prefix}-send`, (event, data, identity) => {
         const record = dictationOperations.get(row.id);
-        if (!identityMatches(record, event, identity) || !owns(row, record)) return;
+        if (!identityMatches(record, event, identity) || !contentAuthorized(row, record)) return;
         if (
           !(data instanceof ArrayBuffer || ArrayBuffer.isView(data)) ||
           !data.byteLength ||

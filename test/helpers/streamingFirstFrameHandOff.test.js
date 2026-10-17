@@ -806,3 +806,141 @@ for (const row of PROVIDERS)
     listeners.get(row.send)(event, FRAME(), { ...identity, operationId: "new-owner-attempt" });
     assertHandOff(true);
   });
+
+for (const row of PROVIDERS) {
+  for (const change of ["unchanged", "removed", "rotated"]) {
+    test(`${row.name}: handshake content requires ${change} current credential authority`, async () => {
+      const { started, socket } = await startCold(row);
+      const slot = row.name.includes("realtime")
+        ? "_dictationStreaming"
+        : row.name === "assemblyai"
+          ? "assemblyAiStreaming"
+          : `${row.name}Streaming`;
+      const adapter = self[slot];
+      if (row.name === "corti" || row.name === "assemblyai") open(socket);
+      send(row, row.name === "assemblyai" ? Buffer.alloc(800, 7) : FRAME());
+      const retained = [
+        ...(adapter.coldStartBuffer ?? []),
+        ...(adapter.preConfigBuffer ?? []),
+        ...(adapter.pendingAudio ?? []),
+      ];
+      assertHandOff(false);
+      if (change !== "unchanged") credential = change === "removed" ? "" : "credential-2";
+      if (socket.readyState === FakeSocket.CONNECTING) open(socket);
+      // OpenAI/Deepgram/AssemblyAI can forward before acceptance; Gemini/Corti
+      // also drain asynchronously from their actual acceptance callbacks.
+      if (row.sendsBeforeAccept)
+        send(row, row.name === "assemblyai" ? Buffer.alloc(800, 7) : FRAME());
+      row.accept(socket);
+      assert.equal((await started).success, change === "unchanged");
+      if (change === "unchanged") {
+        send(row);
+        assertHandOff(true);
+      } else {
+        assertHandOff(false);
+        for (const bytes of retained)
+          assert.equal(bytes.some(Boolean), false, "obsolete queued bytes are erased");
+      }
+    });
+  }
+  for (const ending of ["close", "error"])
+    for (const action of ["start", "warmup"]) {
+      test(`${row.name}: ${action} reconnects after a warm transport ${ending}`, async () => {
+        const old = await warmUp(row);
+        old.readyState = FakeSocket.CLOSED;
+        if (ending === "close") old.emit("close", 1006, Buffer.from(""));
+        else old.emit("error", Error("Synthetic warm transport failure"));
+        const index = sockets.length;
+        const pending = invoke(
+          action === "start" ? row.start : row.warmup,
+          action === "start"
+            ? startOptions(row)
+            : startOptions(row, {
+                correlationId: undefined,
+                dictationSessionId: undefined,
+                operationId: undefined,
+              })
+        );
+        const next = await socketAt(index);
+        assert.notEqual(next, old);
+        open(next);
+        row.accept(next);
+        const result = await pending;
+        assert.equal(result.success, true);
+        assert.notEqual(result.alreadyWarm, true);
+        assert.notEqual(result.usedWarmConnection, true);
+        if (action === "start") {
+          send(row);
+          assertHandOff(true);
+        } else assertHandOff(false);
+      });
+    }
+}
+
+for (const row of PROVIDERS) {
+  test(`${row.name}: healthy repeated warmup preserves its exact reusable transport`, async () => {
+    const warm = await warmUp(row),
+      count = sockets.length;
+    const result = await invoke(
+      row.warmup,
+      startOptions(row, {
+        correlationId: undefined,
+        dictationSessionId: undefined,
+        operationId: undefined,
+      })
+    );
+    assert.equal(result.success, true);
+    assert.equal(result.alreadyWarm, true);
+    assert.equal(sockets.length, count);
+    assert.equal((await invoke(row.start, startOptions(row))).success, true);
+    assert.equal(sockets.length, count);
+    send(row);
+    assertHandOff(true);
+    assert.ok(warm.sent.some(isContentFrame));
+  });
+  test(`${row.name}: superseded warm token continuation cannot clean up the replacement`, async () => {
+    const gate = held();
+    realtimeToken = () => gate.promise;
+    const old = invoke(
+      row.warmup,
+      startOptions(row, {
+        correlationId: undefined,
+        dictationSessionId: undefined,
+        operationId: undefined,
+      })
+    );
+    await tick();
+    realtimeToken = async () => "new-token";
+    const index = sockets.length;
+    const next = invoke(
+      row.warmup,
+      startOptions(row, {
+        correlationId: undefined,
+        dictationSessionId: undefined,
+        operationId: undefined,
+        language: "de",
+      })
+    );
+    const socket = await socketAt(index);
+    open(socket);
+    row.accept(socket);
+    assert.equal((await next).success, true);
+    gate.resolve("old-token");
+    assert.equal((await old).success, false);
+    assert.equal((await invoke(row.start, startOptions(row, { language: "de" }))).success, true);
+    send(row);
+    assertHandOff(true);
+  });
+  test(`${row.name}: old warm socket events cannot clean up an adopted replacement`, async () => {
+    const old = await warmUp(row);
+    const { started, socket } = await startCold(row, { language: "de" });
+    open(socket);
+    row.accept(socket);
+    assert.equal((await started).success, true);
+    old.emit("close", 1006, Buffer.from(""));
+    old.emit("error", Error("Synthetic old warm error"));
+    send(row);
+    assertHandOff(true);
+    assert.equal(socket.readyState, FakeSocket.OPEN);
+  });
+}

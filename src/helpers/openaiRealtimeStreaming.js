@@ -580,6 +580,24 @@ class OpenAIRealtimeStreaming {
       return false;
     }
 
+    const forwardOwned = (input) => {
+      let audio;
+      try {
+        audio = this._resampleToInputRate(input);
+        const sent = sendContentFrame(
+          this,
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: audio.toString("base64"),
+          })
+        );
+        if (sent) this.audioBytesSent += audio.length;
+        return sent;
+      } finally {
+        zeroAudio(input);
+        if (audio && audio !== input) zeroAudio(audio);
+      }
+    };
     if (this.coldStartBuffer.length > 0) {
       debugLogger.debug(
         `${this.providerLabel} flushing cold-start buffer`,
@@ -588,28 +606,14 @@ class OpenAIRealtimeStreaming {
           bytes: this.coldStartBufferSize,
         })
       );
-      for (const buf of this.coldStartBuffer) {
-        const audio = this._resampleToInputRate(buf);
-        sendContentFrame(
-          this,
-          JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
-        );
-        zeroAudio(buf);
-        if (audio !== buf) zeroAudio(audio);
-        this.audioBytesSent += audio.length;
+      try {
+        for (const buf of this.coldStartBuffer) if (!forwardOwned(buf)) return false;
+      } finally {
+        // Includes untouched remainders if resampling, receipt or ws.send throws.
+        this.discardPendingAudio();
       }
-      this.coldStartBuffer = [];
-      this.coldStartBufferSize = 0;
     }
-
-    const audio = this._resampleToInputRate(Buffer.from(pcmBuffer));
-    sendContentFrame(
-      this,
-      JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
-    );
-    zeroAudio(audio);
-    this.audioBytesSent += audio.length;
-    return true;
+    return forwardOwned(Buffer.from(pcmBuffer));
   }
 
   async disconnect({ commit = true } = {}) {

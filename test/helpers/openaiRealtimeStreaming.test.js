@@ -1131,3 +1131,54 @@ test("preconfigured sessions adopt the model the server minted (session.created 
   assert.equal(bare.model, "gpt-4o-mini-transcribe");
   bare.cleanup();
 });
+
+for (const failure of [null, "socket", "handoff"])
+  for (const queued of [false, true]) {
+    test(`resampling erases every owned input/output on ${queued ? "queued" : "live"} ${failure || "ordinary"} send`, async () => {
+      const OpenAI = (await load()).default;
+      const adapter = new OpenAI();
+      adapter.captureRate = 16000;
+      adapter.inputRate = 24000;
+      const caller = Buffer.alloc(3200, 7);
+      const aliases = [];
+      const resample = adapter._resampleToInputRate;
+      adapter._resampleToInputRate = function (input) {
+        const output = resample.call(this, input);
+        aliases.push(input, output);
+        return output;
+      };
+      if (queued) {
+        adapter.beginConnecting();
+        adapter.sendAudio(caller);
+        adapter.sendAudio(caller);
+        aliases.push(...adapter.coldStartBuffer);
+      }
+      adapter.ws = makeFakeSocket(WS.OPEN);
+      if (failure === "socket")
+        adapter.ws.send = () => {
+          throw Error("Synthetic send failure");
+        };
+      if (failure === "handoff")
+        require("../../src/helpers/streamingHandOff").armFirstFrame(adapter, () => {
+          throw Error("Synthetic handoff failure");
+        });
+      try {
+        if (failure) assert.throws(() => adapter.sendAudio(caller), /Synthetic/);
+        else assert.equal(adapter.sendAudio(caller), true);
+        assert.ok(aliases.length >= 2);
+        for (const bytes of aliases)
+          assert.equal(
+            bytes.some(Boolean),
+            false,
+            "owned resampling aliases are erased before terminal cleanup"
+          );
+        assert.equal(
+          caller.every((byte) => byte === 7),
+          true,
+          "caller bytes are borrowed and remain intact"
+        );
+      } finally {
+        adapter.cleanup();
+      }
+    });
+  }

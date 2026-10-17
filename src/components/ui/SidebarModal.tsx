@@ -140,7 +140,7 @@ export default function SidebarModal<T extends string>({
                     title={activeItem?.label ?? title}
                     compact={isCompact}
                     close={
-                      <DialogPrimitive.Close className="grid h-8 w-8 shrink-0 place-items-center rounded-md opacity-70 outline-none transition-[opacity,background-color] duration-[var(--motion-fast)] hover:opacity-100 hover:bg-muted dark:hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+                      <DialogPrimitive.Close className="grid h-8 w-8 shrink-0 place-items-center rounded-md opacity-70 focus-visible:opacity-100 outline-none transition-[opacity,background-color] duration-[var(--motion-fast)] hover:opacity-100 hover:bg-muted dark:hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
                         <X className="h-4 w-4 text-muted-foreground" />
                         <span className="sr-only">{t("common.close")}</span>
                       </DialogPrimitive.Close>

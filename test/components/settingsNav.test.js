@@ -226,6 +226,45 @@ test("[baseline guard] the 70% close icon keeps 3:1 on every title-bar surface, 
   }
 });
 
+test("[change-driving] the actual close control keeps its focused ring at 3:1 on title-bar surfaces", async () => {
+  const { contrastRatio } = await import("../../src/utils/contrast.ts");
+  const { resolveTokens } = require("../helpers/harness/cssTokens");
+  const closeClass = read("src/components/ui/SidebarModal.tsx").match(
+    /<DialogPrimitive\.Close className="([^"]+)"/
+  )?.[1];
+  assert.ok(closeClass, "the dialog close control has a class list");
+  const closeHtml = renderToStaticMarkup(React.createElement("button", { className: closeClass }));
+  const renderedClass = closeHtml.match(/class="([^"]+)"/)?.[1];
+  assert.ok(renderedClass, "the extracted close control renders its actual classes");
+  const classes = new Set(renderedClass.split(/\s+/));
+  assert.ok(classes.has("opacity-70"), "resting close control remains at 70% opacity");
+  assert.ok(classes.has("focus-visible:ring-2") && classes.has("focus-visible:ring-ring"));
+  const focusedOpacity = classes.has("focus-visible:opacity-100") ? 1 : 0.7;
+  const { light, dark } = resolveTokens(read("src/index.css"));
+  const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const over = (fg, bg, alpha) =>
+    "#" +
+    channels(fg)
+      .map((c, i) =>
+        Math.round(alpha * c + (1 - alpha) * channels(bg)[i])
+          .toString(16)
+          .padStart(2, "0")
+      )
+      .join("");
+  for (const [themeName, theme, surfaces] of [
+    ["light", light, ["--color-background", "--color-muted"]],
+    ["dark", dark, ["--color-surface-1", "--color-surface-raised"]],
+  ]) {
+    for (const surface of surfaces) {
+      const ring = over(theme["--color-ring"], theme[surface], focusedOpacity);
+      assert.ok(
+        contrastRatio(ring, theme[surface]) >= 3,
+        `${themeName} ${surface} at focus opacity ${focusedOpacity}: ${ring}`
+      );
+    }
+  }
+});
+
 test("[change-driving] inference radio rows receive separators from their direct radiogroup parent", async (t) => {
   installBrowserGlobals(t);
   const { withI18nMock } = require("../lib/i18nTestMock");

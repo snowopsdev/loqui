@@ -22,6 +22,11 @@ test("the settings sidebar marks the current section and shows keyboard focus", 
   );
   assert.match(modal, /ariaLabel=\{title\}/);
   assert.match(modal, /opacity-70[^"]*hover:opacity-100/, "close target is subdued until hover");
+  assert.match(
+    modal,
+    /opacity-70[^"]*focus-visible:opacity-100/,
+    "the keyboard focus ring is not dimmed by the close target opacity"
+  );
   assert.doesNotMatch(
     modal,
     /ring-ring\/\d+/,

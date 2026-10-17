@@ -210,6 +210,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteTranscriptionAudio: (id) => ipcRenderer.invoke("delete-transcription-audio", id),
   getAudioStorageUsage: () => ipcRenderer.invoke("get-audio-storage-usage"),
   deleteAllAudio: () => ipcRenderer.invoke("delete-all-audio"),
+  storage: {
+    preview: () => ipcRenderer.invoke("storage-preview"),
+    deleteAudio: (expected) => ipcRenderer.invoke("storage-delete-audio", expected),
+    deleteHistory: (expected) => ipcRenderer.invoke("storage-delete-history", expected),
+  },
   syncRetentionSettings: (settings) => ipcRenderer.send("retention-settings-changed", settings),
   retryTranscription: (id, settings) => ipcRenderer.invoke("retry-transcription", id, settings),
   updateTranscriptionText: (id, text, rawText) =>

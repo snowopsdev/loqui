@@ -210,6 +210,43 @@ export interface AnalyticsSummary {
   historyBackfillRetryRequired?: boolean;
 }
 
+export interface StorageAudioPreview {
+  files: number;
+  bytes: number;
+  directory: string;
+  audioIdentity: string;
+}
+export interface StorageHistoryPreview {
+  total: number;
+  discarded: number;
+  softDeleted: number;
+  withAudio: number;
+  historyIdentity: string;
+}
+export interface StoragePreview {
+  audio: StorageAudioPreview | { error: string };
+  history: StorageHistoryPreview | { error: string };
+}
+// failed and readable are Plan 02's fields (spec §5.6): failed = recordings that could not be unlinked;
+// readable = the folder could be read to count them (false also when nothing was read, e.g. "invalid-request").
+export interface StorageAudioErase {
+  deleted: number;
+  failed: number;
+  readable: boolean;
+  remaining: number | null;
+}
+export interface StorageDeleteResult extends StorageAudioErase {
+  ok: boolean;
+  errors: string[];
+}
+export interface StorageHistoryDeleteResult {
+  ok: boolean;
+  deleted: number;
+  remaining: number | null;
+  errors: string[];
+  audio: StorageAudioErase;
+}
+
 export interface NoteItem {
   id: number;
   title: string;
@@ -1024,6 +1061,19 @@ declare global {
         readable: boolean;
       }>;
       deleteAllAudio: () => Promise<{ deleted: number; failed: number; readable: boolean }>;
+      storage?: {
+        preview: () => Promise<StoragePreview>;
+        deleteAudio: (expected: {
+          files: number;
+          audioIdentity: string;
+        }) => Promise<StorageDeleteResult>;
+        deleteHistory: (expected: {
+          total: number;
+          files: number;
+          audioIdentity: string;
+          historyIdentity: string;
+        }) => Promise<StorageHistoryDeleteResult>;
+      };
       syncRetentionSettings?: (settings: {
         audioRetentionDays: number;
         transcriptRetentionDays: number;

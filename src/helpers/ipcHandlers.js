@@ -19,6 +19,7 @@ const { ANALYTICS_HISTORY_BACKFILL_VERSION } = require("./analytics");
 const { PARAKEET_UNSUPPORTED_OS_CODE } = require("./parakeetCapability");
 const { getModelType, isSherpaLocalProvider } = require("./parakeetModelInfo");
 const { broadcastToWindows } = require("./windowBroadcast");
+const { createStorageOps } = require("./storageOps");
 const { openExternalUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
@@ -332,6 +333,11 @@ class IPCHandlers {
     this._activeRecordingPipeline = null;
     this._onboardingDemoSession = null;
     this.audioStorageManager = new AudioStorageManager();
+    this.storageOps = createStorageOps({
+      audio: this.audioStorageManager,
+      database: this.databaseManager,
+      broadcast: (channel, payload) => setImmediate(() => broadcastToWindows(channel, payload)),
+    });
     this.localModelDownloadStatus = new LocalModelDownloadStatus();
     this._retentionCleanupInterval = null;
     this._retentionSettings = { ...DEFAULT_RETENTION_SETTINGS }; // Synced from renderer
@@ -1589,6 +1595,14 @@ class IPCHandlers {
     ipcMain.handle("get-audio-storage-usage", async () => {
       return this.audioStorageManager.getStorageUsage();
     });
+    // Required reviewed counts and opaque identities; main refuses changed sets.
+    ipcMain.handle("storage-preview", async () => this.storageOps.preview());
+    ipcMain.handle("storage-delete-audio", async (_event, expected) =>
+      this.storageOps.deleteAudio({ expected: expected ?? null })
+    );
+    ipcMain.handle("storage-delete-history", async (_event, expected) =>
+      this.storageOps.deleteHistory({ expected: expected ?? null })
+    );
 
     ipcMain.on(
       "retention-settings-changed",
@@ -3369,12 +3383,12 @@ class IPCHandlers {
         errors.push(`DB close: ${e.message}`);
       }
 
-      // Delete audio files
-      try {
-        this.audioStorageManager.deleteAllAudio();
-      } catch (e) {
-        errors.push(`Audio delete: ${e.message}`);
-      }
+      // Plan 02 reports failed unlinks and unreadable folders. The database
+      // is already closed, and its file is deleted below, so no flag reconciliation.
+      const audioErase = this.audioStorageManager.deleteAllAudio();
+      if (!audioErase.readable) errors.push("Audio delete: the audio folder could not be read");
+      else if (audioErase.failed > 0)
+        errors.push(`Audio delete: ${audioErase.failed} file(s) could not be deleted`);
 
       // Delete downloaded models
       try {

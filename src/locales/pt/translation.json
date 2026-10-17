@@ -4217,5 +4217,21 @@
     "stopListening": "Parar de ouvir",
     "stopRecording": "Parar gravação",
     "cleaningUp": "A rever o texto…"
+  },
+  "micCard": {
+    "ready": "Pronto",
+    "listening": "A ouvir",
+    "listeningFor": "A ouvir {{time}}",
+    "cleaningUp": "A rever…",
+    "offline": "Microfone offline",
+    "offlinePermission": "O acesso ao microfone está desativado",
+    "offlineDevice": "Microfone desligado",
+    "nextCapture": "Próxima gravação",
+    "role": {
+      "dictation": "Ditado",
+      "meeting": "Reunião",
+      "assistant": "Assistente",
+      "translation": "Tradução"
+    }
   }
 }

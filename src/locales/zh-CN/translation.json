@@ -4185,5 +4185,21 @@
     "stopListening": "停止聆听",
     "stopRecording": "停止录制",
     "cleaningUp": "正在整理文本…"
+  },
+  "micCard": {
+    "ready": "就绪",
+    "listening": "正在聆听",
+    "listeningFor": "正在聆听 {{time}}",
+    "cleaningUp": "正在润色…",
+    "offline": "麦克风离线",
+    "offlinePermission": "麦克风访问权限已关闭",
+    "offlineDevice": "麦克风已断开连接",
+    "nextCapture": "下次录音",
+    "role": {
+      "dictation": "听写",
+      "meeting": "会议",
+      "assistant": "助手",
+      "translation": "翻译"
+    }
   }
 }

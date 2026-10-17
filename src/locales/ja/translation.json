@@ -4185,5 +4185,21 @@
     "stopListening": "聞き取りを停止",
     "stopRecording": "録音を停止",
     "cleaningUp": "文章を整えています…"
+  },
+  "micCard": {
+    "ready": "準備完了",
+    "listening": "聞き取り中",
+    "listeningFor": "聞き取り中 {{time}}",
+    "cleaningUp": "文章を整えています…",
+    "offline": "マイクがオフラインです",
+    "offlinePermission": "マイクへのアクセスが無効です",
+    "offlineDevice": "マイクが接続されていません",
+    "nextCapture": "次回の録音",
+    "role": {
+      "dictation": "音声入力",
+      "meeting": "会議",
+      "assistant": "アシスタント",
+      "translation": "翻訳"
+    }
   }
 }

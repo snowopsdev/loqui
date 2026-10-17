@@ -4185,5 +4185,21 @@
     "stopListening": "停止聆聽",
     "stopRecording": "停止錄製",
     "cleaningUp": "正在整理文字…"
+  },
+  "micCard": {
+    "ready": "就緒",
+    "listening": "正在聆聽",
+    "listeningFor": "正在聆聽 {{time}}",
+    "cleaningUp": "正在潤飾…",
+    "offline": "麥克風離線",
+    "offlinePermission": "麥克風存取權限已關閉",
+    "offlineDevice": "麥克風已中斷連線",
+    "nextCapture": "下次錄音",
+    "role": {
+      "dictation": "聽寫",
+      "meeting": "會議",
+      "assistant": "助理",
+      "translation": "翻譯"
+    }
   }
 }

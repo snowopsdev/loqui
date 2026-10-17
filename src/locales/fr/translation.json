@@ -4217,5 +4217,21 @@
     "stopListening": "Arrêter l’écoute",
     "stopRecording": "Arrêter l’enregistrement",
     "cleaningUp": "Révision en cours…"
+  },
+  "micCard": {
+    "ready": "Prêt",
+    "listening": "À l’écoute",
+    "listeningFor": "À l’écoute {{time}}",
+    "cleaningUp": "Retouche en cours…",
+    "offline": "Micro hors ligne",
+    "offlinePermission": "L’accès au microphone est désactivé",
+    "offlineDevice": "Microphone déconnecté",
+    "nextCapture": "Prochain enregistrement",
+    "role": {
+      "dictation": "Dictée",
+      "meeting": "Réunion",
+      "assistant": "Assistant",
+      "translation": "Traduction"
+    }
   }
 }

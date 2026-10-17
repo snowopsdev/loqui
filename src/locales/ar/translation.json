@@ -4419,5 +4419,21 @@
     "stopListening": "إيقاف الاستماع",
     "stopRecording": "إيقاف التسجيل",
     "cleaningUp": "جارٍ تنقيح النص…"
+  },
+  "micCard": {
+    "ready": "جاهز",
+    "listening": "جارٍ الاستماع",
+    "listeningFor": "جارٍ الاستماع {{time}}",
+    "cleaningUp": "جارٍ التنقيح…",
+    "offline": "الميكروفون غير متاح",
+    "offlinePermission": "الوصول إلى الميكروفون متوقف",
+    "offlineDevice": "الميكروفون غير متصل",
+    "nextCapture": "التسجيل التالي",
+    "role": {
+      "dictation": "الإملاء",
+      "meeting": "الاجتماع",
+      "assistant": "المساعد",
+      "translation": "الترجمة"
+    }
   }
 }

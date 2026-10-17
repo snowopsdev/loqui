@@ -331,6 +331,24 @@ split segments and menu items retain full opaque focus rings, logical spacing an
 Radix’s keyboard and dismissal semantics. ControlPanel owns one capture-status
 hook result for this control and the later sidebar and Home consumers.
 
+The sidebar mic card opens Settings in expanded and compact forms, with full
+opaque keyboard focus rings. It uses static state glyphs, including the processing
+glyph, and unfaded status/reason text. The expanded card shows the elapsed clock,
+idle hotkey and Plan 03 destination/state chips; unconfirmed routes say “Checking…”.
+Configured speech and assistant/translation routes sit under “Next capture” while
+listening, processing or an active meeting has lost its mic. These describe the
+next configuration, not the frozen active recipient. Idle cards use ordinary role
+labels. The compact card announces only capture status and discloses no route.
+
+The decorative 2px rail sits on the sidebar’s logical inline-end edge. It is hidden
+while ready, follows smoothed live levels only while listening, travels in amber
+only while processing, and stays solid amber offline. The card adds no focal
+motion: Capture’s processing spinner and the rail’s travel share the two-motion
+budget. Reduced motion stops level sampling, travel, glow and transitions while
+keeping active rails visible. State changes, reader replacement, preference changes
+and unmount clean up the owned timer and level property. Shell integration remains
+separate from these presentational components.
+
 ### Settings
 
 **Routing is one model, drawn three ways.** `src/lib/routeGraph.ts` (pure, Node-loadable) resolves all 11 tasks, and `src/lib/routes.ts` adds the snapshot builder and hooks. Settings → Routing (the Patchbay), the editors' mode selectors and the voice pill use `ResolvedRoute`; the keyring exposes the main-owned credential health and recipient descriptions that supply route facts. Never compute "is this local?" or "is this ready?" anywhere else. Readiness reuses the executors' own validation, and a fact main has not confirmed reads `unknown`, never Ready.

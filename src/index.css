@@ -2156,6 +2156,65 @@ a:hover {
   }
 }
 
+/* Capture rail (WS-R3 C). The sidebar edge breathes with the mic: idle is
+   invisible, listening follows --capture-level in live orange, Cleaning up is
+   amber with one band travelling down, offline is solid warning (the mic card
+   names the reason). Orange appears only while the mic is live (D1). */
+.capture-rail {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(to bottom, var(--color-live), var(--color-accent));
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.capture-rail[data-state="listening"] {
+  opacity: calc(0.25 + var(--capture-level, 0.4) * 0.75);
+  box-shadow: 0 0 calc(var(--capture-level, 0) * 12px) rgb(255 90 31 / 0.45);
+}
+.capture-rail[data-state="processing"] {
+  opacity: 0.7;
+  background: var(--color-warning);
+}
+.capture-rail[data-state="processing"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  block-size: 120px;
+  background: rgb(255 255 255 / 0.95);
+  animation: capture-rail-travel var(--motion-loop-travel) linear infinite;
+}
+.capture-rail[data-state="offline"] {
+  opacity: 1;
+  background: var(--color-warning);
+}
+@keyframes capture-rail-travel {
+  from {
+    transform: translateY(-120px);
+  }
+  to {
+    transform: translateY(100vh);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .capture-rail {
+    transition: none;
+  }
+  .capture-rail[data-state="processing"]::after {
+    display: none;
+    animation: none;
+    transform: none;
+  }
+  .capture-rail[data-state="listening"] {
+    opacity: 1;
+    box-shadow: none;
+  }
+}
+
 /* Patchbay (DESIGN.md "Settings · Routing"). The list is the DOM; cables
    are decoration. Shape carries locality: solid device, dotted network,
    dashed remote. */

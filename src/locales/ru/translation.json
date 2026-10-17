@@ -4303,5 +4303,21 @@
     "stopListening": "Остановить прослушивание",
     "stopRecording": "Остановить запись",
     "cleaningUp": "Редактирование текста…"
+  },
+  "micCard": {
+    "ready": "Готово",
+    "listening": "Слушаю",
+    "listeningFor": "Слушаю {{time}}",
+    "cleaningUp": "Редактирование…",
+    "offline": "Микрофон недоступен",
+    "offlinePermission": "Доступ к микрофону отключён",
+    "offlineDevice": "Микрофон отключён",
+    "nextCapture": "Следующая запись",
+    "role": {
+      "dictation": "Диктовка",
+      "meeting": "Встреча",
+      "assistant": "Ассистент",
+      "translation": "Перевод"
+    }
   }
 }

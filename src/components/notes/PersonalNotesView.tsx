@@ -663,7 +663,7 @@ export default function PersonalNotesView({
           {shouldShowActionsModelHint(noteActionsReady, modelHintDismissed) && (
             <div
               role="note"
-              className="mt-1 rounded-md border border-border/70 bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground"
+              className="mt-1 rounded-md border border-border/70 bg-muted/40 px-2 py-1.5 text-caption text-muted-foreground"
             >
               <div className="flex items-start gap-1.5">
                 <span className="flex-1">{t("notes.actionsModelHint.title")}</span>

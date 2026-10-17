@@ -144,7 +144,7 @@ export default function SpacesTree({
               setActiveNoteId(note.id);
               onNavigate?.();
             }}
-            className={`rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring flex flex-1 min-w-0 gap-2 items-center py-1.5 text-xs text-start ${activeNoteId === note.id ? "text-primary" : "text-muted-foreground"}`}
+            className={`rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring flex flex-1 min-w-0 gap-2 items-center py-1.5 text-xs text-start ${activeNoteId === note.id ? "text-link" : "text-muted-foreground"}`}
           >
             <FileText size={13} />
             <span dir="auto" className="truncate">

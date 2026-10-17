@@ -9,6 +9,14 @@ const {
   installMicCaptureGlobals,
 } = require("../lib/rendererTestHarness");
 
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+
 async function fixture(t, settings = {}) {
   let root;
   t.after(async () => {
@@ -16,7 +24,7 @@ async function fixture(t, settings = {}) {
   });
   const handlers = {},
     visuals = [],
-    calls = { prepared: [], starts: [], notices: [] };
+    calls = { prepared: [], starts: [], providerStarts: [], cancelled: [], notices: [] };
   installBrowserGlobals(t, {
     window: {
       electronAPI: {
@@ -41,10 +49,14 @@ async function fixture(t, settings = {}) {
   };
   globalThis.__pressCalls = calls;
   globalThis.__pressVisuals = visuals;
+  globalThis.__pressCaptureGate = null;
+  globalThis.__pressCaptureEntered = null;
   t.after(() => {
     delete globalThis.__pressCalls;
     delete globalThis.__pressVisuals;
     delete globalThis.__pressManager;
+    delete globalThis.__pressCaptureGate;
+    delete globalThis.__pressCaptureEntered;
   });
   const vite = await createRendererServer(t, {
     cachePrefix: "loqui-press-candidate-hook-",
@@ -57,10 +69,37 @@ async function fixture(t, settings = {}) {
           super(); globalThis.__pressManager = this;
           this.preparedMicCapture.prepare = async () => { globalThis.__pressCalls.prepared.push(this._preparedCaptureCandidate); return null; };
           this.shouldUseStreaming = () => true;
+          this.workletModuleLoaded = true;
+          this.fixtureProvider = {
+            start: async (options) => { globalThis.__pressCalls.providerStarts.push(options); return {success: true}; },
+            stop: async () => ({success: true}), send() {}, finalize() {},
+            onPartial: () => () => {}, onFinal: () => () => {},
+            onError: () => () => {}, onSessionEnd: () => () => {},
+          };
         }
         cacheMicrophoneDeviceId() {}
-        async startStreamingRecording(force, candidate) { globalThis.__pressCalls.starts.push(candidate); this.beginDictationSession({}, candidate); return true; }
+        async startStreamingRecording(force, candidate) {
+          globalThis.__pressCalls.starts.push(candidate);
+          return super.startStreamingRecording(force, candidate);
+        }
+        cancelPreparedMicCapture(candidate) {
+          globalThis.__pressCalls.cancelled.push(candidate);
+          return super.cancelPreparedMicCapture(candidate);
+        }
+        getAudioConstraints() { return {}; }
+        async _acquireCaptureStream() {
+          globalThis.__pressCaptureEntered?.();
+          if (globalThis.__pressCaptureGate) await globalThis.__pressCaptureGate;
+          const track = {stop() {}, getSettings: () => ({})};
+          return {getTracks: () => [track], getAudioTracks: () => [track]};
+        }
+        startStreamingFallbackRecorder() {}
+        async beginMicRecovery() {}
+        getStreamingProvider() { return this.fixtureProvider; }
+        getRecordingAudioLevel() { return 0; }
       }`,
+      "/utils/dictationCues":
+        "export const playStartCue = () => {}; export const playStopCue = () => {};",
       "/utils/visualFrame":
         "export function waitForVisualFrames() { return new Promise((resolve) => globalThis.__pressVisuals.push(resolve)); }",
       "/components/ui/notices":
@@ -93,6 +132,17 @@ async function fixture(t, settings = {}) {
     visuals,
     calls,
     setSettings: (next) => useSettingsStore.setState(next),
+    holdCapture() {
+      const gate = deferred(),
+        entered = deferred();
+      globalThis.__pressCaptureGate = gate.promise;
+      globalThis.__pressCaptureEntered = entered.resolve;
+      return { entered: entered.promise, release: gate.resolve };
+    },
+    unmount: async () => {
+      await React.act(async () => root.unmount());
+      root = null;
+    },
   };
 }
 
@@ -159,13 +209,14 @@ test("prepare/start shares the exact provider/privacy candidate across changed s
   });
   await React.act(async () => {
     f.visuals.shift()();
-    await start;
+    assert.equal(await start, true);
   });
   assert.equal(f.calls.starts[0], first);
+  assert.equal(f.calls.providerStarts[0].correlationId, first.id);
   assert.equal(first.intents.streamingProviderName, "deepgram");
   assert.equal(f.manager.activeSession.private, first.private);
-  f.manager._endDictationSession(first);
-  await React.act(async () => f.handlers.cancel());
+  await React.act(async () => f.hook().cancelRecording());
+  assert.equal(f.manager.activeSession, null);
   let next;
   await React.act(async () => {
     next = f.handlers.prepare({ inputKind: "dictation" });
@@ -178,3 +229,94 @@ test("prepare/start shares the exact provider/privacy candidate across changed s
     await next;
   });
 });
+
+for (const order of ["prepare-first", "start-first", "start-completes-first"]) {
+  test(`same-press overlapping visual waits retain actual start admission (${order})`, async (t) => {
+    const f = await fixture(t);
+    let preparation, start;
+    await React.act(async () => {
+      preparation = f.handlers.prepare({ inputKind: "dictation" });
+    });
+    const candidate = f.manager._pressCandidate.session;
+    await React.act(async () => {
+      start = f.hook().startRecording();
+    });
+    assert.equal(f.visuals.length, 2);
+    if (order === "prepare-first") {
+      await React.act(async () => {
+        f.visuals[0]();
+        await preparation;
+      });
+      await React.act(async () => {
+        f.visuals[1]();
+        assert.equal(await start, true);
+      });
+    } else if (order === "start-completes-first") {
+      await React.act(async () => {
+        f.visuals[1]();
+        assert.equal(await start, true);
+      });
+      await React.act(async () => {
+        f.visuals[0]();
+        await preparation;
+      });
+    } else {
+      const capture = f.holdCapture();
+      await React.act(async () => {
+        f.visuals[1]();
+        await capture.entered;
+      });
+      assert.equal(
+        f.manager._pressCandidate.session,
+        candidate,
+        "real start passed its first admission check"
+      );
+      await React.act(async () => {
+        f.visuals[0]();
+        await preparation;
+      });
+      await React.act(async () => {
+        capture.release();
+        assert.equal(await start, true);
+      });
+    }
+    assert.equal(
+      f.calls.cancelled.includes(candidate),
+      false,
+      "late prepare cannot cancel its transferred start candidate"
+    );
+    assert.equal(f.calls.starts[0], candidate);
+    assert.equal(
+      f.calls.providerStarts[0].correlationId,
+      candidate.id,
+      "actual manager start reaches only the fake provider leaf"
+    );
+    assert.equal(f.manager.activeSession, candidate);
+    await React.act(async () => f.hook().cancelRecording());
+    assert.equal(f.manager.activeSession, null);
+  });
+}
+
+for (const action of ["cancel", "unmount"]) {
+  test(`an overlapping prepare/start still releases its candidate on ${action}`, async (t) => {
+    const f = await fixture(t);
+    let preparation, start;
+    await React.act(async () => {
+      preparation = f.handlers.prepare({ inputKind: "dictation" });
+      start = f.hook().startRecording();
+    });
+    const candidate = f.manager._pressCandidate.session;
+    if (action === "cancel") await React.act(async () => f.handlers.cancel());
+    else await f.unmount();
+    assert.equal(f.manager._pressCandidate, null);
+    await React.act(async () => {
+      f.visuals[0]();
+      await preparation;
+      f.visuals[1]();
+      assert.equal(await start, false);
+    });
+    assert.equal(f.calls.cancelled.includes(candidate), true);
+    assert.equal(f.manager.activeSession, null);
+    assert.equal(f.calls.providerStarts.length, 0);
+  });
+}

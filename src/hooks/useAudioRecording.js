@@ -51,6 +51,7 @@ export const useAudioRecording = (options = {}) => {
   const stopLockRef = useRef(false);
   const preparationGenerationRef = useRef(0);
   const pressCandidateRef = useRef(null);
+  const startingCandidateRef = useRef(null);
   const wasRecordingRef = useRef(false);
   const wasMicUnavailableRef = useRef(false);
   const demoKindRef = useRef("dictation");
@@ -142,6 +143,7 @@ export const useAudioRecording = (options = {}) => {
             { newPress: true }
           );
         pressCandidateRef.current = candidate;
+        startingCandidateRef.current = candidate;
         if (!manager.isPressCandidateAllowed(candidate)) {
           manager.cancelPreparedMicCapture(candidate);
           manager._showUnknownRecipientBlockedStart();
@@ -241,6 +243,7 @@ export const useAudioRecording = (options = {}) => {
 
         return didStart;
       } finally {
+        if (startingCandidateRef.current === candidate) startingCandidateRef.current = null;
         startLockRef.current = false;
         // A stop that landed mid-start set isStopping expecting the started
         // recording's state change to clear it; if the recording never began,
@@ -861,8 +864,12 @@ export const useAudioRecording = (options = {}) => {
       reportLifecycle("preparing", options?.inputKind);
       await waitForVisualFrames();
       if (generation !== preparationGenerationRef.current || startLockRef.current) {
-        manager.cancelPreparedMicCapture?.(candidate);
-        if (pressCandidateRef.current === candidate) pressCandidateRef.current = null;
+        // Start can legitimately supersede this wait while adopting the same
+        // press. Its own terminal paths now own releasing that exact candidate.
+        if (startingCandidateRef.current !== candidate && manager.activeSession !== candidate) {
+          manager.cancelPreparedMicCapture?.(candidate);
+          if (pressCandidateRef.current === candidate) pressCandidateRef.current = null;
+        }
         return;
       }
       void manager.prepareMicCapture?.({ candidate });

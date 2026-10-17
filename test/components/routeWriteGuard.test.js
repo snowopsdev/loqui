@@ -12,8 +12,9 @@ function sourceFiles(dir, out = []) {
   if (!fs.existsSync(abs)) return out;
   for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
     const rel = path.posix.join(dir, entry.name);
-    if (entry.isDirectory()) sourceFiles(rel, out);
-    else if (/\.(?:tsx?|jsx?)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) out.push(rel);
+    if (entry.isDirectory()) {
+      if (rel !== "src/dist") sourceFiles(rel, out);
+    } else if (/\.(?:tsx?|jsx?)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) out.push(rel);
   }
   return out;
 }
@@ -136,8 +137,7 @@ const ALLOWLIST = {
 function callArguments(src, name) {
   const found = [];
   const re = new RegExp(`\\b${name}\\s*\\(`, "g");
-  let match;
-  while ((match = re.exec(src))) {
+  while (re.exec(src)) {
     let depth = 1;
     let j = re.lastIndex;
     for (; j < src.length && depth > 0; j++) {
@@ -501,4 +501,26 @@ test("[baseline source guard] canonical enterprise reconciliation permits public
     ["window.electronAPI.saveEnterpriseRoutePatch"],
     "the allowed publication marker cannot hide a main write"
   );
+});
+
+test("[change-driving source guard] credential scans exclude generated src/dist without ignoring authored nested directories", (t) => {
+  const directory = (name) => ({ name, isDirectory: () => true });
+  const file = (name) => ({ name, isDirectory: () => false });
+  const tree = new Map([
+    [path.join(root, "src"), [directory("dist"), directory("components"), file("entry.js")]],
+    [path.join(root, "src/dist"), [file("compiled.js")]],
+    [path.join(root, "src/components"), [directory("dist"), file("Reader.tsx")]],
+    [path.join(root, "src/components/dist"), [file("Authored.js")]],
+  ]);
+  const originalExists = fs.existsSync;
+  t.mock.method(fs, "existsSync", (dir) => tree.has(dir) || originalExists(dir));
+  const original = fs.readdirSync;
+  t.mock.method(fs, "readdirSync", (dir, options) =>
+    tree.has(dir) ? tree.get(dir) : original(dir, options)
+  );
+  assert.deepEqual(sourceFiles("src"), [
+    "src/components/dist/Authored.js",
+    "src/components/Reader.tsx",
+    "src/entry.js",
+  ]);
 });

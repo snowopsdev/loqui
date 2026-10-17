@@ -822,7 +822,10 @@
       },
       "vertex": {
         "adcHelp": "使用 Application Default Credentials。请执行：gcloud auth application-default login",
-        "apikeyHelp": "从 Google AI Studio 获取的 Vertex AI Express Mode API 密钥。"
+        "apikeyHelp": "从 Google AI Studio 获取的 Vertex AI Express Mode API 密钥。",
+        "authSource": "身份验证来源",
+        "authSourceAdc": "应用默认凭据 (ADC)",
+        "authSourceApiKey": "API 密钥"
       },
       "profileSaveFailed": "无法保存此配置。你输入的内容仍在这里，请重试。",
       "testConnectionAt": "测试与 {{host}} 的连接",

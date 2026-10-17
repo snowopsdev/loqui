@@ -6,6 +6,7 @@ module.exports = [
     ignores: [
       "dist/**",
       "node_modules/**",
+      "**/browser-vite-cache/**", // generated validation-browser dependencies, not authored source
       "src/dist/**",
       "*.min.js",
       "build/**",

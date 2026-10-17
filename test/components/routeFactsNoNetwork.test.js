@@ -49,8 +49,7 @@ test("[source guard, baseline] route facts, the resolver, the planner and the ro
 function callArguments(src, name) {
   const found = [];
   const re = new RegExp(`\\b${name}\\s*\\(`, "g");
-  let match;
-  while ((match = re.exec(src))) {
+  while (re.exec(src)) {
     let depth = 1;
     let j = re.lastIndex;
     for (; j < src.length && depth > 0; j++) {
@@ -100,10 +99,13 @@ test("[source guard, baseline after Task 9] Settings' Codex views start nothing 
 });
 
 // Every .ts/.tsx/.js file under src/, recursively.
-function sourceFiles(dir) {
+function sourceFiles(dir, sourceRoot = dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return sourceFiles(full);
+    if (entry.isDirectory()) {
+      if (full === path.join(sourceRoot, "dist")) return [];
+      return sourceFiles(full, sourceRoot);
+    }
     return /\.(?:tsx?|jsx?)$/.test(entry.name) ? [full] : [];
   });
 }
@@ -365,4 +367,56 @@ test("[baseline source guard] reviewed keyring bindings are captured before the 
   assert.match(factory, /UNSUPPORTED_AUTH_SOURCE/);
   assert.match(factory, /authorized_user/);
   assert.match(factory, /service_account/);
+});
+
+test("[change-driving source guard] authored-source walks exclude only the generated root dist tree", (t) => {
+  const sourceRoot = path.join(root, "fixture-authored-src");
+  const directory = (name) => ({ name, isDirectory: () => true });
+  const file = (name) => ({ name, isDirectory: () => false });
+  const tree = new Map([
+    [sourceRoot, [directory("dist"), directory("components"), file("entry.js")]],
+    [path.join(sourceRoot, "dist"), [file("compiled.js")]],
+    [path.join(sourceRoot, "components"), [directory("dist"), file("Reader.tsx")]],
+    [path.join(sourceRoot, "components/dist"), [file("Authored.js")]],
+  ]);
+  const original = fs.readdirSync;
+  t.mock.method(fs, "readdirSync", (dir, options) =>
+    tree.has(dir) ? tree.get(dir) : original(dir, options)
+  );
+  assert.deepEqual(
+    sourceFiles(sourceRoot)
+      .map((full) => path.relative(sourceRoot, full))
+      .sort(),
+    ["components/Reader.tsx", "components/dist/Authored.js", "entry.js"],
+    "compiled bundles are excluded while all authored JS/TS and nested dist-named source remain guarded"
+  );
+});
+
+test("[baseline source guard] an available renderer build does not enter authored authority scans", () => {
+  const authored = sourceFiles(path.join(root, "src")).map((full) => path.relative(root, full));
+  assert.ok(authored.includes("src/stores/sealedStore.ts"));
+  assert.ok(authored.includes("src/stores/routeFactsStore.ts"));
+  assert.ok(authored.includes("src/helpers/keyring.js"));
+  assert.ok(authored.every((file) => !file.startsWith("src/dist/")));
+});
+
+test("[change-driving source guard] root lint ignores only the generated browser-vite-cache directory", async () => {
+  const { ESLint } = require("eslint");
+  const lint = new ESLint({ cwd: root });
+  assert.equal(
+    await lint.isPathIgnored(
+      path.join(root, ".superpowers/fixture/browser-vite-cache/deps/react.js")
+    ),
+    true
+  );
+  assert.equal(
+    await lint.isPathIgnored(
+      path.join(root, ".superpowers/fixture/browser-vite-cache-authored.js")
+    ),
+    false
+  );
+  assert.equal(
+    await lint.isPathIgnored(path.join(root, "test/components/routeFactsNoNetwork.test.js")),
+    false
+  );
 });

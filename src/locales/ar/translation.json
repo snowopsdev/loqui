@@ -465,7 +465,10 @@
       },
       "vertex": {
         "adcHelp": "يستخدم بيانات الاعتماد الافتراضية للتطبيق. قم بتشغيل: gcloud auth application-default login",
-        "apikeyHelp": "مفتاح Vertex AI Express Mode API من Google AI Studio."
+        "apikeyHelp": "مفتاح Vertex AI Express Mode API من Google AI Studio.",
+        "authSource": "مصدر المصادقة",
+        "authSourceAdc": "بيانات اعتماد التطبيق التلقائية (ADC)",
+        "authSourceApiKey": "مفتاح واجهة برمجة التطبيقات"
       },
       "profileSaveFailed": "تعذّر حفظ هذا الملف الشخصي. ما أدخلته لا يزال هنا — حاول مرة أخرى.",
       "testConnectionAt": "اختبار الاتصال مع {{host}}",

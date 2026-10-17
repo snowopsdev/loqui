@@ -236,3 +236,24 @@ test("Arabic plural counts resolve the exact CLDR form without English fallback"
     }
   }
 });
+
+test("[change-driving] every locale labels the explicit Vertex authentication source choices", () => {
+  const names = ["authSource", "authSourceAdc", "authSourceApiKey"];
+  for (const lang of languages) {
+    const vertex = load(lang, "translation").reasoning.enterprise.vertex;
+    for (const name of names)
+      assert.ok(
+        typeof vertex[name] === "string" && vertex[name].trim(),
+        `${lang}: reasoning.enterprise.vertex.${name}`
+      );
+    assert.notEqual(
+      vertex.authSourceAdc,
+      vertex.authSourceApiKey,
+      `${lang}: ADC and API key are distinct choices`
+    );
+  }
+  const en = load("en", "translation").reasoning.enterprise.vertex;
+  assert.equal(en.authSource, "Authentication source");
+  assert.equal(en.authSourceAdc, "Application Default Credentials (ADC)");
+  assert.equal(en.authSourceApiKey, "API key");
+});

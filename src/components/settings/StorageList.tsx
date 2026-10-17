@@ -381,6 +381,7 @@ export function ResetContent({
       <label className="block space-y-1 text-xs text-foreground">
         <span>{t("storage.reset.typeLabel", { word: t("storage.reset.word") })}</span>
         <Input
+          dir="auto"
           value={props.typed}
           disabled={running}
           onChange={(e) => props.onTypedChange(e.target.value)}

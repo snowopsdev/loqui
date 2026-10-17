@@ -22,6 +22,7 @@ export const SettingsSearchField = forwardRef<
         aria-hidden="true"
       />
       <input
+        dir="auto"
         ref={ref}
         type="search"
         value={value}

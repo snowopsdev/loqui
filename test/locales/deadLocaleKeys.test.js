@@ -52,6 +52,6 @@ test("the privacy section no longer promises analytics in any language", () => {
   }
   assert.equal(
     get(load("en"), "settingsModal.sections.privacyData.description"),
-    "Privacy, permissions & stored data"
+    "Retention, storage, permissions"
   );
 });

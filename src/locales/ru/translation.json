@@ -822,7 +822,10 @@
       },
       "vertex": {
         "adcHelp": "Использует Application Default Credentials. Выполните: gcloud auth application-default login",
-        "apikeyHelp": "API-ключ Vertex AI Express Mode из Google AI Studio."
+        "apikeyHelp": "API-ключ Vertex AI Express Mode из Google AI Studio.",
+        "authSource": "Источник аутентификации",
+        "authSourceAdc": "Учётные данные приложения по умолчанию (ADC)",
+        "authSourceApiKey": "Ключ API"
       },
       "profileSaveFailed": "Не удалось сохранить профиль. Введённое значение осталось в поле — попробуйте ещё раз.",
       "testConnectionAt": "Проверить подключение к {{host}}",

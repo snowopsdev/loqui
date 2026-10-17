@@ -36,6 +36,8 @@ const imageCases = [
   {
     provider: "vertex",
     model: "gemini-2.5-flash",
+    // This serialization fixture supplies an API key and must select that source explicitly.
+    enterprise: { vertexAuthSource: "apiKey" },
     image: (body) => body.contents[0].parts[1].inlineData.data,
     expected: pngBase64,
   },

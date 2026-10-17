@@ -1,14 +1,22 @@
 const assert = require("node:assert/strict");
 const React = require("react");
 
-// A tiny element tree for react-dom/client tests with direct React event handlers.
+// Shared element tree for react-dom/client tests with direct React handlers.
+// Call installBrowserGlobals and installHookDom before installing the tree.
 function installTree() {
   const document = globalThis.document;
   const make = (nodeType, props) => {
     const node = {
       nodeType,
       ownerDocument: document,
-      style: {},
+      style: {
+        setProperty(name, value) {
+          this[name] = value;
+        },
+        removeProperty(name) {
+          delete this[name];
+        },
+      },
       childNodes: [],
       parentNode: null,
       appendChild(child) {
@@ -43,6 +51,22 @@ function installTree() {
         node.childNodes = [];
         if (value) node.appendChild(make(3, { nodeName: "#text", data: String(value) }));
       },
+      get nodeValue() {
+        return node.nodeType === 3 ? node.data : null;
+      },
+      set nodeValue(value) {
+        if (node.nodeType === 3) node.data = String(value);
+      },
+      getBoundingClientRect: () => ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+      }),
       attributes: {},
       setAttribute(name, value) {
         node.attributes[name] = String(value);
@@ -95,7 +119,16 @@ function installTree() {
     return found;
   };
   const props = (node) => node[Object.keys(node).find((name) => name.startsWith("__reactProps$"))];
-  return { container, click, text, find, props };
+  // Let handlers that void asynchronous work (such as clipboard writes) settle
+  // before act flushes, while preserving click's pending-check semantics.
+  const clickNode = async (target) => {
+    assert.ok(target, "the button is rendered");
+    await React.act(async () => {
+      void props(target).onClick();
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+  };
+  return { container, click, clickNode, text, find, props };
 }
 
 module.exports = { installTree };

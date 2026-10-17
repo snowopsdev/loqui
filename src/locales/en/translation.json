@@ -4189,5 +4189,8 @@
         "description": "Audio, models and history on this device"
       }
     }
+  },
+  "workspace": {
+    "noteMissing": "That note was deleted or moved out of this workspace."
   }
 }

@@ -4163,5 +4163,8 @@
         "description": "此设备上的音频、模型和历史记录"
       }
     }
+  },
+  "workspace": {
+    "noteMissing": "该笔记已被删除或移出此工作区。"
   }
 }

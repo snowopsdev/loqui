@@ -208,6 +208,8 @@ Inside the note editor (`.rich-text-editor-content`) and the note title: title 3
 
 The desktop shell pairs a 208px sidebar with a flexible content area. The main workspace sits 8px inside the window, inside a 12px-radius frame. A 48px top bar carries the current view, centered search, and view actions. Page content commonly centers at a maximum width of 64rem. The sidebar can collapse or disappear in narrow note and meeting side-panel layouts; the window content keeps its own scroll region. Onboarding uses a narrower 48rem content column, wider side padding at larger window sizes, and a persistent progress header and footer. The onboarding shell pins `html`, `body` and `#root` to the window, so only the middle scrolls. On macOS the header keeps 84px of physical left padding (also in RTL) to clear the traffic lights. Spacing follows Tailwind’s 4px base scale, with common 8, 12, 16, and 24px intervals.
 
+The workspace restores its last view on launch, defaulting to Home. A saved Notes selection opens through the shared note navigation path, including notes outside the first loaded page. Missing notes keep the Notes overview; deliberate navigation and confirmed data resets supersede pending restores. Deep workspace actions share one navigation context. Chat actions hold a composer request for the next integration stage and never submit it automatically.
+
 ## Elevation & Depth
 
 Depth is layered: light mode uses a subtle card shadow and restrained hover lift; dark mode relies on stepped Plum Night surfaces, quiet borders, and soft inner rims, with stronger shadows reserved for overlays. Orange live surfaces carry a fine top highlight and inset rim. Focus rings, selected-model glows, and modal shadows remain state-specific.

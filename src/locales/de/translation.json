@@ -4189,5 +4189,8 @@
         "description": "Audio, Modelle und Verlauf auf diesem Gerät"
       }
     }
+  },
+  "workspace": {
+    "noteMissing": "Diese Notiz wurde gelöscht oder aus diesem Arbeitsbereich verschoben."
   }
 }

@@ -20,6 +20,7 @@ interface NoteState {
   // tree's space rows show true totals without loading containers.
   spaceRootCounts: Record<number, number>;
   notesByContainer: Record<string, NoteItem[]>;
+  openedNotes: Record<number, NoteItem>;
   expandedContainers: Set<string>;
   activeContext: ActiveContext | null;
   activeNoteId: number | null;
@@ -52,6 +53,7 @@ const useNoteStore = create<NoteState>()(() => ({
   folderCounts: {},
   spaceRootCounts: {},
   notesByContainer: {},
+  openedNotes: {},
   expandedContainers: readExpandedContainers(),
   activeContext: null,
   activeNoteId: null,
@@ -65,6 +67,15 @@ let loadGeneration = 0;
 let treeLoadGeneration = 0;
 let spacesLoadGeneration = 0;
 let foldersLoadGeneration = 0;
+
+let noteNavigationGeneration = 0;
+let launchRestoreOwner: object | null = null;
+let landOnOverview = false;
+
+/** A confirmed reset or newer view intent supersedes pending opens, preserving content. */
+export function invalidatePendingNoteNavigation(): void {
+  noteNavigationGeneration += 1;
+}
 
 // Folder navigation requested before folders load; consumed once by initializeNotesTree.
 let pendingFolderPreset: number | null = null;
@@ -94,7 +105,7 @@ function findNoteInState(state: NoteState, id: number): NoteItem | null {
     const note = items.find((n) => n.id === id);
     if (note) return note;
   }
-  return state.notes.find((n) => n.id === id) ?? null;
+  return state.notes.find((n) => n.id === id) ?? state.openedNotes[id] ?? null;
 }
 
 /** Apply a notesByContainer replacement, mirroring the active container into the flat `notes` list. */
@@ -159,11 +170,14 @@ function ensureIpcListeners() {
   if (window.electronAPI.onFolderDeleted) {
     const dispose = window.electronAPI.onFolderDeleted(({ id }) => {
       if (id == null) return;
+      invalidatePendingNoteNavigation();
       const state = useNoteStore.getState();
       const key = folderContainerKey(id);
+      invalidateContainerLoad(key);
       const teardown = teardownNoteContainers(state, [key]);
       persistExpandedContainers(teardown.expandedContainers);
       const extra: Partial<NoteState> = {
+        openedNotes: teardown.openedNotes,
         expandedContainers: teardown.expandedContainers,
         activeNoteId: teardown.activeNoteId,
       };
@@ -218,6 +232,11 @@ export async function loadFolders(): Promise<FolderItem[]> {
 
 const containerLoadGenerations = new Map<string, number>();
 const containerLoadsInFlight = new Map<string, Promise<NoteItem[]>>();
+
+function invalidateContainerLoad(key: string): void {
+  containerLoadGenerations.set(key, (containerLoadGenerations.get(key) ?? 0) + 1);
+  containerLoadsInFlight.delete(key);
+}
 
 async function loadContainerNotes(
   key: string,
@@ -339,8 +358,13 @@ export async function initializeNotesTree(): Promise<void> {
     useNoteStore.getState().expandedContainers.forEach((key) => {
       if (validKeys.has(key)) void ensureContainerLoaded(key);
     });
-    if (getActiveNoteIdValue() == null && notes.length > 0) {
-      setActiveNoteId(notes[0].id);
+    if (
+      getActiveNoteIdValue() == null &&
+      notes.length > 0 &&
+      !launchRestoreOwner &&
+      !landOnOverview
+    ) {
+      useNoteStore.setState({ activeNoteId: notes[0].id });
     }
   } finally {
     if (gen === treeLoadGeneration) useNoteStore.setState({ isTreeLoading: false });
@@ -381,6 +405,8 @@ function addNote(note: NoteItem): void {
 
 function updateNoteInStore(note: NoteItem): void {
   if (!note) return;
+  const opened = useNoteStore.getState().openedNotes;
+  if (opened[note.id]) useNoteStore.setState({ openedNotes: { ...opened, [note.id]: note } });
   const state = useNoteStore.getState();
   const targetKey = noteContainerKey(note);
   const notesByContainer = { ...state.notesByContainer };
@@ -408,12 +434,18 @@ function updateNoteInStore(note: NoteItem): void {
 
 function removeNote(id: number): void {
   if (id == null) return;
+  // Deletion can arrive before getNote resolves, before this id is cached.
+  invalidatePendingNoteNavigation();
   const state = useNoteStore.getState();
   const result = removeNoteFromLists(state, id);
-  if (!result.changed) return;
+  const openedNotes = { ...state.openedNotes };
+  const wasOpened = id in openedNotes;
+  delete openedNotes[id];
+  if (!result.changed && !wasOpened && state.activeNoteId !== id) return;
   // applyContainers only mirrors the active container into `notes`; pass the
   // filtered flat list explicitly so flat-only notes disappear too.
-  const extra: Partial<NoteState> = { notes: result.notes };
+  const extra: Partial<NoteState> = { notes: result.notes, openedNotes };
+  if (!result.changed && state.activeNoteId === id) extra.activeNoteId = null;
   if (result.activeNoteId !== state.activeNoteId) {
     extra.activeNoteId = result.activeNoteId;
   }
@@ -446,13 +478,16 @@ export async function deleteFolder(id: number): Promise<{ success: boolean; erro
   const result = await window.electronAPI.deleteFolder(id);
   if (!result.success) return result;
 
+  invalidatePendingNoteNavigation();
   const state = useNoteStore.getState();
   const folder = state.folders.find((f) => f.id === id);
   const key = folderContainerKey(id);
+  invalidateContainerLoad(key);
   const teardown = teardownNoteContainers(state, [key]);
   persistExpandedContainers(teardown.expandedContainers);
   useNoteStore.setState({
     notesByContainer: teardown.notesByContainer,
+    openedNotes: teardown.openedNotes,
     expandedContainers: teardown.expandedContainers,
     activeNoteId: teardown.activeNoteId,
   });
@@ -511,6 +546,8 @@ export async function updateSpaceMeta(
 /** Local purge (dev override); store cleanup happens via the space-purged broadcast. */
 
 export function setActiveNoteId(id: number | null): void {
+  invalidatePendingNoteNavigation();
+  if (id != null) landOnOverview = false;
   if (useNoteStore.getState().activeNoteId === id) return;
   useNoteStore.setState({ activeNoteId: id });
 }
@@ -617,3 +654,55 @@ export function useActiveNote(): NoteItem | null {
 
 // Whole-map subscription for list surfaces (the tree gates per-note actions
 // on loaded ACLs); per-note consumers should prefer useShareCacheEntry.
+
+export type OpenNoteResult = "opened" | "missing" | "superseded";
+
+async function fetchLiveNote(id: number): Promise<NoteItem | null> {
+  try {
+    const note = await window.electronAPI.getNote(id);
+    return note && !note.deleted_at ? note : null;
+  } catch {
+    return null;
+  }
+}
+
+function holdAndSelect(note: NoteItem): void {
+  const state = useNoteStore.getState();
+  const inPage = Object.values(state.notesByContainer).some((items) =>
+    items.some((n) => n.id === note.id)
+  );
+  if (!inPage) useNoteStore.setState({ openedNotes: { ...state.openedNotes, [note.id]: note } });
+  setActiveContext(note.space_id, note.folder_id ?? null);
+  revealContainer(note.space_id, note.folder_id ?? null);
+  useNoteStore.setState({ activeNoteId: note.id });
+}
+
+export async function openNoteById(id: number): Promise<OpenNoteResult> {
+  ensureIpcListeners();
+  const generation = ++noteNavigationGeneration;
+  landOnOverview = false;
+  const note = findNoteInState(useNoteStore.getState(), id) ?? (await fetchLiveNote(id));
+  if (generation !== noteNavigationGeneration) return "superseded";
+  if (!note) return "missing";
+  holdAndSelect(note);
+  return "opened";
+}
+
+export async function restoreLaunchNote(id: number): Promise<OpenNoteResult> {
+  ensureIpcListeners();
+  const generation = ++noteNavigationGeneration;
+  const owner = {};
+  launchRestoreOwner = owner;
+  try {
+    const note = await fetchLiveNote(id);
+    if (generation !== noteNavigationGeneration) return "superseded";
+    if (!note) {
+      landOnOverview = true;
+      return "missing";
+    }
+    holdAndSelect(note);
+    return "opened";
+  } finally {
+    if (launchRestoreOwner === owner) launchRestoreOwner = null;
+  }
+}

@@ -4163,5 +4163,8 @@
         "description": "此裝置上的音訊、模型和歷史記錄"
       }
     }
+  },
+  "workspace": {
+    "noteMissing": "該筆記已遭刪除或移出此工作區。"
   }
 }

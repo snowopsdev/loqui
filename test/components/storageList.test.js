@@ -314,6 +314,7 @@ async function mount(t, api) {
   const part = (type) => find(tree, (node) => node.type === type);
   return {
     s,
+    noteStore: await vite.ssrLoadModule("/stores/noteStore.ts"),
     unmount: async () => {
       const current = root;
       root = null;
@@ -1050,4 +1051,76 @@ test("[change-driving FIX1] unmount retires pending reads and retained dialog ha
   await settle();
   assert.equal(reads, before, "unmounted handlers cannot start new metadata reads");
   assert.equal(deletes, 1, "unmounted confirmation cannot start a second delete");
+});
+
+for (const method of ["openNoteById", "restoreLaunchNote"]) {
+  test(`R1: confirmed reset fences a pending ${method}, even if cleanup fails`, async (t) => {
+    const fetch = deferred();
+    const cleanup = deferred();
+    let cleanupCalls = 0;
+    const current = {
+      id: 7,
+      title: "Keep on failure",
+      content: "Fixture content",
+      space_id: 1,
+      folder_id: null,
+    };
+    const { api, calls } = fakeApi({
+      getNote: (id) => (id === 7 ? Promise.resolve(current) : fetch.promise),
+      getNotes: async () => [],
+      cleanupApp: () => {
+        cleanupCalls++;
+        return cleanup.promise;
+      },
+    });
+    const h = await mount(t, api);
+    const store = h.noteStore;
+    await store.openNoteById(7);
+    const stale = store[method](999);
+    await React.act(async () => h.view().onReset());
+    await React.act(async () => h.reset().onConfirm());
+    assert.equal(cleanupCalls, 0, "unconfirmed reset cannot call cleanup");
+    await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+    await React.act(async () => {
+      void h.reset().onConfirm();
+    });
+    assert.equal(cleanupCalls, 1);
+    await React.act(async () => {
+      void h.reset().onConfirm();
+    });
+    assert.equal(cleanupCalls, 1, "running reset still admits only once");
+    fetch.resolve({ ...current, id: 999, title: "Stale fetch" });
+    assert.equal(await stale, "superseded", "fenced before cleanup resolves");
+    assert.equal(store.getNoteFromStore(999), null);
+    assert.equal(store.getActiveNoteIdValue(), 7);
+    assert.equal(store.getNoteFromStore(7)?.content, "Fixture content");
+    await React.act(async () => cleanup.resolve({ success: false, errors: ["DB file: EBUSY"] }));
+    assert.equal(h.reset().phase, "failed");
+    assert.equal(store.getNoteFromStore(7)?.content, "Fixture content");
+    assert.deepEqual(calls, [], "failed cleanup never relaunches");
+  });
+}
+
+test("R1: confirmed successful reset fences stale fetch and retains existing relaunch", async (t) => {
+  const fetch = deferred();
+  const cleanup = deferred();
+  const { api, calls } = fakeApi({
+    getNote: () => fetch.promise,
+    getNotes: async () => [],
+    cleanupApp: () => cleanup.promise,
+  });
+  const h = await mount(t, api);
+  const opening = h.noteStore.openNoteById(999);
+  await React.act(async () => h.view().onReset());
+  await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+  await React.act(async () => {
+    void h.reset().onConfirm();
+  });
+  await React.act(async () => cleanup.resolve({ success: true, errors: [] }));
+  fetch.resolve({ id: 999, title: "Stale", space_id: 1, folder_id: null });
+  assert.equal(await opening, "superseded");
+  assert.equal(h.noteStore.getNoteFromStore(999), null);
+  assert.equal(h.reset().phase, "done");
+  await wait(1100);
+  assert.deepEqual(calls, [["relaunch"]]);
 });

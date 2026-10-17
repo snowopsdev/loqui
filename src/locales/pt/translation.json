@@ -4195,5 +4195,8 @@
         "description": "Áudio, modelos e histórico neste dispositivo"
       }
     }
+  },
+  "workspace": {
+    "noteMissing": "Essa nota foi excluída ou movida para fora deste espaço de trabalho."
   }
 }

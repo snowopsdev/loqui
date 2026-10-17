@@ -4139,5 +4139,19 @@
       "failed": "重置未完成，因此 Loqui 不会自动重启。以下步骤失败：",
       "done": "重置完成。Loqui 正在重启…"
     }
+  },
+  "settingsSearch": {
+    "title": "搜索结果",
+    "placeholder": "搜索设置",
+    "count_other": "{{count}} 个结果",
+    "none": "没有与“{{query}}”匹配的设置。请尝试“麦克风”、“保留”或“云端”。",
+    "items": {
+      "assistantEnabled": {
+        "description": "用语音提问并获取回答"
+      },
+      "storage": {
+        "description": "此设备上的音频、模型和历史记录"
+      }
+    }
   }
 }

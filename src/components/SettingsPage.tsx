@@ -599,7 +599,7 @@ function AiModelsSection({ useCleanupModel }: AiModelsSectionProps) {
   return (
     <div className="space-y-4">
       <SettingsPanel>
-        <SettingsPanelRow>
+        <SettingsPanelRow settingId="cleanupEnabled">
           <SettingsRow
             label={t("settingsPage.aiModels.enableTextCleanup")}
             description={t("settingsPage.aiModels.enableTextCleanupDescription")}
@@ -1414,7 +1414,7 @@ export default function SettingsPage({
                 description={t("settingsPage.general.appearance.description")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="theme">
                   <SettingsRow
                     label={t("settingsPage.general.appearance.theme")}
                     description={t("settingsPage.general.appearance.themeDescription")}
@@ -1470,7 +1470,7 @@ export default function SettingsPage({
             <div>
               <SectionHeader title={t("settingsPage.general.soundEffects.title")} />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="audioCues">
                   <SettingsRow
                     label={t("settingsPage.general.soundEffects.dictationSounds")}
                     description={t("settingsPage.general.soundEffects.dictationSoundsDescription")}
@@ -1496,7 +1496,7 @@ export default function SettingsPage({
                 description={t("settingsPage.general.notifications.description")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="notifications">
                   <SettingsRow
                     label={t("settingsPage.general.notifications.disableAll")}
                     description={t("settingsPage.general.notifications.disableAllDescription")}
@@ -1507,7 +1507,7 @@ export default function SettingsPage({
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="meetingDetection">
                   <SettingsRow
                     label={t("settingsPage.general.notifications.meetingDetection")}
                     description={t(
@@ -1521,7 +1521,7 @@ export default function SettingsPage({
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="calendarReminders">
                   <SettingsRow
                     label={t("settingsPage.general.notifications.calendarReminders")}
                     description={t(
@@ -1606,7 +1606,7 @@ export default function SettingsPage({
                 description={t("settingsPage.general.floatingIcon.description")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="floatingIcon">
                   <SettingsRow
                     label={t("settingsPage.general.floatingIcon.autoHide")}
                     description={t("settingsPage.general.floatingIcon.autoHideDescription")}
@@ -1650,7 +1650,7 @@ export default function SettingsPage({
                 description={t("settings.language.sectionDescription")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="uiLanguage">
                   <SettingsRow
                     label={t("settings.language.uiLabel")}
                     description={t("settings.language.uiDescription")}
@@ -1673,7 +1673,7 @@ export default function SettingsPage({
                 description={t("settingsPage.general.startup.description")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="launchAtLogin">
                   <SettingsRow
                     label={t("settingsPage.general.startup.launchAtLogin")}
                     description={t("settingsPage.general.startup.launchAtLoginDescription")}
@@ -1708,7 +1708,7 @@ export default function SettingsPage({
                     </Alert>
                   </SettingsPanelRow>
                 )}
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="startMinimized">
                   <SettingsRow
                     label={t("settingsPage.general.startup.startMinimized")}
                     description={t("settingsPage.general.startup.startMinimizedDescription")}
@@ -1741,7 +1741,7 @@ export default function SettingsPage({
               </Alert>
             )}
             {/* Dictation Hotkey */}
-            <div>
+            <div data-setting-id="dictationHotkey">
               <SectionHeader
                 title={t("settingsPage.general.hotkey.title")}
                 description={t("settingsPage.general.hotkey.description")}
@@ -1902,7 +1902,7 @@ export default function SettingsPage({
               </SettingsPanel>
             </div>
             {/* Microphone */}
-            <div>
+            <div data-setting-id="microphone">
               <SectionHeader
                 title={t("settingsPage.general.microphone.title")}
                 description={t("settingsPage.general.microphone.description")}
@@ -1925,7 +1925,7 @@ export default function SettingsPage({
             <div>
               <SectionHeader title={t("settingsPage.general.clipboard.title")} />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="autoPaste">
                   <SettingsRow
                     label={t("settingsPage.general.clipboard.autoPaste")}
                     description={t("settingsPage.general.clipboard.autoPasteDescription")}
@@ -1933,7 +1933,7 @@ export default function SettingsPage({
                     <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="keepInClipboard">
                   <SettingsRow
                     label={t("settingsPage.general.clipboard.keepInClipboard")}
                     description={t("settingsPage.general.clipboard.keepInClipboardDescription")}
@@ -1953,7 +1953,7 @@ export default function SettingsPage({
                 description={t("settings.language.dictationSectionDescription")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="transcriptionLanguage">
                   <SettingsRow
                     label={t("settings.language.transcriptionLabel")}
                     description={t("settings.language.transcriptionDescription")}
@@ -2006,7 +2006,7 @@ export default function SettingsPage({
                 })}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="autoLearn">
                   <SettingsRow
                     label={t("settingsPage.dictionary.autoLearnTitle", {
                       defaultValue: "Auto-learn from corrections",
@@ -2539,7 +2539,7 @@ EOF`,
             {/* Audio Retention */}
             <div className="border-t border-border/70 pt-6">
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="audioRetention">
                   <SettingsRow
                     label={t("settingsPage.privacy.audioRetention")}
                     description={t("settingsPage.privacy.audioRetentionDescription")}
@@ -2576,7 +2576,7 @@ EOF`,
             {/* Data Retention */}
             <div className="border-t border-border/70 pt-6">
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="dataRetention">
                   <SettingsRow
                     label={t("settingsPage.privacy.dataRetention")}
                     description={t("settingsPage.privacy.dataRetentionDescription")}
@@ -2588,7 +2588,7 @@ EOF`,
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="transcriptRetention">
                   <SettingsRow
                     label={t("settingsPage.privacy.transcriptRetention")}
                     description={t("settingsPage.privacy.transcriptRetentionDescription")}
@@ -2610,7 +2610,7 @@ EOF`,
                     </select>
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="saveDiscarded">
                   <SettingsRow
                     label={t("settingsPage.privacy.saveDiscarded")}
                     description={t("settingsPage.privacy.saveDiscardedDescription")}
@@ -2631,7 +2631,7 @@ EOF`,
             </div>
 
             {/* Permissions */}
-            <div className="border-t border-border/70 pt-6">
+            <div data-setting-id="permissions" className="border-t border-border/70 pt-6">
               <SectionHeader
                 title={t("settingsPage.permissions.title")}
                 description={t("settingsPage.permissions.description")}

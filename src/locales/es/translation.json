@@ -4165,5 +4165,21 @@
       "failed": "El restablecimiento no terminó, por lo que Loqui no se reiniciará automáticamente. Fallaron estos pasos:",
       "done": "Restablecimiento completado. Loqui se está reiniciando…"
     }
+  },
+  "settingsSearch": {
+    "title": "Resultados de búsqueda",
+    "placeholder": "Buscar en los ajustes",
+    "count_one": "{{count}} resultado",
+    "count_many": "{{count}} resultados",
+    "count_other": "{{count}} resultados",
+    "none": "Ningún ajuste coincide con «{{query}}». Prueba «micrófono», «retención» o «Nube».",
+    "items": {
+      "assistantEnabled": {
+        "description": "Pregunta por voz y recibe una respuesta"
+      },
+      "storage": {
+        "description": "Audio, modelos e historial en este dispositivo"
+      }
+    }
   }
 }

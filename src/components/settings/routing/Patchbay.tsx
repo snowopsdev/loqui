@@ -123,7 +123,11 @@ export function PatchbayView(props: PatchbayViewProps) {
                 .map((route) => {
                   const locked = route.kind === "support";
                   return (
-                    <div key={route.id} className="flex items-center gap-1">
+                    <div
+                      key={route.id}
+                      data-setting-id={`route-${route.id}`}
+                      className="flex items-center gap-1"
+                    >
                       <button
                         type="button"
                         data-task={route.id}

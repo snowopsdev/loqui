@@ -51,7 +51,7 @@ export default function DictationTranslationSettings() {
         description={t("dictationTranslation.description")}
       />
       <SettingsPanel>
-        <SettingsPanelRow>
+        <SettingsPanelRow settingId="translationEnabled">
           <SettingsRow
             label={t("dictationTranslation.enabled")}
             description={t("dictationTranslation.enabledDescription")}

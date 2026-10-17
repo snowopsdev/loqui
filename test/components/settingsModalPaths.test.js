@@ -9,6 +9,12 @@ const {
 } = require("../lib/rendererTestHarness");
 const { withI18nMock } = require("../lib/i18nTestMock");
 
+function find(node, predicate) {
+  if (Array.isArray(node)) return node.map((item) => find(item, predicate)).find(Boolean);
+  if (!node || typeof node !== "object") return null;
+  return predicate(node) ? node : find(node.props?.children, predicate);
+}
+
 async function mount(t, getProps) {
   let root;
   t.after(async () => {
@@ -23,6 +29,10 @@ async function mount(t, getProps) {
       mockModules: {
         "/SettingsPage": "export default function SettingsPage() { return null; }",
         "/ui/SidebarModal": "export default function SidebarModal() { return null; }",
+        "/settings/SettingsSearchResults":
+          "export function SettingsSearchResults() { return null; }",
+        "/settings/SettingsSearchField":
+          "import { forwardRef } from 'react'; export const SettingsSearchField = forwardRef(function F() { return null; });",
       },
     })
   );
@@ -37,12 +47,12 @@ async function mount(t, getProps) {
   await render();
   return {
     modal: () => tree.props,
-    page: () => React.Children.only(tree.props.children).props,
+    page: () => find(tree.props.children, (n) => n.props && "onNavigateToSection" in n.props).props,
     render,
   };
 }
 
-test("opening at a route path lands on that section and sub-tab", async (t) => {
+test("[baseline guard] opening at a route path lands on that section and sub-tab", async (t) => {
   const h = await mount(t, () => ({
     open: true,
     onOpenChange() {},
@@ -51,7 +61,7 @@ test("opening at a route path lands on that section and sub-tab", async (t) => {
   assert.equal(h.modal().activeSection, "llms");
   assert.equal(h.page().initialSubTab, "supportModels");
 });
-test("legacy ids still resolve to their sub-tab", async (t) => {
+test("[baseline guard] legacy ids still resolve to their sub-tab", async (t) => {
   const h = await mount(t, () => ({
     open: true,
     onOpenChange() {},
@@ -60,12 +70,12 @@ test("legacy ids still resolve to their sub-tab", async (t) => {
   assert.equal(h.modal().activeSection, "llms");
   assert.equal(h.page().initialSubTab, "dictationCleanup");
 });
-test("a junk id opens Preferences instead of a blank pane", async (t) => {
+test("[baseline guard] a junk id opens Preferences instead of a blank pane", async (t) => {
   const h = await mount(t, () => ({ open: true, onOpenChange() {}, initialSection: "nope/x" }));
   assert.equal(h.modal().activeSection, "general");
   assert.equal(h.page().initialSubTab, undefined);
 });
-test("the page can jump inside the open modal with a path", async (t) => {
+test("[baseline guard] the page can jump inside the open modal with a path", async (t) => {
   const h = await mount(t, () => ({ open: true, onOpenChange() {}, initialSection: "general" }));
   assert.equal(typeof h.page().onNavigateToPath, "function");
   await React.act(async () => h.page().onNavigateToPath("stt/upload"));
@@ -75,7 +85,7 @@ test("the page can jump inside the open modal with a path", async (t) => {
   assert.equal(h.modal().activeSection, "llms");
   assert.equal(h.page().initialSubTab, undefined);
 });
-test("closing and reopening with a new path moves to it", async (t) => {
+test("[baseline guard] closing and reopening with a new path moves to it", async (t) => {
   let props = { open: false, onOpenChange() {}, initialSection: "general" };
   const h = await mount(t, () => props);
   props = { ...props, open: true, initialSection: "stt/noteRecording" };

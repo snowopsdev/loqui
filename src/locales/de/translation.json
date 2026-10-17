@@ -4160,5 +4160,20 @@
       "failed": "Das Zurücksetzen wurde nicht abgeschlossen. Loqui startet daher nicht automatisch neu. Diese Schritte sind fehlgeschlagen:",
       "done": "Zurücksetzen abgeschlossen. Loqui startet neu…"
     }
+  },
+  "settingsSearch": {
+    "title": "Suchergebnisse",
+    "placeholder": "Einstellungen durchsuchen",
+    "count_one": "{{count}} Ergebnis",
+    "count_other": "{{count}} Ergebnisse",
+    "none": "Keine Einstellung passt zu „{{query}}“. Versuche „Mikro“, „Aufbewahrung“ oder „Cloud“.",
+    "items": {
+      "assistantEnabled": {
+        "description": "Per Sprache fragen und eine Antwort erhalten"
+      },
+      "storage": {
+        "description": "Audio, Modelle und Verlauf auf diesem Gerät"
+      }
+    }
   }
 }

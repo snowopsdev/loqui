@@ -106,7 +106,7 @@ export default function LocalSupportModels() {
   };
 
   return (
-    <div className="space-y-3">
+    <div data-setting-id="supportModels" className="space-y-3">
       <SectionHeader
         title={t("settingsPage.llms.supportModels.title")}
         description={t("settingsPage.llms.supportModels.description")}

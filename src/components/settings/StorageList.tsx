@@ -125,7 +125,7 @@ export function StorageListView(props: StorageListViewProps) {
     </div>
   );
   return (
-    <section aria-labelledby="storage-title" className="space-y-2">
+    <section data-setting-id="storage" aria-labelledby="storage-title" className="space-y-2">
       <div className="flex items-center gap-2">
         <h3 id="storage-title" className="flex-1 text-xs font-semibold text-foreground">
           {t("storage.title")}

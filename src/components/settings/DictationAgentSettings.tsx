@@ -135,7 +135,7 @@ export default function DictationAgentSettings() {
   return (
     <div className="space-y-4">
       <SettingsPanel>
-        <SettingsPanelRow>
+        <SettingsPanelRow settingId="assistantEnabled">
           <SettingsRow
             label={t("dictationAgent.enabled")}
             description={t("dictationAgent.enabledDescription", { agentName })}
@@ -161,7 +161,7 @@ export default function DictationAgentSettings() {
             description={t("dictationAgent.screenContext.description")}
           />
           <SettingsPanel>
-            <SettingsPanelRow>
+            <SettingsPanelRow settingId="screenContext">
               <SettingsRow
                 label={t("dictationAgent.screenContext.enable")}
                 description={

@@ -124,7 +124,7 @@ export default function DeveloperSection() {
 
       {/* Debug Toggle */}
       <div className="rounded-xl border border-border/70 dark:border-border-subtle bg-card dark:bg-surface-2 divide-y divide-border/60 dark:divide-border-subtle">
-        <div className="px-5 py-4">
+        <div data-setting-id="debugLogging" className="px-5 py-4">
           <div className="flex items-center justify-between gap-6">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

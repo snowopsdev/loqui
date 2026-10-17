@@ -4139,5 +4139,19 @@
       "failed": "リセットが完了しなかったため、Loqui は自動で再起動しません。次の処理に失敗しました：",
       "done": "リセットが完了しました。Loqui を再起動しています…"
     }
+  },
+  "settingsSearch": {
+    "title": "検索結果",
+    "placeholder": "設定を検索",
+    "count_other": "{{count}} 件の結果",
+    "none": "「{{query}}」に一致する設定はありません。「マイク」「保持」「クラウド」を試してください。",
+    "items": {
+      "assistantEnabled": {
+        "description": "音声で質問して回答を得る"
+      },
+      "storage": {
+        "description": "このデバイスの音声、モデル、履歴"
+      }
+    }
   }
 }

@@ -96,6 +96,9 @@
   --motion-base: 240ms;
   --motion-slow: 360ms;
   --motion-hero: 520ms;
+  /* One-shot landing flash on a searched setting (Settings search). The animation uses this
+   duration and JS removes data-flash on animationend, so this is the only place it lives. */
+  --motion-flash: 1400ms;
   --motion-ease-std: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-ease-exit: cubic-bezier(0.2, 0, 0.4, 1);
@@ -2259,5 +2262,43 @@ a:hover {
 @keyframes patchbay-cable-in {
   from {
     opacity: 0;
+  }
+}
+
+/* Settings search landing (SET-R2 A): the row you jumped to flashes once. */
+@property --settings-flash {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+[data-setting-id][data-flash="true"] {
+  outline: 2px solid
+    color-mix(in srgb, var(--color-ring) calc(var(--settings-flash) * 100%), transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
+  background-color: color-mix(
+    in srgb,
+    var(--color-ring) calc(var(--settings-flash) * 16%),
+    transparent
+  );
+  animation: settings-flash var(--motion-flash) var(--motion-ease-std) both;
+}
+@keyframes settings-flash {
+  0%,
+  40% {
+    --settings-flash: 1;
+  }
+  100% {
+    --settings-flash: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Reduced motion: no background flash, just the outline cue. The global policy sets
+     animation-duration to 0.01ms !important on every element; this rule outranks it
+     (higher specificity, also !important) so the outline fades over --motion-flash and
+     animationend still fires. */
+  [data-setting-id][data-flash="true"] {
+    background-color: transparent;
+    animation-duration: var(--motion-flash) !important;
   }
 }

@@ -4165,5 +4165,21 @@
       "failed": "A redefinição não terminou, por isso o Loqui não reiniciará automaticamente. Estas etapas falharam:",
       "done": "Redefinição concluída. O Loqui está reiniciando…"
     }
+  },
+  "settingsSearch": {
+    "title": "Resultados da pesquisa",
+    "placeholder": "Pesquisar nas configurações",
+    "count_one": "{{count}} resultado",
+    "count_many": "{{count}} resultados",
+    "count_other": "{{count}} resultados",
+    "none": "Nenhuma configuração corresponde a “{{query}}”. Tente “microfone”, “retenção” ou “Nuvem”.",
+    "items": {
+      "assistantEnabled": {
+        "description": "Pergunte por voz e receba uma resposta"
+      },
+      "storage": {
+        "description": "Áudio, modelos e histórico neste dispositivo"
+      }
+    }
   }
 }

@@ -4165,5 +4165,21 @@
       "failed": "La réinitialisation n’est pas terminée. Loqui ne redémarrera donc pas automatiquement. Ces étapes ont échoué :",
       "done": "Réinitialisation terminée. Loqui redémarre…"
     }
+  },
+  "settingsSearch": {
+    "title": "Résultats de recherche",
+    "placeholder": "Rechercher dans les paramètres",
+    "count_one": "{{count}} résultat",
+    "count_many": "{{count}} résultats",
+    "count_other": "{{count}} résultats",
+    "none": "Aucun paramètre ne correspond à « {{query}} ». Essayez « microphone », « conservation » ou « Cloud ».",
+    "items": {
+      "assistantEnabled": {
+        "description": "Posez une question à voix haute et obtenez une réponse"
+      },
+      "storage": {
+        "description": "Audio, modèles et historique sur cet appareil"
+      }
+    }
   }
 }

@@ -89,14 +89,21 @@ export function SettingsPanel({
 export function SettingsPanelRow({
   children,
   className = "",
+  settingId,
 }: {
   children: React.ReactNode;
   className?: string;
+  settingId?: string;
 }) {
   const { isCompact } = useSettingsLayout();
 
   return (
-    <div className={`${isCompact ? "px-3 py-2.5" : "px-4 py-3"} ${className}`}>{children}</div>
+    <div
+      data-setting-id={settingId}
+      className={`${isCompact ? "px-3 py-2.5" : "px-4 py-3"} ${className}`}
+    >
+      {children}
+    </div>
   );
 }
 

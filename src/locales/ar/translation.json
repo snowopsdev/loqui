@@ -4364,5 +4364,24 @@
       "failed": "لم تكتمل إعادة الضبط، لذلك لن يُعاد تشغيل Loqui تلقائيًا. فشلت الخطوات التالية:",
       "done": "اكتملت إعادة الضبط. جارٍ إعادة تشغيل Loqui…"
     }
+  },
+  "settingsSearch": {
+    "title": "نتائج البحث",
+    "placeholder": "البحث في الإعدادات",
+    "count_zero": "{{count}} نتيجة",
+    "count_one": "{{count}} نتيجة",
+    "count_two": "{{count}} نتيجتان",
+    "count_few": "{{count}} نتائج",
+    "count_many": "{{count}} نتيجة",
+    "count_other": "{{count}} نتيجة",
+    "none": "لا يوجد إعداد يطابق «{{query}}». جرّب «الميكروفون» أو «الاحتفاظ» أو «سحابي».",
+    "items": {
+      "assistantEnabled": {
+        "description": "اسأل بصوتك واحصل على إجابة"
+      },
+      "storage": {
+        "description": "الصوت والنماذج والسجل على هذا الجهاز"
+      }
+    }
   }
 }

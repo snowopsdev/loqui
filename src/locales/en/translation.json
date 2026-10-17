@@ -4160,5 +4160,20 @@
       "failed": "Reset did not finish, so Loqui will not restart on its own. These steps failed:",
       "done": "Reset complete. Loqui is restarting…"
     }
+  },
+  "settingsSearch": {
+    "title": "Search results",
+    "placeholder": "Search settings",
+    "count_one": "{{count}} result",
+    "count_other": "{{count}} results",
+    "none": "No setting matches “{{query}}”. Try “mic”, “retention” or “cloud”.",
+    "items": {
+      "assistantEnabled": {
+        "description": "Ask by voice and get an answer"
+      },
+      "storage": {
+        "description": "Audio, models and history on this device"
+      }
+    }
   }
 }

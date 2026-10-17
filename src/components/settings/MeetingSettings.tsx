@@ -24,12 +24,14 @@ function MeetingSpeakerDetectionRow() {
   const setSpeakerDiarizationEnabled = useSettingsStore((s) => s.setSpeakerDiarizationEnabled);
 
   return (
-    <SettingsRow
-      label={t("settings.meeting.speakerDetection.title")}
-      description={t("settings.meeting.speakerDetection.description")}
-    >
-      <Toggle checked={speakerDiarizationEnabled} onChange={setSpeakerDiarizationEnabled} />
-    </SettingsRow>
+    <div data-setting-id="speakerLabels">
+      <SettingsRow
+        label={t("settings.meeting.speakerDetection.title")}
+        description={t("settings.meeting.speakerDetection.description")}
+      >
+        <Toggle checked={speakerDiarizationEnabled} onChange={setSpeakerDiarizationEnabled} />
+      </SettingsRow>
+    </div>
   );
 }
 

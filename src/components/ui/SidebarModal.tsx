@@ -27,6 +27,9 @@ interface SidebarModalProps<T extends string> {
   notice?: React.ReactNode;
   /** Sticky content-column footer, e.g. the route Apply bar. */
   footer?: React.ReactNode;
+  /** Search above the wide navigation or compact title. */
+  search?: React.ReactNode;
+  contentTitle?: string;
 }
 
 export default function SidebarModal<T extends string>({
@@ -42,6 +45,8 @@ export default function SidebarModal<T extends string>({
   header,
   notice,
   footer,
+  search,
+  contentTitle,
 }: SidebarModalProps<T>) {
   const { t } = useTranslation();
   const { registerContent, shouldBlockDismiss } = useDismissGuard<HTMLDivElement>();
@@ -102,6 +107,8 @@ export default function SidebarModal<T extends string>({
                 {/* Identity / custom header */}
                 {header && !isCompact && <div className="px-4 pt-5 pb-1">{header}</div>}
 
+                {search && !isCompact && <div className="px-3 pt-3">{search}</div>}
+
                 {/* Navigation */}
                 <SettingsNav
                   items={sidebarItems}
@@ -136,8 +143,9 @@ export default function SidebarModal<T extends string>({
               {/* Main Content */}
               <div className="flex-1 overflow-y-auto bg-background dark:bg-surface-1">
                 <SettingsLayoutProvider value={{ isCompact }}>
+                  {search && isCompact && <div className="px-4 pt-4">{search}</div>}
                   <SettingsTitleBar
-                    title={activeItem?.label ?? title}
+                    title={contentTitle ?? activeItem?.label ?? title}
                     compact={isCompact}
                     close={
                       <DialogPrimitive.Close className="grid h-8 w-8 shrink-0 place-items-center rounded-md opacity-70 focus-visible:opacity-100 outline-none transition-[opacity,background-color] duration-[var(--motion-fast)] hover:opacity-100 hover:bg-muted dark:hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">

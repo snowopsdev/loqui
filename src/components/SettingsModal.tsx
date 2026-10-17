@@ -1,11 +1,15 @@
 import { withDraftDiscard } from "../stores/routeDraftStore";
 import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Brain, Keyboard, Mic, Shield, Sliders, Waypoints, Wrench } from "./icons";
 import SettingsPage, { SettingsSectionType } from "./SettingsPage";
 import { parseSettingsPath } from "../lib/settingsPaths";
 import SidebarModal, { type SidebarItem } from "./ui/SidebarModal";
+
+import { SettingsSearchField } from "./settings/SettingsSearchField";
+import { SettingsSearchResults } from "./settings/SettingsSearchResults";
+import { useSettingsSearch } from "./settings/useSettingsSearch";
 
 export type { SettingsSectionType };
 
@@ -88,15 +92,30 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
     if (!open) setInitialSubTab(undefined);
   }
 
-  const handleSectionChange = (section: SettingsSectionType) => {
-    setActiveSection(section);
-    setInitialSubTab(undefined);
-  };
-
-  const handleNavigateToPath = (path: string) => {
+  const handleNavigateToPath = useCallback((path: string) => {
     const next = parseSettingsPath(path);
     setActiveSection(next.section);
     setInitialSubTab(next.subTab);
+  }, []);
+
+  // A new activation must reach useSubTab even after the user selected another tab.
+  const [searchPath, setSearchPath] = useState<string | null>(null);
+  const navigateFromSearch = useCallback((path: string) => {
+    setInitialSubTab(undefined);
+    setSearchPath(path);
+  }, []);
+  useEffect(() => {
+    if (searchPath === null) return;
+    setSearchPath(null);
+    if (open) handleNavigateToPath(searchPath);
+  }, [searchPath, open, handleNavigateToPath]);
+
+  const search = useSettingsSearch({ open, navigateToPath: navigateFromSearch });
+  const handleSectionChange = (section: SettingsSectionType) => {
+    search.clear();
+    setSearchPath(null);
+    setActiveSection(section);
+    setInitialSubTab(undefined);
   };
 
   const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);
@@ -107,16 +126,40 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
       onOpenChange={handleOpenChange}
       footer={<StagedRouteBar />}
       title={t("settingsModal.title")}
+      contentTitle={search.query ? t("settingsSearch.title") : undefined}
+      search={
+        <SettingsSearchField
+          ref={search.searchRef}
+          value={search.query}
+          onChange={search.setQuery}
+          onKeyDown={search.onSearchKeyDown}
+          onEscape={search.consumeEscape}
+        />
+      }
       sidebarItems={sidebarItems}
       activeSection={activeSection}
       onSectionChange={handleSectionChange}
     >
-      <SettingsPage
-        activeSection={activeSection}
-        onNavigateToSection={handleSectionChange}
-        onNavigateToPath={handleNavigateToPath}
-        initialSubTab={initialSubTab}
-      />
+      <>
+        {search.query && (
+          <SettingsSearchResults
+            query={search.query}
+            groups={search.groups}
+            activeId={search.activeId}
+            onActiveChange={search.activate}
+            onJump={search.jump}
+            onEscape={search.consumeEscape}
+          />
+        )}
+        <div className={search.query ? "hidden" : undefined}>
+          <SettingsPage
+            activeSection={activeSection}
+            onNavigateToSection={handleSectionChange}
+            onNavigateToPath={handleNavigateToPath}
+            initialSubTab={initialSubTab}
+          />
+        </div>
+      </>
     </SidebarModal>
   );
 }

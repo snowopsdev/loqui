@@ -35,6 +35,7 @@ export default function UpdateSettings({
   if (notice && status?.phase !== "ready") return null;
   return (
     <section
+      data-setting-id="updates"
       className="space-y-3 rounded-lg border border-border p-4"
       aria-label={t("updates.title")}
     >

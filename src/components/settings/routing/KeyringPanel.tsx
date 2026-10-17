@@ -412,6 +412,7 @@ export function KeyringPanelView(props: KeyringPanelViewProps) {
   const busy = props.checking !== null || props.progress !== null;
   return (
     <section
+      data-setting-id="keyring"
       aria-labelledby="keyring-title"
       className="overflow-hidden rounded-lg border border-border/70 bg-background"
     >

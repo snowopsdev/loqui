@@ -4165,5 +4165,21 @@
       "failed": "Il ripristino non è terminato, quindi Loqui non si riavvierà automaticamente. Questi passaggi non sono riusciti:",
       "done": "Ripristino completato. Loqui si sta riavviando…"
     }
+  },
+  "settingsSearch": {
+    "title": "Risultati di ricerca",
+    "placeholder": "Cerca nelle impostazioni",
+    "count_one": "{{count}} risultato",
+    "count_many": "{{count}} risultati",
+    "count_other": "{{count}} risultati",
+    "none": "Nessuna impostazione corrisponde a «{{query}}». Prova «microfono», «conservazione» o «Cloud».",
+    "items": {
+      "assistantEnabled": {
+        "description": "Fai una domanda a voce e ricevi una risposta"
+      },
+      "storage": {
+        "description": "Audio, modelli e cronologia su questo dispositivo"
+      }
+    }
   }
 }

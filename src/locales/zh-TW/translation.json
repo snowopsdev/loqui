@@ -4139,5 +4139,19 @@
       "failed": "重設尚未完成，因此 Loqui 不會自動重新啟動。以下步驟失敗：",
       "done": "重設完成。Loqui 正在重新啟動…"
     }
+  },
+  "settingsSearch": {
+    "title": "搜尋結果",
+    "placeholder": "搜尋設定",
+    "count_other": "{{count}} 個結果",
+    "none": "沒有符合「{{query}}」的設定。請試試「麥克風」、「保留」或「雲端」。",
+    "items": {
+      "assistantEnabled": {
+        "description": "用語音提問並取得回答"
+      },
+      "storage": {
+        "description": "此裝置上的音訊、模型和歷史記錄"
+      }
+    }
   }
 }

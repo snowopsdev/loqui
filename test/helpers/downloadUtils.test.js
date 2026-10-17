@@ -5,6 +5,7 @@ const os = require("os");
 const path = require("path");
 const { EventEmitter } = require("events");
 const { PassThrough } = require("stream");
+const ParakeetManager = require("../../src/helpers/parakeet");
 
 function createElectronMock(response) {
   return {
@@ -180,6 +181,7 @@ function loadWithResponses(responses) {
   const downloadUtilsPath = require.resolve("../../src/helpers/downloadUtils.js");
   const originalElectronCache = require.cache[electronPath];
   const requests = [];
+  const requestInstances = [];
   require.cache[electronPath] = {
     exports: {
       app: { isReady: () => false },
@@ -188,18 +190,25 @@ function loadWithResponses(responses) {
           const request = new EventEmitter();
           const headers = {};
           requests.push(headers);
+          requestInstances.push(request);
           request.setHeader = (name, value) => (headers[name] = value);
           request.abort = () => {};
           request.end = () => {
-            const { statusCode, headers: responseHeaders, body, requestError } = responses.shift();
+            const {
+              statusCode,
+              headers: responseHeaders,
+              body,
+              requestError,
+              stream,
+            } = responses.shift();
             if (requestError) {
               queueMicrotask(() => request.emit("error", requestError));
               return;
             }
-            const response = new PassThrough();
+            const response = stream ?? new PassThrough();
             response.statusCode = statusCode;
             response.headers = responseHeaders;
-            response.end(body);
+            if (!stream) response.end(body);
             queueMicrotask(() => request.emit("response", response));
           };
           return request;
@@ -211,6 +220,7 @@ function loadWithResponses(responses) {
   return {
     downloadUtils: require(downloadUtilsPath),
     requests,
+    requestInstances,
     restore() {
       delete require.cache[downloadUtilsPath];
       if (originalElectronCache) require.cache[electronPath] = originalElectronCache;
@@ -377,4 +387,174 @@ test("main's Parakeet handler propagates retained-byte evidence in both terminal
     assert.equal(h.sent[0][1].keptBytes, expected);
     assert.equal(h.context.localModelDownloadStatus.has("parakeet", "fixture-model"), false);
   }
+});
+
+function gate() {
+  let release;
+  const promise = new Promise((resolve) => (release = resolve));
+  return { promise, release };
+}
+
+for (const abortDuring of ["writer close", "retained stat"]) {
+  test(
+    `acknowledged cancellation during network failure ${abortDuring} deletes only after close`,
+    { timeout: 5000 },
+    async (t) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-teardown-"));
+      const destination = path.join(dir, "model.bin");
+      const tempPath = `${destination}.tmp`;
+      const response = new PassThrough();
+      const responseReady = gate();
+      response.once("resume", responseReady.release);
+      const loaded = loadWithResponses([
+        { statusCode: 200, headers: { "content-length": "10" }, stream: response },
+      ]);
+      const originalCreate = fs.createWriteStream;
+      const originalStat = fs.promises.stat;
+      const originalUnlink = fs.promises.unlink;
+      const written = gate(),
+        blocked = gate(),
+        release = gate();
+      const order = [];
+      let writer;
+      let statCalls = 0;
+      fs.createWriteStream = (filePath, options) => {
+        if (filePath !== tempPath) return originalCreate(filePath, options);
+        writer = originalCreate(filePath, {
+          ...options,
+          fs: {
+            open: fs.open.bind(fs),
+            write: (...args) => {
+              const callback = args.pop();
+              fs.write(...args, (...result) => {
+                callback(...result);
+                written.release();
+              });
+            },
+            close: (...args) => {
+              if (abortDuring === "writer close") {
+                blocked.release();
+                release.promise.then(() => fs.close(...args));
+              } else fs.close(...args);
+            },
+          },
+        });
+        writer.once("close", () => order.push("close"));
+        return writer;
+      };
+      fs.promises.stat = async (filePath, ...args) => {
+        if (filePath !== tempPath || ++statCalls !== 2 || abortDuring !== "retained stat")
+          return originalStat(filePath, ...args);
+        const stats = await originalStat(filePath, ...args);
+        assert.equal(writer.closed, true, "retention stat follows actual writer close");
+        blocked.release();
+        await release.promise;
+        return stats;
+      };
+      fs.promises.unlink = async (filePath, ...args) => {
+        if (filePath === tempPath) {
+          assert.equal(writer.closed, true, "no unlink before actual writer close");
+          order.push("unlink");
+        }
+        return originalUnlink(filePath, ...args);
+      };
+      t.after(() => {
+        release.release();
+        fs.createWriteStream = originalCreate;
+        fs.promises.stat = originalStat;
+        fs.promises.unlink = originalUnlink;
+        loaded.restore();
+        fs.rmSync(dir, { recursive: true, force: true });
+      });
+      const { signal, abort } = loaded.downloadUtils.createDownloadSignal();
+      // Exercise the real main cancel method without constructing a runtime or profile.
+      const manager = Object.create(ParakeetManager.prototype);
+      manager.currentDownloadProcess = { phase: "progress", abort };
+      let settled = false;
+      const done = loaded.downloadUtils
+        .downloadFile("https://example.com/model.bin", destination, { signal, maxRetries: 0 })
+        .catch((error) => error)
+        .finally(() => {
+          settled = true;
+          manager.currentDownloadProcess = null;
+        });
+      // Wait for the real pipeline to consume the response, without polling the disk.
+      await responseReady.promise;
+      assert.equal(loaded.requestInstances.length, 1, "fixture request admitted");
+      response.write("hello");
+      await written.promise;
+      loaded.requestInstances[0].emit(
+        "error",
+        Object.assign(new Error("fixture reset"), { code: "ECONNRESET" })
+      );
+      await blocked.promise;
+      assert.equal(signal.onAbort, null, "the original failure is already tearing down");
+      assert.equal(settled, false);
+      if (abortDuring === "writer close") assert.equal(writer.closed, false);
+      const acknowledgement = await manager.cancelDownload();
+      assert.equal(acknowledgement.success, true);
+      assert.equal(signal.aborted, true);
+      assert.equal(fs.readFileSync(tempPath, "utf8"), "hello");
+      assert.equal(
+        order.includes("unlink"),
+        false,
+        "the owned pending operation still holds the temp"
+      );
+      release.release();
+      const failure = await done;
+      assert.deepEqual(
+        {
+          isAbort: failure.isAbort,
+          message: failure.message,
+          code: failure.code,
+          keptBytes: failure.keptBytes,
+          tempExists: fs.existsSync(tempPath),
+          destinationExists: fs.existsSync(destination),
+          order,
+        },
+        {
+          isAbort: true,
+          message: "Download cancelled",
+          code: undefined,
+          keptBytes: 0,
+          tempExists: false,
+          destinationExists: false,
+          order: ["close", "unlink"],
+        },
+        "accepted Stop supersedes the network error and removes the closed partial"
+      );
+      assert.equal(
+        (await manager.cancelDownload()).success,
+        false,
+        "settled work releases cancel ownership"
+      );
+    }
+  );
+}
+
+test("an ordinary network retry resumes the partial within the same downloadFile call", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-retry-"));
+  const destination = path.join(dir, "model.bin");
+  const loaded = loadWithResponses([
+    { statusCode: 200, headers: { "content-length": "10" }, body: Buffer.from("hello") },
+    {
+      statusCode: 206,
+      headers: { "content-range": "bytes 5-9/10", "content-length": "5" },
+      body: Buffer.from("world"),
+    },
+  ]);
+  t.after(() => {
+    loaded.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  assert.equal(
+    await loaded.downloadUtils.downloadFile("https://example.com/model.bin", destination, {
+      maxRetries: 1,
+    }),
+    destination
+  );
+  assert.equal(loaded.requests.length, 2);
+  assert.equal(loaded.requests[1].Range, "bytes=5-");
+  assert.equal(fs.readFileSync(destination, "utf8"), "helloworld");
+  assert.equal(fs.existsSync(`${destination}.tmp`), false);
 });

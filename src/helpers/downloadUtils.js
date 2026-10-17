@@ -269,6 +269,15 @@ async function downloadFile(url, destPath, options = {}) {
 
   const tempPath = `${destPath}.tmp`;
 
+  const discardCancelledDownload = async (error) => {
+    // downloadAttempt rejects only after its writer closes. Never unlink earlier.
+    await fsPromises.unlink(tempPath).catch(() => {});
+    throw Object.assign(error?.isAbort ? error : new Error("Download cancelled"), {
+      isAbort: true,
+      keptBytes: 0,
+    });
+  };
+
   debugLogger.info("Download starting", { url, destPath });
 
   let startOffset = 0;
@@ -286,8 +295,7 @@ async function downloadFile(url, destPath, options = {}) {
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (signal?.aborted) {
-      await fsPromises.unlink(tempPath).catch(() => {});
-      throw Object.assign(new Error("Download cancelled"), { isAbort: true, keptBytes: 0 });
+      return discardCancelledDownload();
     }
 
     if (attempt > 0) {
@@ -329,18 +337,10 @@ async function downloadFile(url, destPath, options = {}) {
     } catch (error) {
       lastError = error;
 
-      if (error.isAbort) {
-        await fsPromises.unlink(tempPath).catch(() => {});
-        error.keptBytes = 0;
-        throw error;
-      }
+      // Stop may be acknowledged while an earlier failure awaits writer close.
+      if (error.isAbort || signal?.aborted) return discardCancelledDownload(error);
 
       if (!isRetryable(error) || attempt >= maxRetries) {
-        debugLogger.error("Download failed", {
-          url,
-          error: error.message,
-          code: error.code,
-        });
         // Network failures preserve resumable bytes; HTTP, TLS and size failures drop them.
         if (isRetryable(error)) {
           error.keptBytes = await fsPromises.stat(tempPath).then(
@@ -351,6 +351,13 @@ async function downloadFile(url, destPath, options = {}) {
           await fsPromises.unlink(tempPath).catch(() => {});
           error.keptBytes = 0;
         }
+        // The retained-byte stat (or discard) also yields to an accepted Stop.
+        if (signal?.aborted) return discardCancelledDownload(error);
+        debugLogger.error("Download failed", {
+          url,
+          error: error.message,
+          code: error.code,
+        });
         throw error;
       }
 

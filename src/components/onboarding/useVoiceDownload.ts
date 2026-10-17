@@ -43,14 +43,11 @@ export function useVoiceDownload(modelId: string | null): {
     value: false,
   });
   const cancelPendingRef = useRef(new Set<string>());
-  const [samples, setSamples] = useState<Keyed<RateSample[]>>({ modelId: null, value: [] });
-  const [milestone, setMilestone] = useState<Keyed<DownloadMilestone | null>>({
-    modelId: null,
-    value: null,
-  });
-  const [keptBytes, setKeptBytes] = useState<Keyed<number | null>>({ modelId: null, value: null });
-  const [cancelled, setCancelled] = useState<Keyed<boolean>>({ modelId: null, value: false });
-  const lastPercentRef = useRef<Keyed<number | null>>({ modelId: null, value: null });
+  const [samples, setSamples] = useState<Record<string, RateSample[]>>({});
+  const [milestone, setMilestone] = useState<Record<string, DownloadMilestone | null>>({});
+  const [keptBytes, setKeptBytes] = useState<Record<string, number | null>>({});
+  const [cancelled, setCancelled] = useState<Record<string, boolean>>({});
+  const lastPercentRef = useRef<Record<string, number | null>>({});
 
   const refresh = useCallback(async () => {
     const requested = modelIdRef.current;
@@ -84,19 +81,19 @@ export function useVoiceDownload(modelId: string | null): {
   useEffect(
     () =>
       window.electronAPI?.onParakeetDownloadProgress?.((_event, data) => {
-        if (data.model !== modelIdRef.current) return;
+        // Retain facts and sequence watermarks even while another model is selected.
         // Match Plan02's sequence guard: delayed progress cannot erase terminal evidence.
         if (data.sequence !== undefined) {
           if (data.sequence <= (progressSequences.current[data.model] ?? -1)) return;
           progressSequences.current[data.model] = data.sequence;
         }
         if (data.type === "error") {
-          setKeptBytes({
-            modelId: data.model,
-            value: Number.isFinite(data.keptBytes) ? (data.keptBytes as number) : 0,
-          });
+          setKeptBytes((previous) => ({
+            ...previous,
+            [data.model]: Number.isFinite(data.keptBytes) ? (data.keptBytes as number) : 0,
+          }));
         } else if (data.type === "progress") {
-          setKeptBytes({ modelId: data.model, value: null });
+          setKeptBytes((previous) => ({ ...previous, [data.model]: null }));
         }
       }),
     []
@@ -112,8 +109,8 @@ export function useVoiceDownload(modelId: string | null): {
     if (!active || !modelId) return;
     const sample = () => {
       setSamples((previous) => ({
-        modelId,
-        value: pushSample(forModel(previous, modelId, []), {
+        ...previous,
+        [modelId]: pushSample(previous[modelId] ?? [], {
           atMs: Date.now(),
           bytes: downloadedBytes,
         }),
@@ -121,9 +118,9 @@ export function useVoiceDownload(modelId: string | null): {
     };
     sample();
     const percent = clampPercent(progress);
-    const crossed = milestoneCrossed(forModel(lastPercentRef.current, modelId, null), percent);
-    lastPercentRef.current = { modelId, value: percent };
-    if (crossed !== null) setMilestone({ modelId, value: crossed });
+    const crossed = milestoneCrossed(lastPercentRef.current[modelId] ?? null, percent);
+    lastPercentRef.current[modelId] = percent;
+    if (crossed !== null) setMilestone((previous) => ({ ...previous, [modelId]: crossed }));
     const id = setInterval(sample, AGE_SAMPLE_MS);
     return () => clearInterval(id);
   }, [active, downloadedBytes, progress, modelId]);
@@ -139,11 +136,11 @@ export function useVoiceDownload(modelId: string | null): {
     cancelling:
       forModel(pendingCancel, modelId, false) ||
       (modelId ? download.isCancellingModel(modelId) : false),
-    cancelled: forModel(cancelled, modelId, false),
+    cancelled: modelId ? (cancelled[modelId] ?? false) : false,
     error: modelId ? (download.downloadErrors[modelId] ?? null) : null,
-    lastPercent: forModel(lastPercentRef.current, modelId, null),
-    keptBytes: forModel(keptBytes, modelId, null),
-    samples: forModel(samples, modelId, []),
+    lastPercent: modelId ? (lastPercentRef.current[modelId] ?? null) : null,
+    keptBytes: modelId ? (keptBytes[modelId] ?? null) : null,
+    samples: modelId ? (samples[modelId] ?? []) : [],
   });
 
   const { downloadModel, cancelDownload } = download;
@@ -151,11 +148,11 @@ export function useVoiceDownload(modelId: string | null): {
     const id = modelIdRef.current;
     if (!id || Object.keys(download.downloads).length > 0 || cancelPendingRef.current.has(id))
       return;
-    setSamples({ modelId: id, value: [] });
-    setKeptBytes({ modelId: id, value: null });
-    setCancelled({ modelId: id, value: false });
-    setMilestone({ modelId: id, value: null });
-    lastPercentRef.current = { modelId: id, value: null };
+    setSamples((previous) => ({ ...previous, [id]: [] }));
+    setKeptBytes((previous) => ({ ...previous, [id]: null }));
+    setCancelled((previous) => ({ ...previous, [id]: false }));
+    setMilestone((previous) => ({ ...previous, [id]: null }));
+    lastPercentRef.current[id] = null;
     void downloadModel(id);
   }, [download.downloads, downloadModel]);
   const cancel = useCallback(async () => {
@@ -165,12 +162,12 @@ export function useVoiceDownload(modelId: string | null): {
     setPendingCancel({ modelId: id, value: true });
     try {
       // Plan 02 owns cancellation; only its confirmed acknowledgement permits restart.
-      if (await cancelDownload(id)) setCancelled({ modelId: id, value: true });
+      if (await cancelDownload(id)) setCancelled((previous) => ({ ...previous, [id]: true }));
     } finally {
       cancelPendingRef.current.delete(id);
       setPendingCancel({ modelId: id, value: false });
     }
   }, [cancelDownload, download.downloads]);
 
-  return { state, milestone: forModel(milestone, modelId, null), start, cancel };
+  return { state, milestone: modelId ? (milestone[modelId] ?? null) : null, start, cancel };
 }

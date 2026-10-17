@@ -422,3 +422,86 @@ test("stale sequenced progress cannot erase main's terminal retained-byte eviden
   assert.equal(h.current().state.progressKept, true);
   assert.equal(h.current().state.percent, 42);
 });
+
+for (const offSelectionTerminal of [true, false]) {
+  test(`retained A survives ${offSelectionTerminal ? "an off-selection terminal and stale progress" : "B starting and failing"} before returning to A`, async (t) => {
+    const h = await mount(t);
+    const a = deferred(),
+      b = deferred();
+    h.status.set("a", a);
+    h.status.set("b", b);
+    await h.render("a");
+    await React.act(async () => a.resolve({ downloaded: false }));
+    await React.act(async () => h.current().start());
+    await h.emit({
+      type: "progress",
+      model: "a",
+      percentage: 42,
+      downloaded_bytes: 420,
+      total_bytes: 1000,
+      sequence: 10,
+    });
+    if (offSelectionTerminal) {
+      await h.render("b");
+      await React.act(async () => b.resolve({ downloaded: false }));
+    }
+    await h.emit({
+      type: "error",
+      model: "a",
+      error: "reset A",
+      code: "ECONNRESET",
+      keptBytes: 420,
+      sequence: 11,
+    });
+    await h.settle({
+      success: false,
+      model: "a",
+      error: "reset A",
+      code: "ECONNRESET",
+      keptBytes: 420,
+    });
+    if (offSelectionTerminal) {
+      assert.deepEqual(h.current().state, { status: "idle" }, "A's error never displays on B");
+      await h.emit({
+        type: "progress",
+        model: "a",
+        percentage: 10,
+        downloaded_bytes: 100,
+        total_bytes: 1000,
+        sequence: 9,
+      });
+    } else {
+      assert.equal(h.current().state.progressKept, true);
+      await h.render("b");
+      await React.act(async () => b.resolve({ downloaded: false }));
+      await React.act(async () => h.current().start());
+      await h.emit({
+        type: "progress",
+        model: "b",
+        percentage: 70,
+        downloaded_bytes: 700,
+        total_bytes: 1000,
+        sequence: 20,
+      });
+      await h.emit({ type: "error", model: "b", error: "HTTP 404 B", keptBytes: 0, sequence: 21 });
+      await h.settle({ success: false, model: "b", error: "HTTP 404 B" });
+      assert.equal(h.current().state.progressKept, false);
+    }
+    const returnedA = deferred();
+    h.status.set("a", returnedA);
+    await h.render("a");
+    await React.act(async () => returnedA.resolve({ downloaded: false }));
+    assert.equal(h.current().state.status, "error");
+    assert.equal(h.current().state.progressKept, true, "A retains its own main attestation");
+    assert.equal(h.current().state.percent, 42, "B cannot overwrite A's last percentage");
+    await React.act(async () => h.current().start());
+    await h.emit({ type: "error", model: "a", error: "new A failure", sequence: 12 });
+    await h.settle({ success: false, model: "a", error: "new A failure" });
+    assert.equal(
+      h.current().state.progressKept,
+      false,
+      "only A's admitted retry resets its evidence"
+    );
+    assert.equal(h.current().state.percent, 0);
+  });
+}

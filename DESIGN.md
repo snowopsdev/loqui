@@ -356,10 +356,15 @@ for the later live-region consumer. Formatters supply locale-aware MB/GB values
 and rounded ETA parts; all new copy lives under `setupFlow` in the 11 locales.
 Incremental English placeholders remain for Task 20 to translate.
 
-Main alone attests retained progress. Exhausted network failures retain the real
-partial file for a subsequent Range request; cancellation, HTTP, TLS and size
-failures discard it. This shared downloader behavior also applies to Whisper and
-local LLM downloads. No renderer disk or provider authority is added.
+Main alone attests retained progress. The renderer keeps that evidence and sequence
+watermarks per model even when another voice is selected; starting a new attempt
+resets only that model's measurement and retained-byte facts. Exhausted network
+failures retain the real partial file for a subsequent Range request; cancellation,
+HTTP, TLS and size failures discard it. This shared downloader behavior also applies to Whisper and
+local LLM downloads. An accepted Stop during failure teardown, including a pending
+retained-byte stat, supersedes the network failure and discards the partial only
+after the writer closes, reporting cancellation with zero kept bytes. No renderer
+disk or provider authority is added.
 
 Pure onboarding notice builders use the spec §5.3 input shape. Until Plan 04 lands,
 `useOnboardingNotifier` alone maps it to the existing toast API, whose duration 0

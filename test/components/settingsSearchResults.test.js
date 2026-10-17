@@ -444,7 +444,28 @@ test("[change-driving] rendered search text, field edges and focused result cues
       onEscape: () => false,
     })
   );
-  assert.match(field, /border-input-border/);
+  const fieldChrome = field.match(/^<label\b[^>]*>/)?.[0];
+  const fieldInput = field.match(/<input\b[^>]*>/)?.[0];
+  assert.ok(fieldChrome && fieldInput, "actual field chrome and native input render");
+  assert.match(fieldChrome, /border-input-border/);
+  assert.match(fieldChrome, /bg-background/);
+  assert.match(fieldChrome, /dark:bg-input/);
+  assert.match(fieldChrome, /focus-within:bg-background/);
+  assert.match(fieldChrome, /focus-within:border-ring/);
+  assert.match(fieldChrome, /focus-within:ring-2/);
+  assert.match(fieldChrome, /focus-within:ring-ring(?:\s|")/);
+  assert.match(fieldChrome, /focus-within:ring-offset-1/);
+  assert.match(fieldChrome, /focus-within:ring-offset-background/);
+  assert.match(
+    fieldInput,
+    /input-inline/,
+    "embedded query uses the chrome edge instead of the unlayered native field edge"
+  );
+  assert.doesNotMatch(
+    fieldInput,
+    /border-input-border|ring-ring/,
+    "there is only one field edge/focus cue"
+  );
   assert.match(results, /focus-within:ring-ring(?:\s|&quot;|")/);
   assert.match(results, /data-\[active=true\]:border-ring/);
   assert.match(
@@ -457,18 +478,115 @@ test("[change-driving] rendered search text, field edges and focused result cues
     const sidebar = tokens[theme === "dark" ? "--color-surface-0" : "--color-surface-1"];
     const panel = mix(tokens[theme === "dark" ? "--color-surface-2" : "--color-card"], 0.5, pane);
     const peakFlash = mix(tokens["--color-ring"], 0.16, panel);
-    for (const surface of [pane, sidebar, tokens["--color-background"], peakFlash]) {
+    const fieldRest = tokens[theme === "dark" ? "--color-input" : "--color-background"];
+    const fieldFocus = tokens["--color-background"];
+    for (const surface of [pane, sidebar, fieldRest, fieldFocus, peakFlash]) {
       for (const role of ["--color-foreground", "--color-muted-foreground"])
         assert.ok(contrastRatio(tokens[role], surface) >= 4.5, `${theme} ${role} on ${surface}`);
     }
-    for (const surface of [pane, sidebar, tokens["--color-background"]])
+    for (const surface of [pane, sidebar, fieldRest, fieldFocus])
       assert.ok(
         contrastRatio(tokens["--color-ring"], surface) >= 3,
         `${theme} focused outline on ${surface}`
       );
-    assert.ok(
-      contrastRatio(tokens["--color-input-border"], tokens["--color-background"]) >= 3,
-      `${theme} field edge`
-    );
+    assert.ok(contrastRatio(tokens["--color-input-border"], fieldRest) >= 3, `${theme} field edge`);
+  }
+});
+
+test("[change-driving] search chrome stays in interface flow independently of automatic query direction", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(
+    t,
+    withI18nMock({ cachePrefix: "loqui-search-chrome-flow-" })
+  );
+  const { SettingsSearchField } = await vite.ssrLoadModule(
+    "/components/settings/SettingsSearchField.tsx"
+  );
+  const parse = (html) => {
+    const root = { children: [] };
+    const stack = [root];
+    for (const [tag] of html.matchAll(/<[^>]+>/g)) {
+      if (tag.startsWith("</")) {
+        stack.pop();
+        continue;
+      }
+      const name = tag.match(/^<([\w-]+)/)?.[1];
+      if (!name) continue;
+      const node = { name, tag, children: [] };
+      stack.at(-1).children.push(node);
+      if (!/\/>$/.test(tag) && !["input", "br", "hr"].includes(name)) stack.push(node);
+    }
+    return root.children[0];
+  };
+  for (const direction of ["ltr", "rtl"]) {
+    for (const query of ["", "ميكروفون", "mic"]) {
+      const html = renderToStaticMarkup(
+        React.createElement(
+          "div",
+          { dir: direction },
+          React.createElement(SettingsSearchField, {
+            value: query,
+            onChange() {},
+            onKeyDown() {},
+            onEscape: () => false,
+          })
+        )
+      );
+      const parent = parse(html);
+      const chrome = parent.children[0];
+      assert.equal(
+        chrome.name,
+        "label",
+        "the entire field surface natively focuses its wrapped input"
+      );
+      assert.match(parent.tag, new RegExp(`dir="${direction}"`));
+      assert.match(
+        chrome.tag,
+        /class="[^"]*\bflex\b/,
+        `${direction}/${query}: one UI-direction flex row owns all chrome`
+      );
+      const chromeClasses = chrome.tag.match(/class="([^"]*)"/)?.[1].split(/\s+/) ?? [];
+      assert.ok(chromeClasses.includes("flex"), "the chrome is an actual flex container");
+      assert.ok(chromeClasses.includes("h-8"), "the compact field keeps its existing height");
+      assert.doesNotMatch(
+        chromeClasses.join(" "),
+        /flex-col|flex-row-reverse|flex-wrap/,
+        "interface direction controls the normal row"
+      );
+      assert.doesNotMatch(
+        chrome.tag,
+        /\bdir=/,
+        "chrome inherits the interface direction, never the query direction"
+      );
+      assert.deepEqual(
+        chrome.children.map((child) => child.name),
+        ["svg", "input", "kbd"],
+        "icon, query and shortcut occupy distinct direct flex items"
+      );
+      const [icon, input, shortcut] = chrome.children;
+      for (const adornment of [icon, shortcut]) {
+        assert.match(adornment.tag, /\bshrink-0\b/);
+        assert.doesNotMatch(
+          adornment.tag,
+          /\babsolute\b|\b(?:start|end)-/,
+          "content direction cannot move an adornment onto the other one"
+        );
+      }
+      assert.match(input.tag, /dir="auto"/);
+      assert.equal(input.tag.match(/value="([^"]*)"/)?.[1] ?? "", query);
+      assert.match(input.tag, /\binput-inline\b/);
+      assert.match(input.tag, /\bmin-w-0\b/);
+      assert.match(input.tag, /\bflex-1\b/);
+      assert.doesNotMatch(
+        input.tag,
+        /\b(?:ps|pe)-\d/,
+        "input content direction never controls chrome spacing"
+      );
+      assert.match(shortcut.tag, /dir="ltr"/);
+      assert.match(chrome.tag, /border-input-border/);
+      assert.match(chrome.tag, /focus-within:ring-2/);
+      assert.match(chrome.tag, /focus-within:ring-ring(?:\s|")/);
+      assert.match(chrome.tag, /focus-within:ring-offset-1/);
+    }
   }
 });

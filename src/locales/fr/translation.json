@@ -698,7 +698,8 @@
       "title": "Modèles requis manquants",
       "description": "Votre organisation exige ces modèles sur cet appareil : {{models}}.",
       "download": "Télécharger"
-    }
+    },
+    "breadcrumb": "Emplacement"
   },
   "reasoning": {
     "mode": {
@@ -2452,8 +2453,9 @@
   },
   "sidebar": {
     "sections": {
-      "workspace": "Workspace",
-      "library": "Library"
+      "spaces": "Espaces",
+      "recent": "Récents",
+      "voice": "Voix"
     },
     "navigation": "Main navigation",
     "insights": "Statistiques",
@@ -2474,12 +2476,12 @@
     "upgradeZeroRetention": "Zéro conservation des données",
     "upgradeEnterpriseSecurity": "Sécurité entreprise SOC 2 Type II, HIPAA, ISO27001",
     "learnMore": "En savoir plus",
-    "integrations": "Intégrations",
     "defaultUser": "Utilisateur",
     "notSignedIn": "Non connecté",
     "chat": "Chat",
     "collapse": "Réduire la barre latérale",
-    "expand": "Développer la barre latérale"
+    "expand": "Développer la barre latérale",
+    "calendars": "Calendriers"
   },
   "workspaces": {
     "switcher": {

@@ -2,17 +2,17 @@ import { registerUpdateFlush } from "../../utils/updateFlush";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
-import { Plus, Sparkles, X } from "../icons";
+import { Plus, X } from "../icons";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
 import { useToast } from "../ui/useToast";
 import NoteEditor from "./NoteEditor";
-import SpacesTree from "./SpacesTree";
+import { useNoteTreeActions } from "../../hooks/useNoteTreeActions";
+import { setBeforeNoteDelete } from "../../stores/noteDeleteGuard";
 import { ContainerOverview } from "./overview/ContainerOverview";
 
 import { DETAILED_NOTES_KEY } from "../../helpers/builtinActions";
 import { useActionProcessing } from "../../hooks/useActionProcessing";
 import { startRecordingForNote, useCreateNote } from "../../hooks/useCreateNote";
-import type { NoteMoveTarget } from "../../hooks/useNoteDragAndDrop";
 import { useNoteActionsReady } from "../../hooks/useNoteActionsReady";
 import { useNotesOnboarding } from "../../hooks/useNotesOnboarding";
 import { useActions } from "../../stores/actionStore";
@@ -22,18 +22,12 @@ import {
   setSessionExpectedCount,
   startRecording as storeStartRecording,
   stopRecording as storeStopRecording,
-  useIsMeetingMode,
-  useIsNarrowWindow,
   useMeetingRecordingStore,
 } from "../../stores/meetingRecordingStore";
 import {
-  createFolder,
-  getNoteFromStore,
   initializeNotes,
   initializeNotesTree,
   loadFolders,
-  revealContainer,
-  setActiveContext,
   setActiveNoteId,
   useActiveContext,
   useActiveFolderId,
@@ -57,7 +51,6 @@ import logger from "../../utils/logger";
 import type { MentionPerson } from "../../utils/mentionMarkdown";
 import { parseTranscriptSegments } from "../../utils/parseTranscriptSegments";
 import { isExplicitSpeakerCount, resolveExpectedSpeakerCount } from "../../utils/participants";
-import { cn } from "../lib/utils";
 import ActionManagerDialog from "./ActionManagerDialog";
 import ActionPicker from "./ActionPicker";
 import AddNotesToFolderDialog from "./AddNotesToFolderDialog";
@@ -132,12 +125,9 @@ export default function PersonalNotesView({
   meetingRecordingRequest,
   onMeetingRecordingRequestHandled,
 }: PersonalNotesViewProps) {
-  const isMeetingMode = useIsMeetingMode();
-  const isNarrowWindow = useIsNarrowWindow();
   const { t } = useTranslation();
   const notes = useNotes();
   const activeNoteId = useActiveNoteId();
-  const isSidePanelLayout = isMeetingMode || (isNarrowWindow && activeNoteId != null);
   const activeFolderId = useActiveFolderId();
   const [isSaving, setIsSaving] = useState(false);
   const [draft, setDraftState] = useState<NoteEditorDraft | null>(null);
@@ -493,12 +483,7 @@ export default function PersonalNotesView({
     return () => flushPendingSaves("unmount");
   }, [flushPendingSaves]);
 
-  const { createNote, createNoteIn } = useCreateNote();
-
-  const privateSpaceId = useMemo(
-    () => spaces.find((s) => s.kind === "private")?.id ?? null,
-    [spaces]
-  );
+  const { createNote } = useCreateNote();
 
   const handleNotesAdded = useCallback(async () => {
     if (activeFolderId) {
@@ -507,55 +492,20 @@ export default function PersonalNotesView({
     loadFolders();
   }, [activeFolderId]);
 
-  const handleDelete = useCallback(
-    async (id: number) => {
-      if (shouldCancelPendingSavesForDelete(draftRef.current?.noteId ?? null, id)) {
-        cancelPendingSaves(id);
-      }
-      await window.electronAPI.deleteNote(id);
-    },
+  const {
+    onDeleteNote: handleDelete,
+    onMoveToFolder: handleMoveToFolder,
+    onCreateFolderAndMove: handleCreateFolderAndMove,
+  } = useNoteTreeActions();
+
+  // A sidebar delete must cancel this editor's pending save before IPC.
+  useEffect(
+    () =>
+      setBeforeNoteDelete((id) => {
+        if (shouldCancelPendingSavesForDelete(draftRef.current?.noteId ?? null, id))
+          cancelPendingSaves(id);
+      }),
     [cancelPendingSaves]
-  );
-
-  const handleMoveNote = useCallback(
-    async (noteId: number, target: NoteMoveTarget) => {
-      await window.electronAPI.updateNote(noteId, {
-        folder_id: target.folderId,
-        space_id: target.spaceId,
-      });
-      if (noteId === activeNoteId) {
-        setActiveContext(target.spaceId, target.folderId);
-        revealContainer(target.spaceId, target.folderId);
-      }
-    },
-    [activeNoteId]
-  );
-
-  const handleMoveToFolder = useCallback(
-    async (noteId: number, folderId: number) => {
-      const folder = folders.find((f) => f.id === folderId);
-      if (!folder) return;
-      await handleMoveNote(noteId, { spaceId: folder.space_id, folderId });
-    },
-    [folders, handleMoveNote]
-  );
-
-  const handleCreateFolderAndMove = useCallback(
-    async (noteId: number, folderName: string) => {
-      const spaceId = getNoteFromStore(noteId)?.space_id ?? privateSpaceId;
-      if (spaceId == null) return;
-      const result = await createFolder(folderName, spaceId);
-      if (result.success && result.folder) {
-        await handleMoveToFolder(noteId, result.folder.id);
-      } else if (result.error) {
-        toast({
-          title: t("notes.folders.couldNotCreate"),
-          description: result.error,
-          variant: "destructive",
-        });
-      }
-    },
-    [privateSpaceId, handleMoveToFolder, toast, t]
   );
 
   const {
@@ -708,63 +658,36 @@ export default function PersonalNotesView({
 
   return (
     <div className="flex h-full">
-      <div
-        className="shrink-0 overflow-hidden transition-[width] duration-300 ease-out"
-        style={{ width: isSidePanelLayout ? 0 : "13rem" }}
-      >
-        <div className="w-52 shrink-0 border-e border-border dark:border-white/10 flex flex-col h-full">
-          <div className="px-2 pt-2 pb-1 shrink-0 space-y-0.5">
-            <button
-              onClick={openActions}
-              className={cn(
-                "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs",
-                "text-foreground/85 hover:text-foreground hover:bg-foreground/5",
-                "transition-colors duration-150",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              )}
-            >
-              <Sparkles size={14} className="shrink-0" />
-              {t("notes.sidebar.actions")}
-            </button>
-            {shouldShowActionsModelHint(noteActionsReady, modelHintDismissed) && (
-              <div
-                role="note"
-                className="mt-1 rounded-md border border-border/70 bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground"
-              >
-                <div className="flex items-start gap-1.5">
-                  <span className="flex-1">{t("notes.actionsModelHint.title")}</span>
-                  <button
-                    type="button"
-                    onClick={dismissModelHint}
-                    aria-label={t("common.close")}
-                    className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <X size={12} aria-hidden="true" />
-                  </button>
-                </div>
-                {onOpenSettings && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenSettings("intelligence")}
-                    className="mt-0.5 text-link hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-                  >
-                    {t("notes.actionsModelHint.choose")}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          <SpacesTree
-            onDeleteNote={handleDelete}
-            onMoveNote={handleMoveNote}
-            onCreateFolderAndMove={handleCreateFolderAndMove}
-            onNewNote={createNoteIn}
-          />
-        </div>
-      </div>
-
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        <div className="px-3 pt-2">
+          {shouldShowActionsModelHint(noteActionsReady, modelHintDismissed) && (
+            <div
+              role="note"
+              className="mt-1 rounded-md border border-border/70 bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground"
+            >
+              <div className="flex items-start gap-1.5">
+                <span className="flex-1">{t("notes.actionsModelHint.title")}</span>
+                <button
+                  type="button"
+                  onClick={dismissModelHint}
+                  aria-label={t("common.close")}
+                  className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </div>
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={() => onOpenSettings("intelligence")}
+                  className="mt-0.5 text-link hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                >
+                  {t("notes.actionsModelHint.choose")}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         {editorNote ? (
           <>
             <NoteEditor

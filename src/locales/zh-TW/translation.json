@@ -698,7 +698,8 @@
       "title": "缺少必要的模型",
       "description": "您的組織要求在此裝置上安裝這些模型：{{models}}。",
       "download": "下載"
-    }
+    },
+    "breadcrumb": "位置"
   },
   "reasoning": {
     "mode": {
@@ -2990,8 +2991,9 @@
   },
   "sidebar": {
     "sections": {
-      "workspace": "Workspace",
-      "library": "Library"
+      "spaces": "空間",
+      "recent": "最近使用",
+      "voice": "語音"
     },
     "navigation": "Main navigation",
     "insights": "統計",
@@ -3012,12 +3014,12 @@
     "upgradeZeroRetention": "零資料保留",
     "upgradeEnterpriseSecurity": "企業級安全 SOC 2 Type II, HIPAA, ISO27001",
     "learnMore": "瞭解更多",
-    "integrations": "整合",
     "defaultUser": "使用者",
     "notSignedIn": "尚未登入",
     "chat": "聊天",
     "collapse": "收合側邊欄",
-    "expand": "展開側邊欄"
+    "expand": "展開側邊欄",
+    "calendars": "行事曆"
   },
   "chat": {
     "newChat": "新對話",

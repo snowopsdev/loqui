@@ -1,44 +1,54 @@
-import type React from "react";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Blocks, BookOpen, Home, MessageSquare, NotebookPen, Upload } from "./icons";
+import { BarChart3, BookOpen, CalendarDays, Home, MessageSquare, NotebookPen } from "./icons";
+import type { WorkspaceAction } from "../lib/workspaceShortcuts";
 
 export type ControlPanelView =
   "home" | "insights" | "chat" | "personal-notes" | "dictionary" | "upload" | "integrations";
 
-type ControlPanelNavSection = "workspace" | "library";
+export type ControlPanelNavSection = "primary" | "voice";
 
 export interface ControlPanelNavItem {
   id: ControlPanelView;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   section: ControlPanelNavSection;
+  shortcut?: WorkspaceAction;
 }
 
-/**
- * Single source of truth for main-window navigation. The sidebar renders these
- * rows and the top bar shows the active item's label as the page title, so the
- * two can never disagree.
- */
+const TITLE_KEYS: Record<ControlPanelView, string> = {
+  home: "sidebar.home",
+  "personal-notes": "sidebar.notes",
+  chat: "sidebar.chat",
+  dictionary: "sidebar.dictionary",
+  insights: "sidebar.insights",
+  integrations: "sidebar.calendars",
+  upload: "sidebar.upload",
+};
+
+export const viewTitleKey = (view: ControlPanelView): string => TITLE_KEYS[view];
+
+// WS-R1 B: Home, Notes, Chat first (⌘1–3); Voice holds the tools. Upload is
+// an action now (Capture, ⌘⇧U, palette), not a place.
 export function useControlPanelNavItems(): ControlPanelNavItem[] {
   const { t } = useTranslation();
-
   return [
-    { id: "home", label: t("sidebar.home"), icon: Home, section: "workspace" },
-    { id: "chat", label: t("sidebar.chat"), icon: MessageSquare, section: "workspace" },
+    { id: "home", label: t(TITLE_KEYS.home), icon: Home, section: "primary", shortcut: "goHome" },
     {
       id: "personal-notes",
-      label: t("sidebar.notes"),
+      label: t(TITLE_KEYS["personal-notes"]),
       icon: NotebookPen,
-      section: "workspace",
+      section: "primary",
+      shortcut: "goNotes",
     },
-    { id: "insights", label: t("sidebar.insights"), icon: BarChart3, section: "library" },
-    { id: "upload", label: t("sidebar.upload"), icon: Upload, section: "library" },
-    { id: "dictionary", label: t("sidebar.dictionary"), icon: BookOpen, section: "library" },
     {
-      id: "integrations",
-      label: t("sidebar.integrations"),
-      icon: Blocks,
-      section: "library",
+      id: "chat",
+      label: t(TITLE_KEYS.chat),
+      icon: MessageSquare,
+      section: "primary",
+      shortcut: "goChat",
     },
+    { id: "dictionary", label: t(TITLE_KEYS.dictionary), icon: BookOpen, section: "voice" },
+    { id: "insights", label: t(TITLE_KEYS.insights), icon: BarChart3, section: "voice" },
+    { id: "integrations", label: t(TITLE_KEYS.integrations), icon: CalendarDays, section: "voice" },
   ];
 }

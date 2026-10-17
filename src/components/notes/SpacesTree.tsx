@@ -9,6 +9,8 @@ import {
   navigateToContainer,
   renameFolder,
   setActiveNoteId,
+  setActiveContext,
+  revealContainer,
   setContainerExpanded,
   spaceContainerKey,
   toggleContainerExpanded,
@@ -36,7 +38,8 @@ import { treeHorizontalIntent, treeRowActionClearanceStyle } from "./treeDirecti
 interface Props {
   onDeleteNote: (id: number) => void;
   onMoveNote: (noteId: number, target: NoteMoveTarget) => Promise<void>;
-  onCreateFolderAndMove: (noteId: number, folderName: string) => void;
+  onCreateFolderAndMove: (noteId: number, folderName: string) => void | Promise<void>;
+  onNavigate?: () => void;
   onNewNote: (spaceId: number, folderId: number | null) => void;
 }
 
@@ -46,6 +49,7 @@ export default function SpacesTree({
   onMoveNote,
   onCreateFolderAndMove,
   onNewNote,
+  onNavigate,
 }: Props) {
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
@@ -79,7 +83,7 @@ export default function SpacesTree({
     if (!draft.trim()) return;
     try {
       if (editing === "new" && moveAfterCreate != null) {
-        onCreateFolderAndMove(moveAfterCreate, draft.trim());
+        await onCreateFolderAndMove(moveAfterCreate, draft.trim());
       } else {
         const result =
           editing === "new"
@@ -128,8 +132,19 @@ export default function SpacesTree({
           })}
         >
           <button
-            onClick={() => setActiveNoteId(note.id)}
-            className={`flex flex-1 min-w-0 gap-2 items-center py-1.5 text-xs text-start ${activeNoteId === note.id ? "text-primary" : "text-muted-foreground"}`}
+            onClick={() => {
+              if (
+                activeNoteId === note.id &&
+                context?.spaceId === note.space_id &&
+                context?.folderId === note.folder_id
+              )
+                return;
+              setActiveContext(note.space_id, note.folder_id ?? null);
+              revealContainer(note.space_id, note.folder_id ?? null);
+              setActiveNoteId(note.id);
+              onNavigate?.();
+            }}
+            className={`rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring flex flex-1 min-w-0 gap-2 items-center py-1.5 text-xs text-start ${activeNoteId === note.id ? "text-primary" : "text-muted-foreground"}`}
           >
             <FileText size={13} />
             <span dir="auto" className="truncate">
@@ -139,7 +154,7 @@ export default function SpacesTree({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="absolute end-1 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                className="absolute end-1 p-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus:opacity-100"
                 aria-label={t("personal.moreActions")}
               >
                 <MoreHorizontal size={13} />
@@ -148,6 +163,7 @@ export default function SpacesTree({
             <DropdownMenuContent align="end">
               {note.folder_id != null && (
                 <DropdownMenuItem
+                  className="focus-visible:ring-2 focus-visible:ring-ring"
                   onSelect={() => void onMoveNote(note.id, { spaceId: space.id, folderId: null })}
                 >
                   {t("notes.spaces.personal")}
@@ -157,6 +173,7 @@ export default function SpacesTree({
                 .filter((folder) => folder.id !== note.folder_id && !folder.is_default)
                 .map((folder) => (
                   <DropdownMenuItem
+                    className="focus-visible:ring-2 focus-visible:ring-ring"
                     key={folder.id}
                     onSelect={() =>
                       void onMoveNote(note.id, { spaceId: space.id, folderId: folder.id })
@@ -166,10 +183,16 @@ export default function SpacesTree({
                     <span dir="auto">{defaultFolderDisplayName(folder, t)}</span>
                   </DropdownMenuItem>
                 ))}
-              <DropdownMenuItem onSelect={() => startCreate(note.id)}>
+              <DropdownMenuItem
+                className="focus-visible:ring-2 focus-visible:ring-ring"
+                onSelect={() => startCreate(note.id)}
+              >
                 {t("notes.context.newFolder")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onDeleteNote(note.id)}>
+              <DropdownMenuItem
+                className="focus-visible:ring-2 focus-visible:ring-ring"
+                onSelect={() => onDeleteNote(note.id)}
+              >
                 {t("common.delete")}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -188,7 +211,7 @@ export default function SpacesTree({
           onClick={() => toggleContainerExpanded(rootKey)}
           aria-expanded={expanded.has(rootKey)}
           aria-label={t("notes.spaces.personal")}
-          className="p-1"
+          className="p-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ChevronRight
             size={13}
@@ -196,11 +219,14 @@ export default function SpacesTree({
           />
         </button>
         <button
-          className="flex flex-1 items-center gap-2 text-start py-2"
+          className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring flex flex-1 items-center gap-2 text-start py-2"
           onKeyDown={(e) => containerKeys(e, rootKey)}
           onClick={() => {
-            navigateToContainer(space.id, null);
+            const changed =
+              activeNoteId != null || context?.spaceId !== space.id || context?.folderId != null;
+            if (changed) navigateToContainer(space.id, null);
             setContainerExpanded(rootKey, true);
+            if (changed) onNavigate?.();
           }}
         >
           {space.emoji && (
@@ -241,7 +267,7 @@ export default function SpacesTree({
                     onClick={() => toggleContainerExpanded(key)}
                     aria-expanded={expanded.has(key)}
                     aria-label={displayName}
-                    className="p-1"
+                    className="p-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <ChevronRight
                       size={13}
@@ -250,11 +276,16 @@ export default function SpacesTree({
                   </button>
                   <button
                     onClick={() => {
-                      navigateToContainer(space.id, folder.id);
+                      const changed =
+                        activeNoteId != null ||
+                        context?.spaceId !== space.id ||
+                        context?.folderId !== folder.id;
+                      if (changed) navigateToContainer(space.id, folder.id);
                       setContainerExpanded(key, true);
+                      if (changed) onNavigate?.();
                     }}
                     onKeyDown={(e) => containerKeys(e, key)}
-                    className="flex flex-1 min-w-0 items-center gap-2 py-2 text-start"
+                    className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring flex flex-1 min-w-0 items-center gap-2 py-2 text-start"
                   >
                     <Folder size={14} />
                     <span dir="auto" className="truncate text-xs">
@@ -264,19 +295,23 @@ export default function SpacesTree({
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
-                        className="p-1 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        className="p-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus:opacity-100"
                         aria-label={t("personal.moreActions")}
                       >
                         <MoreHorizontal size={13} />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => onNewNote(space.id, folder.id)}>
+                      <DropdownMenuItem
+                        className="focus-visible:ring-2 focus-visible:ring-ring"
+                        onSelect={() => onNewNote(space.id, folder.id)}
+                      >
                         {t("notes.list.newNote")}
                       </DropdownMenuItem>
                       {!folder.is_default && (
                         <>
                           <DropdownMenuItem
+                            className="focus-visible:ring-2 focus-visible:ring-ring"
                             onSelect={() => {
                               setEditing(folder.id);
                               setDraft(folder.name);
@@ -286,6 +321,7 @@ export default function SpacesTree({
                             {t("notes.context.rename")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            className="focus-visible:ring-2 focus-visible:ring-ring"
                             onSelect={() =>
                               showConfirmDialog({
                                 title: t("personal.deleteFolder"),
@@ -319,6 +355,7 @@ export default function SpacesTree({
           className="mt-2 space-y-1"
         >
           <Input
+            className="focus-visible:ring-2 focus-visible:ring-ring"
             dir="auto"
             autoFocus
             value={draft}

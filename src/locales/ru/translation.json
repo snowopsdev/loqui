@@ -698,7 +698,8 @@
       "title": "Отсутствуют обязательные модели",
       "description": "Ваша организация требует наличия этих моделей на этом устройстве: {{models}}.",
       "download": "Скачать"
-    }
+    },
+    "breadcrumb": "Расположение"
   },
   "reasoning": {
     "mode": {
@@ -3028,8 +3029,9 @@
   },
   "sidebar": {
     "sections": {
-      "workspace": "Workspace",
-      "library": "Library"
+      "spaces": "Пространства",
+      "recent": "Недавние",
+      "voice": "Голос"
     },
     "navigation": "Main navigation",
     "insights": "Статистика",
@@ -3050,12 +3052,12 @@
     "upgradeZeroRetention": "Нулевое хранение данных",
     "upgradeEnterpriseSecurity": "Корпоративная безопасность SOC 2 Type II, HIPAA, ISO27001",
     "learnMore": "Узнать больше",
-    "integrations": "Интеграции",
     "defaultUser": "Пользователь",
     "notSignedIn": "Не авторизован",
     "chat": "Чат",
     "collapse": "Свернуть боковую панель",
-    "expand": "Развернуть боковую панель"
+    "expand": "Развернуть боковую панель",
+    "calendars": "Календари"
   },
   "chat": {
     "newChat": "Новый чат",

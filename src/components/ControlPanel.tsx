@@ -24,6 +24,8 @@ import { useToast } from "./ui/useToast";
 
 import { useSettings } from "../hooks/useSettings";
 
+import { sidebarWidth } from "../lib/sidebarMode";
+import { buildWorkspaceBreadcrumb } from "../lib/workspaceBreadcrumb";
 import { useCollapsibleSidebar } from "../hooks/useCollapsibleSidebar";
 
 import {
@@ -39,7 +41,7 @@ import {
   useShowDiscarded,
   useTranscriptions,
 } from "../stores/transcriptionStore";
-import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
+import { useControlPanelNavItems, viewTitleKey, type ControlPanelView } from "./controlPanelNav";
 import ControlPanelSidebar from "./ControlPanelSidebar";
 import ControlPanelTopBar from "./ControlPanelTopBar";
 import MeetingRecordingMount from "./MeetingRecordingMount";
@@ -51,6 +53,10 @@ import { useCreateNote } from "../hooks/useCreateNote";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
 import {
   initializeNotes,
+  initializeNotesTree,
+  useActiveNote,
+  useActiveFolderId,
+  useFolders,
   invalidatePendingNoteNavigation,
   openNoteById,
   restoreLaunchNote,
@@ -76,8 +82,6 @@ import {
 } from "../lib/workspaceShortcuts";
 
 const platform = getCachedPlatform();
-
-const SIDEBAR_WIDTH_PX = 208;
 
 // Bump to force a one-time full semantic reindex on next launch (see the
 // reindex effect for the per-version history).
@@ -128,14 +132,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const [chatRequest, setChatRequest] = useState<ChatViewRequest | null>(null);
   const requestNonceRef = useRef(0);
   const navItems = useControlPanelNavItems();
-  const {
-    collapsed: sidebarCollapsed,
-    peek: sidebarPeek,
-    toggle: toggleSidebar,
-    showPeek: showSidebarPeek,
-    hidePeek: hideSidebarPeek,
-    leaveToggle: leaveSidebarToggle,
-  } = useCollapsibleSidebar();
   const isMeetingMode = useIsMeetingMode();
   const isNarrowWindow = useIsNarrowWindow();
   const activeNoteId = useActiveNoteId();
@@ -161,6 +157,19 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   }, [initialWorkspace]);
   const isSidePanelLayout =
     isMeetingMode || (isNarrowWindow && activeView === "personal-notes" && activeNoteId != null);
+  const { mode: sidebarMode, toggle: toggleSidebar } = useCollapsibleSidebar(isSidePanelLayout);
+  const activeNote = useActiveNote();
+  const activeFolderId = useActiveFolderId();
+  const folders = useFolders();
+  const breadcrumb = buildWorkspaceBreadcrumb({
+    view: activeView,
+    viewLabel: t(viewTitleKey(activeView)),
+    folderName: folders.find((folder) => folder.id === activeFolderId)?.name ?? null,
+    noteTitle: activeNote ? activeNote.title || t("notes.list.untitledNote") : null,
+  });
+  useEffect(() => {
+    void initializeNotesTree();
+  }, []);
   const recordingNoteId = useMeetingRecordingStore((s) => s.recordingNoteId);
   const recordingFolderId = useMeetingRecordingStore((s) => s.recordingFolderId);
   const [meetingRecordingRequest, setMeetingRecordingRequest] = useState<{
@@ -817,39 +826,24 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
         <div className="flex flex-1 overflow-hidden relative">
           <div
-            className="shrink-0 transition-[width] duration-300 ease-out"
-            style={{ width: sidebarCollapsed || isSidePanelLayout ? 0 : SIDEBAR_WIDTH_PX }}
-          />
-          <div
-            className={`absolute inset-y-0 start-0 z-30 transition-transform duration-300 ease-out ${
-              !isSidePanelLayout && (!sidebarCollapsed || sidebarPeek)
-                ? "translate-x-0"
-                : "ltr:-translate-x-full rtl:translate-x-full"
-            }${
-              sidebarCollapsed && sidebarPeek && !isSidePanelLayout
-                ? " shadow-[10px_0_40px_-18px_rgba(0,0,0,0.2)] rtl:shadow-[-10px_0_40px_-18px_rgba(0,0,0,0.2)]"
-                : ""
-            }`}
-            onMouseEnter={sidebarCollapsed ? showSidebarPeek : undefined}
-            onMouseLeave={sidebarCollapsed ? hideSidebarPeek : undefined}
+            className="relative shrink-0 overflow-hidden transition-[width] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none"
+            style={{ width: sidebarWidth(sidebarMode) }}
+            inert={sidebarMode === "hidden"}
           >
             <ControlPanelSidebar
+              mode={sidebarMode}
+              capture={capture}
               activeView={activeView}
               onViewChange={setActiveView}
-              onOpenSettings={() => {
-                setSettingsSection(undefined);
-                setShowSettings(true);
-              }}
+              onOpenSettings={navigation.openSettings}
             />
           </div>
           <main className="flex-1 flex flex-col overflow-hidden p-2">
             <div className="flex min-h-0 flex-1 flex-col overflow-clip rounded-(--radius-shell) border border-border bg-background dark:border-white/10">
               <ControlPanelTopBar
-                title={navItems.find((item) => item.id === activeView)?.label ?? ""}
-                sidebarCollapsed={sidebarCollapsed}
+                breadcrumb={breadcrumb}
+                sidebarMode={sidebarMode}
                 onToggleSidebar={toggleSidebar}
-                onToggleMouseEnter={sidebarCollapsed ? showSidebarPeek : undefined}
-                onToggleMouseLeave={sidebarCollapsed ? leaveSidebarToggle : undefined}
                 onOpenSearch={() => setShowSearch(true)}
                 isSidePanelLayout={isSidePanelLayout}
                 onExitSidePanel={handleExitSidePanel}

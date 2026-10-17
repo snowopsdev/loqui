@@ -698,7 +698,8 @@
       "title": "Required models missing",
       "description": "Your organization requires these models on this device: {{models}}.",
       "download": "Download"
-    }
+    },
+    "breadcrumb": "Location"
   },
   "reasoning": {
     "mode": {
@@ -2325,8 +2326,9 @@
   },
   "sidebar": {
     "sections": {
-      "workspace": "Workspace",
-      "library": "Library"
+      "spaces": "Spaces",
+      "recent": "Recent",
+      "voice": "Voice"
     },
     "navigation": "Main navigation",
     "home": "Home",
@@ -2347,12 +2349,12 @@
     "upgradeZeroRetention": "Zero data retention",
     "upgradeEnterpriseSecurity": "Enterprise security SOC 2 Type II, HIPAA, ISO27001",
     "learnMore": "Learn More",
-    "integrations": "Integrations",
     "defaultUser": "User",
     "notSignedIn": "Not signed in",
     "chat": "Chat",
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar"
+    "expand": "Expand sidebar",
+    "calendars": "Calendars"
   },
   "insights": {
     "title": "Insights",

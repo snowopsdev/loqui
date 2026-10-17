@@ -698,7 +698,8 @@
       "title": "缺少必需的模型",
       "description": "您的组织要求在此设备上安装这些模型：{{models}}。",
       "download": "下载"
-    }
+    },
+    "breadcrumb": "位置"
   },
   "reasoning": {
     "mode": {
@@ -2990,8 +2991,9 @@
   },
   "sidebar": {
     "sections": {
-      "workspace": "Workspace",
-      "library": "Library"
+      "spaces": "空间",
+      "recent": "最近使用",
+      "voice": "语音"
     },
     "navigation": "Main navigation",
     "insights": "统计",
@@ -3012,12 +3014,12 @@
     "upgradeZeroRetention": "零数据保留",
     "upgradeEnterpriseSecurity": "企业级安全 SOC 2 Type II, HIPAA, ISO27001",
     "learnMore": "了解更多",
-    "integrations": "集成",
     "defaultUser": "用户",
     "notSignedIn": "未登录",
     "chat": "聊天",
     "collapse": "折叠侧边栏",
-    "expand": "展开侧边栏"
+    "expand": "展开侧边栏",
+    "calendars": "日历"
   },
   "chat": {
     "newChat": "新对话",

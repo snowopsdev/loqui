@@ -300,11 +300,11 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 
 ### Navigation
 
-- **Sidebar:** 208px wide, with 36px rows and 13px labels. The active item uses a quiet foreground-tinted surface and a 2px rail in the nav-marker colour (orange in the light theme, magenta #E6007A in Plum Night); the active icon takes that same colour while inactive icons remain subdued.
+- **Sidebar:** 232px. Home, Notes, Chat (⌘1–3), then Spaces (the notes tree), Recent (4) and Voice (Dictionary, Insights, Calendars). The footer holds the mic status card (Ready / Listening m:ss / Cleaning up… / Mic offline) and Settings. A 2px capture rail on its inline-end edge follows the mic level while listening. The active row uses `--color-nav-marker`.
 - **Settings sidebar:** the current section carries `aria-current="page"`; every item shows a 2px full-opacity `--color-ring` focus ring, inset because the list scrolls. Compact (icon-only) items are named by their label.
 - **Provider tabs:** a real tablist. Arrow keys (reversed in RTL), Home and End move focus across enabled tabs; Enter, Space or a click selects. Focus alone never switches provider, local or remote. Tabbing into the list lands on the selected tab (WAI-ARIA tabs pattern). A saved key shows as a small dot with screen-reader text.
-- **Top bar:** A 48px draggable Electron title area with centered capsule search and platform-appropriate window controls. macOS clears space for traffic lights when the sidebar is collapsed; Linux displays the app window controls.
-- **Narrow layout:** The sidebar collapses for focused note and meeting side panels; a back control replaces it.
+- **Top bar:** 48px draggable title area with a breadcrumb (`Notes / Work / Product catch-up`, title column at least 120px), centred search (⌘K), and the Capture split button. Capture is neutral at rest and turns `live` only while listening.
+- **Collapsed:** a 56px icon rail (⌘\, or automatically below 1100px). There is no hover peek. Meeting mode and narrow open notes hide the sidebar and show "Back to notes".
 
 ### Voice Pill
 

@@ -72,6 +72,11 @@ let noteNavigationGeneration = 0;
 let launchRestoreOwner: object | null = null;
 let landOnOverview = false;
 
+/** Request ownership for deferred tree moves, including view and A→B→A intents. */
+export function getNoteNavigationGeneration(): number {
+  return noteNavigationGeneration;
+}
+
 /** A confirmed reset or newer view intent supersedes pending opens, preserving content. */
 export function invalidatePendingNoteNavigation(): void {
   noteNavigationGeneration += 1;

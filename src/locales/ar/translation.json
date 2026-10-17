@@ -609,7 +609,8 @@
       "title": "النماذج المطلوبة مفقودة",
       "description": "تتطلب مؤسستك هذه النماذج على هذا الجهاز: {{models}}.",
       "download": "تنزيل"
-    }
+    },
+    "breadcrumb": "الموقع"
   },
   "integrations": {
     "title": "التكاملات (Integrations)",
@@ -3412,8 +3413,9 @@
   },
   "sidebar": {
     "sections": {
-      "workspace": "Workspace",
-      "library": "Library"
+      "spaces": "المساحات",
+      "recent": "الأخيرة",
+      "voice": "الصوت"
     },
     "navigation": "Main navigation",
     "home": "الرئيسية",
@@ -3433,13 +3435,13 @@
     "upgradeZeroRetention": "عدم الاحتفاظ بالبيانات",
     "upgradeEnterpriseSecurity": "أمان على مستوى المؤسسات SOC 2 Type II, HIPAA, ISO27001",
     "learnMore": "معرفة المزيد",
-    "integrations": "التكاملات",
     "defaultUser": "مستخدم",
     "notSignedIn": "لم يتم تسجيل الدخول",
     "chat": "الدردشة",
     "collapse": "طي الشريط الجانبي",
     "expand": "توسيع الشريط الجانبي",
-    "insights": "الإحصاءات"
+    "insights": "الإحصاءات",
+    "calendars": "التقويمات"
   },
   "insights": {
     "title": "الإحصاءات",

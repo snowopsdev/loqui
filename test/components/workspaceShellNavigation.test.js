@@ -48,6 +48,9 @@ async function mount(
         getPlatform: () => "darwin",
         getNote: async (id) => fixtureNote(id),
         getNotes: async () => [],
+        getSpaces: async () => [],
+        getFolders: async () => [],
+        getFolderNoteCounts: async () => [],
         ...api,
       },
     },
@@ -68,14 +71,13 @@ async function mount(
     "/hooks/useSettings": "export const useSettings = () => ({});",
     "/hooks/useGpuBannerAvailability": "export const useGpuBannerAvailability = () => ({});",
     "/hooks/useCollapsibleSidebar":
-      "export let toggles = 0; const toggle = () => toggles++; export const useCollapsibleSidebar = () => ({ toggle });",
+      "export let toggles = 0; const toggle = () => toggles++; export const useCollapsibleSidebar = () => ({ mode: 'expanded', toggle });",
     "/hooks/useDialogs":
       "const noop = () => {}; const dialog = { open: false }; const value = { confirmDialog: dialog, alertDialog: dialog, showConfirmDialog: noop, showAlertDialog: noop, hideConfirmDialog: noop, hideAlertDialog: noop }; export const useDialogs = () => value;",
     "/hooks/useCreateNote":
       "export let creates = 0; const createNote = async () => { creates++; }; export const useCreateNote = () => ({ createNote });",
     "/ui/useToast":
       "export const toasts = []; const toast = (value) => toasts.push(value); const value = { toast }; export const useToast = () => value;",
-    "/controlPanelNav": "const items = []; export const useControlPanelNavItems = () => items;",
   };
   for (const name of [
     "ControlPanelSidebar",

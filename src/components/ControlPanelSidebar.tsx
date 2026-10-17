@@ -1,96 +1,185 @@
+import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
-import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
 import { Settings } from "./icons";
 import { LoquiBrand } from "./LoquiBrand";
+import { Tooltip } from "./ui/tooltip";
 import { cn } from "./lib/utils";
+import { MicStatusCard, CaptureRail } from "./MicStatusCard";
+import SpacesTree from "./notes/SpacesTree";
+import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
+import { useWorkspaceNavigation } from "./workspaceNavigation";
+import { useLiveClock, type CaptureStatusModel } from "../hooks/useCaptureStatus";
+import { useCreateNote } from "../hooks/useCreateNote";
+import { useHotkey } from "../hooks/useHotkey";
+import { useNoteTreeActions } from "../hooks/useNoteTreeActions";
+import { useRecentNotes } from "../hooks/useRecentNotes";
+import { ROUTE_IDS, useResolvedRoutes } from "../lib/routes";
+import { captureRouteIds } from "../lib/captureStatus";
+import { shortcutHint } from "../lib/workspaceShortcuts";
+import type { SidebarMode } from "../lib/sidebarMode";
+import { formatHotkeyLabel, parseHotkeyList } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
+
 interface Props {
+  mode: SidebarMode;
+  capture: CaptureStatusModel;
   activeView: ControlPanelView;
   onViewChange: (view: ControlPanelView) => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: string) => void;
 }
-export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSettings }: Props) {
+
+const RECENT_LIMIT = 4;
+
+export default function ControlPanelSidebar({
+  mode,
+  capture,
+  activeView,
+  onViewChange,
+  onOpenSettings,
+}: Props) {
   const { t } = useTranslation();
+  const platform = getCachedPlatform();
+  const isMac = platform === "darwin";
+  const rail = mode === "rail";
   const navItems = useControlPanelNavItems();
-  const isMac = getCachedPlatform() === "darwin";
-  const sections = [
-    { id: "workspace", label: t("sidebar.sections.workspace", { defaultValue: "Workspace" }) },
-    { id: "library", label: t("sidebar.sections.library", { defaultValue: "Library" }) },
-  ] as const;
+  const navigation = useWorkspaceNavigation();
+  // Lifecycle selects the configured route category. During active capture,
+  // MicStatusCard labels this configuration as Next capture (R2).
+  const routes = useResolvedRoutes();
+  const ids = captureRouteIds(capture);
+  const routeFor = (id: (typeof ROUTE_IDS)[number]) => routes[ROUTE_IDS.indexOf(id)];
+  const route = routeFor(ids.speech);
+  const textRoute = ids.text ? routeFor(ids.text) : null;
+  const { hotkey } = useHotkey();
+  const treeActions = useNoteTreeActions();
+  const { createNoteIn } = useCreateNote();
+  const recent = useRecentNotes(RECENT_LIMIT);
+  const now = useLiveClock(capture.kind === "listening");
+
+  const row = (item: (typeof navItems)[number]) => {
+    const isActive = activeView === item.id;
+    const Icon = item.icon;
+    const hint = item.shortcut ? ` ${shortcutHint(item.shortcut, platform)}` : "";
+    return (
+      <Tooltip key={item.id} content={`${item.label}${hint}`}>
+        <button
+          type="button"
+          onClick={() => onViewChange(item.id)}
+          aria-current={isActive ? "page" : undefined}
+          aria-label={rail ? item.label : undefined}
+          className={cn(
+            "group relative flex h-9 items-center gap-2.5 rounded-md text-ui text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            rail ? "mx-auto w-10 justify-center" : "w-full px-2.5",
+            isActive && "bg-foreground/7 text-foreground dark:bg-white/8"
+          )}
+        >
+          <span
+            aria-hidden
+            className={cn(
+              "absolute start-0 top-2 bottom-2 w-0.5 rounded-full bg-nav-marker opacity-0",
+              isActive && "opacity-100"
+            )}
+          />
+          <Icon size={16} className={isActive ? "text-nav-marker" : undefined} />
+          {!rail && <span className="truncate">{item.label}</span>}
+        </button>
+      </Tooltip>
+    );
+  };
+
+  const section = (labelKey: string, children: React.ReactNode) => (
+    <div className="flex flex-col gap-0.5">
+      {!rail && (
+        <div className="px-2.5 pb-1 text-caption font-semibold text-muted-foreground">
+          {t(labelKey)}
+        </div>
+      )}
+      {children}
+    </div>
+  );
 
   return (
-    <div className="w-52 h-full flex flex-col bg-surface-window">
+    <div className="relative flex h-full flex-col bg-surface-window" style={{ width: "100%" }}>
       <div
-        className={cn(
-          "shrink-0 flex items-end gap-2 px-3 pb-2.5",
-          // Native macOS controls occupy the first 34px, including during sidebar peek.
-          isMac ? "h-20" : "h-12"
-        )}
+        className={cn("shrink-0 flex items-end gap-2 px-3 pb-2.5", isMac ? "h-20" : "h-12")}
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       >
-        <LoquiBrand variant="wordmark" />
+        {!rail && <LoquiBrand variant="wordmark" />}
       </div>
+
       <nav
-        aria-label={t("sidebar.navigation", { defaultValue: "Main navigation" })}
-        className="flex flex-col gap-4 px-2"
+        aria-label={t("sidebar.navigation")}
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pt-1"
       >
-        {sections.map((section) => (
-          <div key={section.id}>
-            <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
-              {section.label}
-            </div>
-            <div className="flex flex-col gap-0.5">
-              {navItems
-                .filter((item) => item.section === section.id)
-                .map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeView === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onViewChange(item.id)}
-                      aria-current={isActive ? "page" : undefined}
-                      className={cn(
-                        "group relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-start text-[13px] outline-none transition-colors duration-150",
-                        "text-foreground/75 hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/6",
-                        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface-window",
-                        isActive && "bg-foreground/7 font-medium text-foreground dark:bg-white/8"
-                      )}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "absolute start-0 top-2 bottom-2 w-0.5 rounded-full bg-nav-marker opacity-0 transition-opacity duration-150",
-                          isActive && "opacity-100"
-                        )}
-                      />
-                      <Icon
-                        size={16}
-                        className={cn(
-                          "shrink-0 transition-colors duration-150",
-                          isActive
-                            ? "text-nav-marker"
-                            : "text-foreground/55 group-hover:text-foreground/80"
-                        )}
-                      />
-                      <span className="truncate">{item.label}</span>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
-        ))}
+        <div className="flex flex-col gap-0.5">
+          {navItems.filter((i) => i.section === "primary").map(row)}
+        </div>
+
+        {!rail &&
+          section(
+            "sidebar.sections.spaces",
+            <SpacesTree
+              onDeleteNote={treeActions.onDeleteNote}
+              onMoveNote={treeActions.onMoveNote}
+              onCreateFolderAndMove={treeActions.onCreateFolderAndMove}
+              onNewNote={(spaceId, folderId) => {
+                void createNoteIn(spaceId, folderId);
+                onViewChange("personal-notes");
+              }}
+              onNavigate={() => onViewChange("personal-notes")}
+            />
+          )}
+
+        {!rail &&
+          recent.length > 0 &&
+          section(
+            "sidebar.sections.recent",
+            recent.map((note) => (
+              <button
+                key={note.id}
+                type="button"
+                onClick={() => navigation.openNote(note.id)}
+                className="h-7 truncate rounded-md px-2.5 text-start text-ui text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span dir="auto">{note.title || t("notes.list.untitledNote")}</span>
+              </button>
+            ))
+          )}
+
+        {section(
+          "sidebar.sections.voice",
+          <Fragment>{navItems.filter((i) => i.section === "voice").map(row)}</Fragment>
+        )}
       </nav>
-      <div className="flex-1" />
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className="mx-2 mb-2 flex h-9 items-center gap-2.5 rounded-md border-t border-border/60 px-2.5 pt-2 text-[13px] text-foreground/75 outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface-window dark:border-white/10"
-      >
-        <Settings size={16} />
-        {t("sidebar.settings")}
-      </button>
+
+      <div className="shrink-0 pt-2">
+        <MicStatusCard
+          status={capture}
+          now={now}
+          hotkeyLabel={formatHotkeyLabel(parseHotkeyList(hotkey)[0])}
+          role={ids.role}
+          route={route}
+          textRoute={textRoute}
+          compact={rail}
+          onOpenSettings={() => onOpenSettings(route.settingsPath)}
+        />
+        <button
+          type="button"
+          onClick={() => onOpenSettings()}
+          aria-label={rail ? t("sidebar.settings") : undefined}
+          className={cn(
+            "mb-2 flex h-9 items-center gap-2.5 rounded-md text-ui text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            rail ? "mx-auto w-10 justify-center" : "mx-2 px-2.5"
+          )}
+        >
+          <Settings size={16} />
+          {!rail && t("sidebar.settings")}
+        </button>
+      </div>
+
+      <CaptureRail status={capture} readLevel={capture.readLevel} />
     </div>
   );
 }

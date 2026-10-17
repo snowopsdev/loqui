@@ -213,6 +213,30 @@ test("stop dispatches live meeting stop even when its mic is lost", async (t) =>
   }
 });
 
+test("simultaneous recordings stop only the source selected by capture status", async (t) => {
+  for (const [micCaptureStatus, expectedSource, expectedStop] of [
+    ["active", "dictation", "toggle"],
+    ["unavailable", "meeting", "meeting"],
+    ["reconnecting", "meeting", "meeting"],
+  ]) {
+    await t.test(micCaptureStatus, async (t) => {
+      const h = await mount(t);
+      await h.setMeeting({ isRecording: true, recordingStartedAt: 123, micCaptureStatus });
+      await h.push({ state: "recording", inputKind: "assistant" });
+      assert.equal(h.status().kind, micCaptureStatus === "active" ? "listening" : "offline");
+      assert.equal(h.status().source, expectedSource);
+      const togglesBefore = h.order.filter((entry) => entry === "toggle").length;
+      const meetingsBefore = h.meetingStops();
+      await h.status().stop();
+      assert.equal(
+        h.order.filter((entry) => entry === "toggle").length,
+        togglesBefore + Number(expectedStop === "toggle")
+      );
+      assert.equal(h.meetingStops(), meetingsBefore + Number(expectedStop === "meeting"));
+    });
+  }
+});
+
 test("microphone permission refreshes on focus", async (t) => {
   const h = await mount(t);
   await React.act(async () => new Promise((resolve) => setImmediate(resolve)));

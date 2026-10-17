@@ -19,8 +19,13 @@ export function useCaptureStatus(): CaptureStatusModel {
   const [dictationInputKind, setDictationInputKind] = useState<string | null>(null);
   const [dictationStartedAt, setDictationStartedAt] = useState<number | null>(null);
   const [micGranted, setMicGranted] = useState<boolean | null>(null);
-  const stateRef = useRef<{ state: string | null; startedAt: number | null }>({
+  const stateRef = useRef<{
+    state: string | null;
+    inputKind: string | null;
+    startedAt: number | null;
+  }>({
     state: null,
+    inputKind: null,
     startedAt: null,
   });
   const dictationLevelRef = useRef(0);
@@ -44,7 +49,11 @@ export function useCaptureStatus(): CaptureStatusModel {
         snapshot.state,
         Date.now()
       );
-      stateRef.current = { state: snapshot.state, startedAt };
+      stateRef.current = {
+        state: snapshot.state,
+        inputKind: snapshot.inputKind ?? null,
+        startedAt,
+      };
       if (snapshot.state !== "recording") dictationLevelRef.current = 0;
       setDictationState(snapshot.state);
       setDictationInputKind(snapshot.inputKind ?? null);
@@ -102,12 +111,24 @@ export function useCaptureStatus(): CaptureStatusModel {
   }, []);
   const stop = useCallback(async () => {
     const currentMeeting = useMeetingRecordingStore.getState();
-    if (currentMeeting.isRecording) {
+    const currentStatus = resolveCaptureStatus({
+      dictationState: stateRef.current.state,
+      dictationInputKind: stateRef.current.inputKind,
+      dictationStartedAt: stateRef.current.startedAt,
+      meeting: {
+        isRecording: currentMeeting.isRecording,
+        startedAt: currentMeeting.recordingStartedAt,
+        micCaptureStatus: currentMeeting.micCaptureStatus,
+      },
+      micGranted,
+    });
+    if (currentStatus.source === "meeting") {
       await stopRecording();
       return;
     }
-    if (stateRef.current.state === "recording") await toggleDictation();
-  }, [toggleDictation]);
+    if (currentStatus.source === "dictation" && currentStatus.kind === "listening")
+      await toggleDictation();
+  }, [micGranted, toggleDictation]);
 
   return { ...status, readLevel, toggleDictation, stop };
 }

@@ -134,6 +134,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     "onboarding-demo-event",
     (callback) => (_event, payload) => callback(payload)
   ),
+  getSystemProfile: () => ipcRenderer.invoke("get-system-profile"),
   probeSelfHosted: (baseUrl) => ipcRenderer.invoke("probe-self-hosted", baseUrl),
   testProviderConnection: (config) => ipcRenderer.invoke("test-provider-connection", config),
   pasteText: (text, options) => ipcRenderer.invoke("paste-text", text, options),

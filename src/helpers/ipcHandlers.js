@@ -1279,6 +1279,22 @@ class IPCHandlers {
       return this.windowManager.stopOnboardingDemoRecording();
     });
 
+    // Cache advisory setup facts for this launch; the NVIDIA probe spawns a
+    // process. Main still checks current disk space when admitting downloads.
+    ipcMain.handle("get-system-profile", () => {
+      if (!this._systemProfilePromise) {
+        const { getSystemProfile } = require("./systemProfile");
+        const { getCacheRoot } = require("./modelDirUtils");
+        const { detectNvidiaGpu } = require("../utils/gpuDetection");
+        this._systemProfilePromise = getSystemProfile({
+          app,
+          cacheRoot: getCacheRoot(),
+          detectGpu: () => detectNvidiaGpu(),
+        });
+      }
+      return this._systemProfilePromise;
+    });
+
     ipcMain.handle("onboarding-demo-publish", (_event, event) => {
       const session = this._onboardingDemoSession;
       if (!session || !event || event.kind !== session.kind) return false;

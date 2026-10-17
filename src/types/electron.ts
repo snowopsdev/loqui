@@ -749,6 +749,15 @@ interface ConversationPreview {
   last_message_role?: "user" | "assistant" | "system" | null;
 }
 
+export interface SystemProfile {
+  locales: string[]; // OS preferred languages, deduped, max 8
+  totalMemoryBytes: number | null; // Composed from Plan 03's getTotalMemory in the renderer
+  freeDiskBytes: number | null; // Advisory free space where models are stored
+  gpu: { kind: "apple-silicon" | "nvidia" | "unknown"; name: string | null };
+}
+
+export type SystemFacts = Omit<SystemProfile, "totalMemoryBytes">;
+
 export type OnboardingDemoKind = "dictation" | "assistant";
 /**
  * "partial" streams the transcript, "processing" carries the final transcript,
@@ -892,6 +901,7 @@ declare global {
       stopOnboardingDemo?: (id: string) => Promise<boolean>;
       publishOnboardingDemoEvent?: (event: Omit<OnboardingDemoEvent, "demoId">) => Promise<boolean>;
       onOnboardingDemoEvent?: (callback: (event: OnboardingDemoEvent) => void) => () => void;
+      getSystemProfile?: () => Promise<SystemFacts>;
       probeSelfHosted?: (baseUrl: string) => Promise<
         | { ok: true; count: number }
         | {

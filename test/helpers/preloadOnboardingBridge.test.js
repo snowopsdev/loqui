@@ -103,3 +103,10 @@ test("onboarding demo listener strips the Electron event and disposes cleanly", 
   unsubscribe();
   assert.equal(listeners.has("onboarding-demo-event"), false);
 });
+
+test("system profile bridge invokes only its channel", async () => {
+  const { api, invocations } = loadPreloadApi();
+  await api.getSystemProfile();
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0][0], "get-system-profile");
+});

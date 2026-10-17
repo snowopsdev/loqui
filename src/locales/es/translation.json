@@ -4236,7 +4236,20 @@
     "errors": {
       "recipientUnknown": "No se pudo verificar el destino de esta grabación. Tus palabras se conservan. Restaura el destino original en Ajustes para reintentar o inicia una nueva grabación.",
       "recipientChanged": "Esta grabación mantiene su destino original. Tus palabras se conservan. Restaura ese destino en Ajustes para reintentar o inicia una nueva grabación.",
-      "recipientTitle": "Destino de grabación no disponible"
+      "recipientTitle": "Destino de grabación no disponible",
+      "streamingUnavailable": "No se pudo iniciar la transcripción en directo para esta grabación. Revisa el proveedor seleccionado en Ajustes e inténtalo de nuevo."
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} ya recibió audio.",
+      "remoteText": "{{provider}} ya recibió texto.",
+      "remoteImage": "{{provider}} ya recibió una imagen.",
+      "remoteSeveral": "{{provider}} ya recibió parte de este dictado.",
+      "mayHaveAudio": "{{provider}} puede haber recibido audio.",
+      "mayHaveText": "{{provider}} puede haber recibido texto.",
+      "mayHaveImage": "{{provider}} puede haber recibido una imagen.",
+      "mayHaveSeveral": "{{provider}} puede haber recibido parte de este dictado."
     }
   }
 }

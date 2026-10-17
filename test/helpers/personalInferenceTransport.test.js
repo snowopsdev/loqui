@@ -567,3 +567,73 @@ test("upgraded Anthropic and Vertex providers generate and stream through SDK 7 
     );
   }
 });
+
+test("a dictation text request is handed off before the provider answers (no Plan 07)", async (t) => {
+  const { invoke, request, sender, modelCalls } = harness(t, { wait: true });
+  const handOffs = [];
+  const send = sender.send;
+  sender.send = (channel, payload) =>
+    channel === "dictation-dispatch" ? handOffs.push(payload) : send(channel, payload);
+  const pending = invoke("text-generate", {
+    ...request,
+    correlationId: "rec-1",
+    disclosureTask: "dictationCleanup",
+  });
+  while (modelCalls.length < 2) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(handOffs, [
+    { correlationId: "rec-1", task: "dictationCleanup", payload: "text" },
+  ]);
+  await invoke("text-cancel", request.requestId);
+  await assert.rejects(pending, /abort/i);
+});
+
+test("a text request main rejects, or that names no dictation, is never handed off", async (t) => {
+  const { invoke, request, sender } = harness(t);
+  const handOffs = [];
+  sender.send = (channel, payload) => channel === "dictation-dispatch" && handOffs.push(payload);
+  await assert.rejects(
+    invoke("text-generate", {
+      ...request,
+      model: " ",
+      correlationId: "rec-1",
+      disclosureTask: "dictationCleanup",
+    }),
+    /Choose a text model/
+  );
+  await assert.rejects(
+    invoke("text-generate", { ...request, correlationId: "rec-1", disclosureTask: "chat" }),
+    /Invalid disclosure task/
+  );
+  await invoke("text-generate", request); // typed chat: no correlation id
+  assert.deepEqual(handOffs, []);
+});
+
+test("image dictation text dispatch reports both actual payload parts", async (t) => {
+  const { invoke, request, sender } = harness(t);
+  const events = [];
+  sender.send = (channel, payload) => {
+    if (channel === "dictation-dispatch") events.push(payload);
+  };
+  await invoke("text-generate", {
+    ...request,
+    correlationId: "rec-image",
+    disclosureTask: "assistantVision",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "describe" },
+          {
+            type: "image",
+            image:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD0sAAAAASUVORK5CYII=",
+          },
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(
+    events.map((e) => e.payload),
+    ["text", "image"]
+  );
+});

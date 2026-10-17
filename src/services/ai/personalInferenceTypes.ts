@@ -1,9 +1,11 @@
+import type { DisclosureTask } from "../../types/dictation";
 interface TextTool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
 }
 export interface TextRequest {
+  disclosureTask?: DisclosureTask | null;
   requestId: string;
   correlationId?: string | null;
   dictationOperation?: true;

@@ -1,3 +1,4 @@
+import { createDisclosureTracker } from "./dictationDisclosure";
 import {
   captureDictationSession,
   createSessionContext,
@@ -225,6 +226,7 @@ function resolveReasoningRoute(
   // raise the cleanup-failed toast (#2091).
   const cleanupConfig = {
     inferenceScope: /** @type {const} */ ("dictationCleanup"),
+    disclosureTask: /** @type {const} */ ("dictationCleanup"),
     disableThinking: settings.cleanupDisableThinking,
     temperature: cleanupTemperature,
     requireCompleteOutput: true,
@@ -247,6 +249,7 @@ function resolveReasoningRoute(
       cleanupConfig,
       config: {
         ...translation.config,
+        disclosureTask: /** @type {const} */ ("translation"),
         settingsView: settings,
         enterpriseRecipientTag: recipientTag("translation"),
         systemPrompt: resolvePrompt("translate", {
@@ -284,6 +287,9 @@ function resolveReasoningRoute(
       model: target.model,
       config: {
         ...target.config,
+        disclosureTask: useVisionOverride
+          ? /** @type {const} */ ("assistantVision")
+          : /** @type {const} */ ("voiceAssistant"),
         settingsView: settings,
         enterpriseRecipientTag: recipientTag(
           useVisionOverride ? "assistantVision" : "voiceAssistant"
@@ -328,6 +334,7 @@ const makeDictationRealtimeProvider = (id) => ({
   start: (opts) => window.electronAPI.dictationRealtimeStart({ ...opts, provider: id }),
   send: (buf, operation) => window.electronAPI.dictationRealtimeSend(buf, operation),
   stop: (operation) => window.electronAPI.dictationRealtimeStop(operation),
+  cancel: (operation) => window.electronAPI.dictationRealtimeCancel?.(operation),
   onPartial: (cb) => window.electronAPI.onDictationRealtimePartial(cb),
   onFinal: (cb) => window.electronAPI.onDictationRealtimeFinal(cb),
   onError: (cb) => window.electronAPI.onDictationRealtimeError(cb),
@@ -341,6 +348,7 @@ const STREAMING_PROVIDERS = {
     send: (buf, operation) => window.electronAPI.deepgramStreamingSend(buf, operation),
     finalize: (operation) => window.electronAPI.deepgramStreamingFinalize(operation),
     stop: (operation) => window.electronAPI.deepgramStreamingStop(operation),
+    cancel: (operation) => window.electronAPI.deepgramStreamingCancel?.(operation),
     status: () => window.electronAPI.deepgramStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onDeepgramPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onDeepgramFinalTranscript(cb),
@@ -353,6 +361,7 @@ const STREAMING_PROVIDERS = {
     send: (buf, operation) => window.electronAPI.assemblyAiStreamingSend(buf, operation),
     finalize: (operation) => window.electronAPI.assemblyAiStreamingForceEndpoint(operation),
     stop: (operation) => window.electronAPI.assemblyAiStreamingStop(operation),
+    cancel: (operation) => window.electronAPI.assemblyAiStreamingCancel?.(operation),
     status: () => window.electronAPI.assemblyAiStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onAssemblyAiPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onAssemblyAiFinalTranscript(cb),
@@ -372,6 +381,7 @@ const STREAMING_PROVIDERS = {
     send: (buf, operation) => window.electronAPI.geminiStreamingSend(buf, operation),
     finalize: (operation) => window.electronAPI.geminiStreamingFinalize(operation),
     stop: (operation) => window.electronAPI.geminiStreamingStop(operation),
+    cancel: (operation) => window.electronAPI.geminiStreamingCancel?.(operation),
     status: () => window.electronAPI.geminiStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onGeminiPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onGeminiFinalTranscript(cb),
@@ -384,6 +394,7 @@ const STREAMING_PROVIDERS = {
     send: (buf, operation) => window.electronAPI.cortiStreamingSend(buf, operation),
     finalize: (operation) => window.electronAPI.cortiStreamingFinalize(operation),
     stop: (operation) => window.electronAPI.cortiStreamingStop(operation),
+    cancel: (operation) => window.electronAPI.cortiStreamingCancel?.(operation),
     status: () => window.electronAPI.cortiStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onCortiPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onCortiFinalTranscript(cb),
@@ -654,6 +665,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   setCallbacks({
     onStateChange,
+    onProcessingStage = undefined,
     onError,
     // Optional: the agent overlay has no dictation toast surface.
     onNoAudio = undefined,
@@ -664,6 +676,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }) {
     this.onStateChange = onStateChange;
     this.onError = onError;
+    this.onProcessingStage = onProcessingStage;
     this.onNoAudio = onNoAudio;
     this.onTranscriptionComplete = onTranscriptionComplete;
     this.onPartialTranscript = onPartialTranscript;
@@ -904,6 +917,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   beginDictationSession(intents = {}, candidate = null) {
     // Start paths pass the candidate captured before their first await.
     this._activeSession = candidate ?? this.createDictationSession(intents);
+    this._disclosure?.dispose();
+    this._disclosure = createDisclosureTracker({ session: this._activeSession });
     this.voiceAgentRequested = this._activeSession.intents.voiceAgentRequested;
     this.translationRequested = this._activeSession.intents.translationRequested;
     this.assistantSelectionContext = this._activeSession.intents.assistantSelectionContext;
@@ -930,8 +945,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   /** Undo's entry point (Task 8): the session, its intents and the reads it took at press time. */
-  applySessionIntents(session, { context = null } = {}) {
+  applySessionIntents(session, { context = null, tracker = null } = {}) {
     this._activeSession = session;
+    if (this._disclosure && this._disclosure !== tracker) this._disclosure.dispose();
+    this._disclosure = tracker ?? createDisclosureTracker({ session });
     this.selectionCapturePromise = null;
     this.screenContextPromise = null;
     this.voiceAgentRequested = session.intents.voiceAgentRequested;
@@ -961,6 +978,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   _endDictationSession(session) {
     if (!session || this._activeSession !== session) return;
     this._activeSession = null;
+    this._disclosure?.dispose();
+    this._disclosure = null;
     this.selectionCapturePromise = null;
     this.screenContextPromise = null;
     this.assistantSelectionContext = null;
@@ -976,8 +995,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const context =
       session && this._sessionContext?.sessionId === session.id ? this._sessionContext : null;
     if (context) this._sessionContext = null;
+    const tracker = this._disclosure;
+    this._disclosure = null;
     this._endDictationSession(session);
-    return { session, context };
+    return { session, context, tracker };
+  }
+
+  getDisclosure() {
+    return this._disclosure?.get() ?? null;
   }
 
   getStreamingProvider() {
@@ -1965,6 +1990,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (this.isProcessing) {
       this._processingCancellationGeneration = (this._processingCancellationGeneration ?? 0) + 1;
       this._requestStreamingCancellation();
+      this.getStreamingProvider()?.cancel?.(this._streamingOperation);
       // Streaming finalization can be inside a provider or model await that
       // cannot be aborted. Keep the lifecycle truthfully busy until that await
       // observes the generation change and exits; advertising idle while the
@@ -1994,6 +2020,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const pipeline = processingPipeline ?? this._startProcessingPipeline();
     if (processingPipeline && this._activeProcessingPipeline !== processingPipeline) return;
     const wasCancelled = () => this._shouldAbandonProcessingPipeline(pipeline);
+    if (!wasCancelled()) this.onProcessingStage?.("transcribing");
     const pipelineStart = performance.now();
     const settings = this.settings();
     let noAudioDetected = false;
@@ -2918,6 +2945,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           translationOutcomeReported = true;
           this.notifyTranslationFallback("unreachable");
         }
+        if (route.kind !== "agent" && route.kind !== "skip") this.onProcessingStage?.("cleaning");
         if (route.kind === "skip") return normalizedText;
 
         if (route.kind === "translation") {
@@ -3733,6 +3761,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this._streamingSessionGeneration = sessionId;
       this._activeStreamingSessionId = sessionId;
       const ownsSession = () => this._activeStreamingSessionId === sessionId;
+      const operation = {
+        correlationId: candidate.id,
+        dictationSessionId: candidate.id,
+        operationId: crypto.randomUUID(),
+      };
+      this._streamingOperation = operation;
       const cancellationGeneration = this._streamingCancellationGeneration;
       startWasCancelled = () => cancellationGeneration !== this._streamingCancellationGeneration;
 
@@ -3807,14 +3841,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         // on stop; the sentinel must not be sent as audio (realtime backends
         // reject the odd-length non-PCM bytes with "Invalid audio data").
         if (!ownsSession() || !this.isStreaming || event.data === "flushed") return;
-        provider.send(event.data, {
-          correlationId: candidate.id,
-          dictationSessionId: candidate.id,
-        });
+        provider.send(event.data, operation);
       };
-
-      this.isStreaming = true;
-      this.streamingSource.connect(this.streamingProcessor);
 
       const tPipeline = performance.now();
 
@@ -3884,25 +3912,36 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
         return false;
       }
-      this.isRecording = true;
-      this.recordingStartTime = Date.now();
-      this.onStateChange?.({ isRecording: true, isProcessing: false, isStreaming: true });
-      await this.beginMicRecovery(stream);
-
-      // 4. Connect WebSocket — audio is already flowing from the pipeline above,
-      //    so Deepgram receives data immediately (no idle timeout).
+      // 4. Order main admission before the first worklet frame. Audio flows
+      // while its connection awaits, into this attempt's admitted adapter.
       const result = await (async () => {
         const streamingSettings = this.settings();
-        const res = await provider.start(
-          buildStreamingSessionOptions({
-            providerName: this.getStreamingProviderName(),
-            settings: streamingSettings,
-            correlationId: candidate.id,
-            language: this.getEffectiveSttLanguage(streamingSettings),
-            keyterms: this.getKeyterms(),
-            voiceAgentRequested: this.voiceAgentRequested,
+        const starting = provider
+          .start({
+            ...buildStreamingSessionOptions({
+              providerName: this.getStreamingProviderName(),
+              settings: streamingSettings,
+              correlationId: candidate.id,
+              language: this.getEffectiveSttLanguage(streamingSettings),
+              keyterms: this.getKeyterms(),
+              voiceAgentRequested: this.voiceAgentRequested,
+            }),
+            ...operation,
           })
-        );
+          .then(
+            (value) => ({ value }),
+            (error) => ({ error })
+          );
+        this.isStreaming = true;
+        this.streamingSource.connect(this.streamingProcessor);
+        this.isRecording = true;
+        this.recordingStartTime = Date.now();
+        this.onStateChange?.({ isRecording: true, isProcessing: false, isStreaming: true });
+        await this.beginMicRecovery(stream);
+
+        const settled = await starting;
+        if (settled.error) throw settled.error;
+        const res = settled.value;
 
         if (!res.success) {
           const err = new Error(res.error || "Failed to start streaming session");
@@ -4097,6 +4136,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (this._streamingStopPromise) {
       if (this._streamingStopMode === "finalize") {
         this._requestStreamingCancellation();
+        this.getStreamingProvider()?.cancel?.(this._streamingOperation);
       }
       return this._streamingStopPromise;
     }
@@ -4106,8 +4146,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     const session = this._activeSession;
     const sessionId = this._activeStreamingSessionId;
+    const operation = this._streamingOperation;
+    const provider = this.getStreamingProvider();
     const cancelPromise = (async () => {
       this._requestStreamingCancellation();
+      this.getStreamingProvider()?.cancel?.(this._streamingOperation);
       this.stopRequestedDuringStreamingStart = false;
       this.recordingStartTime = null;
       this.isRecording = false;
@@ -4127,9 +4170,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           this.micRecovery.stop();
           this.cleanupStreamingAudio();
           this.cleanupStreamingListeners(sessionId);
-          return this.getStreamingProvider().stop?.(
-            session ? { correlationId: session.id, dictationSessionId: session.id } : undefined
-          );
+          return provider.stop?.(operation);
         })
         .catch((error) => {
           logger.debug(
@@ -4163,9 +4204,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async _finalizeStreamingRecording(sessionId) {
-    const operation = this._activeSession
-      ? { correlationId: this._activeSession.id, dictationSessionId: this._activeSession.id }
-      : undefined;
+    const operation = this._streamingOperation;
+    const provider = this.getStreamingProvider();
     if (
       sessionId !== null &&
       sessionId !== undefined &&
@@ -4181,7 +4221,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this.cleanupStreamingListeners(sessionId);
       this._streamingFallbackSegments = [];
       try {
-        await this.getStreamingProvider().stop?.();
+        await provider.stop?.(operation);
       } catch (error) {
         logger.debug(
           "Streaming disconnect after cancellation failed",
@@ -4204,6 +4244,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this._activeProcessingPipeline = null;
     this.isRecording = false;
     this.isProcessing = true;
+    this.onProcessingStage?.("transcribing");
     this.recordingStartTime = null;
     this.onStateChange?.({ isRecording: false, isProcessing: true, isStreaming: false });
 
@@ -4276,7 +4317,6 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     // 3. Finalize tells the provider to process any buffered audio and send final results.
     //    Wait for the transcript to settle before disconnecting.
-    const provider = this.getStreamingProvider();
     provider.finalize?.(operation);
     if (provider.awaitsFinalTranscript) {
       await this.awaitStreamingTextSettled(provider.finalCeilingMs);
@@ -4549,7 +4589,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this.workletBlobUrl = null;
     }
     try {
-      this.getStreamingProvider().stop?.();
+      this.getStreamingProvider().stop?.(this._streamingOperation);
     } catch (e) {
       // Ignore errors during cleanup (page may be unloading)
     }

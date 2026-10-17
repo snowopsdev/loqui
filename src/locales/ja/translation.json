@@ -4202,7 +4202,20 @@
     "errors": {
       "recipientUnknown": "この録音の送信先を確認できませんでした。内容は保持されています。再試行するには設定で元の送信先に戻すか、新しく録音してください。",
       "recipientChanged": "この録音の送信先は録音開始時のものに固定されています。内容は保持されています。再試行するには設定で元の送信先に戻すか、新しく録音してください。",
-      "recipientTitle": "録音の送信先を利用できません"
+      "recipientTitle": "録音の送信先を利用できません",
+      "streamingUnavailable": "この録音のリアルタイム文字起こしを開始できませんでした。設定で選択したプロバイダーを確認して、もう一度お試しください。"
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} はすでに音声を受信しました。",
+      "remoteText": "{{provider}} はすでにテキストを受信しました。",
+      "remoteImage": "{{provider}} はすでに画像を受信しました。",
+      "remoteSeveral": "{{provider}} はすでにこの音声入力の一部を受信しました。",
+      "mayHaveAudio": "{{provider}} は音声を受信した可能性があります。",
+      "mayHaveText": "{{provider}} はテキストを受信した可能性があります。",
+      "mayHaveImage": "{{provider}} は画像を受信した可能性があります。",
+      "mayHaveSeveral": "{{provider}} はこの音声入力の一部を受信した可能性があります。"
     }
   }
 }

@@ -391,3 +391,45 @@ test("an older streaming session cannot clean up the active session listeners", 
   assert.equal(manager.streamingFinalText, "current transcript");
   assert.equal(manager.streamingPartialText, "current partial");
 });
+
+test("a cancelled finalization stops its captured attempt after a newer operation is installed", async (t) => {
+  const AudioManager = await loadManagerClass(t);
+  const { manager } = createFinalizingManager(AudioManager);
+  let resume;
+  manager._streamingMicSwapPromise = new Promise((resolve) => (resume = resolve));
+  const a = { operationId: "a" },
+    b = { operationId: "b" };
+  const stopped = [];
+  manager._streamingOperation = a;
+  manager.getStreamingProvider = () => ({
+    stop: async (operation) => {
+      stopped.push(["a", operation]);
+      return { success: true };
+    },
+  });
+  const stop = manager.stopStreamingRecording();
+  manager._streamingOperation = b;
+  manager.getStreamingProvider = () => ({
+    stop: async (operation) => {
+      stopped.push(["b", operation]);
+      return { success: true };
+    },
+  });
+  manager._requestStreamingCancellation();
+  resume();
+  await stop;
+  assert.deepEqual(stopped, [["a", a]]);
+});
+test("streaming processing stage is emitted synchronously before finalization awaits", async (t) => {
+  const AudioManager = await loadManagerClass(t);
+  const { manager } = createFinalizingManager(AudioManager);
+  let resume;
+  manager._streamingMicSwapPromise = new Promise((resolve) => (resume = resolve));
+  const stages = [];
+  manager.onProcessingStage = (stage) => stages.push(stage);
+  const stop = manager.stopStreamingRecording();
+  const initial = [...stages];
+  resume();
+  await stop;
+  assert.deepEqual(initial, ["transcribing"]);
+});

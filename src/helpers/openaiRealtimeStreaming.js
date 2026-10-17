@@ -1,3 +1,9 @@
+const {
+  egressOpen,
+  discardPendingAudio,
+  zeroAudio,
+  sendContentFrame,
+} = require("./streamingHandOff");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -53,6 +59,22 @@ async function createSocketWithTimeout(createSocket, timeoutMs) {
 }
 
 class OpenAIRealtimeStreaming {
+  setLifecycleGate(gate) {
+    this._lifecycleGate = gate;
+  }
+  _lifecycleOpen() {
+    return this._lifecycleGate?.() !== false;
+  }
+  setEgressGate(gate) {
+    this._egressGate = gate;
+  }
+  discardPendingAudio() {
+    discardPendingAudio(this);
+  }
+  _egressOpen() {
+    return egressOpen(this);
+  }
+
   constructor() {
     this.ws = null;
     this.isConnected = false;
@@ -97,6 +119,7 @@ class OpenAIRealtimeStreaming {
   // covers the token-fetch + handshake window so sendAudio() doesn't drop
   // frames while a connection is still being established.
   beginConnecting() {
+    this.discardPendingAudio();
     this.bufferingAudio = true;
     this.coldStartBuffer = [];
     this.coldStartBufferSize = 0;
@@ -107,6 +130,10 @@ class OpenAIRealtimeStreaming {
   }
 
   async connect(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const {
       apiKey,
       model,
@@ -159,6 +186,13 @@ class OpenAIRealtimeStreaming {
       throw err;
     }
 
+    if (!this._lifecycleOpen()) {
+      ws.close();
+      this.discardPendingAudio();
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
+    }
     return new Promise((resolve, reject) => {
       this.pendingResolve = resolve;
       this.pendingReject = reject;
@@ -531,6 +565,10 @@ class OpenAIRealtimeStreaming {
   }
 
   sendAudio(pcmBuffer) {
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
     const isOpen = this.ws?.readyState === WebSocket.OPEN;
 
     if (!isOpen) {
@@ -552,9 +590,12 @@ class OpenAIRealtimeStreaming {
       );
       for (const buf of this.coldStartBuffer) {
         const audio = this._resampleToInputRate(buf);
-        this.ws.send(
+        sendContentFrame(
+          this,
           JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
         );
+        zeroAudio(buf);
+        if (audio !== buf) zeroAudio(audio);
         this.audioBytesSent += audio.length;
       }
       this.coldStartBuffer = [];
@@ -562,9 +603,11 @@ class OpenAIRealtimeStreaming {
     }
 
     const audio = this._resampleToInputRate(Buffer.from(pcmBuffer));
-    this.ws.send(
+    sendContentFrame(
+      this,
       JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
     );
+    zeroAudio(audio);
     this.audioBytesSent += audio.length;
     return true;
   }
@@ -649,6 +692,7 @@ class OpenAIRealtimeStreaming {
   }
 
   cleanup() {
+    this.discardPendingAudio();
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
     clearTimeout(this._sessionTimer);

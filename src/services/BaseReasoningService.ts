@@ -1,3 +1,4 @@
+import type { DisclosureTask } from "../types/dictation";
 import { getCleanupSystemPrompt } from "../config/prompts";
 import { getSettings } from "../stores/settingsStore";
 import { resolveCleanupLanguage } from "../utils/chineseScript";
@@ -6,6 +7,7 @@ import type { InferenceScope } from "../config/inferenceScopes";
 import type { ScreenContextImage } from "../types/electron";
 
 export interface ReasoningConfig {
+  disclosureTask?: DisclosureTask | null;
   settingsView?: Record<string, unknown>;
   correlationId?: string | null;
   dictationOperation?: true;

@@ -4202,7 +4202,20 @@
     "errors": {
       "recipientUnknown": "无法验证此录音的发送目标。您的文字已保留。请在设置中恢复原始目标后重试，或开始新录音。",
       "recipientChanged": "此录音已固定使用开始录音时的发送目标。您的文字已保留。请在设置中恢复该目标后重试，或开始新录音。",
-      "recipientTitle": "录音发送目标不可用"
+      "recipientTitle": "录音发送目标不可用",
+      "streamingUnavailable": "无法为本次录音启动实时转写。请在设置中检查所选提供商，然后重试。"
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} 已收到音频。",
+      "remoteText": "{{provider}} 已收到文本。",
+      "remoteImage": "{{provider}} 已收到图像。",
+      "remoteSeveral": "{{provider}} 已收到本次听写的部分内容。",
+      "mayHaveAudio": "{{provider}} 可能已收到音频。",
+      "mayHaveText": "{{provider}} 可能已收到文本。",
+      "mayHaveImage": "{{provider}} 可能已收到图像。",
+      "mayHaveSeveral": "{{provider}} 可能已收到本次听写的部分内容。"
     }
   }
 }

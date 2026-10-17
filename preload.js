@@ -759,6 +759,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     (callback) => (_event, data) => callback(data)
   ),
 
+  onDictationDispatch: (callback) => {
+    const listener = (_event, dispatch) => callback?.(dispatch);
+    ipcRenderer.on("dictation-dispatch", listener);
+    return () => ipcRenderer.removeListener("dictation-dispatch", listener);
+  },
   // Assembly AI Streaming
   assemblyAiStreamingWarmup: (options) =>
     ipcRenderer.invoke("assemblyai-streaming-warmup", options),
@@ -771,6 +776,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     operation === undefined
       ? ipcRenderer.send("assemblyai-streaming-force-endpoint")
       : ipcRenderer.send("assemblyai-streaming-force-endpoint", operation),
+  assemblyAiStreamingCancel: (operation) =>
+    ipcRenderer.invoke("assemblyai-streaming-cancel", operation),
   assemblyAiStreamingStop: (operation) =>
     operation === undefined
       ? ipcRenderer.invoke("assemblyai-streaming-stop")
@@ -804,6 +811,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     operation === undefined
       ? ipcRenderer.send("deepgram-streaming-finalize")
       : ipcRenderer.send("deepgram-streaming-finalize", operation),
+  deepgramStreamingCancel: (operation) =>
+    ipcRenderer.invoke("deepgram-streaming-cancel", operation),
   deepgramStreamingStop: (operation) =>
     operation === undefined
       ? ipcRenderer.invoke("deepgram-streaming-stop")
@@ -837,6 +846,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     operation === undefined
       ? ipcRenderer.send("gemini-streaming-finalize")
       : ipcRenderer.send("gemini-streaming-finalize", operation),
+  geminiStreamingCancel: (operation) => ipcRenderer.invoke("gemini-streaming-cancel", operation),
   geminiStreamingStop: (operation) =>
     operation === undefined
       ? ipcRenderer.invoke("gemini-streaming-stop")
@@ -867,6 +877,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     operation === undefined
       ? ipcRenderer.send("corti-streaming-finalize")
       : ipcRenderer.send("corti-streaming-finalize", operation),
+  cortiStreamingCancel: (operation) => ipcRenderer.invoke("corti-streaming-cancel", operation),
   cortiStreamingStop: (operation) =>
     operation === undefined
       ? ipcRenderer.invoke("corti-streaming-stop")
@@ -946,6 +957,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     operation === undefined
       ? ipcRenderer.send("dictation-realtime-send", buffer)
       : ipcRenderer.send("dictation-realtime-send", buffer, operation),
+  dictationRealtimeCancel: (operation) =>
+    ipcRenderer.invoke("dictation-realtime-cancel", operation),
   dictationRealtimeStop: (operation) =>
     operation === undefined
       ? ipcRenderer.invoke("dictation-realtime-stop")

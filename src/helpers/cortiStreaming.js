@@ -1,3 +1,9 @@
+const {
+  egressOpen,
+  discardPendingAudio,
+  zeroAudio,
+  sendContentFrame,
+} = require("./streamingHandOff");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -9,6 +15,22 @@ const KEEPALIVE_INTERVAL_MS = 15000;
 // Corti's WSS transport: OAuth token in the query, a JSON config message after
 // open, then raw PCM frames. Mirrors the AssemblyAI/Deepgram streaming classes.
 class CortiStreaming {
+  setLifecycleGate(gate) {
+    this._lifecycleGate = gate;
+  }
+  _lifecycleOpen() {
+    return this._lifecycleGate?.() !== false;
+  }
+  setEgressGate(gate) {
+    this._egressGate = gate;
+  }
+  discardPendingAudio() {
+    discardPendingAudio(this);
+  }
+  _egressOpen() {
+    return egressOpen(this);
+  }
+
   constructor() {
     this.ws = null;
     this.sessionId = null;
@@ -62,6 +84,10 @@ class CortiStreaming {
   }
 
   async connect(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const { token, environment, tenant } = options;
     if (!token || !environment || !tenant) {
       throw new Error("Corti streaming requires token, environment, and tenant");
@@ -169,6 +195,10 @@ class CortiStreaming {
   // Pre-open the socket and finish the config handshake before recording, so the
   // first words aren't lost waiting for CONFIG_ACCEPTED. Mirrors Deepgram/AssemblyAI.
   async warmup(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const { token, environment, tenant } = options;
     if (!token || !environment || !tenant) {
       throw new Error("Corti warmup requires token, environment, and tenant");
@@ -395,13 +425,18 @@ class CortiStreaming {
   }
 
   flushPreConfigBuffer() {
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
     if (this.preConfigBuffer.length === 0) return;
     debugLogger.debug("Corti flushing pre-config buffer", {
       chunks: this.preConfigBuffer.length,
       bytes: this.preConfigBufferSize,
     });
     for (const frame of this.preConfigBuffer) {
-      this.ws.send(frame);
+      sendContentFrame(this, frame);
+      zeroAudio(frame);
       this.audioBytesSent += frame.length;
     }
     this.preConfigBuffer = [];
@@ -409,6 +444,10 @@ class CortiStreaming {
   }
 
   sendAudio(pcmBuffer) {
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return false;
     }
@@ -424,7 +463,7 @@ class CortiStreaming {
     }
 
     this.audioBytesSent += pcmBuffer.length;
-    this.ws.send(pcmBuffer);
+    sendContentFrame(this, pcmBuffer);
     return true;
   }
 
@@ -484,6 +523,7 @@ class CortiStreaming {
   }
 
   cleanup() {
+    this.discardPendingAudio();
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
     this.preConfigBuffer = [];

@@ -4236,7 +4236,20 @@
     "errors": {
       "recipientUnknown": "La destination de cet enregistrement n’a pas pu être vérifiée. Vos mots sont conservés. Rétablissez la destination d’origine dans les réglages pour réessayer, ou lancez un nouvel enregistrement.",
       "recipientChanged": "Cet enregistrement reste lié à sa destination d’origine. Vos mots sont conservés. Rétablissez cette destination dans les réglages pour réessayer, ou lancez un nouvel enregistrement.",
-      "recipientTitle": "Destination d’enregistrement indisponible"
+      "recipientTitle": "Destination d’enregistrement indisponible",
+      "streamingUnavailable": "La transcription en direct n’a pas pu démarrer pour cet enregistrement. Vérifiez le fournisseur sélectionné dans les réglages et réessayez."
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} a déjà reçu de l’audio.",
+      "remoteText": "{{provider}} a déjà reçu du texte.",
+      "remoteImage": "{{provider}} a déjà reçu une image.",
+      "remoteSeveral": "{{provider}} a déjà reçu une partie de cette dictée.",
+      "mayHaveAudio": "{{provider}} a peut-être reçu de l’audio.",
+      "mayHaveText": "{{provider}} a peut-être reçu du texte.",
+      "mayHaveImage": "{{provider}} a peut-être reçu une image.",
+      "mayHaveSeveral": "{{provider}} a peut-être reçu une partie de cette dictée."
     }
   }
 }

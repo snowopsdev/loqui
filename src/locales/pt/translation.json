@@ -4236,7 +4236,20 @@
     "errors": {
       "recipientUnknown": "Não foi possível verificar o destino desta gravação. Suas palavras foram preservadas. Restaure o destino original nas configurações para tentar novamente ou inicie uma nova gravação.",
       "recipientChanged": "Esta gravação mantém o destino original. Suas palavras foram preservadas. Restaure esse destino nas configurações para tentar novamente ou inicie uma nova gravação.",
-      "recipientTitle": "Destino da gravação indisponível"
+      "recipientTitle": "Destino da gravação indisponível",
+      "streamingUnavailable": "Não foi possível iniciar a transcrição em tempo real para esta gravação. Verifique o provedor selecionado nas Configurações e tente novamente."
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} já recebeu áudio.",
+      "remoteText": "{{provider}} já recebeu texto.",
+      "remoteImage": "{{provider}} já recebeu uma imagem.",
+      "remoteSeveral": "{{provider}} já recebeu parte deste ditado.",
+      "mayHaveAudio": "{{provider}} pode ter recebido áudio.",
+      "mayHaveText": "{{provider}} pode ter recebido texto.",
+      "mayHaveImage": "{{provider}} pode ter recebido uma imagem.",
+      "mayHaveSeveral": "{{provider}} pode ter recebido parte deste ditado."
     }
   }
 }

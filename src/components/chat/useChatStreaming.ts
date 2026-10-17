@@ -471,6 +471,11 @@ export function useChatStreaming({
               systemPrompt,
               settingsView: settings as unknown as Record<string, unknown>,
               correlationId: snapshot.operation?.sessionId ?? null,
+              disclosureTask: snapshot.operation
+                ? llmConfig.scope === "dictationAgentVision"
+                  ? "assistantVision"
+                  : "voiceAssistant"
+                : null,
               dictationSessionId: snapshot.operation?.sessionId ?? null,
               dictationOperation: snapshot.operation ? true : undefined,
               enterpriseRecipientTag:

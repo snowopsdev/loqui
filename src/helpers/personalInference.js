@@ -1,3 +1,10 @@
+const DISCLOSURE_TASKS = new Set([
+  "dictationStt",
+  "dictationCleanup",
+  "translation",
+  "voiceAssistant",
+  "assistantVision",
+]);
 const { randomUUID } = require("node:crypto");
 const { createAbortError } = require("./abortError");
 const { CodexAppServer } = require("./codexAppServer");
@@ -125,6 +132,8 @@ function validateCredentialRef(ref) {
   return ref;
 }
 function validateRequest(input) {
+  if (input?.disclosureTask != null && !DISCLOSURE_TASKS.has(input.disclosureTask))
+    throw new Error("Invalid disclosure task.");
   if (input) {
     validateDictationRecipientFields(input);
     if (
@@ -465,6 +474,25 @@ function registerPersonalInferenceIPC({
       controller.signal.reason instanceof Error
         ? controller.signal.reason
         : createAbortError("Request canceled.");
+    const handOff = () => {
+      controller.signal.throwIfAborted();
+      if (
+        !request.correlationId ||
+        !request.disclosureTask ||
+        request.provider === "local" ||
+        sender.isDestroyed()
+      )
+        return;
+      const image = request.messages.some(
+        (m) => Array.isArray(m.content) && m.content.some((p) => p?.type === "image")
+      );
+      for (const payload of image ? ["text", "image"] : ["text"])
+        sender.send("dictation-dispatch", {
+          correlationId: request.correlationId,
+          task: request.disclosureTask,
+          payload,
+        });
+    };
     const executeTool = (name, args, suppliedCallId) =>
       new Promise((resolve, reject) => {
         if (controller.signal.aborted) {
@@ -492,6 +520,7 @@ function registerPersonalInferenceIPC({
       });
     try {
       if (request.provider === "codex") {
+        handOff();
         const text = await codex.generate({
           ...request,
           signal: controller.signal,
@@ -600,6 +629,7 @@ function registerPersonalInferenceIPC({
         if (request.temperature !== undefined) options.temperature = request.temperature;
       }
       if (streaming) {
+        handOff();
         const result = streamText(options);
         const sources = [];
         let finishReason;
@@ -618,6 +648,7 @@ function registerPersonalInferenceIPC({
         emit({ type: "done", finishReason });
         return {};
       }
+      handOff();
       const result = await generateText(options);
       if (request.requireCompleteOutput && result.finishReason === "length")
         throw new Error(

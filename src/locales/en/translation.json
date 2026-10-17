@@ -4229,7 +4229,20 @@
     "errors": {
       "recipientUnknown": "This recording’s destination could not be verified. Your words are preserved. Restore the original destination in Settings to retry, or start a new recording.",
       "recipientChanged": "This recording is pinned to its original destination. Your words are preserved. Restore that destination in Settings to retry, or start a new recording.",
-      "recipientTitle": "Recording destination unavailable"
+      "recipientTitle": "Recording destination unavailable",
+      "streamingUnavailable": "Live transcription could not start for this recording. Check the selected provider in Settings and try again."
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} already received audio.",
+      "remoteText": "{{provider}} already received text.",
+      "remoteImage": "{{provider}} already received an image.",
+      "remoteSeveral": "{{provider}} already received part of this dictation.",
+      "mayHaveAudio": "{{provider}} may have received audio.",
+      "mayHaveText": "{{provider}} may have received text.",
+      "mayHaveImage": "{{provider}} may have received an image.",
+      "mayHaveSeveral": "{{provider}} may have received part of this dictation."
     }
   }
 }

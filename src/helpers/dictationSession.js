@@ -2,12 +2,22 @@ import { INFERENCE_SCOPES } from "../config/inferenceScopes";
 import { isProviderSearchEnabled } from "../utils/providerSearch";
 import { routeSnapshotFromSettings, resolveRoutes, selectRouteProvider } from "../lib/routes";
 
+const DISCLOSURE_ROUTE_IDS = new Set([
+  "dictationStt",
+  "dictationCleanup",
+  "translation",
+  "voiceAssistant",
+  "assistantVision",
+]);
+
 function resolveSessionRoutes(settings) {
   try {
     const snapshot = routeSnapshotFromSettings(settings);
     return {
       routes: Object.fromEntries(
-        resolveRoutes(snapshot).map((route) => [route.id, structuredClone(route)])
+        resolveRoutes(snapshot)
+          .filter((route) => DISCLOSURE_ROUTE_IDS.has(route.id))
+          .map((route) => [route.id, structuredClone(route)])
       ),
       // The panel deliberately uses the Agent search preference for its vision
       // override too. Capture both possible targets before screenshot awaits.

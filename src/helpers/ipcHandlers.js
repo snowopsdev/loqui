@@ -1,3 +1,9 @@
+const {
+  firstFrameHandOff,
+  armFirstFrame,
+  disarmFirstFrame,
+  zeroAudio,
+} = require("./streamingHandOff");
 const { registerSettingsLinkIpc } = require("./settingsLinks");
 const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
 const {
@@ -7371,115 +7377,6 @@ class IPCHandlers {
       this.activeMeetingSpeakerConfig = null;
     };
 
-    const setupDictationCallbacks = (streaming, event) => {
-      streaming.onPartialTranscript = (text) => {
-        event.sender.send("dictation-realtime-partial", text);
-        if (this._dictationPreviewEnabled && text) {
-          this.windowManager.showTranscriptionPreview(text);
-        }
-      };
-      streaming.onFinalTranscript = (text) => event.sender.send("dictation-realtime-final", text);
-      streaming.onError = (err) => {
-        event.sender.send("dictation-realtime-error", err.message);
-        if (this._dictationPreviewEnabled) this.windowManager.hideTranscriptionPreview();
-      };
-      streaming.onSessionEnd = (data) => {
-        event.sender.send("dictation-realtime-session-end", data || {});
-        if (this._dictationPreviewEnabled) this.windowManager.hideTranscriptionPreview();
-      };
-    };
-
-    const DICTATION_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-
-    const clearDictationIdleTimer = () => {
-      if (this._dictationIdleTimer) {
-        clearTimeout(this._dictationIdleTimer);
-        this._dictationIdleTimer = null;
-      }
-    };
-
-    const startDictationIdleTimer = () => {
-      clearDictationIdleTimer();
-      this._dictationIdleTimer = setTimeout(() => {
-        if (this._dictationStreaming) {
-          debugLogger.debug("Closing idle dictation warmup connection");
-          this._dictationStreaming.disconnect().catch(() => {});
-          this._dictationStreaming = null;
-        }
-      }, DICTATION_IDLE_TIMEOUT_MS);
-    };
-
-    const connectDictationStreaming = async (event, options) => {
-      // Older renderers did not label the OpenAI dictation adapter. Dictation
-      // realtime was OpenAI-only before Tinfoil support, so preserve that
-      // established default while requiring new adapters to be explicit.
-      options = {
-        ...options,
-        provider: options?.provider || "openai-realtime",
-      };
-
-      if (this._dictationConnectPromise) {
-        await this._dictationConnectPromise.catch(() => {});
-      }
-
-      clearDictationIdleTimer();
-      this._dictationPreviewEnabled = !!options.preview;
-
-      if (this._dictationStreaming) {
-        await this._dictationStreaming.disconnect().catch(() => {});
-        this._dictationStreaming = null;
-      }
-
-      const connectInner = async () => {
-        const isCloud = options.mode !== "byok";
-        // Dictation renderers before 1.8.4 omit `provider` and mean OpenAI; the
-        // default lives here, at the boundary, so the token allowlist stays
-        // fail-closed for genuinely unknown providers (#1624).
-        const provider = options.provider ?? "openai-realtime";
-        const streaming = new OpenAIRealtimeStreaming();
-        setupDictationCallbacks(streaming, event);
-        // Assign before the token fetch (a real network round trip) so
-        // dictation-realtime-send has a live instance to buffer into instead
-        // of silently dropping the start of the recording.
-        streaming.beginConnecting();
-        this._dictationStreaming = streaming;
-        try {
-          const apiKey = await fetchRealtimeToken(event, {
-            mode: options.mode,
-            provider,
-          });
-          if (provider === "tinfoil-realtime") {
-            const model = options.model || TINFOIL_REALTIME_MODEL;
-            await streaming.connect({
-              apiKey,
-              model,
-              // The capture worklet emits 16kHz PCM; declare the true rate.
-              inputRate: 16000,
-              createSocket: () => createTinfoilRealtimeSocket({ model, apiKey }),
-            });
-          } else {
-            await streaming.connect({
-              apiKey,
-              model: options.model || "gpt-4o-mini-transcribe",
-              // OpenAI rejects rates below 24kHz; the 16kHz capture is upsampled instead.
-              captureRate: 16000,
-              preconfigured: isCloud,
-            });
-          }
-        } catch (err) {
-          if (this._dictationStreaming === streaming) this._dictationStreaming = null;
-          throw err;
-        }
-      };
-
-      this._dictationConnectPromise = connectInner();
-      try {
-        await this._dictationConnectPromise;
-      } finally {
-        this._dictationConnectPromise = null;
-      }
-    };
-
     // Pre-warm: fetch tokens + connect WebSockets before user hits record
     ipcMain.handle("meeting-transcription-prepare", async (event, options = {}) => {
       if (meetingTranscriptionPrepareInProgress || meetingTranscriptionStartInProgress) {
@@ -8101,6 +7998,8 @@ class IPCHandlers {
       }
     );
 
+    const streamingOperationError = (message) =>
+      Object.assign(new Error(message), { messageKey: "voiceOverlay.errors.streamingUnavailable" });
     const streamingStartFailure = (err) => {
       const result = toPolicyFailure(err);
       if (err.messageKey) result.messageKey = err.messageKey;
@@ -8108,44 +8007,474 @@ class IPCHandlers {
       return result;
     };
 
-    ipcMain.handle("dictation-realtime-warmup", async (event, options = {}) => {
-      try {
-        await connectDictationStreaming(event, options);
-        startDictationIdleTimer();
+    // All dictation streaming channels use one admission policy. Each record
+    // owns its exact adapter, webContents and attempt across every await. The
+    // separate meeting transport family never enters this registry.
+    const dictationOperations = new Map();
+    const dictationWarm = new Map();
+    const usedStreamingAttempts = new WeakMap();
+    let dictationGeneration = 0;
+    const rows = [
+      {
+        id: "realtime",
+        prefix: "dictation-realtime",
+        slot: "_dictationStreaming",
+        Ctor: OpenAIRealtimeStreaming,
+      },
+      {
+        id: "assemblyai",
+        prefix: "assemblyai-streaming",
+        slot: "assemblyAiStreaming",
+        Ctor: AssemblyAiStreaming,
+      },
+      {
+        id: "deepgram",
+        prefix: "deepgram-streaming",
+        slot: "deepgramStreaming",
+        Ctor: DeepgramStreaming,
+      },
+      {
+        id: "gemini",
+        prefix: "gemini-streaming",
+        slot: "geminiStreaming",
+        Ctor: GeminiLiveStreaming,
+      },
+      { id: "corti", prefix: "corti-streaming", slot: "cortiStreaming", Ctor: CortiStreaming },
+    ];
+    const normalizeStreaming = (row, input) => {
+      const provider = row.id === "realtime" ? input.provider || "openai-realtime" : row.id;
+      if (row.id === "realtime" && !["openai-realtime", "tinfoil-realtime"].includes(provider))
+        throw streamingOperationError("Unsupported realtime provider");
+      const model =
+        row.id === "realtime"
+          ? input.model ||
+            (provider === "tinfoil-realtime" ? TINFOIL_REALTIME_MODEL : "gpt-4o-mini-transcribe")
+          : row.id === "gemini"
+            ? input.model || GEMINI_LIVE_MODEL
+            : row.id === "deepgram"
+              ? input.model || "nova-3"
+              : row.id === "corti"
+                ? "corti-transcribe"
+                : input.model || "universal-streaming-multilingual";
+      const options = structuredClone({
+        ...input,
+        provider,
+        model,
+        mode: input.mode || "byok",
+        sampleRate: input.sampleRate || 16000,
+      });
+      if (Array.isArray(options.keyterms)) Object.freeze(options.keyterms);
+      return Object.freeze(options);
+    };
+    const streamingAuthority = (options) => {
+      const getters = {
+        "openai-realtime": ["getOpenAIKey"],
+        "tinfoil-realtime": ["getTinfoilKey"],
+        deepgram: ["getDeepgramKey"],
+        assemblyai: ["getAssemblyAIKey"],
+        gemini: ["getGeminiKey"],
+        corti: ["getCortiClientId", "getCortiClientSecret"],
+      };
+      const credentials = getters[options.provider].map((name) => this.environmentManager[name]());
+      if (credentials.some((value) => typeof value !== "string" || !value))
+        throw Object.assign(new Error("Configure the selected speech provider in Settings."), {
+          code: "NO_API",
+        });
+      // This hash never leaves main. Unlike enterprise recipient tags it also
+      // binds the current secret material, so rotation invalidates warm reuse.
+      const config = { ...options };
+      for (const key of [
+        "correlationId",
+        "dictationSessionId",
+        "operationId",
+        "forceNew",
+        "preview",
+      ])
+        delete config[key];
+      return crypto
+        .createHash("sha256")
+        .update(
+          JSON.stringify([
+            Object.entries(config).sort(([a], [b]) => a.localeCompare(b)),
+            credentials,
+          ])
+        )
+        .digest("hex");
+    };
+    const alive = (record) => !record.cancelled && !record.sender.isDestroyed?.();
+    const owns = (row, record) =>
+      alive(record) &&
+      dictationOperations.get(row.id) === record &&
+      this[row.slot] === record.adapter;
+    const identityMatches = (record, event, identity) =>
+      record &&
+      record.sender === event.sender &&
+      (record.operationId
+        ? identity?.operationId === record.operationId &&
+          identity?.dictationSessionId === record.correlationId &&
+          identity?.correlationId === record.correlationId
+        : !identity?.operationId && !identity?.correlationId && !identity?.dictationSessionId);
+    const releaseAdapter = (adapter) => {
+      if (!adapter) return;
+      adapter.setEgressGate(() => false);
+      adapter.setLifecycleGate(() => false);
+      adapter.discardPendingAudio();
+      disarmFirstFrame(adapter);
+      adapter.cleanupAll?.();
+      adapter.cleanupWarmConnection?.();
+      adapter.cleanup();
+    };
+    const watchStreamingOwner = (row, record, registry) => {
+      const lost = () => {
+        if (registry.get(row.id) !== record) return;
+        record.cancelled = true;
+        record.detachOwner?.();
+        clearTimeout(record.idleTimer);
+        releaseAdapter(record.adapter);
+        registry.delete(row.id);
+        if (this[row.slot] === record.adapter) this[row.slot] = null;
+      };
+      record.sender.once?.("destroyed", lost);
+      record.sender.once?.("did-start-navigation", lost);
+      record.detachOwner = () => {
+        record.sender.removeListener?.("destroyed", lost);
+        record.sender.removeListener?.("did-start-navigation", lost);
+      };
+    };
+    const bindCallbacks = (row, record) => {
+      const emit = (suffix, data) => {
+        if (!owns(row, record)) return;
+        const channel =
+          row.id === "realtime"
+            ? `dictation-realtime-${suffix}`
+            : `${row.id}-${suffix === "partial" ? "partial-transcript" : suffix === "final" ? "final-transcript" : suffix}`;
+        record.sender.send(channel, data);
+        if (row.id === "realtime" && record.options.preview) {
+          if (suffix === "partial" && data) this.windowManager.showTranscriptionPreview(data);
+          if (suffix === "error" || suffix === "session-end")
+            this.windowManager.hideTranscriptionPreview();
+        }
+      };
+      record.adapter.onPartialTranscript = (text) => emit("partial", text);
+      record.adapter.onFinalTranscript = (text) => emit("final", text);
+      record.adapter.onError = (error) => emit("error", error.message);
+      record.adapter.onSessionEnd = (data) => emit("session-end", data || {});
+    };
+    const acquireStreamingToken = async (row, event, options) => {
+      if (row.id === "corti") return this._mintStoredCortiToken(options);
+      const provider = row.id === "realtime" ? options.provider : `${row.id}-realtime`;
+      return { token: await fetchRealtimeToken(event, { ...options, provider }) };
+    };
+    const connectOwnedStreaming = async (row, record, material, warm = false) => {
+      const adapter = record.adapter;
+      const options = record.options;
+      if (row.id === "realtime") {
+        if (options.provider === "tinfoil-realtime")
+          await adapter.connect({
+            apiKey: material.token,
+            model: options.model,
+            inputRate: 16000,
+            createSocket: () =>
+              createTinfoilRealtimeSocket({ model: options.model, apiKey: material.token }),
+          });
+        else
+          await adapter.connect({
+            apiKey: material.token,
+            model: options.model,
+            captureRate: 16000,
+            preconfigured: false,
+          });
+      } else if (row.id === "gemini") {
+        await adapter.connect({
+          ...options,
+          token: material.token,
+          refreshToken: async () => {
+            if (!owns(row, record) || streamingAuthority(options) !== record.authority)
+              throw streamingOperationError("Streaming operation ended");
+            const next = await acquireStreamingToken(row, { sender: record.sender }, options);
+            if (!owns(row, record) || streamingAuthority(options) !== record.authority)
+              throw streamingOperationError("Streaming operation ended");
+            return next.token;
+          },
+        });
+      } else {
+        const args = { ...options, ...material };
+        if (warm) await adapter.warmup(args);
+        else await adapter.connect(args);
+      }
+    };
+    for (const row of rows) {
+      ipcMain.handle(`${row.prefix}-warmup`, async (event, input = {}) => {
+        if (dictationOperations.has(row.id))
+          return { success: false, error: "Operation in progress" };
+        let record;
+        try {
+          const options = normalizeStreaming(row, input);
+          const authority = streamingAuthority(options);
+          const prior = dictationWarm.get(row.id);
+          if (
+            prior &&
+            prior.sender === event.sender &&
+            prior.authority === authority &&
+            alive(prior)
+          ) {
+            await prior.promise;
+            return { success: true, alreadyWarm: true };
+          }
+          if (prior) {
+            prior.cancelled = true;
+            clearTimeout(prior.idleTimer);
+            prior.detachOwner?.();
+            releaseAdapter(prior.adapter);
+          }
+          const adapter = new row.Ctor();
+          adapter.setEgressGate(() => false);
+          record = {
+            generation: ++dictationGeneration,
+            sender: event.sender,
+            options,
+            authority,
+            adapter,
+            cancelled: false,
+          };
+          dictationWarm.set(row.id, record);
+          watchStreamingOwner(row, record, dictationWarm);
+          adapter.setLifecycleGate(() => {
+            try {
+              return (
+                alive(record) &&
+                (dictationWarm.get(row.id) === record ||
+                  dictationOperations.get(row.id)?.adapter === adapter) &&
+                streamingAuthority(options) === authority
+              );
+            } catch {
+              return false;
+            }
+          });
+          this[row.slot] = adapter;
+          record.promise = (async () => {
+            const material = await acquireStreamingToken(row, event, options);
+            if (
+              dictationWarm.get(row.id) !== record ||
+              !alive(record) ||
+              streamingAuthority(options) !== authority
+            )
+              throw streamingOperationError("Streaming warmup superseded");
+            await connectOwnedStreaming(row, record, material, true);
+            if (dictationWarm.get(row.id) !== record || !alive(record))
+              throw streamingOperationError("Streaming warmup superseded");
+          })();
+          await record.promise;
+          record.idleTimer = setTimeout(
+            () => {
+              if (dictationWarm.get(row.id) !== record) return;
+              record.cancelled = true;
+              record.detachOwner?.();
+              releaseAdapter(record.adapter);
+              dictationWarm.delete(row.id);
+              if (this[row.slot] === record.adapter) this[row.slot] = null;
+            },
+            5 * 60 * 1000
+          );
+          record.idleTimer.unref?.();
+          return { success: true };
+        } catch (error) {
+          if (record && dictationWarm.get(row.id) === record) {
+            dictationWarm.delete(row.id);
+            record.detachOwner?.();
+            releaseAdapter(record.adapter);
+            if (this[row.slot] === record.adapter) this[row.slot] = null;
+          }
+          return streamingStartFailure(error);
+        }
+      });
+      ipcMain.handle(`${row.prefix}-start`, async (event, input = {}) => {
+        if (dictationOperations.has(row.id))
+          return { success: false, error: "Operation in progress" };
+        let record;
+        try {
+          const options = normalizeStreaming(row, input);
+          const labeled =
+            options.correlationId != null ||
+            options.dictationSessionId != null ||
+            options.operationId != null;
+          if (
+            labeled &&
+            (typeof options.correlationId !== "string" ||
+              !options.correlationId ||
+              options.correlationId.length > 100 ||
+              options.dictationSessionId !== options.correlationId ||
+              typeof options.operationId !== "string" ||
+              !options.operationId ||
+              options.operationId.length > 100)
+          )
+            throw streamingOperationError("Invalid streaming operation identity");
+          const authority = streamingAuthority(options);
+          record = {
+            generation: ++dictationGeneration,
+            sender: event.sender,
+            options,
+            authority,
+            correlationId: options.correlationId,
+            operationId: options.operationId,
+            adapter: null,
+            cancelled: false,
+            pending: true,
+          };
+          if (labeled) {
+            const attempts = usedStreamingAttempts.get(event.sender) ?? new Set();
+            if (attempts.has(options.operationId))
+              throw streamingOperationError("Streaming attempt already ended");
+            attempts.add(options.operationId);
+            usedStreamingAttempts.set(event.sender, attempts);
+          }
+          dictationOperations.set(row.id, record);
+          watchStreamingOwner(row, record, dictationOperations);
+          const warm = dictationWarm.get(row.id);
+          if (warm) await warm.promise.catch(() => {});
+          if (
+            !alive(record) ||
+            dictationOperations.get(row.id) !== record ||
+            streamingAuthority(options) !== authority
+          )
+            throw streamingOperationError("Streaming operation ended");
+          const useWarm =
+            warm &&
+            dictationWarm.get(row.id) === warm &&
+            alive(warm) &&
+            warm.sender === event.sender &&
+            warm.authority === authority &&
+            !options.forceNew;
+          if (warm) {
+            clearTimeout(warm.idleTimer);
+            warm.detachOwner?.();
+            dictationWarm.delete(row.id);
+            if (!useWarm) {
+              warm.cancelled = true;
+              releaseAdapter(warm.adapter);
+            }
+          }
+          const adapter = useWarm ? warm.adapter : new row.Ctor();
+          record.adapter = adapter;
+          this[row.slot] = adapter;
+          adapter.setLifecycleGate(() => {
+            try {
+              return owns(row, record) && streamingAuthority(options) === authority;
+            } catch {
+              return false;
+            }
+          });
+          adapter.setEgressGate(() => owns(row, record));
+          armFirstFrame(
+            adapter,
+            firstFrameHandOff(event.sender, record.correlationId, () => owns(row, record))
+          );
+          bindCallbacks(row, record);
+          if (row.id === "deepgram")
+            adapter.setTokenRefreshFn(async () => {
+              if (!owns(row, record) || streamingAuthority(options) !== authority)
+                throw streamingOperationError("Streaming operation ended");
+              const result = await acquireStreamingToken(row, event, options);
+              if (!owns(row, record) || streamingAuthority(options) !== authority)
+                throw streamingOperationError("Streaming operation ended");
+              return result.token;
+            });
+          const connectedWarm = useWarm && ["realtime", "gemini"].includes(row.id);
+          if (!connectedWarm) {
+            adapter.beginConnecting?.();
+            const material = await acquireStreamingToken(row, event, options);
+            if (!owns(row, record) || streamingAuthority(options) !== authority)
+              throw streamingOperationError("Streaming operation ended");
+            await connectOwnedStreaming(row, record, material);
+          }
+          if (!owns(row, record) || streamingAuthority(options) !== authority)
+            throw streamingOperationError("Streaming operation ended");
+          record.pending = false;
+          return { success: true, usedWarmConnection: !!useWarm };
+        } catch (error) {
+          if (record && dictationOperations.get(row.id) === record) {
+            record.cancelled = true;
+            record.detachOwner?.();
+            releaseAdapter(record.adapter);
+            dictationOperations.delete(row.id);
+            if (this[row.slot] === record.adapter) this[row.slot] = null;
+          }
+          return streamingStartFailure(error);
+        }
+      });
+      ipcMain.on(`${row.prefix}-send`, (event, data, identity) => {
+        const record = dictationOperations.get(row.id);
+        if (!identityMatches(record, event, identity) || !owns(row, record)) return;
+        if (
+          !(data instanceof ArrayBuffer || ArrayBuffer.isView(data)) ||
+          !data.byteLength ||
+          data.byteLength % 2
+        )
+          return;
+        const frame = Buffer.from(
+          new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength)
+        );
+        try {
+          record.adapter.sendAudio(frame);
+        } catch (error) {
+          record.adapter.onError?.(error);
+        } finally {
+          zeroAudio(frame);
+        }
+      });
+      const finalizeChannel = row.id === "assemblyai" ? "force-endpoint" : "finalize";
+      if (row.id !== "realtime")
+        ipcMain.on(`${row.prefix}-${finalizeChannel}`, (event, identity) => {
+          const record = dictationOperations.get(row.id);
+          if (identityMatches(record, event, identity) && owns(row, record))
+            row.id === "assemblyai" ? record.adapter.forceEndpoint() : record.adapter.finalize();
+        });
+      ipcMain.handle(`${row.prefix}-cancel`, (event, identity) => {
+        const record = dictationOperations.get(row.id);
+        if (!identityMatches(record, event, identity))
+          return { success: false, reason: "stale-session" };
+        record.cancelled = true;
+        record.adapter?.discardPendingAudio();
+        disarmFirstFrame(record.adapter);
         return { success: true };
-      } catch (err) {
-        return streamingStartFailure(err);
-      }
-    });
-
-    ipcMain.handle("dictation-realtime-start", async (event, options = {}) => {
-      try {
-        clearDictationIdleTimer();
-        this._dictationPreviewEnabled = !!options.preview;
-        if (!this._dictationStreaming?.isConnected) await connectDictationStreaming(event, options);
-        return { success: true };
-      } catch (err) {
-        return streamingStartFailure(err);
-      }
-    });
-
-    ipcMain.on("dictation-realtime-send", (_event, buffer) => {
-      this._dictationStreaming?.sendAudio(Buffer.from(buffer));
-    });
-
-    ipcMain.handle("dictation-realtime-stop", async () => {
-      clearDictationIdleTimer();
-      if (!this._dictationStreaming) {
-        return { success: true, text: "" };
-      }
-      const result = await this._dictationStreaming.disconnect().catch(() => ({ text: "" }));
-      this._dictationStreaming = null;
-      if (this._dictationPreviewEnabled) {
-        this.windowManager.hideTranscriptionPreview();
-        this._dictationPreviewEnabled = false;
-      }
-      return { success: true, text: result.text || "" };
-    });
+      });
+      ipcMain.handle(`${row.prefix}-stop`, async (event, identity) => {
+        const record = dictationOperations.get(row.id);
+        if (!record) return { success: true, text: "" };
+        if (!identityMatches(record, event, identity))
+          return { success: false, reason: "stale-session" };
+        if (record.pending) {
+          record.cancelled = true;
+          record.adapter?.discardPendingAudio();
+          return { success: true, text: "" };
+        }
+        const adapter = record.adapter;
+        try {
+          const model = adapter.currentModel || record.options.model;
+          const audioBytesSent = adapter.audioBytesSent || 0;
+          const result = await adapter.disconnect(
+            row.id === "realtime" ? { commit: !record.cancelled } : !record.cancelled
+          );
+          return { success: true, text: result?.text || "", model, audioBytesSent };
+        } catch (error) {
+          return { success: false, error: error.message };
+        } finally {
+          const stillOwner = dictationOperations.get(row.id) === record;
+          record.cancelled = true;
+          record.detachOwner?.();
+          releaseAdapter(adapter);
+          if (dictationOperations.get(row.id) === record) dictationOperations.delete(row.id);
+          if (this[row.slot] === adapter) this[row.slot] = null;
+          if (stillOwner && row.id === "realtime" && record.options.preview)
+            this.windowManager.hideTranscriptionPreview();
+        }
+      });
+      if (row.id !== "realtime")
+        ipcMain.handle(
+          `${row.prefix}-status`,
+          () => this[row.slot]?.getStatus() || { isConnected: false, sessionId: null }
+        );
+    }
 
     ipcMain.handle(
       "start-dictation-preview",
@@ -8377,6 +8706,21 @@ class IPCHandlers {
         let cleanupUpload = null;
         let captureDir = null;
         const job = this._uploadCancelRegistry.register(requestId, { correlationId });
+        const handOff = () => {
+          job.signal?.throwIfAborted();
+          if (
+            typeof correlationId !== "string" ||
+            !correlationId ||
+            correlationId.length > 100 ||
+            event.sender?.isDestroyed?.()
+          )
+            return;
+          event.sender?.send?.("dictation-dispatch", {
+            correlationId,
+            task: "dictationStt",
+            payload: "audio",
+          });
+        };
         const completedText = (text) => {
           job.signal?.throwIfAborted();
           if (typeof text !== "string" || !text.trim()) {
@@ -8475,6 +8819,7 @@ class IPCHandlers {
               providerContentType(realByok),
               { model: route.model, language: route.language, ...(prompt ? { prompt } : {}) }
             );
+            handOff();
             const data = await postMultipart(
               new URL(route.endpoint),
               body,
@@ -8504,6 +8849,7 @@ class IPCHandlers {
               throw new Error("Corti credentials not configured. Add them in Settings.");
             }
             const { transcribeAudio } = require("./cortiTranscription");
+            handOff();
             const { text } = await transcribeAudio({
               environment: route.cortiEnvironment,
               tenant: route.cortiTenant,
@@ -8517,6 +8863,9 @@ class IPCHandlers {
           }
 
           if (route.transport === "proxied" && route.provider === "tinfoil") {
+            if (!apiKey?.trim())
+              throw new Error("No API key configured. Add your key in Settings.");
+            handOff();
             const { text } = await transcribeWithTinfoil({
               audioBuffer: fs.readFileSync(realByok),
               fileName: path.basename(realByok),
@@ -8530,8 +8879,11 @@ class IPCHandlers {
           }
 
           if (route.transport === "proxied" && route.provider === "gemini") {
+            if (!apiKey?.trim())
+              throw new Error("No API key configured. Add your key in Settings.");
             // Deliberately no language hint — same rationale as the multipart
             // branch below, and Gemini's language_codes is a hard constraint.
+            handOff();
             const { text } = await transcribeWithGemini({
               audioBuffer: fs.readFileSync(realByok),
               model: route.model,
@@ -8627,6 +8979,7 @@ class IPCHandlers {
                 ? { "api-key": apiKey }
                 : { Authorization: `Bearer ${apiKey}` }
             : undefined;
+          handOff();
           const data = await postMultipart(url, body, boundary, headers, { signal: job.signal });
 
           if (data.statusCode === 401) {
@@ -8823,616 +9176,6 @@ class IPCHandlers {
 
     ipcMain.handle("get-app-version", async () => {
       return app.getVersion();
-    });
-
-    const fetchAssemblyAiToken = (event) =>
-      fetchRealtimeToken(event, { mode: "byok", provider: "assemblyai-realtime" });
-
-    ipcMain.handle("assemblyai-streaming-warmup", async (event, options = {}) => {
-      try {
-        const byok = true;
-
-        if (!this.assemblyAiStreaming) {
-          this.assemblyAiStreaming = new AssemblyAiStreaming();
-        }
-        this.assemblyAiStreaming.adoptMode(options);
-
-        if (this.assemblyAiStreaming.hasWarmConnection()) {
-          debugLogger.debug("AssemblyAI connection already warm", {}, "streaming");
-          return { success: true, alreadyWarm: true };
-        }
-
-        let token = byok ? null : this.assemblyAiStreaming.getCachedToken();
-        if (!token) {
-          debugLogger.debug("Fetching new streaming token for warmup", { byok }, "streaming");
-          token = await fetchAssemblyAiToken(event, byok);
-        }
-
-        await this.assemblyAiStreaming.warmup({ ...options, token });
-        debugLogger.debug("AssemblyAI connection warmed up", {}, "streaming");
-
-        return { success: true };
-      } catch (error) {
-        debugLogger.error("AssemblyAI warmup error", { error: error.message });
-        return toPolicyFailure(error);
-      }
-    });
-
-    let streamingStartInProgress = false;
-
-    ipcMain.handle("assemblyai-streaming-start", async (event, options = {}) => {
-      if (streamingStartInProgress) {
-        debugLogger.debug("Streaming start already in progress, ignoring", {}, "streaming");
-        return { success: false, error: "Operation in progress" };
-      }
-
-      streamingStartInProgress = true;
-      try {
-        const byok = true;
-
-        const win = BrowserWindow.fromWebContents(event.sender);
-
-        if (!this.assemblyAiStreaming) {
-          this.assemblyAiStreaming = new AssemblyAiStreaming();
-        }
-        this.assemblyAiStreaming.adoptMode(options);
-
-        // Clean up any stale active connection (shouldn't happen normally)
-        if (this.assemblyAiStreaming.isConnected) {
-          debugLogger.debug(
-            "AssemblyAI cleaning up stale connection before start",
-            {},
-            "streaming"
-          );
-          await this.assemblyAiStreaming.disconnect(false);
-        }
-
-        const hasWarm = this.assemblyAiStreaming.hasWarmConnection();
-        debugLogger.debug(
-          "AssemblyAI streaming start",
-          { hasWarmConnection: hasWarm },
-          "streaming"
-        );
-
-        let token = byok ? null : this.assemblyAiStreaming.getCachedToken();
-        if (!token) {
-          debugLogger.debug("Fetching streaming token", { byok }, "streaming");
-          token = await fetchAssemblyAiToken(event, byok);
-          if (!byok) this.assemblyAiStreaming.cacheToken(token);
-        } else {
-          debugLogger.debug("Using cached streaming token", {}, "streaming");
-        }
-
-        // Set up callbacks to forward events to renderer
-        this.assemblyAiStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("assemblyai-partial-transcript", text);
-          }
-        };
-
-        this.assemblyAiStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("assemblyai-final-transcript", text);
-          }
-        };
-
-        this.assemblyAiStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("assemblyai-error", error.message);
-          }
-        };
-
-        this.assemblyAiStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("assemblyai-session-end", data);
-          }
-        };
-
-        await this.assemblyAiStreaming.connect({ ...options, token });
-        debugLogger.debug("AssemblyAI streaming started", {}, "streaming");
-
-        return {
-          success: true,
-          usedWarmConnection: this.assemblyAiStreaming.hasWarmConnection() === false,
-        };
-      } catch (error) {
-        debugLogger.error("AssemblyAI streaming start error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return streamingStartFailure(error);
-      } finally {
-        streamingStartInProgress = false;
-      }
-    });
-
-    ipcMain.on("assemblyai-streaming-send", (event, audioBuffer) => {
-      try {
-        if (!this.assemblyAiStreaming) return;
-        const buffer = Buffer.from(audioBuffer);
-        this.assemblyAiStreaming.sendAudio(buffer);
-      } catch (error) {
-        debugLogger.error("AssemblyAI streaming send error", { error: error.message });
-      }
-    });
-
-    ipcMain.on("assemblyai-streaming-force-endpoint", () => {
-      this.assemblyAiStreaming?.forceEndpoint();
-    });
-
-    ipcMain.handle("assemblyai-streaming-stop", async () => {
-      try {
-        let result = { text: "" };
-        if (this.assemblyAiStreaming) {
-          result = await this.assemblyAiStreaming.disconnect(true);
-          this.assemblyAiStreaming.cleanupAll();
-          this.assemblyAiStreaming = null;
-        }
-
-        return { success: true, text: result?.text || "" };
-      } catch (error) {
-        debugLogger.error("AssemblyAI streaming stop error", { error: error.message });
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("assemblyai-streaming-status", async () => {
-      if (!this.assemblyAiStreaming) {
-        return { isConnected: false, sessionId: null };
-      }
-      return this.assemblyAiStreaming.getStatus();
-    });
-
-    let deepgramTokenWindowId = null;
-
-    const DEEPGRAM_BYOK_TOKEN_OPTIONS = { mode: "byok", provider: "deepgram-realtime" };
-    const fetchDeepgramToken = (event) => fetchRealtimeToken(event, DEEPGRAM_BYOK_TOKEN_OPTIONS);
-    const setDeepgramTokenRefreshFn = (event) => {
-      this.deepgramStreaming.setTokenRefreshFn(() =>
-        fetchRealtimeToken(event, DEEPGRAM_BYOK_TOKEN_OPTIONS)
-      );
-    };
-
-    ipcMain.handle("deepgram-streaming-warmup", async (event, options = {}) => {
-      try {
-        const byok = true;
-
-        const win = BrowserWindow.fromWebContents(event.sender);
-        if (win && !win.isDestroyed()) {
-          deepgramTokenWindowId = win.id;
-        }
-
-        if (!this.deepgramStreaming) {
-          this.deepgramStreaming = new DeepgramStreaming();
-        }
-        this.deepgramStreaming.adoptMode(options);
-
-        setDeepgramTokenRefreshFn(event, byok);
-
-        if (this.deepgramStreaming.hasWarmConnection()) {
-          debugLogger.debug("Deepgram connection already warm", {}, "streaming");
-          return { success: true, alreadyWarm: true };
-        }
-
-        let token = byok ? null : this.deepgramStreaming.getCachedToken();
-        if (!token) {
-          debugLogger.debug(
-            "Fetching new Deepgram streaming token for warmup",
-            { byok },
-            "streaming"
-          );
-          token = await fetchDeepgramToken(event, byok);
-        }
-
-        await this.deepgramStreaming.warmup({ ...options, token });
-        debugLogger.debug("Deepgram connection warmed up", {}, "streaming");
-
-        return { success: true };
-      } catch (error) {
-        debugLogger.error("Deepgram warmup error", { error: error.message });
-        return toPolicyFailure(error);
-      }
-    });
-
-    let deepgramStreamingStartInProgress = false;
-    let sendDropCount = 0;
-
-    ipcMain.handle("deepgram-streaming-start", async (event, options = {}) => {
-      if (deepgramStreamingStartInProgress) {
-        debugLogger.debug(
-          "Deepgram streaming start already in progress, ignoring",
-          {},
-          "streaming"
-        );
-        return { success: false, error: "Operation in progress" };
-      }
-
-      deepgramStreamingStartInProgress = true;
-      try {
-        const byok = true;
-
-        const win = BrowserWindow.fromWebContents(event.sender);
-        if (win && !win.isDestroyed()) {
-          deepgramTokenWindowId = win.id;
-        }
-
-        if (!this.deepgramStreaming) {
-          this.deepgramStreaming = new DeepgramStreaming();
-        }
-        this.deepgramStreaming.adoptMode(options);
-
-        setDeepgramTokenRefreshFn(event, byok);
-
-        if (this.deepgramStreaming.isConnected) {
-          debugLogger.debug("Deepgram cleaning up stale connection before start", {}, "streaming");
-          await this.deepgramStreaming.disconnect(false);
-        }
-
-        const hasWarm = this.deepgramStreaming.hasWarmConnection();
-        debugLogger.debug("Deepgram streaming start", { hasWarmConnection: hasWarm }, "streaming");
-
-        let token = byok ? null : this.deepgramStreaming.getCachedToken();
-        if (!token) {
-          debugLogger.debug("Fetching Deepgram streaming token", { byok }, "streaming");
-          token = await fetchDeepgramToken(event, byok);
-          if (!byok) this.deepgramStreaming.cacheToken(token);
-        } else {
-          debugLogger.debug("Using cached Deepgram streaming token", {}, "streaming");
-        }
-
-        this.deepgramStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("deepgram-partial-transcript", text);
-          }
-        };
-
-        this.deepgramStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("deepgram-final-transcript", text);
-          }
-        };
-
-        this.deepgramStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("deepgram-error", error.message);
-          }
-        };
-
-        this.deepgramStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("deepgram-session-end", data);
-          }
-        };
-
-        sendDropCount = 0;
-        await this.deepgramStreaming.connect({ ...options, token });
-        debugLogger.debug(
-          "Deepgram streaming started",
-          {
-            isConnected: this.deepgramStreaming.isConnected,
-            hasWs: !!this.deepgramStreaming.ws,
-            wsReadyState: this.deepgramStreaming.ws?.readyState,
-            forceNew: !!options.forceNew,
-          },
-          "streaming"
-        );
-
-        return {
-          success: true,
-          usedWarmConnection: hasWarm && !options.forceNew,
-        };
-      } catch (error) {
-        debugLogger.error("Deepgram streaming start error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return streamingStartFailure(error);
-      } finally {
-        deepgramStreamingStartInProgress = false;
-      }
-    });
-
-    ipcMain.on("deepgram-streaming-send", (event, audioBuffer) => {
-      try {
-        if (!this.deepgramStreaming) return;
-        const buffer = Buffer.from(audioBuffer);
-        const sent = this.deepgramStreaming.sendAudio(buffer);
-        if (!sent) {
-          sendDropCount++;
-          if (sendDropCount <= 3 || sendDropCount % 50 === 0) {
-            debugLogger.warn(
-              "Deepgram audio send dropped",
-              {
-                dropCount: sendDropCount,
-                hasWs: !!this.deepgramStreaming.ws,
-                isConnected: this.deepgramStreaming.isConnected,
-                wsReadyState: this.deepgramStreaming.ws?.readyState,
-              },
-              "streaming"
-            );
-          }
-        } else {
-          if (sendDropCount > 0) {
-            debugLogger.debug(
-              "Deepgram audio send resumed after drops",
-              {
-                previousDrops: sendDropCount,
-              },
-              "streaming"
-            );
-            sendDropCount = 0;
-          }
-        }
-      } catch (error) {
-        debugLogger.error("Deepgram streaming send error", { error: error.message });
-      }
-    });
-
-    ipcMain.on("deepgram-streaming-finalize", () => {
-      this.deepgramStreaming?.finalize();
-    });
-
-    ipcMain.handle("deepgram-streaming-stop", async () => {
-      try {
-        const model = this.deepgramStreaming?.currentModel || "nova-3";
-        const audioBytesSent = this.deepgramStreaming?.audioBytesSent || 0;
-        let result = { text: "" };
-        if (this.deepgramStreaming) {
-          result = await this.deepgramStreaming.disconnect(true);
-        }
-
-        return { success: true, text: result?.text || "", model, audioBytesSent };
-      } catch (error) {
-        debugLogger.error("Deepgram streaming stop error", { error: error.message });
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("deepgram-streaming-status", async () => {
-      if (!this.deepgramStreaming) {
-        return { isConnected: false, sessionId: null };
-      }
-      return this.deepgramStreaming.getStatus();
-    });
-
-    let geminiStreamingStartInProgress = false;
-    let geminiSendDropCount = 0;
-    // One handshake at a time. A start that raced an in-flight warmup used to
-    // clear the cold-start buffer, spend a second single-use managed token and
-    // report success while the warmup's handshake (and its failure) were still
-    // pending on a promise nobody read.
-    let geminiConnectInFlight = null;
-
-    // Re-bound on every warmup/start so a warm socket promoted by a different
-    // window can never emit into the window that opened it.
-    const ensureGeminiStreaming = (event) => {
-      if (!this.geminiStreaming) {
-        this.geminiStreaming = new GeminiLiveStreaming();
-      }
-      const win = BrowserWindow.fromWebContents(event.sender);
-      const emit = (channel, payload) => {
-        if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
-      };
-      const streaming = this.geminiStreaming;
-      streaming.onPartialTranscript = (text) => emit("gemini-partial-transcript", text);
-      streaming.onFinalTranscript = (text) => emit("gemini-final-transcript", text);
-      streaming.onError = (error) => emit("gemini-error", error.message);
-      streaming.onSessionEnd = (data) => emit("gemini-session-end", data);
-      return streaming;
-    };
-
-    const connectGeminiStreaming = (event, options) => {
-      if (geminiConnectInFlight) return geminiConnectInFlight;
-      geminiConnectInFlight = (async () => {
-        const streaming = ensureGeminiStreaming(event);
-        // byok resolves to the raw API key, managed to a single-use ephemeral
-        // token; the client picks its Live method from `mode` accordingly.
-        const tokenOptions = { mode: options.mode, provider: "gemini-realtime" };
-        // Buffer before the token fetch (a real network round trip) so
-        // gemini-streaming-send has somewhere to put the first frames.
-        streaming.beginConnecting();
-        const token = await fetchRealtimeToken(event, tokenOptions);
-        await streaming.connect({
-          ...options,
-          token,
-          refreshToken: () => fetchRealtimeToken(event, tokenOptions),
-        });
-      })().finally(() => {
-        geminiConnectInFlight = null;
-      });
-      return geminiConnectInFlight;
-    };
-
-    ipcMain.handle("gemini-streaming-warmup", async (event, options = {}) => {
-      try {
-        if (this.geminiStreaming?.isConnected) {
-          ensureGeminiStreaming(event);
-          debugLogger.debug("Gemini Live connection already warm", {}, "streaming");
-          return { success: true, alreadyWarm: true };
-        }
-        await connectGeminiStreaming(event, options);
-        return { success: true };
-      } catch (error) {
-        debugLogger.error("Gemini streaming warmup error", { error: error.message });
-        return toPolicyFailure(error);
-      }
-    });
-
-    ipcMain.handle("gemini-streaming-start", async (event, options = {}) => {
-      if (geminiStreamingStartInProgress) {
-        debugLogger.debug("Gemini streaming start already in progress, ignoring", {}, "streaming");
-        return { success: false, error: "Operation in progress" };
-      }
-
-      geminiStreamingStartInProgress = true;
-      try {
-        const streaming = ensureGeminiStreaming(event);
-        if (geminiConnectInFlight) await geminiConnectInFlight;
-        const usedWarmConnection = streaming.isConnected && !options.forceNew;
-        if (!usedWarmConnection) {
-          if (streaming.isConnected) await streaming.disconnect(false);
-          await connectGeminiStreaming(event, options);
-        }
-        geminiSendDropCount = 0;
-        debugLogger.debug("Gemini streaming started", { usedWarmConnection }, "streaming");
-        return { success: true, usedWarmConnection };
-      } catch (error) {
-        debugLogger.error("Gemini streaming start error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return streamingStartFailure(error);
-      } finally {
-        geminiStreamingStartInProgress = false;
-      }
-    });
-
-    ipcMain.on("gemini-streaming-send", (_event, audioBuffer) => {
-      try {
-        if (!this.geminiStreaming) return;
-        const sent = this.geminiStreaming.sendAudio(Buffer.from(audioBuffer));
-        if (!sent) {
-          geminiSendDropCount++;
-          if (geminiSendDropCount <= 3 || geminiSendDropCount % 50 === 0) {
-            debugLogger.warn(
-              "Gemini audio send dropped",
-              {
-                dropCount: geminiSendDropCount,
-                isConnected: this.geminiStreaming.isConnected,
-                wsReadyState: this.geminiStreaming.ws?.readyState,
-              },
-              "streaming"
-            );
-          }
-        } else if (geminiSendDropCount > 0) {
-          debugLogger.debug(
-            "Gemini audio send resumed after drops",
-            { previousDrops: geminiSendDropCount },
-            "streaming"
-          );
-          geminiSendDropCount = 0;
-        }
-      } catch (error) {
-        debugLogger.error("Gemini streaming send error", { error: error.message });
-      }
-    });
-
-    ipcMain.on("gemini-streaming-finalize", () => {
-      this.geminiStreaming?.finalize();
-    });
-
-    ipcMain.handle("gemini-streaming-stop", async () => {
-      try {
-        const model = this.geminiStreaming?.currentModel || GEMINI_LIVE_MODEL;
-        const audioBytesSent = this.geminiStreaming?.audioBytesSent || 0;
-        let result = { text: "" };
-        if (this.geminiStreaming) {
-          result = await this.geminiStreaming.disconnect(true);
-        }
-
-        return { success: true, text: result?.text || "", model, audioBytesSent };
-      } catch (error) {
-        debugLogger.error("Gemini streaming stop error", { error: error.message });
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("gemini-streaming-status", async () => {
-      if (!this.geminiStreaming) {
-        return { isConnected: false, isConnecting: false };
-      }
-      return this.geminiStreaming.getStatus();
-    });
-
-    ipcMain.handle("corti-streaming-warmup", async (_event, options = {}) => {
-      try {
-        if (!this.cortiStreaming) {
-          this.cortiStreaming = new CortiStreaming();
-        }
-        if (this.cortiStreaming.hasWarmConnection() || this.cortiStreaming.isConnected) {
-          return { success: true, alreadyWarm: true };
-        }
-        const { token, environment, tenant } = await this._mintStoredCortiToken(options);
-        await this.cortiStreaming.warmup({
-          token,
-          environment,
-          tenant,
-          language: options.language,
-          keyterms: options.keyterms,
-        });
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message, code: error.code };
-      }
-    });
-
-    ipcMain.handle("corti-streaming-start", async (event, options = {}) => {
-      try {
-        if (!this.cortiStreaming) {
-          this.cortiStreaming = new CortiStreaming();
-        }
-        if (this.cortiStreaming.isConnected) {
-          await this.cortiStreaming.disconnect(false);
-        }
-
-        const { token, environment, tenant } = await this._mintStoredCortiToken(options);
-        const win = BrowserWindow.fromWebContents(event.sender);
-
-        this.cortiStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-partial-transcript", text);
-        };
-        this.cortiStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-final-transcript", text);
-        };
-        this.cortiStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-error", error.message);
-        };
-        this.cortiStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-session-end", data);
-        };
-
-        await this.cortiStreaming.connect({
-          token,
-          environment,
-          tenant,
-          language: options.language,
-          keyterms: options.keyterms,
-        });
-        return { success: true };
-      } catch (error) {
-        debugLogger.error("Corti streaming start error", { error: error.message }, "streaming");
-        return { success: false, error: error.message, code: error.code };
-      }
-    });
-
-    ipcMain.on("corti-streaming-send", (_event, audioBuffer) => {
-      this.cortiStreaming?.sendAudio(Buffer.from(audioBuffer));
-    });
-
-    ipcMain.on("corti-streaming-finalize", () => {
-      this.cortiStreaming?.finalize();
-    });
-
-    ipcMain.handle("corti-streaming-stop", async () => {
-      try {
-        const model = this.cortiStreaming?.currentModel || "corti-transcribe";
-        const audioBytesSent = this.cortiStreaming?.audioBytesSent || 0;
-        let result = { text: "" };
-        if (this.cortiStreaming) {
-          result = await this.cortiStreaming.disconnect(true);
-        }
-        return { success: true, text: result?.text || "", model, audioBytesSent };
-      } catch (error) {
-        debugLogger.error("Corti streaming stop error", { error: error.message }, "streaming");
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("corti-streaming-status", async () => {
-      if (!this.cortiStreaming) {
-        return { isConnected: false, sessionId: null };
-      }
-      return this.cortiStreaming.getStatus();
     });
 
     // Agent mode handlers

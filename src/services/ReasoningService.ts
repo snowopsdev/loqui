@@ -63,6 +63,7 @@ class ReasoningService extends BaseReasoningService {
     return {
       requestId: crypto.randomUUID(),
       correlationId: config.correlationId ?? null,
+      disclosureTask: config.disclosureTask ?? null,
       dictationOperation: config.dictationOperation === true ? true : undefined,
       dictationSessionId: config.dictationSessionId ?? null,
       enterpriseRecipientTag: config.enterpriseRecipientTag ?? null,

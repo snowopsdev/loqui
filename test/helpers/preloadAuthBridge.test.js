@@ -188,3 +188,35 @@ test("dictation streaming send and stop preserve optional exact operation identi
     assert.deepEqual(invocations.at(-1), [`${prefix}-stop`, operation]);
   }
 });
+
+test("dictation streaming bridge preserves fresh operation identity for every control", async () => {
+  const { api, invocations, sends, listeners } = loadPreloadApi({ success: true });
+  const identity = { correlationId: "rec", dictationSessionId: "rec", operationId: "attempt" };
+  const buffer = new ArrayBuffer(4);
+  for (const [stem, channel] of [
+    ["dictationRealtime", "dictation-realtime"],
+    ["assemblyAiStreaming", "assemblyai-streaming"],
+    ["deepgramStreaming", "deepgram-streaming"],
+    ["geminiStreaming", "gemini-streaming"],
+    ["cortiStreaming", "corti-streaming"],
+  ]) {
+    await api[`${stem}Start`](identity);
+    api[`${stem}Send`](buffer, identity);
+    await api[`${stem}Cancel`](identity);
+    await api[`${stem}Stop`](identity);
+    assert.equal(invocations.at(-3)[0], `${channel}-start`);
+    assert.equal(invocations.at(-3)[1], identity);
+    assert.equal(invocations.at(-2)[0], `${channel}-cancel`);
+    assert.equal(invocations.at(-2)[1], identity);
+    assert.equal(invocations.at(-1)[0], `${channel}-stop`);
+    assert.equal(invocations.at(-1)[1], identity);
+    assert.equal(sends.at(-1)[2], identity);
+  }
+  let received;
+  const off = api.onDictationDispatch((value) => (received = value));
+  const receipt = { correlationId: "rec", task: "dictationStt", payload: "audio" };
+  listeners.get("dictation-dispatch")({}, receipt);
+  assert.equal(received, receipt);
+  off();
+  assert.equal(listeners.has("dictation-dispatch"), false);
+});

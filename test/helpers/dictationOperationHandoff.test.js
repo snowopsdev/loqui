@@ -71,7 +71,7 @@ function detachThenApply(manager, changeTheWorld) {
   assert.equal(manager.activeSession, null);
   assert.equal(held.context.released, false, "the reads survive the cancel");
   changeTheWorld();
-  manager.applySessionIntents(held.session, { context: held.context });
+  manager.applySessionIntents(held.session, { context: held.context, tracker: held.tracker });
   return held;
 }
 

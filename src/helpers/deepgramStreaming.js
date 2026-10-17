@@ -1,3 +1,9 @@
+const {
+  egressOpen,
+  discardPendingAudio,
+  zeroAudio,
+  sendContentFrame,
+} = require("./streamingHandOff");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -84,6 +90,22 @@ const urlIdentity = (options) =>
   ]);
 
 class DeepgramStreaming {
+  setLifecycleGate(gate) {
+    this._lifecycleGate = gate;
+  }
+  _lifecycleOpen() {
+    return this._lifecycleGate?.() !== false;
+  }
+  setEgressGate(gate) {
+    this._egressGate = gate;
+  }
+  discardPendingAudio() {
+    discardPendingAudio(this);
+  }
+  _egressOpen() {
+    return egressOpen(this);
+  }
+
   constructor() {
     this.ws = null;
     this.sessionId = null;
@@ -240,6 +262,10 @@ class DeepgramStreaming {
   }
 
   async warmup(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const { token } = options;
     if (!token) {
       throw new Error("Streaming token is required for warmup");
@@ -569,47 +595,46 @@ class DeepgramStreaming {
 
   async handleLivenessTimeout() {
     if (this.resultsReceived > 0 || !this.isConnected) return;
-
     const gen = this._generation;
     const savedReplay = this.replayBuffer;
-
+    this.replayBuffer = [];
     debugLogger.warn("Deepgram warm connection unresponsive, reconnecting", {
       audioBytesSent: this.audioBytesSent,
     });
-
     this.isDisconnecting = true;
     this.cleanup();
     this.isDisconnecting = false;
-
-    if (gen !== this._generation) return;
-
-    let token = this.getCachedToken();
-    if (!token && this.tokenRefreshFn) {
-      try {
-        token = await this.tokenRefreshFn();
-        if (token) this.cacheToken(token);
-      } catch (err) {
-        debugLogger.error("Deepgram reconnect token refresh failed", { error: err.message });
-        return;
-      }
-    }
-    if (!token) return;
-    if (gen !== this._generation) return;
-
+    this._reconnectingAudio = savedReplay;
+    let transferred = false;
     try {
+      if (gen !== this._generation || !this._egressOpen()) return;
+      let token = this.getCachedToken();
+      if (!token && this.tokenRefreshFn) token = await this.tokenRefreshFn();
+      if (!token || gen !== this._generation || !this._egressOpen() || !this._lifecycleOpen())
+        return;
+      this.cacheToken(token);
       await this.connect({
         ...this.connectionOptions,
         token,
         replayBuffer: savedReplay,
         forceNew: true,
       });
+      // connect now owns these bytes in its cold-start queue (or has sent them).
+      transferred = true;
       debugLogger.debug("Deepgram liveness reconnect succeeded");
     } catch (err) {
       debugLogger.error("Deepgram liveness reconnect failed", { error: err.message });
+    } finally {
+      if (!transferred) for (const frame of savedReplay) zeroAudio(frame);
+      this._reconnectingAudio = null;
     }
   }
 
   async connect(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const { token, replayBuffer, forceNew } = options;
     if (!token) {
       throw new Error("Streaming token is required");
@@ -785,6 +810,7 @@ class DeepgramStreaming {
           if (this.livenessTimer) {
             clearTimeout(this.livenessTimer);
             this.livenessTimer = null;
+            for (const frame of this.replayBuffer) zeroAudio(frame);
             this.replayBuffer = [];
             this.replayBufferSize = 0;
           }
@@ -834,6 +860,10 @@ class DeepgramStreaming {
   }
 
   sendAudio(pcmBuffer) {
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
     if (!this.ws) {
       if (this.audioBytesSent === 0 && pcmBuffer.length > 0) {
         debugLogger.warn("Deepgram sendAudio: ws is null, audio dropped", {
@@ -868,7 +898,8 @@ class DeepgramStreaming {
         bytes: this.coldStartBufferSize,
       });
       for (const buf of this.coldStartBuffer) {
-        this.ws.send(buf);
+        sendContentFrame(this, buf);
+        zeroAudio(buf);
       }
       this.coldStartBuffer = [];
       this.coldStartBufferSize = 0;
@@ -881,7 +912,7 @@ class DeepgramStreaming {
     }
 
     this.audioBytesSent += pcmBuffer.length;
-    this.ws.send(pcmBuffer);
+    sendContentFrame(this, pcmBuffer);
     return true;
   }
 
@@ -944,6 +975,7 @@ class DeepgramStreaming {
   }
 
   cleanup() {
+    this.discardPendingAudio();
     this.stopKeepAlive();
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;

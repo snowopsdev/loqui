@@ -157,3 +157,128 @@ test("absent routing and prompts stay absent; mutable intent context is detached
   assert.equal(view.cleanupCloudBaseUrl, undefined);
   assert.equal(view.voiceAgentScreenContext, undefined);
 });
+
+const { loadAudioManager, realSettingsStoreSource } = require("./harness/audioManager");
+test("the session resolves its routes through Plan 03's reader: local, provider, network and unknown facts", async (t) => {
+  const { vite, captureDictationSession } = await load(t);
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { useRouteFactsStore, EMPTY_ROUTE_FACTS } = await vite.ssrLoadModule(
+    "/stores/routeFactsStore.ts"
+  );
+  const { useSealedStore } = await vite.ssrLoadModule("/stores/sealedStore.ts");
+  const base = useSettingsStore.getState();
+  const routesFor = (overrides) =>
+    captureDictationSession({
+      settings: { ...base, ...overrides },
+      intents: {},
+      agentName: "Loqui",
+    }).routes;
+  // The overlay window may never load route facts: every fact unknown.
+  useRouteFactsStore.setState({ facts: EMPTY_ROUTE_FACTS });
+
+  const provider = routesFor({
+    transcriptionMode: "providers",
+    useLocalWhisper: false,
+    cloudTranscriptionProvider: "openai",
+    cloudTranscriptionModel: "whisper-1",
+  });
+  assert.deepEqual(Object.keys(provider).sort(), [
+    "assistantVision",
+    "dictationCleanup",
+    "dictationStt",
+    "translation",
+    "voiceAssistant",
+  ]);
+  assert.equal(provider.dictationStt.locality, "remote");
+  assert.equal(provider.dictationStt.providerId, "openai");
+  assert.equal(
+    provider.dictationStt.state.status,
+    "unknown",
+    "unknown facts are not ready, and the locality still holds"
+  );
+
+  const local = routesFor({
+    transcriptionMode: "local",
+    useLocalWhisper: true,
+    localTranscriptionProvider: "whisper",
+    whisperModel: "base",
+    useCleanupModel: true,
+    cleanupMode: "local",
+    cleanupModel: "qwen3.5-2b-q4_k_m",
+  });
+  assert.equal(local.dictationStt.locality, "device");
+  assert.equal(local.dictationCleanup.locality, "device");
+
+  const network = routesFor({
+    transcriptionMode: "self-hosted",
+    useLocalWhisper: false,
+    remoteTranscriptionUrl: "http://192.168.1.20:8080",
+    remoteTranscriptionModel: "whisper-1",
+  });
+  assert.equal(network.dictationStt.locality, "network");
+  const loopback = routesFor({
+    transcriptionMode: "self-hosted",
+    useLocalWhisper: false,
+    remoteTranscriptionUrl: "http://127.0.0.1:8080",
+    remoteTranscriptionModel: "whisper-1",
+  });
+  assert.equal(loopback.dictationStt.locality, "device", "§5.1 rule 10");
+
+  const agent = routesFor({
+    useDictationAgent: true,
+    dictationAgentMode: "providers",
+    dictationAgentProvider: "anthropic",
+    dictationAgentModel: "claude-sonnet-5",
+  });
+  assert.equal(agent.voiceAssistant.locality, "remote");
+  assert.equal(agent.voiceAssistant.providerId, "anthropic");
+
+  useSealedStore.setState({ sealed: true, known: true });
+  const sealed = routesFor({
+    transcriptionMode: "providers",
+    useLocalWhisper: false,
+    cloudTranscriptionProvider: "openai",
+    cloudTranscriptionModel: "whisper-1",
+  });
+  assert.deepEqual(sealed.dictationStt.state, { status: "unreachable", detail: "sealed" });
+});
+
+test("a route reader failure never blocks a dictation: the session starts without routes", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-dictation-session-reader-failure-",
+    mockModules: {
+      "/lib/routes": `
+        export function routeSnapshotFromSettings() { throw new Error("route facts unavailable"); }
+        export function resolveRoute() { throw new Error("unreachable"); }
+      `,
+    },
+  });
+  const { captureDictationSession } = await vite.ssrLoadModule("/helpers/dictationSession.js");
+  const session = captureDictationSession({
+    settings: { useLocalWhisper: true },
+    intents: {},
+    agentName: "Loqui",
+    id: "rec-x",
+  });
+  assert.equal(session.id, "rec-x");
+  assert.equal(session.routes, null, "the tracker then discloses toward an unknown provider");
+});
+
+test("AudioManager's start path builds the session against the merged route module", async (t) => {
+  const loaded = await loadAudioManager(t, {
+    cachePrefix: "loqui-session-routes-",
+    settingsKey: "__sessionRoutesSettings",
+    settings: {
+      transcriptionMode: "providers",
+      useLocalWhisper: false,
+      cloudTranscriptionProvider: "groq",
+      cloudTranscriptionModel: "whisper-large-v3",
+    },
+    mockModules: { "/stores/settingsStore": realSettingsStoreSource("__sessionRoutesSettings") },
+  });
+  const session = loaded.createManager().beginDictationSession({});
+  assert.equal(session.routes.dictationStt.locality, "remote");
+  assert.equal(session.routes.dictationStt.providerId, "groq");
+  assert.equal(Object.isFrozen(session.routes.dictationStt), true);
+});

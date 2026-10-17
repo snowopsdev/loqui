@@ -335,3 +335,26 @@ Voice notices use the same stack: cleanup failure is an amber notice with Retry 
 - **Don't** swap orange and fuchsia roles or make both accents compete for the live-voice signal.
 - **Don't** rely on shadow alone to distinguish dark surfaces; use the existing tonal layers and borders.
 - **Don't** use movement as the only cue for recording, processing, selection, focus, or error states.
+
+### Dictation disclosure and streaming ownership
+
+Dictation captures its five resolved routes at the recording press. Main sends a
+`dictation-dispatch` receipt immediately before an admitted content request or the
+first audio frame leaves. A connected or warmed socket is not evidence. Without
+a main egress feed, captions say “may have received”; conditional future egress
+notices may support “already received”. Metadata never counts. Every recipient
+is named, and mixed evidence uses conservative wording with separate payload and
+ticket accounting. No current Sealed or network attestation is implied.
+
+Streaming admission binds the requesting window, a fresh attempt identity, main
+operation generation, exact adapter, frozen configuration and main credential
+authority. A warm transport is reused only for a matching authority. Pre-admission
+frames cannot leave, and stale or foreign Send, Finalize, Stop and Cancel cannot
+control a replacement operation. Cancel closes the operation's content gate
+synchronously. Mutable adapter queues and remainders are overwritten on cancel
+and terminal cleanup; bytes borrowed by an in-flight socket send are overwritten
+when its completion returns ownership. Escaped transport/browser copies cannot
+be recalled. Meeting transports retain their separate compatibility path.
+
+RAM hold, replay and the Undo deadline are the following task's integration;
+this transport layer does not claim those features are complete.

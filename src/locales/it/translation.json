@@ -4236,7 +4236,20 @@
     "errors": {
       "recipientUnknown": "Non è stato possibile verificare la destinazione di questa registrazione. Le tue parole sono conservate. Ripristina la destinazione originale nelle impostazioni per riprovare, oppure avvia una nuova registrazione.",
       "recipientChanged": "Questa registrazione mantiene la destinazione originale. Le tue parole sono conservate. Ripristina quella destinazione nelle impostazioni per riprovare, oppure avvia una nuova registrazione.",
-      "recipientTitle": "Destinazione della registrazione non disponibile"
+      "recipientTitle": "Destinazione della registrazione non disponibile",
+      "streamingUnavailable": "Impossibile avviare la trascrizione in tempo reale per questa registrazione. Controlla il fornitore selezionato nelle Impostazioni e riprova."
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} ha già ricevuto audio.",
+      "remoteText": "{{provider}} ha già ricevuto testo.",
+      "remoteImage": "{{provider}} ha già ricevuto un’immagine.",
+      "remoteSeveral": "{{provider}} ha già ricevuto parte di questa dettatura.",
+      "mayHaveAudio": "{{provider}} potrebbe aver ricevuto audio.",
+      "mayHaveText": "{{provider}} potrebbe aver ricevuto testo.",
+      "mayHaveImage": "{{provider}} potrebbe aver ricevuto un’immagine.",
+      "mayHaveSeveral": "{{provider}} potrebbe aver ricevuto parte di questa dettatura."
     }
   }
 }

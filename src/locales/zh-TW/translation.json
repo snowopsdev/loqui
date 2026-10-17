@@ -4202,7 +4202,20 @@
     "errors": {
       "recipientUnknown": "無法驗證此錄音的傳送目標。您的文字已保留。請在設定中恢復原始目標後重試，或開始新錄音。",
       "recipientChanged": "此錄音已固定使用開始錄音時的傳送目標。您的文字已保留。請在設定中恢復該目標後重試，或開始新錄音。",
-      "recipientTitle": "錄音傳送目標無法使用"
+      "recipientTitle": "錄音傳送目標無法使用",
+      "streamingUnavailable": "無法為本次錄音啟動即時轉寫。請在設定中檢查所選供應商，然後再試一次。"
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} 已收到音訊。",
+      "remoteText": "{{provider}} 已收到文字。",
+      "remoteImage": "{{provider}} 已收到圖片。",
+      "remoteSeveral": "{{provider}} 已收到本次聽寫的部分內容。",
+      "mayHaveAudio": "{{provider}} 可能已收到音訊。",
+      "mayHaveText": "{{provider}} 可能已收到文字。",
+      "mayHaveImage": "{{provider}} 可能已收到圖片。",
+      "mayHaveSeveral": "{{provider}} 可能已收到本次聽寫的部分內容。"
     }
   }
 }

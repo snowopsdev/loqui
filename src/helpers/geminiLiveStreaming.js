@@ -1,3 +1,9 @@
+const {
+  egressOpen,
+  discardPendingAudio,
+  zeroAudio,
+  sendContentFrame,
+} = require("./streamingHandOff");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 const { computePcm16Rms } = require("../utils/audioUtils");
@@ -61,6 +67,22 @@ function closeFrameError(code) {
 }
 
 class GeminiLiveStreaming {
+  setLifecycleGate(gate) {
+    this._lifecycleGate = gate;
+  }
+  _lifecycleOpen() {
+    return this._lifecycleGate?.() !== false;
+  }
+  setEgressGate(gate) {
+    this._egressGate = gate;
+  }
+  discardPendingAudio() {
+    discardPendingAudio(this);
+  }
+  _egressOpen() {
+    return egressOpen(this);
+  }
+
   constructor() {
     this.ws = null;
     this.isConnected = false;
@@ -90,6 +112,7 @@ class GeminiLiveStreaming {
   // Starts buffering audio before the socket exists, covering the token fetch
   // and the 350ms-1.4s handshake so sendAudio() doesn't drop the first words.
   beginConnecting() {
+    this.discardPendingAudio();
     this.bufferingAudio = true;
     this.coldStartBuffer = [];
     this.coldStartBufferSize = 0;
@@ -126,6 +149,10 @@ class GeminiLiveStreaming {
   }
 
   async connect(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const { token, mode, refreshToken } = options;
     if (!token) {
       throw Object.assign(new Error("Gemini API key not configured. Add your key in Settings."), {
@@ -157,6 +184,12 @@ class GeminiLiveStreaming {
   }
 
   _openSocket(options) {
+    if (!this._lifecycleOpen())
+      return Promise.reject(
+        Object.assign(new Error("Streaming operation ended"), {
+          messageKey: "voiceOverlay.errors.streamingUnavailable",
+        })
+      );
     const url = this.buildWebSocketUrl(options);
     debugLogger.debug("Gemini Live connecting", {
       mode: options.mode === "byok" ? "byok" : "openwhispr",
@@ -350,7 +383,12 @@ class GeminiLiveStreaming {
   }
 
   _sendAudioFrame(pcmBuffer) {
-    this.ws.send(
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
+    sendContentFrame(
+      this,
       JSON.stringify({
         realtimeInput: {
           audio: { data: pcmBuffer.toString("base64"), mimeType: `audio/pcm;rate=${SAMPLE_RATE}` },
@@ -362,6 +400,10 @@ class GeminiLiveStreaming {
   }
 
   sendAudio(pcmBuffer) {
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
     // The capture worklet ends its stream with a "flushed" string sentinel;
     // only s16 PCM (even byte length) is audio, and only audioStreamEnd closes
     // a Gemini turn.
@@ -382,6 +424,10 @@ class GeminiLiveStreaming {
   }
 
   _flushColdStartBuffer() {
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
     if (this.coldStartBuffer.length === 0) return;
     debugLogger.debug("Gemini Live flushing cold-start buffer", {
       chunks: this.coldStartBuffer.length,
@@ -389,6 +435,7 @@ class GeminiLiveStreaming {
     });
     for (const buffered of this.coldStartBuffer) {
       this._sendAudioFrame(buffered);
+      zeroAudio(buffered);
     }
     this.coldStartBuffer = [];
     this.coldStartBufferSize = 0;
@@ -460,6 +507,7 @@ class GeminiLiveStreaming {
   }
 
   cleanup() {
+    this.discardPendingAudio();
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
     this.stopKeepAlive();

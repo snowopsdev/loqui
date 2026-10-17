@@ -1,5 +1,6 @@
-/** Internal identity carried through dictation transport controls; main admission is Task7. */
+/** Fresh dictation attempt identity; main binds it to one sender, generation and adapter. */
 export interface DictationStreamingOperationOptions {
+  operationId?: string;
   correlationId?: string | null;
   dictationSessionId?: string | null;
 }
@@ -108,7 +109,7 @@ interface OperationFailureMetadata {
 // it (built by dictationStreamingRouting.buildStreamingSessionOptions); the
 // main process defaults a missing value to "openai-realtime" for pre-1.8.4
 // renderers (#1624).
-interface DictationRealtimeSessionOptions {
+interface DictationRealtimeSessionOptions extends DictationStreamingOperationOptions {
   provider: string;
   model?: string;
   mode?: "byok" | "openwhispr";
@@ -1962,6 +1963,9 @@ declare global {
       ) => () => void;
 
       // BYOK audio file transcription
+      onDictationDispatch?: (
+        callback: (dispatch: import("./dictation").DictationDispatch) => void
+      ) => () => void;
       transcribeAudioFileByok?: (options: {
         filePath?: string;
         audioBuffer?: ArrayBuffer;
@@ -1996,15 +2000,23 @@ declare global {
           alreadyWarm?: boolean;
         } & OperationFailureMetadata
       >;
-      assemblyAiStreamingStart?: (options?: { sampleRate?: number; language?: string }) => Promise<
+      assemblyAiStreamingStart?: (
+        options?: DictationStreamingOperationOptions & { sampleRate?: number; language?: string }
+      ) => Promise<
         {
           success: boolean;
           usedWarmConnection?: boolean;
         } & OperationFailureMetadata
       >;
-      assemblyAiStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      assemblyAiStreamingForceEndpoint?: () => void;
-      assemblyAiStreamingStop?: () => Promise<{
+      assemblyAiStreamingSend?: (
+        audioBuffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      assemblyAiStreamingForceEndpoint?: (operation?: DictationStreamingOperationOptions) => void;
+      assemblyAiStreamingCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      assemblyAiStreamingStop?: (operation?: DictationStreamingOperationOptions) => Promise<{
         success: boolean;
         text?: string;
         error?: string;
@@ -2137,19 +2149,27 @@ declare global {
         error?: string;
         code?: string;
       }>;
-      deepgramStreamingStart?: (options?: {
-        sampleRate?: number;
-        language?: string;
-        forceNew?: boolean;
-      }) => Promise<
+      deepgramStreamingStart?: (
+        options?: DictationStreamingOperationOptions & {
+          sampleRate?: number;
+          language?: string;
+          forceNew?: boolean;
+        }
+      ) => Promise<
         {
           success: boolean;
           usedWarmConnection?: boolean;
         } & OperationFailureMetadata
       >;
-      deepgramStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      deepgramStreamingFinalize?: () => void;
-      deepgramStreamingStop?: () => Promise<{
+      deepgramStreamingSend?: (
+        audioBuffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      deepgramStreamingFinalize?: (operation?: DictationStreamingOperationOptions) => void;
+      deepgramStreamingCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      deepgramStreamingStop?: (operation?: DictationStreamingOperationOptions) => Promise<{
         success: boolean;
         text?: string;
         error?: string;
@@ -2180,9 +2200,15 @@ declare global {
           error?: string;
         } & OperationFailureMetadata
       >;
-      geminiStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      geminiStreamingFinalize?: () => void;
-      geminiStreamingStop?: () => Promise<{
+      geminiStreamingSend?: (
+        audioBuffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      geminiStreamingFinalize?: (operation?: DictationStreamingOperationOptions) => void;
+      geminiStreamingCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      geminiStreamingStop?: (operation?: DictationStreamingOperationOptions) => Promise<{
         success: boolean;
         text?: string;
         model?: string;
@@ -2202,15 +2228,23 @@ declare global {
         language?: string;
         keyterms?: string[];
       }) => Promise<{ success: boolean } & OperationFailureMetadata>;
-      cortiStreamingStart?: (options?: {
-        environment?: string;
-        tenant?: string;
-        language?: string;
-        keyterms?: string[];
-      }) => Promise<{ success: boolean } & OperationFailureMetadata>;
-      cortiStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      cortiStreamingFinalize?: () => void;
-      cortiStreamingStop?: () => Promise<{
+      cortiStreamingStart?: (
+        options?: DictationStreamingOperationOptions & {
+          environment?: string;
+          tenant?: string;
+          language?: string;
+          keyterms?: string[];
+        }
+      ) => Promise<{ success: boolean } & OperationFailureMetadata>;
+      cortiStreamingSend?: (
+        audioBuffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      cortiStreamingFinalize?: (operation?: DictationStreamingOperationOptions) => void;
+      cortiStreamingCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      cortiStreamingStop?: (operation?: DictationStreamingOperationOptions) => Promise<{
         success: boolean;
         text?: string;
         model?: string;
@@ -2454,8 +2488,16 @@ declare global {
       dictationRealtimeStart?: (
         options: DictationRealtimeSessionOptions
       ) => Promise<{ success: boolean } & OperationFailureMetadata>;
-      dictationRealtimeSend?: (buffer: ArrayBuffer) => void;
-      dictationRealtimeStop?: () => Promise<{ success: boolean; text: string }>;
+      dictationRealtimeSend?: (
+        buffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      dictationRealtimeCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      dictationRealtimeStop?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; text: string }>;
       onDictationRealtimePartial?: (callback: (text: string) => void) => () => void;
       onDictationRealtimeFinal?: (callback: (text: string) => void) => () => void;
       onDictationRealtimeError?: (callback: (error: string) => void) => () => void;

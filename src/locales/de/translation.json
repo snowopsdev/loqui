@@ -4229,7 +4229,20 @@
     "errors": {
       "recipientUnknown": "Das Ziel dieser Aufnahme konnte nicht bestätigt werden. Deine Worte bleiben erhalten. Stelle zum Wiederholen das ursprüngliche Ziel in den Einstellungen wieder her oder starte eine neue Aufnahme.",
       "recipientChanged": "Diese Aufnahme ist an ihr ursprüngliches Ziel gebunden. Deine Worte bleiben erhalten. Stelle zum Wiederholen dieses Ziel in den Einstellungen wieder her oder starte eine neue Aufnahme.",
-      "recipientTitle": "Aufnahmeziel nicht verfügbar"
+      "recipientTitle": "Aufnahmeziel nicht verfügbar",
+      "streamingUnavailable": "Die Live-Transkription konnte für diese Aufnahme nicht gestartet werden. Prüfe den ausgewählten Anbieter in den Einstellungen und versuche es erneut."
+    }
+  },
+  "pill": {
+    "caption": {
+      "remoteAudio": "{{provider}} hat bereits Audio erhalten.",
+      "remoteText": "{{provider}} hat bereits Text erhalten.",
+      "remoteImage": "{{provider}} hat bereits ein Bild erhalten.",
+      "remoteSeveral": "{{provider}} hat bereits einen Teil dieses Diktats erhalten.",
+      "mayHaveAudio": "{{provider}} hat möglicherweise Audio erhalten.",
+      "mayHaveText": "{{provider}} hat möglicherweise Text erhalten.",
+      "mayHaveImage": "{{provider}} hat möglicherweise ein Bild erhalten.",
+      "mayHaveSeveral": "{{provider}} hat möglicherweise einen Teil dieses Diktats erhalten."
     }
   }
 }

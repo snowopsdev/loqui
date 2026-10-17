@@ -320,3 +320,31 @@ for (const action of ["cancel", "unmount"]) {
     assert.equal(f.calls.providerStarts.length, 0);
   });
 }
+
+test("an immediate provider start refusal stays handled while mic recovery is awaiting", async (t) => {
+  const f = await fixture(t);
+  const gate = deferred(),
+    entered = deferred();
+  f.manager.fixtureProvider.start = async () => {
+    throw Error("Synthetic start refusal");
+  };
+  f.manager.beginMicRecovery = async () => {
+    entered.resolve();
+    await gate.promise;
+  };
+  let starting;
+  await React.act(async () => {
+    starting = f.hook().startRecording();
+  });
+  await React.act(async () => {
+    f.visuals.shift()();
+    await entered.promise;
+  });
+  // Cross a macrotask while the provider's rejection is already settled.
+  await new Promise((resolve) => setImmediate(resolve));
+  await React.act(async () => {
+    gate.resolve();
+    assert.equal(await starting, false);
+  });
+  assert.equal(f.manager.isRecording, false);
+});

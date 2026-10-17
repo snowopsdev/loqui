@@ -170,14 +170,19 @@ async function mount(t, initialSection = "llms/supportModels", assistantEnabled 
     const pageNode = find(modal, (n) => "onNavigateToSection" in (n.props ?? {}));
     return pageNode ? React.createElement(PageProbe, { node: pageNode }) : null;
   }
+  const anchorListeners = new Map();
   const anchor = {
     dataset: {},
     scrolled: [],
     scrollIntoView(o) {
       this.scrolled.push(o);
     },
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(type, listener) {
+      anchorListeners.set(type, listener);
+    },
+    removeEventListener(type, listener) {
+      if (anchorListeners.get(type) === listener) anchorListeners.delete(type);
+    },
   };
   const agentAnchors = Object.fromEntries(
     ["assistantEnabled", "screenContext"].map((id) => [
@@ -213,6 +218,8 @@ async function mount(t, initialSection = "llms/supportModels", assistantEnabled 
     selected,
     support: () => support,
     anchor,
+    anchorListeners,
+    pendingFrames: () => queue.size,
     agentAnchors,
     beforeRoute,
     permissions: () => permissionRequests,
@@ -389,4 +396,42 @@ test("[baseline guard] closing during the gated-row wait cancels the prerequisit
   await h.frames();
   assert.equal(h.agentAnchors.assistantEnabled.scrolled.length, 0);
   assert.equal(h.agentAnchors.assistantEnabled.dataset.flash, undefined);
+});
+
+test("[change-driving FIX1] actual modal query hiding and direct clearing retire its landed cue without remounting", async (t) => {
+  const h = await mount(t);
+  await h.query("speaker");
+  await h.jump();
+  await h.frames();
+  assert.equal(h.anchor.dataset.flash, "true");
+  assert.equal(h.anchorListeners.size, 1);
+  await h.query("mic");
+  assert.ok(find(h.modal().children, (node) => node.props?.className === "hidden"));
+  assert.equal(
+    h.anchor.dataset.flash,
+    undefined,
+    "the actual hidden wrapper has no owned cue to replay"
+  );
+  assert.equal(h.anchorListeners.size, 0);
+  await h.query("");
+  await h.frames();
+  assert.equal(h.anchor.dataset.flash, undefined);
+  assert.equal(h.anchor.scrolled.length, 1);
+  assert.equal(h.stats().pageMounts, 1);
+  assert.equal(h.stats().supportMounts, 1);
+  assert.equal(h.stats().supportUnmounts, 0);
+});
+
+test("[change-driving FIX1] actual modal query hides before pending landing and direct clear never relands", async (t) => {
+  const h = await mount(t);
+  await h.query("speaker");
+  await h.jump();
+  assert.equal(h.pendingFrames(), 1);
+  await h.query("mic");
+  assert.equal(h.pendingFrames(), 0);
+  await h.query("");
+  await h.frames();
+  assert.equal(h.anchor.scrolled.length, 0);
+  assert.equal(h.anchor.dataset.flash, undefined);
+  assert.equal(h.anchorListeners.size, 0);
 });

@@ -58,6 +58,12 @@ export function useSettingsSearch({
   const activeId = activeEntry?.id ?? null;
 
   const setQuery = useCallback((next: string) => {
+    if (next) {
+      // Retire the cue before search hides the page; interrupted animations may never end.
+      cancelLanding.current?.();
+      cancelLanding.current = undefined;
+      setPendingAnchor(null);
+    }
     setQueryState(next);
     setActiveIndex(0);
   }, []);

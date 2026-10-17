@@ -163,3 +163,113 @@ test("[change-driving] search state, shortcuts, jump and Esc (mounted)", async (
     }
   );
 });
+
+async function mountProductionLanding(t) {
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  const container = installHookDom(t);
+  const listeners = new Map();
+  const element = {
+    dataset: {},
+    offsetWidth: 0,
+    scrolled: [],
+    scrollIntoView(options) {
+      this.scrolled.push(options);
+    },
+    addEventListener(type, fn) {
+      listeners.set(type, fn);
+    },
+    removeEventListener(type, fn) {
+      if (listeners.get(type) === fn) listeners.delete(type);
+    },
+  };
+  let present = true;
+  globalThis.document.querySelector = (selector) =>
+    present && selector === '[data-setting-id="theme"]' ? element : null;
+  const callbacks = new Map();
+  let sequence = 0;
+  globalThis.requestAnimationFrame = (cb) => {
+    callbacks.set(++sequence, cb);
+    return sequence;
+  };
+  globalThis.cancelAnimationFrame = (id) => callbacks.delete(id);
+  const vite = await createRendererServer(
+    t,
+    withI18nMock({ cachePrefix: "loqui-query-hide-landing-" })
+  );
+  const { useSettingsSearch } = await vite.ssrLoadModule(
+    "/components/settings/useSettingsSearch.ts"
+  );
+  const { SETTINGS_REGISTRY } = await vite.ssrLoadModule(
+    "/components/settings/settingsRegistry.ts"
+  );
+  const entry = SETTINGS_REGISTRY.find((item) => item.id === "theme");
+  let hook;
+  function Probe() {
+    hook = useSettingsSearch({ open: true, navigateToPath() {} });
+    return null;
+  }
+  root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(Probe)));
+  return {
+    hook: () => hook,
+    element,
+    listeners,
+    present: (value) => {
+      present = value;
+    },
+    pending: () => callbacks.size,
+    jump: () => React.act(async () => hook.jump(entry)),
+    query: (value) => React.act(async () => hook.setQuery(value)),
+    frame: () =>
+      React.act(async () => {
+        const queued = [...callbacks.values()];
+        callbacks.clear();
+        queued.forEach((cb) => cb());
+      }),
+  };
+}
+
+test("[change-driving FIX1] nonempty query retires the production landed cue before direct input clear", async (t) => {
+  const h = await mountProductionLanding(t);
+  await h.jump();
+  await h.frame();
+  assert.equal(h.element.dataset.flash, "true");
+  assert.equal(h.listeners.size, 1);
+  await h.query("mic");
+  assert.equal(h.hook().query, "mic");
+  assert.equal(
+    h.element.dataset.flash,
+    undefined,
+    "the hidden page must not retain a replayable marker"
+  );
+  assert.equal(h.listeners.size, 0, "owned animation listener is retired before hiding");
+  await h.query("");
+  await h.frame();
+  assert.equal(h.hook().query, "");
+  assert.equal(h.element.dataset.flash, undefined);
+  assert.equal(h.element.scrolled.length, 1, "direct clearing cannot reland the old request");
+  await h.jump();
+  await h.frame();
+  assert.equal(h.element.scrolled.length, 2, "a fresh explicit jump still lands");
+  assert.equal(h.element.dataset.flash, "true");
+});
+
+test("[change-driving FIX1] query hiding cancels pending production RAF and input clearing cannot revive it", async (t) => {
+  const h = await mountProductionLanding(t);
+  h.present(false);
+  await h.jump();
+  await h.frame();
+  assert.equal(h.pending(), 1, "production landing is waiting for its anchor");
+  await h.query("mic");
+  assert.equal(h.pending(), 0, "hiding cancels the owned queued frame");
+  h.present(true);
+  await h.query("");
+  await h.frame();
+  assert.equal(h.element.scrolled.length, 0);
+  assert.equal(h.element.dataset.flash, undefined);
+  assert.equal(h.pending(), 0, "direct clearing must not recreate the retired landing request");
+});

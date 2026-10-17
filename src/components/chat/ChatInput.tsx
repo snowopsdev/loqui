@@ -11,6 +11,7 @@ import { formatMmSs } from "../../utils/formatDuration";
 import { useVoiceDraft } from "./useVoiceDraft";
 import { composerHeight, resolveComposerKey } from "./chatInputKeys";
 import type { AgentState } from "./types";
+import type { ComposerSeed } from "./chatRequest";
 
 interface ChatInputProps {
   agentState: AgentState;
@@ -19,6 +20,8 @@ interface ChatInputProps {
   onTextSubmit?: (text: string) => void | boolean | Promise<void | boolean>;
   /** Destination identity including conversation/context and effective route. */
   queueKey?: string;
+  /** A new nonce places or focuses a draft without submitting it. */
+  seed?: ComposerSeed | null;
   onCancel?: () => void;
   autoFocus?: boolean;
   placeholder?: string;
@@ -61,6 +64,7 @@ export function ChatInput({
   partialTranscript,
   onTextSubmit,
   queueKey,
+  seed,
   onCancel,
   autoFocus = false,
   placeholder,
@@ -76,6 +80,28 @@ export function ChatInput({
   const [queueDropped, setQueueDropped] = useState(false);
   const [unsent, setUnsent] = useState<string | null>(null);
   const queued = queuedFor !== null;
+  // Adjust state during render so idle effects cannot consume an old queue.
+  const [appliedSeed, setAppliedSeed] = useState<number | null>(null);
+  const [draftGeneration, setDraftGeneration] = useState(0);
+  const draftGenerationRef = useRef(0);
+  draftGenerationRef.current = draftGeneration;
+  if (seed && seed.nonce !== appliedSeed) {
+    setAppliedSeed(seed.nonce);
+    if (seed.resetQueue) {
+      if (queuedFor !== null) {
+        setQueuedFor(null);
+        setQueueDropped(true);
+      }
+      setDraftGeneration((generation) => generation + 1);
+      if (seed.text !== undefined && inputText.trim() && inputText !== seed.text) {
+        setUnsent((held) => (held ? `${held}\n\n${inputText}` : inputText));
+      }
+    }
+    if (seed.text !== undefined) setInputText(seed.text);
+  }
+  useEffect(() => {
+    if (appliedSeed != null) inputRef.current?.focus();
+  }, [appliedSeed]);
   const queuedHintId = useId();
   const inputTextRef = useRef(inputText);
   const writeDraft = useCallback((value: string) => {
@@ -111,6 +137,7 @@ export function ChatInput({
   const handleSubmit = useCallback(async () => {
     const text = inputTextRef.current.trim();
     if (!text || !onTextSubmit) return;
+    const generation = draftGenerationRef.current;
     setQueuedFor(null);
     setQueueDropped(false);
     writeDraft("");
@@ -122,7 +149,8 @@ export function ChatInput({
       sent = false;
     }
     if (sent !== false) return;
-    if (!inputTextRef.current.trim()) writeDraft(text);
+    // A reset seed gives the box to a newer intent; retain the refused draft.
+    if (generation === draftGenerationRef.current && !inputTextRef.current.trim()) writeDraft(text);
     else setUnsent((held) => (held ? `${held}\n\n${text}` : text));
   }, [onTextSubmit, writeDraft]);
 

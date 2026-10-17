@@ -68,6 +68,11 @@ import { readPersistedWorkspace, writePersistedWorkspace } from "../lib/workspac
 import { requestTranscriptFocus } from "../stores/homeViewStore";
 import { WorkspaceNavigationProvider, type WorkspaceNavigation } from "./workspaceNavigation";
 import type { ChatViewRequest } from "./chat/chatRequest";
+import {
+  resolveWorkspaceShortcut,
+  isDialogOpen,
+  type WorkspaceAction,
+} from "../lib/workspaceShortcuts";
 
 const platform = getCachedPlatform();
 
@@ -118,8 +123,8 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     initialWorkspace.view === "personal-notes" && initialWorkspace.noteId != null
   );
   const restoreRef = useRef<Promise<unknown> | null>(null);
-  // Task 4 delivers this request to ChatView; no request sends a message.
-  const [, setChatRequest] = useState<ChatViewRequest | null>(null);
+  // Requests seed the composer and never send a message.
+  const [chatRequest, setChatRequest] = useState<ChatViewRequest | null>(null);
   const requestNonceRef = useRef(0);
   const navItems = useControlPanelNavItems();
   const {
@@ -264,21 +269,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
         .catch(() => {});
     }, 15_000);
     return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const mod = platform === "darwin" ? e.metaKey : e.ctrlKey;
-      if (mod && e.key === "k") {
-        e.preventDefault();
-        setShowSearch(true);
-      } else if (mod && e.key === ",") {
-        e.preventDefault();
-        setShowSettings(true);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   useEffect(() => {
@@ -714,6 +704,48 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     [openNote, handleNewNote, setActiveView]
   );
 
+  const runShortcutRef = useRef<(action: WorkspaceAction) => void>(() => {});
+  runShortcutRef.current = (action) => {
+    switch (action) {
+      case "openSearch":
+        return setShowSearch(true);
+      case "openSettings":
+        return setShowSettings(true);
+      case "goHome":
+        return setActiveView("home");
+      case "goNotes":
+        return setActiveView("personal-notes");
+      case "goChat":
+        return setActiveView("chat");
+      case "toggleSidebar":
+        return toggleSidebar();
+      case "newNote":
+        return navigation.newNote();
+      case "newChat":
+        return navigation.startChat();
+      case "recordMeeting":
+        return navigation.recordMeeting();
+      case "uploadAudio":
+        return navigation.openUpload();
+      case "askAssistant":
+        return navigation.focusAssistant();
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const action = resolveWorkspaceShortcut(event, {
+        platform,
+        dialogOpen: isDialogOpen(document),
+      });
+      if (!action) return;
+      event.preventDefault();
+      runShortcutRef.current(action);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
     <WorkspaceNavigationProvider value={navigation}>
       <div className="h-screen bg-surface-window flex flex-col">
@@ -892,7 +924,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                 )}
                 {activeView === "chat" && (
                   <Suspense fallback={null}>
-                    <ChatView />
+                    <ChatView
+                      request={chatRequest}
+                      onRequestHandled={() => setChatRequest(null)}
+                      onOpenSettings={navigation.openSettings}
+                    />
                   </Suspense>
                 )}
                 {activeView === "personal-notes" && (

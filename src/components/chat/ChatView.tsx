@@ -13,11 +13,16 @@ import EmptyChatState from "./EmptyChatState";
 import { ConfirmDialog } from "../ui/dialog";
 import { PAGE_CONTENT_WIDTH_CLASS } from "../ui/pageWidth";
 import { useDialogs } from "../../hooks/useDialogs";
-import { getCachedPlatform } from "../../utils/platform";
+import { seedForRequest, type ChatViewRequest, type ComposerSeed } from "./chatRequest";
+export type { ChatViewRequest } from "./chatRequest";
 
 const CommandSearch = lazy(() => import("../CommandSearch"));
 
-const platform = getCachedPlatform();
+interface ChatViewProps {
+  request?: ChatViewRequest | null;
+  onRequestHandled?: () => void;
+  onOpenSettings?: (section?: string) => void;
+}
 
 function NewChatEmptyState() {
   const { t } = useTranslation();
@@ -31,7 +36,11 @@ function NewChatEmptyState() {
   );
 }
 
-export default function ChatView() {
+export default function ChatView({
+  request = null,
+  onRequestHandled,
+  onOpenSettings: _onOpenSettings,
+}: ChatViewProps = {}) {
   const { t } = useTranslation();
   const routeKey = useChatRouteKey("chatIntelligence");
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
@@ -69,6 +78,22 @@ export default function ChatView() {
     setIsNewChat(true);
     persistence.handleNewChat();
   }, [persistence]);
+
+  const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null);
+  const [seededNonce, setSeededNonce] = useState<number | null>(null);
+  // Deliver the seed before any queued auto-send effect in this commit.
+  // Keep it after acknowledgement, including for a composer that mounts later.
+  if (request && request.nonce !== seededNonce) {
+    setSeededNonce(request.nonce);
+    setComposerSeed(seedForRequest(request));
+  }
+  useEffect(() => {
+    if (!request) return;
+    if (request.kind === "new") handleNewChat();
+    else if (request.kind === "open") void handleSelectConversation(request.conversationId);
+    onRequestHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one run per request nonce
+  }, [request?.nonce]);
 
   const createConversation = useCallback(
     async (text: string, selection?: ChatSelection) => {
@@ -115,18 +140,6 @@ export default function ChatView() {
     },
     [activeConversationId, handleNewChat, showConfirmDialog, t]
   );
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const mod = platform === "darwin" ? e.metaKey : e.ctrlKey;
-      if (mod && e.key === "n") {
-        e.preventDefault();
-        handleNewChat();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewChat]);
 
   const hasActiveChat =
     activeConversationId !== null || persistence.messages.length > 0 || isNewChat;
@@ -176,6 +189,7 @@ export default function ChatView() {
                   className={PAGE_CONTENT_WIDTH_CLASS}
                   agentState={streaming.agentState}
                   partialTranscript=""
+                  seed={composerSeed}
                   onTextSubmit={handleTextSubmit}
                   queueKey={`chat|${activeConversationId ?? "new"}|${routeKey}`}
                   onCancel={streaming.cancelStream}

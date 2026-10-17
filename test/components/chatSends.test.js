@@ -1,3 +1,5 @@
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
@@ -332,4 +334,209 @@ test("further failed drafts accumulate and discard preserves the newer draft", a
   await c.clickText("agentMode.input.discardUnsent");
   assert.equal(c.value(), "keep newest");
   assert.doesNotMatch(c.text(), /agentMode\.input\.unsent/);
+});
+
+// Plan 06 Task 4: composer seeds. A seed never submits (review I01, I01-R2).
+const QUEUE = "chat|1|route-a";
+const isArmed = (c) => /agentMode\.input\.queued/.test(c.text());
+
+test("a palette seed disarms a queued draft and holds the words it replaced", async (t) => {
+  const sent = [];
+  const c = await mount(t, composer, {
+    agentState: "streaming",
+    queueKey: QUEUE,
+    onTextSubmit: async (text) => (sent.push(text), true),
+  });
+  await c.type("A");
+  await c.press("Enter");
+  assert.ok(isArmed(c), "the queue was armed before the seed");
+  await c.rerender({ seed: { nonce: 1, text: "B", resetQueue: true } });
+  assert.ok(!isArmed(c));
+  assert.match(c.text(), /agentMode\.input\.queueDropped/, "the user is told A was not sent");
+  await c.rerender({ agentState: "idle" });
+  assert.deepEqual(sent, []);
+  assert.equal(c.value(), "B");
+  assert.match(c.text(), /agentMode\.input\.unsent/, "A is held, not lost");
+  await c.clickText("agentMode.input.restoreUnsent");
+  assert.equal(c.value(), "A\n\nB");
+});
+
+test("a seed that lands in the same commit as idle still wins over the queue", async (t) => {
+  const sent = [];
+  const c = await mount(t, composer, {
+    agentState: "thinking",
+    queueKey: QUEUE,
+    onTextSubmit: async (text) => (sent.push(text), true),
+  });
+  await c.type("A");
+  await c.press("Enter");
+  assert.ok(isArmed(c));
+  await c.rerender({ agentState: "idle", seed: { nonce: 2, text: "B", resetQueue: true } });
+  assert.deepEqual(sent, []);
+  assert.equal(c.value(), "B");
+});
+
+test("a focus-only request keeps the draft and the queue the user armed", async (t) => {
+  const sent = [];
+  const c = await mount(t, composer, {
+    agentState: "streaming",
+    queueKey: QUEUE,
+    onTextSubmit: async (text) => (sent.push(text), true),
+  });
+  await c.type("A");
+  await c.press("Enter");
+  assert.ok(isArmed(c));
+  await c.rerender({ seed: { nonce: 3, resetQueue: false } });
+  assert.ok(isArmed(c), "still armed after a focus request");
+  await c.rerender({ agentState: "idle" });
+  assert.deepEqual(sent, ["A"]);
+});
+
+test("an edit seed (a mention pick) keeps the queue and never holds the user's own draft", async (t) => {
+  const c = await mount(t, composer, {
+    agentState: "streaming",
+    queueKey: QUEUE,
+    onTextSubmit: async () => true,
+  });
+  await c.type("ask @pri");
+  await c.press("Enter");
+  assert.ok(isArmed(c));
+  await c.rerender({ seed: { nonce: 4, text: "ask @Pricing review ", resetQueue: false } });
+  assert.equal(c.value(), "ask @Pricing review ");
+  assert.ok(isArmed(c));
+  assert.doesNotMatch(c.text(), /agentMode\.input\.unsent/);
+});
+
+test("a refused send overtaken by a new chat is held, never refilled into the new chat", async (t) => {
+  const pending = deferred();
+  const c = await mount(t, composer, {
+    agentState: "idle",
+    queueKey: QUEUE,
+    onTextSubmit: () => pending.promise,
+  });
+  await c.type("A");
+  await c.press("Enter"); // the send starts and the box clears
+  assert.equal(c.value(), "");
+  await c.rerender({ queueKey: "chat|new|route-a", seed: { nonce: 5, resetQueue: true } });
+  await c.run(() => pending.resolve(false));
+  assert.equal(c.value(), "", "the new chat's box stays empty");
+  assert.match(c.text(), /agentMode\.input\.unsent/, "A is held with Restore and Discard");
+});
+
+test("a seed present at mount fills the composer and sends nothing", async (t) => {
+  const sent = [];
+  const c = await mount(t, composer, {
+    agentState: "idle",
+    queueKey: QUEUE,
+    seed: { nonce: 6, text: "“Thursday, not Monday” ", resetQueue: true },
+    onTextSubmit: async (text) => (sent.push(text), true),
+  });
+  assert.equal(c.value(), "“Thursday, not Monday” ");
+  assert.deepEqual(sent, []);
+});
+
+test("ChatView turns a request into a seed during render, not in its request effect", async () => {
+  const { seedForRequest } = await import("../../src/components/chat/chatRequest.ts");
+  assert.deepEqual(seedForRequest({ kind: "new", draft: "x", nonce: 7 }), {
+    nonce: 7,
+    text: "x",
+    resetQueue: true,
+  });
+  assert.deepEqual(seedForRequest({ kind: "open", conversationId: 3, nonce: 8 }), {
+    nonce: 8,
+    resetQueue: true,
+  });
+  assert.deepEqual(seedForRequest({ kind: "focus", nonce: 9 }), { nonce: 9, resetQueue: false });
+  const view = fs.readFileSync(
+    path.join(__dirname, "../../src/components/chat/ChatView.tsx"),
+    "utf8"
+  );
+  assert.match(
+    view,
+    /if \(request && request\.nonce !== seededNonce\) \{\s*setSeededNonce\(request\.nonce\);\s*setComposerSeed\(seedForRequest\(request\)\);/
+  );
+  const effect = view.slice(view.indexOf("if (!request) return;"));
+  assert.doesNotMatch(
+    effect.slice(0, effect.indexOf("[request?.nonce]")),
+    /setComposerSeed/,
+    "the effect only runs side effects"
+  );
+});
+
+for (const outcome of ["refusal", "rejection"]) {
+  test(`an overtaken ${outcome} stays held after a seed is cleared and its text edited`, async (t) => {
+    const pending = deferred();
+    const c = await mount(t, composer, {
+      agentState: "idle",
+      queueKey: QUEUE,
+      onTextSubmit: () => pending.promise,
+    });
+    await c.type("original");
+    await c.press("Enter");
+    await c.rerender({ seed: { nonce: 10, text: "new intent", resetQueue: true } });
+    await c.rerender({ seed: null });
+    await c.type("");
+    await c.run(() =>
+      outcome === "refusal" ? pending.resolve(false) : pending.reject(new Error("offline"))
+    );
+    assert.equal(c.value(), "");
+    assert.match(c.text(), /agentMode.input.unsent/);
+    await c.clickText("agentMode.input.restoreUnsent");
+    assert.equal(c.value(), "original");
+  });
+}
+
+test("an open seed without text disarms but preserves the visible draft", async (t) => {
+  const sent = [];
+  const c = await mount(t, composer, {
+    agentState: "streaming",
+    queueKey: QUEUE,
+    onTextSubmit: (text) => sent.push(text),
+  });
+  await c.type("retain these words");
+  await c.press("Enter");
+  assert.ok(isArmed(c));
+  await c.rerender({ agentState: "idle", seed: { nonce: 11, resetQueue: true } });
+  assert.equal(c.value(), "retain these words");
+  assert.deepEqual(sent, []);
+  assert.doesNotMatch(c.text(), /agentMode.input.unsent/);
+});
+
+test("focus and edit seeds keep the refill rule for an in-flight refused send", async (t) => {
+  const pending = deferred();
+  const c = await mount(t, composer, {
+    agentState: "idle",
+    queueKey: QUEUE,
+    onTextSubmit: () => pending.promise,
+  });
+  await c.type("original");
+  await c.press("Enter");
+  await c.rerender({ seed: { nonce: 12, resetQueue: false } });
+  await c.rerender({ seed: { nonce: 13, text: "", resetQueue: false } });
+  await c.run(() => pending.resolve(false));
+  assert.equal(c.value(), "original");
+  assert.doesNotMatch(c.text(), /agentMode.input.unsent/);
+});
+
+test("repeated seed nonces preserve edits and exact replaced whitespace is restorable", async (t) => {
+  const c = await mount(t, composer, { agentState: "idle", queueKey: QUEUE });
+  await c.type("  words\n");
+  await c.rerender({ seed: { nonce: 14, text: "words", resetQueue: true } });
+  await c.type("my edit");
+  await c.rerender({ seed: { nonce: 14, text: "words", resetQueue: true } });
+  assert.equal(c.value(), "my edit");
+  await c.clickText("agentMode.input.restoreUnsent");
+  assert.equal(c.value(), "  words\n\n\nmy edit");
+});
+
+test("the shared mounted composer helper arms a destination-bound queue", async (t) => {
+  const { mountComposer } = require("../helpers/harness/mountComposer");
+  const sent = [];
+  const c = await mountComposer(t, async (text) => (sent.push(text), true), {
+    agentState: "thinking",
+  });
+  await c.type("helper draft");
+  await c.press("Enter");
+  await c.render({ agentState: "idle" });
+  assert.deepEqual(sent, ["helper draft"], "the helper supplies a usable queueKey");
 });

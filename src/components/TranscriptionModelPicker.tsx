@@ -1103,6 +1103,11 @@ export default function TranscriptionModelPicker({
             onSelect={handleLocalProviderChange}
             colorScheme="purple"
           />
+          {internalLocalProvider === "oruk" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("transcription.families.orukHint")}
+            </p>
+          )}
 
           {progressDisplay}
 

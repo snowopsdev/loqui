@@ -884,6 +884,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil streams using Voxtral Mini 4B, and batches with Voxtral Small 24B.",
       "docsLink": "Read the docs"
+    },
+    "families": {
+      "orukHint": "Oruk publishes Orukeet, a multilingual Parakeet fine-tune. It runs on this device."
     }
   },
   "hooks": {
@@ -1598,7 +1601,7 @@
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "On-device models. Fully private.",
+        "localDesc": "Runs on this device. Nothing leaves it.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       },
@@ -2026,7 +2029,7 @@
         "local": "Local",
         "selfHosted": "Self-Hosted",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "On-device models. Fully private.",
+        "localDesc": "Runs on this device. Nothing leaves it.",
         "selfHostedDesc": "Your own server on your network.",
         "enterprise": "Enterprise cloud",
         "enterpriseDesc": "Audio goes to your organization's own cloud."
@@ -3204,7 +3207,8 @@
     "emptyDescription": "Add words for {{agentName}} to always get right: names, tools, acronyms.",
     "addFirstWord": "Add your first word",
     "importList": "Import a list",
-    "agentDefault": "Added by default"
+    "agentDefault": "Added by default",
+    "exportAction": "Export"
   },
   "support": {
     "documentation": "Documentation",
@@ -3318,13 +3322,20 @@
       "visionModelDescription": "Route commands that include a screenshot to a different, vision-capable model.",
       "permissionTitle": "Screen Recording",
       "permissionDescription": "macOS requires Screen Recording permission to capture your screen.",
-      "relaunchHint": "Screen Recording was granted while Loqui was running. Quit and reopen Loqui to start capturing screenshots."
+      "relaunchHint": "Screen Recording was granted while Loqui was running. Quit and reopen Loqui to start capturing screenshots.",
+      "goesToDevice": "When a voice assistant recording starts, Loqui captures the display your cursor is on. The screenshot goes to {{model}} on this device and stays there. Loqui never saves or logs it.",
+      "goesToDeviceNoModel": "Screen context is configured for this device, but its model is unspecified. Review the voice assistant and vision model settings before recording.",
+      "goesToServer": "When a voice assistant recording starts, Loqui captures the display your cursor is on. Your server at {{host}} then receives {{payload}}. Loqui never saves or logs the screenshot.",
+      "goesToServerNoHost": "When a voice assistant recording starts, Loqui captures the display your cursor is on. Your server then receives {{payload}}. Loqui never saves or logs the screenshot.",
+      "goesToProvider": "When a voice assistant recording starts, Loqui captures the display your cursor is on. {{provider}} ({{host}}) then receives {{payload}}. Loqui never saves or logs the screenshot.",
+      "goesToProviderNoHost": "When a voice assistant recording starts, Loqui captures the display your cursor is on. {{provider}} then receives {{payload}}. Loqui never saves or logs the screenshot.",
+      "destinationUnspecified": "The screen-context destination is not configured. Review the voice assistant and vision model settings before recording."
     },
     "modes": {
       "providers": "Bring your own key",
       "providersDesc": "Connect to OpenAI, Anthropic, Gemini, or Groq with your own API key.",
       "local": "Local",
-      "localDesc": "Run a local LLM on your device — fully private.",
+      "localDesc": "Runs a local model on this device. Nothing leaves it.",
       "selfHosted": "Self-hosted",
       "selfHostedDesc": "Point at a self-hosted OpenAI-compatible endpoint.",
       "enterprise": "Enterprise",
@@ -3346,7 +3357,7 @@
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "On-device models. Fully private.",
+        "localDesc": "Runs on this device. Nothing leaves it.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       }

@@ -884,6 +884,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil 流式转录使用 Voxtral Mini 4B，批量转录使用 Voxtral Small 24B。",
       "docsLink": "查看文档"
+    },
+    "families": {
+      "orukHint": "Oruk 发布 Orukeet，这是针对多种语言微调的 Parakeet 模型。它在此设备上运行。"
     }
   },
   "hooks": {
@@ -1504,7 +1507,7 @@
         "local": "本地",
         "selfHosted": "自托管",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "设备端模型，完全私密。",
+        "localDesc": "在此设备上运行。不会向外发送任何内容。",
         "selfHostedDesc": "你的服务器，在你的网络上。",
         "enterprise": "企业级",
         "enterpriseDesc": "使用你组织的云账号（AWS、Azure、GCP）。"
@@ -1933,7 +1936,7 @@
         "local": "本地",
         "selfHosted": "自托管",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "设备端模型，完全私密。",
+        "localDesc": "在此设备上运行。不会向外发送任何内容。",
         "selfHostedDesc": "你的服务器，在你的网络上。",
         "enterprise": "企业云",
         "enterpriseDesc": "音频将发送到贵组织自己的云。"
@@ -2856,7 +2859,8 @@
     "emptyDescription": "添加希望{{agentName}}始终识别正确的词：名字、工具、缩写。",
     "addFirstWord": "添加第一个词",
     "importList": "导入列表",
-    "agentDefault": "默认添加"
+    "agentDefault": "默认添加",
+    "exportAction": "导出"
   },
   "insights": {
     "title": "统计",
@@ -3149,13 +3153,20 @@
       "visionModelDescription": "将带截图的命令转发给另一个支持图像的模型。",
       "permissionTitle": "屏幕录制",
       "permissionDescription": "macOS 需要屏幕录制权限才能截取屏幕。",
-      "relaunchHint": "屏幕录制权限是在 Loqui 运行期间授予的。请退出并重新打开 Loqui 以开始捕获屏幕截图。"
+      "relaunchHint": "屏幕录制权限是在 Loqui 运行期间授予的。请退出并重新打开 Loqui 以开始捕获屏幕截图。",
+      "goesToDevice": "开始语音助手录音时，Loqui 会截取光标所在的显示器画面。 截图会传给此设备上的 {{model}}，并留在此设备上。 Loqui 从不保存截图，也不会将其写入日志。",
+      "goesToDeviceNoModel": "屏幕上下文配置为在此设备上处理，但模型尚未指定。录音前请检查语音助手和视觉模型设置。",
+      "goesToServer": "开始语音助手录音时，Loqui 会截取光标所在的显示器画面。 随后，位于 {{host}} 的服务器会收到以下内容：{{payload}}。 Loqui 从不保存截图，也不会将其写入日志。",
+      "goesToServerNoHost": "开始语音助手录音时，Loqui 会截取光标所在的显示器画面。 随后，您的服务器会收到以下内容：{{payload}}。 Loqui 从不保存截图，也不会将其写入日志。",
+      "goesToProvider": "开始语音助手录音时，Loqui 会截取光标所在的显示器画面。 随后，{{provider}}（{{host}}）会收到以下内容：{{payload}}。 Loqui 从不保存截图，也不会将其写入日志。",
+      "goesToProviderNoHost": "开始语音助手录音时，Loqui 会截取光标所在的显示器画面。 随后，{{provider}} 会收到以下内容：{{payload}}。 Loqui 从不保存截图，也不会将其写入日志。",
+      "destinationUnspecified": "屏幕上下文的接收方尚未配置。录音前请检查语音助手和视觉模型设置。"
     },
     "modes": {
       "providers": "使用自己的 API Key",
       "providersDesc": "用你自己的 API Key 连接 OpenAI、Anthropic、Gemini 或 Groq。",
       "local": "本地",
-      "localDesc": "在你的设备上运行本地 LLM，完全私密。",
+      "localDesc": "在此设备上运行本地模型。不会向外发送任何内容。",
       "selfHosted": "自托管",
       "selfHostedDesc": "指向兼容 OpenAI 的自托管端点。",
       "enterprise": "企业级",
@@ -3176,7 +3187,7 @@
         "local": "本地",
         "selfHosted": "自托管",
         "providersDesc": "使用自己的 API 密钥。",
-        "localDesc": "设备端模型，完全私密。",
+        "localDesc": "在此设备上运行。不会向外发送任何内容。",
         "selfHostedDesc": "你自己网络上的服务器。",
         "enterprise": "企业级",
         "enterpriseDesc": "使用你组织的云账号（AWS、Azure、GCP）。"
@@ -3916,28 +3927,28 @@
   },
   "patchbay": {
     "title": "路由",
-    "description": "每项任务及其当前运行位置。移动到该设备会立即生效并且可以撤消。移动到服务器或提供商等待您查看并应用它们。",
+    "description": "每项任务及其当前运行位置。切换到此设备会立即生效，并且可以撤销。切换到服务器或提供商需先由您检查并应用。",
     "tasks": "任务",
-    "destinations": "目的地",
+    "destinations": "运行位置",
     "openSettings": "打开 {{task}} 设置",
     "sealed": "密封模式已开启。任务只能在此设备上运行。",
     "undo": "撤消",
     "kind": {
-      "speech": "演讲",
+      "speech": "语音",
       "text": "文本"
     },
     "hint": {
       "idle": "选择一个任务，然后选择它应该运行的位置。",
       "pickDestination": "发送 {{task}} 至... 选择突出显示的目的地。",
       "pickTaskFirst": "首先选择一个任务，然后选择它应该运行的位置。",
-      "already": "{{task}} 已经运行 {{place}}。",
+      "already": "{{task}} 已在以下位置运行：{{place}}。",
       "off": "{{task}} 已关闭。在其设置中将其打开。",
-      "moved": "{{task}} 现在运行 {{place}}。",
-      "movedOff": "{{task}} 已关闭。当您打开它时，它将运行 {{place}}。",
+      "moved": "{{task}} 现在的运行位置：{{place}}。",
+      "movedOff": "{{task}} 已关闭。开启后的运行位置：{{place}}。",
       "movedAlso": "还更改：{{tasks}}。",
-      "staged": "查看下面的 {{task}} → {{destination}}，然后应用它。在您发送之前，不会发送任何内容。",
+      "staged": "请检查下方的 {{task}} → {{destination}}，然后应用更改。应用前不会发送任何内容。",
       "undone": "{{task}} 又回到原来的位置了。",
-      "undoStaged": "向后移动需要您在下面进行审查。",
+      "undoStaged": "请在下方检查并应用恢复原运行位置的更改。",
       "notApplied": "一切都没有改变。",
       "failed": "无法更改路线：{{error}}"
     },
@@ -3948,47 +3959,43 @@
     "no": {
       "capability": "{{provider}} 无法在 Loqui 中运行此任务。",
       "visionCloudOnly": "目前，屏幕截图只能转到云视觉模型。",
-      "meetingServer": "注意录制还不能使用您自己的服务器。",
+      "meetingServer": "笔记录音暂不支持使用您自己的服务器。",
       "sealed": "密封模式将此任务保留在此设备上。",
       "uploadServer": "文件上传使用为听写设置的服务器。在那里改变它。",
       "serverKind": "尚未为 {{kind}} 任务设置 {{server}}。使用“添加服务器”输入其地址。"
     },
     "place": {
       "device": "在此设备上",
-      "server": "在您的服务器上 {{host}}",
-      "anyServer": "在你的服务器上",
-      "endpoint": "于 {{name}} 于 {{host}}",
-      "provider": "在 {{provider}}"
+      "server": "在地址为 {{host}} 的服务器上",
+      "anyServer": "在您的服务器上",
+      "endpoint": "在 {{name}}（{{host}}）处",
+      "provider": "在 {{provider}} 处"
     },
     "dest": {
       "serverAt": "服务器位于 {{host}}",
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "添加服务器",
       "addServerHint": "接下来输入它的地址",
-      "nothingLeaves": "什么都没有离开",
+      "nothingLeaves": "不向外发送任何内容",
       "yourServer": "您自己的服务器",
       "unencrypted": "http，未加密",
       "hosted": "托管提供商",
       "keySaved": "API 密钥已保存",
       "noKey": "尚未保存密钥",
-      "keyRejected": "钥匙被拒绝",
+      "keyRejected": "密钥被拒绝",
       "keyUnknown": "检查保存的密钥..."
     },
     "leaves": {
-      "none": "没有任何东西离开这个设备。",
-      "prefix": "离开该设备：",
+      "none": "不会向此设备以外发送任何内容。",
+      "prefix": "向此设备以外发送内容的任务：",
       "item": "{{task}} → {{destination}}"
     },
     "taskCount_other": "{{count}} 任务",
     "meter": {
       "label_other": "{{count}} 任务（共 {{total}} 个）保留在此设备上",
       "headline_other": "{{count}} 任务（共 {{total}} 个）保留在此设备上",
-      "network_other": "{{count}} 在您的服务器上",
-      "label_one": "{{total}} 任务的 {{count}} 保留在此设备上",
-      "headline_one": "{{total}} 任务的 {{count}} 保留在此设备上",
-      "network_one": "{{count}} 在您的服务器上"
-    },
-    "taskCount_one": "{{count}} 任务"
+      "network_other": "{{count}} 在您的服务器上"
+    }
   },
   "keyring": {
     "reminder": {

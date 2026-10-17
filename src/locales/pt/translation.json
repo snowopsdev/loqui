@@ -863,6 +863,9 @@
     "tinfoil": {
       "transportNote": "O Tinfoil transmite com o Voxtral Mini 4B e processa em lote com o Voxtral Small 24B.",
       "docsLink": "Ver a documentação"
+    },
+    "families": {
+      "orukHint": "A Oruk publica o Orukeet, uma versão do Parakeet ajustada para vários idiomas. Ele é executado neste dispositivo."
     }
   },
   "hooks": {
@@ -1483,7 +1486,7 @@
         "local": "Local",
         "selfHosted": "Auto-hospedado",
         "providersDesc": "Use sua própria chave API.",
-        "localDesc": "Modelos no dispositivo. Privado.",
+        "localDesc": "É executado neste dispositivo. Nada sai dele.",
         "selfHostedDesc": "Seu servidor na sua rede.",
         "enterprise": "Corporativo",
         "enterpriseDesc": "Use a conta de nuvem da sua organização (AWS, Azure, GCP)."
@@ -1912,7 +1915,7 @@
         "local": "Local",
         "selfHosted": "Auto-hospedado",
         "providersDesc": "Use sua própria chave API.",
-        "localDesc": "Modelos no dispositivo. Privado.",
+        "localDesc": "É executado neste dispositivo. Nada sai dele.",
         "selfHostedDesc": "Seu servidor na sua rede.",
         "enterprise": "Nuvem corporativa",
         "enterpriseDesc": "O áudio vai para a nuvem da sua organização."
@@ -2857,7 +2860,8 @@
     "emptyDescription": "Adicione palavras que {{agentName}} deve sempre acertar: nomes, ferramentas, siglas.",
     "addFirstWord": "Adicione sua primeira palavra",
     "importList": "Importar uma lista",
-    "agentDefault": "Adicionado por padrão"
+    "agentDefault": "Adicionado por padrão",
+    "exportAction": "Exportar"
   },
   "insights": {
     "title": "Estatísticas",
@@ -3150,13 +3154,20 @@
       "visionModelDescription": "Encaminha comandos que incluem captura de tela para outro modelo com visão.",
       "permissionTitle": "Gravação de tela",
       "permissionDescription": "O macOS exige permissão de gravação de tela para capturar sua tela.",
-      "relaunchHint": "A permissão de gravação de tela foi concedida enquanto o Loqui estava em execução. Feche e reabra o Loqui para começar a capturar a tela."
+      "relaunchHint": "A permissão de gravação de tela foi concedida enquanto o Loqui estava em execução. Feche e reabra o Loqui para começar a capturar a tela.",
+      "goesToDevice": "Quando uma gravação do assistente de voz começa, o Loqui captura a tela em que o cursor está. A captura é enviada para {{model}} neste dispositivo e permanece aqui. O Loqui nunca a salva nem a inclui nos registros.",
+      "goesToDeviceNoModel": "O contexto da tela está configurado para este dispositivo, mas o modelo não foi especificado. Revise as configurações do assistente de voz e do modelo de visão antes de gravar.",
+      "goesToServer": "Quando uma gravação do assistente de voz começa, o Loqui captura a tela em que o cursor está. Seu servidor em {{host}} recebe então o seguinte: {{payload}}. O Loqui nunca salva a captura nem a inclui nos registros.",
+      "goesToServerNoHost": "Quando uma gravação do assistente de voz começa, o Loqui captura a tela em que o cursor está. Seu servidor recebe então o seguinte: {{payload}}. O Loqui nunca salva a captura nem a inclui nos registros.",
+      "goesToProvider": "Quando uma gravação do assistente de voz começa, o Loqui captura a tela em que o cursor está. {{provider}} ({{host}}) recebe então o seguinte: {{payload}}. O Loqui nunca salva a captura nem a inclui nos registros.",
+      "goesToProviderNoHost": "Quando uma gravação do assistente de voz começa, o Loqui captura a tela em que o cursor está. {{provider}} recebe então o seguinte: {{payload}}. O Loqui nunca salva a captura nem a inclui nos registros.",
+      "destinationUnspecified": "O destino do contexto da tela não está configurado. Revise as configurações do assistente de voz e do modelo de visão antes de gravar."
     },
     "modes": {
       "providers": "Use sua própria chave",
       "providersDesc": "Conecte-se à OpenAI, Anthropic, Gemini ou Groq com sua própria chave API.",
       "local": "Local",
-      "localDesc": "Rode um LLM local no seu dispositivo, totalmente privado.",
+      "localDesc": "Executa um modelo local neste dispositivo. Nada sai dele.",
       "selfHosted": "Auto-hospedado",
       "selfHostedDesc": "Aponte para um endpoint compatível com OpenAI auto-hospedado.",
       "enterprise": "Corporativo",
@@ -3177,7 +3188,7 @@
         "local": "Local",
         "selfHosted": "Auto-hospedado",
         "providersDesc": "Traga sua própria chave API.",
-        "localDesc": "Modelos no dispositivo. Totalmente privado.",
+        "localDesc": "É executado neste dispositivo. Nada sai dele.",
         "selfHostedDesc": "Seu próprio servidor na sua rede.",
         "enterprise": "Corporativo",
         "enterpriseDesc": "Use a conta de nuvem da sua organização (AWS, Azure, GCP)."
@@ -3924,21 +3935,21 @@
     "sealed": "O modo selado está ativado. As tarefas só podem ser executadas neste dispositivo.",
     "undo": "Desfazer",
     "kind": {
-      "speech": "discurso",
+      "speech": "voz",
       "text": "texto"
     },
     "hint": {
       "idle": "Escolha uma tarefa e onde ela deve ser executada.",
       "pickDestination": "Envie {{task}} para… escolha um destino destacado.",
       "pickTaskFirst": "Escolha primeiro uma tarefa e depois onde ela deve ser executada.",
-      "already": "{{task}} já executa {{place}}.",
-      "off": "{{task}} está desligado. Ative-o em suas configurações.",
-      "moved": "{{task}} agora executa {{place}}.",
-      "movedOff": "{{task}} está desligado. Ao ligá-lo, ele executará {{place}}.",
+      "already": "A tarefa «{{task}}» já é executada {{place}}.",
+      "off": "A tarefa «{{task}}» está desativada. Ative-a nas configurações.",
+      "moved": "A tarefa «{{task}}» agora é executada {{place}}.",
+      "movedOff": "A tarefa «{{task}}» está desativada. Ao ativá-la, ela será executada {{place}}.",
       "movedAlso": "Também alterado: {{tasks}}.",
       "staged": "Revise {{task}} → {{destination}} abaixo e aplique-o. Nada é enviado até que você o faça.",
       "undone": "{{task}} está de volta onde estava.",
-      "undoStaged": "Voltar precisa de sua análise abaixo.",
+      "undoStaged": "Revise abaixo a volta ao destino anterior e aplique a alteração.",
       "notApplied": "Nada mudou.",
       "failed": "Não foi possível alterar a rota: {{error}}"
     },
@@ -3958,7 +3969,7 @@
       "device": "neste dispositivo",
       "server": "no seu servidor em {{host}}",
       "anyServer": "no seu servidor",
-      "endpoint": "em {{name}} às {{host}}",
+      "endpoint": "pelo endpoint «{{name}}» no endereço {{host}}",
       "provider": "em {{provider}}"
     },
     "dest": {
@@ -3984,10 +3995,10 @@
     "taskCount_many": "{{count}} tarefas",
     "taskCount_other": "{{count}} tarefas",
     "meter": {
-      "label_one": "{{count}} da tarefa {{total}} permanece neste dispositivo",
+      "label_one": "{{count}} de um total de {{total}} tarefas permanece neste dispositivo",
       "label_many": "{{count}} de {{total}} tarefas permanecem neste dispositivo",
       "label_other": "{{count}} de {{total}} tarefas permanecem neste dispositivo",
-      "headline_one": "{{count}} da tarefa {{total}} permanece neste dispositivo",
+      "headline_one": "{{count}} de um total de {{total}} tarefas permanece neste dispositivo",
       "headline_many": "{{count}} de {{total}} tarefas permanecem neste dispositivo",
       "headline_other": "{{count}} de {{total}} tarefas permanecem neste dispositivo",
       "network_one": "{{count}} no seu servidor",

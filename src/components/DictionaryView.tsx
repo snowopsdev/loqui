@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BookOpen, CornerDownLeft, Download, Pencil, Plus, Sparkles, Upload, X } from "./icons";
+import { BookOpen, CornerDownLeft, Pencil, Plus, Sparkles, Upload, X } from "./icons";
+import { DictionaryHeaderActions } from "./DictionaryHeaderActions";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Button } from "./ui/button";
@@ -18,7 +19,13 @@ import { WHISPER_DECODER_PROMPT_CHARS } from "../utils/dictionaryPromptCap";
 
 export default function DictionaryView() {
   const { t } = useTranslation();
-  const { customDictionary, updateCustomDictionary, snippets } = useSettings();
+  const {
+    customDictionary,
+    updateCustomDictionary,
+    snippets,
+    autoLearnCorrections,
+    setAutoLearnCorrections,
+  } = useSettings();
   const agentName = getAgentName();
   const { toast } = useToast();
 
@@ -189,6 +196,8 @@ export default function DictionaryView() {
                 <div className="w-px h-3.5 bg-foreground/10 dark:bg-white/8" />
                 <button
                   onClick={() => setShowBulkImport(true)}
+                  type="button"
+                  title={t("dictionary.importWords")}
                   aria-label={t("dictionary.importWords")}
                   className="text-foreground/45 hover:text-foreground/60 transition-colors"
                 >
@@ -214,7 +223,7 @@ export default function DictionaryView() {
                 <p className="text-xs text-foreground/45">
                   {t("dictionary.separateWithCommas")}
                   {pendingImportCount > 0 && (
-                    <span className="text-success">
+                    <span className="text-foreground">
                       {" • "}
                       {t("dictionary.wordsReady", { count: pendingImportCount })}
                     </span>
@@ -254,32 +263,19 @@ export default function DictionaryView() {
 
           {/* ─── Dictionary list ─── */}
           <div className="rounded-md border border-foreground/8 dark:border-white/10 bg-foreground/[0.02] dark:bg-white/[0.03] px-4 py-3">
-            {userWords.length > 0 && (
-              <>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-foreground/45">
-                    {t("dictionary.yourDictionary")}
-                  </h3>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setConfirmClear(true)}
-                      aria-label={t("dictionary.clearAll")}
-                      className="text-xs text-foreground/45 hover:text-destructive/70 transition-colors"
-                    >
-                      {t("dictionary.clearAll")}
-                    </button>
-                    <button
-                      onClick={handleExport}
-                      aria-label={t("dictionary.exportDictionary")}
-                      className="text-foreground/45 hover:text-foreground/60 transition-colors"
-                    >
-                      <Download size={12} />
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-2.5 border-t border-dashed border-foreground/10 dark:border-white/10" />
-              </>
-            )}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-xs font-semibold text-muted-foreground">
+                {t("dictionary.yourDictionary")}
+              </h3>
+              <DictionaryHeaderActions
+                onClearAll={() => setConfirmClear(true)}
+                onExport={handleExport}
+                onImport={() => setShowBulkImport(true)}
+                autoLearn={autoLearnCorrections}
+                onAutoLearnChange={setAutoLearnCorrections}
+              />
+            </div>
+            <div className="mt-2.5 border-t border-dashed border-foreground/10 dark:border-white/10" />
 
             {userWords.length === 0 ? (
               emptyState

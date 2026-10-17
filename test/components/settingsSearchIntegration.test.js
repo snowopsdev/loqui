@@ -103,8 +103,6 @@ async function mount(t, initialSection = "llms/supportModels", assistantEnabled 
             "export function useTheme() { return { theme: 'light', setTheme() {} }; }",
           "/hooks/useHotkeyRegistration": "export function useHotkeyRegistration() { return {}; }",
           "/hooks/useHotkeyModeInfo": "export function useHotkeyModeInfo() { return {}; }",
-          "/stores/routeFactsStore":
-            "export function refreshRouteFacts() { return Promise.resolve(); } export function useRouteFactsStore() { return {}; }",
         },
       },
       { t: "globalThis.__task16Translate" }
@@ -291,7 +289,8 @@ test("[change-driving] actual query toggles preserve mounted support-model statu
     pageMounts: 1,
     supportMounts: 1,
     supportUnmounts: 0,
-    statusReads: 1,
+    // One LocalSupportModels read plus Agent's real useResolvedRoute facts subscription.
+    statusReads: 2,
     listenerAdds: 1,
     listenerRemoves: 0,
   });
@@ -311,7 +310,8 @@ test("[change-driving] actual query toggles preserve mounted support-model statu
     pageMounts: 1,
     supportMounts: 1,
     supportUnmounts: 0,
-    statusReads: 1,
+    // One LocalSupportModels read plus Agent's real useResolvedRoute facts subscription.
+    statusReads: 2,
     listenerAdds: 1,
     listenerRemoves: 0,
   });

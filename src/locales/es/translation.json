@@ -884,6 +884,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil transmite con Voxtral Mini 4B y procesa por lotes con Voxtral Small 24B.",
       "docsLink": "Ver la documentación"
+    },
+    "families": {
+      "orukHint": "Oruk publica Orukeet, una versión de Parakeet ajustada para varios idiomas. Se ejecuta en este dispositivo."
     }
   },
   "hooks": {
@@ -1557,7 +1560,7 @@
         "local": "Local",
         "selfHosted": "Autoalojado",
         "providersDesc": "Usa tu propia clave API.",
-        "localDesc": "Modelos en el dispositivo. Privado.",
+        "localDesc": "Se ejecuta en este dispositivo. Nada sale de él.",
         "selfHostedDesc": "Tu servidor en tu red.",
         "enterprise": "Empresarial",
         "enterpriseDesc": "Usa la cuenta en la nube de tu organización (AWS, Azure, GCP)."
@@ -1986,7 +1989,7 @@
         "local": "Local",
         "selfHosted": "Autoalojado",
         "providersDesc": "Usa tu propia clave API.",
-        "localDesc": "Modelos en el dispositivo. Privado.",
+        "localDesc": "Se ejecuta en este dispositivo. Nada sale de él.",
         "selfHostedDesc": "Tu servidor en tu red.",
         "enterprise": "Nube empresarial",
         "enterpriseDesc": "El audio se envía a la nube propia de tu organización."
@@ -2910,7 +2913,8 @@
     "emptyDescription": "Añade palabras que {{agentName}} siempre debe reconocer: nombres, herramientas, siglas.",
     "addFirstWord": "Añade tu primera palabra",
     "importList": "Importar una lista",
-    "agentDefault": "Añadido por defecto"
+    "agentDefault": "Añadido por defecto",
+    "exportAction": "Exportar"
   },
   "insights": {
     "title": "Estadísticas",
@@ -3203,13 +3207,20 @@
       "visionModelDescription": "Envía los comandos que incluyen una captura a otro modelo con capacidad de visión.",
       "permissionTitle": "Grabación de pantalla",
       "permissionDescription": "macOS requiere permiso de grabación de pantalla para capturar tu pantalla.",
-      "relaunchHint": "El permiso de grabación de pantalla se concedió mientras Loqui estaba en ejecución. Cierra y vuelve a abrir Loqui para empezar a capturar la pantalla."
+      "relaunchHint": "El permiso de grabación de pantalla se concedió mientras Loqui estaba en ejecución. Cierra y vuelve a abrir Loqui para empezar a capturar la pantalla.",
+      "goesToDevice": "Cuando comienza una grabación del asistente de voz, Loqui captura la pantalla en la que está el cursor. La captura se envía a {{model}} en este dispositivo y permanece aquí. Loqui nunca la guarda ni la incluye en los registros.",
+      "goesToDeviceNoModel": "El contexto de pantalla está configurado para este dispositivo, pero el modelo no está especificado. Revisa los ajustes del asistente de voz y del modelo de visión antes de grabar.",
+      "goesToServer": "Cuando comienza una grabación del asistente de voz, Loqui captura la pantalla en la que está el cursor. Tu servidor en {{host}} recibe entonces lo siguiente: {{payload}}. Loqui nunca guarda la captura ni la incluye en los registros.",
+      "goesToServerNoHost": "Cuando comienza una grabación del asistente de voz, Loqui captura la pantalla en la que está el cursor. Tu servidor recibe entonces lo siguiente: {{payload}}. Loqui nunca guarda la captura ni la incluye en los registros.",
+      "goesToProvider": "Cuando comienza una grabación del asistente de voz, Loqui captura la pantalla en la que está el cursor. {{provider}} ({{host}}) recibe entonces lo siguiente: {{payload}}. Loqui nunca guarda la captura ni la incluye en los registros.",
+      "goesToProviderNoHost": "Cuando comienza una grabación del asistente de voz, Loqui captura la pantalla en la que está el cursor. {{provider}} recibe entonces lo siguiente: {{payload}}. Loqui nunca guarda la captura ni la incluye en los registros.",
+      "destinationUnspecified": "El destino del contexto de pantalla no está configurado. Revisa los ajustes del asistente de voz y del modelo de visión antes de grabar."
     },
     "modes": {
       "providers": "Usa tu propia clave API",
       "providersDesc": "Conéctate a OpenAI, Anthropic, Gemini o Groq con tu propia clave API.",
       "local": "Local",
-      "localDesc": "Ejecuta un LLM local en tu dispositivo, totalmente privado.",
+      "localDesc": "Ejecuta un modelo local en este dispositivo. Nada sale de él.",
       "selfHosted": "Autoalojado",
       "selfHostedDesc": "Apunta a un endpoint autoalojado compatible con OpenAI.",
       "enterprise": "Empresarial",
@@ -3230,7 +3241,7 @@
         "local": "Local",
         "selfHosted": "Autoalojado",
         "providersDesc": "Trae tu propia clave API.",
-        "localDesc": "Modelos en el dispositivo. Totalmente privado.",
+        "localDesc": "Se ejecuta en este dispositivo. Nada sale de él.",
         "selfHostedDesc": "Tu propio servidor en tu red.",
         "enterprise": "Empresarial",
         "enterpriseDesc": "Usa la cuenta en la nube de tu organización (AWS, Azure, GCP)."
@@ -3917,28 +3928,28 @@
   },
   "patchbay": {
     "title": "Enrutamiento",
-    "description": "Cada tarea y dónde se ejecuta en este momento. Los movimientos a este dispositivo se aplican de inmediato y se pueden deshacer. Se mueve a un servidor o un proveedor espera a que los revises y apliques.",
+    "description": "Cada tarea y dónde se ejecuta ahora. Los cambios a este dispositivo se aplican de inmediato y se pueden deshacer. Los cambios a un servidor o proveedor esperan a que los revise y aplique.",
     "tasks": "Tareas",
     "destinations": "Destinos",
     "openSettings": "Abra la configuración de {{task}}",
     "sealed": "El modo sellado está activado. Las tareas solo se pueden ejecutar en este dispositivo.",
     "undo": "Deshacer",
     "kind": {
-      "speech": "discurso",
+      "speech": "voz",
       "text": "texto"
     },
     "hint": {
       "idle": "Elija una tarea y luego dónde debe ejecutarse.",
       "pickDestination": "Envíe {{task}} a… elija un destino resaltado.",
       "pickTaskFirst": "Elija primero una tarea y luego dónde debe ejecutarse.",
-      "already": "{{task}} ya ejecuta {{place}}.",
-      "off": "{{task}} está apagado. Actívalo en su configuración.",
-      "moved": "{{task}} ahora ejecuta {{place}}.",
-      "movedOff": "{{task}} está apagado. Cuando lo enciendas, ejecutará {{place}}.",
+      "already": "La tarea «{{task}}» ya se ejecuta {{place}}.",
+      "off": "La tarea «{{task}}» está desactivada. Actívela en sus ajustes.",
+      "moved": "La tarea «{{task}}» ahora se ejecuta {{place}}.",
+      "movedOff": "La tarea «{{task}}» está desactivada. Cuando la active, se ejecutará {{place}}.",
       "movedAlso": "También cambió: {{tasks}}.",
-      "staged": "Revise {{task}} → {{destination}} a continuación y luego aplíquelo. No se envía nada hasta que lo hagas.",
-      "undone": "{{task}} ha vuelto a ser donde estaba.",
-      "undoStaged": "Regresar necesita su revisión a continuación.",
+      "staged": "Revise {{task}} → {{destination}} a continuación y aplique el cambio. No se envía nada hasta que lo aplique.",
+      "undone": "{{task}} vuelve a su ubicación anterior.",
+      "undoStaged": "Revise a continuación el cambio para volver a la ubicación anterior.",
       "notApplied": "Nada cambió.",
       "failed": "No se pudo cambiar la ruta: {{error}}"
     },
@@ -3957,9 +3968,9 @@
     "place": {
       "device": "en este dispositivo",
       "server": "en su servidor en {{host}}",
-      "anyServer": "en tu servidor",
-      "endpoint": "el {{name}} a las {{host}}",
-      "provider": "el {{provider}}"
+      "anyServer": "en su servidor",
+      "endpoint": "mediante «{{name}}» en {{host}}",
+      "provider": "con {{provider}}"
     },
     "dest": {
       "serverAt": "Servidor en {{host}}",
@@ -3977,7 +3988,7 @@
     },
     "leaves": {
       "none": "Nada sale de este dispositivo.",
-      "prefix": "Deja este dispositivo:",
+      "prefix": "Se envía fuera de este dispositivo:",
       "item": "{{task}} → {{destination}}"
     },
     "taskCount_one": "{{count}} tarea",

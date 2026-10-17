@@ -516,22 +516,9 @@ function TranscriptionSection({
     />
   );
 
-  // Local decoding still serves meetings and uploads under a managed-config
-  // error, so this stays a card alongside the rest of the section (including
-  // the GPU selector below) instead of an early return that hides it.
+  // Local decoding still serves meetings and uploads under a managed-config error, so this section stays whole (including the GPU selector) instead of an early return that hides it. The way back to the setup flow is a link below the engine controls.
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-        <div>
-          <p className="text-sm font-medium">{t("settingsPage.reviewSetup.title")}</p>
-          <p className="text-xs text-muted-foreground">
-            {t("settingsPage.reviewSetup.description")}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={startOnboarding}>
-          {t("settingsPage.reviewSetup.action")}
-        </Button>
-      </div>
       {
         <>
           <InferenceModeSelector
@@ -563,6 +550,17 @@ function TranscriptionSection({
 
       {/* Local decoding still serves meetings and uploads, so the GPU choice stays reachable. */}
       <GpuDeviceSelector purpose="transcription" />
+      <p className="text-xs text-muted-foreground">
+        <button
+          type="button"
+          onClick={startOnboarding}
+          className="rounded-sm font-medium text-link underline-offset-2 outline-none hover:text-link-hover hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t("settingsPage.reviewSetup.title")}
+        </button>
+        {" · "}
+        {t("settingsPage.reviewSetup.description")}
+      </p>
     </div>
   );
 }

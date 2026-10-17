@@ -1,3 +1,5 @@
+import { useResolvedRoute } from "../../lib/routes";
+import { screenContextCopy } from "./screenContextCopy";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDialogs } from "../../hooks/useDialogs";
@@ -16,6 +18,7 @@ import InferenceConfigEditor from "./InferenceConfigEditor";
 
 export default function DictationAgentSettings() {
   const { t } = useTranslation();
+  const visionRoute = useResolvedRoute("assistantVision");
   const useDictationAgent = useSettingsStore((s) => s.useDictationAgent);
   const voiceAgentScreenContext = useSettingsStore((s) => s.voiceAgentScreenContext);
   const useDictationAgentVisionModel = useSettingsStore((s) => s.useDictationAgentVisionModel);
@@ -166,7 +169,7 @@ export default function DictationAgentSettings() {
                 label={t("dictationAgent.screenContext.enable")}
                 description={
                   screenSupported
-                    ? t("dictationAgent.screenContext.enableDescription")
+                    ? screenContextCopy(visionRoute, t)
                     : t("dictationAgent.screenContext.unsupported")
                 }
               >
@@ -203,7 +206,7 @@ export default function DictationAgentSettings() {
             />
           )}
           {screenContextActive && isMacOS && screenNeedsRelaunch && (
-            <p className="text-[11px] text-warning/80 leading-snug">
+            <p className="text-[11px] text-muted-foreground leading-snug">
               {t("dictationAgent.screenContext.relaunchHint")}
             </p>
           )}

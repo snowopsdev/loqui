@@ -884,6 +884,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil trasmette con Voxtral Mini 4B ed elabora i batch con Voxtral Small 24B.",
       "docsLink": "Leggi la documentazione"
+    },
+    "families": {
+      "orukHint": "Oruk pubblica Orukeet, una versione di Parakeet perfezionata per più lingue. Viene eseguita su questo dispositivo."
     }
   },
   "hooks": {
@@ -1504,7 +1507,7 @@
         "local": "Locale",
         "selfHosted": "Self-hosted",
         "providersDesc": "Usa la tua chiave API.",
-        "localDesc": "Modelli sul dispositivo. Totalmente privato.",
+        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
         "selfHostedDesc": "Il tuo server nella tua rete.",
         "enterprise": "Enterprise",
         "enterpriseDesc": "Usa l'account cloud della tua organizzazione (AWS, Azure, GCP)."
@@ -1933,7 +1936,7 @@
         "local": "Locale",
         "selfHosted": "Self-hosted",
         "providersDesc": "Usa la tua chiave API.",
-        "localDesc": "Modelli sul dispositivo. Totalmente privato.",
+        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
         "selfHostedDesc": "Il tuo server nella tua rete.",
         "enterprise": "Cloud aziendale",
         "enterpriseDesc": "L'audio viene inviato al cloud della tua organizzazione."
@@ -2857,7 +2860,8 @@
     "emptyDescription": "Aggiungi le parole che {{agentName}} deve sempre riconoscere: nomi, strumenti, acronimi.",
     "addFirstWord": "Aggiungi la tua prima parola",
     "importList": "Importa un elenco",
-    "agentDefault": "Aggiunto di default"
+    "agentDefault": "Aggiunto di default",
+    "exportAction": "Esporta"
   },
   "insights": {
     "title": "Statistiche",
@@ -3150,13 +3154,20 @@
       "visionModelDescription": "Instrada i comandi che includono uno screenshot verso un altro modello con capacità di visione.",
       "permissionTitle": "Registrazione schermo",
       "permissionDescription": "macOS richiede l'autorizzazione alla registrazione dello schermo per catturare lo schermo.",
-      "relaunchHint": "La registrazione dello schermo è stata concessa mentre Loqui era in esecuzione. Chiudi e riapri Loqui per iniziare a catturare gli screenshot."
+      "relaunchHint": "La registrazione dello schermo è stata concessa mentre Loqui era in esecuzione. Chiudi e riapri Loqui per iniziare a catturare gli screenshot.",
+      "goesToDevice": "Quando inizia una registrazione dell’assistente vocale, Loqui acquisisce lo schermo su cui si trova il cursore. La schermata viene inviata a {{model}} su questo dispositivo e rimane qui. Loqui non la salva né la include mai nei log.",
+      "goesToDeviceNoModel": "Il contesto dello schermo è configurato per questo dispositivo, ma il modello non è specificato. Controlla le impostazioni dell’assistente vocale e del modello visivo prima di registrare.",
+      "goesToServer": "Quando inizia una registrazione dell’assistente vocale, Loqui acquisisce lo schermo su cui si trova il cursore. Il tuo server all’indirizzo {{host}} riceve quindi quanto segue: {{payload}}. Loqui non salva la schermata né la include mai nei log.",
+      "goesToServerNoHost": "Quando inizia una registrazione dell’assistente vocale, Loqui acquisisce lo schermo su cui si trova il cursore. Il tuo server riceve quindi quanto segue: {{payload}}. Loqui non salva la schermata né la include mai nei log.",
+      "goesToProvider": "Quando inizia una registrazione dell’assistente vocale, Loqui acquisisce lo schermo su cui si trova il cursore. {{provider}} ({{host}}) riceve quindi quanto segue: {{payload}}. Loqui non salva la schermata né la include mai nei log.",
+      "goesToProviderNoHost": "Quando inizia una registrazione dell’assistente vocale, Loqui acquisisce lo schermo su cui si trova il cursore. {{provider}} riceve quindi quanto segue: {{payload}}. Loqui non salva la schermata né la include mai nei log.",
+      "destinationUnspecified": "La destinazione del contesto dello schermo non è configurata. Controlla le impostazioni dell’assistente vocale e del modello visivo prima di registrare."
     },
     "modes": {
       "providers": "Usa la tua chiave API",
       "providersDesc": "Connettiti a OpenAI, Anthropic, Gemini o Groq con la tua chiave API.",
       "local": "Locale",
-      "localDesc": "Esegui un LLM locale sul tuo dispositivo, totalmente privato.",
+      "localDesc": "Esegue un modello locale su questo dispositivo. Nulla lo lascia.",
       "selfHosted": "Self-hosted",
       "selfHostedDesc": "Punta a un endpoint self-hosted compatibile con OpenAI.",
       "enterprise": "Enterprise",
@@ -3177,7 +3188,7 @@
         "local": "Locale",
         "selfHosted": "Self-Hosted",
         "providersDesc": "Porta la tua chiave API.",
-        "localDesc": "Modelli sul dispositivo. Completamente privato.",
+        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
         "selfHostedDesc": "Il tuo server sulla tua rete.",
         "enterprise": "Enterprise",
         "enterpriseDesc": "Usa l'account cloud della tua organizzazione (AWS, Azure, GCP)."
@@ -3917,7 +3928,7 @@
   },
   "patchbay": {
     "title": "Instradamento",
-    "description": "Ogni attività e dove viene eseguita in questo momento. Gli spostamenti su questo dispositivo vengono applicati contemporaneamente e possono essere annullati. Gli spostamenti su un server o un provider attendono che tu li riveda e li applichi.",
+    "description": "Ogni attività e dove viene eseguita ora. Gli spostamenti su questo dispositivo vengono applicati subito e possono essere annullati. Gli spostamenti su un server o un provider richiedono la tua verifica e applicazione.",
     "tasks": "Compiti",
     "destinations": "Destinazioni",
     "openSettings": "Apri le impostazioni {{task}}",
@@ -3931,14 +3942,14 @@
       "idle": "Scegli un'attività, quindi dove dovrebbe essere eseguita.",
       "pickDestination": "Invia {{task}} a... scegli una destinazione evidenziata.",
       "pickTaskFirst": "Scegli prima un'attività, quindi dove dovrebbe essere eseguita.",
-      "already": "{{task}} esegue già {{place}}.",
-      "off": "{{task}} è spento. Attivalo nelle sue impostazioni.",
-      "moved": "{{task}} ora esegue {{place}}.",
-      "movedOff": "{{task}} è spento. Quando lo accendi, verrà eseguito {{place}}.",
+      "already": "L’attività «{{task}}» viene già eseguita {{place}}.",
+      "off": "L’attività «{{task}}» è disattivata. Attivala nelle impostazioni.",
+      "moved": "L’attività «{{task}}» viene ora eseguita {{place}}.",
+      "movedOff": "L’attività «{{task}}» è disattivata. Quando la attivi, verrà eseguita {{place}}.",
       "movedAlso": "Modificato anche: {{tasks}}.",
       "staged": "Rivedi {{task}} → {{destination}} di seguito, quindi applicalo. Non viene inviato nulla finché non lo fai.",
       "undone": "{{task}} è tornato dov'era.",
-      "undoStaged": "Per tornare indietro è necessaria la tua recensione qui sotto.",
+      "undoStaged": "Verifica qui sotto il ritorno alla destinazione precedente e applica la modifica.",
       "notApplied": "Niente è cambiato.",
       "failed": "Impossibile modificare il percorso: {{error}}"
     },
@@ -3958,15 +3969,15 @@
       "device": "su questo dispositivo",
       "server": "sul tuo server all'indirizzo {{host}}",
       "anyServer": "sul tuo server",
-      "endpoint": "il {{name}} alle {{host}}",
-      "provider": "il {{provider}}"
+      "endpoint": "tramite «{{name}}» all’indirizzo {{host}}",
+      "provider": "presso {{provider}}"
     },
     "dest": {
       "serverAt": "Server alle {{host}}",
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Aggiungi un server",
       "addServerHint": "Successivamente inserisci il suo indirizzo",
-      "nothingLeaves": "Non se ne va niente",
+      "nothingLeaves": "Nessun invio all’esterno",
       "yourServer": "Il tuo server",
       "unencrypted": "http, non crittografato",
       "hosted": "Fornitore ospitato",
@@ -3977,7 +3988,7 @@
     },
     "leaves": {
       "none": "Niente lascia questo dispositivo.",
-      "prefix": "Lascia questo dispositivo:",
+      "prefix": "Dati inviati fuori da questo dispositivo:",
       "item": "{{task}} → {{destination}}"
     },
     "taskCount_one": "attività {{count}}",

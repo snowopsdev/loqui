@@ -884,6 +884,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil はストリーミングに Voxtral Mini 4B を、バッチ処理に Voxtral Small 24B を使用します。",
       "docsLink": "ドキュメントを見る"
+    },
+    "families": {
+      "orukHint": "Oruk は、Parakeet を多言語向けに微調整した Orukeet を公開しています。このデバイス上で実行されます。"
     }
   },
   "hooks": {
@@ -1504,7 +1507,7 @@
         "local": "ローカル",
         "selfHosted": "セルフホスト",
         "providersDesc": "自分のAPIキーを使用。",
-        "localDesc": "端末上のモデル。完全プライベート。",
+        "localDesc": "このデバイス上で実行します。外部には何も送信されません。",
         "selfHostedDesc": "自前サーバーをネットワーク上に。",
         "enterprise": "エンタープライズ",
         "enterpriseDesc": "組織のクラウドアカウントを使用 (AWS, Azure, GCP)。"
@@ -1933,7 +1936,7 @@
         "local": "ローカル",
         "selfHosted": "セルフホスト",
         "providersDesc": "自分のAPIキーを使用。",
-        "localDesc": "端末上のモデル。完全プライベート。",
+        "localDesc": "このデバイス上で実行します。外部には何も送信されません。",
         "selfHostedDesc": "自前サーバーをネットワーク上に。",
         "enterprise": "エンタープライズクラウド",
         "enterpriseDesc": "音声は組織自身のクラウドに送信されます。"
@@ -2784,7 +2787,8 @@
     "emptyDescription": "{{agentName}}に正しく認識してほしい言葉を追加しましょう。名前、ツール、略語など。",
     "addFirstWord": "最初の単語を追加",
     "importList": "リストをインポート",
-    "agentDefault": "デフォルトで追加済み"
+    "agentDefault": "デフォルトで追加済み",
+    "exportAction": "エクスポート"
   },
   "referral": {
     "title": "紹介して特典をゲット",
@@ -3149,13 +3153,20 @@
       "visionModelDescription": "スクリーンショット付きのコマンドを、画像対応の別モデルに振り分けます。",
       "permissionTitle": "画面収録",
       "permissionDescription": "画面をキャプチャするには macOS の画面収録の許可が必要です。",
-      "relaunchHint": "画面収録の許可は Loqui の実行中に付与されました。スクリーンショットのキャプチャを開始するには、Loqui を終了して再度開いてください。"
+      "relaunchHint": "画面収録の許可は Loqui の実行中に付与されました。スクリーンショットのキャプチャを開始するには、Loqui を終了して再度開いてください。",
+      "goesToDevice": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 スクリーンショットはこのデバイス上の {{model}} に渡され、このデバイス内にとどまります。 Loqui は画像を保存せず、ログにも記録しません。",
+      "goesToDeviceNoModel": "画面コンテキストの実行先はこのデバイスですが、モデルは未指定です。録音前に音声アシスタントと視覚モデルの設定を確認してください。",
+      "goesToServer": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 その後、{{host}} にあるサーバーが次の内容を受け取ります：{{payload}}。 Loqui はスクリーンショットを保存せず、ログにも記録しません。",
+      "goesToServerNoHost": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 その後、サーバーが次の内容を受け取ります：{{payload}}。 Loqui はスクリーンショットを保存せず、ログにも記録しません。",
+      "goesToProvider": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 その後、{{provider}}（{{host}}）が次の内容を受け取ります：{{payload}}。 Loqui はスクリーンショットを保存せず、ログにも記録しません。",
+      "goesToProviderNoHost": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 {{provider}} が受け取る内容：{{payload}}。 Loqui はスクリーンショットを保存せず、ログにも記録しません。",
+      "destinationUnspecified": "画面コンテキストの送信先が設定されていません。録音前に音声アシスタントと視覚モデルの設定を確認してください。"
     },
     "modes": {
       "providers": "自分の API キーを使用",
       "providersDesc": "自分の API キーで OpenAI、Anthropic、Gemini、Groq に接続します。",
       "local": "ローカル",
-      "localDesc": "端末上でローカル LLM を実行。完全プライベート。",
+      "localDesc": "このデバイス上でローカルモデルを実行します。外部には何も送信されません。",
       "selfHosted": "セルフホスト",
       "selfHostedDesc": "セルフホストの OpenAI 互換エンドポイントを指定します。",
       "enterprise": "エンタープライズ",
@@ -3176,7 +3187,7 @@
         "local": "ローカル",
         "selfHosted": "セルフホスト",
         "providersDesc": "独自のAPIキーを使用。",
-        "localDesc": "デバイス上のモデル。完全プライベート。",
+        "localDesc": "このデバイス上で実行します。外部には何も送信されません。",
         "selfHostedDesc": "ネットワーク上の自分のサーバー。",
         "enterprise": "エンタープライズ",
         "enterpriseDesc": "組織のクラウドアカウントを使用 (AWS, Azure, GCP)。"
@@ -3916,9 +3927,9 @@
   },
   "patchbay": {
     "title": "ルーティング",
-    "description": "すべてのタスクと、それが現在実行されている場所。このデバイスへの移動は一度に適用され、元に戻すことができます。サーバーまたはプロバイダーへの移動は、ユーザーが確認して適用するまで待機します。",
+    "description": "各タスクと現在の実行先を表示します。このデバイスへの変更はすぐに適用され、元に戻せます。サーバーやプロバイダーへの変更は、確認して適用するまで保留されます。",
     "tasks": "タスク",
-    "destinations": "目的地",
+    "destinations": "実行先",
     "openSettings": "{{task}}設定を開く",
     "sealed": "密閉モードがオンになっています。タスクはこのデバイスでのみ実行できます。",
     "undo": "元に戻す",
@@ -3930,14 +3941,14 @@
       "idle": "タスクを選択し、それを実行する場所を選択します。",
       "pickDestination": "{{task}} を送信先… 強調表示された宛先を選択します。",
       "pickTaskFirst": "まずタスクを選択し、次にそれを実行する場所を選択します。",
-      "already": "{{task}} はすでに {{place}} を実行しています。",
+      "already": "{{task}} はすでに {{place}} 実行されています。",
       "off": "{{task}} はオフになっています。設定でオンにしてください。",
-      "moved": "{{task}} は {{place}} を実行するようになりました。",
-      "movedOff": "{{task}} はオフです。電源を入れると、{{place}} が実行されます。",
+      "moved": "{{task}} は現在 {{place}} 実行されています。",
+      "movedOff": "{{task}} はオフです。有効にすると {{place}} 実行されます。",
       "movedAlso": "また変更されました: {{tasks}}。",
-      "staged": "以下の {{task}} → {{destination}} を確認し、適用してください。送信するまで何も送信されません。",
+      "staged": "以下の {{task}} → {{destination}} を確認し、適用してください。適用するまで何も送信されません。",
       "undone": "{{task}} は元の場所に戻りました。",
-      "undoStaged": "元に戻すには、以下のレビューが必要です。",
+      "undoStaged": "元の実行先に戻す変更を以下で確認し、適用してください。",
       "notApplied": "何も変わりませんでした。",
       "failed": "ルートを変更できませんでした: {{error}}"
     },
@@ -3955,10 +3966,10 @@
     },
     "place": {
       "device": "このデバイス上で",
-      "server": "サーバー上の{{host}}",
+      "server": "{{host}} のサーバー上で",
       "anyServer": "あなたのサーバー上で",
-      "endpoint": "{{name}}、{{host}}",
-      "provider": "{{provider}}に"
+      "endpoint": "{{name}}（{{host}}）で",
+      "provider": "{{provider}} で"
     },
     "dest": {
       "serverAt": "{{host}} のサーバー",
@@ -3983,12 +3994,8 @@
     "meter": {
       "label_other": "{{total}} タスクのうち {{count}} がこのデバイスに残ります",
       "headline_other": "{{total}} タスクのうち {{count}} がこのデバイスに残ります",
-      "network_other": "サーバー上の{{count}}",
-      "label_one": "{{total}} タスクの {{count}} はこのデバイス上に残ります",
-      "headline_one": "{{total}} タスクの {{count}} はこのデバイス上に残ります",
-      "network_one": "サーバー上の{{count}}"
-    },
-    "taskCount_one": "{{count}} タスク"
+      "network_other": "{{count}} タスクはサーバー上で実行"
+    }
   },
   "keyring": {
     "reminder": {

@@ -884,6 +884,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil streamt mit Voxtral Mini 4B und verarbeitet Batches mit Voxtral Small 24B.",
       "docsLink": "Zur Dokumentation"
+    },
+    "families": {
+      "orukHint": "Oruk veröffentlicht Orukeet, eine mehrsprachige Feinabstimmung von Parakeet. Das Modell läuft auf diesem Gerät."
     }
   },
   "hooks": {
@@ -1598,7 +1601,7 @@
         "selfHosted": "Selbst gehostet",
         "enterprise": "Enterprise",
         "providersDesc": "Eigenen API-Schlüssel nutzen.",
-        "localDesc": "Modelle auf dem Gerät. Voll privat.",
+        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterpriseDesc": "Nutzen Sie das Cloud-Konto Ihrer Organisation (AWS, Azure, GCP)."
       },
@@ -2026,7 +2029,7 @@
         "local": "Lokal",
         "selfHosted": "Selbst gehostet",
         "providersDesc": "Eigenen API-Schlüssel nutzen.",
-        "localDesc": "Modelle auf dem Gerät. Voll privat.",
+        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterprise": "Unternehmens-Cloud",
         "enterpriseDesc": "Audio wird an die eigene Cloud Ihrer Organisation gesendet."
@@ -3204,7 +3207,8 @@
     "emptyDescription": "Füge Wörter hinzu, die {{agentName}} immer richtig erkennen soll: Namen, Tools, Abkürzungen.",
     "addFirstWord": "Füge dein erstes Wort hinzu",
     "importList": "Liste importieren",
-    "agentDefault": "Standardmäßig enthalten"
+    "agentDefault": "Standardmäßig enthalten",
+    "exportAction": "Exportieren"
   },
   "support": {
     "documentation": "Dokumentation",
@@ -3318,13 +3322,20 @@
       "visionModelDescription": "Leitet Befehle mit Screenshot an ein anderes Modell mit Bildverständnis weiter.",
       "permissionTitle": "Bildschirmaufnahme",
       "permissionDescription": "macOS benötigt die Berechtigung zur Bildschirmaufnahme, um Ihren Bildschirm zu erfassen.",
-      "relaunchHint": "Die Bildschirmaufnahme wurde erteilt, während Loqui lief. Beenden und öffnen Sie Loqui erneut, um Screenshots aufzunehmen."
+      "relaunchHint": "Die Bildschirmaufnahme wurde erteilt, während Loqui lief. Beenden und öffnen Sie Loqui erneut, um Screenshots aufzunehmen.",
+      "goesToDevice": "Wenn eine Aufnahme für den Sprachassistenten beginnt, erfasst Loqui den Bildschirm, auf dem sich der Mauszeiger befindet. Der Screenshot geht an {{model}} auf diesem Gerät und bleibt dort. Loqui speichert oder protokolliert ihn niemals.",
+      "goesToDeviceNoModel": "Der Bildschirmkontext ist für dieses Gerät konfiguriert, das Modell ist jedoch nicht angegeben. Prüfen Sie vor der Aufnahme die Einstellungen des Sprachassistenten und des Bildmodells.",
+      "goesToServer": "Wenn eine Aufnahme für den Sprachassistenten beginnt, erfasst Loqui den Bildschirm, auf dem sich der Mauszeiger befindet. Ihr Server unter {{host}} empfängt dann Folgendes: {{payload}}. Loqui speichert oder protokolliert den Screenshot niemals.",
+      "goesToServerNoHost": "Wenn eine Aufnahme für den Sprachassistenten beginnt, erfasst Loqui den Bildschirm, auf dem sich der Mauszeiger befindet. Ihr Server empfängt dann Folgendes: {{payload}}. Loqui speichert oder protokolliert den Screenshot niemals.",
+      "goesToProvider": "Wenn eine Aufnahme für den Sprachassistenten beginnt, erfasst Loqui den Bildschirm, auf dem sich der Mauszeiger befindet. {{provider}} ({{host}}) empfängt dann Folgendes: {{payload}}. Loqui speichert oder protokolliert den Screenshot niemals.",
+      "goesToProviderNoHost": "Wenn eine Aufnahme für den Sprachassistenten beginnt, erfasst Loqui den Bildschirm, auf dem sich der Mauszeiger befindet. {{provider}} empfängt dann Folgendes: {{payload}}. Loqui speichert oder protokolliert den Screenshot niemals.",
+      "destinationUnspecified": "Das Ziel für den Bildschirmkontext ist nicht konfiguriert. Prüfen Sie vor der Aufnahme die Einstellungen des Sprachassistenten und des Bildmodells."
     },
     "modes": {
       "providers": "Eigenen Schlüssel nutzen",
       "providersDesc": "Mit Ihrem eigenen API-Schlüssel an OpenAI, Anthropic, Gemini oder Groq anbinden.",
       "local": "Lokal",
-      "localDesc": "Ein lokales LLM auf Ihrem Gerät ausführen, voll privat.",
+      "localDesc": "Führt ein lokales Modell auf diesem Gerät aus. Nichts verlässt es.",
       "selfHosted": "Selbst gehostet",
       "selfHostedDesc": "Auf einen selbst gehosteten, OpenAI-kompatiblen Endpunkt verweisen.",
       "enterprise": "Enterprise",
@@ -3346,7 +3357,7 @@
         "selfHosted": "Selbst gehostet",
         "enterprise": "Enterprise",
         "providersDesc": "Eigenen API-Schlüssel verwenden.",
-        "localDesc": "Modelle auf dem Gerät. Vollständig privat.",
+        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterpriseDesc": "Nutzen Sie das Cloud-Konto Ihrer Organisation (AWS, Azure, GCP)."
       }
@@ -3918,26 +3929,26 @@
     "title": "Routing",
     "description": "Jede Aufgabe und der Ort, an dem sie gerade ausgeführt wird. Verschiebungen zu diesem Gerät werden sofort wirksam und können rückgängig gemacht werden. Verschiebungen auf einen Server oder einen Anbieter warten darauf, dass Sie sie überprüfen und anwenden.",
     "tasks": "Aufgaben",
-    "destinations": "Reiseziele",
+    "destinations": "Ziele",
     "openSettings": "Öffnen Sie die {{task}}-Einstellungen",
     "sealed": "Der versiegelte Modus ist aktiviert. Aufgaben können nur auf diesem Gerät ausgeführt werden.",
     "undo": "Rückgängig machen",
     "kind": {
-      "speech": "Rede",
+      "speech": "Sprache",
       "text": "Text"
     },
     "hint": {
       "idle": "Wählen Sie eine Aufgabe und dann den Ort aus, an dem sie ausgeführt werden soll.",
       "pickDestination": "Senden Sie {{task}} an… Wählen Sie ein markiertes Ziel.",
       "pickTaskFirst": "Wählen Sie zuerst eine Aufgabe und dann den Ort aus, an dem sie ausgeführt werden soll.",
-      "already": "{{task}} führt bereits {{place}} aus.",
-      "off": "{{task}} ist ausgeschaltet. Schalten Sie es in den Einstellungen ein.",
-      "moved": "{{task}} führt jetzt {{place}} aus.",
-      "movedOff": "{{task}} ist ausgeschaltet. Wenn Sie es einschalten, wird {{place}} ausgeführt.",
+      "already": "{{task}} wird bereits {{place}} ausgeführt.",
+      "off": "{{task}} ist deaktiviert. Aktivieren Sie die Funktion in den Einstellungen.",
+      "moved": "{{task}} wird jetzt {{place}} ausgeführt.",
+      "movedOff": "{{task}} ist deaktiviert. Nach dem Aktivieren wird die Aufgabe {{place}} ausgeführt.",
       "movedAlso": "Außerdem geändert: {{tasks}}.",
       "staged": "Überprüfen Sie {{task}} → {{destination}} unten und wenden Sie es dann an. Bis Sie dies tun, wird nichts gesendet.",
       "undone": "{{task}} ist wieder da, wo es war.",
-      "undoStaged": "Beim Zurückziehen ist unten Ihre Bewertung erforderlich.",
+      "undoStaged": "Prüfen Sie unten die Rückkehr zum vorherigen Ziel und wenden Sie die Änderung an.",
       "notApplied": "Es hat sich nichts geändert.",
       "failed": "Die Route konnte nicht geändert werden: {{error}}"
     },
@@ -3948,7 +3959,7 @@
     "no": {
       "capability": "{{provider}} kann diese Aufgabe in Loqui nicht ausführen.",
       "visionCloudOnly": "Screenshots können heute nur auf ein Cloud-Vision-Modell übertragen werden.",
-      "meetingServer": "Hinweis: Die Aufzeichnung kann noch nicht über Ihren eigenen Server erfolgen.",
+      "meetingServer": "Für die Aufnahme von Notizen kann noch kein eigener Server verwendet werden.",
       "sealed": "Der versiegelte Modus behält diese Aufgabe auf diesem Gerät bei.",
       "uploadServer": "Beim Datei-Upload wird der für das Diktat festgelegte Server verwendet. Ändern Sie es dort.",
       "serverKind": "{{server}} wurde nicht für {{kind}}-Aufgaben eingerichtet. Über „Server hinzufügen“ geben Sie dessen Adresse ein."
@@ -3957,15 +3968,15 @@
       "device": "auf diesem Gerät",
       "server": "auf Ihrem Server unter {{host}}",
       "anyServer": "auf Ihrem Server",
-      "endpoint": "am {{name}} um {{host}}",
-      "provider": "am {{provider}}"
+      "endpoint": "über „{{name}}“ unter {{host}}",
+      "provider": "bei {{provider}}"
     },
     "dest": {
       "serverAt": "Server bei {{host}}",
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Fügen Sie einen Server hinzu",
       "addServerHint": "Als nächstes geben Sie die Adresse ein",
-      "nothingLeaves": "Nichts geht weg",
+      "nothingLeaves": "Keine Übertragung nach außen",
       "yourServer": "Ihr eigener Server",
       "unencrypted": "http, nicht verschlüsselt",
       "hosted": "Gehosteter Anbieter",
@@ -3982,9 +3993,9 @@
     "taskCount_one": "{{count}} Aufgabe",
     "taskCount_other": "{{count}} Aufgaben",
     "meter": {
-      "label_one": "{{count}} von {{total}} Aufgabe bleibt auf diesem Gerät",
+      "label_one": "{{count}} von insgesamt {{total}} Aufgaben bleibt auf diesem Gerät",
       "label_other": "{{count}} von {{total}} Aufgaben bleiben auf diesem Gerät",
-      "headline_one": "{{count}} von {{total}} Aufgabe bleibt auf diesem Gerät",
+      "headline_one": "{{count}} von insgesamt {{total}} Aufgaben bleibt auf diesem Gerät",
       "headline_other": "{{count}} von {{total}} Aufgaben bleiben auf diesem Gerät",
       "network_one": "{{count}} auf Ihrem Server",
       "network_other": "{{count}} auf Ihrem Server"

@@ -884,6 +884,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil diffuse avec Voxtral Mini 4B et traite les lots avec Voxtral Small 24B.",
       "docsLink": "Voir la documentation"
+    },
+    "families": {
+      "orukHint": "Oruk publie Orukeet, une version de Parakeet affinée pour plusieurs langues. Elle s’exécute sur cet appareil."
     }
   },
   "hooks": {
@@ -1598,7 +1601,7 @@
         "selfHosted": "Auto-hébergé",
         "enterprise": "Enterprise",
         "providersDesc": "Utilisez votre propre clé API.",
-        "localDesc": "Modèles sur l'appareil. 100 % privé.",
+        "localDesc": "S’exécute sur cet appareil. Rien n’en sort.",
         "selfHostedDesc": "Votre serveur sur votre réseau.",
         "enterpriseDesc": "Utilisez le compte cloud de votre organisation (AWS, Azure, GCP)."
       },
@@ -2026,7 +2029,7 @@
         "local": "Local",
         "selfHosted": "Auto-hébergé",
         "providersDesc": "Utilisez votre propre clé API.",
-        "localDesc": "Modèles sur l'appareil. 100 % privé.",
+        "localDesc": "S’exécute sur cet appareil. Rien n’en sort.",
         "selfHostedDesc": "Votre serveur sur votre réseau.",
         "enterprise": "Cloud d'entreprise",
         "enterpriseDesc": "L'audio est envoyé vers le cloud de votre organisation."
@@ -3205,7 +3208,8 @@
     "emptyDescription": "Ajoutez les mots que {{agentName}} doit toujours reconnaître : noms, outils, acronymes.",
     "addFirstWord": "Ajoutez votre premier mot",
     "importList": "Importer une liste",
-    "agentDefault": "Ajouté par défaut"
+    "agentDefault": "Ajouté par défaut",
+    "exportAction": "Exporter"
   },
   "support": {
     "documentation": "Documentation",
@@ -3319,13 +3323,20 @@
       "visionModelDescription": "Envoie les commandes incluant une capture vers un autre modèle capable de vision.",
       "permissionTitle": "Enregistrement de l'écran",
       "permissionDescription": "macOS exige l'autorisation d'enregistrement de l'écran pour capturer votre écran.",
-      "relaunchHint": "L'enregistrement d'écran a été autorisé pendant qu'Loqui était en cours d'exécution. Quittez et rouvrez Loqui pour commencer à capturer des captures d'écran."
+      "relaunchHint": "L'enregistrement d'écran a été autorisé pendant qu'Loqui était en cours d'exécution. Quittez et rouvrez Loqui pour commencer à capturer des captures d'écran.",
+      "goesToDevice": "Lorsqu’un enregistrement de l’assistant vocal commence, Loqui capture l’écran sur lequel se trouve le curseur. La capture est transmise à {{model}} sur cet appareil et y reste. Loqui ne l’enregistre jamais et ne l’inclut jamais dans ses journaux.",
+      "goesToDeviceNoModel": "Le contexte de l’écran est configuré pour cet appareil, mais le modèle n’est pas précisé. Vérifiez les réglages de l’assistant vocal et du modèle de vision avant d’enregistrer.",
+      "goesToServer": "Lorsqu’un enregistrement de l’assistant vocal commence, Loqui capture l’écran sur lequel se trouve le curseur. Votre serveur à l’adresse {{host}} reçoit alors les éléments suivants : {{payload}}. Loqui n’enregistre jamais la capture et ne l’inclut jamais dans ses journaux.",
+      "goesToServerNoHost": "Lorsqu’un enregistrement de l’assistant vocal commence, Loqui capture l’écran sur lequel se trouve le curseur. Votre serveur reçoit alors les éléments suivants : {{payload}}. Loqui n’enregistre jamais la capture et ne l’inclut jamais dans ses journaux.",
+      "goesToProvider": "Lorsqu’un enregistrement de l’assistant vocal commence, Loqui capture l’écran sur lequel se trouve le curseur. {{provider}} ({{host}}) reçoit alors les éléments suivants : {{payload}}. Loqui n’enregistre jamais la capture et ne l’inclut jamais dans ses journaux.",
+      "goesToProviderNoHost": "Lorsqu’un enregistrement de l’assistant vocal commence, Loqui capture l’écran sur lequel se trouve le curseur. {{provider}} reçoit alors les éléments suivants : {{payload}}. Loqui n’enregistre jamais la capture et ne l’inclut jamais dans ses journaux.",
+      "destinationUnspecified": "La destination du contexte de l’écran n’est pas configurée. Vérifiez les réglages de l’assistant vocal et du modèle de vision avant d’enregistrer."
     },
     "modes": {
       "providers": "Utilisez votre propre clé API",
       "providersDesc": "Connectez-vous à OpenAI, Anthropic, Gemini ou Groq avec votre propre clé API.",
       "local": "Local",
-      "localDesc": "Exécutez un LLM local sur votre appareil, 100 % privé.",
+      "localDesc": "Exécute un modèle local sur cet appareil. Rien n’en sort.",
       "selfHosted": "Auto-hébergé",
       "selfHostedDesc": "Pointez vers un point de terminaison auto-hébergé compatible OpenAI.",
       "enterprise": "Enterprise",
@@ -3347,7 +3358,7 @@
         "selfHosted": "Auto-hébergé",
         "enterprise": "Enterprise",
         "providersDesc": "Apportez votre propre clé API.",
-        "localDesc": "Modèles sur l'appareil. Entièrement privé.",
+        "localDesc": "S’exécute sur cet appareil. Rien n’en sort.",
         "selfHostedDesc": "Votre propre serveur sur votre réseau.",
         "enterpriseDesc": "Utilisez le compte cloud de votre organisation (AWS, Azure, GCP)."
       }
@@ -3931,14 +3942,14 @@
       "idle": "Choisissez une tâche, puis où elle doit s'exécuter.",
       "pickDestination": "Envoyez {{task}} à… choisissez une destination en surbrillance.",
       "pickTaskFirst": "Choisissez d'abord une tâche, puis l'endroit où elle doit s'exécuter.",
-      "already": "{{task}} exécute déjà {{place}}.",
-      "off": "{{task}} est éteint. Allumez-le dans ses paramètres.",
-      "moved": "{{task}} exécute désormais {{place}}.",
-      "movedOff": "{{task}} est éteint. Lorsque vous l'allumerez, il exécutera {{place}}.",
+      "already": "La tâche « {{task}} » s’exécute déjà {{place}}.",
+      "off": "La tâche « {{task}} » est désactivée. Activez-la dans ses paramètres.",
+      "moved": "La tâche « {{task}} » s’exécute désormais {{place}}.",
+      "movedOff": "La tâche « {{task}} » est désactivée. Après activation, elle s’exécutera {{place}}.",
       "movedAlso": "Également modifié : {{tasks}}.",
       "staged": "Consultez {{task}} → {{destination}} ci-dessous, puis appliquez-le. Rien n'est envoyé jusqu'à ce que vous le fassiez.",
       "undone": "{{task}} est de retour là où il était.",
-      "undoStaged": "Le retour en arrière nécessite votre avis ci-dessous.",
+      "undoStaged": "Vérifiez ci-dessous le retour à la destination précédente, puis appliquez-le.",
       "notApplied": "Rien n'a changé.",
       "failed": "Impossible de modifier l'itinéraire : {{error}}"
     },
@@ -3958,8 +3969,8 @@
       "device": "sur cet appareil",
       "server": "sur votre serveur à {{host}}",
       "anyServer": "sur votre serveur",
-      "endpoint": "le {{name}} au {{host}}",
-      "provider": "le {{provider}}"
+      "endpoint": "via « {{name}} » à l’adresse {{host}}",
+      "provider": "chez {{provider}}"
     },
     "dest": {
       "serverAt": "Serveur à {{host}}",
@@ -3977,7 +3988,7 @@
     },
     "leaves": {
       "none": "Rien ne sort de cet appareil.",
-      "prefix": "Quitte cet appareil :",
+      "prefix": "Données envoyées hors de cet appareil :",
       "item": "{{task}} → {{destination}}"
     },
     "taskCount_one": "Tâche {{count}}",

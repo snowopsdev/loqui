@@ -884,6 +884,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil 串流轉錄使用 Voxtral Mini 4B，批次轉錄使用 Voxtral Small 24B。",
       "docsLink": "查看文件"
+    },
+    "families": {
+      "orukHint": "Oruk 發布 Orukeet，這是針對多種語言微調的 Parakeet 模型。它在此裝置上執行。"
     }
   },
   "hooks": {
@@ -1504,7 +1507,7 @@
         "local": "本機",
         "selfHosted": "自架主機",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "裝置端模型，完全私密。",
+        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
         "selfHostedDesc": "你的伺服器，在你的網路上。",
         "enterprise": "企業級",
         "enterpriseDesc": "使用你組織的雲端帳號（AWS、Azure、GCP）。"
@@ -1933,7 +1936,7 @@
         "local": "本機",
         "selfHosted": "自架主機",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "裝置端模型，完全私密。",
+        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
         "selfHostedDesc": "你的伺服器，在你的網路上。",
         "enterprise": "企業雲端",
         "enterpriseDesc": "音訊會傳送到貴組織自己的雲端。"
@@ -2856,7 +2859,8 @@
     "emptyDescription": "新增希望{{agentName}}始終辨識正確的詞：名字、工具、縮寫。",
     "addFirstWord": "新增第一個詞",
     "importList": "匯入清單",
-    "agentDefault": "預設加入"
+    "agentDefault": "預設加入",
+    "exportAction": "匯出"
   },
   "insights": {
     "title": "統計",
@@ -3149,13 +3153,20 @@
       "visionModelDescription": "將附有截圖的指令改由另一個支援影像的模型處理。",
       "permissionTitle": "螢幕錄製",
       "permissionDescription": "macOS 需要螢幕錄製權限才能擷取螢幕。",
-      "relaunchHint": "螢幕錄製權限是在 Loqui 執行期間授予的。請結束並重新開啟 Loqui 以開始擷取螢幕截圖。"
+      "relaunchHint": "螢幕錄製權限是在 Loqui 執行期間授予的。請結束並重新開啟 Loqui 以開始擷取螢幕截圖。",
+      "goesToDevice": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 螢幕截圖會傳給此裝置上的 {{model}}，並留在此裝置上。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "goesToDeviceNoModel": "螢幕情境已設為在此裝置上處理，但尚未指定模型。錄音前請檢查語音助理與視覺模型設定。",
+      "goesToServer": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 接著，位於 {{host}} 的伺服器會收到以下內容：{{payload}}。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "goesToServerNoHost": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 接著，您的伺服器會收到以下內容：{{payload}}。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "goesToProvider": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 接著，{{provider}}（{{host}}）會收到以下內容：{{payload}}。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "goesToProviderNoHost": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 接著，{{provider}} 會收到以下內容：{{payload}}。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "destinationUnspecified": "尚未設定螢幕情境的接收方。錄音前請檢查語音助理與視覺模型設定。"
     },
     "modes": {
       "providers": "使用你自己的 API Key",
       "providersDesc": "用你自己的 API Key 連接 OpenAI、Anthropic、Gemini 或 Groq。",
       "local": "本機",
-      "localDesc": "在你的裝置上執行本機 LLM，完全私密。",
+      "localDesc": "在此裝置上執行本機模型。不會向外傳送任何內容。",
       "selfHosted": "自架主機",
       "selfHostedDesc": "指向自架的 OpenAI 相容端點。",
       "enterprise": "企業級",
@@ -3176,7 +3187,7 @@
         "local": "本機",
         "selfHosted": "自架主機",
         "providersDesc": "使用自己的 API 金鑰。",
-        "localDesc": "裝置端模型，完全私密。",
+        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
         "selfHostedDesc": "你自己網路上的伺服器。",
         "enterprise": "企業級",
         "enterpriseDesc": "使用你組織的雲端帳號（AWS、Azure、GCP）。"
@@ -3916,28 +3927,28 @@
   },
   "patchbay": {
     "title": "路由",
-    "description": "每項任務及其目前運行位置。移動到該設備會立即生效並且可以撤消。移動到伺服器或提供者等待您查看並應用它們。",
+    "description": "每項任務及其目前的執行位置。切換至此裝置會立即生效，且可復原。切換至伺服器或提供者前，需先由您檢查並套用。",
     "tasks": "任務",
-    "destinations": "目的地",
+    "destinations": "執行位置",
     "openSettings": "開啟 {{task}} 設定",
     "sealed": "密封模式已開啟。任務只能在此設備上運行。",
     "undo": "撤銷",
     "kind": {
-      "speech": "演講",
+      "speech": "語音",
       "text": "文字"
     },
     "hint": {
       "idle": "選擇一個任務，然後選擇它應該運行的位置。",
       "pickDestination": "發送 {{task}} 至... 選擇突出顯示的目的地。",
       "pickTaskFirst": "首先選擇一個任務，然後選擇它應該運行的位置。",
-      "already": "{{task}} 已執行 {{place}}。",
+      "already": "{{task}} 已在以下位置執行：{{place}}。",
       "off": "{{task}} 已關閉。在其設定中將其打開。",
-      "moved": "{{task}} 現在運行 {{place}}。",
-      "movedOff": "{{task}} 已關閉。當您打開它時，它將運行 {{place}}。",
+      "moved": "{{task}} 目前的執行位置：{{place}}。",
+      "movedOff": "{{task}} 已關閉。啟用後的執行位置：{{place}}。",
       "movedAlso": "也更改：{{tasks}}。",
-      "staged": "請看下面的 {{task}} → {{destination}}，然後套用它。在您發送之前，不會發送任何內容。",
+      "staged": "請檢查下方的 {{task}} → {{destination}}，然後套用變更。套用前不會傳送任何內容。",
       "undone": "{{task}} 又回到原來的位置了。",
-      "undoStaged": "向後移動需要您在下面進行審查。",
+      "undoStaged": "請在下方檢查並套用恢復原執行位置的變更。",
       "notApplied": "一切都沒有改變。",
       "failed": "無法更改路線：{{error}}"
     },
@@ -3948,47 +3959,43 @@
     "no": {
       "capability": "{{provider}} 無法在 Loqui 中執行此任務。",
       "visionCloudOnly": "目前，螢幕截圖只能轉到雲視覺模型。",
-      "meetingServer": "注意錄製還不能使用您自己的伺服器。",
+      "meetingServer": "筆記錄音尚不支援使用您自己的伺服器。",
       "sealed": "密封模式將此任務保留在此設備上。",
       "uploadServer": "文件上傳使用為聽寫設定的伺服器。在那裡改變它。",
       "serverKind": "尚未為 {{kind}} 任務設定 {{server}}。使用“新增伺服器”輸入其位址。"
     },
     "place": {
-      "device": "在此設備上",
-      "server": "在您的伺服器上 {{host}}",
-      "anyServer": "在你的伺服器上",
-      "endpoint": "於 {{name}} 於 {{host}}",
-      "provider": "在 {{provider}}"
+      "device": "在此裝置上",
+      "server": "在位址為 {{host}} 的伺服器上",
+      "anyServer": "在您的伺服器上",
+      "endpoint": "在 {{name}}（{{host}}）處",
+      "provider": "在 {{provider}} 處"
     },
     "dest": {
       "serverAt": "伺服器位於 {{host}}",
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "新增伺服器",
       "addServerHint": "接下來輸入它的地址",
-      "nothingLeaves": "什麼都沒有離開",
+      "nothingLeaves": "不向外傳送任何內容",
       "yourServer": "您自己的伺服器",
       "unencrypted": "http，未加密",
       "hosted": "託管提供者",
       "keySaved": "API 金鑰已儲存",
       "noKey": "尚未儲存密鑰",
-      "keyRejected": "鑰匙被拒絕",
+      "keyRejected": "金鑰遭拒絕",
       "keyUnknown": "檢查已儲存的密鑰..."
     },
     "leaves": {
-      "none": "沒有任何東西離開這個設備。",
-      "prefix": "離開該設備：",
+      "none": "不會向此裝置以外傳送任何內容。",
+      "prefix": "向此裝置以外傳送內容的任務：",
       "item": "{{task}} → {{destination}}"
     },
     "taskCount_other": "{{count}} 任務",
     "meter": {
       "label_other": "{{count}} 任務（共 {{total}} 個）保留在此裝置上",
       "headline_other": "{{count}} 任務（共 {{total}} 個）保留在此裝置上",
-      "network_other": "{{count}} 在您的伺服器上",
-      "label_one": "{{total}} 任務的 {{count}} 保留在此裝置上",
-      "headline_one": "{{total}} 任務的 {{count}} 保留在此裝置上",
-      "network_one": "{{count}} 在您的伺服器上"
-    },
-    "taskCount_one": "{{count}} 任務"
+      "network_other": "{{count}} 在您的伺服器上"
+    }
   },
   "keyring": {
     "reminder": {

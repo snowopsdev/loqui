@@ -210,6 +210,8 @@ The desktop shell pairs a 208px sidebar with a flexible content area. The main w
 
 The workspace restores its last view on launch, defaulting to Home. A saved Notes selection opens through the shared note navigation path, including notes outside the first loaded page. Missing notes keep the Notes overview; deliberate navigation and confirmed data resets supersede pending restores. Deep workspace actions share one navigation context. Chat actions hold a composer request for the next integration stage and never submit it automatically.
 
+Note deletion retires outstanding page reads before evicting the row, so an older page cannot restore deleted content to the cache. Incidental first-note picks require unchanged navigation, the current context, and a still-valid committed page; newer overview navigation and confirmed reset admission keep their selection authority without clearing cached content.
+
 ## Elevation & Depth
 
 Depth is layered: light mode uses a subtle card shadow and restrained hover lift; dark mode relies on stepped Plum Night surfaces, quiet borders, and soft inner rims, with stronger shadows reserved for overlays. Orange live surfaces carry a fine top highlight and inset rim. Focus rings, selected-model glows, and modal shadows remain state-specific.

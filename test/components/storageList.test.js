@@ -1124,3 +1124,44 @@ test("R1: confirmed successful reset fences stale fetch and retains existing rel
   await wait(1100);
   assert.deepEqual(calls, [["relaunch"]]);
 });
+
+test("R1 I2 integration: admitted reset retires tree selection and failure preserves cached content", async (t) => {
+  const page = deferred();
+  const requested = deferred();
+  const cleanup = deferred();
+  const kept = { id: 7, title: "Keep", content: "Fixture content", space_id: 1, folder_id: null };
+  const cached = { ...kept, id: 8, folder_id: 3 };
+  const { api, calls } = fakeApi({
+    getSpaces: async () => [{ id: 1, kind: "private", name: "Personal" }],
+    getFolders: async () => [{ id: 2, space_id: 1, name: "Work", is_default: 1 }],
+    getFolderNoteCounts: async () => [],
+    getNote: async () => kept,
+    getNotes: async (_type, _limit, folderId) => {
+      if (folderId === 3) return [cached];
+      if (folderId !== 2) return [];
+      requested.resolve();
+      return page.promise;
+    },
+    cleanupApp: () => cleanup.promise,
+  });
+  const h = await mount(t, api);
+  const store = h.noteStore;
+  await store.initializeNotes(null, 50, 3);
+  await store.openNoteById(7);
+  store.navigateToContainer(1, 2);
+  const tree = store.initializeNotesTree();
+  await requested.promise;
+  await React.act(async () => h.view().onReset());
+  await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+  await React.act(async () => {
+    void h.reset().onConfirm();
+  });
+  page.resolve([{ ...kept, id: 1, folder_id: 2 }]);
+  await tree;
+  assert.equal(store.getActiveNoteIdValue(), null, "admission fence owns the pending tree pick");
+  await React.act(async () => cleanup.resolve({ success: false, errors: ["DB file: EBUSY"] }));
+  assert.equal(h.reset().phase, "failed");
+  assert.equal(store.getNoteFromStore(7)?.content, "Fixture content", "held content survives");
+  assert.equal(store.getNoteFromStore(8)?.content, "Fixture content", "loaded page survives");
+  assert.deepEqual(calls, [], "failed cleanup never relaunches");
+});

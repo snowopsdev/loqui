@@ -303,3 +303,247 @@ for (const local of [false, true]) {
     assert.notEqual(store.getActiveNoteIdValue(), 999);
   });
 }
+
+// Exact review round 1 interleavings: the page has already captured old rows.
+test("R1 I1: a deferred deep-link page cannot re-cache a deleted note", async (t) => {
+  const page = deferred();
+  let deleted;
+  let exists = true;
+  const { store } = await loadStore(t, {
+    getNote: async () => (exists ? note(999) : null),
+    getNotes: async (_type, _limit, folderId) => (folderId === 2 ? page.promise : []),
+    onNoteDeleted: (cb) => {
+      deleted = cb;
+      return () => {};
+    },
+  });
+  assert.equal(await store.openNoteById(999), "opened");
+  exists = false;
+  deleted({ id: 999 });
+  assert.equal(store.getNoteFromStore(999), null);
+  page.resolve([note(999)]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.getNoteFromStore(999), null, "the captured page cannot resurrect the row");
+  assert.equal(await store.openNoteById(999), "missing");
+  assert.equal(store.getActiveNoteIdValue(), null);
+});
+
+test("R1 I2: an old tree page cannot replace a newer space-root overview", async (t) => {
+  const page = deferred();
+  const requested = deferred();
+  const saved = deferred();
+  const { store } = await loadStore(t, {
+    getNote: () => saved.promise,
+    getNotes: async (_type, _limit, folderId) => {
+      if (folderId !== 2) return [];
+      requested.resolve();
+      return page.promise;
+    },
+  });
+  const restore = store.restoreLaunchNote(999);
+  const tree = store.initializeNotesTree();
+  await requested.promise;
+  store.navigateToContainer(1, null);
+  saved.resolve(note(999));
+  assert.equal(await restore, "superseded");
+  page.resolve([note(1)]);
+  await tree;
+  assert.equal(store.getActiveNoteIdValue(), null);
+  assert.equal(store.getActiveFolderIdValue(), null);
+});
+
+test("R1 I2: an old tree page cannot select a note from a deleted folder", async (t) => {
+  const page = deferred();
+  const requested = deferred();
+  let folderDeleted;
+  let folders = [{ id: 2, space_id: 1, name: "Work", is_default: 1 }];
+  const { store } = await loadStore(t, {
+    getFolders: async () => folders,
+    getNotes: async (_type, _limit, folderId) => {
+      if (folderId !== 2) return [];
+      requested.resolve();
+      return page.promise;
+    },
+    onFolderDeleted: (cb) => {
+      folderDeleted = cb;
+      return () => {};
+    },
+  });
+  const tree = store.initializeNotesTree();
+  await requested.promise;
+  folders = [];
+  folderDeleted({ id: 2 });
+  page.resolve([note(1)]);
+  await tree;
+  assert.equal(store.getActiveNoteIdValue(), null);
+  assert.equal(store.getNoteFromStore(1), null);
+  assert.equal(store.getActiveFolderIdValue(), null);
+});
+
+test("R1 I2: the confirmed-reset fence retires a pending tree first-note pick", async (t) => {
+  const page = deferred();
+  const requested = deferred();
+  const { store } = await loadStore(t, {
+    getNotes: async (_type, _limit, folderId) => {
+      if (folderId !== 2) return [];
+      requested.resolve();
+      return page.promise;
+    },
+  });
+  const tree = store.initializeNotesTree();
+  await requested.promise;
+  store.invalidatePendingNoteNavigation(); // The real StorageList admission function.
+  page.resolve([note(1)]);
+  await tree;
+  assert.equal(store.getActiveNoteIdValue(), null);
+});
+
+test("R1 I1: deletion fences a page even when the deleted id has never been cached", async (t) => {
+  const page = deferred();
+  let deleted;
+  const { store } = await loadStore(t, {
+    getNotes: async (_type, _limit, folderId) => (folderId === 2 ? page.promise : []),
+    onNoteDeleted: (cb) => {
+      deleted = cb;
+      return () => {};
+    },
+  });
+  const loading = store.initializeNotes(null, 50, 2);
+  assert.equal(store.getNoteFromStore(999), null);
+  deleted({ id: 999 });
+  page.resolve([note(999)]);
+  assert.deepEqual(await loading, [note(999)], "the public page return contract is preserved");
+  assert.equal(store.getNoteFromStore(999), null);
+  assert.equal(await store.openNoteById(999), "missing");
+});
+
+for (const duringMetadata of [false, true]) {
+  test(`R1 validity: tree admission precedes ${duringMetadata ? "metadata" : "page"} await and a newer deliberate overview`, async (t) => {
+    const metadata = deferred();
+    const requested = deferred();
+    const page = deferred();
+    const { store } = await loadStore(t, {
+      getFolders: () => metadata.promise,
+      getNotes: async (_type, _limit, folderId) => {
+        if (folderId !== 2) return [];
+        requested.resolve();
+        return page.promise;
+      },
+    });
+    const tree = store.initializeNotesTree();
+    if (!duringMetadata) {
+      metadata.resolve([{ id: 2, space_id: 1, name: "Work", is_default: 1 }]);
+      await requested.promise;
+    }
+    store.navigateToContainer(1, duringMetadata ? 2 : null);
+    // The same-folder preset can be resolved after metadata, but cannot rearm
+    // the earlier tree admission's incidental first-note selection.
+    if (duringMetadata) {
+      metadata.resolve([{ id: 2, space_id: 1, name: "Work", is_default: 1 }]);
+      await requested.promise;
+    }
+    page.resolve([note(1)]);
+    await tree;
+    assert.equal(store.getActiveNoteIdValue(), null);
+    assert.equal(store.getActiveFolderIdValue(), duringMetadata ? 2 : null);
+  });
+}
+
+test("R1 validity: tree selection requires its committed page, not a rejected older return", async (t) => {
+  const old = deferred();
+  const requested = deferred();
+  let calls = 0;
+  const { store } = await loadStore(t, {
+    getNotes: async (_type, _limit, folderId) => {
+      if (folderId !== 2) return [];
+      if (++calls > 1) return [note(2)];
+      requested.resolve();
+      return old.promise;
+    },
+  });
+  const tree = store.initializeNotesTree();
+  await requested.promise;
+  await store.initializeNotes(null, 50, 2);
+  old.resolve([note(1)]);
+  await tree;
+  assert.equal(store.getNoteFromStore(1), null);
+  assert.equal(store.getNoteFromStore(2)?.id, 2);
+  assert.equal(store.getActiveNoteIdValue(), null, "rejected page cannot select an uncached id");
+});
+
+test("R1 validity: a context-only change also prevents the tree's final selection", async (t) => {
+  const page = deferred();
+  const requested = deferred();
+  const { store } = await loadStore(t, {
+    getNotes: async (_type, _limit, folderId) => {
+      if (folderId !== 2) return [];
+      requested.resolve();
+      return page.promise;
+    },
+  });
+  const tree = store.initializeNotesTree();
+  await requested.promise;
+  store.setActiveContext(1, null);
+  page.resolve([note(1)]);
+  await tree;
+  assert.equal(store.getActiveNoteIdValue(), null);
+  assert.equal(store.getActiveFolderIdValue(), null);
+});
+
+test("R1 validity: deletion fences legacy flat loads and admits a later fresh page", async (t) => {
+  const page = deferred();
+  let deleted;
+  let calls = 0;
+  const { store } = await loadStore(t, {
+    getNotes: () => (++calls === 1 ? page.promise : Promise.resolve([note(2)])),
+    onNoteDeleted: (cb) => {
+      deleted = cb;
+      return () => {};
+    },
+  });
+  const loading = store.initializeNotes();
+  deleted({ id: 999 });
+  page.resolve([note(999)]);
+  assert.deepEqual(await loading, [note(999)]);
+  assert.equal(store.getNoteFromStore(999), null);
+  await store.initializeNotes(null, 50, 2);
+  assert.equal(store.getNoteFromStore(2)?.id, 2);
+});
+
+for (const newerIntent of ["overview", "reset", "note-deleted"]) {
+  test(`R1 validity: local folder fallback rechecks ${newerIntent} before selecting`, async (t) => {
+    const page = deferred();
+    const requested = deferred();
+    let folders = [{ id: 2, space_id: 1, name: "Work", is_default: 1 }, ARCHIVE];
+    let deleted;
+    const { store } = await loadStore(t, {
+      getFolders: async () => folders,
+      getNotes: async (_type, _limit, folderId) => {
+        if (folderId !== 2) return [];
+        requested.resolve();
+        return page.promise;
+      },
+      deleteFolder: async () => {
+        folders = folders.filter((f) => f.id !== 3);
+        return { success: true };
+      },
+      onNoteDeleted: (cb) => {
+        deleted = cb;
+        return () => {};
+      },
+    });
+    store.setActiveFolderId(3);
+    await store.initializeNotesTree();
+    const removing = store.deleteFolder(3);
+    await requested.promise;
+    assert.equal(store.getActiveFolderIdValue(), 2);
+    if (newerIntent === "overview") store.navigateToContainer(1, null);
+    else if (newerIntent === "reset") store.invalidatePendingNoteNavigation();
+    else deleted({ id: 1 });
+    page.resolve([note(1)]);
+    await removing;
+    assert.equal(store.getActiveNoteIdValue(), null);
+    assert.equal(store.getActiveFolderIdValue(), newerIntent === "overview" ? null : 2);
+    if (newerIntent === "note-deleted") assert.equal(store.getNoteFromStore(1), null);
+  });
+}

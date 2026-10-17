@@ -1289,7 +1289,8 @@ class IPCHandlers {
         this._systemProfilePromise = getSystemProfile({
           app,
           cacheRoot: getCacheRoot(),
-          detectGpu: () => detectNvidiaGpu(),
+          // Setup facts must not enter persistent GPU diagnostics, even at trace level.
+          detectGpu: () => detectNvidiaGpu({ quiet: true }),
         });
       }
       return this._systemProfilePromise;

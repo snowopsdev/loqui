@@ -5,6 +5,7 @@ const { getSystemProfile, normalizeLocales } = require("../../src/helpers/system
 const enoent = () => Object.assign(new Error("missing"), { code: "ENOENT" });
 
 test("reads preferred languages, free space and Apple silicon without probing NVIDIA", async () => {
+  let probeCalls = 0;
   const profile = await getSystemProfile({
     app: { getPreferredSystemLanguages: () => ["es-ES", "en-US", "es-ES"], getLocale: () => "en-US" },
     platform: "darwin",
@@ -15,6 +16,7 @@ test("reads preferred languages, free space and Apple silicon without probing NV
     },
     cacheRoot: "/cache/loqui",
     detectGpu: async () => {
+      probeCalls++;
       throw new Error("must not probe NVIDIA on Apple silicon");
     },
   });
@@ -23,6 +25,7 @@ test("reads preferred languages, free space and Apple silicon without probing NV
     freeDiskBytes: 4096000,
     gpu: { kind: "apple-silicon", name: null },
   });
+  assert.equal(probeCalls, 0, "Apple silicon must bypass the NVIDIA probe");
   assert.equal("totalMemoryBytes" in profile, false, "memory comes from Plan 03's get-total-memory (§5.1)");
 });
 

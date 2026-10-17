@@ -64,7 +64,6 @@ export const useAudioRecording = (toast, options = {}) => {
     getAssistantSelectionContext,
     onShowTranscript,
     onDemoEvent,
-    assistantOpenRef,
     trialMode = false,
   } = options;
 
@@ -867,18 +866,16 @@ export const useAudioRecording = (toast, options = {}) => {
       if (level === null) return;
       // The onboarding demo's pill draws its waveform from these levels.
       onDemoEventRef.current?.({ kind: demoKindRef.current, status: "level", level });
-      // The companion pill only exists while the Agent panel is open — with
-      // the panel closed there is nobody to mirror levels to, so skip the
-      // IPC. Checked per tick, not once: the panel can open mid-recording and
-      // a ref change never re-runs this effect.
-      if (!isAssistantVoice && assistantOpenRef?.current) {
+      // Main mirrors levels to the Agent pill only while its panel is open,
+      // and to the control panel capture rail at a lower IPC cadence.
+      if (!isAssistantVoice) {
         window.electronAPI?.dictationAudioLevelChanged?.(level);
       }
     };
     reportAudioLevel();
     const interval = setInterval(reportAudioLevel, COMPANION_AUDIO_LEVEL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [assistantOpenRef, getAudioLevel, isAssistantVoice, isRecording]);
+  }, [getAudioLevel, isAssistantVoice, isRecording]);
 
   const toggleListening = async ({
     voiceAgentRequested = false,

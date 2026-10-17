@@ -310,6 +310,8 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 
 The persistent dictation control is a compact bordered capsule with a waveform and voice identity mark. Recording and processing remain legible through waveform and control state; assistant thinking can add a restrained glow. The pill expands into the assistant or live-transcript surface with 24px corners, then contracts back to the same anchor. Dictation thinking glows in the logo gradient (#FF8A5C → #FF5A1F → #D90078); Agent Mode thinking glows violet (#8787FF). Blue is not a Loqui state colour.
 
+The control panel capture rail pulls the current dictation lifecycle on mount and follows main-process updates. The Agent pill, tray and hotkey gate keep the finite known lifecycle; the control panel can display a 1–64 character future state unchanged until the renderer learns it. Audio levels reach the control panel only while recording and at no more than 15 Hz. The dictation renderer continues sampling at 80 ms, including while the Agent panel is closed; main sends pill levels only while that panel is open.
+
 ### Settings
 
 **Routing is one model, drawn three ways.** `src/lib/routeGraph.ts` (pure, Node-loadable) resolves all 11 tasks, and `src/lib/routes.ts` adds the snapshot builder and hooks. Settings → Routing (the Patchbay), the editors' mode selectors and the voice pill use `ResolvedRoute`; the keyring exposes the main-owned credential health and recipient descriptions that supply route facts. Never compute "is this local?" or "is this ready?" anywhere else. Readiness reuses the executors' own validation, and a fact main has not confirmed reads `unknown`, never Ready.

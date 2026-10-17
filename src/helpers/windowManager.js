@@ -26,6 +26,14 @@ const {
 } = require("./dictationLifecycle");
 const { DEV_SERVER_PORT } = DevServerManager;
 const DRAG_MOVE_TOLERANCE_PX = 2;
+// At most 15 Hz; round up so the interval never exceeds that rate.
+const CONTROL_PANEL_LEVEL_INTERVAL_MS = Math.ceil(1000 / 15);
+const BRIDGE_STATE_MAX_LENGTH = 64;
+function toBridgeLifecycleState(state) {
+  return typeof state === "string" && state.length >= 1 && state.length <= BRIDGE_STATE_MAX_LENGTH
+    ? state
+    : DICTATION_LIFECYCLE.IDLE;
+}
 const {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
@@ -96,6 +104,8 @@ class WindowManager {
     this._isDictatingToggle = false;
     this._dictationLifecycleState = DICTATION_LIFECYCLE.IDLE;
     this._dictationInputKind = DICTATION_INPUT_KIND.DICTATION;
+    this._controlPanelDictationState = DICTATION_LIFECYCLE.IDLE;
+    this._controlPanelLevelSentAt = null;
     this._assistantPanelOpen = false;
     this._assistantPanelBusy = false;
     this._pendingMeetingNoteNavigation = null;
@@ -954,15 +964,23 @@ class WindowManager {
   setDictationLifecycleState(state, inputKind = DICTATION_INPUT_KIND.DICTATION) {
     const nextState = normalizeDictationLifecycle(state);
     const nextInputKind = normalizeDictationInputKind(inputKind);
+    const bridgeState = toBridgeLifecycleState(state);
     if (nextState === this._dictationLifecycleState && nextInputKind === this._dictationInputKind) {
+      if (bridgeState !== this._controlPanelDictationState) {
+        this._controlPanelDictationState = bridgeState;
+        this._sendControlPanelDictationState();
+      }
       return;
     }
 
     this._dictationLifecycleState = nextState;
     this._dictationInputKind = nextInputKind;
+    this._controlPanelDictationState = bridgeState;
     this._isDictatingToggle = isDictationRecording(nextState);
     this.meetingDetectionEngine?.setUserRecording(this._isDictatingToggle);
     this._sendAgentDictationPillState();
+    this._controlPanelLevelSentAt = null;
+    this._sendControlPanelDictationState();
     this.onDictationStateChanged?.();
   }
 
@@ -987,7 +1005,36 @@ class WindowManager {
     };
   }
 
+  getControlPanelDictationState() {
+    return { state: this._controlPanelDictationState, inputKind: this._dictationInputKind };
+  }
+
+  _sendControlPanelDictationState() {
+    this.sendToControlPanel("dictation-lifecycle-changed", this.getControlPanelDictationState());
+  }
+
+  _forwardControlPanelDictationLevel(level) {
+    const win = this.controlPanelWindow;
+    if (!win || win.isDestroyed() || win.webContents.isLoading()) return;
+    const now = Date.now();
+    if (
+      this._controlPanelLevelSentAt !== null &&
+      now - this._controlPanelLevelSentAt < CONTROL_PANEL_LEVEL_INTERVAL_MS
+    ) {
+      return;
+    }
+    this._controlPanelLevelSentAt = now;
+    win.webContents.send("dictation-level-changed", level);
+  }
+
   setDictationAudioLevel(level) {
+    const numericLevel = Number(level);
+    if (
+      Number.isFinite(numericLevel) &&
+      this._dictationLifecycleState === DICTATION_LIFECYCLE.RECORDING
+    ) {
+      this._forwardControlPanelDictationLevel(numericLevel);
+    }
     if (
       !this._assistantPanelOpen ||
       this._dictationLifecycleState !== DICTATION_LIFECYCLE.RECORDING ||
@@ -995,7 +1042,6 @@ class WindowManager {
     ) {
       return;
     }
-    const numericLevel = Number(level);
     if (!Number.isFinite(numericLevel)) return;
     const pillWindow = this.agentDictationPillWindow;
     if (!pillWindow || pillWindow.isDestroyed() || !this._agentDictationPillReady) return;

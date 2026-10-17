@@ -171,6 +171,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   toggleAgentPanelDictation: () => ipcRenderer.invoke("toggle-agent-panel-dictation"),
   cancelAgentPanelDictation: () => ipcRenderer.invoke("cancel-agent-panel-dictation"),
   getAgentDictationPillState: () => ipcRenderer.invoke("get-agent-dictation-pill-state"),
+  getDictationLifecycleState: () => ipcRenderer.invoke("get-dictation-lifecycle-state"),
+  onDictationLifecycleChanged: registerListener(
+    "dictation-lifecycle-changed",
+    (callback) => (_event, snapshot) => callback(snapshot)
+  ),
+  onDictationLevelChanged: registerListener(
+    "dictation-level-changed",
+    (callback) => (_event, level) => callback(level)
+  ),
+  toggleDictationFromControlPanel: () => ipcRenderer.invoke("control-panel-toggle-dictation"),
   resizeAgentDictationPillToContent: (surfaceHeight) =>
     ipcRenderer.invoke("resize-agent-dictation-pill-to-content", surfaceHeight),
   setAgentDictationPillInteractivity: (interactive) =>

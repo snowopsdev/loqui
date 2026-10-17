@@ -178,6 +178,12 @@ export interface TranscriptionItem {
   deleted_at: string | null;
 }
 
+/** Lifecycle snapshot sent to the control panel; future main-process states pass through. */
+export interface DictationLifecycleSnapshot {
+  state: "idle" | "preparing" | "recording" | "processing" | (string & {});
+  inputKind: "dictation" | "assistant" | "translation";
+}
+
 type AnalyticsMode = "local" | "openwhispr_cloud" | "byok" | "self_hosted" | "unknown";
 
 interface AnalyticsEventInput {
@@ -997,6 +1003,12 @@ declare global {
         interactive: boolean;
         horizontalDirection: "left" | "right";
       }>;
+      getDictationLifecycleState?: () => Promise<DictationLifecycleSnapshot>;
+      onDictationLifecycleChanged?: (
+        callback: (snapshot: DictationLifecycleSnapshot) => void
+      ) => () => void;
+      onDictationLevelChanged?: (callback: (level: number) => void) => () => void;
+      toggleDictationFromControlPanel?: () => Promise<{ success: boolean }>;
       resizeAgentDictationPillToContent?: (surfaceHeight: number | null) => Promise<{
         success: boolean;
         changed?: boolean;

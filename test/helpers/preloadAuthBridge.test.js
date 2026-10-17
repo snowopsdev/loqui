@@ -141,3 +141,30 @@ test('personal preload has no hosted account, billing, sync, or update bridge',(
  assert.equal(typeof api.personalInference.textGenerate,'function');
  assert.equal(typeof api.modelImportGguf,'function');
 });
+
+test("the control panel capture bridge strips events and supports unsubscribe", async () => {
+  const { api, invocations, listeners } = loadPreloadApi();
+  const states = [];
+  const levels = [];
+  const offState = api.onDictationLifecycleChanged((snapshot) => states.push(snapshot));
+  const offLevel = api.onDictationLevelChanged((level) => levels.push(level));
+
+  listeners.get("dictation-lifecycle-changed")?.(
+    { sender: "ipc" },
+    { state: "recording", inputKind: "dictation" }
+  );
+  listeners.get("dictation-level-changed")?.({ sender: "ipc" }, 0.3);
+  await api.getDictationLifecycleState();
+  await api.toggleDictationFromControlPanel();
+
+  assert.deepEqual(states, [{ state: "recording", inputKind: "dictation" }]);
+  assert.deepEqual(levels, [0.3]);
+  assert.deepEqual(invocations, [
+    ["get-dictation-lifecycle-state"],
+    ["control-panel-toggle-dictation"],
+  ]);
+  offState();
+  offLevel();
+  assert.equal(listeners.has("dictation-lifecycle-changed"), false);
+  assert.equal(listeners.has("dictation-level-changed"), false);
+});

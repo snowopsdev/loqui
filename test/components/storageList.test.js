@@ -314,6 +314,11 @@ async function mount(t, api) {
   const part = (type) => find(tree, (node) => node.type === type);
   return {
     s,
+    unmount: async () => {
+      const current = root;
+      root = null;
+      if (current) await React.act(async () => current.unmount());
+    },
     toasts,
     events,
     store: useSettingsStore,
@@ -850,4 +855,199 @@ test("[change-driving] malformed model recount preserves raw selections and unkn
   assert.match(h.dialog().last.outcome.errors[0], /^recount-failed: llm:/);
   assert.equal(h.store.getState().cleanupModel, "qwen3.5-2b-q4_k_m");
   assert.deepEqual(h.toasts, []);
+});
+
+const AUDIO_REFUSED = {
+  ok: false,
+  deleted: 0,
+  failed: 1,
+  readable: true,
+  remaining: 214,
+  errors: ["fixture refusal"],
+};
+const HISTORY_REFUSED = {
+  ok: false,
+  deleted: 0,
+  remaining: 1482,
+  errors: ["fixture refusal"],
+  audio: { deleted: 0, failed: 0, readable: true, remaining: 214 },
+};
+
+// change-driving FIX1: both success and error metadata continuations must retain owner identity.
+test("[change-driving FIX1] cancelled recount cannot replace newer running history", async (t) => {
+  for (const rejected of [false, true])
+    await t.test(`old recount rejected=${rejected}`, async (t) => {
+      const pending = Promise.withResolvers();
+      const deletion = deferred();
+      let hold = false;
+      const { api } = fakeApi({
+        storage: {
+          preview: () => (hold ? ((hold = false), pending.promise) : Promise.resolve(PREVIEW)),
+          deleteAudio: async () => AUDIO_REFUSED,
+          deleteHistory: () => deletion.promise,
+        },
+      });
+      const h = await mount(t, api);
+      await confirmDelete(h, "audio");
+      hold = true;
+      await React.act(async () => h.dialog().onRecount());
+      await React.act(async () => h.dialog().onCancel());
+      await React.act(async () => h.view().onDelete("history"));
+      await React.act(async () => h.dialog().onConfirm());
+      const reviewed = h.dialog().snapshot;
+      try {
+        if (rejected) pending.reject(new Error("old recount failed"));
+        else pending.resolve(PREVIEW);
+        await settle();
+        assert.equal(h.dialog().phase, "running");
+        assert.deepEqual(h.dialog().snapshot, reviewed);
+        assert.equal(h.dialog().snapshot.kind, "history");
+      } finally {
+        deletion.resolve(HISTORY_REFUSED);
+        await settle();
+      }
+    });
+});
+
+// change-driving FIX1: an opening read is intent, even before a dialog is visible.
+test("[change-driving FIX1] pending open cannot replace a newer running delete", async (t) => {
+  const pending = Promise.withResolvers();
+  const deletion = deferred();
+  let hold = false;
+  const { api } = fakeApi({
+    storage: {
+      preview: () => (hold ? ((hold = false), pending.promise) : Promise.resolve(PREVIEW)),
+      deleteHistory: () => deletion.promise,
+    },
+  });
+  const h = await mount(t, api);
+  hold = true;
+  await React.act(async () => {
+    void h.view().onDelete("audio");
+  });
+  await React.act(async () => h.view().onDelete("history"));
+  await React.act(async () => h.dialog().onConfirm());
+  try {
+    pending.resolve(PREVIEW);
+    await settle();
+    assert.equal(h.dialog().snapshot.kind, "history");
+    assert.equal(h.dialog().phase, "running");
+  } finally {
+    deletion.resolve(HISTORY_REFUSED);
+    await settle();
+  }
+});
+
+// change-driving FIX1: cancelling the newer review also retires older pending opens.
+test("[change-driving FIX1] cancelling a newer owner never resurrects an older pending open", async (t) => {
+  const pending = Promise.withResolvers();
+  let hold = false;
+  const { api } = fakeApi({
+    storage: {
+      preview: () => (hold ? ((hold = false), pending.promise) : Promise.resolve(PREVIEW)),
+    },
+  });
+  const h = await mount(t, api);
+  hold = true;
+  await React.act(async () => {
+    void h.view().onDelete("audio");
+  });
+  await React.act(async () => h.view().onDelete("history"));
+  await React.act(async () => h.dialog().onCancel());
+  pending.resolve(PREVIEW);
+  await settle();
+  assert.equal(h.dialog(), null);
+  await React.act(async () => h.view().onDelete("audio"));
+  assert.equal(h.dialog().phase, "review", "a genuinely new intent still gets its fresh review");
+});
+
+// change-driving FIX1: pending metadata cannot introduce a delete dialog during reset.
+test("[change-driving FIX1] reset owns the dialog surface over an older pending open", async (t) => {
+  const pending = Promise.withResolvers();
+  const reset = deferred();
+  let hold = false;
+  const { api } = fakeApi({
+    storage: {
+      preview: () => (hold ? ((hold = false), pending.promise) : Promise.resolve(PREVIEW)),
+    },
+    cleanupApp: () => reset.promise,
+  });
+  const h = await mount(t, api);
+  hold = true;
+  await React.act(async () => {
+    void h.view().onDelete("audio");
+  });
+  await React.act(async () => h.view().onReset());
+  await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+  await React.act(async () => h.reset().onConfirm());
+  try {
+    pending.resolve(PREVIEW);
+    await settle();
+    assert.equal(h.dialog(), null);
+    assert.equal(h.reset().phase, "running");
+  } finally {
+    reset.resolve({ success: false, errors: ["fixture refusal"] });
+    await settle();
+  }
+});
+
+// change-driving FIX1: a late failed recount may not revert a newer successful same-owner read.
+test("[change-driving FIX1] newest recount owns review even if an older recount fails last", async (t) => {
+  const pending = Promise.withResolvers();
+  let hold = false;
+  const { api } = fakeApi({
+    storage: {
+      preview: () => (hold ? ((hold = false), pending.promise) : Promise.resolve(PREVIEW)),
+      deleteAudio: async () => AUDIO_REFUSED,
+    },
+  });
+  const h = await mount(t, api);
+  await confirmDelete(h, "audio");
+  hold = true;
+  await React.act(async () => h.dialog().onRecount());
+  await React.act(async () => h.dialog().onRecount());
+  assert.equal(h.dialog().phase, "review");
+  pending.reject(new Error("old metadata error"));
+  await settle();
+  assert.equal(h.dialog().phase, "review");
+  assert.deepEqual(h.dialog().last.outcome.errors, ["fixture refusal"]);
+});
+
+// change-driving FIX1: retained handlers and pending reads lose authority on unmount.
+test("[change-driving FIX1] unmount retires pending reads and retained dialog handlers", async (t) => {
+  const pending = Promise.withResolvers();
+  let hold = false;
+  let reads = 0;
+  let deletes = 0;
+  const { api } = fakeApi({
+    storage: {
+      preview: () => {
+        reads++;
+        return hold ? ((hold = false), pending.promise) : Promise.resolve(PREVIEW);
+      },
+      deleteAudio: async () => {
+        deletes++;
+        return AUDIO_REFUSED;
+      },
+    },
+  });
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onDelete("audio"));
+  const retainedConfirm = h.dialog().onConfirm;
+  await React.act(async () => h.dialog().onConfirm());
+  await settle();
+  hold = true;
+  await React.act(async () => h.dialog().onRecount());
+  const retainedView = h.view();
+  const before = reads;
+  await h.unmount();
+  pending.resolve(PREVIEW);
+  await settle();
+  await React.act(async () => {
+    retainedConfirm();
+    void retainedView.onDelete("history");
+  });
+  await settle();
+  assert.equal(reads, before, "unmounted handlers cannot start new metadata reads");
+  assert.equal(deletes, 1, "unmounted confirmation cannot start a second delete");
 });

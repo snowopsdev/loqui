@@ -49,8 +49,15 @@ type Rows = {
   models: RowState<ModelsSnapshot>;
 };
 type Last = { snapshot: StorageSnapshot; outcome: DeleteOutcome };
-type DialogState = { snapshot: StorageSnapshot; phase: DeletePhase; last: Last | null };
-type ResetState = { phase: ResetPhase; typed: string; errors: string[] };
+type DeleteIntent = { kind: "delete"; phase: DeletePhase | "opening"; read: number };
+type ResetIntent = { kind: "reset"; phase: ResetPhase };
+type DialogState = {
+  owner: DeleteIntent;
+  snapshot: StorageSnapshot;
+  phase: DeletePhase;
+  last: Last | null;
+};
+type ResetState = { owner: ResetIntent; phase: ResetPhase; typed: string; errors: string[] };
 
 const LOADING: Rows = {
   audio: { status: "loading" },
@@ -503,6 +510,27 @@ export function StorageList() {
   const [reset, setReset] = useState<ResetState | null>(null);
   const busy = useRef(false);
   const resetBusy = useRef(false);
+  // UI lifetime only: main still owns the reviewed storage identities and deletion.
+  const intent = useRef<DeleteIntent | ResetIntent | null>(null);
+  const mounted = useRef(true);
+  const owns = (owner: DeleteIntent | ResetIntent) => mounted.current && intent.current === owner;
+  const publishDialog = (owner: DeleteIntent, next: Omit<DialogState, "owner">) => {
+    if (!owns(owner)) return;
+    owner.phase = next.phase;
+    setDialog((current) => (owns(owner) ? { ...next, owner } : current));
+  };
+  const publishReset = (owner: ResetIntent, next: Omit<ResetState, "owner">) => {
+    if (!owns(owner)) return;
+    owner.phase = next.phase;
+    setReset((current) => (owns(owner) ? { ...next, owner } : current));
+  };
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      intent.current = null;
+    };
+  }, []);
   const word = t("storage.reset.word");
 
   // Plan 02's hook (spec §5.6) owns the audio row's count, bytes and
@@ -522,7 +550,7 @@ export function StorageList() {
       history: preview.history,
       models,
     };
-    setRows(next);
+    if (mounted.current) setRows(next);
     return next;
   }, [refreshAudioUsage]);
 
@@ -531,10 +559,19 @@ export function StorageList() {
   }, [load]);
 
   const runDelete = async () => {
-    if (!dialog || dialog.phase !== "review" || busy.current) return;
+    if (
+      !dialog ||
+      !owns(dialog.owner) ||
+      dialog.owner.phase !== "review" ||
+      busy.current ||
+      resetBusy.current
+    )
+      return;
+    const owner = dialog.owner;
+    owner.read++; // retire any metadata read from the preceding review
     busy.current = true;
     const reviewed = dialog.snapshot;
-    setDialog({ ...dialog, phase: "running" });
+    publishDialog(owner, { ...dialog, phase: "running" });
     const outcome = await performDelete(window.electronAPI, reviewed);
     if (reviewed.kind === "models") {
       // Clear local selections only when the recount proves every model file
@@ -546,17 +583,19 @@ export function StorageList() {
     }
     const fresh = await load(); // refreshes the rows; never decides the outcome
     busy.current = false;
+    if (!owns(owner)) return;
     if (outcome.ok === true) {
-      setDialog(null);
+      intent.current = null;
+      setDialog((current) => (current?.owner === owner ? null : current));
       toast({ title: doneTitle(t, reviewed, outcome), variant: "success", duration: 4500 });
       return;
     }
     const last = { snapshot: reviewed, outcome };
     const row = fresh[reviewed.kind];
     if (outcome.errors.includes("stale") && row.status === "ready") {
-      setDialog({ snapshot: row.snapshot, phase: "review", last });
+      publishDialog(owner, { snapshot: row.snapshot, phase: "review", last });
     } else {
-      setDialog({ snapshot: reviewed, phase: "failed", last });
+      publishDialog(owner, { snapshot: reviewed, phase: "failed", last });
     }
   };
 
@@ -564,54 +603,95 @@ export function StorageList() {
   // the row unavailable and opens no confirmation, so a stale count is never
   // presented as current.
   const openDelete = async (kind: StorageKind) => {
-    if (dialog || busy.current) return;
+    if (!mounted.current || busy.current || resetBusy.current) return;
+    if (intent.current && (intent.current.kind !== "delete" || intent.current.phase !== "opening"))
+      return;
+    const owner: DeleteIntent = { kind: "delete", phase: "opening", read: 0 };
+    intent.current = owner; // a newer opening intent supersedes an older pending read
     const row = (await load())[kind];
+    if (!owns(owner) || busy.current || resetBusy.current) return;
     if (row.status === "ready" && !isEmptySnapshot(row.snapshot)) {
-      setDialog({ snapshot: row.snapshot, phase: "review", last: null });
+      publishDialog(owner, { snapshot: row.snapshot, phase: "review", last: null });
+    } else {
+      intent.current = null;
     }
   };
 
   const recount = async () => {
-    if (!dialog || dialog.phase !== "failed") return;
+    if (
+      !dialog ||
+      !owns(dialog.owner) ||
+      dialog.owner.phase !== "failed" ||
+      busy.current ||
+      resetBusy.current
+    )
+      return;
     const current = dialog;
+    const owner = current.owner;
+    const read = ++owner.read;
     const row = (await load())[current.snapshot.kind];
+    if (!owns(owner) || owner.read !== read || owner.phase !== "failed") return;
     if (row.status === "ready") {
-      setDialog({ snapshot: row.snapshot, phase: "review", last: current.last });
+      publishDialog(owner, { snapshot: row.snapshot, phase: "review", last: current.last });
     } else if (row.status === "error" && current.last) {
       const outcome = {
         ...current.last.outcome,
         errors: [...current.last.outcome.errors, `count-failed: ${row.error}`],
       };
-      setDialog({ ...current, last: { ...current.last, outcome } });
+      publishDialog(owner, { ...current, last: { ...current.last, outcome } });
     }
   };
 
   const runReset = async () => {
-    if (!reset || resetBusy.current || reset.phase === "running" || reset.phase === "done") return;
+    if (
+      !reset ||
+      !owns(reset.owner) ||
+      resetBusy.current ||
+      reset.owner.phase === "running" ||
+      reset.owner.phase === "done"
+    )
+      return;
     if (!resetConfirmed(reset.typed, word)) return;
+    const owner = reset.owner;
     resetBusy.current = true;
     const typed = reset.typed;
-    setReset({ phase: "running", typed, errors: [] });
+    publishReset(owner, { phase: "running", typed, errors: [] });
     let result: { ok: boolean; errors: string[] };
     try {
       result = resetOutcome(await call(window.electronAPI?.cleanupApp));
     } catch (error) {
       result = { ok: false, errors: [`ipc-failed: ${errorText(error)}`] };
     }
+    if (!owns(owner)) return;
     if (result.ok === false) {
       resetBusy.current = false;
-      setReset({ phase: "failed", typed, errors: result.errors });
+      publishReset(owner, { phase: "failed", typed, errors: result.errors });
       return;
     }
-    setReset({ phase: "done", typed, errors: [] });
-    setTimeout(() => void window.electronAPI?.relaunchApp?.(), RESET_RELAUNCH_DELAY_MS);
+    publishReset(owner, { phase: "done", typed, errors: [] });
+    setTimeout(() => {
+      if (owns(owner)) void window.electronAPI?.relaunchApp?.();
+    }, RESET_RELAUNCH_DELAY_MS);
   };
 
   const closeDialog = () => {
-    if (dialog && dialog.phase !== "running") setDialog(null);
+    if (!dialog || !owns(dialog.owner) || busy.current || dialog.owner.phase === "running") return;
+    const owner = dialog.owner;
+    intent.current = null;
+    setDialog((current) => (current?.owner === owner ? null : current));
   };
   const closeReset = () => {
-    if (reset && reset.phase !== "running" && reset.phase !== "done") setReset(null);
+    if (
+      !reset ||
+      !owns(reset.owner) ||
+      resetBusy.current ||
+      reset.owner.phase === "running" ||
+      reset.owner.phase === "done"
+    )
+      return;
+    const owner = reset.owner;
+    intent.current = null;
+    setReset((current) => (current?.owner === owner ? null : current));
   };
 
   return (
@@ -623,7 +703,17 @@ export function StorageList() {
         onDelete={(kind) => openDelete(kind)}
         onOpenModels={() => void window.electronAPI?.openWhisperModelsFolder?.()}
         onRefresh={() => void load()}
-        onReset={() => setReset({ phase: "review", typed: "", errors: [] })}
+        onReset={() => {
+          if (!mounted.current || busy.current || resetBusy.current) return;
+          if (
+            intent.current &&
+            (intent.current.kind !== "delete" || intent.current.phase !== "opening")
+          )
+            return;
+          const owner: ResetIntent = { kind: "reset", phase: "review" };
+          intent.current = owner;
+          publishReset(owner, { phase: "review", typed: "", errors: [] });
+        }}
       />
       {dialog && (
         <CountedDeleteDialog
@@ -652,7 +742,12 @@ export function StorageList() {
           }
           onTypedChange={(typed) =>
             setReset((current) =>
-              current && current.phase !== "running" ? { ...current, typed } : current
+              current &&
+              owns(current.owner) &&
+              current.owner.phase !== "running" &&
+              current.owner.phase !== "done"
+                ? { ...current, typed }
+                : current
             )
           }
           onConfirm={() => void runReset()}

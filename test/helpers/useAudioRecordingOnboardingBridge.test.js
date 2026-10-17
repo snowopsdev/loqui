@@ -113,9 +113,7 @@ test("real hook→AudioManager denied acquisition reaches current bridge before 
   await React.act(async () => {
     await h.f.setupApi.toggleOnboardingDemo("A");
     await h.waitForAcquisition(1);
-    h.acquisition().reject(
-      Object.assign(new Error("fixture permission denied"), { name: "NotAllowedError" })
-    );
+    h.acquisition().reject(new DOMException("fixture permission denied", "NotAllowedError"));
     await new Promise((r) => setTimeout(r, 0));
   });
   assert.deepEqual(
@@ -123,6 +121,7 @@ test("real hook→AudioManager denied acquisition reaches current bridge before 
     ["error"]
   );
   assert.equal(h.f.broadcasts[0][1].demoId, "A");
+  assert.equal(h.f.broadcasts[0][1].code, "NotAllowedError");
   h.reset();
   await h.f.setupApi.endOnboardingDemo("A");
   await h.f.setupApi.beginOnboardingDemo({ id: "B", kind: "dictation" });
@@ -131,7 +130,7 @@ test("real hook→AudioManager denied acquisition reaches current bridge before 
     await h.waitForAcquisition(2);
     await h.f.setupApi.endOnboardingDemo("B");
     await h.f.setupApi.beginOnboardingDemo({ id: "C", kind: "dictation" });
-    h.acquisition().reject(Object.assign(new Error("old denied"), { name: "NotAllowedError" }));
+    h.acquisition().reject(new DOMException("old denied", "NotAllowedError"));
     await new Promise((r) => setTimeout(r, 0));
   });
   assert.equal(h.f.broadcasts.length, 1, "B's late failure does not get relabelled as C");
@@ -207,11 +206,24 @@ test("real streaming start denial carries its own identity before any listening"
   await React.act(async () => {
     await h.f.setupApi.toggleOnboardingDemo("stream");
     await h.waitForAcquisition(1);
-    h.acquisition().reject(Object.assign(new Error("denied"), { name: "NotAllowedError" }));
+    h.acquisition().reject(new DOMException("denied", "NotAllowedError"));
     await new Promise((r) => setTimeout(r, 0));
   });
   assert.deepEqual(
     h.f.broadcasts.map(([, event]) => [event.demoId, event.status]),
     [["stream", "error"]]
   );
+  assert.equal(h.f.broadcasts[0][1].code, "NotAllowedError");
+  h.reset();
+  await h.f.setupApi.endOnboardingDemo("stream");
+  await h.f.setupApi.beginOnboardingDemo({ id: "old-stream", kind: "dictation" });
+  await React.act(async () => {
+    await h.f.setupApi.toggleOnboardingDemo("old-stream");
+    await h.waitForAcquisition(2);
+    await h.f.setupApi.endOnboardingDemo("old-stream");
+    await h.f.setupApi.beginOnboardingDemo({ id: "new-stream", kind: "dictation" });
+    h.acquisition().reject(new DOMException("late denied", "NotAllowedError"));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(h.f.broadcasts.length, 1, "old streaming failure stays rejected after reentry");
 });

@@ -6,6 +6,7 @@ import { useHotkey } from "./hooks/useHotkey";
 import { formatHotkeyListLabel } from "./utils/hotkeys";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import { useLinuxPillInteractivity } from "./hooks/useLinuxPillInteractivity";
+import { useSetupIncomplete } from "./hooks/useSetupIncomplete";
 import { useAudioRecording } from "./hooks/useAudioRecording";
 import { useAssistantPanel } from "./hooks/useAssistantPanel";
 import { useOnboardingAssistantDemo } from "./hooks/useOnboardingAssistantDemo";
@@ -195,6 +196,7 @@ export default function App() {
     }
   }, [assistantOpenRef, setWindowInteractivity]);
 
+  const setupIncomplete = useSetupIncomplete();
   const {
     isRecording,
     isProcessing,
@@ -207,6 +209,7 @@ export default function App() {
     cancelProcessing,
     getAudioLevel,
   } = useAudioRecording(toast, {
+    trialMode: setupIncomplete,
     onToggle: handleDictationToggle,
     onDemoEvent: publishOnboardingDemoEvent,
     onAssistantCommand: assistant.handleCommand,

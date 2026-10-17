@@ -8,7 +8,11 @@ import { expandSnippets } from "../utils/snippets";
 import { getRecordingErrorTitle, getRecordingErrorDescription } from "../utils/recordingErrors";
 import { isAccessibilitySkipped } from "../utils/permissions";
 
-import { getOnboardingDemoKind } from "../utils/onboardingDemo";
+import {
+  buildDemoSuccessEvent,
+  demoErrorCode,
+  getOnboardingDemoKind,
+} from "../utils/onboardingDemo";
 import {
   buildLiveTranscriptionPreview,
   shouldShowByokStreamingPreview,
@@ -46,6 +50,7 @@ export const useAudioRecording = (toast, options = {}) => {
   const pushForceStoppedRef = useRef(false);
   const stopLockRef = useRef(false);
   const preparationGenerationRef = useRef(0);
+  const preparedRecordingRef = useRef(null);
   const wasRecordingRef = useRef(false);
   const wasMicUnavailableRef = useRef(false);
   const demoKindRef = useRef("dictation");
@@ -68,6 +73,13 @@ export const useAudioRecording = (toast, options = {}) => {
     assistantOpenRef,
     trialMode = false,
   } = options;
+
+  const trialModeRef = useRef(trialMode);
+  trialModeRef.current = trialMode;
+
+  useEffect(() => {
+    audioManagerRef.current?.setPrivateSession?.(trialMode);
+  }, [trialMode]);
 
   useEffect(() => {
     onDemoEventRef.current = onDemoEvent;
@@ -111,6 +123,14 @@ export const useAudioRecording = (toast, options = {}) => {
 
   const performStartRecording = useCallback(
     async ({ voiceAgentRequested = false, translationRequested = false, onboardingTake } = {}) => {
+      const manager = audioManagerRef.current;
+      const prepared = preparedRecordingRef.current;
+      const sameTake =
+        prepared &&
+        prepared.manager === manager &&
+        prepared.onboardingTake?.demoId === onboardingTake?.demoId &&
+        prepared.onboardingTake?.takeId === onboardingTake?.takeId;
+      const recording = sameTake ? prepared.recording : { private: trialModeRef.current === true };
       if (startLockRef.current) return false;
       lastStartOptionsRef.current = { voiceAgentRequested, translationRequested };
       startLockRef.current = true;
@@ -118,9 +138,11 @@ export const useAudioRecording = (toast, options = {}) => {
       pushForceStoppedRef.current = false;
       let recordingStarted = false;
       try {
-        if (!audioManagerRef.current) return false;
+        if (!manager) return false;
 
-        if (!canStartDictation(audioManagerRef.current.getState())) return false;
+        if (!canStartDictation(manager.getState())) return false;
+
+        preparedRecordingRef.current = null;
 
         // Capture at admission, before any visual/microphone await. Callback
         // metadata comes from AudioManager's original operation, never this ref.
@@ -143,7 +165,7 @@ export const useAudioRecording = (toast, options = {}) => {
         // Start acquisition only after the compact thinking frame has reached
         // the compositor. startRecording() joins this prepared capture, so the
         // device still opens exactly once.
-        void audioManagerRef.current.prepareMicCapture?.();
+        void manager.prepareMicCapture?.();
 
         // The floating dictation panel is non-focusable, so the foreground app is
         // still the user's actual editing target here. Refresh it for recordings
@@ -156,9 +178,9 @@ export const useAudioRecording = (toast, options = {}) => {
         }
 
         if (preparationGeneration !== preparationGenerationRef.current) return false;
-        audioManagerRef.current.setVoiceAgentRequested(voiceAgentRequested);
-        audioManagerRef.current.setAssistantSelectionContext(assistantSelectionContext);
-        audioManagerRef.current.setTranslationRequested(translationRequested);
+        manager.setVoiceAgentRequested(voiceAgentRequested);
+        manager.setAssistantSelectionContext(assistantSelectionContext);
+        manager.setTranslationRequested(translationRequested);
         // Covers the toggle path with freshly-set flags; the signature dedup
         // makes this a no-op when the prepare handler already reported the
         // same kind ahead of the flags being set.
@@ -174,14 +196,14 @@ export const useAudioRecording = (toast, options = {}) => {
         // setting off; the predicate additionally fails closed while the
         // policy is still loading or errored.
         if (voiceAgentRequested && getSettings().voiceAgentScreenContext) {
-          audioManagerRef.current.beginScreenContextCapture();
+          manager.beginScreenContextCapture();
         }
 
         // The selection to edit is whatever was highlighted at press time, so
         // read it now: it resolves while the user speaks instead of adding a
         // round trip after transcription.
         if (voiceAgentRequested && !assistantSelectionContext) {
-          audioManagerRef.current.beginSelectionCapture();
+          manager.beginSelectionCapture();
         }
 
         // Retry STT config fetch if it wasn't loaded on mount (e.g. auth wasn't ready).
@@ -189,16 +211,15 @@ export const useAudioRecording = (toast, options = {}) => {
         // OpenWhispr-cloud streaming); for local STT or a signed-out session the
         // fetch stalls on auth resolution and would delay the mic open (#1673).
 
-        const didStart = audioManagerRef.current.shouldUseStreaming()
-          ? await audioManagerRef.current.startStreamingRecording(false, onboardingTake)
-          : await audioManagerRef.current.startRecording(false, onboardingTake);
+        const didStart = manager.shouldUseStreaming()
+          ? await manager.startStreamingRecording(false, onboardingTake, recording)
+          : await manager.startRecording(false, onboardingTake, recording);
         // Cancel remains owned by AudioManager. A late mic open from a demo
         // that left during acquisition must release that same recording.
-        if (onboardingTake && preparationGeneration !== preparationGenerationRef.current) {
+        if (preparationGeneration !== preparationGenerationRef.current) {
           if (didStart) {
-            if (audioManagerRef.current.getState().isStreaming)
-              await audioManagerRef.current.cancelStreamingRecording();
-            else audioManagerRef.current.cancelRecording();
+            if (manager.getState().isStreaming) await manager.cancelStreamingRecording();
+            else manager.cancelRecording();
           }
           return false;
         }
@@ -210,7 +231,7 @@ export const useAudioRecording = (toast, options = {}) => {
           // onStateChange releases it at idle; a start that is already idle
           // (a tap that ended inside the start call) releases it right here.
           window.electronAPI?.registerCancelHotkey?.("Escape");
-          const started = audioManagerRef.current.getState();
+          const started = manager.getState();
           if (!started.isRecording && !started.isProcessing) {
             window.electronAPI?.unregisterCancelHotkey?.();
           }
@@ -222,10 +243,10 @@ export const useAudioRecording = (toast, options = {}) => {
         if (didStart && stopRequestedDuringStartRef.current) {
           // Cue semantics mirror performStopRecording: unconditional for
           // streaming, gated on the stop landing for batch.
-          if (audioManagerRef.current.getState().isStreaming) {
+          if (manager.getState().isStreaming) {
             void playStopCue();
-            await audioManagerRef.current.stopStreamingRecording();
-          } else if (audioManagerRef.current.stopRecording()) {
+            await manager.stopStreamingRecording();
+          } else if (manager.stopRecording()) {
             void playStopCue();
           }
           return didStart;
@@ -233,7 +254,7 @@ export const useAudioRecording = (toast, options = {}) => {
 
         // A quick tap can end the recording inside the start call itself (deferred
         // streaming stop) — don't pause media for a recording that already ended. See #1060.
-        if (didStart && audioManagerRef.current.getState().isRecording) {
+        if (didStart && manager.getState().isRecording) {
           if (getSettings().pauseMediaOnDictation) {
             window.electronAPI?.pauseMediaPlayback?.();
           }
@@ -267,6 +288,7 @@ export const useAudioRecording = (toast, options = {}) => {
   );
 
   const performStopRecording = useCallback(async () => {
+    const manager = audioManagerRef.current;
     if (startLockRef.current) {
       stopRequestedDuringStartRef.current = true;
       setIsPreparing(false);
@@ -276,9 +298,9 @@ export const useAudioRecording = (toast, options = {}) => {
     if (stopLockRef.current) return false;
     stopLockRef.current = true;
     try {
-      if (!audioManagerRef.current) return false;
+      if (!manager) return false;
 
-      const currentState = audioManagerRef.current.getState();
+      const currentState = manager.getState();
       if (!currentState.isRecording && !currentState.isStreamingStartInProgress) return false;
 
       // Esc stays armed through processing; onStateChange releases it at idle.
@@ -290,10 +312,10 @@ export const useAudioRecording = (toast, options = {}) => {
 
       if (currentState.isStreaming || currentState.isStreamingStartInProgress) {
         void playStopCue();
-        return await audioManagerRef.current.stopStreamingRecording();
+        return await manager.stopStreamingRecording();
       }
 
-      const didStop = audioManagerRef.current.stopRecording();
+      const didStop = manager.stopRecording();
 
       if (didStop) {
         void playStopCue();
@@ -307,23 +329,25 @@ export const useAudioRecording = (toast, options = {}) => {
   }, []);
 
   useEffect(() => {
-    audioManagerRef.current = new AudioManager();
+    const manager = new AudioManager();
+    audioManagerRef.current = manager;
+    manager.setPrivateSession?.(trialModeRef.current);
 
     // Resolve and pin the input device now, not on the first hotkey press, which
     // would otherwise wait on the device lookup before the mic can open.
-    void audioManagerRef.current.cacheMicrophoneDeviceId?.();
+    void manager.cacheMicrophoneDeviceId?.();
 
     // Reset stale main-process state after a renderer reload or crash recovery.
     reportLifecycle("idle");
 
     const getRecoverableTranscript = (fallback = "") =>
       buildLiveTranscriptionPreview(
-        audioManagerRef.current?.streamingFinalText,
-        audioManagerRef.current?.streamingPartialText
+        manager?.streamingFinalText,
+        manager?.streamingPartialText
       ).trim() || fallback.trim();
 
     const showDictationError = ({ title, description, transcript = "", duration }) => {
-      const recoverAssistant = Boolean(audioManagerRef.current?.voiceAgentRequested);
+      const recoverAssistant = Boolean(manager?.voiceAgentRequested);
       onDictationError?.({ recoverAssistant });
       const recoverableTranscript = getRecoverableTranscript(transcript);
       const actions = [
@@ -357,7 +381,7 @@ export const useAudioRecording = (toast, options = {}) => {
       });
     };
 
-    audioManagerRef.current.setCallbacks({
+    manager.setCallbacks({
       onStateChange: (
         { isRecording, isProcessing, isStreaming, micCaptureStatus },
         onboardingTake
@@ -396,7 +420,7 @@ export const useAudioRecording = (toast, options = {}) => {
         // The panel only mirrors assistant-routed recordings; a plain
         // dictation started while it is open must not masquerade as a
         // follow-up (its transcript takes the paste route, not the panel).
-        setIsAssistantVoice(!!audioManagerRef.current?.voiceAgentRequested);
+        setIsAssistantVoice(!!manager?.voiceAgentRequested);
         if (micCaptureStatus) {
           setMicCaptureStatus(micCaptureStatus);
           const unavailable = micCaptureStatus === "unavailable";
@@ -422,7 +446,7 @@ export const useAudioRecording = (toast, options = {}) => {
           setPartialTranscript("");
         }
       },
-      onError: (error, onboardingTake) => {
+      onError: (error, onboardingTake, recording) => {
         setIsPreparing(false);
         setIsStopping(false);
         if (error?.code === "TRANSCRIPTION_CANCELLED" || error?.code === "REASON_CANCELLED") return;
@@ -431,8 +455,9 @@ export const useAudioRecording = (toast, options = {}) => {
           kind: demoKindRef.current,
           status: "error",
           message: error?.message ?? error?.description,
-          code: error?.code ?? error?.name,
+          code: demoErrorCode(error),
         });
+        manager.releasePrivateAudio?.(recording?.audioBlob ?? null);
         if (error?.title !== "Paste Error") {
           window.electronAPI?.hideDictationPreview?.();
         }
@@ -453,7 +478,7 @@ export const useAudioRecording = (toast, options = {}) => {
           window.electronAPI?.resumeMediaPlayback?.();
         }
       },
-      onNoAudio: (onboardingTake) => {
+      onNoAudio: (onboardingTake, recording) => {
         setIsPreparing(false);
         setIsStopping(false);
         onDemoEventRef.current?.({
@@ -461,7 +486,9 @@ export const useAudioRecording = (toast, options = {}) => {
           kind: demoKindRef.current,
           status: "error",
           message: t("hooks.audioRecording.noAudio.title"),
+          code: "NO_AUDIO",
         });
+        manager.releasePrivateAudio?.(recording?.audioBlob ?? null);
         window.electronAPI?.hideDictationPreview?.();
         if (getSettings().pauseMediaOnDictation) {
           window.electronAPI?.resumeMediaPlayback?.();
@@ -481,17 +508,14 @@ export const useAudioRecording = (toast, options = {}) => {
         setPartialTranscript(text);
         const settings = getSettings();
         if (
-          audioManagerRef.current?.getStreamingProviderName?.() !== "tinfoil-realtime" &&
+          manager?.getStreamingProviderName?.() !== "tinfoil-realtime" &&
           shouldShowByokStreamingPreview(
             settings.showTranscriptionPreview,
             settings.cloudTranscriptionMode,
-            !!audioManagerRef.current?.voiceAgentRequested
+            !!manager?.voiceAgentRequested
           )
         ) {
-          const previewText = buildLiveTranscriptionPreview(
-            audioManagerRef.current?.streamingFinalText,
-            text
-          );
+          const previewText = buildLiveTranscriptionPreview(manager?.streamingFinalText, text);
           window.electronAPI
             ?.updateDictationPreview?.(previewText)
             .catch((error) =>
@@ -499,12 +523,25 @@ export const useAudioRecording = (toast, options = {}) => {
             );
         }
       },
-      onTranscriptionComplete: async (result, onboardingTake) => {
+      onTranscriptionComplete: async (result, onboardingTake, recordingSnapshot) => {
+        const recording = recordingSnapshot ?? {
+          private: manager._recordingPrivate ?? trialModeRef.current,
+          audioBlob: manager.lastAudioBlob,
+          audioMetadata: manager.lastAudioMetadata,
+        };
+        const privateRecording = recording.private === true;
         if (result.success) {
           dismissDictationError?.();
           const transcribedText = result.text?.trim();
 
           if (!transcribedText) {
+            onDemoEventRef.current?.({
+              ...onboardingTake,
+              kind: demoKindRef.current,
+              status: "error",
+              code: "NO_AUDIO",
+            });
+            manager.releasePrivateAudio?.(recording.audioBlob ?? null);
             window.electronAPI?.hideDictationPreview?.();
             showDictationError({
               title: t("hooks.audioRecording.noAudio.title"),
@@ -531,7 +568,7 @@ export const useAudioRecording = (toast, options = {}) => {
                 ? { image: screenContext.data, mediaType: screenContext.mediaType }
                 : null,
             };
-            if (localStorage.getItem("onboardingCompleted") !== "true") {
+            if (privateRecording) {
               // The assistant panel would cover the onboarding flow, so a headless
               // responder answers and streams the reply back as demo events.
               onDemoEventRef.current?.({
@@ -557,10 +594,7 @@ export const useAudioRecording = (toast, options = {}) => {
           } else {
             onDemoEventRef.current?.({
               ...onboardingTake,
-              kind: demoKindRef.current,
-              status: "success",
-              text: result.text,
-              rawText: result.rawText,
+              ...buildDemoSuccessEvent(demoKindRef.current, result),
             });
             window.electronAPI?.completeDictationPreview?.({ text: result.text });
           }
@@ -581,13 +615,14 @@ export const useAudioRecording = (toast, options = {}) => {
           // Onboarding's first recording is a private capability check. It must
           // remain inside Loqui and must not create history, write the clipboard,
           // or paste into another application before the user has opted in.
-          const autoPasteEnabled = trialMode ? false : configuredAutoPaste;
-          const keepTranscriptionInClipboard = trialMode ? false : configuredKeepClipboard;
+          const autoPasteEnabled = privateRecording ? false : configuredAutoPaste;
+          const keepTranscriptionInClipboard = privateRecording ? false : configuredKeepClipboard;
 
-          const persistencePromise = trialMode
-            ? Promise.resolve(true)
-            : audioManagerRef.current
+          const persistencePromise = privateRecording
+            ? (manager.releasePrivateAudio?.(recording.audioBlob ?? null), Promise.resolve(true))
+            : manager
                 .saveTranscription(result.text, result.rawText ?? result.text, {
+                  ...(recordingSnapshot ? { recording } : {}),
                   clientTranscriptionId: result.clientTranscriptionId,
                   // Spread rather than set: a result with no analytics timestamp
                   // must not gain the key as undefined, matching how audioManager
@@ -686,7 +721,7 @@ export const useAudioRecording = (toast, options = {}) => {
                 });
               }
             } else {
-              pasteSucceeded = await audioManagerRef.current.safePaste(result.text, {
+              pasteSucceeded = await manager.safePaste(result.text, {
                 ...(isStreaming ? { fromStreaming: true } : {}),
                 restoreClipboard: !keepTranscriptionInClipboard,
                 allowClipboardFallback: isAccessibilitySkipped(),
@@ -723,8 +758,8 @@ export const useAudioRecording = (toast, options = {}) => {
             });
           }
 
-          if (audioManagerRef.current.shouldUseStreaming()) {
-            audioManagerRef.current.warmupStreamingConnection();
+          if (!privateRecording && manager.shouldUseStreaming()) {
+            manager.warmupStreamingConnection();
           }
 
           await persistencePromise;
@@ -760,8 +795,8 @@ export const useAudioRecording = (toast, options = {}) => {
       translationRequested = false,
       onboardingTake,
     } = {}) => {
-      if (!audioManagerRef.current) return;
-      const currentState = audioManagerRef.current.getState();
+      if (!manager) return;
+      const currentState = manager.getState();
 
       // A start still awaiting the mic open leaves isRecording false, so without
       // the lock check this toggle-off would take the start branch and be lost.
@@ -801,9 +836,17 @@ export const useAudioRecording = (toast, options = {}) => {
     });
 
     const disposePrepare = window.electronAPI.onPrepareDictation?.(async (options) => {
-      if (!audioManagerRef.current || startLockRef.current) return;
-      if (!canStartDictation(audioManagerRef.current.getState())) return;
+      if (!manager || startLockRef.current) return;
+      if (!canStartDictation(manager.getState())) return;
       const generation = ++preparationGenerationRef.current;
+      // Prepared pre-roll belongs to this admission too, even if setup finishes
+      // between prepare and start. This extends the existing preparation owner.
+      preparedRecordingRef.current = {
+        manager,
+        onboardingTake: options?.onboardingTake,
+        recording: { private: trialModeRef.current === true },
+      };
+      demoTakeRef.current = options?.onboardingTake ?? null;
       setIsAssistantVoice(false);
       setIsPreparing(true);
       // The prepare event precedes the flag-setting start, so the kind must come
@@ -812,13 +855,14 @@ export const useAudioRecording = (toast, options = {}) => {
       reportLifecycle("preparing", options?.inputKind);
       await waitForVisualFrames();
       if (generation !== preparationGenerationRef.current || startLockRef.current) return;
-      void audioManagerRef.current.prepareMicCapture?.();
+      void manager.prepareMicCapture?.();
     });
 
     const disposeCancelPreparation = window.electronAPI.onCancelDictationPreparation?.(() => {
       preparationGenerationRef.current += 1;
+      preparedRecordingRef.current = null;
       setIsPreparing(false);
-      audioManagerRef.current?.cancelPreparedMicCapture?.();
+      manager?.cancelPreparedMicCapture?.();
       if (reportedLifecycleRef.current?.startsWith("preparing:")) reportLifecycle("idle");
     });
 
@@ -837,6 +881,10 @@ export const useAudioRecording = (toast, options = {}) => {
 
     // Cleanup
     return () => {
+      // Invalidate the existing preparation owner before disposing this manager.
+      // A pending mic start will cancel on this same manager when it settles.
+      preparationGenerationRef.current += 1;
+      if (preparedRecordingRef.current?.manager === manager) preparedRecordingRef.current = null;
       reportLifecycle("idle");
       // Never leave a global Esc capture behind a reload or a route change.
       window.electronAPI?.unregisterCancelHotkey?.();
@@ -849,8 +897,9 @@ export const useAudioRecording = (toast, options = {}) => {
       disposeCancelPreparation?.();
       disposeStop?.();
       disposeForceStopped?.();
-      if (audioManagerRef.current) {
-        audioManagerRef.current.cleanup();
+      if (manager) {
+        manager.releasePrivateAudio?.();
+        manager.cleanup();
       }
     };
   }, [
@@ -862,33 +911,53 @@ export const useAudioRecording = (toast, options = {}) => {
     onDictationError,
     reportLifecycle,
     t,
-    trialMode,
   ]);
 
   const cancelRecording = useCallback(async () => {
-    if (audioManagerRef.current) {
+    const manager = audioManagerRef.current;
+    if (manager) {
       preparationGenerationRef.current += 1;
+      preparedRecordingRef.current = null;
       setIsPreparing(false);
       setIsStopping(false);
-      audioManagerRef.current.cancelPreparedMicCapture?.();
+      manager.cancelPreparedMicCapture?.();
       window.electronAPI?.unregisterCancelHotkey?.();
-      const state = audioManagerRef.current.getState();
+      const state = manager.getState();
+      const take = demoTakeRef.current;
+      if (
+        state.isRecording ||
+        state.isProcessing ||
+        state.isStreaming ||
+        state.isStreamingStartInProgress ||
+        startLockRef.current
+      ) {
+        // Pre-Plan04 fallback: Discarded, with no invented Undo/CancelledState.
+        onDemoEventRef.current?.({ ...take, kind: demoKindRef.current, status: "cancelled" });
+      }
+      manager.releasePrivateAudio?.();
       if (getSettings().pauseMediaOnDictation) {
         window.electronAPI?.resumeMediaPlayback?.();
       }
       // A streaming start in its mic-open phase is not yet `isStreaming`;
       // only the streaming cancel knows how to abandon it.
       if (state.isStreaming || state.isStreamingStartInProgress) {
-        return await audioManagerRef.current.cancelStreamingRecording();
+        return await manager.cancelStreamingRecording();
       }
-      return audioManagerRef.current.cancelRecording();
+      return manager.cancelRecording();
     }
     return false;
   }, []);
 
   const cancelProcessing = useCallback(() => {
-    if (audioManagerRef.current) {
-      return audioManagerRef.current.cancelProcessing();
+    const manager = audioManagerRef.current;
+    if (manager) {
+      const state = manager.getState?.() ?? {};
+      const take = demoTakeRef.current;
+      if (state.isRecording || state.isProcessing || state.isStreaming) {
+        onDemoEventRef.current?.({ ...take, kind: demoKindRef.current, status: "cancelled" });
+      }
+      manager.releasePrivateAudio?.();
+      return manager.cancelProcessing();
     }
     return false;
   }, []);

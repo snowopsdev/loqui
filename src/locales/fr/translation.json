@@ -4237,7 +4237,8 @@
       "recipientUnknown": "La destination de cet enregistrement n’a pas pu être vérifiée. Vos mots sont conservés. Rétablissez la destination d’origine dans les réglages pour réessayer, ou lancez un nouvel enregistrement.",
       "recipientChanged": "Cet enregistrement reste lié à sa destination d’origine. Vos mots sont conservés. Rétablissez cette destination dans les réglages pour réessayer, ou lancez un nouvel enregistrement.",
       "recipientTitle": "Destination d’enregistrement indisponible",
-      "streamingUnavailable": "La transcription en direct n’a pas pu démarrer pour cet enregistrement. Vérifiez le fournisseur sélectionné dans les réglages et réessayez."
+      "streamingUnavailable": "La transcription en direct n’a pas pu démarrer pour cet enregistrement. Vérifiez le fournisseur sélectionné dans les réglages et réessayez.",
+      "restoreFailed": "Impossible de restaurer l’enregistrement. Votre audio est conservé pour réessayer."
     }
   },
   "pill": {

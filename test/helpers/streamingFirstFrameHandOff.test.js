@@ -944,3 +944,196 @@ for (const row of PROVIDERS) {
     assert.equal(socket.readyState, FakeSocket.OPEN);
   });
 }
+
+test("actual cancel buffer and same-session replay isolate a late Gemini handshake and stale Stop", async (t) => {
+  const { loadAudioManager } = require("./harness/audioManager");
+  const loaded = await loadAudioManager(t, {
+    cachePrefix: "loqui-real-replay-main-",
+    settingsKey: "__realReplaySettings",
+    settings: {
+      useLocalWhisper: false,
+      transcriptionMode: "providers",
+      cloudTranscriptionProvider: "gemini",
+      cloudTranscriptionModel: "gemini-2.5-flash-native-audio-preview-12-2025",
+      geminiApiKey: "synthetic",
+      useCleanupModel: false,
+    },
+  });
+  const row = PROVIDERS.find((row) => row.name === "gemini");
+  const bus = new EventEmitter();
+  const senderSend = event.sender.send;
+  event.sender.send = (channel, payload) => {
+    senderSend(channel, payload);
+    bus.emit(channel, payload);
+  };
+  t.after(() => {
+    event.sender.send = senderSend;
+  });
+  const subscribe = (channel) => (cb) => {
+    bus.on(channel, cb);
+    return () => bus.off(channel, cb);
+  };
+  const calls = [];
+  loaded.window.electronAPI = {
+    ...loaded.window.electronAPI,
+    geminiStreamingStart: (options) => {
+      calls.push(["start", options]);
+      return invoke(row.start, options);
+    },
+    geminiStreamingSend: (bytes, operation) => {
+      calls.push(["send", operation]);
+      listeners.get(row.send)(event, bytes, operation);
+    },
+    geminiStreamingCancel: (operation) => {
+      calls.push(["cancel", operation]);
+      return invoke(row.cancel, operation);
+    },
+    geminiStreamingStop: (operation) => {
+      calls.push(["stop", operation]);
+      return invoke(row.stop, operation);
+    },
+    geminiStreamingFinalize: (operation) =>
+      listeners.get("gemini-streaming-finalize")(event, operation),
+    onGeminiPartialTranscript: subscribe("gemini-partial-transcript"),
+    onGeminiFinalTranscript: subscribe("gemini-final-transcript"),
+    onGeminiError: subscribe("gemini-error"),
+    onGeminiSessionEnd: subscribe("gemini-session-end"),
+    onDictationDispatch: subscribe("dictation-dispatch"),
+  };
+  const { createUndoWindow } = await loaded.vite.ssrLoadModule("/helpers/cancelBuffer.js");
+  const completed = [];
+  const manager = loaded.createManager({
+    _undoWindowFactory: (opts) => createUndoWindow({ ...opts, setTimer: () => 1, clearTimer() {} }),
+    _readSealed: () => false,
+    _streamingCancellationGeneration: 0,
+    _streamingSessionGeneration: 1,
+    _activeStreamingSessionId: 1,
+    isStreaming: true,
+    isRecording: true,
+    isProcessing: false,
+    _streamingStartSettlementWaiters: [],
+    streamingCleanupFns: [],
+    micRecovery: { stop() {} },
+    cleanupPreview: async () => {},
+    cleanupStreamingAudio() {
+      this.isStreaming = false;
+    },
+    onStateChange() {},
+    onTranscriptionComplete: (result) => completed.push(result),
+    shouldUseStreaming: () => false,
+  });
+  const session = manager.beginDictationSession({
+    streaming: true,
+    streamingProviderName: "gemini",
+  });
+  const context = manager._sessionContext,
+    tracker = manager._disclosure;
+  const attempt = {
+    correlationId: session.id,
+    dictationSessionId: session.id,
+    operationId: "actual-original",
+  };
+  manager._streamingOperation = attempt;
+  const frame = new Int16Array(1600).fill(9);
+  manager._sessionAudio = {
+    session,
+    kind: "streaming",
+    frames: [frame],
+    fallbackSegments: [],
+    fallbackChunks: [],
+    durationSeconds: 2,
+  };
+  const index = sockets.length;
+  const originalStart = invoke(row.start, { ...startOptions(row), ...attempt });
+  const originalSocket = await socketAt(index);
+  listeners.get(row.send)(event, frame.buffer, attempt);
+  const queued = self.geminiStreaming.coldStartBuffer[0];
+  assert.ok(queued.some((byte) => byte !== 0));
+  await manager.cancelStreamingRecording();
+  assert.equal(calls[0][0], "cancel", "Cancel is synchronous before hold/shutdown");
+  const heldBuffer = manager._undo.peek();
+  assert.equal(heldBuffer.context, context);
+  assert.equal(heldBuffer.tracker, tracker);
+  assert.equal(context.released, false);
+  assert.equal(
+    queued.every((byte) => byte === 0),
+    true,
+    "main erases old queued bytes"
+  );
+  assert.equal(heldBuffer.frames()[0][0], 9, "renderer hold survives main queue erasure");
+  const replayIndex = sockets.length;
+  assert.equal((await manager.restoreCancelled(session.id)).restored, true);
+  const replaySocket = await socketAt(replayIndex);
+  const replayAttempt = calls.find((call) => call[0] === "start")[1];
+  assert.notEqual(replayAttempt.operationId, attempt.operationId);
+  assert.equal(replayAttempt.dictationSessionId, session.id);
+  assert.equal(replayAttempt.correlationId, session.id);
+  open(originalSocket);
+  row.accept(originalSocket);
+  await originalStart;
+  await invoke(row.stop, attempt);
+  assert.equal(
+    replaySocket.readyState,
+    FakeSocket.CONNECTING,
+    "late old Stop leaves the fresh replay alone"
+  );
+  assert.equal(originalSocket.sent.some(isContentFrame), false);
+  open(replaySocket);
+  row.accept(replaySocket);
+  for (let i = 0; i < 20 && !replaySocket.sent.some(isContentFrame); i++) await tick();
+  assert.ok(replaySocket.sent.some(isContentFrame));
+  replaySocket.emit(
+    "message",
+    json({ serverContent: { inputTranscription: { text: "Restored words" } } })
+  );
+  await manager._restoreRun; // actual finalization, adapter Stop and completion
+  assert.equal(completed[0].text, "Restored words");
+  assert.equal(heldBuffer.isZeroed(), true);
+  assert.equal(manager._sessionAudio, null);
+  assert.equal(context.released, true);
+  assert.equal(manager.isProcessing, false);
+  assert.equal(manager.isStreaming, false);
+});
+
+for (const row of PROVIDERS) {
+  test(`${row.name}: pending Stop settles Start before credentials and admits only a fresh replay attempt`, async () => {
+    const token = held();
+    realtimeToken = () => token.promise;
+    const started = invoke(row.start, startOptions(row));
+    await tick();
+    await invoke(row.cancel);
+    await invoke(row.stop);
+    let settled = false;
+    started.then(() => {
+      settled = true;
+    });
+    await tick();
+    assert.equal(settled, true, "retiring an attempt cannot leave its Start immortal");
+    assert.equal((await started).success, false);
+    assert.equal(
+      (await invoke(row.start, startOptions(row))).success,
+      false,
+      "ended attempts cannot be reused"
+    );
+    realtimeToken = async () => "replacement-token";
+    const fresh = { ...identity, operationId: "fresh-replay-attempt" };
+    const index = sockets.length;
+    const replay = invoke(row.start, { ...startOptions(row), ...fresh });
+    const socket = await socketAt(index);
+    open(socket);
+    row.accept(socket);
+    assert.equal((await replay).success, true);
+    const before = sockets.length;
+    token.resolve("old-token");
+    await tick();
+    assert.equal(sockets.length, before, "late old credentials do not dial");
+    assert.equal((await invoke(row.stop)).reason, "stale-session");
+    send(row);
+    assertHandOff(false);
+    listeners.get(row.send)(event, FRAME(), fresh);
+    assertHandOff(true);
+    assert.equal(socket.readyState, FakeSocket.OPEN);
+    await invoke(row.cancel, fresh);
+    await invoke(row.stop, fresh);
+  });
+}

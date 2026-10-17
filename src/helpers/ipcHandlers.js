@@ -8355,6 +8355,14 @@ class IPCHandlers {
             cancelled: false,
             pending: true,
           };
+          // Stop can retire a pending attempt before its credential/socket
+          // await settles. Its public Start must settle independently of that
+          // old transport, without letting a late continuation reclaim a replay.
+          record.ended = new Promise((_, reject) => {
+            record.endPending = () => reject(streamingOperationError("Streaming operation ended"));
+          });
+          record.ended.catch(() => {});
+          const pending = (promise) => Promise.race([promise, record.ended]);
           if (labeled) {
             const attempts = usedStreamingAttempts.get(event.sender) ?? new Set();
             if (attempts.has(options.operationId))
@@ -8365,7 +8373,7 @@ class IPCHandlers {
           dictationOperations.set(row.id, record);
           watchStreamingOwner(row, record, dictationOperations);
           const warm = dictationWarm.get(row.id);
-          if (warm) await warm.promise.catch(() => {});
+          if (warm) await pending(warm.promise.catch(() => {}));
           if (
             !alive(record) ||
             dictationOperations.get(row.id) !== record ||
@@ -8413,10 +8421,10 @@ class IPCHandlers {
           const connectedWarm = useWarm && ["realtime", "gemini"].includes(row.id);
           if (!connectedWarm) {
             adapter.beginConnecting?.();
-            const material = await acquireStreamingToken(row, event, options);
+            const material = await pending(acquireStreamingToken(row, event, options));
             if (!owns(row, record) || streamingAuthority(options) !== authority)
               throw streamingOperationError("Streaming operation ended");
-            await connectOwnedStreaming(row, record, material);
+            await pending(connectOwnedStreaming(row, record, material));
           }
           if (
             !contentAuthorized(row, record) ||
@@ -8480,7 +8488,16 @@ class IPCHandlers {
           return { success: false, reason: "stale-session" };
         if (record.pending) {
           record.cancelled = true;
-          record.adapter?.discardPendingAudio();
+          record.detachOwner?.();
+          // Retire only this exact attempt. A fresh Undo may reuse the frozen
+          // session id immediately, but always has a new operationId/adapter.
+          if (dictationOperations.get(row.id) === record) dictationOperations.delete(row.id);
+          if (this[row.slot] === record.adapter) this[row.slot] = null;
+          try {
+            releaseAdapter(record.adapter);
+          } finally {
+            record.endPending?.();
+          }
           return { success: true, text: "" };
         }
         const adapter = record.adapter;

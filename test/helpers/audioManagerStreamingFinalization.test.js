@@ -188,28 +188,42 @@ test("streaming discard blocks restart until the provider disconnects", async (t
   assert.equal(manager.getState().isFinalizingStreaming, false);
 });
 
-test("streaming discard waits for an in-progress provider start before disconnecting", async (t) => {
+test("streaming discard retires the provider immediately and waits for startup capture cleanup", async (t) => {
   const AudioManager = await loadManagerClass(t);
   const { manager } = createFinalizingManager(AudioManager);
   let providerStopCalls = 0;
+  let captureCleanups = 0;
+  manager.cleanupStreamingAudio = () => {
+    captureCleanups++;
+  };
+  const order = [];
   manager.streamingStartInProgress = true;
   manager.cleanupPreview = async () => null;
   manager.getStreamingProvider = () => ({
+    cancel: () => order.push("cancel"),
     stop: async () => {
       providerStopCalls += 1;
+      order.push("stop");
       return { success: true };
     },
   });
 
   const cancel = manager.cancelStreamingRecording();
+  assert.deepEqual(order, ["cancel", "stop"], "exact operation retires synchronously");
+  assert.equal(captureCleanups, 1);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(providerStopCalls, 0);
+  assert.equal(
+    providerStopCalls,
+    1,
+    "Stop retires main admission before the renderer waits for startup"
+  );
   assert.equal(manager.isProcessing, true);
 
   manager._settleStreamingStart();
   assert.equal(await cancel, true);
   assert.equal(providerStopCalls, 1);
   assert.equal(manager.isProcessing, false);
+  assert.equal(captureCleanups, 2, "one additional owned cleanup after startup settles");
 });
 
 test("cancelling while the streaming microphone opens never enters recording", async (t) => {
@@ -432,4 +446,38 @@ test("streaming processing stage is emitted synchronously before finalization aw
   resume();
   await stop;
   assert.deepEqual(initial, ["transcribing"]);
+});
+
+test("late cancelled startup cleanup cannot touch a replacement capture", async (t) => {
+  const AudioManager = await loadManagerClass(t);
+  const { manager, states } = createFinalizingManager(AudioManager);
+  manager.streamingStartInProgress = true;
+  manager.cleanupPreview = async () => null;
+  let cleanups = 0;
+  manager.cleanupStreamingAudio = () => {
+    cleanups++;
+  };
+  const originalOperation = { operationId: "original" };
+  manager._streamingOperation = originalOperation;
+  manager.getStreamingProvider = () => ({
+    cancel() {},
+    stop: async (operation) => {
+      assert.equal(operation, originalOperation);
+      return {};
+    },
+  });
+  const cancelling = manager.cancelStreamingRecording();
+  manager._streamingOperation = { operationId: "replacement" };
+  manager._activeStreamingSessionId = 8;
+  manager.isRecording = true;
+  manager.isStreaming = true;
+  manager.isProcessing = false;
+  const notifications = states.length;
+  manager._settleStreamingStart();
+  await cancelling;
+  assert.equal(cleanups, 1, "old startup performs no deferred cleanup on the replacement");
+  assert.equal(states.length, notifications);
+  assert.equal(manager.isRecording, true);
+  assert.equal(manager.isStreaming, true);
+  assert.equal(manager._activeStreamingSessionId, 8);
 });

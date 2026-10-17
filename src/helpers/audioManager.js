@@ -1,3 +1,13 @@
+import {
+  createCancelBuffer,
+  createUndoWindow,
+  REPLAY_BATCH_FRAMES,
+  REPLAY_PACE_MS,
+  FINAL_AUDIO_WAIT_MS,
+  CLOSE_SAVE_WAIT_MS,
+} from "./cancelBuffer";
+import { canStartDictation } from "../utils/dictationReadiness";
+import * as sealedStore from "../stores/sealedStore";
 import { createDisclosureTracker } from "./dictationDisclosure";
 import {
   captureDictationSession,
@@ -519,7 +529,7 @@ class AudioManager {
     this.screenContextPromise = null;
     this.selectionCapturePromise = null;
     this.warmupFailureStreak = 0;
-    this.lastAudioBlob = null;
+    this._setOwnedAudio(null);
     this.lastAudioMetadata = null;
     this._localSpeechGateState = null;
     this._streamingCommitActive = false;
@@ -663,9 +673,522 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     );
   }
 
+  _undoWindow() {
+    const factory = this._undoWindowFactory ?? createUndoWindow;
+    return (this._undo ??= factory({
+      onClose: (buffer, reason, opts) => this._closeCancelled(buffer, reason, opts),
+    }));
+  }
+
+  /** A timer and a clock that tests replace, so one fake clock drives every deadline. */
+  _now() {
+    return Date.now();
+  }
+
+  _delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  _emitCancelled(buffer) {
+    const state = this._undo?.state();
+    if (!state || this._undo.peek() !== buffer) return;
+    this.onCancelledChange?.({
+      sessionId: buffer.session.id,
+      ...state,
+      remoteAlreadySent: buffer.tracker?.get() ?? null,
+    });
+  }
+
+  _openCancelled(buffer) {
+    this._undoWindow().open(buffer);
+    // Evidence that settles after the cancel (an upload that finished
+    // sending, an attested egress notice) updates the copy while open.
+    buffer.tracker?.setOnChange(() => this._emitCancelled(buffer));
+    this._emitCancelled(buffer);
+  }
+
+  async _closeCancelled(buffer, reason, { wait } = {}) {
+    if (reason !== "abandoned")
+      this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason });
+    buffer.tracker?.dispose();
+    buffer.context?.release(); // the press-time reads end with the hold (Task 6)
+    if (reason === "replaced" && this._undo?.peek()) this._emitCancelled(this._undo.peek());
+    // Nothing will be saved: zero now, at the deadline. Copies still in flight are zeroed
+    // when they land (R1-I1). An expired or flushed private hold is never persisted (§5.2).
+    if (buffer.private || !shouldSaveDiscardedRecording(getSettings(), buffer.durationSeconds)) {
+      buffer.zero();
+      return;
+    }
+    // Retention on: wait a bounded time for the final chunk and copies, then save what arrived.
+    await buffer.ready({ until: wait?.(CLOSE_SAVE_WAIT_MS) });
+    const role = buffer.kind === "streaming" ? "fallback" : "segment";
+    const blobs = buffer.bytes(role).map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
+    buffer.zero(); // the Blobs hold their own copies
+    if (blobs.length === 0) return;
+    try {
+      // Disk is allowed here only because retention already saves discarded audio.
+      const merged = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
+      if (merged)
+        await this.saveDiscardedTranscription(
+          merged,
+          buffer.durationSeconds,
+          buffer.analyticsOccurredAt,
+          {
+            private: buffer.private,
+            translationRequested: buffer.session.intents.translationRequested,
+          }
+        );
+    } catch (error) {
+      logger.warn("Failed to save discarded recording", { error: error.message }, "audio");
+    }
+  }
+
+  /** Move the active session, its tracker and its audio into a new buffer; release every other reference. */
+  _bufferForSession(kind, { durationSeconds, analyticsOccurredAt, mimeType }) {
+    // Task 6: ends the session but keeps its press-time reads (selection, screenshot) for Undo (R1-C2).
+    const { session, context, tracker } = this._detachSessionOperation();
+    const buffer = createCancelBuffer({
+      session,
+      kind,
+      mimeType: mimeType || this.recordingMimeType,
+      durationSeconds,
+      analyticsOccurredAt,
+      tracker,
+      context,
+    });
+    // Privacy was frozen on this session at the recording start; the buffer keeps it through Undo.
+    buffer.private = session?.private === true;
+    this._disclosure = null; // the buffer owns the tracker now
+    if (session && this._lastAudioSessionId === session.id) this._setOwnedAudio(null);
+    if (this._sessionAudio?.session === session) this._sessionAudio = null;
+    return buffer;
+  }
+
+  /**
+   * §5.2 audio ownership. The ONLY writer of `lastAudioBlob`, its owner session and its
+   * persistence privacy flag. Every assignment goes through here before any callback or
+   * provider work can save. Pass null to release.
+   */
+  _setOwnedAudio(
+    blob,
+    {
+      sessionId = this._activeSession?.id ?? null,
+      private: isPrivate = this._activeSession?.private ?? this._recordingPrivate === true,
+    } = {}
+  ) {
+    this.lastAudioBlob = blob ?? null;
+    this._lastAudioSessionId = blob ? sessionId : null;
+    this.lastAudioBlobPrivate = Boolean(blob) && isPrivate === true;
+    this._lastAudioOwnerToken = {};
+    // Keep the recording's flag consistent with the audio it owns.
+    if (blob && sessionId && sessionId === this._activeSession?.id)
+      this._recordingPrivate = isPrivate === true;
+  }
+
+  /**
+   * R4-C1: an immutable view of who owns lastAudioBlob, taken before any await. A save
+   * persists only this, so a newer recording that owns lastAudioBlob by the time a write
+   * resolves is never read, uploaded or released by an older save. With `sessionId`, the
+   * audio counts only if that session still owns it.
+   */
+  _ownedAudioSnapshot({ sessionId, private: sessionPrivate } = {}) {
+    const owner = this._lastAudioSessionId;
+    const owns = Boolean(this.lastAudioBlob) && (sessionId === undefined || sessionId === owner);
+    const id = owns ? owner : (sessionId ?? null);
+    return Object.freeze({
+      blob: owns ? this.lastAudioBlob : null,
+      sessionId: id,
+      private: owns
+        ? this.lastAudioBlobPrivate === true
+        : sessionPrivate === undefined
+          ? Boolean(id)
+          : sessionPrivate === true,
+      ownerToken: owns ? this._lastAudioOwnerToken : null,
+      metadata: owns ? (this.lastAudioMetadata ?? null) : null,
+    });
+  }
+
+  /** Releases only the exact Blob generation and owner captured by this snapshot. */
+  _releaseOwnedAudio(owned) {
+    if (
+      !owned.blob ||
+      this.lastAudioBlob !== owned.blob ||
+      this._lastAudioSessionId !== owned.sessionId ||
+      this._lastAudioOwnerToken !== owned.ownerToken
+    )
+      return;
+    this._setOwnedAudio(null, { sessionId: owned.sessionId, private: owned.private });
+    this.lastAudioMetadata = null;
+  }
+
+  async restoreCancelled(sessionId, { deadlineAt } = {}) {
+    // R3-I1: a bridge request carries main's absolute admission deadline (Task 9). It is
+    // counted from when main sent the request, so delivery delay and queueing in this
+    // renderer use up the same budget. Past it, main has already answered: touch nothing.
+    const deadline = Number.isFinite(deadlineAt) ? deadlineAt : null;
+    if (deadline !== null && this._now() >= deadline) {
+      return { restored: false, sessionId: sessionId ?? null, reason: "unavailable" };
+    }
+    const buffer = this._undo?.peek();
+    if (!buffer || (sessionId && buffer.session.id !== sessionId)) {
+      return { restored: false, sessionId: sessionId ?? null, reason: "expired" };
+    }
+    if (!canStartDictation(this.getState())) {
+      return { restored: false, sessionId: buffer.session.id, reason: "busy" };
+    }
+    // Claim before any await (I3): the window closes, the lifecycle is busy.
+    this._undo.take();
+    const generation = (this._restoreGeneration = (this._restoreGeneration ?? 0) + 1);
+    // §5.2 order: the window closes ("restored"), then processing starts (R1-I6).
+    this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason: "restored" });
+    this.isProcessing = true;
+    this.onStateChange?.({ isRecording: false, isProcessing: true });
+
+    // This restore owns the lifecycle only while its generation is current. Esc
+    // (cancelProcessing / cancelRecording) bumps it and settles idle itself (R1-I3).
+    const owns = () => generation === this._restoreGeneration;
+    const refuse = (reason, { keep }) => {
+      if (owns()) {
+        this.isProcessing = false;
+        this.onStateChange?.({ isRecording: false, isProcessing: false });
+      }
+      if (keep) this._rehold(buffer);
+      else {
+        buffer.zero();
+        buffer.context?.release();
+        buffer.tracker?.dispose();
+      }
+      return { restored: false, sessionId: buffer.session.id, reason };
+    };
+
+    // Every pre-flight wait fits inside the time left before main's deadline, and the
+    // deadline is checked again just before the pipeline starts (below).
+    const waitMs =
+      deadline === null
+        ? FINAL_AUDIO_WAIT_MS
+        : Math.max(0, Math.min(FINAL_AUDIO_WAIT_MS, deadline - this._now()));
+
+    // R2-C1: wait for the recorder's final chunk, bounded. "Not delivered yet" is not
+    // "empty": on timeout the recording goes back into its window, unzeroed, and a
+    // late chunk still lands in it.
+    let complete;
+    try {
+      complete = await buffer.ready({ until: this._delay(waitMs) });
+    } catch {
+      return refuse("noAudio", { keep: false });
+    }
+    if (!owns()) return refuse("busy", { keep: true });
+    if (!complete) return refuse("noAudio", { keep: true });
+    if (await this._sealedBlocks(buffer.session)) return refuse("sealed", { keep: true });
+    if (!owns()) return refuse("busy", { keep: true });
+    const empty =
+      buffer.kind === "streaming" ? !buffer.frames().length : !buffer.bytes("segment").length;
+    if (empty) return refuse("noAudio", { keep: false });
+    if (
+      buffer.kind === "streaming" &&
+      !STREAMING_PROVIDERS[buffer.session.intents.streamingProviderName]
+    ) {
+      return refuse("routeUnavailable", { keep: true }); // never re-route; the window keeps the words until it ends
+    }
+
+    if (deadline !== null && this._now() >= deadline) return refuse("unavailable", { keep: true }); // main already answered
+
+    // Task 7 keeps the evidence; Task 6 hands back the press-time selection and screenshot (R1-C2).
+    this.applySessionIntents(buffer.session, { tracker: buffer.tracker, context: buffer.context });
+    // Preflight claimed busy before a session was attached. Publish again now
+    // so useAudioRecording exposes the restored frozen routes to the pill (Task 11).
+    this.onStateChange?.({ isRecording: false, isProcessing: true });
+    this._recordingPrivate = buffer.private === true; // §5.2: re-applied before processing
+    this._restoreRun = (
+      buffer.kind === "streaming"
+        ? this._replayStreamingSession(buffer, generation)
+        : this._restoreBatch(buffer, generation)
+    )
+      .catch((error) => {
+        logger.warn("Undo could not run the original route", { error: error?.message }, "audio");
+        if (owns()) this.onError?.({ ...error, messageKey: "voiceOverlay.errors.restoreFailed" });
+      })
+      .finally(() => buffer.zero());
+    return { restored: true, sessionId: buffer.session.id };
+  }
+
+  /**
+   * Puts a recording back in the undo window, unless something newer owns the
+   * pill: a newer hold, or a recording or pipeline that started after Esc. Then
+   * it closes the way a newer start ends a window (Step 4.9): saved if retention
+   * allows, zeroed otherwise (R1-I3). The reason "abandoned" is internal: its
+   * window already announced its close, so nothing is emitted and a newer
+   * window's state is never cleared.
+   */
+  _rehold(buffer) {
+    const newer = this._undo?.peek() || this.isRecording || this.isProcessing || this.isStreaming;
+    if (newer) void this._undoWindow().discard(buffer, "abandoned");
+    else this._openCancelled(buffer);
+  }
+
+  async _restoreBatch(buffer) {
+    const { session } = buffer;
+    const isPrivate = buffer.private === true;
+    const blobs = buffer
+      .bytes("segment")
+      .map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
+    buffer.zero(); // the Blobs are the restored dictation's own audio now
+    const metadata = {
+      durationSeconds: buffer.durationSeconds,
+      analyticsOccurredAt: buffer.analyticsOccurredAt,
+      restoredFromCancel: true,
+    };
+    // Re-register the audio first, so an Esc during this restore re-holds it (Step 4.8).
+    this._sessionAudio = {
+      session,
+      kind: "batch",
+      segments: blobs,
+      mimeType: buffer.mimeType,
+      ...metadata,
+    };
+    const pipeline = this._startProcessingPipeline(); // Esc bumps its generation (cancelProcessing)
+    let audio;
+    try {
+      audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
+      if (!audio)
+        throw Object.assign(new Error("Undo could not combine the recording"), {
+          code: "MERGE_FAILED",
+        });
+    } catch (error) {
+      // R2-C2: the merge runs outside processAudio's try/finally. Take the session's
+      // ownership into a hold *before* settling, which would end the session and release
+      // its context. An Esc during the merge already re-held it (Step 4.8).
+      if (this._activeProcessingPipeline === pipeline) {
+        const held = this._holdForRetry(blobs, metadata);
+        this._settleProcessingPipeline(pipeline);
+        if (held) this._rehold(held);
+      }
+      throw error;
+    }
+    if (this._shouldAbandonProcessingPipeline(pipeline)) return; // Esc during the merge re-held it (Step 4.8)
+    // R2-C2 / R3-C1: the same recovery ownership as a normal dictation, privacy included, set
+    // before any provider or save work. The failure path and Plan 07's _noteSealedFailure read it.
+    this._setOwnedAudio(audio, { sessionId: session.id, private: isPrivate });
+    await this.processAudio(audio, metadata, pipeline);
+  }
+
+  /**
+   * R2-C2: moves the live session's whole ownership (session, route, intents, press-time
+   * context, disclosure tracker, privacy) into a new hold, without ending or releasing any
+   * of it. Call it while the failing pipeline still owns the session, before settlement.
+   */
+  _holdForRetry(blobs, metadata) {
+    if (!this._activeSession) return null;
+    const held = this._bufferForSession("batch", {
+      durationSeconds: metadata.durationSeconds,
+      analyticsOccurredAt: metadata.analyticsOccurredAt,
+      mimeType: blobs[0]?.type,
+    });
+    for (const blob of blobs) held.adoptBlob(blob, "segment");
+    return held;
+  }
+
+  async _sealedBlocks(session) {
+    if (!this._readSealed()) return false;
+    if (!session.routes) return true; // routes could not be resolved (Task 6): fail closed while sealed
+    const routes = session.routes ?? {};
+    const { intents, settings } = session;
+    const used = [
+      routes.dictationStt,
+      settings.useCleanupModel ? routes.dictationCleanup : null,
+      intents.translationRequested ? routes.translation : null,
+      intents.voiceAgentRequested ? routes.voiceAssistant : null,
+      intents.voiceAgentRequested && settings.voiceAgentScreenContext
+        ? routes.assistantVision
+        : null,
+    ];
+    return used.some((r) => r && r.locality !== "device" && r.state?.status !== "off");
+  }
+
+  pauseCancelHold() {
+    const buffer = this._undo?.peek();
+    if (!buffer) return;
+    this._undo.pause();
+    this._emitCancelled(buffer);
+  }
+
+  resumeCancelHold() {
+    const buffer = this._undo?.peek();
+    if (!buffer) return;
+    this._undo.resume();
+    this._emitCancelled(buffer);
+  }
+
+  flushCancelHold() {
+    return this._undo?.expireNow() ?? Promise.resolve();
+  }
+
+  /**
+   * R2-C2: every failure branch of a restored dictation (STT, Sealed, dictionary echo)
+   * awaits an acknowledged save of its own snapshot, then re-holds while the failing
+   * pipeline still owns the session, whenever no usable copy survived.
+   */
+  async _recoverRestoredFailure(error, audioBlob, metadata, owned, wasCancelled) {
+    const saved = owned.blob
+      ? await this.saveFailedTranscription(error.message, error.code || null, metadata, owned)
+      : { audioKept: false };
+    if (saved.audioKept || error.recoveryHeld || wasCancelled()) return null; // a copy survived, or Esc re-held it (Step 4.8)
+    return this._holdForRetry([audioBlob], metadata);
+  }
+
+  _holdStreamingSession() {
+    const held = this._sessionAudio;
+    if (
+      !this._activeSession ||
+      held?.kind !== "streaming" ||
+      held.session !== this._activeSession ||
+      !held.frames.length
+    )
+      return false;
+    // Read the duration before any cancel path clears recordingStartTime.
+    held.durationSeconds = this.recordingStartTime
+      ? (Date.now() - this.recordingStartTime) / 1000
+      : held.durationSeconds;
+    if (this.streamingFallbackRecorder && !held.fallbackPending)
+      void this.finishStreamingFallbackSegment();
+    const buffer = this._bufferForSession("streaming", held);
+    held.cancelBuffer = true;
+    if (this.streamingFallbackRecorder && held.fallbackChunks) {
+      this.streamingFallbackRecorder.ondataavailable = (event) => {
+        if (!buffer.isZeroed() && event.data?.size > 0) held.fallbackChunks.push(event.data);
+      };
+    }
+    buffer.releaseSources = () => {
+      if (held.fallbackChunks) held.fallbackChunks.length = 0;
+    };
+    buffer.adoptFrames(held.frames.splice(0));
+    for (const segment of held.fallbackSegments.splice(0)) buffer.adoptBlob(segment, "fallback");
+    if (held.fallbackPending) {
+      const tail = buffer.expect("fallback");
+      held.fallbackPending.then(
+        (blob) => tail.deliver(blob),
+        () => tail.fail()
+      );
+    } else if (held.fallbackChunks?.length) {
+      buffer.adoptBlob(new Blob(held.fallbackChunks, { type: "audio/webm" }), "fallback");
+      held.fallbackChunks.length = 0;
+    }
+    this._openCancelled(buffer);
+    return true;
+  }
+
+  _readSealed() {
+    const snapshot = sealedStore.getSealedSnapshot?.();
+    return snapshot ? snapshot.sealed === true : sealedStore.getSealed?.() === true;
+  }
+
+  _dropSessionAudio() {
+    const held = this._sessionAudio;
+    if (!held) return;
+    held.frames?.forEach((frame) => frame.fill(0));
+    for (const key of ["frames", "segments", "fallbackSegments", "fallbackChunks"])
+      if (held[key]) held[key].length = 0;
+    this._sessionAudio = null;
+  }
+
+  async _replayStreamingSession(buffer, generation) {
+    const { session } = buffer;
+    const providerName = session.intents.streamingProviderName;
+    const provider = STREAMING_PROVIDERS[providerName];
+    const sessionId =
+      (this._activeStreamingSessionId =
+      this._streamingSessionGeneration =
+        (this._streamingSessionGeneration ?? 0) + 1);
+    const operation = {
+      correlationId: session.id,
+      dictationSessionId: session.id,
+      operationId: crypto.randomUUID(),
+    };
+    this._streamingOperation = operation;
+    const owns = () =>
+      this._activeStreamingSessionId === sessionId && this._streamingOperation === operation;
+    // Keep a copy for an Esc mid-replay (Step 4.7) before the buffer is zeroed.
+    this._sessionAudio = {
+      session,
+      kind: "streaming",
+      frames: buffer.frames().map((f) => f.slice()),
+      fallbackChunks: null,
+      fallbackSegments: buffer.bytes("fallback").map((b) => new Blob([b], { type: "audio/webm" })),
+      mimeType: "audio/webm",
+      durationSeconds: buffer.durationSeconds,
+      analyticsOccurredAt: buffer.analyticsOccurredAt,
+    };
+    this._streamingFallbackSegments = this._sessionAudio.fallbackSegments;
+    const frames = this._sessionAudio.frames;
+    buffer.zero(); // replay owns the only mutable copy, even while Start is pending
+    let started = false;
+    try {
+      this.isStreaming = true;
+      this._attachStreamingListeners(sessionId, provider);
+      const settings = this.settings();
+      const res = await provider.start({
+        ...buildStreamingSessionOptions({
+          providerName,
+          settings,
+          language: this.getEffectiveSttLanguage(settings),
+          keyterms: this.getKeyterms(),
+          voiceAgentRequested: session.intents.voiceAgentRequested,
+          correlationId: session.id,
+        }),
+        ...operation,
+      });
+      if (!res?.success)
+        throw Object.assign(new Error(res?.error || "Streaming start failed"), { code: res?.code });
+      started = true;
+      // No evidence here (R1-I5): a connection is not a dispatch. Main sends the correlated
+      // dictation-dispatch when the first replayed frame actually leaves (Task 7), and the
+      // restored tracker is still subscribed to session.id.
+      for (let i = 0; i < frames.length; i += REPLAY_BATCH_FRAMES) {
+        if (generation !== this._restoreGeneration)
+          throw Object.assign(new Error("Undo cancelled"), { code: "TRANSCRIPTION_CANCELLED" });
+        for (const frame of frames.slice(i, i + REPLAY_BATCH_FRAMES))
+          provider.send(
+            frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength),
+            operation
+          );
+        await new Promise((resolve) => setTimeout(resolve, REPLAY_PACE_MS));
+      }
+      buffer.zero();
+      this._streamingStopPromise = this._finalizeStreamingRecording(sessionId, { replay: true });
+      const finalized = await this._streamingStopPromise;
+      if (finalized === false) throw new Error("Streaming finalization failed");
+      // Only a successful replay releases its PCM copy. Failed finalization must
+      // leave it available to the catch below, even if finalization returned false.
+      if (owns() && this._sessionAudio?.session === session) this._dropSessionAudio();
+    } catch (error) {
+      // Every unsuccessful replay stops further egress and transfers its copy
+      // into a fresh Undo window BEFORE awaiting provider shutdown. Esc may
+      // already have done this; the session ownership check makes it idempotent.
+      provider?.cancel?.(operation);
+      if (owns()) this._holdStreamingSession();
+      buffer.zero(); // the fresh hold owns the copy; a slow stop must not retain the original
+      if (started) await provider?.stop?.(operation).catch(() => {});
+      if (error?.code !== "TRANSCRIPTION_CANCELLED") throw error;
+    } finally {
+      const owned = owns();
+      if (this._activeStreamingSessionId === sessionId) {
+        this._streamingStopPromise = null;
+        this._activeStreamingSessionId = null;
+        this.isStreaming = false;
+      }
+      // Settle only a lifecycle this replay still owns: after Esc, a newer operation may run (R1-I3).
+      if (generation === this._restoreGeneration && this.isProcessing) {
+        this.isProcessing = false;
+        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+      }
+      if (owned && this._activeSession === session) this._endDictationSession(session);
+    }
+  }
+
   setCallbacks({
     onStateChange,
     onProcessingStage = undefined,
+    onCancelledChange = undefined,
     onError,
     // Optional: the agent overlay has no dictation toast surface.
     onNoAudio = undefined,
@@ -677,6 +1200,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.onStateChange = onStateChange;
     this.onError = onError;
     this.onProcessingStage = onProcessingStage;
+    this.onCancelledChange = onCancelledChange;
     this.onNoAudio = onNoAudio;
     this.onTranscriptionComplete = onTranscriptionComplete;
     this.onPartialTranscript = onPartialTranscript;
@@ -1369,6 +1893,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return this._showUnknownRecipientBlockedStart();
     }
     if (this._pressCandidate?.session !== candidate) return false;
+    if (this._undo?.peek()) void this._undo.expireNow();
     let prepared = null;
     let preparedAdopted = false;
     let freshTap = null;
@@ -1666,6 +2191,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const segments = finalSegment ? [...this._batchSegments, finalSegment] : this._batchSegments;
     this._batchSegments = [];
     const segmentsCount = segments.filter((segment) => segment?.size > 0).length;
+    const durationSeconds = this.recordingStartTime
+      ? (Date.now() - this.recordingStartTime) / 1000
+      : null;
+    const analyticsOccurredAt = new Date(this.recordingStartTime || Date.now()).toISOString();
+    this._sessionAudio = {
+      session: this._activeSession,
+      kind: "batch",
+      segments,
+      mimeType: this.recordingMimeType,
+      durationSeconds,
+      analyticsOccurredAt,
+    };
     let audioBlob = null;
     let salvagedRecording = false;
     try {
@@ -1685,7 +2222,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return;
     }
     audioBlob = audioBlob || new Blob([], { type: this.recordingMimeType || "audio/webm" });
-    this.lastAudioBlob = audioBlob;
+    this._setOwnedAudio(audioBlob);
 
     logger.info(
       "Recording stopped",
@@ -1697,10 +2234,6 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       "audio"
     );
 
-    const durationSeconds = this.recordingStartTime
-      ? (Date.now() - this.recordingStartTime) / 1000
-      : null;
-    const analyticsOccurredAt = new Date(this.recordingStartTime || Date.now()).toISOString();
     this.recordingStartTime = null;
     const recordingCheck = evaluateFinishedRecording({
       blobSize: audioBlob.size,
@@ -1844,6 +2377,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   cancelRecording() {
+    this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
     this.micRecovery.stop();
     if (this._rotatingBatchRecorder) {
       this._cancelRequestedDuringMicRecovery = true;
@@ -1851,26 +2385,41 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
     if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
       const recorder = this.mediaRecorder;
-      const discarded = this.takeDiscardedBatchSnapshot();
+      const snapshot = this.takeDiscardedBatchSnapshot();
+      const buffer = this._bufferForSession("batch", snapshot);
+      for (const segment of snapshot.segments) buffer.adoptBlob(segment, "segment");
+      snapshot.segments.length = 0;
+      // R2-C1: the open segment arrives with the recorder's final dataavailable, after this
+      // method returns. Register it before the window opens, so Undo waits for it.
+      const finalChunk = buffer.expect("segment");
+      buffer.releaseSources = () => {
+        snapshot.chunks.length = 0;
+      };
+      recorder.ondataavailable = (event) => {
+        if (!buffer.isZeroed() && event.data?.size > 0) snapshot.chunks.push(event.data);
+      };
+      const deliverFinal = () => {
+        finalChunk.deliver(new Blob(snapshot.chunks, { type: snapshot.mimeType }));
+        snapshot.chunks.length = 0; // drop every reference to the Blob chunks
+      };
       this.mediaRecorder.onstop = () => {
         recorder.stream?.getTracks().forEach((track) => track.stop());
-        this.persistDiscardedBatchRecording(discarded);
+        deliverFinal();
       };
-
-      // Detach from manager state before recorder.stop(): its final
-      // dataavailable/onstop land async and must not block or observe the
-      // next recording.
       this.resetDiscardedBatchRecordingState();
-
-      recorder.stop();
-
+      try {
+        recorder.stop();
+      } catch {
+        deliverFinal(); // already inactive: no onstop will come
+      }
       if (recorder.stream) {
         recorder.stream.getTracks().forEach((track) => track.stop());
         this._markCaptureStreamReleased();
       }
-
+      this._openCancelled(buffer);
       return true;
     }
+
     if (this.isRecording && !this.isStreaming) {
       // The mic died mid-recovery, so no live recorder exists; discard what was
       // captured instead of leaving the recording uncancelable.
@@ -1881,9 +2430,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   discardBatchRecording() {
-    const discarded = this.takeDiscardedBatchSnapshot();
+    const snapshot = this.takeDiscardedBatchSnapshot();
+    const buffer = this._bufferForSession("batch", snapshot);
     this.resetDiscardedBatchRecordingState();
-    this.persistDiscardedBatchRecording(discarded);
+    for (const segment of snapshot.segments) buffer.adoptBlob(segment, "segment");
+    if (snapshot.chunks.length)
+      buffer.adoptBlob(new Blob(snapshot.chunks, { type: snapshot.mimeType }), "segment");
+    snapshot.segments.length = 0;
+    snapshot.chunks.length = 0;
+    this._openCancelled(buffer);
   }
 
   takeDiscardedBatchSnapshot() {
@@ -1914,51 +2469,6 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.onStateChange?.({ isRecording: false, isProcessing: false });
   }
 
-  persistDiscardedBatchRecording({
-    durationSeconds,
-    analyticsOccurredAt,
-    chunks,
-    segments,
-    mimeType,
-  }) {
-    // This must run after MediaRecorder's final dataavailable event, so decide
-    // whether to retain the discarded audio from the snapshot rather than live
-    // manager state (which may already belong to a new recording).
-    const shouldSave =
-      shouldSaveDiscardedRecording(getSettings(), durationSeconds) &&
-      (chunks.length > 0 || segments.length > 0);
-    if (shouldSave) {
-      // Assemble and save in the background — the merge crosses IPC into FFmpeg
-      // and must not delay the recorder becoming available again.
-      void (async () => {
-        try {
-          const current = new Blob(chunks, { type: mimeType });
-          const blob = await this.mergeRecordedSegments([...segments, current]);
-          if (blob)
-            await this.saveDiscardedTranscription(blob, durationSeconds, analyticsOccurredAt);
-        } catch (error) {
-          const fallback = this.getLargestRecordedSegment([
-            ...segments,
-            new Blob(chunks, { type: mimeType }),
-          ]);
-          if (fallback) {
-            try {
-              await this.saveDiscardedTranscription(fallback, durationSeconds, analyticsOccurredAt);
-            } catch (fallbackError) {
-              logger.warn(
-                "Failed to save discarded recording fallback",
-                { error: fallbackError.message },
-                "audio"
-              );
-            }
-            return;
-          }
-          logger.warn("Failed to save discarded recording", { error: error.message }, "audio");
-        }
-      })();
-    }
-  }
-
   _startProcessingPipeline() {
     const pipeline = {
       session: this._activeSession,
@@ -1978,6 +2488,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   _settleProcessingPipeline(pipeline) {
     if (this._activeProcessingPipeline !== pipeline) return false;
     this._activeProcessingPipeline = null;
+    if (this._sessionAudio?.session === pipeline.session) this._dropSessionAudio();
     this._endDictationSession(pipeline.session);
     if (this.isProcessing) {
       this.isProcessing = false;
@@ -1987,16 +2498,27 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   cancelProcessing() {
+    this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
     if (this.isProcessing) {
       this._processingCancellationGeneration = (this._processingCancellationGeneration ?? 0) + 1;
       this._requestStreamingCancellation();
-      this.getStreamingProvider()?.cancel?.(this._streamingOperation);
+      const provider = this.getStreamingProvider();
+      const operation = this._streamingOperation;
+      provider?.cancel?.(operation);
+      this._holdStreamingSession();
       // Streaming finalization can be inside a provider or model await that
       // cannot be aborted. Keep the lifecycle truthfully busy until that await
       // observes the generation change and exits; advertising idle while the
       // stop promise still blocks a new recording makes hotkeys appear broken.
       if (this._streamingStopPromise) return true;
 
+      const held = this._sessionAudio;
+      if (this._activeSession && held?.kind === "batch" && held.session === this._activeSession) {
+        const buffer = this._bufferForSession("batch", held);
+        for (const segment of held.segments) buffer.adoptBlob(segment, "segment");
+        held.segments.length = 0;
+        this._openCancelled(buffer);
+      }
       this._activeProcessingPipeline = null;
       this._endDictationSession(this._activeSession);
       this.isProcessing = false;
@@ -2024,6 +2546,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const pipelineStart = performance.now();
     const settings = this.settings();
     let noAudioDetected = false;
+    let retryHold = null;
     const speechGateDecision = getLocalSpeechGateDecision(this._localSpeechGateState);
     this._localSpeechGateState = null;
 
@@ -2139,6 +2662,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         return;
       }
 
+      const owned = this._ownedAudioSnapshot({
+        sessionId: pipeline.session?.id,
+        private: pipeline.session?.private,
+      });
       logger.error(
         "Pipeline failed",
         {
@@ -2154,9 +2681,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         // a manual retry — otherwise the whole utterance disappears with no
         // feedback (#1547).
         noAudioDetected = true;
-        if (this.lastAudioBlob) {
-          this.saveFailedTranscription(error.message, error.code, metadata);
-        }
+        if (metadata.restoredFromCancel === true)
+          retryHold = await this._recoverRestoredFailure(
+            error,
+            audioBlob,
+            metadata,
+            owned,
+            wasCancelled
+          );
+        else if (owned.blob)
+          this.saveFailedTranscription(error.message, error.code, metadata, owned);
       } else if (error.message === "No audio detected") {
         noAudioDetected = true;
       } else {
@@ -2170,14 +2704,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         });
 
         // Save failed transcription with audio so the user can retry later
-        if (this.lastAudioBlob) {
-          this.saveFailedTranscription(error.message, error.code || null, metadata);
-        }
+        if (metadata.restoredFromCancel === true)
+          retryHold = await this._recoverRestoredFailure(
+            error,
+            audioBlob,
+            metadata,
+            owned,
+            wasCancelled
+          );
+        else if (owned.blob)
+          this.saveFailedTranscription(error.message, error.code || null, metadata, owned);
       }
     } finally {
       const shouldNotifyNoAudio =
         !wasCancelled() && noAudioDetected && this._activeProcessingPipeline === pipeline;
       this._settleProcessingPipeline(pipeline);
+      if (retryHold) this._rehold(retryHold);
       // Every provider reports genuine silence through this one post-processing
       // outcome. The pill can now leave thinking before the error surface takes
       // ownership, instead of receiving an IPC event mid-pipeline.
@@ -3350,19 +3892,24 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   async saveTranscription(
     text,
     rawText = null,
-    { clientTranscriptionId, analyticsOccurredAt } = {}
+    { clientTranscriptionId, analyticsOccurredAt, sessionId, private: sessionPrivate } = {}
   ) {
+    const owned = this._ownedAudioSnapshot({ sessionId, private: sessionPrivate });
+    if (owned.private) {
+      this._releaseOwnedAudio(owned);
+      return true;
+    }
+    const translationRequested = this.translationRequested;
     const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
     if (!dataRetentionEnabled) {
       logger.debug("Skipping transcription save — data retention disabled", {}, "audio");
-      this.lastAudioBlob = null;
-      this.lastAudioMetadata = null;
+      this._releaseOwnedAudio(owned);
       return true;
     }
 
     const eventId = clientTranscriptionId || crypto.randomUUID();
     const occurredAt = analyticsOccurredAt ? new Date(analyticsOccurredAt) : new Date();
-    const metadata = this.lastAudioMetadata || {};
+    const metadata = owned.metadata || {};
     try {
       await window.electronAPI.recordAnalyticsEvent({
         eventId,
@@ -3385,27 +3932,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     try {
       const result = await window.electronAPI.saveTranscription(text, rawText, {
         clientTranscriptionId: eventId,
-        routeKind: this.translationRequested ? "translation" : null,
+        routeKind: translationRequested ? "translation" : null,
         analyticsOccurredAt: occurredAt.toISOString(),
       });
 
       // Save audio if we have a captured blob and the transcription was saved successfully
-      if (result?.id && this.lastAudioBlob) {
+      if (result?.id && owned.blob) {
         if (audioRetentionDays > 0) {
           try {
-            const arrayBuffer = await this.lastAudioBlob.arrayBuffer();
-            await window.electronAPI.saveTranscriptionAudio(
-              result.id,
-              arrayBuffer,
-              this.lastAudioMetadata
-            );
+            const arrayBuffer = await owned.blob.arrayBuffer();
+            await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, owned.metadata);
           } catch (audioErr) {
             // Non-blocking: transcription is saved even if audio save fails
             logger.warn("Failed to save transcription audio", { error: audioErr.message }, "audio");
           }
         }
-        this.lastAudioBlob = null;
-        this.lastAudioMetadata = null;
+        this._releaseOwnedAudio(owned);
       }
 
       return true;
@@ -3414,13 +3956,23 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
   }
 
-  async saveFailedTranscription(errorMessage, errorCode = null, metadata = {}) {
+  async saveFailedTranscription(
+    errorMessage,
+    errorCode = null,
+    metadata = {},
+    owned = this._ownedAudioSnapshot()
+  ) {
+    if (owned.private) {
+      this._releaseOwnedAudio(owned);
+      return { audioKept: false };
+    }
+    let audioKept = false;
+    const translationRequested = this.translationRequested;
     const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
     if (!dataRetentionEnabled) {
       logger.debug("Skipping failed transcription save — data retention disabled", {}, "audio");
-      this.lastAudioBlob = null;
-      this.lastAudioMetadata = null;
-      return;
+      this._releaseOwnedAudio(owned);
+      return { audioKept: false };
     }
 
     try {
@@ -3428,24 +3980,25 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         status: "failed",
         errorMessage,
         errorCode,
-        routeKind: this.translationRequested ? "translation" : null,
+        routeKind: translationRequested ? "translation" : null,
         ...(metadata?.analyticsOccurredAt
           ? { analyticsOccurredAt: metadata.analyticsOccurredAt }
           : {}),
       });
 
-      if (result?.id && this.lastAudioBlob) {
+      if (result?.id && owned.blob) {
         if (audioRetentionDays > 0) {
           try {
             const durationMs = metadata?.durationSeconds
               ? Math.round(metadata.durationSeconds * 1000)
               : null;
-            const arrayBuffer = await this.lastAudioBlob.arrayBuffer();
-            await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, {
+            const arrayBuffer = await owned.blob.arrayBuffer();
+            const saved = await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, {
               durationMs,
               provider: null,
               model: null,
             });
+            audioKept = saved?.success === true;
           } catch (audioErr) {
             logger.warn(
               "Failed to save audio for failed transcription",
@@ -3456,8 +4009,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
             );
           }
         }
-        this.lastAudioBlob = null;
-        this.lastAudioMetadata = null;
+        this._releaseOwnedAudio(owned);
       }
     } catch (error) {
       logger.error(
@@ -3468,14 +4020,21 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         "audio"
       );
     }
+    return { audioKept };
   }
 
-  async saveDiscardedTranscription(blob, durationSeconds, analyticsOccurredAt = null) {
+  async saveDiscardedTranscription(
+    blob,
+    durationSeconds,
+    analyticsOccurredAt = null,
+    { private: isPrivate = false, translationRequested = this.translationRequested } = {}
+  ) {
+    if (isPrivate) return;
     let savedId = null;
     try {
       const result = await window.electronAPI.saveTranscription("", null, {
         status: "discarded",
-        routeKind: this.translationRequested ? "translation" : null,
+        routeKind: translationRequested ? "translation" : null,
         ...(analyticsOccurredAt ? { analyticsOccurredAt } : {}),
       });
       if (!result?.id) return;
@@ -3649,6 +4208,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       recorder.start(RECORDING_TIMESLICE_MS);
       this.streamingFallbackRecorder = recorder;
       this.streamingFallbackChunks = chunks;
+      if (this._sessionAudio?.kind === "streaming") this._sessionAudio.fallbackChunks = chunks;
       return recorder;
     } catch (error) {
       logger.debug("Fallback recorder failed to start", { error: error.message }, "streaming");
@@ -3660,22 +4220,31 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   async finishStreamingFallbackSegment() {
     const recorder = this.streamingFallbackRecorder;
     if (!recorder) return null;
+    const held = this._sessionAudio;
     const chunks = this.streamingFallbackChunks;
+    const segments = this._streamingFallbackSegments;
     const collect = () => new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-    let blob;
+    let finish;
+    const pending = new Promise((resolve) => {
+      finish = resolve;
+    });
+    if (held?.kind === "streaming") held.fallbackPending = pending;
     if (recorder.state === "recording") {
-      blob = await new Promise((resolve) => {
-        recorder.onstop = () => resolve(collect());
+      recorder.onstop = () => finish(collect());
+      try {
         recorder.stop();
-      });
-    } else {
-      // The recorder auto-stops when its track dies; its chunks still hold the
-      // audio captured up to that point.
-      blob = collect();
+      } catch {
+        finish(collect());
+      }
+    } else finish(collect());
+    const blob = await pending;
+    chunks.length = 0;
+    if (this.streamingFallbackRecorder === recorder) {
+      this.streamingFallbackRecorder = null;
+      this.streamingFallbackChunks = [];
     }
-    this.streamingFallbackRecorder = null;
-    this.streamingFallbackChunks = [];
-    if (blob?.size > 0) this._streamingFallbackSegments.push(blob);
+    if (held?.fallbackPending === pending) held.fallbackPending = null;
+    if (!held?.cancelBuffer && blob?.size > 0) segments.push(blob);
     return blob;
   }
 
@@ -3740,6 +4309,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return this._showUnknownRecipientBlockedStart();
     }
     if (this._pressCandidate?.session !== candidate) return false;
+    if (this._undo?.peek()) void this._undo.expireNow();
     let acquiredStream = null;
     let usedPreparedCapture = false;
     let sessionId = null;
@@ -3791,6 +4361,17 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         return false;
       }
       this.beginDictationSession({}, candidate);
+      this._streamingFallbackSegments = [];
+      this._sessionAudio = {
+        session: this._activeSession,
+        kind: "streaming",
+        frames: [],
+        fallbackChunks: null,
+        fallbackSegments: this._streamingFallbackSegments,
+        mimeType: "audio/webm",
+        durationSeconds: null,
+        analyticsOccurredAt: new Date().toISOString(),
+      };
 
       const audioTrack = stream.getAudioTracks()[0];
 
@@ -3811,7 +4392,6 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       }
 
       // Start fallback recorder in case streaming produces no results.
-      this._streamingFallbackSegments = [];
       this.startStreamingFallbackRecorder(stream);
 
       // 2. Set up audio pipeline so frames flow the instant WebSocket is ready.
@@ -3842,66 +4422,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         // reject the odd-length non-PCM bytes with "Invalid audio data").
         if (!ownsSession() || !this.isStreaming || event.data === "flushed") return;
         provider.send(event.data, operation);
+        if (this._sessionAudio?.session === candidate)
+          this._sessionAudio.frames.push(new Int16Array(event.data));
       };
 
       const tPipeline = performance.now();
 
-      // 3. Register IPC event listeners BEFORE connecting, so no transcript
-      //    events are lost during the connect handshake.
-      this.streamingFinalText = "";
-      this.streamingPartialText = "";
-      this.streamingTextBump = null;
-      this.streamingTextDebounce = null;
-
-      const partialCleanup = provider.onPartial((text) => {
-        if (!ownsSession()) return;
-        this.streamingPartialText = text;
-        this.streamingTextBump?.();
-        this.onPartialTranscript?.(text);
-      });
-
-      const finalCleanup = provider.onFinal((text) => {
-        if (!ownsSession()) return;
-        // text = accumulated final text from streaming provider.
-        // Extract just the new segment (delta from previous accumulated final).
-        const prevLen = this.streamingFinalText.length;
-        this.streamingFinalText = text;
-        this.streamingPartialText = "";
-        this.streamingTextBump?.();
-        const newSegment = text.slice(prevLen);
-        if (newSegment) {
-          this.onStreamingCommit?.(newSegment);
-        }
-      });
-
-      const errorCleanup = provider.onError((error) => {
-        if (!ownsSession()) return;
-        logger.error("Streaming provider error", { error }, "streaming");
-        this.onError?.({
-          title: "Streaming Error",
-          description: error,
-        });
-        if (this.isStreaming) {
-          logger.warn("Connection lost during streaming, auto-stopping", {}, "streaming");
-          this.stopStreamingRecording().catch((e) => {
-            logger.error(
-              "Auto-stop after connection loss failed",
-              { error: e.message },
-              "streaming"
-            );
-          });
-        }
-      });
-
-      const sessionEndCleanup = provider.onSessionEnd((data) => {
-        if (!ownsSession()) return;
-        logger.debug("Streaming session ended", data, "streaming");
-        if (data.text) {
-          this.streamingFinalText = data.text;
-        }
-      });
-
-      this.streamingCleanupFns = [partialCleanup, finalCleanup, errorCleanup, sessionEndCleanup];
+      this._attachStreamingListeners(sessionId, provider);
       if (startWasCancelled()) {
         // Cancelled while the mic was opening: never flip to recording.
         await this.cleanupStreaming();
@@ -4078,6 +4605,62 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     });
   }
 
+  _attachStreamingListeners(sessionId, provider = this.getStreamingProvider()) {
+    const ownsSession = () => this._activeStreamingSessionId === sessionId;
+    // 3. Register IPC event listeners BEFORE connecting, so no transcript
+    //    events are lost during the connect handshake.
+    this.streamingFinalText = "";
+    this.streamingPartialText = "";
+    this.streamingTextBump = null;
+    this.streamingTextDebounce = null;
+
+    const partialCleanup = provider.onPartial((text) => {
+      if (!ownsSession()) return;
+      this.streamingPartialText = text;
+      this.streamingTextBump?.();
+      this.onPartialTranscript?.(text);
+    });
+
+    const finalCleanup = provider.onFinal((text) => {
+      if (!ownsSession()) return;
+      // text = accumulated final text from streaming provider.
+      // Extract just the new segment (delta from previous accumulated final).
+      const prevLen = this.streamingFinalText.length;
+      this.streamingFinalText = text;
+      this.streamingPartialText = "";
+      this.streamingTextBump?.();
+      const newSegment = text.slice(prevLen);
+      if (newSegment) {
+        this.onStreamingCommit?.(newSegment);
+      }
+    });
+
+    const errorCleanup = provider.onError((error) => {
+      if (!ownsSession()) return;
+      logger.error("Streaming provider error", { error }, "streaming");
+      this.onError?.({
+        title: "Streaming Error",
+        description: error,
+      });
+      if (this.isStreaming) {
+        logger.warn("Connection lost during streaming, auto-stopping", {}, "streaming");
+        this.stopStreamingRecording().catch((e) => {
+          logger.error("Auto-stop after connection loss failed", { error: e.message }, "streaming");
+        });
+      }
+    });
+
+    const sessionEndCleanup = provider.onSessionEnd((data) => {
+      if (!ownsSession()) return;
+      logger.debug("Streaming session ended", data, "streaming");
+      if (data.text) {
+        this.streamingFinalText = data.text;
+      }
+    });
+
+    this.streamingCleanupFns = [partialCleanup, finalCleanup, errorCleanup, sessionEndCleanup];
+  }
+
   async stopStreamingRecording() {
     if (this.streamingStartInProgress) {
       this.stopRequestedDuringStreamingStart = true;
@@ -4092,6 +4675,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     const session = this._activeSession;
     const sessionId = this._activeStreamingSessionId;
+    const operation = this._streamingOperation;
     const stopPromise = this._finalizeStreamingRecording(sessionId);
     this._streamingStopPromise = stopPromise;
     this._streamingStopMode = "finalize";
@@ -4102,19 +4686,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this._streamingStopPromise = null;
         this._streamingStopMode = null;
       }
-      if (this._activeStreamingSessionId === sessionId) {
-        this._activeStreamingSessionId = null;
-      }
+      if (this._streamingOperation === operation && this._activeStreamingSessionId === sessionId) {
+        if (this._activeStreamingSessionId === sessionId) {
+          this._activeStreamingSessionId = null;
+        }
 
-      // Finalization has several provider/reasoning awaits. A thrown error must
-      // never leave the renderer or main process stuck in a busy lifecycle.
-      this._endDictationSession(session);
-      const needsIdleNotification = this.isRecording || this.isProcessing || this.isStreaming;
-      this.isRecording = false;
-      this.isProcessing = false;
-      this.isStreaming = false;
-      if (needsIdleNotification) {
-        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+        if (this._sessionAudio?.session === session) this._dropSessionAudio();
+        // Finalization has several provider/reasoning awaits. A thrown error must
+        // never leave the renderer or main process stuck in a busy lifecycle.
+        this._endDictationSession(session);
+        const needsIdleNotification = this.isRecording || this.isProcessing || this.isStreaming;
+        this.isRecording = false;
+        this.isProcessing = false;
+        this.isStreaming = false;
+        if (needsIdleNotification) {
+          this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+        }
       }
     }
   }
@@ -4133,10 +4720,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async cancelStreamingRecording() {
+    this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
     if (this._streamingStopPromise) {
       if (this._streamingStopMode === "finalize") {
         this._requestStreamingCancellation();
-        this.getStreamingProvider()?.cancel?.(this._streamingOperation);
+        const provider = this.getStreamingProvider();
+        const operation = this._streamingOperation;
+        provider?.cancel?.(operation);
+        this._holdStreamingSession();
       }
       return this._streamingStopPromise;
     }
@@ -4150,7 +4741,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const provider = this.getStreamingProvider();
     const cancelPromise = (async () => {
       this._requestStreamingCancellation();
-      this.getStreamingProvider()?.cancel?.(this._streamingOperation);
+      provider?.cancel?.(operation);
+      this._holdStreamingSession();
       this.stopRequestedDuringStreamingStart = false;
       this.recordingStartTime = null;
       this.isRecording = false;
@@ -4162,24 +4754,23 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this._streamingFallbackSegments = [];
       this.onStateChange?.({ isRecording: false, isProcessing: true, isStreaming: false });
 
-      const providerStop = this._waitForStreamingStartSettlement()
-        .then(() => {
-          // Startup may have attached replacement capture resources after the
-          // first synchronous cleanup. Reclaim them once startup can no longer
-          // mutate the session, then disconnect its provider.
-          this.micRecovery.stop();
-          this.cleanupStreamingAudio();
-          this.cleanupStreamingListeners(sessionId);
-          return provider.stop?.(operation);
-        })
-        .catch((error) => {
-          logger.debug(
-            "Streaming disconnect after cancellation failed",
-            { error: error.message },
-            "streaming"
-          );
-        });
-      await Promise.all([providerStop, this.cleanupPreview({ dismiss: true })]);
+      // Retire main's pending Start now. Waiting for renderer startup first
+      // would wait on the same handshake that Stop must cancel.
+      const providerStop = Promise.resolve(provider.stop?.(operation)).catch((error) => {
+        logger.debug(
+          "Streaming disconnect after cancellation failed",
+          { error: error.message },
+          "streaming"
+        );
+      });
+      const captureCleanup = this._waitForStreamingStartSettlement().then(() => {
+        if (this._streamingOperation !== operation || this._activeStreamingSessionId !== sessionId)
+          return;
+        this.micRecovery.stop();
+        this.cleanupStreamingAudio();
+        this.cleanupStreamingListeners(sessionId);
+      });
+      await Promise.all([providerStop, captureCleanup, this.cleanupPreview({ dismiss: true })]);
       return true;
     })();
 
@@ -4192,18 +4783,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this._streamingStopPromise = null;
         this._streamingStopMode = null;
       }
-      if (this._activeStreamingSessionId === sessionId) {
-        this._activeStreamingSessionId = null;
+      if (this._streamingOperation === operation && this._activeStreamingSessionId === sessionId) {
+        if (this._activeStreamingSessionId === sessionId) {
+          this._activeStreamingSessionId = null;
+        }
+        this._endDictationSession(session);
+        this.isRecording = false;
+        this.isProcessing = false;
+        this.isStreaming = false;
+        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
       }
-      this._endDictationSession(session);
-      this.isRecording = false;
-      this.isProcessing = false;
-      this.isStreaming = false;
-      this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
     }
   }
 
-  async _finalizeStreamingRecording(sessionId) {
+  async _finalizeStreamingRecording(sessionId, { replay = false } = {}) {
     const operation = this._streamingOperation;
     const provider = this.getStreamingProvider();
     if (
@@ -4215,11 +4808,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
 
     const cancellationGeneration = this._streamingCancellationGeneration;
-    const wasCancelled = () => cancellationGeneration !== this._streamingCancellationGeneration;
+    const owns = () =>
+      this._streamingOperation === operation && this._activeStreamingSessionId === sessionId;
+    const wasCancelled = () =>
+      cancellationGeneration !== this._streamingCancellationGeneration || !owns();
     const abandonFinalization = async () => {
-      this.cleanupStreamingAudio();
-      this.cleanupStreamingListeners(sessionId);
-      this._streamingFallbackSegments = [];
+      if (owns()) {
+        this.cleanupStreamingAudio();
+        this.cleanupStreamingListeners(sessionId);
+        this._streamingFallbackSegments = [];
+      }
       try {
         await provider.stop?.(operation);
       } catch (error) {
@@ -4232,10 +4830,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return true;
     };
 
-    const durationSeconds = this.recordingStartTime
-      ? (Date.now() - this.recordingStartTime) / 1000
-      : null;
-    const analyticsOccurredAt = new Date(this.recordingStartTime || Date.now());
+    const durationSeconds = replay
+      ? this._sessionAudio?.durationSeconds
+      : this.recordingStartTime
+        ? (Date.now() - this.recordingStartTime) / 1000
+        : null;
+    const analyticsOccurredAt = new Date(
+      replay
+        ? this._sessionAudio?.analyticsOccurredAt || Date.now()
+        : this.recordingStartTime || Date.now()
+    );
 
     // Enter processing synchronously, before any mic/provider await. This is
     // the authoritative guard that makes a second hotkey a no-op for the full
@@ -4251,7 +4855,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.micRecovery.stop();
     // Let an in-flight mic swap settle so its fallback segment isn't lost and
     // its replacement recorder doesn't outlive this stop.
-    if (this._streamingMicSwapPromise) await this._streamingMicSwapPromise;
+    if (!replay && this._streamingMicSwapPromise) await this._streamingMicSwapPromise;
     if (wasCancelled()) return abandonFinalization();
 
     const t0 = performance.now();
@@ -4259,7 +4863,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     // 1. Stop the processor — it flushes its remaining buffer on "stop".
     //    Keep isStreaming TRUE so the port.onmessage handler forwards the flush to WebSocket.
-    if (this.streamingProcessor) {
+    if (!replay && this.streamingProcessor) {
       try {
         this.streamingProcessor.port.postMessage("stop");
         this.streamingProcessor.disconnect();
@@ -4281,7 +4885,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     // Stop fallback recorder before stopping media tracks
     let fallbackBlob = null;
-    await this.finishStreamingFallbackSegment();
+    if (!replay) await this.finishStreamingFallbackSegment();
     if (wasCancelled()) return abandonFinalization();
     try {
       fallbackBlob = await this.mergeRecordedSegments(this._streamingFallbackSegments);
@@ -4295,7 +4899,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
     if (wasCancelled()) return abandonFinalization();
     if (fallbackBlob) {
-      this.lastAudioBlob = fallbackBlob;
+      this._setOwnedAudio(fallbackBlob);
     }
     this.streamingFallbackRecorder = null;
     this.streamingFallbackChunks = [];
@@ -4440,6 +5044,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       });
     }
 
+    if (!replay) this._dropSessionAudio();
     return true;
   }
 
@@ -4571,7 +5176,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.cancelPreparedMicCapture();
     this._closeBatchPcmTap();
     this.micStreamHold.drop();
-    this.lastAudioBlob = null;
+    this._setOwnedAudio(null);
     this.lastAudioMetadata = null;
     if (this.isStreaming) {
       this.cleanupStreaming();

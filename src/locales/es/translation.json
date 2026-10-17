@@ -4237,7 +4237,8 @@
       "recipientUnknown": "No se pudo verificar el destino de esta grabación. Tus palabras se conservan. Restaura el destino original en Ajustes para reintentar o inicia una nueva grabación.",
       "recipientChanged": "Esta grabación mantiene su destino original. Tus palabras se conservan. Restaura ese destino en Ajustes para reintentar o inicia una nueva grabación.",
       "recipientTitle": "Destino de grabación no disponible",
-      "streamingUnavailable": "No se pudo iniciar la transcripción en directo para esta grabación. Revisa el proveedor seleccionado en Ajustes e inténtalo de nuevo."
+      "streamingUnavailable": "No se pudo iniciar la transcripción en directo para esta grabación. Revisa el proveedor seleccionado en Ajustes e inténtalo de nuevo.",
+      "restoreFailed": "No se pudo restaurar la grabación. El audio se conserva para volver a intentarlo."
     }
   },
   "pill": {

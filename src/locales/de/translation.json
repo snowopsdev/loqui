@@ -4230,7 +4230,8 @@
       "recipientUnknown": "Das Ziel dieser Aufnahme konnte nicht bestätigt werden. Deine Worte bleiben erhalten. Stelle zum Wiederholen das ursprüngliche Ziel in den Einstellungen wieder her oder starte eine neue Aufnahme.",
       "recipientChanged": "Diese Aufnahme ist an ihr ursprüngliches Ziel gebunden. Deine Worte bleiben erhalten. Stelle zum Wiederholen dieses Ziel in den Einstellungen wieder her oder starte eine neue Aufnahme.",
       "recipientTitle": "Aufnahmeziel nicht verfügbar",
-      "streamingUnavailable": "Die Live-Transkription konnte für diese Aufnahme nicht gestartet werden. Prüfe den ausgewählten Anbieter in den Einstellungen und versuche es erneut."
+      "streamingUnavailable": "Die Live-Transkription konnte für diese Aufnahme nicht gestartet werden. Prüfe den ausgewählten Anbieter in den Einstellungen und versuche es erneut.",
+      "restoreFailed": "Die Aufnahme konnte nicht wiederhergestellt werden. Dein Audio bleibt für einen weiteren Versuch erhalten."
     }
   },
   "pill": {

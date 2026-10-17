@@ -4237,7 +4237,8 @@
       "recipientUnknown": "Não foi possível verificar o destino desta gravação. Suas palavras foram preservadas. Restaure o destino original nas configurações para tentar novamente ou inicie uma nova gravação.",
       "recipientChanged": "Esta gravação mantém o destino original. Suas palavras foram preservadas. Restaure esse destino nas configurações para tentar novamente ou inicie uma nova gravação.",
       "recipientTitle": "Destino da gravação indisponível",
-      "streamingUnavailable": "Não foi possível iniciar a transcrição em tempo real para esta gravação. Verifique o provedor selecionado nas Configurações e tente novamente."
+      "streamingUnavailable": "Não foi possível iniciar a transcrição em tempo real para esta gravação. Verifique o provedor selecionado nas Configurações e tente novamente.",
+      "restoreFailed": "Não foi possível restaurar a gravação. O áudio foi preservado para tentar novamente."
     }
   },
   "pill": {

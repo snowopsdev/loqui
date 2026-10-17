@@ -19,7 +19,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-async function fixture(t) {
+async function fixture(t, { private: isPrivate = true } = {}) {
   const config = {
     azureEndpoint: "https://original.example/openai",
     azureApiVersion: "2024-10-21",
@@ -30,7 +30,8 @@ async function fixture(t) {
     requests = [],
     copies = [];
   let mainConfig = config,
-    shouldFail = true;
+    shouldFail = true,
+    generationWait = null;
   const codex = new EventEmitter();
   codex.stop = () => {};
   const sender = new EventEmitter();
@@ -47,6 +48,10 @@ async function fixture(t) {
             modelId: model,
             supportedUrls: {},
             async doGenerate() {
+              if (generationWait) {
+                generationWait.entered.resolve();
+                await generationWait.gate.promise;
+              }
               if (shouldFail) throw new Error("synthetic unavailable");
               return {
                 content: [{ type: "text", text: "Original cleaned words." }],
@@ -150,7 +155,7 @@ async function fixture(t) {
     isProcessing: true,
     voiceAgentRequested: false,
     translationRequested: false,
-    _recordingPrivate: true,
+    _recordingPrivate: isPrivate,
     isReasoningAvailable: async () => true,
   });
   const session = manager.beginDictationSession();
@@ -175,6 +180,10 @@ async function fixture(t) {
     requests,
     copies,
     retryDictationCleanup,
+    pauseCleanup: () => {
+      generationWait = { entered: deferred(), gate: deferred() };
+      return generationWait;
+    },
     succeed: () => {
       shouldFail = false;
     },
@@ -320,4 +329,159 @@ test("the actual completion hook retains the original Retry and privacy through 
   );
   assert.equal(f.sdkCalls.at(-1).model, "original-deployment");
   assert.equal(f.requests.at(-1).dictationSessionId, f.session.id);
+});
+
+test("actual completion, snapshot saver and default Retry preserve original privacy and raw words across persistence/import/copy failures", async (t) => {
+  for (const mode of ["private", "row", "audio", "copy", "refusal"]) {
+    await t.test(mode, async (t) => {
+      let root;
+      t.after(async () => {
+        if (root) await React.act(async () => root.unmount());
+      });
+      const f = await fixture(t, { private: mode === "private" });
+      f.setSettings({
+        dataRetentionEnabled: true,
+        audioRetentionDays: 30,
+        autoPasteEnabled: true,
+        keepTranscriptionInClipboard: false,
+        snippets: [],
+      });
+      f.manager.applySessionIntents(f.session);
+      const original = new Blob([Uint8Array.of(3, 4, 5)]);
+      f.manager._setOwnedAudio(original, { sessionId: f.session.id, private: f.session.private });
+      const entered = deferred(),
+        gate = deferred(),
+        pasted = deferred(),
+        pasteGate = deferred();
+      const writes = [],
+        uploaded = [];
+      f.window.electronAPI.recordAnalyticsEvent = async () => writes.push("analytics");
+      f.window.electronAPI.saveTranscription = async (...args) => {
+        writes.push(["row", ...args]);
+        if (mode === "row") {
+          entered.resolve();
+          await gate.promise;
+          throw Error("synthetic row failure");
+        }
+        return { id: 4 };
+      };
+      f.window.electronAPI.saveTranscriptionAudio = async (_id, bytes) => {
+        uploaded.push([...new Uint8Array(bytes)]);
+        if (mode === "audio") {
+          entered.resolve();
+          await gate.promise;
+          throw Error("synthetic audio failure");
+        }
+        return { success: true };
+      };
+      if (mode === "copy") f.window.electronAPI.writeClipboard = async () => ({ success: false });
+      Object.assign(f.manager, {
+        cacheMicrophoneDeviceId() {},
+        cleanup() {},
+        shouldUseStreaming: () => false,
+        safePaste: async () => {
+          pasted.resolve();
+          await pasteGate.promise;
+          return true;
+        },
+      });
+      globalThis.__retryRealManager = f.manager;
+      t.after(() => delete globalThis.__retryRealManager);
+      const container = installHookDom(t);
+      const { useAudioRecording } = await f.vite.ssrLoadModule("/hooks/useAudioRecording.js");
+      function Harness() {
+        useAudioRecording();
+        return null;
+      }
+      root = createRoot(container);
+      await React.act(async () => root.render(React.createElement(Harness)));
+      let completion;
+      await React.act(async () => {
+        completion = f.manager.onTranscriptionComplete({
+          success: true,
+          text: f.raw,
+          rawText: f.raw,
+          source: "fixture",
+          cleanupFailure: f.failure,
+        });
+        await pasted.promise;
+        if (mode === "row" || mode === "audio") await entered.promise;
+      });
+      // The actual saver has captured A; B takes ownership while A awaits.
+      f.manager._recordingPrivate = true;
+      const newer = f.manager.beginDictationSession();
+      const newerBlob = new Blob([Uint8Array.of(9)]);
+      f.manager._setOwnedAudio(newerBlob);
+      f.setSettings({
+        cleanupMode: "providers",
+        cleanupProvider: "openai",
+        cleanupModel: "changed",
+        snippets: [],
+      });
+      pasteGate.resolve();
+      gate.resolve();
+      await React.act(async () => completion);
+      assert.equal(f.manager.lastAudioBlob, newerBlob, "A cannot release B's Blob generation");
+      assert.equal(f.manager._lastAudioSessionId, newer.id);
+      assert.ok(uploaded.every((bytes) => bytes.join() === "3,4,5"));
+      if (mode === "private")
+        assert.deepEqual(writes, [], "private A writes no analytics, transcript or audio");
+      const { useCleanupFailureStore } = await f.vite.ssrLoadModule(
+        "/stores/cleanupFailureStore.ts"
+      );
+      const failure = useCleanupFailureStore.getState().lastFailure;
+      assert.equal(failure.rawText, f.raw);
+      f.succeed();
+      const retry = f.retryDictationCleanup(failure.rawText, { processText: failure.retryCleanup });
+      if (mode === "refusal") f.changeMain();
+      f.importGate.resolve();
+      assert.equal(await retry, ["copy", "refusal"].includes(mode) ? "failed" : "cleaned");
+      if (["copy", "refusal"].includes(mode)) assert.equal(f.events.at(-1).words, f.raw);
+      assert.equal(f.requests.at(-1).dictationSessionId, f.session.id);
+      assert.equal(f.manager.lastAudioBlob, newerBlob);
+      assert.ok(f.sdkCalls.every((call) => call.model === "original-deployment"));
+    });
+  }
+});
+
+test("cancel during actual cleanup holds raw audio and late original cleanup cannot complete the restored attempt", async (t) => {
+  const f = await fixture(t, { private: false });
+  f.manager.applySessionIntents(f.session);
+  const { createUndoWindow } = await f.vite.ssrLoadModule("/helpers/cancelBuffer.js");
+  f.manager._undoWindowFactory = (opts) =>
+    createUndoWindow({ ...opts, setTimer: () => 1, clearTimer() {} });
+  f.manager._delay = () => new Promise(() => {});
+  f.manager._readSealed = () => false;
+  f.manager.onStateChange = () => {};
+  const completed = [];
+  f.manager.onTranscriptionComplete = (result) => completed.push(result);
+  f.window.electronAPI.transcribeLocalParakeet = async () => ({ success: true, text: f.raw });
+  const gate = f.pauseCleanup();
+  f.succeed();
+  const segment = new Blob([new Uint8Array(300).fill(4)], { type: "audio/webm" });
+  f.manager._sessionAudio = {
+    session: f.session,
+    kind: "batch",
+    segments: [segment],
+    durationSeconds: 2,
+  };
+  f.manager._setOwnedAudio(segment);
+  // Actual local STT wrapper calls actual cleanup, ReasoningService, preload,
+  // main authority and installed AI executor; only local STT and SDK are leaves.
+  const original = f.manager.processAudio(segment);
+  await gate.entered.promise;
+  assert.equal(f.manager.cancelProcessing(), true);
+  const held = f.manager._undo.peek();
+  await held.ready();
+  assert.equal(held.session, f.session);
+  assert.equal(held.bytes("segment")[0][0], 4);
+  assert.equal((await f.manager.restoreCancelled()).restored, true);
+  const restoredPipeline = f.manager._activeProcessingPipeline;
+  gate.gate.resolve();
+  await original;
+  await f.manager._restoreRun;
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0].text, "Original cleaned words.");
+  assert.ok(restoredPipeline);
+  assert.equal(f.manager.isProcessing, false);
 });

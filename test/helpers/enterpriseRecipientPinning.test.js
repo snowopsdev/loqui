@@ -73,7 +73,8 @@ function fixture(t, options = {}) {
   };
 }
 
-test("Apply during credential resolution refuses before the factory and preserves detached operation/context", async (t) => {
+test("Apply during credential resolution preserves the real cancel buffer, context, tracker and valid same-route Undo", async (t) => {
+  const { loadAudioManager, realSettingsStoreSource } = require("./harness/audioManager");
   const entered = deferred(),
     gate = deferred();
   let current = configA;
@@ -85,23 +86,120 @@ test("Apply during credential resolution refuses before the factory and preserve
     },
     getEnterpriseConfig: async () => current,
   });
-  const context = { released: false };
-  const bytes = Uint8Array.of(7, 8, 9);
-  const held = {
-    session: Object.freeze({ id: "session-A", tag: f.request.enterpriseRecipientTag }),
-    context,
-    bytes,
+  const loaded = await loadAudioManager(t, {
+    cachePrefix: "loqui-real-cancel-recipient-",
+    settingsKey: "__cancelRecipientSettings",
+    settings: {
+      useLocalWhisper: true,
+      localTranscriptionProvider: "nvidia",
+      useCleanupModel: true,
+      cleanupMode: "providers",
+      cleanupProvider: "azure",
+      cleanupModel: "deployment",
+    },
+    mockModules: {
+      "/stores/settingsStore": realSettingsStoreSource("__cancelRecipientSettings"),
+      "/services/ReasoningService": 'export { default } from "/services/ReasoningService.ts";',
+    },
+  });
+  const facts = await loaded.vite.ssrLoadModule("/stores/routeFactsStore.ts");
+  facts.useRouteFactsStore.setState({
+    facts: {
+      ...facts.EMPTY_ROUTE_FACTS,
+      enterpriseRecipients: buildEnterpriseRecipientFacts(configA, {}),
+    },
+  });
+  const { createUndoWindow } = await loaded.vite.ssrLoadModule("/helpers/cancelBuffer.js");
+  let selectionReads = 0,
+    screenReads = 0;
+  loaded.window.electronAPI = {
+    ...loaded.window.electronAPI,
+    captureSelectedText: async () => {
+      selectionReads++;
+      return { status: "none" };
+    },
+    captureScreenContext: async () => {
+      screenReads++;
+      return { data: "original", mediaType: "image/png" };
+    },
+    personalInference: {
+      textGenerate: async (request) => {
+        const result = await f.invoke(request);
+        if (result.code) throw Object.assign(new Error(result.error), { code: result.code });
+        return result;
+      },
+    },
   };
-  const pending = f.invoke(f.request);
+  const completed = [];
+  const manager = loaded.createManager({
+    isProcessing: true,
+    _undoWindowFactory: (opts) =>
+      createUndoWindow({ ...opts, now: () => 0, setTimer: () => 1, clearTimer() {} }),
+    _delay: () => new Promise(() => {}),
+    _readSealed: () => false,
+    isReasoningAvailable: async () => true,
+    onStateChange() {},
+    onTranscriptionComplete: (result) => completed.push(result),
+    processWithLocalParakeet: async (_blob, _model, _metadata, wasCancelled) => ({
+      success: true,
+      text: await manager.processTranscription("original words", "local-parakeet", wasCancelled),
+      source: "local-parakeet",
+    }),
+  });
+  manager.beginSelectionCapture();
+  manager.beginScreenContextCapture();
+  const session = manager.beginDictationSession();
+  const context = manager._sessionContext,
+    tracker = manager._disclosure;
+  const bytes = new Uint8Array(300).fill(7);
+  manager._sessionAudio = {
+    session,
+    kind: "batch",
+    segments: [new Blob([bytes])],
+    durationSeconds: 2,
+  };
+  const pending = f.invoke({
+    ...f.request,
+    dictationSessionId: session.id,
+    correlationId: session.id,
+  });
   await entered.promise;
+  assert.equal(manager.cancelProcessing(), true);
+  const buffer = manager._undo.peek();
+  await buffer.ready();
   current = configB;
   gate.resolve();
   assert.deepEqual(await pending, { error: "recipientChanged", code: "recipientChanged" });
   assert.equal(f.factories.length, 0);
-  assert.equal(held.context, context);
+  assert.equal(
+    f.events.some((event) => event.type === "chunk"),
+    false
+  );
+  assert.equal(manager._undo.peek(), buffer);
+  assert.equal(buffer.context, context);
+  assert.equal(buffer.tracker, tracker);
   assert.equal(context.released, false);
-  assert.deepEqual(Array.from(bytes), [7, 8, 9]);
-  // Actual createCancelBuffer/restoreCancelled combined proof belongs to Task8.
+  assert.deepEqual([...buffer.bytes("segment")[0]], [...bytes]);
+  // A later Settings change cannot supply a new route, context or prompt.
+  loaded.setSettings({
+    useLocalWhisper: false,
+    cleanupMode: "providers",
+    cleanupProvider: "openai",
+    cleanupModel: "changed",
+  });
+  current = configA;
+  assert.deepEqual(await manager.restoreCancelled(session.id), {
+    restored: true,
+    sessionId: session.id,
+  });
+  const duplicate = await manager.restoreCancelled(session.id);
+  assert.equal(duplicate.restored, false);
+  await manager._restoreRun;
+  assert.equal(completed[0].text, "Cleaned.");
+  assert.equal(f.factories.length, 1);
+  assert.equal(f.factories[0][5].endpoint, configA.azureEndpoint);
+  assert.deepEqual([selectionReads, screenReads], [1, 1]);
+  assert.equal(context.released, true);
 });
 
 test("credential rotation preserves the recipient; exact frozen executor reaches factory", async (t) => {

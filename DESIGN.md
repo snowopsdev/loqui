@@ -356,5 +356,18 @@ and terminal cleanup; bytes borrowed by an in-flight socket send are overwritten
 when its completion returns ownership. Escaped transport/browser copies cannot
 be recalled. Meeting transports retain their separate compatibility path.
 
-RAM hold, replay and the Undo deadline are the following task's integration;
-this transport layer does not claim those features are complete.
+Cancellation moves the exact session, press-time selection and screenshot,
+privacy and disclosure tracker into a RAM-only hold. Its owned audio is overwritten
+at expiry (including late byte copies); source Blob references are released.
+No merge or temporary file is created by a hold unless existing discarded-audio
+retention permits saving at close. A merge or local decode already running before
+cancel retains its normal temporary-file cleanup lifetime.
+
+Undo lasts 5 seconds, or 10 seconds for recordings over 30 seconds. Hover pauses
+the remaining time and freezes the published deadline; resume advances it. Undo
+claims busy synchronously, respects an absolute admission deadline, waits boundedly
+for final audio, and keeps the recording on refusal. Batch restores use the captured
+route and context. Streaming restores open a fresh attempt on the original provider
+and replay exact PCM at four times real time. Failed restores retain recoverable
+audio. Snapshot savers capture original privacy, Blob, owner and assignment token
+before awaits; a stale completion cannot persist or release a newer recording.

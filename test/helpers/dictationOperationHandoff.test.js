@@ -554,3 +554,125 @@ test("a banked optional Agent reaches the actual main tag gate; unknown optional
   assert.equal(messages[0], rawUser, "the admitted user words remain in the conversation");
   assert.match(messages.at(-1).content, /words are preserved/);
 });
+
+async function holdWithFakeClock(manager, vite) {
+  const { createUndoWindow } = await vite.ssrLoadModule("/helpers/cancelBuffer.js");
+  const timers = [];
+  manager._undoWindowFactory = (opts) =>
+    createUndoWindow({
+      ...opts,
+      now: () => 0,
+      setTimer: (fn, ms) => timers.push({ fn, ms }),
+      clearTimer() {},
+    });
+  manager._delay = () => new Promise(() => {}); // the final chunk is never awaited here: batch segments are registered
+  manager._readSealed = () => false;
+  return timers;
+}
+
+async function cancelProcessingThenRestore({ manager, session, vite }, changeTheWorld) {
+  await holdWithFakeClock(manager, vite);
+  manager.onTranscriptionComplete = (result) => {
+    manager.__restoredResult = result;
+  };
+  manager._sessionAudio = {
+    session,
+    kind: "batch",
+    segments: [new Blob([new Uint8Array(300).fill(1)], { type: "audio/webm" })],
+    mimeType: "audio/webm",
+    durationSeconds: 2,
+    analyticsOccurredAt: "x",
+  };
+  assert.equal(manager.cancelProcessing(), true); // the hook's Esc (Task 9)
+  await flush();
+  changeTheWorld();
+  const result = await manager.restoreCancelled(session.id);
+  assert.equal(result.restored, true);
+  await manager._restoreRun;
+}
+
+test("Undo through restoreCancelled keeps a standalone Agent command's route and screenshot (Task 8)", async (t) => {
+  let shot = { data: "A", mediaType: "image/png" };
+  const setup = await setupManager(t, {
+    selection: () => ({ status: "none" }),
+    screen: () => shot,
+  });
+  const { manager, session, reads, setSettings } = setup;
+  setup.window.electronAPI.transcribeLocalParakeet = async () => ({
+    success: true,
+    text: "draft a reply",
+  });
+  await cancelProcessingThenRestore(setup, () => {
+    setSettings(REMOTE_AGENT);
+    shot = { data: "B", mediaType: "image/png" };
+  });
+  const { assistantConversation } = manager.__restoredResult;
+  assert.equal(assistantConversation.operation.sessionId, session.id);
+  assert.equal(assistantConversation.operation.settings.dictationAgentMode, "local");
+  assert.equal(assistantConversation.screenContext.data, "A");
+  assert.deepEqual(reads, { selection: 1, screen: 1 }, "Undo reads nothing from the OS again");
+});
+
+test("Undo through restoreCancelled edits the press-time selection on the session's route (Task 8)", async (t) => {
+  let selected = {
+    status: "selected",
+    sessionId: "sel-original",
+    text: "teh draft",
+    characterCount: 9,
+  };
+  const setup = await setupManager(t, { selection: () => selected, screen: () => null });
+  const { manager, session, sent, reads, setSettings } = setup;
+  setup.window.electronAPI.transcribeLocalParakeet = async () => ({
+    success: true,
+    text: "fix the typo",
+  });
+  await cancelProcessingThenRestore(setup, () => {
+    setSettings(REMOTE_AGENT);
+    selected = {
+      status: "selected",
+      sessionId: "sel-newer",
+      text: "an unrelated paragraph",
+      characterCount: 22,
+    };
+  });
+  assert.deepEqual(manager.__restoredResult.selectionEdit, { sessionId: "sel-original" });
+  assert.match(sent[0].text, /teh draft/);
+  assert.equal(sent[0].config.provider, "local");
+  assert.equal(sent[0].config.correlationId, session.id);
+  assert.equal(reads.selection, 1);
+});
+
+test("late original Agent processing cannot bank or settle a same-session restored pipeline", async (t) => {
+  let resolveScreen;
+  const screen = new Promise((resolve) => {
+    resolveScreen = resolve;
+  });
+  const setup = await setupManager(t, {
+    selection: () => ({ status: "none" }),
+    screen: () => screen,
+  });
+  const { manager, session } = setup;
+  await holdWithFakeClock(manager, setup.vite);
+  const completed = [];
+  manager.onTranscriptionComplete = (result) => completed.push(result);
+  manager.processWithLocalParakeet = async (_audio, _model, _metadata, wasCancelled) => ({
+    success: true,
+    source: "local-parakeet",
+    text: await manager.processTranscription("draft a reply", "local-parakeet", wasCancelled),
+  });
+  const segment = new Blob([new Uint8Array(300).fill(5)]);
+  manager._sessionAudio = { session, kind: "batch", segments: [segment], durationSeconds: 2 };
+  const originalRun = manager.processAudio(segment);
+  await flush();
+  assert.equal(manager.cancelProcessing(), true);
+  assert.equal((await manager.restoreCancelled(session.id)).restored, true);
+  const restoredPipeline = manager._activeProcessingPipeline;
+  resolveScreen({ data: "original", mediaType: "image/png" });
+  await originalRun;
+  await manager._restoreRun;
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0].assistantConversation.operation.sessionId, session.id);
+  assert.equal(completed[0].assistantConversation.screenContext.data, "original");
+  assert.ok(restoredPipeline);
+  assert.equal(manager.isProcessing, false);
+});

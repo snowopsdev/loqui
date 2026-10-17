@@ -4237,7 +4237,8 @@
       "recipientUnknown": "Non è stato possibile verificare la destinazione di questa registrazione. Le tue parole sono conservate. Ripristina la destinazione originale nelle impostazioni per riprovare, oppure avvia una nuova registrazione.",
       "recipientChanged": "Questa registrazione mantiene la destinazione originale. Le tue parole sono conservate. Ripristina quella destinazione nelle impostazioni per riprovare, oppure avvia una nuova registrazione.",
       "recipientTitle": "Destinazione della registrazione non disponibile",
-      "streamingUnavailable": "Impossibile avviare la trascrizione in tempo reale per questa registrazione. Controlla il fornitore selezionato nelle Impostazioni e riprova."
+      "streamingUnavailable": "Impossibile avviare la trascrizione in tempo reale per questa registrazione. Controlla il fornitore selezionato nelle Impostazioni e riprova.",
+      "restoreFailed": "Impossibile ripristinare la registrazione. L’audio è conservato per un altro tentativo."
     }
   },
   "pill": {

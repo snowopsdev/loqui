@@ -4230,7 +4230,8 @@
       "recipientUnknown": "This recording’s destination could not be verified. Your words are preserved. Restore the original destination in Settings to retry, or start a new recording.",
       "recipientChanged": "This recording is pinned to its original destination. Your words are preserved. Restore that destination in Settings to retry, or start a new recording.",
       "recipientTitle": "Recording destination unavailable",
-      "streamingUnavailable": "Live transcription could not start for this recording. Check the selected provider in Settings and try again."
+      "streamingUnavailable": "Live transcription could not start for this recording. Check the selected provider in Settings and try again.",
+      "restoreFailed": "The recording could not be restored. Your audio is preserved for another try."
     }
   },
   "pill": {

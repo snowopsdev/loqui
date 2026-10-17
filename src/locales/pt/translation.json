@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "Idioma",
-      "sectionDescription": "Defina separadamente os idiomas da interface e da transcrição",
+      "sectionDescription": "O idioma dos menus e botões do Loqui",
       "uiLabel": "Idioma da interface",
       "uiDescription": "Escolha o idioma usado na interface do Loqui",
       "transcriptionLabel": "Idioma de transcrição",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "Quando o chinês for detectado, converter as transcrições ditadas para caracteres simplificados ou tradicionais. O chinês falado soa igual; o Whisper só retorna uma escrita.",
       "chineseScriptAsTranscribed": "Manter como transcrito",
       "chineseScriptSimplified": "Simplificado (简体)",
-      "chineseScriptTraditional": "Tradicional (繁體)"
+      "chineseScriptTraditional": "Tradicional (繁體)",
+      "dictationSectionTitle": "Idioma falado",
+      "dictationSectionDescription": "O idioma que você fala ao ditar"
     },
     "noteFiles": {
       "title": "Salvar notas como arquivos",
@@ -1400,23 +1402,23 @@
         "label": "Preferências"
       },
       "hotkeys": {
-        "description": "Atalho de ditado e ativação",
-        "label": "Atalhos"
+        "description": "Atalhos, microfone, colagem e idioma",
+        "label": "Ditado"
       },
       "speechToText": {
-        "description": "Motores para ditado e gravação de notas",
-        "label": "Voz para texto"
+        "description": "Mecanismos para ditado e notas",
+        "label": "Fala para texto"
       },
       "llms": {
-        "description": "Modelos para chat, limpeza e resumos",
+        "description": "Limpeza, assistente, conversa e suporte local",
         "label": "Modelos de linguagem"
       },
       "privacyData": {
-        "description": "Privacidade, permissões e dados armazenados",
+        "description": "Retenção, armazenamento e permissões",
         "label": "Privacidade e dados"
       },
       "system": {
-        "description": "Atualizações, armazenamento e ferramentas de desenvolvimento",
+        "description": "Atualizações e ferramentas de desenvolvimento",
         "label": "Sistema"
       },
       "routing": {

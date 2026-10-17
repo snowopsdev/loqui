@@ -15,7 +15,7 @@ export function RoutingSection({
   return (
     <div className="space-y-6">
       <div>
-        <SectionHeader title={t("patchbay.title")} description={t("patchbay.description")} />
+        <SectionHeader description={t("patchbay.description")} />
         <Patchbay onNavigateToPath={onNavigateToPath} />
         {/* A staged pick needs its provider, key or address right here; the Apply bar alone is a dead end. */}
         {draft && (

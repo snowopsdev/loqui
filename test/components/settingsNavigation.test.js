@@ -11,19 +11,17 @@ const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");
 const loadKeys = () => import("../../src/components/ui/providerTabsKeys.ts");
 
 test("the settings sidebar marks the current section and shows keyboard focus", () => {
+  const nav = read("src/components/ui/SettingsNav.tsx");
   const modal = read("src/components/ui/SidebarModal.tsx");
-  assert.match(modal, /<nav\s+aria-label=\{title\}/);
-  assert.match(modal, /aria-current=\{isActive \? "page" : undefined\}/);
-  assert.match(modal, /aria-label=\{isCompact \? item\.label : undefined\}/);
+  assert.match(nav, /<nav\s+aria-label=\{ariaLabel\}/);
+  assert.match(nav, /aria-current=\{isActive \? "page" : undefined\}/);
+  assert.match(nav, /aria-label=\{isCompact \? item\.label : undefined\}/);
   assert.match(
-    modal,
+    nav,
     /outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset/
   );
-  assert.match(
-    modal,
-    /opacity-40[^"]*focus-visible:opacity-100/,
-    "the close button restores full opacity while focused"
-  );
+  assert.match(modal, /ariaLabel=\{title\}/);
+  assert.match(modal, /opacity-70[^"]*hover:opacity-100/, "close target is subdued until hover");
   assert.doesNotMatch(
     modal,
     /ring-ring\/\d+/,

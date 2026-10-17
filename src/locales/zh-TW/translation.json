@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "語言",
-      "sectionDescription": "分別設定介面語言和轉錄語言",
+      "sectionDescription": "Loqui 選單和按鈕使用的語言",
       "uiLabel": "介面語言",
       "uiDescription": "選擇 Loqui 介面使用的語言",
       "transcriptionLabel": "轉錄語言",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "偵測到中文時，將語音輸入的轉錄結果轉換為簡體或繁體。口語聽起來一樣；Whisper 只會輸出一種字形。",
       "chineseScriptAsTranscribed": "保持轉錄原樣",
       "chineseScriptSimplified": "簡體",
-      "chineseScriptTraditional": "繁體"
+      "chineseScriptTraditional": "繁體",
+      "dictationSectionTitle": "口述語言",
+      "dictationSectionDescription": "聽寫時使用的語言"
     },
     "noteFiles": {
       "title": "將筆記儲存為檔案",
@@ -1421,23 +1423,23 @@
         "label": "偏好設定"
       },
       "hotkeys": {
-        "description": "聽寫快捷鍵與啟用模式",
-        "label": "快捷鍵"
+        "description": "快速鍵、麥克風、貼上與語言",
+        "label": "聽寫"
       },
       "speechToText": {
-        "description": "聽寫與筆記錄音引擎",
+        "description": "聽寫與筆記引擎",
         "label": "語音轉文字"
       },
       "llms": {
-        "description": "用於清理、筆記格式化和聊天的模型",
+        "description": "清理、助理、聊天與本機支援",
         "label": "語言模型"
       },
       "privacyData": {
-        "description": "隱私權、權限與儲存的資料",
-        "label": "隱私與資料"
+        "description": "保留、儲存與權限",
+        "label": "隱私權與資料"
       },
       "system": {
-        "description": "更新、儲存與開發者工具",
+        "description": "更新與開發者工具",
         "label": "系統"
       },
       "routing": {

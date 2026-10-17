@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "Language",
-      "sectionDescription": "Set interface and transcription languages independently",
+      "sectionDescription": "The language Loqui's menus and buttons use",
       "uiLabel": "Interface language",
       "uiDescription": "Choose the language used throughout Loqui's interface",
       "transcriptionLabel": "Transcription language",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "When Chinese is detected, convert dictated transcripts to Simplified or Traditional characters. Spoken Chinese is the same either way; Whisper only returns one script.",
       "chineseScriptAsTranscribed": "Keep as transcribed",
       "chineseScriptSimplified": "Simplified (简体)",
-      "chineseScriptTraditional": "Traditional (繁體)"
+      "chineseScriptTraditional": "Traditional (繁體)",
+      "dictationSectionTitle": "Spoken language",
+      "dictationSectionDescription": "The language you speak when you dictate"
     },
     "noteFiles": {
       "title": "Save notes as files",
@@ -1510,27 +1512,27 @@
     },
     "sections": {
       "general": {
-        "description": "Appearance, sounds & startup",
+        "description": "Appearance, sounds, startup",
         "label": "Preferences"
       },
       "hotkeys": {
-        "description": "Dictation hotkey & activation",
-        "label": "Hotkeys"
+        "description": "Hotkeys, microphone, paste, language",
+        "label": "Dictation"
       },
       "speechToText": {
-        "description": "Engines for dictation & note recording",
+        "description": "Engines for dictation and notes",
         "label": "Speech-to-Text"
       },
       "llms": {
-        "description": "Models for chat, cleanup & summaries",
+        "description": "Cleanup, assistant, chat, on-device support",
         "label": "Language Models"
       },
       "privacyData": {
-        "description": "Privacy, permissions & stored data",
+        "description": "Retention, storage, permissions",
         "label": "Privacy & Data"
       },
       "system": {
-        "description": "Updates, storage & developer tools",
+        "description": "Updates and developer tools",
         "label": "System"
       },
       "routing": {

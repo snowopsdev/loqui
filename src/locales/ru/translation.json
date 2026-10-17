@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "Язык",
-      "sectionDescription": "Настройте язык интерфейса и транскрипции независимо друг от друга",
+      "sectionDescription": "Язык меню и кнопок Loqui",
       "uiLabel": "Язык интерфейса",
       "uiDescription": "Выберите язык интерфейса Loqui",
       "transcriptionLabel": "Язык транскрипции",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "Когда обнаружен китайский, преобразовать надиктованные транскрипты в упрощенные или традиционные иероглифы. На слух китайский одинаков; Whisper возвращает только одну письменность.",
       "chineseScriptAsTranscribed": "Оставить как распознано",
       "chineseScriptSimplified": "Упрощенный (简体)",
-      "chineseScriptTraditional": "Традиционный (繁體)"
+      "chineseScriptTraditional": "Традиционный (繁體)",
+      "dictationSectionTitle": "Устная речь",
+      "dictationSectionDescription": "Язык, на котором вы диктуете"
     },
     "noteFiles": {
       "title": "Сохранять заметки как файлы",
@@ -1417,27 +1419,27 @@
     },
     "sections": {
       "general": {
-        "description": "Внешний вид, звуки и автозапуск",
+        "description": "Внешний вид, звуки, запуск",
         "label": "Настройки"
       },
       "hotkeys": {
-        "description": "Горячая клавиша диктовки и активация",
-        "label": "Горячие клавиши"
+        "description": "Сочетания клавиш, микрофон, вставка, язык",
+        "label": "Диктовка"
       },
       "speechToText": {
-        "description": "Движки для диктовки и записи заметок",
+        "description": "Движки для диктовки и заметок",
         "label": "Речь в текст"
       },
       "llms": {
-        "description": "Модели для чата, очистки и резюме",
+        "description": "Очистка, помощник, чат, локальная поддержка",
         "label": "Языковые модели"
       },
       "privacyData": {
-        "description": "Конфиденциальность, разрешения и сохранённые данные",
+        "description": "Хранение, архив, разрешения",
         "label": "Конфиденциальность и данные"
       },
       "system": {
-        "description": "Обновления, хранилище и инструменты разработчика",
+        "description": "Обновления и инструменты разработчика",
         "label": "Система"
       },
       "routing": {

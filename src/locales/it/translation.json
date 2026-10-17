@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "Lingua",
-      "sectionDescription": "Imposta separatamente la lingua dell'interfaccia e quella di trascrizione",
+      "sectionDescription": "La lingua dei menu e dei pulsanti di Loqui",
       "uiLabel": "Lingua dell'interfaccia",
       "uiDescription": "Scegli la lingua usata nell'interfaccia di Loqui",
       "transcriptionLabel": "Lingua di trascrizione",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "Quando viene rilevato il cinese, converte le trascrizioni dettate in caratteri semplificati o tradizionali. Il cinese parlato suona uguale; Whisper restituisce una sola scrittura.",
       "chineseScriptAsTranscribed": "Mantieni come trascritto",
       "chineseScriptSimplified": "Semplificato (简体)",
-      "chineseScriptTraditional": "Tradizionale (繁體)"
+      "chineseScriptTraditional": "Tradizionale (繁體)",
+      "dictationSectionTitle": "Lingua parlata",
+      "dictationSectionDescription": "La lingua che parli quando detti"
     },
     "noteFiles": {
       "title": "Salva note come file",
@@ -1421,23 +1423,23 @@
         "label": "Preferenze"
       },
       "hotkeys": {
-        "description": "Scorciatoia di dettatura e attivazione",
-        "label": "Scorciatoie"
+        "description": "Scorciatoie, microfono, incolla e lingua",
+        "label": "Dettatura"
       },
       "speechToText": {
-        "description": "Motori per dettatura e registrazione di note",
-        "label": "Riconoscimento vocale"
+        "description": "Motori per dettatura e note",
+        "label": "Da voce a testo"
       },
       "llms": {
-        "description": "Modelli per chat, pulizia e riassunti",
+        "description": "Pulizia, assistente, chat e supporto locale",
         "label": "Modelli linguistici"
       },
       "privacyData": {
-        "description": "Privacy, autorizzazioni e dati salvati",
+        "description": "Conservazione, archiviazione e autorizzazioni",
         "label": "Privacy e dati"
       },
       "system": {
-        "description": "Aggiornamenti, archiviazione e strumenti di sviluppo",
+        "description": "Aggiornamenti e strumenti per sviluppatori",
         "label": "Sistema"
       },
       "routing": {

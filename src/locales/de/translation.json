@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "Sprache",
-      "sectionDescription": "Oberflächen- und Transkriptionssprache unabhängig einstellen",
+      "sectionDescription": "Die Sprache der Loqui-Menüs und Schaltflächen",
       "uiLabel": "Sprache der Oberfläche",
       "uiDescription": "Wählen Sie die Sprache für die Loqui-Oberfläche",
       "transcriptionLabel": "Transkriptionssprache",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "Wenn Chinesisch erkannt wird, diktierte Transkripte in vereinfachte oder traditionelle Zeichen umwandeln. Gesprochenes Chinesisch klingt gleich; Whisper liefert nur eine Schrift.",
       "chineseScriptAsTranscribed": "Wie transkribiert belassen",
       "chineseScriptSimplified": "Vereinfacht (简体)",
-      "chineseScriptTraditional": "Traditionell (繁體)"
+      "chineseScriptTraditional": "Traditionell (繁體)",
+      "dictationSectionTitle": "Gesprochene Sprache",
+      "dictationSectionDescription": "Die Sprache, in der du diktierst"
     },
     "noteFiles": {
       "title": "Notizen als Dateien speichern",
@@ -1510,27 +1512,27 @@
     },
     "sections": {
       "general": {
-        "description": "Darstellung, Töne & Start",
+        "description": "Darstellung, Töne, Start",
         "label": "Einstellungen"
       },
       "hotkeys": {
-        "description": "Diktat-Hotkey & Aktivierung",
-        "label": "Hotkeys"
+        "description": "Tastenkürzel, Mikrofon, Einfügen, Sprache",
+        "label": "Diktat"
       },
       "speechToText": {
-        "description": "Engines für Diktat & Notizaufnahme",
-        "label": "Spracherkennung"
+        "description": "Engines für Diktat und Notizen",
+        "label": "Sprache zu Text"
       },
       "llms": {
-        "description": "Modelle für Chat, Bereinigung & Zusammenfassungen",
+        "description": "Bereinigung, Assistent, Chat, lokale Unterstützung",
         "label": "Sprachmodelle"
       },
       "privacyData": {
-        "description": "Datenschutz, Berechtigungen & gespeicherte Daten",
+        "description": "Aufbewahrung, Speicher, Berechtigungen",
         "label": "Datenschutz & Daten"
       },
       "system": {
-        "description": "Updates, Speicher & Entwicklertools",
+        "description": "Updates und Entwicklertools",
         "label": "System"
       },
       "routing": {

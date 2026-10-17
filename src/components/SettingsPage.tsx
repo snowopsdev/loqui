@@ -98,7 +98,13 @@ import LanguageSelector from "./ui/LanguageSelector";
 import LinuxPttSetupInfo from "./ui/LinuxPttSetupInfo";
 import PromptStudio from "./ui/PromptStudio";
 import { ProviderTabs } from "./ui/ProviderTabs";
-import { InferenceModeSelector, SettingsRow } from "./ui/SettingsSection";
+import {
+  InferenceModeSelector,
+  SectionHeader,
+  SettingsPanel,
+  SettingsPanelRow,
+  SettingsRow,
+} from "./ui/SettingsSection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Toggle } from "./ui/toggle";
 import { useSettingsLayout } from "./ui/useSettingsLayout";
@@ -148,56 +154,6 @@ const RETENTION_SELECT_CLASS =
   "h-7 rounded border border-border/70 bg-surface-1/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-sm hover:border-border-hover hover:bg-surface-2/70 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 transition-colors duration-200";
 
 const noop = () => {};
-
-function SettingsPanel({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={`rounded-lg border border-border/70 dark:border-border-subtle/70 bg-card/50 dark:bg-surface-2/50 backdrop-blur-sm divide-y divide-border/60 dark:divide-border-subtle/50 ${className}`}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SettingsPanelRow({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const { isCompact } = useSettingsLayout();
-
-  return (
-    <div className={`${isCompact ? "px-3 py-2.5" : "px-4 py-3"} ${className}`}>{children}</div>
-  );
-}
-
-function SectionHeader({
-  title,
-  description,
-  note,
-}: {
-  title: string;
-  description?: string;
-  note?: string;
-}) {
-  return (
-    <div className="mb-3">
-      <h3 className="text-xs font-semibold text-foreground tracking-tight">{title}</h3>
-      {description && (
-        <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{description}</p>
-      )}
-      {note && <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{note}</p>}
-    </div>
-  );
-}
 
 interface GranolaImportPreview {
   total: number;
@@ -731,10 +687,7 @@ function SpeechToTextTabs({
 
   return (
     <div className="space-y-4">
-      <SectionHeader
-        title={t("settingsPage.speechToText.title")}
-        description={t("settingsPage.speechToText.description")}
-      />
+      <SectionHeader description={t("settingsPage.speechToText.description")} />
       <ProviderTabs
         providers={subTabs}
         selectedId={tab}
@@ -789,10 +742,7 @@ function LlmsTabs({
 
   return (
     <div className="space-y-4">
-      <SectionHeader
-        title={t("settingsPage.llms.title")}
-        description={t("settingsPage.llms.description")}
-      />
+      <SectionHeader description={t("settingsPage.llms.description")} />
       <ProviderTabs
         providers={subTabs}
         selectedId={tab}
@@ -1588,32 +1538,6 @@ export default function SettingsPage({
               </SettingsPanel>
             </div>
 
-            {/* Clipboard */}
-            <div>
-              <SectionHeader title={t("settingsPage.general.clipboard.title")} />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.general.clipboard.autoPaste")}
-                    description={t("settingsPage.general.clipboard.autoPasteDescription")}
-                  >
-                    <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
-                  </SettingsRow>
-                </SettingsPanelRow>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.general.clipboard.keepInClipboard")}
-                    description={t("settingsPage.general.clipboard.keepInClipboardDescription")}
-                  >
-                    <Toggle
-                      checked={keepTranscriptionInClipboard}
-                      onChange={setKeepTranscriptionInClipboard}
-                    />
-                  </SettingsRow>
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-
             {/* Save Notes as Files */}
             <div>
               <SectionHeader title={t("settings.noteFiles.title")} />
@@ -1739,49 +1663,6 @@ export default function SettingsPage({
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settings.language.transcriptionLabel")}
-                    description={t("settings.language.transcriptionDescription")}
-                  >
-                    <LanguageSelector
-                      value={preferredLanguage}
-                      onChange={(value) =>
-                        updateTranscriptionSettings({ preferredLanguage: value })
-                      }
-                    />
-                  </SettingsRow>
-                </SettingsPanelRow>
-                {preferredLanguage === "auto" && (
-                  <SettingsPanelRow>
-                    <SettingsRow
-                      label={t("settings.language.chineseScriptLabel")}
-                      description={t("settings.language.chineseScriptDescription")}
-                    >
-                      <Select
-                        value={chineseScriptPreference}
-                        onValueChange={(value: ChineseScriptPreference) =>
-                          updateTranscriptionSettings({ chineseScriptPreference: value })
-                        }
-                      >
-                        <SelectTrigger className="h-7 w-44 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="as-transcribed">
-                            {t("settings.language.chineseScriptAsTranscribed")}
-                          </SelectItem>
-                          <SelectItem value="simplified">
-                            {t("settings.language.chineseScriptSimplified")}
-                          </SelectItem>
-                          <SelectItem value="traditional">
-                            {t("settings.language.chineseScriptTraditional")}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </SettingsRow>
-                  </SettingsPanelRow>
-                )}
               </SettingsPanel>
             </div>
 
@@ -1837,7 +1718,189 @@ export default function SettingsPage({
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>
+          </div>
+        );
 
+      case "hotkeys":
+        return (
+          <div className="space-y-6">
+            {isUsingHyprland && hyprlandConfigStatus && !hyprlandConfigStatus.canWrite && (
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertTitle>
+                  {t("settingsPage.general.hotkey.hyprlandConfigWriteWarningTitle")}
+                </AlertTitle>
+                <AlertDescription>
+                  <BidiInterpolatedText
+                    text={t("settingsPage.general.hotkey.hyprlandConfigWriteWarningDescription", {
+                      path: BIDI_VALUE_TOKEN,
+                    })}
+                    value={hyprlandConfigStatus.path}
+                  />
+                </AlertDescription>
+              </Alert>
+            )}
+            {/* Dictation Hotkey */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.hotkey.title")}
+                description={t("settingsPage.general.hotkey.description")}
+                note={isUsingHyprland && t("settingsPage.general.hotkey.hyprlandUnbindDescription")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <HotkeyListInput
+                    value={dictationKey}
+                    onChange={(list) => registerHotkey(list)}
+                    validate={validateDictationHotkey}
+                    disabled={isHotkeyRegistering}
+                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                    required
+                    footerEnd={
+                      effectiveDefaultHotkey &&
+                      dictationKey &&
+                      dictationKey !== effectiveDefaultHotkey ? (
+                        <button
+                          onClick={() => registerHotkey(effectiveDefaultHotkey)}
+                          disabled={isHotkeyRegistering}
+                          className="text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-50"
+                        >
+                          <BidiInterpolatedText
+                            text={t("settingsPage.general.hotkey.resetToDefault", {
+                              hotkey: BIDI_VALUE_TOKEN,
+                            })}
+                            value={formatHotkeyLabel(effectiveDefaultHotkey)}
+                          />
+                        </button>
+                      ) : null
+                    }
+                  />
+                </SettingsPanelRow>
+
+                {(!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
+                  <SettingsPanelRow>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-muted-foreground/80">
+                        {t("settingsPage.general.hotkey.activationMode")}
+                      </span>
+                      <ActivationModeSelector
+                        value={activationMode}
+                        onChange={setActivationMode}
+                        pushDisabledReason={
+                          !supportsPushToTalk
+                            ? pushToTalkUnavailableReason || t("windows.pttUnavailable")
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {getCachedPlatform() === "linux" && activationMode === "push" && (
+                      <LinuxPttSetupInfo isAvailable={linuxPttAvailable} />
+                    )}
+                  </SettingsPanelRow>
+                )}
+              </SettingsPanel>
+            </div>
+            {/* Voice Agent Hotkey */}
+            {
+              <div>
+                <SectionHeader
+                  title={t("settingsPage.general.voiceAgentHotkey.title")}
+                  description={t("settingsPage.general.voiceAgentHotkey.description")}
+                />
+                <SettingsPanel>
+                  <SettingsPanelRow>
+                    <HotkeyListInput
+                      value={voiceAgentKey}
+                      onChange={(list) => commitAgentHotkey(setVoiceAgentKey, list)}
+                      onClear={() => commitAgentHotkey(setVoiceAgentKey, "")}
+                      validate={validateVoiceAgentHotkey}
+                      disabled={isAgentHotkeyCommitting}
+                      maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                    />
+                  </SettingsPanelRow>
+                </SettingsPanel>
+              </div>
+            }
+            {/* Translation Hotkey */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.translationHotkey.title")}
+                description={t("settingsPage.general.translationHotkey.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <HotkeyListInput
+                    value={translationKey}
+                    onChange={(list) => commitAgentHotkey(setTranslationKey, list)}
+                    onClear={() => commitAgentHotkey(setTranslationKey, "")}
+                    validate={validateTranslationHotkey}
+                    disabled={isAgentHotkeyCommitting}
+                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                  />
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+            {/* Meeting Mode Hotkey */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.meetingHotkey.title")}
+                description={t("settingsPage.general.meetingHotkey.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <HotkeyListInput
+                    value={meetingKey}
+                    onChange={(list) => registerMeetingHotkey(list)}
+                    onClear={async (): Promise<boolean> => {
+                      const result = await window.electronAPI?.registerMeetingHotkey?.("");
+                      if (!result?.success) {
+                        showAlertDialog({
+                          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
+                          description:
+                            result?.message ||
+                            t("hooks.hotkeyRegistration.errors.couldNotRegister"),
+                        });
+                        return false;
+                      }
+                      setMeetingKey("");
+                      return true;
+                    }}
+                    validate={validateMeetingHotkey}
+                    disabled={isMeetingHotkeyRegistering}
+                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                  />
+                </SettingsPanelRow>
+                <SettingsPanelRow className="flex items-center justify-between gap-3 border-t border-border/70 dark:border-white/10">
+                  <span className="text-xs text-muted-foreground/80">
+                    {t("settingsPage.general.meetingHotkey.layoutLabel")}
+                  </span>
+                  <Select
+                    value={meetingHotkeyLayoutMode}
+                    onValueChange={(value) =>
+                      setMeetingHotkeyLayoutMode(value as "side-panel" | "full-width")
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-36 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        value="full-width"
+                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
+                      >
+                        {t("settingsPage.general.meetingHotkey.layoutFullWidth")}
+                      </SelectItem>
+                      <SelectItem
+                        value="side-panel"
+                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
+                      >
+                        {t("settingsPage.general.meetingHotkey.layoutSidePanel")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
             {/* Microphone */}
             <div>
               <SectionHeader
@@ -1858,7 +1921,83 @@ export default function SettingsPage({
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>
-
+            {/* Clipboard */}
+            <div>
+              <SectionHeader title={t("settingsPage.general.clipboard.title")} />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <SettingsRow
+                    label={t("settingsPage.general.clipboard.autoPaste")}
+                    description={t("settingsPage.general.clipboard.autoPasteDescription")}
+                  >
+                    <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow>
+                  <SettingsRow
+                    label={t("settingsPage.general.clipboard.keepInClipboard")}
+                    description={t("settingsPage.general.clipboard.keepInClipboardDescription")}
+                  >
+                    <Toggle
+                      checked={keepTranscriptionInClipboard}
+                      onChange={setKeepTranscriptionInClipboard}
+                    />
+                  </SettingsRow>
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+            {/* Transcription language */}
+            <div>
+              <SectionHeader
+                title={t("settings.language.dictationSectionTitle")}
+                description={t("settings.language.dictationSectionDescription")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <SettingsRow
+                    label={t("settings.language.transcriptionLabel")}
+                    description={t("settings.language.transcriptionDescription")}
+                  >
+                    <LanguageSelector
+                      value={preferredLanguage}
+                      onChange={(value) =>
+                        updateTranscriptionSettings({ preferredLanguage: value })
+                      }
+                    />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                {preferredLanguage === "auto" && (
+                  <SettingsPanelRow>
+                    <SettingsRow
+                      label={t("settings.language.chineseScriptLabel")}
+                      description={t("settings.language.chineseScriptDescription")}
+                    >
+                      <Select
+                        value={chineseScriptPreference}
+                        onValueChange={(value: ChineseScriptPreference) =>
+                          updateTranscriptionSettings({ chineseScriptPreference: value })
+                        }
+                      >
+                        <SelectTrigger className="h-7 w-44 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="as-transcribed">
+                            {t("settings.language.chineseScriptAsTranscribed")}
+                          </SelectItem>
+                          <SelectItem value="simplified">
+                            {t("settings.language.chineseScriptSimplified")}
+                          </SelectItem>
+                          <SelectItem value="traditional">
+                            {t("settings.language.chineseScriptTraditional")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </SettingsRow>
+                  </SettingsPanelRow>
+                )}
+              </SettingsPanel>
+            </div>{" "}
             {/* Dictionary */}
             <div>
               <SectionHeader
@@ -1882,7 +2021,6 @@ export default function SettingsPage({
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>
-
             {/* Wayland Paste Diagnostics — only on Linux + Wayland */}
             {ydotoolStatus?.isLinux && ydotoolStatus?.isWayland && (
               <div>
@@ -2383,192 +2521,6 @@ EOF`,
           </div>
         );
 
-      case "hotkeys":
-        return (
-          <div className="space-y-6">
-            {isUsingHyprland && hyprlandConfigStatus && !hyprlandConfigStatus.canWrite && (
-              <Alert>
-                <Info className="h-4 w-4" />
-                <AlertTitle>
-                  {t("settingsPage.general.hotkey.hyprlandConfigWriteWarningTitle")}
-                </AlertTitle>
-                <AlertDescription>
-                  <BidiInterpolatedText
-                    text={t("settingsPage.general.hotkey.hyprlandConfigWriteWarningDescription", {
-                      path: BIDI_VALUE_TOKEN,
-                    })}
-                    value={hyprlandConfigStatus.path}
-                  />
-                </AlertDescription>
-              </Alert>
-            )}
-            {/* Dictation Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.hotkey.title")}
-                description={t("settingsPage.general.hotkey.description")}
-                note={isUsingHyprland && t("settingsPage.general.hotkey.hyprlandUnbindDescription")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={dictationKey}
-                    onChange={(list) => registerHotkey(list)}
-                    validate={validateDictationHotkey}
-                    disabled={isHotkeyRegistering}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                    required
-                    footerEnd={
-                      effectiveDefaultHotkey &&
-                      dictationKey &&
-                      dictationKey !== effectiveDefaultHotkey ? (
-                        <button
-                          onClick={() => registerHotkey(effectiveDefaultHotkey)}
-                          disabled={isHotkeyRegistering}
-                          className="text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-50"
-                        >
-                          <BidiInterpolatedText
-                            text={t("settingsPage.general.hotkey.resetToDefault", {
-                              hotkey: BIDI_VALUE_TOKEN,
-                            })}
-                            value={formatHotkeyLabel(effectiveDefaultHotkey)}
-                          />
-                        </button>
-                      ) : null
-                    }
-                  />
-                </SettingsPanelRow>
-
-                {(!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
-                  <SettingsPanelRow>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs text-muted-foreground/80">
-                        {t("settingsPage.general.hotkey.activationMode")}
-                      </span>
-                      <ActivationModeSelector
-                        value={activationMode}
-                        onChange={setActivationMode}
-                        pushDisabledReason={
-                          !supportsPushToTalk
-                            ? pushToTalkUnavailableReason || t("windows.pttUnavailable")
-                            : undefined
-                        }
-                      />
-                    </div>
-                    {getCachedPlatform() === "linux" && activationMode === "push" && (
-                      <LinuxPttSetupInfo isAvailable={linuxPttAvailable} />
-                    )}
-                  </SettingsPanelRow>
-                )}
-              </SettingsPanel>
-            </div>
-
-            {/* Voice Agent Hotkey */}
-            {
-              <div>
-                <SectionHeader
-                  title={t("settingsPage.general.voiceAgentHotkey.title")}
-                  description={t("settingsPage.general.voiceAgentHotkey.description")}
-                />
-                <SettingsPanel>
-                  <SettingsPanelRow>
-                    <HotkeyListInput
-                      value={voiceAgentKey}
-                      onChange={(list) => commitAgentHotkey(setVoiceAgentKey, list)}
-                      onClear={() => commitAgentHotkey(setVoiceAgentKey, "")}
-                      validate={validateVoiceAgentHotkey}
-                      disabled={isAgentHotkeyCommitting}
-                      maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                    />
-                  </SettingsPanelRow>
-                </SettingsPanel>
-              </div>
-            }
-
-            {/* Translation Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.translationHotkey.title")}
-                description={t("settingsPage.general.translationHotkey.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={translationKey}
-                    onChange={(list) => commitAgentHotkey(setTranslationKey, list)}
-                    onClear={() => commitAgentHotkey(setTranslationKey, "")}
-                    validate={validateTranslationHotkey}
-                    disabled={isAgentHotkeyCommitting}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-
-            {/* Meeting Mode Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.meetingHotkey.title")}
-                description={t("settingsPage.general.meetingHotkey.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={meetingKey}
-                    onChange={(list) => registerMeetingHotkey(list)}
-                    onClear={async (): Promise<boolean> => {
-                      const result = await window.electronAPI?.registerMeetingHotkey?.("");
-                      if (!result?.success) {
-                        showAlertDialog({
-                          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
-                          description:
-                            result?.message ||
-                            t("hooks.hotkeyRegistration.errors.couldNotRegister"),
-                        });
-                        return false;
-                      }
-                      setMeetingKey("");
-                      return true;
-                    }}
-                    validate={validateMeetingHotkey}
-                    disabled={isMeetingHotkeyRegistering}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-                <SettingsPanelRow className="flex items-center justify-between gap-3 border-t border-border/70 dark:border-white/10">
-                  <span className="text-xs text-muted-foreground/80">
-                    {t("settingsPage.general.meetingHotkey.layoutLabel")}
-                  </span>
-                  <Select
-                    value={meetingHotkeyLayoutMode}
-                    onValueChange={(value) =>
-                      setMeetingHotkeyLayoutMode(value as "side-panel" | "full-width")
-                    }
-                  >
-                    <SelectTrigger className="h-7 w-36 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem
-                        value="full-width"
-                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
-                      >
-                        {t("settingsPage.general.meetingHotkey.layoutFullWidth")}
-                      </SelectItem>
-                      <SelectItem
-                        value="side-panel"
-                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
-                      >
-                        {t("settingsPage.general.meetingHotkey.layoutSidePanel")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-          </div>
-        );
-
       case "routing":
         return <RoutingSection onNavigateToPath={onNavigateToPath} />;
 
@@ -2581,10 +2533,7 @@ EOF`,
           <div className="space-y-6">
             {/* Privacy */}
             <div>
-              <SectionHeader
-                title={t("settingsPage.privacy.title")}
-                description={t("personal.privacyDescription")}
-              />
+              <SectionHeader description={t("personal.privacyDescription")} />
             </div>
 
             {/* Audio Retention */}

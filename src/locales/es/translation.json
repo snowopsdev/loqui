@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "Idioma",
-      "sectionDescription": "Configura por separado el idioma de la interfaz y de la transcripción",
+      "sectionDescription": "El idioma de los menús y botones de Loqui",
       "uiLabel": "Idioma de la interfaz",
       "uiDescription": "Elige el idioma usado en la interfaz de Loqui",
       "transcriptionLabel": "Idioma de transcripción",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "Cuando se detecte chino, convierte las transcripciones dictadas a caracteres simplificados o tradicionales. El chino hablado suena igual; Whisper solo devuelve una escritura.",
       "chineseScriptAsTranscribed": "Mantener como se transcribió",
       "chineseScriptSimplified": "Simplificado (简体)",
-      "chineseScriptTraditional": "Tradicional (繁體)"
+      "chineseScriptTraditional": "Tradicional (繁體)",
+      "dictationSectionTitle": "Idioma hablado",
+      "dictationSectionDescription": "El idioma que hablas al dictar"
     },
     "noteFiles": {
       "title": "Guardar notas como archivos",
@@ -1474,23 +1476,23 @@
         "label": "Preferencias"
       },
       "hotkeys": {
-        "description": "Atajo de dictado y activación",
-        "label": "Atajos"
+        "description": "Atajos, micrófono, pegado e idioma",
+        "label": "Dictado"
       },
       "speechToText": {
-        "description": "Motores para dictado y grabación de notas",
-        "label": "Conversión de voz a texto"
+        "description": "Motores para dictado y notas",
+        "label": "Voz a texto"
       },
       "llms": {
-        "description": "Modelos para chat, limpieza y resúmenes",
+        "description": "Limpieza, asistente, chat y soporte local",
         "label": "Modelos de lenguaje"
       },
       "privacyData": {
-        "description": "Privacidad, permisos y datos guardados",
+        "description": "Retención, almacenamiento y permisos",
         "label": "Privacidad y datos"
       },
       "system": {
-        "description": "Actualizaciones, almacenamiento y herramientas de desarrollo",
+        "description": "Actualizaciones y herramientas de desarrollo",
         "label": "Sistema"
       },
       "routing": {

@@ -3014,7 +3014,7 @@
     },
     "language": {
       "sectionTitle": "اللغة",
-      "sectionDescription": "تعيين لغات الواجهة والتفريغ الصوتي بشكل مستقل",
+      "sectionDescription": "اللغة التي تستخدمها قوائم Loqui وأزرارها",
       "uiLabel": "لغة الواجهة",
       "uiDescription": "اختر اللغة المستخدمة في واجهة Loqui",
       "transcriptionLabel": "لغة التفريغ الصوتي",
@@ -3023,7 +3023,9 @@
       "chineseScriptDescription": "عند اكتشاف اللغة الصينية، سيتم تحويل النص المُملى إلى أحرف مبسطة أو تقليدية. اللغة الصينية المنطوقة هي نفسها في كلتا الحالتين؛ لا يُرجع Whisper سوى نظام كتابة واحد.",
       "chineseScriptAsTranscribed": "الإبقاء على النص كما تم تفريغه",
       "chineseScriptSimplified": "مبسطة (简体)",
-      "chineseScriptTraditional": "تقليدية (繁體)"
+      "chineseScriptTraditional": "تقليدية (繁體)",
+      "dictationSectionTitle": "اللغة المنطوقة",
+      "dictationSectionDescription": "اللغة التي تتحدث بها عند الإملاء"
     },
     "noteFiles": {
       "title": "حفظ الملاحظات كملفات",
@@ -3371,23 +3373,23 @@
         "label": "التفضيلات"
       },
       "hotkeys": {
-        "description": "اختصارات الإملاء والتفعيل",
-        "label": "اختصارات لوحة المفاتيح"
+        "description": "اختصارات لوحة المفاتيح والميكروفون واللصق واللغة",
+        "label": "الإملاء"
       },
       "speechToText": {
-        "description": "محركات الإملاء وتسجيل الملاحظات",
+        "description": "محركات الإملاء والملاحظات",
         "label": "تحويل الكلام إلى نص"
       },
       "llms": {
-        "description": "نماذج الدردشة والتنظيف والملخصات",
-        "label": "النماذج اللغوية"
+        "description": "التنقيح والمساعد والدردشة والدعم المحلي",
+        "label": "نماذج اللغة"
       },
       "privacyData": {
-        "description": "الخصوصية والأذونات والبيانات المخزّنة",
+        "description": "الاحتفاظ والتخزين والأذونات",
         "label": "الخصوصية والبيانات"
       },
       "system": {
-        "description": "التحديثات والتخزين وأدوات المطورين",
+        "description": "التحديثات وأدوات المطور",
         "label": "النظام"
       },
       "routing": {

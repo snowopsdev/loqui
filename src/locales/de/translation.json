@@ -4206,6 +4206,34 @@
       "cleanup": "Cleanup",
       "shortcuts": "Shortcut",
       "finish": "Ready"
+    },
+    "units": {
+      "mb": "{{value}} MB",
+      "gb": "{{value}} GB"
+    },
+    "download": {
+      "eta": {
+        "seconds": "about {{count}} s",
+        "minutes": "about {{count}} min"
+      },
+      "chip": "Downloading {{percent}}% · {{eta}} left",
+      "chipNoEta": "Downloading {{percent}}%",
+      "chipInstalling": "Installing voice model",
+      "chipCancelling": "Stopping the download…",
+      "chipCancelled": "Download cancelled",
+      "chipReady": "Voice model ready",
+      "chipFailed": "Download failed",
+      "received": "{{done}} of {{total}}",
+      "stoppedKept": "Download stopped at {{percent}}%. Your progress is kept.",
+      "stoppedRestart": "Download stopped at {{percent}}%. Retry starts it again.",
+      "cancelledLine": "You cancelled the download. Nothing is kept.",
+      "downloadAgain": "Download again",
+      "retry": "Retry",
+      "cancel": "Cancel",
+      "readyTitle": "Voice model ready",
+      "failedTitle": "The voice model didn't download",
+      "announcePercent": "Voice model download {{percent}} percent.",
+      "announceReady": "Voice model ready."
     }
   }
 }

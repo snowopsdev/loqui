@@ -341,3 +341,28 @@ Streaming warmup and start assemble dictionary hints with the existing selected 
 ### Onboarding trial reducer (Plan 05 Task 6)
 
 The setup trial is a pure reducer over admitted `OnboardingDemoEvent` values. Its local numeric take counter keys cleanup retry results only; main's `demoId`/`takeId` correlation remains the transport authority upstream. A cancelled recording reports “Discarded.” without Undo until Plan 04's shared cancellation contract is integrated. Empty successes become `NO_AUDIO` errors, while successful results retain both displayed cleaned text and original raw words.
+
+### Onboarding download facts and notices (Plan 05 Task 7)
+
+Setup reads transfer state from the real per-model download hook. Changing the
+selected voice starts a fresh installation check; old status replies cannot make
+the new selection ready. A completion keeps its active entry until the matching
+status refresh settles. Cancel stays pending until main acknowledges it, and a
+confirmed cancellation offers a restart after the original transfer settles.
+
+Speed and ETA use a five-second window of byte samples. A one-second active tick
+ages a silent stall into an unknown estimate. Only quarter milestones are exposed
+for the later live-region consumer. Formatters supply locale-aware MB/GB values
+and rounded ETA parts; all new copy lives under `setupFlow` in the 11 locales.
+Incremental English placeholders remain for Task 20 to translate.
+
+Main alone attests retained progress. Exhausted network failures retain the real
+partial file for a subsequent Range request; cancellation, HTTP, TLS and size
+failures discard it. This shared downloader behavior also applies to Whisper and
+local LLM downloads. No renderer disk or provider authority is added.
+
+Pure onboarding notice builders use the spec §5.3 input shape. Until Plan 04 lands,
+`useOnboardingNotifier` alone maps it to the existing toast API, whose duration 0
+keeps the failure and Retry visible until dismissal. The second merger replaces
+that adapter with the real `notify` and removes its Variant A mapping test;
+Plan 04 notice types, Undo and Sealed contracts remain outside this task.

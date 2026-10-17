@@ -3086,6 +3086,7 @@ class IPCHandlers {
             model: modelName,
             error: error.message,
             code: error.code || "DOWNLOAD_FAILED",
+            keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : 0,
             sequence: status?.sequence,
           });
         }
@@ -3093,6 +3094,7 @@ class IPCHandlers {
           success: false,
           error: error.message,
           code: error.code || "DOWNLOAD_FAILED",
+          keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : 0,
         };
       }
     });

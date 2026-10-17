@@ -585,6 +585,7 @@ export interface ParakeetCheckResult {
 }
 
 interface ParakeetModelResult {
+  keptBytes?: number;
   success: boolean;
   model: string;
   downloaded: boolean;
@@ -616,6 +617,7 @@ interface ParakeetModelsListResult {
 }
 
 interface ParakeetDownloadProgressData {
+  keptBytes?: number;
   type: "progress" | "installing" | "complete" | "error";
   model: string;
   percentage?: number;

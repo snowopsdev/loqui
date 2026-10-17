@@ -286,7 +286,8 @@ async function downloadFile(url, destPath, options = {}) {
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (signal?.aborted) {
-      throw Object.assign(new Error("Download cancelled"), { isAbort: true });
+      await fsPromises.unlink(tempPath).catch(() => {});
+      throw Object.assign(new Error("Download cancelled"), { isAbort: true, keptBytes: 0 });
     }
 
     if (attempt > 0) {
@@ -330,6 +331,7 @@ async function downloadFile(url, destPath, options = {}) {
 
       if (error.isAbort) {
         await fsPromises.unlink(tempPath).catch(() => {});
+        error.keptBytes = 0;
         throw error;
       }
 
@@ -339,7 +341,16 @@ async function downloadFile(url, destPath, options = {}) {
           error: error.message,
           code: error.code,
         });
-        await fsPromises.unlink(tempPath).catch(() => {});
+        // Network failures preserve resumable bytes; HTTP, TLS and size failures drop them.
+        if (isRetryable(error)) {
+          error.keptBytes = await fsPromises.stat(tempPath).then(
+            (stats) => stats.size,
+            () => 0
+          );
+        } else {
+          await fsPromises.unlink(tempPath).catch(() => {});
+          error.keptBytes = 0;
+        }
         throw error;
       }
 

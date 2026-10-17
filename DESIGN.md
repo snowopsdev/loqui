@@ -337,3 +337,7 @@ Streaming warmup and start assemble dictionary hints with the existing selected 
 - **Don't** swap orange and fuchsia roles or make both accents compete for the live-voice signal.
 - **Don't** rely on shadow alone to distinguish dark surfaces; use the existing tonal layers and borders.
 - **Don't** use movement as the only cue for recording, processing, selection, focus, or error states.
+
+### Onboarding trial reducer (Plan 05 Task 6)
+
+The setup trial is a pure reducer over admitted `OnboardingDemoEvent` values. Its local numeric take counter keys cleanup retry results only; main's `demoId`/`takeId` correlation remains the transport authority upstream. A cancelled recording reports “Discarded.” without Undo until Plan 04's shared cancellation contract is integrated. Empty successes become `NO_AUDIO` errors, while successful results retain both displayed cleaned text and original raw words.

@@ -1,0 +1,71 @@
+/* Loqui setup. Tokens only (DESIGN.md "Onboarding"): no hex, no raw durations. */
+
+.onb-radio-group {
+  display: grid;
+  gap: 8px;
+}
+
+.onb-radio {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-card);
+  color: var(--color-foreground);
+  text-align: start;
+  cursor: pointer;
+}
+
+.onb-radio[aria-checked="true"] {
+  border-color: var(--color-live);
+  background: color-mix(in oklab, var(--color-live) 8%, var(--color-card));
+}
+
+.onb-radio[aria-disabled="true"] {
+  cursor: not-allowed;
+  color: var(--color-muted-foreground);
+}
+
+.onb-radio:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.onb-radio__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onb-radio__description,
+.onb-radio__meta,
+.onb-radio__reason {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-radio-group[data-variant="segmented"] {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-muted);
+}
+
+.onb-radio-group[data-variant="segmented"] .onb-radio {
+  justify-items: center;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.onb-radio-group[data-variant="segmented"] .onb-radio[aria-checked="true"] {
+  background: var(--color-card);
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--color-foreground) 12%, transparent);
+}

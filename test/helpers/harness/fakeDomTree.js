@@ -8,7 +8,15 @@ function installTree() {
     const node = {
       nodeType,
       ownerDocument: document,
-      style: {},
+      // React writes CSS custom properties through setProperty.
+      style: {
+        setProperty(name, value) {
+          this[name] = String(value);
+        },
+        removeProperty(name) {
+          delete this[name];
+        },
+      },
       childNodes: [],
       parentNode: null,
       appendChild(child) {
@@ -52,8 +60,37 @@ function installTree() {
       },
       addEventListener() {},
       removeEventListener() {},
-      focus() {},
-      querySelector: () => null,
+      getAttribute(name) {
+        return name in node.attributes ? node.attributes[name] : null;
+      },
+      focus() {
+        document.activeElement = node;
+      },
+      // Enough of querySelector for focus effects: "h1", "[data-x]", '[role="radio"]'.
+      querySelector(selector) {
+        const match = selector.match(/^([a-z0-9]+)?(?:\[([\w-]+)(?:="([^"]*)")?\])?$/i);
+        if (!match) return null;
+        const [, tag, attr, value] = match;
+        let found = null;
+        const visit = (current) => {
+          for (const child of current.childNodes) {
+            if (found) return;
+            if (
+              child.nodeType === 1 &&
+              (!tag || child.tagName === tag.toUpperCase()) &&
+              (!attr ||
+                (attr in child.attributes &&
+                  (value === undefined || child.attributes[attr] === value)))
+            ) {
+              found = child;
+              return;
+            }
+            visit(child);
+          }
+        };
+        visit(node);
+        return found;
+      },
       closest: () => null,
       ...props,
     };
@@ -83,7 +120,7 @@ function installTree() {
     const key = Object.keys(target).find((name) => name.startsWith("__reactProps$"));
     await React.act(async () => {
       // The handler returns the pending check; awaiting it would deadlock the test.
-      void target[key].onClick();
+      void target[key].onClick(eventFor(target));
     });
   };
   const text = () => container.textContent;
@@ -95,7 +132,38 @@ function installTree() {
     return found;
   };
   const props = (node) => node[Object.keys(node).find((name) => name.startsWith("__reactProps$"))];
-  return { container, click, text, find, props };
+  const findAll = (predicate) => {
+    const out = [];
+    walk(container, (node) => {
+      if (node.nodeType === 1 && predicate(node)) out.push(node);
+    });
+    return out;
+  };
+  const byAttr = (name, value) =>
+    findAll((node) =>
+      value === undefined ? name in node.attributes : node.attributes[name] === String(value)
+    );
+  const eventFor = (node, extra = {}) => ({
+    preventDefault() {},
+    stopPropagation() {},
+    currentTarget: node,
+    target: node,
+    ...extra,
+  });
+  // Plan 02's click(label) keeps working; it now also takes a node and passes an event.
+  const clickAny = async (labelOrNode) => {
+    if (typeof labelOrNode === "string") return click(labelOrNode);
+    assert.ok(labelOrNode, "node to click exists");
+    await React.act(async () => {
+      void props(labelOrNode).onClick?.(eventFor(labelOrNode));
+    });
+  };
+  const press = async (node, key, extra = {}) => {
+    await React.act(async () => {
+      void props(node).onKeyDown?.(eventFor(node, { key, repeat: false, ...extra }));
+    });
+  };
+  return { container, click: clickAny, text, find, props, findAll, byAttr, press };
 }
 
 module.exports = { installTree };

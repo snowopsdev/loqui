@@ -27,6 +27,7 @@ import WelcomeScreen from "./onboarding/WelcomeScreen";
 import { LoquiBrand } from "./LoquiBrand";
 import { ArrowRight, Check } from "lucide-react";
 import "../styles/onboarding-guided.css";
+import "../styles/onboarding.css";
 import { getDefaultHotkey } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
 import { useAudioRecording } from "../hooks/useAudioRecording";

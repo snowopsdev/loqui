@@ -55,24 +55,31 @@ export function baseLanguages(locales: readonly string[]): string[] {
 const supportsAll = (modelId: string, languages: readonly string[]) =>
   languages.every((language) => supportsSpeechLanguage(modelId, language));
 
-function chooseModel(languages: readonly string[]): { modelId: string | null; reason: VoiceReason } {
+function chooseModel(languages: readonly string[]): {
+  modelId: string | null;
+  reason: VoiceReason;
+} {
   const supported = languages.filter((language) =>
     ONBOARDING_SPEECH_MODELS.some((model) => supportsSpeechLanguage(model.id, language))
   );
-  if (supported.length === 0) return { modelId: null, reason: { kind: "unsupported", language: languages[0] } };
+  if (supported.length === 0)
+    return { modelId: null, reason: { kind: "unsupported", language: languages[0] } };
   if (supported.every((language) => language === "en")) {
     return { modelId: DEFAULT_ONBOARDING_SPEECH_MODEL_ID, reason: { kind: "english" } };
   }
 
   const allLanguages =
-    ONBOARDING_SPEECH_MODELS.find((model) => model.runtime !== "online" && supportsAll(model.id, supported)) ??
-    ONBOARDING_SPEECH_MODELS.find((model) => supportsAll(model.id, supported));
+    ONBOARDING_SPEECH_MODELS.find(
+      (model) => model.runtime !== "online" && supportsAll(model.id, supported)
+    ) ?? ONBOARDING_SPEECH_MODELS.find((model) => supportsAll(model.id, supported));
   if (allLanguages && supported.length > 1) {
     return { modelId: allLanguages.id, reason: { kind: "multilingual", languages: supported } };
   }
 
   const primary = supported[0];
-  const primaryModel = allLanguages ?? ONBOARDING_SPEECH_MODELS.find((model) => supportsSpeechLanguage(model.id, primary));
+  const primaryModel =
+    allLanguages ??
+    ONBOARDING_SPEECH_MODELS.find((model) => supportsSpeechLanguage(model.id, primary));
   return { modelId: primaryModel?.id ?? null, reason: { kind: "language", language: primary } };
 }
 
@@ -85,10 +92,15 @@ export function detectVoice(profile: Pick<SystemProfile, "locales" | "freeDiskBy
   return {
     modelId,
     outcome: modelId ? outcomeFor(modelId) : null,
-    languages: modelId ? detectedLanguages.filter((language) => supportsSpeechLanguage(modelId, language)) : [],
+    languages: modelId
+      ? detectedLanguages.filter((language) => supportsSpeechLanguage(modelId, language))
+      : [],
     reason,
     // This is advisory; main remains responsible for download admission.
-    disk: neededBytes !== null && freeBytes !== null && freeBytes < neededBytes ? { neededBytes, freeBytes } : null,
+    disk:
+      neededBytes !== null && freeBytes !== null && freeBytes < neededBytes
+        ? { neededBytes, freeBytes }
+        : null,
   };
 }
 
@@ -98,11 +110,15 @@ export function shouldApplyDetectedVoice(storedParakeetModel: string | null): bo
 }
 
 export function isOnboardingVoice(modelId: string | null | undefined): modelId is string {
-  return typeof modelId === "string" && ONBOARDING_SPEECH_MODELS.some((entry) => entry.id === modelId);
+  return (
+    typeof modelId === "string" && ONBOARDING_SPEECH_MODELS.some((entry) => entry.id === modelId)
+  );
 }
 
 export function voiceSupportsAll(modelId: string, languages: readonly string[]): boolean {
-  return languages.length > 0 && languages.every((language) => supportsSpeechLanguage(modelId, language));
+  return (
+    languages.length > 0 && languages.every((language) => supportsSpeechLanguage(modelId, language))
+  );
 }
 
 /** Keep a compatible voice, otherwise select the first offline-compatible catalog voice. */
@@ -112,14 +128,18 @@ export function reconcileVoice(
 ): { modelId: string | null; changed: boolean } {
   if (modelId && voiceSupportsAll(modelId, languages)) return { modelId, changed: false };
   const replacement =
-    ONBOARDING_SPEECH_MODELS.find((model) => model.runtime !== "online" && voiceSupportsAll(model.id, languages)) ??
-    ONBOARDING_SPEECH_MODELS.find((model) => voiceSupportsAll(model.id, languages));
+    ONBOARDING_SPEECH_MODELS.find(
+      (model) => model.runtime !== "online" && voiceSupportsAll(model.id, languages)
+    ) ?? ONBOARDING_SPEECH_MODELS.find((model) => voiceSupportsAll(model.id, languages));
   const nextModelId = replacement?.id ?? null;
   return { modelId: nextModelId, changed: nextModelId !== modelId };
 }
 
 /** Preserve full OS locale tags for the languages heard by the selected voice. */
-export function spokenLocalesFor(locales: readonly string[], languages: readonly string[]): string[] {
+export function spokenLocalesFor(
+  locales: readonly string[],
+  languages: readonly string[]
+): string[] {
   const matched = locales.filter((locale) => languages.includes(baseLanguages([locale])[0]));
   return matched.length ? [...new Set(matched)] : [...languages];
 }

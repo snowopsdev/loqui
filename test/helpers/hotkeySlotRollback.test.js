@@ -69,7 +69,7 @@ test("re-registering a slot replaces its previous accelerators", async () => {
   assert.equal(registered.has("F5"), true);
 });
 
-test("onboarding acknowledgement reads the real registered slot and failed rebind cannot acknowledge B", async () => {
+test("onboarding acknowledgement reads the real registered slot and failed rebind cannot acknowledge B", async (t) => {
   const { bridgeFixture } = require("./harness/onboardingBridgeFixture");
   const f = bridgeFixture();
   const mgr = new HotkeyManager();
@@ -90,12 +90,46 @@ test("onboarding acknowledgement reads the real registered slot and failed rebin
     false
   );
   assert.equal(f.manager.getDictationBinding().hotkey, "F7");
-  await f.setupApi.beginOnboardingDemo({ id: "ack", kind: "dictation" });
+  t.after(() => f.dispose());
+  assert.equal(await f.setupApi.beginOnboardingDemo({ id: "ack", kind: "dictation" }), true);
   await callback("F7");
   const take = f.manager._onboardingDemoSession;
   assert.equal(take.origin, "hotkey");
   assert.equal(take.binding.hotkey, "F7");
-  await f.setupApi.toggleOnboardingDemo("ack");
+  const takeId = take.takeId;
+  assert.equal(typeof takeId, "string");
+  for (const omittedOrStale of [undefined, "stale-" + takeId, Number(takeId)]) {
+    assert.equal(await f.setupApi.toggleOnboardingDemo("ack", omittedOrStale), false);
+    assert.equal(f.manager._onboardingDemoSession.takeId, takeId);
+    assert.equal(f.manager._onboardingDemoSession.origin, "hotkey");
+    assert.equal(f.manager._onboardingDemoSession.binding.hotkey, "F7");
+  }
+  const admitted = f.manager._onboardingTakePayload().onboardingTake;
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...admitted,
+      kind: "dictation",
+      status: "listening",
+    }),
+    true
+  );
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...admitted,
+      kind: "dictation",
+      status: "success",
+      text: "First take",
+      rawText: "First take",
+      cleanup: "skipped",
+    }),
+    true
+  );
+  assert.equal(f.fakeOwner.busy, false, "the original take settles before a new button take");
+  assert.equal(await f.setupApi.toggleOnboardingDemo("ack", takeId), true);
+  assert.equal(typeof f.manager._onboardingDemoSession.takeId, "string");
+  assert.notEqual(f.manager._onboardingDemoSession.takeId, takeId, "button admits its own take");
+  assert.equal(f.manager._onboardingDemoSession.binding, null, "no borrowed shortcut binding");
+  assert.equal(f.fakeOwner.take.takeId, f.manager._onboardingDemoSession.takeId);
   assert.equal(
     f.manager._onboardingDemoSession.origin,
     "button",

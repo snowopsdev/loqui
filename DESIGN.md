@@ -191,7 +191,7 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 
 ## Layout
 
-The desktop shell pairs a 208px sidebar with a flexible content area. The main workspace sits 8px inside the window, inside a 12px-radius frame. A 48px top bar carries the current view, centered search, and view actions. Page content commonly centers at a maximum width of 64rem. The sidebar can collapse or disappear in narrow note and meeting side-panel layouts; the window content keeps its own scroll region. Setup is a pinned window: a 56px header with per-phase progress, a 36% orange rail beside the controls (a 72px banner under 760px), and a 64px footer that wraps to at most two rows at 200% zoom or with long translations. The onboarding shell pins `html`, `body` and `#root` to the window, so only the middle scrolls. On macOS the header keeps 84px of physical left padding (also in RTL) to clear the traffic lights. Spacing follows Tailwind’s 4px base scale, with common 8, 12, 16, and 24px intervals.
+The desktop shell pairs a 208px sidebar with a flexible content area. The main workspace sits 8px inside the window, inside a 12px-radius frame. A 48px top bar carries the current view, centered search, and view actions. Page content commonly centers at a maximum width of 64rem. The sidebar can collapse or disappear in narrow note and meeting side-panel layouts; the window content keeps its own scroll region. Setup is a pinned window: a 56px header with per-phase progress, a 36% orange rail beside the controls (a 72px banner under 760px), and a 64px footer that wraps to at most two rows at 200% zoom or with long translations. Footer actions retain their minimum word width and wrap at word boundaries, so narrow windows do not split a label such as “Continue” inside a word. The onboarding shell pins `html`, `body` and `#root` to the window, so only the middle scrolls. On macOS the header keeps 84px of physical left padding (also in RTL) to clear the traffic lights. Spacing follows Tailwind’s 4px base scale, with common 8, 12, 16, and 24px intervals.
 
 ## Elevation & Depth
 
@@ -261,6 +261,10 @@ Route chips (Settings) follow the same pill shape at 24px and pair a glyph with 
 - **Close:** always visible at 50% opacity, full strength on hover or keyboard focus, with a 2px `--color-ring` focus ring and a translated name.
 - **Timing:** dictation errors stay 6, 8 or 10 seconds by length; a card that holds the user's only copy of a transcript stays until the user acts. Plan 04 replaces this surface with `notify()` and keeps both rules.
 - **Setup placement:** the mounted onboarding footer reserves its measured top edge in the nearest `ToastProvider`. Standard workspace toasts keep their usual 20px gap above that edge, including when footer labels wrap or the window resizes. Each shell releases its own reservation on unmount; existing notices survive and return to the default workspace position. Dictation-panel toast and error-card anchors retain priority.
+- **Setup keyboard focus:** the Voice language picker and Ready privacy switches add an opaque shared-ring outline in onboarding. Their inherited translucent shadow is decorative; the outline supplies the required 3:1 focus boundary in light and Plum Night.
+- **Setup privacy switches:** tracks retain their 44px width under long translations. A shared input-border outline identifies the off track, and its foreground thumb stays distinct in both themes. These setup-only rules leave the shared workspace toggle unchanged.
+- **Setup success band:** actions stay at the inline end, including when their group wraps below the title. The margin follows the writing direction so the buttons align left in RTL.
+- **Narrow setup footer:** below 420px, action buttons use 8px inline padding so whole-word minima, including German Download, fit within the window without changing the two structural footer rows.
 
 ### Cards / Containers
 

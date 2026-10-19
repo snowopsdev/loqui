@@ -1298,7 +1298,7 @@ test("cleanup keyboard choice keeps focus on the selected radio while its availa
   local.focus();
   await ui.press(local, "ArrowRight");
   assert.ok(
-    document.activeElement === ui.byAttr("data-value", "codex")[0],
+    globalThis.document.activeElement === ui.byAttr("data-value", "codex")[0],
     "focus stays on the live selected radio"
   );
 });

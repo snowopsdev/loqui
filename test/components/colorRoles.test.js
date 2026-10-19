@@ -65,9 +65,19 @@ test("the focus ring clears 3:1 on every surface in both themes", async () => {
     }
 });
 
-test("the onboarding canvas does not swap in a lower-contrast focus ring", () => {
-  const canvas = css.match(/\n\.onboarding-canvas \{([^}]*)\}/)[1];
-  assert.doesNotMatch(canvas, /--color-ring:/);
+test("the current onboarding shell retains the shared contrast-tested focus ring", () => {
+  const source = fs.readFileSync(path.join(repoRoot, "src/styles/onboarding.css"), "utf8");
+  const assertSharedRing = (stylesheet) => {
+    assert.match(stylesheet, /\.onb-shell\s*\{/u, "the real shell selector must exist");
+    assert.doesNotMatch(stylesheet, /--color-ring\s*:/u, "setup cannot override the shared ring");
+  };
+  assertSharedRing(source);
+  assert.throws(
+    () => assertSharedRing(source + "\n.onb-shell { --color-ring: #ff5a1f; }"),
+    /setup cannot override the shared ring/,
+    "a deliberate lower-contrast override is rejected"
+  );
+  assert.throws(() => assertSharedRing(""), /the real shell selector must exist/);
 });
 
 test("focus indicators on shared controls are fully opaque", () => {

@@ -56,6 +56,15 @@ test("the after-setup intent is handed to the workspace once, for both kinds", (
   const panel = fs.readFileSync(path.join(repoRoot, "src/components/ControlPanel.tsx"), "utf8");
   assert.match(router, /if \(options\?\.next\) setAfterSetupIntent\(options\.next\)/);
   assert.match(panel, /takeAfterSetupIntent\(\)/);
-  assert.match(panel, /intent\.kind === "dictate-note"[\s\S]*?handleNewNote\(\)/);
+  // Mounted once-only/StrictMode and deferred activation-owner behavior is covered
+  // by onboardingAfterSetup.test.js and onboardingWorkspaceResume.test.js.
+  // Keep this adjacent-consumer wiring guard exact.
+  assert.match(
+    panel,
+    /if \(!workspaceActive\) return;[\s\S]*?takeAfterSetupIntent\(\)[\s\S]*?intent\.kind === "dictate-note"[\s\S]*?handleNewNote\(\{\s*canActivate:/
+  );
+  assert.match(panel, /activeRef\.current &&[\s\S]*?interactionEpoch\.current === interaction/);
+  assert.match(panel, /workspaceActivationEpoch\?\.current === setup/);
+  assert.match(panel, /if \(!options\?\.canActivate \|\| options\.canActivate\(\)\) setActiveView/);
   assert.match(panel, /setSettingsSection\(intent\.path\)[\s\S]*?setShowSettings\(true\)/);
 });

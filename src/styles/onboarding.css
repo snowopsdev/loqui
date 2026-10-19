@@ -564,11 +564,11 @@
   min-width: 0;
 }
 .onb-footer__actions > button {
-  min-width: 0;
+  min-width: min-content;
   min-height: 40px;
   height: auto;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 .onb-footer__skip {
   margin-inline-start: auto;
@@ -582,6 +582,11 @@
 }
 .onb-action-label {
   min-width: 0;
+}
+.onb-fieldset button:focus-visible,
+.onb-toggle-row button:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
 .onb-footer__start:has(+ .onb-footer__actions) {
   flex: 0 1 auto;
@@ -603,6 +608,11 @@
   }
   .onb-footer__actions > [data-onb-primary] {
     flex-grow: 1.4;
+  }
+}
+@media (max-width: 420px) {
+  .onb-footer__actions > button {
+    padding-inline: 8px;
   }
 }
 
@@ -692,6 +702,19 @@
   gap: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--color-border);
+}
+
+.onb-toggle-row > div {
+  min-width: 0;
+}
+
+.onb-toggle-row > button {
+  flex-shrink: 0;
+  border: 1px solid var(--color-input-border);
+}
+
+.onb-toggle-row > button[aria-checked="false"] > span {
+  background: var(--color-foreground);
 }
 
 .onb-toggle-row__title {
@@ -1236,6 +1259,7 @@
 .onb-band__actions {
   display: flex;
   flex-wrap: wrap;
+  margin-inline-start: auto;
   gap: 8px;
 }
 

@@ -1,3 +1,5 @@
+import { askAiTransition } from "../ui/editor/BubbleToolbar";
+import type { ComposerSeed } from "../chat/chatRequest";
 import { useChatRouteKey } from "../chat/chatRouteKey";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
@@ -224,6 +226,9 @@ export default function NoteEditor({
   const defaultViewMode: MeetingViewMode = enhancement ? "enhanced" : "raw";
   const [viewMode, setViewMode] = useState<MeetingViewMode>(defaultViewMode);
   const [chatMode, setChatMode] = useState<EmbeddedChatMode>("hidden");
+  const [chatSeed, setChatSeed] = useState<ComposerSeed | null>(null);
+  const [chatHasOpened, setChatHasOpened] = useState(false);
+  if (chatMode !== "hidden" && !chatHasOpened) setChatHasOpened(true);
   const [folderSearch, setFolderSearch] = useState("");
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -602,7 +607,7 @@ export default function NoteEditor({
 
   const floatingChatPanelRef = useCallback(
     (panel: HTMLDivElement | null): (() => void) | undefined => {
-      const container = panel?.parentElement;
+      const container = contentScrollRef.current?.parentElement;
       const contentRoot = contentScrollRef.current;
       if (!panel || !container || !contentRoot) return undefined;
 
@@ -628,6 +633,17 @@ export default function NoteEditor({
       enhancement?.onChange(note.id, value);
     },
     [enhancement, note.id]
+  );
+
+  // Seed the visible embedded composer; the bottom bar hides when chat opens.
+  const handleAskAi = useCallback(
+    (selection: string) => {
+      const next = askAiTransition(chatMode, selection);
+      if (!next) return;
+      setChatMode(next.mode);
+      setChatSeed(next.seed);
+    },
+    [chatMode]
   );
 
   const handleAskSubmit = useCallback(
@@ -668,9 +684,11 @@ export default function NoteEditor({
   }, [viewMode, onExportTranscript, onExportNote, t]);
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-5 pt-5 pb-0")}>
+    <div className="relative grid h-full min-h-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)]">
+      <div className="contents">
+        <div
+          className={cn(PAGE_CONTENT_WIDTH_CLASS, "col-start-1 row-start-1 min-w-0 px-5 pt-5 pb-0")}
+        >
           <div
             dir="auto"
             ref={titleRef}
@@ -902,7 +920,7 @@ export default function NoteEditor({
           </div>
         </div>
 
-        <div className="flex-1 relative min-h-0">
+        <div className="relative col-start-1 row-start-2 min-h-0 min-w-0">
           <div ref={contentScrollRef} className="h-full overflow-y-auto">
             {viewMode === "transcript" && (hasChatSegments || isRecording) ? (
               isRecording ? (
@@ -967,6 +985,7 @@ export default function NoteEditor({
             ) : viewMode === "enhanced" && enhancement ? (
               <RichTextEditor
                 key="enhanced"
+                onAskAi={handleAskAi}
                 value={enhancement.content}
                 onChange={handleEnhancedChange}
                 disabled={!canEditNote}
@@ -975,6 +994,7 @@ export default function NoteEditor({
             ) : (
               <RichTextEditor
                 key="raw"
+                onAskAi={handleAskAi}
                 value={note.content}
                 onChange={handleContentChange}
                 editorRef={editorRef}
@@ -1022,32 +1042,19 @@ export default function NoteEditor({
             }
             hideInput={chatMode !== "hidden"}
           />
-          {chatMode === "floating" && (
-            <EmbeddedChat
-              mode="floating"
-              floatingPanelRef={floatingChatPanelRef}
-              onModeChange={setChatMode}
-              messages={embeddedChat.messages}
-              agentState={embeddedChat.agentState}
-              onTextSubmit={embeddedChat.sendMessage}
-              queueKey={embeddedQueueKey}
-              onCancel={embeddedChat.cancelStream}
-              noteConversations={embeddedChat.noteConversations}
-              activeConversationId={embeddedChat.activeConversationId}
-              onSwitchConversation={embeddedChat.switchConversation}
-              onNewChat={embeddedChat.startNewChat}
-            />
-          )}
         </div>
       </div>
-      {chatMode === "sidebar" && (
+      {chatHasOpened && (
         <EmbeddedChat
-          mode="sidebar"
+          key={note.id}
+          mode={chatMode}
+          floatingPanelRef={floatingChatPanelRef}
           onModeChange={setChatMode}
           messages={embeddedChat.messages}
           agentState={embeddedChat.agentState}
           onTextSubmit={embeddedChat.sendMessage}
           queueKey={embeddedQueueKey}
+          composerSeed={chatSeed}
           onCancel={embeddedChat.cancelStream}
           noteConversations={embeddedChat.noteConversations}
           activeConversationId={embeddedChat.activeConversationId}

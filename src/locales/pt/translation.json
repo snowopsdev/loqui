@@ -2838,6 +2838,14 @@
         "dictation": "Ditar aqui",
         "mention": "Menção"
       }
+    },
+    "bubble": {
+      "bold": "Negrito",
+      "italic": "Itálico",
+      "link": "Link",
+      "linkUrl": "Endereço do link",
+      "linkInvalid": "Use um endereço da web ou de e-mail",
+      "askAi": "Perguntar à IA"
     }
   },
   "dictionary": {

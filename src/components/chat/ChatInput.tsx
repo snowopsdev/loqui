@@ -15,6 +15,8 @@ import type { ComposerSeed } from "./chatRequest";
 
 interface ChatInputProps {
   agentState: AgentState;
+  /** A retained hidden host must never focus, record or consume its queue. */
+  active?: boolean;
   partialTranscript: string;
   /** False or rejection means nothing was sent; preserve the words for retry. */
   onTextSubmit?: (text: string) => void | boolean | Promise<void | boolean>;
@@ -61,6 +63,7 @@ function ProcessingIndicator() {
 
 export function ChatInput({
   agentState,
+  active = true,
   partialTranscript,
   onTextSubmit,
   queueKey,
@@ -75,11 +78,24 @@ export function ChatInput({
   const { toast } = useToast();
   const [inputText, setInputText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  useEffect(() => {
+    activeRef.current = active;
+    return () => {
+      activeRef.current = false;
+    };
+  }, [active]);
   // A draft may leave the queue only for the destination that admitted it.
   const [queuedFor, setQueuedFor] = useState<string | null>(null);
   const [queueDropped, setQueueDropped] = useState(false);
   const [unsent, setUnsent] = useState<string | null>(null);
   const queued = queuedFor !== null;
+  // Visibility, like a reset seed, disarms during render before idle effects.
+  if (!active && queuedFor !== null) {
+    setQueuedFor(null);
+    setQueueDropped(true);
+  }
   // Adjust state during render so idle effects cannot consume an old queue.
   const [appliedSeed, setAppliedSeed] = useState<number | null>(null);
   const [draftGeneration, setDraftGeneration] = useState(0);
@@ -100,8 +116,8 @@ export function ChatInput({
     if (seed.text !== undefined) setInputText(seed.text);
   }
   useEffect(() => {
-    if (appliedSeed != null) inputRef.current?.focus();
-  }, [appliedSeed]);
+    if (active && appliedSeed != null) inputRef.current?.focus();
+  }, [active, appliedSeed]);
   const queuedHintId = useId();
   const inputTextRef = useRef(inputText);
   const writeDraft = useCallback((value: string) => {
@@ -113,11 +129,16 @@ export function ChatInput({
   }, [inputText]);
 
   const voice = useVoiceDraft({
+    active,
     onTranscript: (text) => {
+      if (!activeRef.current) return;
       setInputText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
-      requestAnimationFrame(() => inputRef.current?.focus());
+      requestAnimationFrame(() => {
+        if (activeRef.current) inputRef.current?.focus();
+      });
     },
     onError: (message) => {
+      if (!activeRef.current) return;
       toast({
         title: t("notes.upload.transcriptionFailed"),
         description: message || undefined,
@@ -135,13 +156,16 @@ export function ChatInput({
     agentState === "thinking" || agentState === "streaming" || agentState === "tool-executing";
 
   const handleSubmit = useCallback(async () => {
+    if (!activeRef.current) return;
     const text = inputTextRef.current.trim();
     if (!text || !onTextSubmit) return;
     const generation = draftGenerationRef.current;
     setQueuedFor(null);
     setQueueDropped(false);
     writeDraft("");
-    requestAnimationFrame(() => inputRef.current?.focus());
+    requestAnimationFrame(() => {
+      if (activeRef.current) inputRef.current?.focus();
+    });
     let sent: void | boolean = true;
     try {
       sent = await onTextSubmit(text);
@@ -156,6 +180,7 @@ export function ChatInput({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!activeRef.current) return;
       const action = resolveComposerKey({
         key: e.key,
         shiftKey: e.shiftKey,
@@ -195,17 +220,19 @@ export function ChatInput({
     }
   }, [queuedFor, queueKey]);
   useEffect(() => {
-    if (isIdle && queuedFor !== null && queuedFor === queueKey) {
+    if (active && isIdle && queuedFor !== null && queuedFor === queueKey) {
       setQueuedFor(null);
       void handleSubmit();
     }
-  }, [isIdle, queuedFor, queueKey, handleSubmit]);
+  }, [active, isIdle, queuedFor, queueKey, handleSubmit]);
 
   useEffect(() => {
-    if (isIdle) {
-      requestAnimationFrame(() => inputRef.current?.focus());
+    if (active && isIdle) {
+      requestAnimationFrame(() => {
+        if (activeRef.current) inputRef.current?.focus();
+      });
     }
-  }, [isIdle]);
+  }, [active, isIdle]);
 
   return (
     <div className={cn("shrink-0", className ?? "px-3 pb-3 pt-1")}>
@@ -298,13 +325,14 @@ export function ChatInput({
               rows={1}
               value={inputText}
               onChange={(e) => {
+                if (!activeRef.current) return;
                 writeDraft(e.target.value);
                 setQueueDropped(false);
                 if (!e.target.value.trim()) setQueuedFor(null);
               }}
               aria-describedby={queued ? queuedHintId : undefined}
               onKeyDown={handleKeyDown}
-              autoFocus={autoFocus}
+              autoFocus={active && autoFocus}
               placeholder={placeholder ?? t("agentMode.input.typeMessage")}
               className={cn(
                 "input-inline flex-1 resize-none outline-none bg-transparent caret-primary",

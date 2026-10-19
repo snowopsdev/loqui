@@ -3187,6 +3187,14 @@
         "dictation": "Dictation here",
         "mention": "Mention"
       }
+    },
+    "bubble": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "link": "Link",
+      "linkUrl": "Link address",
+      "linkInvalid": "Use a web or email address",
+      "askAi": "Ask AI"
     }
   },
   "dictionary": {

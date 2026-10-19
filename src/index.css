@@ -2091,6 +2091,20 @@ a:hover {
   color: oklch(0.7 0 0 / 0.2);
 }
 
+/* WS-R6 B: opacity-only feedback also remains under reduced motion. */
+.bubble-toolbar {
+  animation: bubble-toolbar-in var(--motion-instant) var(--motion-ease-enter) both;
+}
+
+@keyframes bubble-toolbar-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* Colour emoji fonts per platform. Keep in sync with EMOJI_FONT_FAMILY in
    src/lib/emojiData.ts, which probes emoji support with the same stack. */
 .font-emoji {

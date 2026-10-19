@@ -12,6 +12,8 @@ import type { ActionItem } from "../../types/electron";
 import { exitSuggestion } from "@tiptap/suggestion";
 import { createSlashCommand, SLASH_PLUGIN_KEY } from "./editor/SlashCommand";
 import { slashItemsFromProp } from "./editor/slashItems";
+import { BubbleToolbar } from "./editor/BubbleToolbar";
+import { isEditorChromeTarget } from "./editor/editorChrome";
 import type { MentionPerson } from "../../utils/mentionMarkdown";
 
 export interface RichTextEditorProps {
@@ -20,6 +22,7 @@ export interface RichTextEditorProps {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  onAskAi?: (selection: string) => void;
   editorRef?: MutableRefObject<Editor | null>;
   /** Enables @mention tagging with these people as suggestions. */
   mentionPeople?: MentionPerson[];
@@ -45,6 +48,7 @@ export function RichTextEditor({
   editorRef,
   mentionPeople,
   slash,
+  onAskAi,
 }: RichTextEditorProps) {
   const { t, i18n } = useTranslation();
   const internalValueRef = useRef(value);
@@ -99,6 +103,7 @@ export function RichTextEditor({
       ...(withMentions ? [createMentionExtension(() => mentionPeopleRef.current ?? [])] : []),
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        link: { openOnClick: false, autolink: true },
         bulletList: { keepMarks: true },
         orderedList: { keepMarks: true },
       }),
@@ -174,11 +179,15 @@ export function RichTextEditor({
     }
   }, [disabled, editor]);
 
-  const handleClick = useCallback(() => {
-    if (editor && !editor.isFocused && !disabled) {
-      editor.commands.focus();
-    }
-  }, [editor, disabled]);
+  const handleClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (isEditorChromeTarget(event.target)) return;
+      if (editor && !editor.isFocused && !disabled) {
+        editor.commands.focus();
+      }
+    },
+    [editor, disabled]
+  );
 
   return (
     <div className={cn("relative w-full h-full", className)} onClick={handleClick}>
@@ -191,6 +200,7 @@ export function RichTextEditor({
           "pb-[var(--floating-inset,0px)]"
         )}
       />
+      {editor && onAskAi && !disabled && <BubbleToolbar editor={editor} onAskAi={onAskAi} />}
     </div>
   );
 }

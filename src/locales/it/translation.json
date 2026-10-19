@@ -2838,6 +2838,14 @@
         "dictation": "Detta qui",
         "mention": "Menzione"
       }
+    },
+    "bubble": {
+      "bold": "Grassetto",
+      "italic": "Corsivo",
+      "link": "Link",
+      "linkUrl": "Indirizzo del link",
+      "linkInvalid": "Usa un indirizzo web o email",
+      "askAi": "Chiedi all’IA"
     }
   },
   "dictionary": {

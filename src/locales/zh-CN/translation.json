@@ -2837,6 +2837,14 @@
         "dictation": "在此听写",
         "mention": "提及"
       }
+    },
+    "bubble": {
+      "bold": "粗体",
+      "italic": "斜体",
+      "link": "链接",
+      "linkUrl": "链接地址",
+      "linkInvalid": "请输入网址或电子邮件地址",
+      "askAi": "询问 AI"
     }
   },
   "dictionary": {

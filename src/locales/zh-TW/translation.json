@@ -2837,6 +2837,14 @@
         "dictation": "在此聽寫",
         "mention": "提及"
       }
+    },
+    "bubble": {
+      "bold": "粗體",
+      "italic": "斜體",
+      "link": "連結",
+      "linkUrl": "連結位址",
+      "linkInvalid": "請輸入網址或電子郵件地址",
+      "askAi": "詢問 AI"
     }
   },
   "dictionary": {

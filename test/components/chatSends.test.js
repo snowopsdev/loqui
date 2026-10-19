@@ -540,3 +540,24 @@ test("the shared mounted composer helper arms a destination-bound queue", async 
   await c.render({ agentState: "idle" });
   assert.deepEqual(sent, ["helper draft"], "the helper supplies a usable queueKey");
 });
+
+test("hiding disarms the existing queue before idle and preserves its words on reopen", async (t) => {
+  const sends = [];
+  const ui = await mount(t, ({ ChatInput }, props) => createElement(ChatInput, props), {
+    agentState: "streaming",
+    partialTranscript: "",
+    active: true,
+    queueKey: "note|9|1",
+    onTextSubmit: (text) => sends.push(text),
+  });
+  await ui.type("Keep these queued words");
+  await ui.press("Enter");
+  await ui.rerender({ active: false, agentState: "idle" });
+  assert.deepEqual(sends, []);
+  assert.equal(ui.value(), "Keep these queued words");
+  await ui.press("Enter");
+  assert.deepEqual(sends, [], "a stale keyboard handler cannot submit while hidden");
+  await ui.rerender({ active: true });
+  assert.deepEqual(sends, [], "reopening never rearms a queue");
+  assert.equal(ui.value(), "Keep these queued words");
+});

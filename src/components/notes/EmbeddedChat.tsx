@@ -4,6 +4,7 @@ import { X, PanelRight, PanelRightClose } from "../icons";
 import { cn } from "../lib/utils";
 import { ChatMessages } from "../chat/ChatMessages";
 import { ChatInput } from "../chat/ChatInput";
+import type { ComposerSeed } from "../chat/chatRequest";
 import type { Message, AgentState } from "../chat/types";
 import { setActiveNoteId, setActiveFolderId } from "../../stores/noteStore";
 import type { ContainerConversationItem } from "../../hooks/useContainerChat";
@@ -19,6 +20,7 @@ interface EmbeddedChatProps {
   agentState: AgentState;
   onTextSubmit: (text: string) => void | boolean | Promise<void | boolean>;
   queueKey?: string;
+  composerSeed?: ComposerSeed | null;
   onCancel: () => void;
   noteConversations?: ContainerConversationItem[];
   activeConversationId?: number | null;
@@ -46,6 +48,7 @@ export default function EmbeddedChat({
   agentState,
   onTextSubmit,
   queueKey,
+  composerSeed,
   onCancel,
   noteConversations,
   activeConversationId,
@@ -74,8 +77,6 @@ export default function EmbeddedChat({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
-
-  if (mode === "hidden") return null;
 
   const hasConversationSelector =
     noteConversations !== undefined && onSwitchConversation !== undefined;
@@ -141,43 +142,33 @@ export default function EmbeddedChat({
         partialTranscript=""
         onTextSubmit={onTextSubmit}
         queueKey={queueKey}
+        seed={composerSeed}
+        active={mode !== "hidden"}
         onCancel={onCancel}
         voiceDraft
       />
     </>
   );
 
-  if (mode === "floating") {
-    return (
-      <div
-        ref={floatingPanelRef}
-        style={{ maxHeight: FLOATING_CHAT_MAX_HEIGHT_CSS }}
-        className={cn(
-          "absolute bottom-4 left-5 right-5 z-20 mx-auto max-w-[600px]",
-          "min-h-50",
-          "flex flex-col",
-          "bg-background/95 dark:bg-surface-2/95",
-          "border border-black/15 dark:border-white/18",
-          "ring-1 ring-inset ring-white/60 dark:ring-white/8",
-          "rounded-xl",
-          "shadow-elevated",
-          "backdrop-blur-2xl",
-          "animate-[scale-in_200ms_ease-out]"
-        )}
-      >
-        {chatContent}
-      </div>
-    );
-  }
-
+  // One stable subtree owns the draft, unsent buffer and destination queue.
+  // Changing placement never re-admits an old seed. Hidden chat stays inert.
   return (
     <div
+      ref={mode === "floating" ? floatingPanelRef : undefined}
+      hidden={mode === "hidden"}
+      inert={mode === "hidden"}
+      style={mode === "floating" ? { maxHeight: FLOATING_CHAT_MAX_HEIGHT_CSS } : undefined}
       className={cn(
-        "w-85 shrink-0",
-        "border-s border-black/12 dark:border-white/14",
-        "bg-surface-1 dark:bg-surface-2",
-        "flex flex-col",
-        "min-h-0"
+        mode === "hidden" ? "hidden" : "flex flex-col min-h-0",
+        mode === "floating" && [
+          "absolute col-start-1 row-start-2 bottom-4 start-5 end-5 z-20 mx-auto max-w-[600px]",
+          "min-h-50 bg-background/95 dark:bg-surface-2/95",
+          "border border-black/15 dark:border-white/18",
+          "ring-1 ring-inset ring-white/60 dark:ring-white/8 rounded-xl shadow-elevated backdrop-blur-2xl",
+          "animate-[scale-in_200ms_ease-out]",
+        ],
+        mode === "sidebar" &&
+          "col-start-2 row-start-1 row-span-2 w-85 border-s border-black/12 dark:border-white/14 bg-surface-1 dark:bg-surface-2"
       )}
     >
       {chatContent}

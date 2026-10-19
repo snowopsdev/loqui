@@ -2765,6 +2765,14 @@
         "dictation": "ここに音声入力",
         "mention": "メンション"
       }
+    },
+    "bubble": {
+      "bold": "太字",
+      "italic": "斜体",
+      "link": "リンク",
+      "linkUrl": "リンク先アドレス",
+      "linkInvalid": "ウェブまたはメールのアドレスを入力してください",
+      "askAi": "AI に質問"
     }
   },
   "dictionary": {

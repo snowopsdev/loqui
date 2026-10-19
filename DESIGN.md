@@ -208,6 +208,12 @@ Changes to slash readiness, actions or locale dismiss an open menu immediately, 
 
 Slash and mention suggestions share a caret popup that clamps horizontally, flips above near the bottom, and marks its wrapper with `data-editor-chrome`. Mention insertion and Markdown round-tripping keep their existing contract.
 
+### Note selection toolbar (WS-R6 B)
+
+A nonempty editable selection outside code blocks offers Bold, Italic, Link and Ask AI. Formatting survives the Markdown save cycle; no Highlight mark is offered. Newly entered links accept web or email addresses and bare domains; an empty address removes the link. Existing relative, anchor, phone and FTP links retain the default Link load policy. Clicking links edits rather than opening them. The URL field stays LTR and keeps its caret when clicked. Bubble and suggestion chrome never pull focus back into the document.
+
+Ask AI places a quote of at most 280 characters in the visible note chat and never sends. A hidden chat opens floating; a sidebar stays docked. One lazily mounted composer persists across dock, undock, hide and reopen, retaining newer words and Restore/Discard text without replaying a seed. Hiding disarms its existing queue before idle effects, stops voice drafts and prevents hidden focus or submission; it does not cancel an admitted chat response. The note owner key still ends that composer's lifetime. Bubble controls use full opaque focus rings, AI text uses `text-ai-text`, and the entry fade uses only shared instant/enter opacity motion, including reduced motion. Light uses the existing glass shadow; Plum uses the elevated shadow.
+
 ### Named Rules
 
 **The One-Family Rule.** Use the bundled Inter/Noto Sans system for interface text; create hierarchy through scale and weight.

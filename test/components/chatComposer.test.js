@@ -149,7 +149,7 @@ test("every caller passes a queue key built from its destination and route", () 
   );
   assert.equal(
     read("src/components/notes/NoteEditor.tsx").match(/queueKey=\{embeddedQueueKey\}/g)?.length,
-    2
+    1 // T16-composer-lifetime: one persistent composer owns both placements.
   );
   assert.match(
     read("src/components/notes/overview/ContainerOverview.tsx"),

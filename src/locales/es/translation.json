@@ -2891,6 +2891,14 @@
         "dictation": "Dictar aquí",
         "mention": "Mención"
       }
+    },
+    "bubble": {
+      "bold": "Negrita",
+      "italic": "Cursiva",
+      "link": "Enlace",
+      "linkUrl": "Dirección del enlace",
+      "linkInvalid": "Usa una dirección web o de correo electrónico",
+      "askAi": "Preguntar a la IA"
     }
   },
   "dictionary": {

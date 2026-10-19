@@ -3188,6 +3188,14 @@
         "dictation": "Dicter ici",
         "mention": "Mention"
       }
+    },
+    "bubble": {
+      "bold": "Gras",
+      "italic": "Italique",
+      "link": "Lien",
+      "linkUrl": "Adresse du lien",
+      "linkInvalid": "Utilisez une adresse web ou e-mail",
+      "askAi": "Demander à l’IA"
     }
   },
   "dictionary": {

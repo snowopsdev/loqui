@@ -3187,6 +3187,14 @@
         "dictation": "Hier diktieren",
         "mention": "Erwähnung"
       }
+    },
+    "bubble": {
+      "bold": "Fett",
+      "italic": "Kursiv",
+      "link": "Link",
+      "linkUrl": "Linkadresse",
+      "linkInvalid": "Verwende eine Web- oder E-Mail-Adresse",
+      "askAi": "KI fragen"
     }
   },
   "dictionary": {

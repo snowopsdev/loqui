@@ -79,6 +79,12 @@ function installTree() {
         const siblings = node.parentNode?.childNodes ?? [];
         return siblings[siblings.indexOf(node) + 1] ?? null;
       },
+      get nodeValue() {
+        return node.nodeType === 3 ? node.data : null;
+      },
+      set nodeValue(value) {
+        if (node.nodeType === 3) node.data = String(value ?? "");
+      },
       get textContent() {
         return node.nodeType === 3 ? node.data : node.childNodes.map((c) => c.textContent).join("");
       },

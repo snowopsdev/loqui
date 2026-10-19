@@ -1,212 +1,158 @@
-const test = require("node:test");
 const assert = require("node:assert/strict");
+const test = require("node:test");
 const React = require("react");
-const { createRoot } = require("react-dom/client");
-const {
-  createRendererServer,
-  installBrowserGlobals,
-  installHookDom,
-} = require("../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
-const { installTree } = require("../helpers/harness/fakeDomTree");
+const { mountComponent, expectKey } = require("../helpers/harness/mountComponent");
+const { listenerBus } = require("../helpers/harness/listenerBus");
 
+const MODEL = "parakeet-unified-en-0.6b";
 function deferred() {
   let resolve;
   const promise = new Promise((done) => (resolve = done));
   return { promise, resolve };
 }
 
-async function mountSpeechStep(t, { cancelResult = { success: true } } = {}) {
-  let root = null;
-  t.after(async () => {
-    if (root) await React.act(async () => root.unmount());
-  });
-  const calls = { downloads: [], cancels: 0 };
+// Mounts the real flow on Voice with an English profile, so the pick is MODEL.
+async function mountVoice(t, { cancelResult = { success: true } } = {}) {
+  const progress = listenerBus();
+  let installed = false;
   const pending = [];
-  const listeners = {};
-  const api = {
-    getPlatform: () => "darwin",
-    downloadParakeetModel: (model) => {
-      calls.downloads.push(model);
-      const request = deferred();
-      pending.push(request);
-      return request.promise;
+  const counts = { cancels: 0 };
+  const ui = await mountComponent(t, "/components/OnboardingFlow.tsx", {
+    props: {
+      onComplete() {},
+      initialStep: "speech",
+      previewConfig: { step: "speech", scenario: "fresh", platform: "linux" },
     },
-    cancelParakeetDownload: async () => {
-      calls.cancels += 1;
-      return cancelResult;
+    mocks: { "/SettingsPage": "export default function SettingsPage() { return null; }" },
+    api: {
+      getSystemProfile: async () => ({
+        locales: ["en-US"],
+        freeDiskBytes: 5e11,
+        gpu: { kind: "unknown", name: null },
+      }),
+      getTotalMemory: async () => 16e9,
+      checkParakeetModelStatus: async () => ({
+        success: true,
+        model: MODEL,
+        downloaded: installed,
+      }),
+      modelGetActiveDownloads: async () => [],
+      onParakeetDownloadProgress: progress.subscribe,
+      downloadParakeetModel: () => {
+        const request = deferred();
+        pending.push(request);
+        return request.promise;
+      },
+      cancelParakeetDownload: async () => (counts.cancels++, cancelResult),
     },
-    onParakeetDownloadProgress: (callback) => {
-      listeners.progress = callback;
-      return () => {};
-    },
-    personalInference: {
-      codexStatus: async () => ({ available: false, account: null }),
-      codexModels: async () => ({ data: [] }),
-      codexRateLimits: async () => ({}),
-      onTextEvent: () => () => {},
+  });
+  const settle = () => React.act(async () => {});
+  await settle();
+  return {
+    ui,
+    counts,
+    settle,
+    install: () => (installed = true),
+    emit: (data) => React.act(async () => progress.emit({}, { model: MODEL, ...data })),
+    resolve: (result) =>
+      React.act(async () => pending.shift().resolve({ model: MODEL, ...result })),
+    // Download from Voice, then come back to it: the panel shows the transfer.
+    async startAndReturn() {
+      await ui.click(ui.byAttr("data-onb-primary")[0]);
+      await ui.click("setupFlow.back");
     },
   };
-  installBrowserGlobals(t, {
-    window: {
-      electronAPI: new Proxy(api, {
-        get(target, name) {
-          if (name in target) return target[name];
-          if (typeof name === "symbol" || name === "then") return undefined;
-          return () => (/^on[A-Z]/.test(String(name)) ? () => {} : Promise.resolve());
-        },
-      }),
-      matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-    },
-  });
-  installHookDom(t);
-  const tree = installTree();
-  const vite = await createRendererServer(
-    t,
-    rendererOptions("loqui-onboarding-download-", { "/ui/useToast": TOAST_MOCK })
-  );
-  const { default: OnboardingFlow } = await vite.ssrLoadModule("/components/OnboardingFlow.tsx");
-  root = createRoot(tree.container);
-  await React.act(async () => {
-    root.render(React.createElement(OnboardingFlow, { onComplete() {}, initialStep: "speech" }));
-  });
-  const progress = async (model, percentage) =>
-    React.act(async () =>
-      listeners.progress(
-        {},
-        {
-          type: "progress",
-          model,
-          percentage,
-          downloaded_bytes: 265_000_000,
-          total_bytes: 631_000_000,
-        }
-      )
-    );
-  // A terminal event from main: the hook stops tracking the model.
-  const settle = async (model, data) =>
-    React.act(async () => listeners.progress({}, { model, ...data }));
-  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
-  const setLanguage = (language) =>
-    React.act(async () => useSettingsStore.getState().setSpokenLanguages([language]));
-  const progressbar = () => tree.find((node) => node.attributes?.role === "progressbar");
-  const downloadButton = () =>
-    tree.find(
-      (node) => node.tagName === "BUTTON" && node.textContent.includes("onboarding.download.start")
-    );
-  return { ...tree, calls, pending, progress, settle, progressbar, downloadButton, setLanguage };
 }
 
-test("the speech step shows the real download percentage", async (t) => {
-  const flow = await mountSpeechStep(t);
-  await flow.click("onboarding.download.start");
-  assert.equal(flow.calls.downloads.length, 1);
-  await flow.progress(flow.calls.downloads[0], 42);
-  const bar = flow.progressbar();
-  assert.ok(bar, "a progressbar replaces the pulsing placeholder");
-  assert.equal(bar.attributes["aria-valuenow"], "42");
-  const placeholder = flow.find((node) =>
-    /\bw-2\/3 animate-pulse\b/.test(node.attributes?.class ?? "")
+const progressbar = (ui) => ui.byAttr("role", "progressbar")[0] ?? null;
+const PROGRESS = {
+  type: "progress",
+  percentage: 42,
+  downloaded_bytes: 265_000_000,
+  total_bytes: 631_000_000,
+};
+
+test("Voice shows the real download percentage as a progressbar", async (t) => {
+  const v = await mountVoice(t);
+  await v.startAndReturn();
+  await v.emit(PROGRESS);
+  assert.equal(progressbar(v.ui).attributes["aria-valuenow"], "42");
+  assert.equal(
+    v.ui.findAll((node) => /\banimate-pulse\b/.test(node.attributes.class ?? "")).length,
+    0,
+    "no fake bar"
   );
-  assert.equal(placeholder, null, "the fake two-thirds bar is gone");
 });
 
 test("a download in flight follows the user to later steps as a footer chip", async (t) => {
-  const flow = await mountSpeechStep(t);
-  await flow.click("onboarding.download.start");
-  await flow.progress(flow.calls.downloads[0], 42);
-  await flow.click("setupFlow.continue");
-  assert.match(flow.text(), /onboarding\.download\.chip\(percent=42\)/);
+  const v = await mountVoice(t);
+  await v.startAndReturn();
+  await v.emit(PROGRESS);
+  await v.ui.click(v.ui.byAttr("data-onb-primary")[0]); // Continue → Say something
+  await v.ui.click("setupFlow.skipStep"); // → Cleanup
+  // One sample cannot establish a rate, so there is no ETA yet (the chip never invents one).
+  expectKey(v.ui, "setupFlow.download.chipNoEta", { percent: 42 });
 });
 
-test("a confirmed cancel returns to idle and a late result cannot mark it interrupted", async (t) => {
-  const flow = await mountSpeechStep(t);
-  await flow.click("onboarding.download.start");
-  await flow.progress(flow.calls.downloads[0], 42);
-  await flow.click("common.cancel");
-  assert.equal(flow.calls.cancels, 1);
-  // Main reports the aborted request after the user already cancelled.
-  await React.act(async () => flow.pending[0].resolve({ success: false, error: "cancelled" }));
-  assert.match(flow.text(), /Download the selected model/);
-  assert.doesNotMatch(flow.text(), /The download was interrupted/);
-  assert.equal(flow.progressbar(), null);
+test("a confirmed cancel leaves Download again, and a late result cannot mark it failed", async (t) => {
+  const v = await mountVoice(t);
+  await v.startAndReturn();
+  await v.emit(PROGRESS);
+  await v.ui.click("setupFlow.download.cancel");
+  assert.equal(v.counts.cancels, 1);
+  await v.emit({ type: "error", error: "Download cancelled", code: "DOWNLOAD_CANCELLED" });
+  await v.resolve({
+    success: false,
+    downloaded: false,
+    error: "cancelled",
+    code: "DOWNLOAD_CANCELLED",
+  });
+  expectKey(v.ui, "setupFlow.download.cancelledLine");
+  assert.equal(v.ui.text().includes("setupFlow.download.stoppedRestart"), false);
+  assert.equal(progressbar(v.ui), null);
+  assert.ok(
+    v.ui.findAll(
+      (node) =>
+        node.tagName === "BUTTON" && node.textContent.includes("setupFlow.download.downloadAgain")
+    ).length >= 1
+  );
 });
 
 test("a cancel main refuses keeps the download and its result", async (t) => {
-  const flow = await mountSpeechStep(t, {
+  const v = await mountVoice(t, {
     cancelResult: { success: false, code: "INSTALLATION_IN_PROGRESS" },
   });
-  await flow.click("onboarding.download.start");
-  await flow.progress(flow.calls.downloads[0], 99);
-  await flow.click("common.cancel");
-  assert.equal(flow.calls.cancels, 1);
-  assert.ok(flow.progressbar(), "the download is still on screen");
-  await React.act(async () => flow.pending[0].resolve({ success: true, downloaded: true }));
-  assert.match(flow.text(), /is ready/, "its success still marks the model ready");
+  await v.startAndReturn();
+  await v.emit({ ...PROGRESS, percentage: 99 });
+  await v.ui.click("setupFlow.download.cancel");
+  assert.equal(v.counts.cancels, 1);
+  assert.ok(progressbar(v.ui), "the transfer is still shown");
+  v.install();
+  await v.emit({ type: "complete" });
+  await v.resolve({ success: true, downloaded: true });
+  await v.settle();
+  expectKey(v.ui, "setupFlow.voice.installed");
 });
 
-test("Download stays disabled until the cancelled request settles", async (t) => {
-  const flow = await mountSpeechStep(t);
-  await flow.click("onboarding.download.start");
-  const model = flow.calls.downloads[0];
-  await flow.progress(model, 42);
-  await flow.click("common.cancel");
-  assert.equal(
-    flow.downloadButton().attributes.disabled,
-    "",
-    "main has not settled the request yet"
-  );
-  await flow.settle(model, { type: "error", code: "DOWNLOAD_CANCELLED", error: "cancelled" });
-  assert.equal(flow.downloadButton().attributes.disabled, undefined);
-});
-
-test("installation hides Cancel and follows the user as an installing chip", async (t) => {
-  const flow = await mountSpeechStep(t);
-  await flow.click("onboarding.download.start");
-  await flow.settle(flow.calls.downloads[0], { type: "installing" });
-  assert.equal(
-    flow.find((node) => node.tagName === "BUTTON" && node.textContent === "common.cancel"),
-    null
-  );
-  await flow.click("setupFlow.continue");
-  assert.match(flow.text(), /onboarding\.download\.chipInstalling/);
-});
-
-test("a confirmed cancel ignores a late successful result", async (t) => {
-  const flow = await mountSpeechStep(t);
-  await flow.click("onboarding.download.start");
-  await flow.progress(flow.calls.downloads[0], 42);
-  await flow.click("common.cancel");
-  await React.act(async () => flow.pending[0].resolve({ success: true, downloaded: true }));
-  assert.match(flow.text(), /Download the selected model/);
-  assert.ok(flow.downloadButton(), "the model still offers Download after late success");
-});
-
-for (const automatic of [false, true]) {
-  test(`cancelled request holds the pipeline after ${automatic ? "language-driven" : "manual"} model selection`, async (t) => {
-    const flow = await mountSpeechStep(t);
-    await flow.click("onboarding.download.start");
-    const modelA = flow.calls.downloads[0];
-    await flow.progress(modelA, 42);
-    if (automatic) await flow.setLanguage("es-ES");
-    await flow.click("common.cancel");
-    if (!automatic) await flow.click("Orukeet");
-    assert.equal(
-      flow.downloadButton().attributes.disabled,
-      "",
-      "A still owns the pipeline after selecting B"
+test("the download cannot be restarted until the cancelled request settles", async (t) => {
+  const v = await mountVoice(t);
+  await v.startAndReturn();
+  await v.emit(PROGRESS);
+  await v.ui.click("setupFlow.download.cancel");
+  const again = () =>
+    v.ui.findAll(
+      (node) =>
+        node.tagName === "BUTTON" && node.textContent.includes("setupFlow.download.downloadAgain")
     );
-    // Invoke the handler directly too: a disabled UI must not be the only guard.
-    await flow.click("onboarding.download.start");
-    assert.equal(flow.calls.downloads.length, 1);
-    await flow.settle(modelA, { type: "error", code: "DOWNLOAD_CANCELLED", error: "cancelled" });
-    assert.equal(flow.downloadButton().attributes.disabled, undefined);
-    await flow.click("onboarding.download.start");
-    assert.equal(flow.calls.downloads.length, 2);
-    assert.notEqual(
-      flow.calls.downloads[1],
-      modelA,
-      "the new selection starts only after A settles"
-    );
+  assert.equal(again().length, 0, "still cancelling");
+  assert.ok("disabled" in v.ui.byAttr("data-onb-primary")[0].attributes);
+  await v.emit({ type: "error", error: "Download cancelled", code: "DOWNLOAD_CANCELLED" });
+  await v.resolve({
+    success: false,
+    downloaded: false,
+    error: "cancelled",
+    code: "DOWNLOAD_CANCELLED",
   });
-}
+  assert.ok(again().length >= 1);
+  assert.equal("disabled" in v.ui.byAttr("data-onb-primary")[0].attributes, false);
+});

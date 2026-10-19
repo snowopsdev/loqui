@@ -200,3 +200,15 @@ test("controlled native selects expose actual option values and update selected 
   assert.equal(select.options[1].selected, false);
   assert.equal(select.value, "system");
 });
+
+test("controlled text-node updates replace text inside mixed children", async (t) => {
+  const ui = await mountComponent(t, "/TextNodeFixture", {
+    props: { message: "kept" },
+    mocks: {
+      "/TextNodeFixture": `import React from "react"; export default function Fixture({ message }) { return React.createElement("p", null, message, " ", React.createElement("span", null, "details")); }`,
+    },
+  });
+  assert.equal(ui.text(), "kept details");
+  await ui.rerender({ message: "restart" });
+  assert.equal(ui.text(), "restart details");
+});

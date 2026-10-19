@@ -307,19 +307,6 @@ html:has(.onboarding-welcome) #root {
   gap: 14px;
 }
 
-.onboarding-download-chip {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  padding-inline: 12px;
-  border: 1px solid var(--ow-border);
-  border-radius: 999px;
-  color: var(--ow-secondary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 .onboarding-welcome-actions button {
   min-height: 40px;
   border-radius: 999px;

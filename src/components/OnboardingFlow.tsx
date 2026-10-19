@@ -1,6 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { useModelDownload, type DownloadProgress } from "../hooks/useModelDownload";
-import { DownloadProgressBar } from "./ui/DownloadProgressBar";
 import {
   useCallback,
   useEffect,
@@ -20,7 +18,6 @@ import { usePermissions } from "../hooks/usePermissions";
 import { useToast } from "./ui/useToast";
 import { Button } from "./ui/button";
 import { Toggle } from "./ui/toggle";
-import LanguageSelector from "./ui/LanguageSelector";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
 import CodexConnection from "./CodexConnection";
 import { micPickerModel, selectionFor, type AudioInput } from "../utils/onboardingMic";
@@ -35,17 +32,10 @@ import { getDefaultHotkey } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
 import { useAudioRecording } from "../hooks/useAudioRecording";
 import {
-  DEFAULT_ONBOARDING_SPEECH_MODEL_ID,
-  ONBOARDING_SPEECH_MODELS,
-  firstCompatibleSpeechModel,
-  supportsSpeechLanguage,
-} from "../utils/onboardingSpeechModels";
-import {
   Mic,
   CheckCircle2,
   CircleAlert,
   Cpu,
-  Download,
   Keyboard,
   ShieldCheck,
   Sparkles,
@@ -80,6 +70,23 @@ import {
 import { OnboardingShell, type OnboardingShellProps } from "./onboarding/OnboardingShell";
 import type { InstrumentRailProps } from "./onboarding/InstrumentRail";
 
+import type { InstrumentMode } from "./onboarding/instrumentMath";
+import {
+  detectVoice,
+  isOnboardingVoice,
+  modelDownloadBytes,
+  reconcileVoice,
+  shouldApplyDetectedVoice,
+  spokenLocalesFor,
+  voiceSupportsAll,
+} from "../utils/onboardingDetection";
+import { byteParts } from "../utils/onboardingDownload";
+import { useSystemProfile } from "./onboarding/useSystemProfile";
+import { useVoiceDownload } from "./onboarding/useVoiceDownload";
+import { VoiceStep } from "./onboarding/VoiceStep";
+import { DownloadChip } from "./onboarding/DownloadChip";
+import { useResolvedRoute } from "../lib/routes";
+
 interface StepView {
   rail: InstrumentRailProps;
   primary?: OnboardingShellProps["primary"];
@@ -103,24 +110,12 @@ const cleanupModelCatalog: CleanupModelCatalog = {
 
 const SAMPLE_TRANSCRIPT = "Let's make the next step obvious and keep the work moving.";
 
-function displayModelSize(size: string): string {
-  return size.replace(/(\d)(MB|GB)$/, "$1 $2");
-}
-
-// The browser preview has no download pipeline; show a believable mid-download state.
-const PREVIEW_DOWNLOAD_PROGRESS: DownloadProgress = {
-  percentage: 42,
-  downloadedBytes: 265_000_000,
-  totalBytes: 631_000_000,
-};
-
 function ChoiceCard({
   selected,
   icon: Icon,
   title,
   description,
   badge,
-  compact = false,
   disabled = false,
   onClick,
 }: {
@@ -129,7 +124,6 @@ function ChoiceCard({
   title: string;
   description: string;
   badge?: string;
-  compact?: boolean;
   disabled?: boolean;
   onClick: () => void;
 }) {
@@ -139,17 +133,15 @@ function ChoiceCard({
       onClick={onClick}
       disabled={disabled}
       data-recommended={badge === "Recommended" || undefined}
-      className={`onboarding-guided-choice w-full rounded-xl border p-4 text-start transition-colors ${compact ? "onboarding-guided-choice-compact" : ""} ${disabled ? "cursor-not-allowed opacity-50" : selected ? "border-primary bg-primary/8 ring-1 ring-primary/20" : "border-border bg-card hover:bg-muted/50"}`}
+      className={`onboarding-guided-choice w-full rounded-xl border p-4 text-start transition-colors ${disabled ? "cursor-not-allowed opacity-50" : selected ? "border-primary bg-primary/8 ring-1 ring-primary/20" : "border-border bg-card hover:bg-muted/50"}`}
       aria-pressed={selected}
     >
       <div className="flex items-start gap-3">
-        {!compact && (
-          <span
-            className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
-          >
-            <Icon className="h-4 w-4" />
-          </span>
-        )}
+        <span
+          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+        >
+          <Icon className="h-4 w-4" />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2 text-sm font-semibold">
             {title}
@@ -184,183 +176,6 @@ function StatusLine({ ok, label, detail }: { ok: boolean; label: string; detail:
         <p className="text-sm font-medium">{label}</p>
         <p className="text-xs text-muted-foreground">{detail}</p>
       </div>
-    </div>
-  );
-}
-
-function SpeechStep({
-  previewConfig,
-  speechModelReady,
-  downloadState,
-  selectedModel,
-  onSelectModel,
-  onDownload,
-  downloadProgress,
-  downloadInstalling,
-  downloadCancelling,
-  downloadSettling,
-  onCancelDownload,
-}: {
-  previewConfig?: OnboardingPreviewConfig;
-  speechModelReady: boolean;
-  downloadState: "idle" | "downloading" | "ready" | "error";
-  selectedModel: string;
-  onSelectModel: (model: string) => void;
-  onDownload: () => void;
-  downloadProgress: DownloadProgress;
-  downloadInstalling: boolean;
-  downloadCancelling: boolean;
-  downloadSettling: boolean;
-  onCancelDownload: () => void;
-}) {
-  const { t } = useTranslation();
-  const spokenLanguages = useSettingsStore((s) => s.spokenLanguages);
-  const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
-  const setSpokenLanguages = useSettingsStore((s) => s.setSpokenLanguages);
-  const setPreferredLanguage = useSettingsStore((s) => s.setPreferredLanguage);
-  const language =
-    spokenLanguages[0] || (preferredLanguage === "auto" ? "en-US" : preferredLanguage) || "en-US";
-  const selected =
-    ONBOARDING_SPEECH_MODELS.find((model) => model.id === selectedModel) ??
-    ONBOARDING_SPEECH_MODELS[0];
-  const selectedSupportsLanguage = supportsSpeechLanguage(selected.id, language);
-  const compatibleModel = firstCompatibleSpeechModel(language);
-  const anyModelSupportsLanguage = Boolean(compatibleModel);
-  const recommendedModel = supportsSpeechLanguage(DEFAULT_ONBOARDING_SPEECH_MODEL_ID, language)
-    ? DEFAULT_ONBOARDING_SPEECH_MODEL_ID
-    : compatibleModel;
-  useEffect(() => {
-    if (downloadState === "downloading") return;
-    if (supportsSpeechLanguage(selectedModel, language)) return;
-    const compatible = firstCompatibleSpeechModel(language);
-    if (compatible) onSelectModel(compatible);
-  }, [downloadState, language, onSelectModel, selectedModel]);
-  return (
-    <div className="onboarding-guided-work">
-      <section className="space-y-3" aria-labelledby="spoken-language-heading">
-        <div className="flex items-center gap-2">
-          <h2 id="spoken-language-heading" className="text-sm font-semibold">
-            What language will you speak?
-          </h2>
-        </div>
-        <LanguageSelector
-          value={language}
-          onChange={(value) => {
-            setSpokenLanguages([value]);
-            setPreferredLanguage(value);
-          }}
-        />
-        <p className="text-xs text-muted-foreground">
-          {anyModelSupportsLanguage
-            ? "Only models that support this language can be selected."
-            : "Orukeet and the NVIDIA models do not cover this language. You can choose multilingual Whisper in Speech-to-Text settings after setup."}
-        </p>
-      </section>
-      <section className="space-y-3" aria-labelledby="speech-model-heading">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 id="speech-model-heading" className="text-sm font-semibold">
-              Local speech model
-            </h2>
-          </div>
-          {previewConfig && (
-            <span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">
-              Preview: {previewConfig.scenario}
-            </span>
-          )}
-        </div>
-        <div className="onboarding-guided-model-list">
-          {ONBOARDING_SPEECH_MODELS.map((model) => {
-            const supported = supportsSpeechLanguage(model.id, language);
-            const languageDescription =
-              model.supportedLanguages.length === 1
-                ? "English"
-                : `${model.supportedLanguages.length} languages`;
-            return (
-              <ChoiceCard
-                key={model.id}
-                selected={selectedModel === model.id}
-                disabled={!supported || downloadState === "downloading"}
-                compact
-                icon={Cpu}
-                title={model.name}
-                description={`${model.organization === "oruk" ? "Oruk" : "NVIDIA"} · ${displayModelSize(model.size)} · ${languageDescription}${model.runtime === "online" ? " · Streaming" : ""}`}
-                badge={supported && model.id === recommendedModel ? "Recommended" : undefined}
-                onClick={() => onSelectModel(model.id)}
-              />
-            );
-          })}
-        </div>
-      </section>
-      {downloadState === "downloading" && (
-        <p className="text-xs text-muted-foreground">
-          Model choices are available when this download finishes.
-        </p>
-      )}
-      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold">
-              {speechModelReady && selectedSupportsLanguage
-                ? `${selected.name} is ready`
-                : downloadState === "downloading"
-                  ? "Downloading speech model…"
-                  : "Download the selected model"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {speechModelReady && selectedSupportsLanguage
-                ? "You can try a dictation next."
-                : !selectedSupportsLanguage
-                  ? "Choose a supported model or language before downloading."
-                  : downloadState === "error"
-                    ? "The download was interrupted. Retry when you are ready."
-                    : `${displayModelSize(selected.size)} download · CPU execution remains available.`}
-            </p>
-          </div>
-          {speechModelReady && selectedSupportsLanguage ? (
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-          ) : (
-            <Button
-              onClick={onDownload}
-              disabled={
-                downloadState === "downloading" || downloadSettling || !selectedSupportsLanguage
-              }
-            >
-              <Download className="me-2 h-4 w-4" />
-              {downloadState === "downloading"
-                ? t("onboarding.download.inProgress")
-                : t("onboarding.download.start")}
-            </Button>
-          )}
-        </div>
-        {downloadState === "downloading" && (
-          <div className="mt-3 flex items-end gap-3">
-            <div className="min-w-0 flex-1">
-              <DownloadProgressBar
-                modelName={selected.name}
-                progress={downloadProgress}
-                isInstalling={downloadInstalling}
-              />
-            </div>
-            {!downloadInstalling && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onCancelDownload}
-                disabled={downloadCancelling}
-              >
-                {t("common.cancel")}
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
-      {!speechModelReady && (
-        <p className="text-xs text-muted-foreground">
-          You can continue later and explore notes without a speech model. Dictation stays pending
-          until the model is ready.
-        </p>
-      )}
     </div>
   );
 }
@@ -661,6 +476,7 @@ function DesktopTrial({
     }
   }, [onFinished, recording.transcript]);
   const start = async () => {
+    if (!ready) return;
     setError("");
     await recording.toggleListening();
   };
@@ -935,63 +751,7 @@ export default function OnboardingFlow({
   useEffect(() => {
     writeOnboardingProgress({ step, visited }, progressStorageKey);
   }, [progressStorageKey, step, visited]);
-  const [selectedModel, setSelectedModel] = useState(() => {
-    const saved = config
-      ? localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechModel`)
-      : useSettingsStore.getState().parakeetModel;
-    return ONBOARDING_SPEECH_MODELS.some((model) => model.id === saved)
-      ? saved!
-      : DEFAULT_ONBOARDING_SPEECH_MODEL_ID;
-  });
-  const selectedModelRef = useRef(selectedModel);
-  const [speechModelReady, setSpeechModelReady] = useState(
-    () =>
-      config?.scenario === "ready" ||
-      Boolean(
-        config &&
-        localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
-          selectedModel
-      )
-  );
-  const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "ready" | "error">(
-    () =>
-      config?.scenario === "downloading" || config?.scenario === "download-interrupted"
-        ? "downloading"
-        : config?.scenario === "ready" ||
-            Boolean(
-              config &&
-              localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
-                selectedModel
-            )
-          ? "ready"
-          : "idle"
-  );
   const { t } = useTranslation();
-  // The hook owns progress events and cancel for the Parakeet pipeline. The
-  // download still starts through downloadModel below, so onboarding keeps
-  // its own ready and error state.
-  const {
-    downloads: speechDownloadStatus,
-    cancelDownload: cancelSpeechModelDownload,
-    isCancellingModel,
-  } = useModelDownload({ modelType: "parakeet" });
-  // Each start or cancel bumps this, so a cancelled request's late result is ignored.
-  const downloadRequestRef = useRef(0);
-  const liveSpeechDownload = speechDownloadStatus[selectedModel];
-  const speechProgress: DownloadProgress = preview
-    ? PREVIEW_DOWNLOAD_PROGRESS
-    : {
-        percentage: liveSpeechDownload?.progress ?? 0,
-        downloadedBytes: liveSpeechDownload?.downloadedBytes ?? 0,
-        totalBytes: liveSpeechDownload?.totalBytes ?? 0,
-      };
-  const speechInstalling = liveSpeechDownload?.phase === "installing";
-  const trackedSpeechModels = Object.keys(speechDownloadStatus);
-  const speechCancelling =
-    !preview && (isCancellingModel(selectedModel) || trackedSpeechModels.some(isCancellingModel));
-  // Parakeet owns one pipeline. Changing selection must not release a cancelled
-  // request's lock before its terminal event removes it from hook tracking.
-  const speechSettling = speechCancelling || (!preview && trackedSpeechModels.length > 0);
   const [trialResult, setTrialResult] = useState("");
   const [updatesEnabled, setUpdatesEnabled] = useState(true);
   const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);
@@ -1000,8 +760,6 @@ export default function OnboardingFlow({
   const autoPasteEnabled = useSettingsStore((s) => s.autoPasteEnabled);
   const dataRetentionEnabled = useSettingsStore((s) => s.dataRetentionEnabled);
   const setDataRetentionEnabled = useSettingsStore((s) => s.setDataRetentionEnabled);
-  const spokenLanguages = useSettingsStore((s) => s.spokenLanguages);
-  const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
   const permissions = usePermissions(undefined, { macAccessibilityChecksEnabled: true });
   const platform = (
     config?.platform === "macos"
@@ -1054,9 +812,6 @@ export default function OnboardingFlow({
   };
 
   const scenario = config?.scenario ?? "fresh";
-  const speechLanguage =
-    spokenLanguages[0] || (preferredLanguage === "auto" ? "en-US" : preferredLanguage) || "en-US";
-  const selectedSpeechSupported = supportsSpeechLanguage(selectedModel, speechLanguage);
   const initialCleanupChoice: CleanupChoice = !useCleanupModel
     ? "none"
     : cleanupMode === "local"
@@ -1070,29 +825,6 @@ export default function OnboardingFlow({
   const [cleanupStatus, setCleanupStatus] = useState<CleanupStatus>(
     useCleanupModel ? "ready" : "skipped"
   );
-
-  useEffect(() => {
-    if (preview) return;
-    let cancelled = false;
-    const check = window.electronAPI?.checkParakeetModelStatus;
-    if (!check) return;
-    void check(selectedModel)
-      .then((result) => {
-        if (!cancelled) setSpeechModelReady(Boolean(result?.downloaded));
-      })
-      .catch(() => {
-        if (!cancelled) setSpeechModelReady(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [preview, selectedModel]);
-
-  useEffect(() => {
-    if (!preview || scenario !== "download-interrupted" || downloadState !== "downloading") return;
-    const timer = window.setTimeout(() => setDownloadState("error"), 700);
-    return () => window.clearTimeout(timer);
-  }, [downloadState, preview, scenario]);
 
   useEffect(() => {
     if (!window.electronAPI?.updates?.status) return;
@@ -1134,51 +866,88 @@ export default function OnboardingFlow({
     skip();
   };
 
-  const downloadModel = useCallback(() => {
-    if (downloadState === "downloading" || speechSettling) return;
-    const requestedModel = selectedModel;
-    const request = ++downloadRequestRef.current;
-    const isCurrent = () =>
-      request === downloadRequestRef.current && selectedModelRef.current === requestedModel;
-    setDownloadState("downloading");
-    if (preview) {
-      window.setTimeout(() => {
-        if (!isCurrent()) return;
-        const ready = scenario !== "download-interrupted";
-        setDownloadState(ready ? "ready" : "error");
-        setSpeechModelReady(ready);
-        if (config && ready)
-          localStorage.setItem(
-            `${onboardingPreviewStorageKey(config)}.speechReadyModel`,
-            requestedModel
-          );
-      }, 500);
+  // [T13] Voice: detection, explicit commit, per-model download
+  const profile = useSystemProfile();
+  const pick = useMemo(() => (profile ? detectVoice(profile) : null), [profile]);
+  // undefined = untouched, so the detected pick applies; null = deliberately no compatible voice
+  // (a language no on-device voice hears). Only undefined falls back to detection (R2-I04).
+  const [chosenModel, setChosenModel] = useState<string | null | undefined>(() => {
+    const stored = localStorage.getItem("parakeetModel");
+    return !shouldApplyDetectedVoice(stored) && isOnboardingVoice(stored) ? stored : undefined;
+  });
+  const [chosenLanguage, setChosenLanguage] = useState<string | null>(null);
+  const spokenLanguages = chosenLanguage
+    ? [chosenLanguage]
+    : spokenLocalesFor(profile?.locales ?? [], pick?.languages ?? []);
+  const selectedModel = chosenModel === undefined ? (pick?.modelId ?? null) : chosenModel;
+  const voiceCompatible =
+    selectedModel !== null && voiceSupportsAll(selectedModel, spokenLanguages);
+  const voiceDownload = useVoiceDownload(selectedModel);
+  const voiceState = voiceDownload.state;
+  const voiceStatus = voiceState.status;
+  const voiceBusy =
+    voiceStatus === "downloading" || voiceStatus === "installing" || voiceStatus === "cancelling";
+  const changeModel = (modelId: string) => {
+    if (voiceBusy || !isOnboardingVoice(modelId) || !voiceSupportsAll(modelId, spokenLanguages))
       return;
-    }
-    const download = window.electronAPI?.downloadParakeetModel;
-    if (!download) {
-      setDownloadState("error");
-      return;
-    }
-    void download(requestedModel)
-      .then((result) => {
-        if (!isCurrent()) return;
-        const ready = Boolean(result?.success && result?.downloaded);
-        setSpeechModelReady(ready);
-        setDownloadState(ready ? "ready" : "error");
-      })
-      .catch(() => {
-        if (isCurrent()) setDownloadState("error");
-      });
-  }, [config, downloadState, preview, scenario, selectedModel, speechSettling]);
-
-  const cancelSpeechDownload = useCallback(async () => {
-    // Drop the request only once main confirms. It refuses after extraction
-    // starts; the download then keeps running and its result still counts.
-    if (!preview && !(await cancelSpeechModelDownload(selectedModelRef.current))) return;
-    downloadRequestRef.current += 1;
-    setDownloadState("idle");
-  }, [cancelSpeechModelDownload, preview]);
+    setChosenModel(modelId);
+  };
+  const changeLanguage = (language: string) => {
+    if (voiceBusy) return; // locked while a transfer runs (I03)
+    setChosenLanguage(language);
+    setChosenModel(reconcileVoice(selectedModel, [language]).modelId);
+  };
+  // I02: dictation becomes local, including from self-hosted. Meeting and upload routes stay as they are.
+  const commitVoice = (): boolean => {
+    if (
+      !selectedModel ||
+      !voiceCompatible ||
+      voiceStatus === "checking" ||
+      voiceStatus === "cancelling"
+    )
+      return false;
+    const store = useSettingsStore.getState();
+    store.setTranscriptionMode("local");
+    store.setUseLocalWhisper(true);
+    store.setLocalTranscriptionProvider("nvidia");
+    store.setParakeetModel(selectedModel);
+    store.setSpokenLanguages(spokenLanguages);
+    if (spokenLanguages[0]) store.setPreferredLanguage(spokenLanguages[0]);
+    return true;
+  };
+  const voicePrimary = () => {
+    if (!commitVoice()) return;
+    if (voiceStatus === "idle" || voiceStatus === "error" || voiceStatus === "cancelled")
+      voiceDownload.start();
+    goTo("try");
+  };
+  const transcriptionMode = useSettingsStore((s) => s.transcriptionMode);
+  const localProvider = useSettingsStore((s) => s.localTranscriptionProvider);
+  const parakeetModel = useSettingsStore((s) => s.parakeetModel);
+  // F04: installation is a candidate fact, never authority to admit recording.
+  // Plan03's resolved route remains the readiness authority; no new renderer readiness flags.
+  const dictationRoute = useResolvedRoute("dictationStt");
+  const localVoiceActive =
+    voiceStatus === "ready" &&
+    voiceCompatible &&
+    transcriptionMode === "local" &&
+    localProvider === "nvidia" &&
+    parakeetModel === selectedModel &&
+    dictationRoute.locality === "device" &&
+    dictationRoute.host === null &&
+    dictationRoute.state.status === "ready";
+  const downloadRail: InstrumentMode | null =
+    voiceState.status === "downloading"
+      ? {
+          kind: "download",
+          percent: voiceState.percent,
+          downloadedBytes: voiceState.downloadedBytes,
+          totalBytes: voiceState.totalBytes,
+        }
+      : voiceStatus === "error"
+        ? { kind: "error", reason: "download" }
+        : null;
+  const voiceSize = byteParts(selectedModel ? (modelDownloadBytes(selectedModel) ?? 0) : 0);
 
   const cleanupRequestRef = useRef(0);
   const closedRef = useRef(false);
@@ -1258,12 +1027,7 @@ export default function OnboardingFlow({
       (cleanupChoice === "provider" && scenario === "invalid-provider-key");
     return {
       microphone: trialResult ? "ready" : scenario === "microphone-denied" ? "failed" : "pending",
-      speech:
-        speechModelReady && selectedSpeechSupported
-          ? "ready"
-          : downloadState === "error"
-            ? "failed"
-            : "pending",
+      speech: localVoiceActive ? "ready" : voiceStatus === "error" ? "failed" : "pending",
       cleanup:
         cleanupChoice === "none"
           ? "skipped"
@@ -1283,64 +1047,28 @@ export default function OnboardingFlow({
           : "ready",
     };
   }, [
-    downloadState,
+    voiceStatus,
     permissions.accessibilityPermissionGranted,
     platform,
     scenario,
     autoPasteEnabled,
     cleanupChoice,
     cleanupStatus,
-    speechModelReady,
-    selectedSpeechSupported,
+    localVoiceActive,
     trialResult,
   ]);
 
-  const simulatedTrialReady =
-    preview && !["fresh", "downloading", "download-interrupted"].includes(scenario);
-  const trialReady = selectedSpeechSupported && (speechModelReady || simulatedTrialReady);
-  const trial = preview ? (
-    <BrowserTrial scenario={scenario} ready={trialReady} onFinished={onTrialFinished} />
+  const trial = !localVoiceActive ? (
+    <p role="status" className="onb-muted">
+      {t("setupFlow.voice.commitToTry")}
+    </p>
+  ) : preview ? (
+    <BrowserTrial scenario={scenario} ready={localVoiceActive} onFinished={onTrialFinished} />
   ) : (
-    <DesktopTrial ready={trialReady} onFinished={onTrialFinished} />
+    <DesktopTrial ready={localVoiceActive} onFinished={onTrialFinished} />
   );
 
   let content: ReactNode = null;
-  if (step === "speech")
-    content = (
-      <SpeechStep
-        previewConfig={config}
-        speechModelReady={speechModelReady && selectedSpeechSupported}
-        downloadState={downloadState}
-        downloadProgress={speechProgress}
-        downloadInstalling={speechInstalling}
-        downloadCancelling={speechCancelling}
-        downloadSettling={speechSettling}
-        onCancelDownload={() => void cancelSpeechDownload()}
-        selectedModel={selectedModel}
-        onSelectModel={(model) => {
-          selectedModelRef.current = model;
-          setSelectedModel(model);
-          if (config) {
-            localStorage.setItem(`${onboardingPreviewStorageKey(config)}.speechModel`, model);
-          } else {
-            const store = useSettingsStore.getState();
-            store.setUseLocalWhisper(true);
-            store.setLocalTranscriptionProvider("nvidia");
-            store.setParakeetModel(model);
-          }
-          const ready =
-            config?.scenario === "ready" ||
-            Boolean(
-              config &&
-              localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
-                model
-            );
-          setSpeechModelReady(ready);
-          setDownloadState(ready ? "ready" : "idle");
-        }}
-        onDownload={downloadModel}
-      />
-    );
   if (step === "cleanup")
     content = (
       <CleanupStep
@@ -1418,6 +1146,45 @@ export default function OnboardingFlow({
           />
         ),
       };
+    if (step === "speech")
+      return {
+        rail: {
+          title: t(`setupFlow.rail.${step}.title`),
+          body: t(`setupFlow.rail.${step}.body${device}`),
+          mode: downloadRail ?? { kind: "idle" },
+        },
+        primary: {
+          label:
+            voiceStatus === "ready" || voiceBusy
+              ? t("setupFlow.continue")
+              : t("setupFlow.voice.download", {
+                  size: t(`setupFlow.units.${voiceSize.unit}`, { value: voiceSize.value }),
+                }),
+          onClick: voicePrimary,
+          disabled: !voiceCompatible || voiceStatus === "checking" || voiceStatus === "cancelling",
+          describedBy: voiceCompatible ? undefined : "onb-voice-blocked",
+        },
+        onSkip: skip,
+        finishLaterLabel: t("setupFlow.finishLater"),
+        content: (
+          <VoiceStep
+            platform={platform}
+            profile={profile}
+            pick={pick}
+            selectedModel={selectedModel}
+            onSelectModel={changeModel}
+            language={chosenLanguage ?? spokenLanguages[0] ?? profile?.locales[0] ?? "en-US"}
+            onLanguageChange={changeLanguage}
+            spokenLanguages={spokenLanguages}
+            languageLocked={voiceBusy}
+            compatible={voiceCompatible}
+            blockedId="onb-voice-blocked"
+            download={voiceState}
+            onStartDownload={voiceDownload.start}
+            onCancelDownload={() => void voiceDownload.cancel()}
+          />
+        ),
+      };
     return {
       rail: {
         title: t(`setupFlow.rail.${step}.title`),
@@ -1434,14 +1201,6 @@ export default function OnboardingFlow({
     };
   };
   const view = stepView();
-  const footerStatus =
-    step !== "speech" && downloadState === "downloading" ? (
-      <span className="onboarding-download-chip">
-        {speechInstalling
-          ? t("onboarding.download.chipInstalling")
-          : t("onboarding.download.chip", { percent: Math.round(speechProgress.percentage) })}
-      </span>
-    ) : undefined;
   return (
     <OnboardingShell
       step={step}
@@ -1455,7 +1214,11 @@ export default function OnboardingFlow({
         view.finishLaterLabel ? { label: view.finishLaterLabel, onClick: finishLater } : undefined
       }
       primary={view.primary}
-      footerStart={footerStatus}
+      footerStart={
+        step === "speech" || step === "try" ? undefined : (
+          <DownloadChip state={voiceState} onStart={voiceDownload.start} />
+        )
+      }
     >
       {view.content}
     </OnboardingShell>

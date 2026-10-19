@@ -2,6 +2,10 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { mountComponent } = require("../helpers/harness/mountComponent");
 
+const { listenerBus } = require("../helpers/harness/listenerBus");
+
+const { MIGRATED_STORAGE } = require("../lib/routeStateFixture");
+
 const PREVIEW = { step: "welcome", scenario: "ready", platform: "linux" };
 const SETTINGS_PAGE = {
   "/SettingsPage": "export default function SettingsPage() { return null; }",
@@ -18,6 +22,7 @@ async function mountFlow(t, props = {}, options = {}) {
     },
     mocks: SETTINGS_PAGE,
     ...options,
+    storage: { ...MIGRATED_STORAGE, ...options.storage },
   });
   return { ui, completed: () => completed };
 }
@@ -39,7 +44,13 @@ async function advance(ui) {
 }
 
 test("Continue walks both phases and completes once without accounts or implicit downloads", async (t) => {
-  const { ui, completed } = await mountFlow(t, { initialStep: "welcome" });
+  const { ui, completed } = await mountFlow(
+    t,
+    { initialStep: "welcome" },
+    {
+      api: voiceApi(["en-US"], { checkParakeetModelStatus: async () => ({ downloaded: true }) }),
+    }
+  );
   const seen = [];
   for (let guard = 0; guard < 8 && completed().length === 0; guard++) {
     if (currentStep(ui) === "ready") {
@@ -281,4 +292,294 @@ test("Ready retains saved privacy/update defaults and writes each explicit toggl
   await ui.click(updates);
   assert.equal(useSettingsStore.getState().dataRetentionEnabled, true);
   assert.deepEqual(preferences, [{ enabled: true }]);
+});
+
+const LANGUAGE_SELECTOR_MOCK = `
+import React from "react";
+export default function LanguageSelector({ value, onChange }) {
+  return React.createElement("select", { "data-language": "", value, onChange: (event) => onChange(event.target.value) });
+}`;
+const voiceApi = (locales, extra = {}) => ({
+  getSystemProfile: async () => ({
+    locales,
+    freeDiskBytes: 5e11,
+    gpu: { kind: "unknown", name: null },
+  }),
+  getTotalMemory: async () => 16e9,
+  checkParakeetModelStatus: async () => ({ success: true, downloaded: false }),
+  modelGetActiveDownloads: async () => [],
+  downloadParakeetModel: () => new Promise(() => {}),
+  ...extra,
+});
+
+test("viewing Voice writes nothing; its primary makes dictation local, even from self-hosted (I02)", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["es-ES", "en-US"]),
+      storage: {
+        transcriptionMode: "self-hosted",
+        remoteTranscriptionUrl: "http://10.0.0.5:9000",
+        meetingTranscriptionMode: "self-hosted",
+        meetingUseLocalWhisper: "false",
+        uploadTranscriptionMode: "providers",
+        uploadUseLocalWhisper: "false",
+        uploadCloudTranscriptionMode: "byok",
+        uploadCloudTranscriptionProvider: "groq",
+        uploadCloudTranscriptionModel: "whisper-large-v3",
+      },
+    }
+  );
+  await React.act(async () => {});
+  const store = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  assert.equal(
+    store.getState().transcriptionMode,
+    "self-hosted",
+    "viewing has not committed dictation"
+  );
+  const otherRoutes = () =>
+    Object.fromEntries(
+      Object.entries(store.getState()).filter(
+        ([key]) => /^(meeting|upload)/.test(key) && typeof store.getState()[key] !== "function"
+      )
+    );
+  const before = otherRoutes();
+  assert.equal(ui.storage.getItem("parakeetModel"), null);
+  assert.equal(ui.calls.filter(([name]) => name === "downloadParakeetModel").length, 0);
+  await ui.click(primary(ui));
+  const settings = (
+    await ui.vite.ssrLoadModule("/stores/settingsStore.ts")
+  ).useSettingsStore.getState();
+  assert.deepEqual(
+    [
+      settings.transcriptionMode,
+      settings.useLocalWhisper,
+      settings.localTranscriptionProvider,
+      settings.parakeetModel,
+    ],
+    ["local", true, "nvidia", "orukeet-v0.1.0"]
+  );
+  assert.deepEqual(settings.spokenLanguages, ["es-ES", "en-US"]);
+  assert.equal(
+    settings.meetingTranscriptionMode,
+    "self-hosted",
+    "note recording keeps its own route"
+  );
+  assert.deepEqual(otherRoutes(), before, "every meeting/upload setting retains its own route");
+  const { resolveTranscriptionRoute } = await ui.vite.ssrLoadModule(
+    "/helpers/transcriptionRoute.ts"
+  );
+  assert.equal(
+    resolveTranscriptionRoute({ settings }).transport,
+    "local",
+    "the real resolver no longer routes to the old server"
+  );
+  assert.deepEqual(
+    ui.calls.filter(([name]) => name === "downloadParakeetModel"),
+    [["downloadParakeetModel", "orukeet-v0.1.0"]]
+  );
+});
+
+test("a supported secondary OS locale remains committable without manual language changes", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    { api: voiceApi(["he-IL", "fr-FR"]) }
+  );
+  await React.act(async () => {});
+  await ui.click(ui.byAttr("aria-expanded", "false")[0]); // F09c: the compatible picker starts closed.
+  assert.equal(ui.byAttr("aria-checked", "true")[0].attributes["data-value"], "orukeet-v0.1.0");
+  assert.equal("disabled" in primary(ui).attributes, false);
+  await ui.click(primary(ui));
+  const settings = (
+    await ui.vite.ssrLoadModule("/stores/settingsStore.ts")
+  ).useSettingsStore.getState();
+  assert.deepEqual(settings.spokenLanguages, ["fr-FR"]);
+  assert.equal(settings.preferredLanguage, "fr-FR");
+  assert.deepEqual(
+    ui.calls.filter(([name]) => name === "downloadParakeetModel"),
+    [["downloadParakeetModel", "orukeet-v0.1.0"]]
+  );
+});
+
+test("a language change never leaves an incompatible voice committable (I03)", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["en-US"]),
+      mocks: {
+        "/SettingsPage": "export default function SettingsPage() { return null; }",
+        "ui/LanguageSelector": LANGUAGE_SELECTOR_MOCK,
+      },
+    }
+  );
+  await React.act(async () => {});
+  await ui.click(ui.byAttr("aria-expanded", "false")[0]);
+  const choose = (value) =>
+    React.act(async () => ui.props(ui.byAttr("data-language")[0]).onChange({ target: { value } }));
+  await choose("ja-JP");
+  assert.equal(
+    ui.byAttr("aria-checked", "true")[0].attributes["data-value"],
+    "nemotron-3.5-asr-streaming-0.6b"
+  );
+  assert.equal("disabled" in primary(ui).attributes, false);
+  await choose("he-IL");
+  assert.equal(ui.byAttr("aria-checked", "true").length, 0, "no voice is selected");
+  assert.ok("disabled" in primary(ui).attributes);
+  assert.equal(primary(ui).attributes["aria-describedby"], "onb-voice-blocked");
+  await ui.click(primary(ui));
+  assert.equal(
+    ui.calls.filter(([name]) => name === "downloadParakeetModel").length,
+    0,
+    "nothing downloads or commits"
+  );
+});
+
+test("language is locked while a transfer runs (I03)", async (t) => {
+  const progress = listenerBus();
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["en-US"], { onParakeetDownloadProgress: progress.subscribe }),
+      mocks: {
+        "/SettingsPage": "export default function SettingsPage() { return null; }",
+        "ui/LanguageSelector": LANGUAGE_SELECTOR_MOCK,
+      },
+    }
+  );
+  await React.act(async () => {});
+  await ui.click(primary(ui));
+  await React.act(async () =>
+    progress.emit(
+      {},
+      {
+        type: "progress",
+        model: "parakeet-unified-en-0.6b",
+        percentage: 10,
+        downloaded_bytes: 6e7,
+        total_bytes: 6.31e8,
+      }
+    )
+  );
+  await ui.click("setupFlow.back");
+  await ui.click(ui.byAttr("aria-expanded", "false")[0]);
+  await React.act(async () =>
+    ui.props(ui.byAttr("data-language")[0]).onChange({ target: { value: "ja-JP" } })
+  );
+  assert.equal(
+    ui.byAttr("aria-checked", "true")[0].attributes["data-value"],
+    "parakeet-unified-en-0.6b",
+    "the flow ignores the change"
+  );
+  await ui.click(
+    ui.byAttr("role", "radio").find((r) => r.attributes["data-value"] === "orukeet-v0.1.0")
+  );
+  assert.equal(
+    ui.byAttr("aria-checked", "true")[0].attributes["data-value"],
+    "parakeet-unified-en-0.6b",
+    "busy model edits are ignored too"
+  );
+});
+
+for (const mode of ["self-hosted", "providers"]) {
+  test(`an installed candidate skipped with retained ${mode} dictation never admits a local trial (F04)`, async (t) => {
+    const { ui } = await mountFlow(
+      t,
+      { initialStep: "speech", previewConfig: undefined },
+      {
+        api: voiceApi(["en-US"], { checkParakeetModelStatus: async () => ({ downloaded: true }) }),
+        storage: {
+          transcriptionMode: mode,
+          remoteTranscriptionUrl: "http://10.0.0.5:9000",
+          useLocalWhisper: "false",
+        },
+      }
+    );
+    assert.ok(ui.text().includes("setupFlow.voice.installed"));
+    await ui.click("setupFlow.skipStep");
+    assert.equal(buttonWithText(ui, "Start recording"), undefined);
+    assert.equal(
+      ui.calls.filter(([name]) => /beginOnboardingDemo|toggleDictation|startDictation/.test(name))
+        .length,
+      0
+    );
+    const settings = (
+      await ui.vite.ssrLoadModule("/stores/settingsStore.ts")
+    ).useSettingsStore.getState();
+    assert.equal(settings.transcriptionMode, mode, "Skip never commits the candidate");
+  });
+}
+
+test("installed and matching local settings still wait for Plan03 route facts", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "try", previewConfig: undefined },
+    {
+      api: voiceApi(["en-US"], {
+        checkParakeetModelStatus: async () => ({ downloaded: true }),
+        listParakeetModels: undefined,
+        checkParakeetInstallation: undefined,
+      }),
+      storage: {
+        transcriptionMode: "local",
+        localTranscriptionProvider: "nvidia",
+        parakeetModel: "parakeet-unified-en-0.6b",
+        useLocalWhisper: "true",
+      },
+    }
+  );
+  assert.equal(buttonWithText(ui, "Start recording"), undefined);
+  assert.equal(ui.calls.filter(([name]) => name === "beginOnboardingDemo").length, 0);
+});
+
+test("an installed matching voice admits the legacy trial only with actual ready route facts", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech", previewConfig: undefined },
+    {
+      mocks: {
+        ...SETTINGS_PAGE,
+        "/hooks/useAudioRecording":
+          "export function useAudioRecording() { return { isRecording: false, isProcessing: false }; }",
+      },
+      api: voiceApi(["en-US"], {
+        checkParakeetModelStatus: async () => ({ downloaded: true }),
+        checkParakeetInstallation: async () => ({ supported: true }),
+        listParakeetModels: async () => ({
+          success: true,
+          models: [{ model: "parakeet-unified-en-0.6b", downloaded: true }],
+        }),
+      }),
+      storage: { transcriptionMode: "self-hosted", remoteTranscriptionUrl: "http://10.0.0.5:9000" },
+    }
+  );
+  await ui.click(primary(ui));
+  assert.ok(buttonWithText(ui, "Start recording"));
+  assert.equal(ui.calls.filter(([name]) => name === "beginOnboardingDemo").length, 1);
+});
+
+test("opening the picker and choosing a candidate write no voice settings or downloads", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["en-US"]),
+      storage: { transcriptionMode: "self-hosted", remoteTranscriptionUrl: "http://10.0.0.5:9000" },
+    }
+  );
+  await ui.click(ui.byAttr("aria-expanded", "false")[0]);
+  await ui.click(
+    ui.byAttr("role", "radio").find((r) => r.attributes["data-value"] === "orukeet-v0.1.0")
+  );
+  assert.equal(ui.byAttr("aria-checked", "true")[0].attributes["data-value"], "orukeet-v0.1.0");
+  const settings = (
+    await ui.vite.ssrLoadModule("/stores/settingsStore.ts")
+  ).useSettingsStore.getState();
+  assert.equal(settings.transcriptionMode, "self-hosted");
+  for (const key of ["parakeetModel", "spokenLanguages", "preferredLanguage"])
+    assert.equal(ui.storage.getItem(key), null, key);
+  assert.equal(ui.calls.filter(([name]) => name === "downloadParakeetModel").length, 0);
 });

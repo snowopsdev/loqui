@@ -42,10 +42,17 @@ export default function MeetingRecordingMount(): null {
   const micCaptureStatus = useMeetingRecordingStore((s) => s.micCaptureStatus);
   const recordingStartedAt = useMeetingRecordingStore((s) => s.recordingStartedAt);
   const micQuiet = useMeetingRecordingStore((s) => s.micQuiet);
+  const reportedMeetingSession = useRef<string | undefined>(undefined);
   useEffect(() => {
+    // Stop clears the active store session before its asynchronous ACKs. Keep
+    // false reports (including the later timer reset) bound to that live owner.
+    const sessionId = isRecording
+      ? (getActiveRecordingSessionId() ?? undefined)
+      : reportedMeetingSession.current;
+    if (isRecording) reportedMeetingSession.current = sessionId;
     window.electronAPI?.reportMeetingRecordingPresence?.({
       recording: isRecording,
-      sessionId: getActiveRecordingSessionId() ?? undefined,
+      sessionId,
       startedAt: recordingStartedAt ?? undefined,
       interruption: systemAudioInterrupted
         ? "systemAudio"

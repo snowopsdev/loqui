@@ -26,24 +26,77 @@ const same = (a, b) =>
     a.interruption === b.interruption &&
     a.quiet === b.quiet);
 
+// Liveness ends before asynchronous persistence/Stop acknowledgements. Keep
+// only unfinished terminal results, privately, keyed by session and exact owner.
+function normalizeOutcome(input) {
+  const sessionId = input?.sessionId;
+  if (typeof sessionId !== "string" || !sessionId || sessionId.length > 128) return null;
+  if (input.kind === "saved") {
+    if (
+      !Number.isFinite(input.durationMs) ||
+      input.durationMs < 0 ||
+      !(input.noteId === null || typeof input.noteId === "string")
+    )
+      return null;
+    return { sessionId, kind: "saved", durationMs: input.durationMs, noteId: input.noteId };
+  }
+  if (input.kind === "failed" && ["save", "stop", "ownerLost"].includes(input.reason)) {
+    return { sessionId, kind: "failed", reason: input.reason };
+  }
+  return null;
+}
+
 function createMeetingPresence({ onChange, onOwnerLost } = {}) {
   let state = null;
-  let ownerId = null;
+  let liveOwner = null;
+  const pendingResults = new Map();
   const commit = (next, owner) => {
-    ownerId = next ? owner : null;
+    liveOwner = next ? owner : null;
     if (same(state, next)) return;
     state = next;
     onChange?.(state);
   };
   return {
     set(owner, input) {
-      commit(normalizePresence(input), owner);
+      const next = normalizePresence(input);
+      if (next) {
+        const pendingOwner = pendingResults.get(next.sessionId);
+        if (pendingResults.has(next.sessionId) && pendingOwner !== owner) return;
+        // A repeated live update after an early outcome cannot reopen the same
+        // current session's result. A new session acquires independent ownership.
+        if (state?.sessionId !== next.sessionId || liveOwner !== owner) {
+          pendingResults.set(next.sessionId, owner);
+        }
+        commit(next, owner);
+      } else if (
+        liveOwner === owner &&
+        (!input?.sessionId || input.sessionId === state?.sessionId)
+      ) {
+        commit(null, null);
+      }
+    },
+    settleOutcome(owner, input) {
+      const outcome = normalizeOutcome(input);
+      if (
+        !outcome ||
+        !pendingResults.has(outcome.sessionId) ||
+        pendingResults.get(outcome.sessionId) !== owner
+      )
+        return null;
+      pendingResults.delete(outcome.sessionId);
+      return outcome;
     },
     clearIfOwner(owner) {
-      if (ownerId === null || ownerId !== owner || !state) return;
-      const lost = state.sessionId;
-      commit(null, null);
-      onOwnerLost?.(lost);
+      const lost = [];
+      for (const [sessionId, pendingOwner] of pendingResults) {
+        if (pendingOwner !== owner) continue;
+        pendingResults.delete(sessionId);
+        lost.push(sessionId);
+      }
+      if (liveOwner === owner) commit(null, null);
+      // Retire every record before callbacks, so reentrancy/duplicates cannot
+      // settle it twice or touch a replacement acquired during delivery.
+      for (const sessionId of lost) onOwnerLost?.(sessionId);
     },
     get: () => state,
   };

@@ -93,6 +93,7 @@ test("the actual mount reports live store presence and handles only session-boun
   });
   assert.deepEqual(stopped, ["A"]);
   assert.equal(reports.at(-1).recording, false);
+  assert.equal(reports.at(-1).sessionId, "A", "Stop/timer-reset false reports stay bound to A");
   assert.equal(outcomes.length, 1);
   assert.equal(outcomes[0].kind, "saved");
   await React.act(async () => root.unmount());

@@ -447,7 +447,13 @@ Meeting recording presence is liveness only: its session, start time, source
 interruption and quiet flag never imply that a transcript was saved. An explicit
 saved outcome requires an acknowledged transcript write (or no content to write)
 and an acknowledged main-process Stop. Save failures, Stop failures and owner loss
-remain distinct failures. Quiet stays false until the shared meter detector is
+remain distinct failures. Live presence ends immediately at Stop, while main
+privately retains the exact session's unfinished outcome owner until an explicit
+validated result or owner loss. Crash, reload or close during a pending write or
+Stop acknowledgement reports owner loss once, even after the tray returns idle;
+late or duplicate results cannot affect a replacement session. False-presence
+reports carry their last live session so a late timer reset cannot clear a newer
+session on the same owner. Quiet stays false until the shared meter detector is
 connected in Task 19.
 
 While a meeting records, the tray leads with recording status and Stop, including

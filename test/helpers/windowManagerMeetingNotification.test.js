@@ -976,3 +976,219 @@ test("main's notification registration joins actual tray closure to bounded regi
   trayManager.setMeetingPresence({ sessionId: "B", startedAt: 2000 });
   assert.equal(trayManager.meetingPresence, null, "shutdown cannot restart notification ownership");
 });
+
+// Integrated I1 regression: actual Mount/store reports cross real IPC closures
+// into the real WindowManager, while only write/Stop and unrelated leaves wait.
+async function pendingTerminalFixture(t, phase) {
+  const React = require("react");
+  const { createRoot } = require("react-dom/client");
+  const {
+    createRendererServer,
+    installBrowserGlobals,
+    installHookDom,
+  } = require("../lib/rendererTestHarness");
+  let root, serverCleanup, stopping;
+  const write = createDeferred(),
+    stop = createDeferred();
+  // Run before IPC/browser restorers. Keep inert leaves through stop, unmount,
+  // awaited Vite close and its cache removal, even when a RED assertion fails.
+  t.after(async () => {
+    write.resolve({ success: true });
+    stop.resolve({ success: true });
+    await React.act(async () => {
+      await stopping;
+      root?.unmount();
+    });
+    await serverCleanup?.();
+  });
+  const manager = createNormalWindowManager();
+  const pill = [],
+    outcomes = [],
+    reports = [],
+    rendererOutcomes = [],
+    calls = [];
+  const owner = new EventEmitter();
+  owner.id = 7;
+  owner.isLoading = () => false;
+  owner.send = () => {};
+  manager.controlPanelWindow = { isDestroyed: () => false, webContents: owner };
+  manager.mainWindow = {
+    isDestroyed: () => false,
+    webContents: { send: (...args) => pill.push(args) },
+  };
+  const tray = new TrayManager();
+  tray.platform = "win32";
+  tray.setWindowManager(manager);
+  manager.onMeetingPresenceChanged = (p) => tray.setMeetingPresence(p);
+  manager.onMeetingOutcome = (outcome) => outcomes.push(outcome);
+  const { events } = installMeetingIpc(t, manager);
+  const api = {
+    reportMeetingRecordingPresence: (p) => {
+      reports.push(p);
+      events.get("meeting-recording-presence")({ sender: owner }, p);
+    },
+    reportMeetingRecordingOutcome: (outcome) => {
+      rendererOutcomes.push(outcome);
+      events.get("meeting-recording-outcome")({ sender: owner }, outcome);
+    },
+    updateNote: () => {
+      calls.push("write");
+      return phase === "write" ? write.promise : Promise.resolve({ success: true });
+    },
+    meetingTranscriptionStop: () => {
+      calls.push("stop");
+      return phase === "stop" ? stop.promise : Promise.resolve({ success: true });
+    },
+  };
+  installBrowserGlobals(t, { window: { electronAPI: api } });
+  const container = installHookDom(t);
+  const vite = await createRendererServer(
+    {
+      after: (cb) => {
+        serverCleanup = cb;
+      },
+    },
+    {
+      cachePrefix: "loqui-pending-meeting-result-",
+      mockModules: {
+        "/utils/logger": "export default {error(){},warn(){},info(){},debug(){}}",
+        "/stores/settingsStore":
+          "export const getSettings=()=>({});export const selectResolvedMeetingTranscription=()=>({});",
+        "react-i18next": "const t=(key)=>key;export const useTranslation=()=>({t});",
+        "/ui/notices": "export const notify=()=>'';export const dismissNotice=()=>{};",
+      },
+    }
+  );
+  const store = await vite.ssrLoadModule("/stores/meetingRecordingStore.ts");
+  const Mount = (await vite.ssrLoadModule("/components/MeetingRecordingMount.tsx")).default;
+  root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(Mount)));
+  await React.act(async () =>
+    store.__primeRecordingForTests({
+      sessionId: "A",
+      noteId: 11,
+      startedAt: 1000,
+      segments: [{ id: "s", source: "mic", text: "hello" }],
+    })
+  );
+  assert.equal(manager.getMeetingPresence()?.sessionId, "A");
+  await React.act(async () => {
+    stopping = store.stopRecording("A");
+    await until(() => calls.includes("write") && calls.includes("stop"));
+  });
+  assert.equal(store.useMeetingRecordingStore.getState().isRecording, false);
+  assert.equal(reports.at(-1).recording, false);
+  assert.equal(reports.at(-1).sessionId, "A", "actual Mount scopes its false reports");
+  assert.equal(manager.getMeetingPresence(), null, "pending ACKs cannot extend live presence");
+  assert.equal(tray.meetingPresence, null, "tray truthfully returns idle before terminal ACKs");
+  assert.equal(outcomes.length, 0);
+  const finish = async () => {
+    await React.act(async () => {
+      write.resolve({ success: true });
+      stop.resolve({ success: true });
+      await stopping;
+    });
+  };
+  return { manager, owner, events, outcomes, pill, tray, rendererOutcomes, finish };
+}
+
+for (const phase of ["write", "stop"]) {
+  for (const loss of ["destroyed", "render-process-gone", "did-start-navigation"]) {
+    test(`actual pending ${phase} ACK loses its terminal owner on ${loss} after false presence`, async (t) => {
+      const f = await pendingTerminalFixture(t, phase);
+      f.owner.emit(loss, { isMainFrame: true, isSameDocument: false });
+      assert.deepEqual([...f.outcomes], [{ sessionId: "A", kind: "failed", reason: "ownerLost" }]);
+      assert.deepEqual(f.pill.at(-1), ["meeting-recording-outcome", f.outcomes[0]]);
+      f.owner.emit(loss, { isMainFrame: true, isSameDocument: false });
+      await f.finish();
+      assert.equal(f.rendererOutcomes[0].kind, "saved", "late renderer ACK path really completed");
+      assert.equal(f.outcomes.length, 1, "late/duplicate ACK cannot revive an owner-lost session");
+      assert.equal(f.manager.getMeetingPresence(), null);
+      assert.equal(f.tray.meetingPresence, null);
+    });
+  }
+}
+
+test("actual acknowledged terminal outcome retires ownership before later owner loss", async (t) => {
+  const f = await pendingTerminalFixture(t, "write");
+  await f.finish();
+  assert.equal(f.outcomes.length, 1);
+  assert.equal(f.outcomes[0].kind, "saved");
+  f.events.get("meeting-recording-outcome")({ sender: f.owner }, f.rendererOutcomes[0]);
+  for (const loss of ["destroyed", "render-process-gone", "did-start-navigation"])
+    f.owner.emit(loss, { isMainFrame: true, isSameDocument: false });
+  assert.equal(f.outcomes.length, 1, "normal ACK then duplicates/loss cannot add ownerLost");
+});
+
+test("old owner A loss and late completion cannot settle or clear replacement B with the same numeric owner id", async (t) => {
+  const f = await pendingTerminalFixture(t, "stop");
+  const ownerB = new EventEmitter();
+  ownerB.id = f.owner.id;
+  f.manager.controlPanelWindow = { isDestroyed: () => false, webContents: ownerB };
+  const input = { recording: true, sessionId: "B", startedAt: 2000 };
+  f.events.get("meeting-recording-presence")({ sender: ownerB }, input);
+  f.owner.emit("render-process-gone");
+  assert.deepEqual([...f.outcomes], [{ sessionId: "A", kind: "failed", reason: "ownerLost" }]);
+  assert.equal(f.manager.getMeetingPresence().sessionId, "B");
+  await f.finish();
+  f.events.get("meeting-recording-outcome")({ sender: ownerB }, f.rendererOutcomes[0]);
+  f.events.get("meeting-recording-outcome")(
+    { sender: f.owner },
+    { sessionId: "B", kind: "failed", reason: "stop" }
+  );
+  f.owner.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+  assert.equal(f.outcomes.length, 1);
+  assert.equal(f.tray.meetingPresence.sessionId, "B");
+  const bResult = { sessionId: "B", kind: "saved", durationMs: 1000, noteId: "12" };
+  f.events.get("meeting-recording-presence")({ sender: ownerB }, { recording: false });
+  f.events.get("meeting-recording-outcome")({ sender: ownerB }, { ...bResult, noteId: undefined });
+  assert.equal(f.outcomes.length, 1, "malformed terminal reports retain pending ownership");
+  f.events.get("meeting-recording-outcome")({ sender: ownerB }, bResult);
+  f.events.get("meeting-recording-outcome")({ sender: ownerB }, bResult);
+  ownerB.emit("destroyed");
+  assert.deepEqual(
+    [...f.outcomes],
+    [{ sessionId: "A", kind: "failed", reason: "ownerLost" }, bResult]
+  );
+});
+
+for (const lossBeforeAck of [true, false]) {
+  test(`one exact owner keeps pending A and live B independent when loss is ${lossBeforeAck ? "before" : "after"} A's ACK`, async (t) => {
+    const f = await pendingTerminalFixture(t, "write");
+    f.events.get("meeting-recording-presence")(
+      { sender: f.owner },
+      { recording: true, sessionId: "B", startedAt: 2000 }
+    );
+    if (!lossBeforeAck) {
+      await f.finish();
+      assert.equal(f.outcomes.length, 1);
+      assert.equal(f.outcomes[0].sessionId, "A");
+      assert.equal(f.outcomes[0].kind, "saved");
+      assert.equal(
+        f.manager.getMeetingPresence().sessionId,
+        "B",
+        "A's result does not clear or settle B"
+      );
+    }
+    f.owner.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+    const expected = lossBeforeAck
+      ? [
+          { sessionId: "A", kind: "failed", reason: "ownerLost" },
+          { sessionId: "B", kind: "failed", reason: "ownerLost" },
+        ]
+      : [f.outcomes[0], { sessionId: "B", kind: "failed", reason: "ownerLost" }];
+    assert.deepEqual([...f.outcomes], expected);
+    assert.equal(f.manager.getMeetingPresence(), null);
+    await f.finish();
+    f.events.get("meeting-recording-outcome")(
+      { sender: f.owner },
+      { sessionId: "B", kind: "saved", durationMs: 1000, noteId: "12" }
+    );
+    f.owner.emit("render-process-gone");
+    assert.deepEqual(
+      [...f.outcomes],
+      expected,
+      "every unfinished result settles once; late ACKs/duplicates retire nothing"
+    );
+  });
+}

@@ -7987,21 +7987,20 @@ class IPCHandlers {
     ipcMain.on("meeting-recording-presence", (event, payload) => {
       if (!fromControlPanel(event)) return;
       const contents = event.sender;
-      this.windowManager.meetingPresence.set(contents.id, payload);
+      this.windowManager.meetingPresence.set(contents, payload);
       if (watchedMeetingOwners.has(contents)) return;
       watchedMeetingOwners.add(contents);
-      const lost = () => this.windowManager.meetingPresence.clearIfOwner(contents.id);
+      const lost = () => this.windowManager.meetingPresence.clearIfOwner(contents);
       contents.once("destroyed", lost);
       contents.on("render-process-gone", lost);
       contents.on("did-start-navigation", (details) => {
         if (details.isMainFrame && !details.isSameDocument) lost();
       });
     });
-    ipcMain.on("meeting-recording-outcome", (event, outcome) => {
+    ipcMain.on("meeting-recording-outcome", (event, payload) => {
       if (!fromControlPanel(event)) return;
-      if (typeof outcome?.sessionId !== "string" || !["saved", "failed"].includes(outcome.kind))
-        return;
-      this.windowManager._onMeetingOutcome(outcome);
+      const outcome = this.windowManager.meetingPresence.settleOutcome(event.sender, payload);
+      if (outcome) this.windowManager._onMeetingOutcome(outcome);
     });
     ipcMain.handle("get-meeting-recording-presence", () => this.windowManager.getMeetingPresence());
     ipcMain.handle("request-stop-meeting-recording", (_event, sessionId) => {

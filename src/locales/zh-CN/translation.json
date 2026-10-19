@@ -4250,6 +4250,12 @@
       "agentOff": "智能助手: 关闭",
       "vision": "屏幕上下文: {{where}}",
       "visionOff": "屏幕上下文: 关闭"
+    },
+    "agent": {
+      "listening": "智能助手 · 正在聆听",
+      "screenContext": "屏幕上下文已开启 · 预计发送至 {{where}}",
+      "thinking": "正在思考 · 预计发送至 {{where}}",
+      "thinkingScreenContext": "结合屏幕上下文思考中 · 预计发送至 {{where}}"
     }
   }
 }

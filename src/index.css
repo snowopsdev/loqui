@@ -191,6 +191,8 @@
   --motion-locality-orbit: 6000ms;
   --motion-signal-comet: 1600ms;
   --motion-signal-breathe: 1900ms;
+  --motion-agent-thinking: 2400ms;
+  --motion-agent-answering: 1200ms;
   --motion-ease-ambient: ease-in-out;
 
   /* Bundled open-source fonts work without network access. */

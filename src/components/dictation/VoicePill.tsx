@@ -4,6 +4,7 @@ import { cn } from "../lib/utils";
 import { LevelBars } from "../ui/LevelBars";
 import { LOGO_BAR_SHAPE } from "../ui/levelBarsMath";
 import { LocalityRing } from "../ui/LocalityRing";
+import { AgentOrbit } from "./AgentOrbit";
 import { VoiceIdentityIcon } from "./VoiceIdentityIcon";
 import type { PillLocality } from "./pillLocality";
 import {
@@ -38,6 +39,7 @@ interface VoicePillProps extends Omit<HTMLAttributes<HTMLDivElement>, "children"
   /** The cancel button's liquid skin owns the fused surface; go headless. */
   liquidFused?: boolean;
   agentMode?: boolean;
+  agentPhase?: "answering";
   showExpandChevron?: boolean;
   isDragging?: boolean;
   horizontalDirection?: "left" | "right";
@@ -93,6 +95,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
     integratedWithPanel = false,
     liquidFused = false,
     agentMode = false,
+    agentPhase,
     showExpandChevron = false,
     isDragging = false,
     horizontalDirection = "right",
@@ -109,9 +112,15 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
   const isThinking = state === "thinking";
   const isUnavailable = state === "unavailable";
   const hasLabel = LABELLED.has(state) && label != null;
-  const showSignalGlow = GLOWING.has(state);
+  const agentListening = agentMode && isRecording;
+  const agentAnswering =
+    agentMode &&
+    agentPhase === "answering" &&
+    (isThinking || state === "idle" || state === "hover");
+  const showSignalGlow = GLOWING.has(state) && !agentMode;
   const isPanel = variant === "panel";
-  const collapseToIdentity = collapseToLogo || isThinking || state === "failed";
+  const collapseToIdentity =
+    collapseToLogo || isThinking || state === "failed" || agentListening || agentAnswering;
   const showCompactPill =
     !collapseToIdentity &&
     (isRecording || hasLabel || expanded || (isPanel && !waveformOnlyWhileRecording));
@@ -182,7 +191,6 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
       data-integrated-with-panel={integratedWithPanel || undefined}
       data-liquid-fused={liquidFused || undefined}
       data-agent-mode={agentMode || undefined}
-      data-agent-beam-active={(agentMode && isThinking) || undefined}
       data-expand-chevron={showExpandChevron || undefined}
       {...props}
     >
@@ -242,7 +250,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
             transition: `width ${VOICE_PILL_GROW_TRANSITION}, height ${VOICE_PILL_GROW_TRANSITION}`,
           }}
         >
-          {isRecording ? (
+          {isRecording && !agentMode ? (
             // Mounted only while listening, so its sampling interval runs only
             // in the active state (loops are gated, DESIGN.md "Motion").
             <LevelBars
@@ -301,6 +309,12 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
         <span className="processing-signal-ring" />
       </span>
       {pill}
+      {agentMode && (agentListening || isThinking || agentAnswering) ? (
+        <AgentOrbit
+          phase={agentListening ? "listening" : agentAnswering ? "answering" : "thinking"}
+          readLevel={readLevel}
+        />
+      ) : null}
     </span>
   );
 });

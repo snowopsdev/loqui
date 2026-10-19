@@ -17,6 +17,8 @@ export type PillRouteId =
   "dictationStt" | "dictationCleanup" | "translation" | "voiceAssistant" | "assistantVision";
 
 export interface PillSession {
+  /** Typed Agent turns have no speech/cleanup stages. */
+  readonly agentOnly?: boolean;
   readonly routes: Readonly<Partial<Record<PillRouteId, ResolvedRoute>>> | null;
   readonly settings: Readonly<Record<string, unknown>>;
   readonly intents: {
@@ -44,6 +46,9 @@ const unknownRoute = (id: PillRouteId): ResolvedRoute => ({
 export function sessionPillRoutes(session: PillSession | null): ResolvedRoute[] {
   if (!session) return [unknownRoute("dictationStt")];
   const read = (id: PillRouteId) => session.routes?.[id] ?? unknownRoute(id);
+  if (session.agentOnly) {
+    return [read(session.settings.voiceAgentScreenContext ? "assistantVision" : "voiceAssistant")];
+  }
   const cleanup = read("dictationCleanup");
   const routes = [
     read("dictationStt"),
@@ -132,4 +137,26 @@ export function usePillLocality(session: PillSession | null, busy: boolean): Pil
   const sealed = useSealedStore((s) => s.sealed);
   // Sealed is a live gate over the frozen destinations, not permission to retarget them.
   return combinePillLocality(busy ? sessionPillRoutes(session) : [stt, cleanup], t, sealed);
+}
+
+/** Frozen Agent intent and effective destination, never a receipt. */
+export function agentPillCaption(
+  session: PillSession | null,
+  phase: "listening" | "thinking",
+  t: T
+): string {
+  const screen = session?.settings.voiceAgentScreenContext === true;
+  const route = session?.routes?.[screen ? "assistantVision" : "voiceAssistant"];
+  const where = !route
+    ? t("locality.unknownProvider")
+    : route.locality === "remote"
+      ? routeProviderLabel(route, t)
+      : t(`locality.${route.locality}`);
+  return phase === "listening"
+    ? screen
+      ? t("pill.agent.screenContext", { where })
+      : t("pill.agent.listening")
+    : screen
+      ? t("pill.agent.thinkingScreenContext", { where })
+      : t("pill.agent.thinking", { where });
 }

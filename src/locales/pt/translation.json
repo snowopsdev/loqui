@@ -4286,6 +4286,12 @@
       "agentOff": "Agente: desativado",
       "vision": "Contexto da tela: {{where}}",
       "visionOff": "Contexto da tela: desativado"
+    },
+    "agent": {
+      "listening": "Agente · a ouvir",
+      "screenContext": "Contexto do ecrã ativado · destino previsto: {{where}}",
+      "thinking": "A pensar · destino previsto: {{where}}",
+      "thinkingScreenContext": "A pensar com contexto do ecrã · destino previsto: {{where}}"
     }
   }
 }

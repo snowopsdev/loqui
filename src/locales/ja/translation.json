@@ -4250,6 +4250,12 @@
       "agentOff": "エージェント: オフ",
       "vision": "画面のコンテキスト: {{where}}",
       "visionOff": "画面のコンテキスト: オフ"
+    },
+    "agent": {
+      "listening": "エージェント · 聞き取り中",
+      "screenContext": "画面コンテキスト有効 · 送信予定先：{{where}}",
+      "thinking": "思考中 · 送信予定先：{{where}}",
+      "thinkingScreenContext": "画面コンテキストを使って思考中 · 送信予定先：{{where}}"
     }
   }
 }

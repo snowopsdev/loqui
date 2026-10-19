@@ -35,6 +35,8 @@ export function useAssistantPanel({
   const [pendingCommand, setPendingCommand] = useState(null);
   // Presentation outlives AudioManager idle and pending-command consumption.
   const [activeOperation, setActiveOperation] = useState(null);
+  const [typedPresentation, setTypedPresentation] = useState(null);
+  const presentationOwnerRef = useRef(null);
   const [conversationId, setConversationId] = useState(null);
 
   const openRef = useRef(open);
@@ -142,6 +144,8 @@ export function useAssistantPanel({
       // the external caret would snap that surface away mid-read.
       const delivery = openRef.current ? null : (command.delivery ?? null);
       beginThinking();
+      presentationOwnerRef.current = { kind: "spoken", id: commandIdRef.current };
+      setTypedPresentation(null);
       setActiveOperation(command.operation ?? null);
       setPendingCommand({
         id: commandIdRef.current,
@@ -172,7 +176,9 @@ export function useAssistantPanel({
   }, []);
 
   const handleCommandDiscarded = useCallback((id) => {
-    if (id === commandIdRef.current) setActiveOperation(null);
+    if (presentationOwnerRef.current?.kind === "spoken" && presentationOwnerRef.current.id === id) {
+      setActiveOperation(null);
+    }
     setPendingCommand((current) => discardPendingAssistantCommand(current, id));
   }, []);
 
@@ -183,7 +189,13 @@ export function useAssistantPanel({
 
   const handleCommandSettled = useCallback(
     (id, { showPanel = true } = {}) => {
-      if (id !== commandIdRef.current) return;
+      if (
+        id !== commandIdRef.current ||
+        presentationOwnerRef.current?.kind !== "spoken" ||
+        presentationOwnerRef.current.id !== id
+      )
+        return;
+      presentationOwnerRef.current = null;
       setActiveOperation(null);
       if (!mountedRef.current || closingRef.current) return;
       setThinking(false);
@@ -199,6 +211,22 @@ export function useAssistantPanel({
     },
     [openPanel]
   );
+
+  // A typed turn publishes only the effective display projection. Its unique owner
+  // fences late finally/unmount cleanup against a newer spoken or typed admission.
+  const handleTypedAdmission = useCallback((presentation) => {
+    const owner = { kind: "typed" };
+    presentationOwnerRef.current = owner;
+    setActiveOperation(null);
+    setTypedPresentation(presentation);
+    setThinking(true);
+    return () => {
+      if (presentationOwnerRef.current !== owner) return;
+      presentationOwnerRef.current = null;
+      setTypedPresentation(null);
+      setThinking(false);
+    };
+  }, []);
 
   const handleSelectionContextChange = useCallback((context) => {
     selectionContextRef.current = context;
@@ -231,6 +259,8 @@ export function useAssistantPanel({
     setBusy(closeState.busy);
     setPendingCommand(closeState.pendingCommand);
     setActiveOperation(null);
+    setTypedPresentation(null);
+    presentationOwnerRef.current = null;
     setConversationId(closeState.conversationId);
     selectionContextRef.current = null;
     hasContentRef.current = false;
@@ -326,6 +356,8 @@ export function useAssistantPanel({
     footerPhase,
     pendingCommand,
     activeOperation,
+    typedPresentation,
+    handleTypedAdmission,
     conversationId,
     openRef,
     setBusy,

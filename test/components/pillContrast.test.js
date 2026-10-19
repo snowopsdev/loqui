@@ -71,6 +71,13 @@ test("pill labels and semantic edges retain contrast in light and Plum Night, in
       contrastRatio(t["--color-ring"], t["--color-popover"]) >= 3,
       `${theme} rewrite underline and spark`
     );
+    const violet = composite(t["--color-agent-brand"], t["--color-foreground"], 0.85);
+    for (const surface of ["--color-surface-1", "--color-background", "--color-popover"]) {
+      assert.ok(
+        contrastRatio(violet, t[surface]) >= 3,
+        `${theme} Agent orbit/ticks/satellite boundary: ${contrastRatio(violet, t[surface])}`
+      );
+    }
     const rest = composite(t["--color-foreground"], t["--color-surface-1"], 0.6);
     assert.ok(contrastRatio(rest, t["--color-surface-1"]) >= 3, `${theme} resting bar composite`);
     for (const role of ["--color-locality-network", "--color-locality-remote"]) {
@@ -98,5 +105,13 @@ test("pill labels and semantic edges retain contrast in light and Plum Night, in
     /\.condense-word\.is-changed::after\s*\{[^}]*background:\s*var\(--color-ring\)/
   );
   assert.match(pill, /\.condense-spark\s*\{[^}]*background:\s*var\(--color-ring\)/);
+  assert.match(
+    pill,
+    /\.agent-orbit\s*\{[^}]*color:\s*color-mix\(in srgb, var\(--color-agent-brand\) 85%, var\(--color-foreground\)\)/
+  );
+  assert.match(
+    pill,
+    /\.agent-orbit__satellite--b::before\s*\{[^}]*border:\s*1px solid currentColor/
+  );
   assert.match(pill, /\.pill-countdown\s*\{[^}]*background:\s*var\(--color-ring\)/);
 });

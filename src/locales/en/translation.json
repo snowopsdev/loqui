@@ -4278,6 +4278,12 @@
       "agentOff": "Agent: off",
       "vision": "Screen context: {{where}}",
       "visionOff": "Screen context: off"
+    },
+    "agent": {
+      "listening": "Agent · listening",
+      "screenContext": "Screen context on · intended for {{where}}",
+      "thinking": "Thinking · intended for {{where}}",
+      "thinkingScreenContext": "Thinking with screen context · intended for {{where}}"
     }
   }
 }

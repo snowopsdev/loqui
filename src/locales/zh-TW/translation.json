@@ -4250,6 +4250,12 @@
       "agentOff": "智慧助理: 關閉",
       "vision": "螢幕上下文: {{where}}",
       "visionOff": "螢幕上下文: 關閉"
+    },
+    "agent": {
+      "listening": "智慧助理 · 正在聆聽",
+      "screenContext": "螢幕上下文已開啟 · 預計傳送至 {{where}}",
+      "thinking": "正在思考 · 預計傳送至 {{where}}",
+      "thinkingScreenContext": "結合螢幕上下文思考中 · 預計傳送至 {{where}}"
     }
   }
 }

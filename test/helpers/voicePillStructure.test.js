@@ -63,10 +63,8 @@ test("one Signal glow serves both identities: brand orange processing, violet ag
 
   assert.match(styles, /\.processing-signal-glow\s*\{/);
   assert.match(styles, /:root:not\(\.dark\) \.processing-signal-glow\s*\{/);
-  assert.match(
-    agentThinking,
-    /class="processing-signal-glow" data-active="true" data-agent="true"/
-  );
+  assert.match(agentThinking, /class="agent-orbit" data-phase="thinking"/);
+  assert.doesNotMatch(agentThinking, /data-active="true"/);
   assert.doesNotMatch(agentListening, /data-active/);
 });
 
@@ -89,11 +87,12 @@ test("panel thinking contracts to the identity circle instead of freezing a wave
   });
 
   assert.match(panelThinking, footprint.idle);
-  assert.match(panelThinking, /data-agent-beam-active="true"/);
+  assert.match(panelThinking, /class="agent-orbit" data-phase="thinking"/);
+  assert.doesNotMatch(panelThinking, /data-agent-beam-active/);
   assert.doesNotMatch(panelThinking, footprint.recording);
 });
 
-test("an idle Agent panel starts with the normal pill and expands only while listening", async () => {
+test("an idle Agent panel and Agent listening retain the circle", async () => {
   const footprint = await pillFootprints();
   const idleAgent = await renderPill("idle", false, "right", {
     variant: "panel",
@@ -109,7 +108,8 @@ test("an idle Agent panel starts with the normal pill and expands only while lis
   assert.match(idleAgent, footprint.idle);
   assert.doesNotMatch(idleAgent, footprint.recording);
   assert.doesNotMatch(idleAgent, /data-active/);
-  assert.match(listeningAgent, footprint.recording);
+  assert.match(listeningAgent, footprint.idle);
+  assert.match(listeningAgent, /data-phase="listening"/);
   assert.doesNotMatch(listeningAgent, /data-active/);
 });
 
@@ -227,7 +227,7 @@ test("Live Transcript hands visual border ownership to the shared panel", async 
   assert.doesNotMatch(standalone, /data-integrated-with-panel/);
 });
 
-test("Agent Mode uses the supplied mark, a purple perimeter glow, and a neutral waveform", async () => {
+test("Agent Mode uses the supplied mark and radial violet listening ticks", async () => {
   const agentRecording = await renderPill("recording", true, "right", {
     agentMode: true,
   });
@@ -251,21 +251,20 @@ test("Agent Mode uses the supplied mark, a purple perimeter glow, and a neutral 
   assert.match(agentRecording, /voice-identity-final-agent/);
   assert.ok(agentRecording.includes(`d="${AGENT_MODE_PATH}"`));
   assert.doesNotMatch(agentRecording, /agent-waveform-background|text-agent-brand/);
-  assert.equal((agentRecording.match(/data-level-bar=""/g) || []).length, await levelBarCount());
+  assert.match(agentRecording, /class="agent-orbit" data-phase="listening"/);
+  assert.match(agentRecording, (await pillFootprints()).idle);
   assert.doesNotMatch(normalRecording, /agent-waveform-background/);
 });
 
-test("Agent thinking keeps the purple glow on the same persistent pill root", async () => {
+test("Agent thinking mounts its orbit on the same persistent pill root", async () => {
   const agentThinking = await renderPill("thinking", false, "right", {
     agentMode: true,
   });
 
-  assert.match(
-    agentThinking,
-    /class="processing-signal-glow" data-active="true" data-agent="true"/
-  );
+  assert.match(agentThinking, /class="agent-orbit" data-phase="thinking"/);
+  assert.doesNotMatch(agentThinking, /data-active="true"/);
   assert.match(agentThinking, /<div [^>]*data-agent-mode="true"/);
-  assert.match(agentThinking, /data-agent-beam-active="true"/);
+  assert.doesNotMatch(agentThinking, /data-agent-beam-active/);
 });
 
 test("the stable identity box contains the supplied listening artwork and Agent leaf", async () => {

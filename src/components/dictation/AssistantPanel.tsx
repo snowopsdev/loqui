@@ -1,3 +1,4 @@
+import type { ChatAdmissionPresentation } from "../chat/chatRequestPresentation";
 import type { DictationOperation } from "../chat/useChatStreaming";
 import type { ChatSelection } from "../chat/useChatPersistence";
 import { useChatRouteKey } from "../chat/chatRouteKey";
@@ -80,6 +81,7 @@ interface AssistantPanelProps {
   horizontalDirection: "left" | "right";
   onClose: () => void;
   onBusyChange: (busy: boolean) => void;
+  onAdmissionPresentation?: (presentation: ChatAdmissionPresentation) => (() => void) | void;
   onResponseReadyChange: (ready: boolean) => void;
   onResponseContent: () => void;
   onConversationReset: () => void;
@@ -103,6 +105,7 @@ export function AssistantPanel({
   horizontalDirection,
   onClose,
   onBusyChange,
+  onAdmissionPresentation,
   onResponseReadyChange,
   onResponseContent,
   onConversationReset,
@@ -135,12 +138,35 @@ export function AssistantPanel({
   );
 
   const [submissionInFlight, setSubmissionInFlight] = useState(false);
+  const typedPresentationCleanupRef = useRef<(() => void) | null>(null);
+  const publishAdmissionPresentation = useCallback(
+    (presentation: ChatAdmissionPresentation) => {
+      const release = onAdmissionPresentation?.(presentation);
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (typeof release === "function") release();
+        if (typedPresentationCleanupRef.current === finish)
+          typedPresentationCleanupRef.current = null;
+      };
+      typedPresentationCleanupRef.current = finish;
+      return finish;
+    },
+    [onAdmissionPresentation]
+  );
+  const cancelResponse = useCallback(() => {
+    // Retire display ownership at Stop intent even if transport ignores abort.
+    typedPresentationCleanupRef.current?.();
+    streaming.cancelStream();
+  }, [streaming]);
   const sendMessage = useChatMessageSender({
     conversationId: persistence.conversationId,
     persistence,
     streaming,
     createConversation,
     onSendingChange: setSubmissionInFlight,
+    onAdmissionPresentation: publishAdmissionPresentation,
   });
   const latestAssistantMessage = [...messages]
     .reverse()
@@ -395,7 +421,7 @@ export function AssistantPanel({
       if (e.key === "Escape") {
         if (voiceState === "listening") return;
         if (isBusy) {
-          streaming.cancelStream();
+          cancelResponse();
           // A hidden panel means the compact Beam circle owns the thinking
           // state; cancelling it must also dismiss that otherwise-idle shell.
           if (!open) onClose();
@@ -431,6 +457,7 @@ export function AssistantPanel({
     voiceState,
     isBusy,
     streaming,
+    cancelResponse,
     open,
     onClose,
     isResponseReady,
@@ -551,7 +578,7 @@ export function AssistantPanel({
           queueKey={`assistant|${persistence.conversationId ?? "new"}|${routeKey}|${selectedContext ? JSON.stringify(selectedContext) : ""}`}
           onCancel={
             historyReady && (!submissionInFlight || streaming.agentState !== "idle")
-              ? streaming.cancelStream
+              ? cancelResponse
               : undefined
           }
           autoFocus={historyReady && open && messages.length === 0}

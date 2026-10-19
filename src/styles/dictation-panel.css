@@ -247,16 +247,7 @@
   }
 }
 
-.voice-pill-control[data-agent-beam-active="true"] {
-  box-shadow:
-    var(--shadow-card, 0 2px 8px rgb(0 0 0 / 0.12)),
-    0 0 0 1px color-mix(in oklch, var(--color-agent-brand) 28%, transparent),
-    0 0 10px color-mix(in oklch, var(--color-agent-brand) 18%, transparent);
-}
-
-/* While the cancel button's liquid skin owns the fused surface, the pill goes
-   headless like inside the Live Transcript panel. Placed after the agent-beam
-   rule so a fused pill never keeps the brand glow ring on its own box. */
+/* While the cancel skin owns the fused surface, the pill goes headless. */
 .voice-pill-control[data-liquid-fused="true"] {
   border-color: transparent;
   background-color: transparent;
@@ -1023,4 +1014,120 @@
    keeps its brighter gradient endpoint legible on the light capsule. */
 .voice-pill-levels [data-level-bar] {
   outline: 1px solid var(--color-ring);
+}
+
+/* Agent Mode (VO-R8 B): violet orbit, satellites, radial level ticks. */
+.agent-orbit {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--color-agent-brand) 85%, var(--color-foreground));
+}
+.agent-orbit__ticks {
+  position: absolute;
+  inset: -12px;
+  width: 64px;
+  height: 64px;
+}
+.agent-orbit__ticks line {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.agent-orbit__ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  padding: 2px;
+  background: conic-gradient(from var(--signal-angle), transparent 0 40%, currentColor 80% 100%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+.agent-orbit[data-phase="thinking"] .agent-orbit__ring {
+  animation: agent-orbit var(--motion-agent-thinking) linear infinite;
+}
+/* The spin-up uses the shared token for its picked 1.2 s cadence. The
+   dissolve is an ordinary exit: --motion-hero after --motion-slow, which ends
+   at 880 ms, inside useAgentAnswering's AGENT_ANSWERING_MS. */
+.agent-orbit[data-phase="answering"] .agent-orbit__ring {
+  animation:
+    agent-orbit var(--motion-agent-answering) linear infinite,
+    agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow) forwards;
+}
+.agent-orbit__satellite {
+  position: absolute;
+  inset: 0;
+  animation: agent-satellite var(--motion-agent-thinking) linear infinite;
+}
+.agent-orbit__satellite::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 50%;
+  top: -5px;
+  width: 4px;
+  height: 4px;
+  margin-inline-start: -2px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.agent-orbit__satellite--b {
+  animation-delay: calc(-1 * var(--motion-agent-answering));
+}
+.agent-orbit__satellite--b::before {
+  background: white;
+  border: 1px solid currentColor;
+}
+.voice-pill-control[data-agent-mode="true"][data-pill-state="thinking"] .voice-identity-agent {
+  animation: agent-breathe var(--motion-agent-thinking) var(--motion-ease-ambient) infinite;
+}
+@keyframes agent-orbit {
+  to {
+    --signal-angle: 360deg;
+  }
+}
+@keyframes agent-orbit-fade {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes agent-satellite {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes agent-breathe {
+  50% {
+    transform: scale(1.06);
+  }
+}
+/* Satellites dissolve with the ring, inside the answering owner. */
+.agent-orbit[data-phase="answering"] .agent-orbit__satellite {
+  animation-duration: var(--motion-agent-answering);
+}
+.agent-orbit[data-phase="answering"] .agent-orbit__satellite::before {
+  animation: agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-orbit__ring,
+  .agent-orbit__satellite,
+  .voice-pill-control[data-agent-mode="true"] .voice-identity-agent {
+    animation: none !important;
+    transform: none;
+  }
+  .agent-orbit__ring {
+    background: currentColor;
+  }
+  .agent-orbit[data-phase="answering"] .agent-orbit__ring,
+  .agent-orbit[data-phase="answering"] .agent-orbit__satellite::before {
+    /* Keep the opacity exit; outrank the global reduced-motion duration reset. */
+    animation: agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow)
+      forwards !important;
+  }
 }

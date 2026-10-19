@@ -4278,6 +4278,12 @@
       "agentOff": "Agent: aus",
       "vision": "Bildschirmkontext: {{where}}",
       "visionOff": "Bildschirmkontext: aus"
+    },
+    "agent": {
+      "listening": "Agent · hört zu",
+      "screenContext": "Bildschirmkontext an · vorgesehen für {{where}}",
+      "thinking": "Denkt nach · vorgesehen für {{where}}",
+      "thinkingScreenContext": "Denkt mit Bildschirmkontext nach · vorgesehen für {{where}}"
     }
   }
 }

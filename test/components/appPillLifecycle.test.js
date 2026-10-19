@@ -201,10 +201,114 @@ test("App retains original destinations through audio, banked consumption/busy, 
   assert.match(
     ring().attributes["aria-label"],
     /Unknown provider/,
-    "typed busy without exposed admission is unknown-safe until Task 13"
+    "busy without exposed admission remains unknown-safe"
   );
   await React.act(async () => globalThis.__pillAppAssistant.setBusy(false));
   assert.equal(ring().attributes["data-locality"], "device");
+  // Production App consumes the typed owner; old spoken settlement cannot reclaim it.
+  let releaseTyped;
+  const typedPresentation = {
+    agentOnly: true,
+    settings: { useCleanupModel: false, voiceAgentScreenContext: true },
+    intents: { voiceAgentRequested: true, translationRequested: false },
+    routes: { assistantVision: route("assistantVision", "remote", "gemini") },
+  };
+  await React.act(async () => {
+    globalThis.__pillAppAssistant.handleCommand({ text: "older spoken", operation });
+  });
+  const oldCommand = globalThis.__pillAppAssistant.pendingCommand;
+  await React.act(async () => {
+    releaseTyped = globalThis.__pillAppAssistant.handleTypedAdmission(typedPresentation);
+    globalThis.__pillAppAssistant.setBusy(true);
+    globalThis.__pillAppAssistant.handleCommandSettled(oldCommand.id, { showPanel: false });
+  });
+  assert.equal(globalThis.__pillAppAssistant.typedPresentation, typedPresentation);
+  globalThis.__pillAppAudio = {
+    ...globalThis.__pillAppAudio,
+    isRecording: true,
+    isAssistantVoice: true,
+    activeSession: session,
+  };
+  await React.act(async () => root.render(React.createElement(App)));
+  assert.match(
+    tree.text(),
+    /Screen context on.*OpenAI/,
+    "new frozen voice session outranks an older busy typed recipient"
+  );
+  assert.doesNotMatch(tree.text(), /Google Gemini/);
+  globalThis.__pillAppAudio = {
+    ...globalThis.__pillAppAudio,
+    isRecording: false,
+    isAssistantVoice: false,
+    activeSession: null,
+  };
+  await React.act(async () => root.render(React.createElement(App)));
+  assert.match(tree.text(), /Thinking with screen context.*Google Gemini/);
+  assert.equal(
+    tree.find((n) => n.attributes?.class === "agent-orbit").attributes["data-phase"],
+    "thinking"
+  );
+  await React.act(async () => {
+    useSettingsStore.setState({
+      voiceAgentScreenContext: false,
+      dictationAgentProvider: "anthropic",
+    });
+    globalThis.__pillAppAssistant.handleResponseContent();
+  });
+  assert.match(tree.text(), /Thinking with screen context.*Google Gemini/);
+  assert.equal(
+    tree.find((n) => n.attributes?.class === "agent-orbit").attributes["data-phase"],
+    "answering",
+    "actual App passes answering after the first token"
+  );
+  const audioBeforeConcurrentHold = globalThis.__pillAppAudio;
+  globalThis.__pillAppAudio = {
+    ...audioBeforeConcurrentHold,
+    cancelled: {
+      sessionId: "held-during-answering",
+      remainingMs: 5000,
+      paused: false,
+      undoUntil: Date.now() + 5000,
+      remoteAlreadySent: {
+        target: "anthropic",
+        payload: "audio",
+        evidence: "dispatched",
+        alsoSentTo: [],
+      },
+    },
+    cancelHold: { generation: 20, durationMs: 5000, session },
+  };
+  await React.act(async () => root.render(React.createElement(App)));
+  assert.match(
+    tree.text(),
+    /may have received/,
+    "D3 receiver disclosure outranks Agent caption during answering"
+  );
+  assert.doesNotMatch(tree.text(), /Thinking with screen context/);
+  assert.equal(pill().attributes.role, "button");
+  assert.equal(
+    tree.find((n) => n.attributes?.class === "agent-orbit"),
+    null,
+    "answering never wraps or masks Undo"
+  );
+  globalThis.__pillAppAudio = audioBeforeConcurrentHold;
+  await React.act(async () => root.render(React.createElement(App)));
+  await React.act(async () => new Promise((resolve) => setTimeout(resolve, 1030)));
+  assert.equal(
+    tree.find((n) => n.attributes?.class === "agent-orbit"),
+    null,
+    "actual App never remounts thinking when the dissolve ends"
+  );
+  await React.act(async () => {
+    releaseTyped();
+    assert.equal(
+      globalThis.__pillAppAssistant.activeOperation,
+      null,
+      "retired spoken owner never returns after typed settlement"
+    );
+    globalThis.__pillAppAssistant.setBusy(false);
+    globalThis.__pillAppAssistant.handleCommandConsumed(oldCommand.id);
+  });
   const held = {
     sessionId: "A",
     undoUntil: Date.now() + 5000,

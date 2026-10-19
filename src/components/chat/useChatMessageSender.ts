@@ -1,6 +1,10 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ChatPersistence, ChatSelection } from "./useChatPersistence";
 import type { ChatStreaming, SendToAIOptions } from "./useChatStreaming";
+import {
+  chatAdmissionPresentation,
+  type ChatAdmissionPresentation,
+} from "./chatRequestPresentation";
 import type { Message } from "./types";
 
 interface PersistedMessageContext {
@@ -17,6 +21,8 @@ interface UseChatMessageSenderOptions {
   onBeforeSend?: () => void;
   onMessagePersisted?: (context: PersistedMessageContext) => void | Promise<void>;
   onSendingChange?: (sending: boolean) => void;
+  /** Optional display-only observer of a fresh typed admission; cleanup is owner-fenced. */
+  onAdmissionPresentation?: (presentation: ChatAdmissionPresentation) => (() => void) | void;
 }
 
 interface MessageSubmissionLock {
@@ -48,11 +54,15 @@ export function useChatMessageSender({
   onBeforeSend,
   onMessagePersisted,
   onSendingChange,
+  onAdmissionPresentation,
 }: UseChatMessageSenderOptions): (text: string, options?: SendToAIOptions) => Promise<boolean> {
   const submissionLockRef = useRef<MessageSubmissionLock | null>(null);
   if (submissionLockRef.current === null) {
     submissionLockRef.current = createMessageSubmissionLock();
   }
+
+  const presentationCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => presentationCleanupRef.current?.(), []);
 
   return useCallback(
     async (text: string, options?: SendToAIOptions) => {
@@ -77,8 +87,27 @@ export function useChatMessageSender({
             ...options,
             inferenceSnapshot: streaming.captureInference?.(options),
           };
-          onSendingChange?.(true);
+          let finishPresentation: (() => void) | null = null;
           try {
+            if (
+              !options?.operation &&
+              admittedOptions.inferenceSnapshot &&
+              onAdmissionPresentation
+            ) {
+              const release = onAdmissionPresentation(
+                chatAdmissionPresentation(admittedOptions.inferenceSnapshot)
+              );
+              let settled = false;
+              finishPresentation = () => {
+                if (settled) return;
+                settled = true;
+                if (typeof release === "function") release();
+                if (presentationCleanupRef.current === finishPresentation)
+                  presentationCleanupRef.current = null;
+              };
+              presentationCleanupRef.current = finishPresentation;
+            }
+            onSendingChange?.(true);
             onBeforeSend?.();
             const convId = conversationId ?? (await createConversation(text, selection));
             admittedId = convId;
@@ -113,6 +142,7 @@ export function useChatMessageSender({
               },
             });
           } finally {
+            finishPresentation?.();
             onSendingChange?.(false);
           }
         });
@@ -134,6 +164,7 @@ export function useChatMessageSender({
       onBeforeSend,
       onMessagePersisted,
       onSendingChange,
+      onAdmissionPresentation,
       persistence,
       streaming,
     ]

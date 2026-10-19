@@ -20,9 +20,10 @@ import { useListeningEntrancePhase } from "./hooks/useListeningEntrancePhase";
 import { useWindowResizeCompensation } from "./hooks/useWindowResizeCompensation";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useTrayQuickActions } from "./hooks/useTrayQuickActions";
-import { usePillLocality } from "./components/dictation/pillLocality";
+import { usePillLocality, agentPillCaption } from "./components/dictation/pillLocality";
 import { CondensationWords } from "./components/dictation/CondensationWords";
 import { condenseWords, diffWords } from "./components/dictation/condensation";
+import { useAgentAnswering } from "./hooks/useAgentAnswering";
 import { PillCaption } from "./components/dictation/PillCaption";
 import { useRecentOutcome } from "./hooks/useRecentOutcome";
 import { usePillAutoHide } from "./hooks/usePillAutoHide";
@@ -519,7 +520,7 @@ export default function App() {
   const bankedOperation = assistant.activeOperation;
   const agentPresentationBusy = assistant.busy || assistant.thinking;
   // A new Agent owner preempts an older recording's beat, even if it settles
-  // inside that beat. Task 13 supplies the typed admission presentation.
+  // inside that beat. Typed admission is a separate exact display owner.
   const outcomeOwnerRef = useRef({ agentBusy: false, preempted: null });
   if (agentPresentationBusy && !outcomeOwnerRef.current.agentBusy) {
     outcomeOwnerRef.current.preempted = outcome;
@@ -538,18 +539,20 @@ export default function App() {
       ? activeSession
       : cancelled
         ? (cancelHold?.session ?? null)
-        : bankedOperation
-          ? {
-              settings: bankedOperation.settings,
-              routes: bankedOperation.presentation?.routes ?? null,
-              intents: bankedOperation.presentation?.intents ?? {
-                voiceAgentRequested: true,
-                translationRequested: false,
-              },
-            }
-          : recentOutcome && !agentPresentationBusy
-            ? outcomeSession
-            : null;
+        : assistant.typedPresentation
+          ? assistant.typedPresentation
+          : bankedOperation
+            ? {
+                settings: bankedOperation.settings,
+                routes: bankedOperation.presentation?.routes ?? null,
+                intents: bankedOperation.presentation?.intents ?? {
+                  voiceAgentRequested: true,
+                  translationRequested: false,
+                },
+              }
+            : recentOutcome && !agentPresentationBusy
+              ? outcomeSession
+              : null;
   const pillLocality = usePillLocality(
     pillSession,
     isRecording ||
@@ -598,7 +601,22 @@ export default function App() {
     }
     return [];
   }, [liveTranscript.mounted, pillStage, liveText]);
-  const readingSurfaceActive = Boolean(cancelled || pillCaption || condensed.length);
+  const agentAnswering = useAgentAnswering(assistant.thinking, assistant.busy);
+  const agentCaption = !agentModeActive
+    ? null
+    : voicePillIsRecording
+      ? agentPillCaption(pillSession, "listening", t)
+      : voiceActivity.isAgentThinking || agentAnswering
+        ? agentPillCaption(pillSession, "thinking", t)
+        : null;
+  const visiblePillCaption = pillCaption ?? agentCaption;
+  const agentOrbitVisible =
+    agentModeActive &&
+    (voicePillIsRecording ||
+      assistant.thinking ||
+      agentAnswering ||
+      (isAssistantVoice && isProcessing));
+  const readingSurfaceActive = Boolean(cancelled || visiblePillCaption || condensed.length);
   useEffect(() => {
     if (!readingSurfaceActive) {
       pillFocusedRef.current = false;
@@ -800,7 +818,14 @@ export default function App() {
             <VoicePill
               ref={buttonRef}
               variant={anyPanelOpen ? "panel" : "floating"}
-              state={commonPillState}
+              state={
+                commonPillState === "thinking" &&
+                agentModeActive &&
+                !assistant.thinking &&
+                assistant.busy
+                  ? "idle"
+                  : commonPillState
+              }
               label={stageLabel}
               aria-keyshortcuts={pillStage === "cancelled" && undoHotkey.held ? "Alt+Z" : undefined}
               locality={pillLocality}
@@ -818,6 +843,7 @@ export default function App() {
               integratedWithPanel={liveTranscript.open}
               liquidFused={cancelSkinActive}
               agentMode={agentModeActive}
+              agentPhase={agentAnswering ? "answering" : undefined}
               showExpandChevron={canReopenLiveTranscript && isHovered}
               getAudioLevel={getAudioLevel}
               isDragging={isDragging}
@@ -886,9 +912,13 @@ export default function App() {
               {getCachedPlatform() === "darwin" ? "⌥Z" : "Alt+Z"}
             </kbd>
           ) : null}
-          {pillCaption ? (
-            <PillCaption elementRef={pillCaptionRef} horizontalDirection={voiceHorizontalDirection}>
-              {pillCaption}
+          {visiblePillCaption ? (
+            <PillCaption
+              elementRef={pillCaptionRef}
+              horizontalDirection={voiceHorizontalDirection}
+              gapPx={!pillCaption && agentCaption && agentOrbitVisible ? 14 : 8}
+            >
+              {visiblePillCaption}
             </PillCaption>
           ) : condensed.length > 0 ? (
             <PillCaption elementRef={pillCaptionRef} horizontalDirection={voiceHorizontalDirection}>
@@ -970,6 +1000,7 @@ export default function App() {
             horizontalDirection={voiceHorizontalDirection}
             onClose={assistant.handleClose}
             onBusyChange={assistant.setBusy}
+            onAdmissionPresentation={assistant.handleTypedAdmission}
             onResponseReadyChange={assistant.setResponseReady}
             onResponseContent={assistant.handleResponseContent}
             onConversationReset={assistant.handleConversationReset}

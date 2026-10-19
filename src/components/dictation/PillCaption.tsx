@@ -4,10 +4,13 @@ export function PillCaption({
   children,
   horizontalDirection,
   elementRef,
+  gapPx = 8,
 }: {
   children: ReactNode;
   horizontalDirection: "left" | "right";
   elementRef?: RefObject<HTMLDivElement | null>;
+  /** Extra clearance for the Agent listening ticks, within the same fixed window. */
+  gapPx?: number;
 }) {
   const ownRef = useRef<HTMLDivElement>(null);
   const captionRef = elementRef ?? ownRef;
@@ -22,7 +25,7 @@ export function PillCaption({
       const left = Math.max(12, Math.min(preferred, window.innerWidth - 12 - width));
       element.style.left = `${left - anchor.x}px`;
       element.style.right = "auto";
-      element.style.maxHeight = `${Math.max(0, anchor.y - 8 - 12)}px`;
+      element.style.maxHeight = `${Math.max(0, anchor.y - gapPx - 12)}px`;
     };
     fit();
     // Track actual moving dock/footprint geometry, including CSS travel during
@@ -33,11 +36,12 @@ export function PillCaption({
       clearInterval(timer);
       window.removeEventListener("resize", fit);
     };
-  }, [captionRef, horizontalDirection, children]);
+  }, [captionRef, horizontalDirection, children, gapPx]);
   return (
     <div
       ref={captionRef}
       className="pill-caption"
+      style={gapPx === 8 ? undefined : { bottom: `calc(100% + ${gapPx}px)` }}
       tabIndex={0}
       data-direction={horizontalDirection}
       role="status"

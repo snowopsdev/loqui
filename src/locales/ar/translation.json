@@ -4494,6 +4494,12 @@
       "agentOff": "الوكيل: معطّل",
       "vision": "سياق الشاشة: {{where}}",
       "visionOff": "سياق الشاشة: معطّل"
+    },
+    "agent": {
+      "listening": "الوكيل · يستمع",
+      "screenContext": "سياق الشاشة مفعّل · الوجهة المقصودة {{where}}",
+      "thinking": "يفكّر · الوجهة المقصودة {{where}}",
+      "thinkingScreenContext": "يفكّر مع سياق الشاشة · الوجهة المقصودة {{where}}"
     }
   }
 }

@@ -54,13 +54,13 @@ test("mounted caption fits actual viewport/anchor bounds in either dock and foll
   const { PillCaption } = await vite.ssrLoadModule("/components/dictation/PillCaption.tsx");
   t.mock.timers.enable({ apis: ["setInterval"] });
   root = createRoot(tree.container);
-  const render = async (direction) =>
+  const render = async (direction, gapPx) =>
     React.act(async () =>
       root.render(
         React.createElement(
           "div",
           null,
-          React.createElement(PillCaption, { horizontalDirection: direction }, receivers)
+          React.createElement(PillCaption, { horizontalDirection: direction, gapPx }, receivers)
         )
       )
     );
@@ -76,6 +76,16 @@ test("mounted caption fits actual viewport/anchor bounds in either dock and foll
   await React.act(async () => t.mock.timers.tick(50));
   assert.equal(caption.style.left, "-12px", "in-flight centered geometry is clamped physically");
   assert.equal(caption.style.maxHeight, "48px");
+  await render("right", 14);
+  assert.equal(
+    caption.style.maxHeight,
+    "42px",
+    "Agent orbit clearance is included in the measured height"
+  );
+  assert.equal(caption.style.bottom, "calc(100% + 14px)");
+  await render("right");
+  assert.equal(caption.style.maxHeight, "48px", "ordinary disclosure/words retain the default gap");
+  assert.equal(caption.style.bottom, "", "default uses the existing CSS gap");
   await React.act(async () => root.unmount());
   root = null;
   const before = { ...caption.style };

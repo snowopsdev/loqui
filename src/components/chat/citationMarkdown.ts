@@ -7,10 +7,11 @@ import remarkGfm from "remark-gfm";
 const parser = unified().use(remarkParse).use(remarkGfm);
 const excluded = new Set(["code", "inlineCode", "link", "linkReference"]);
 
-interface MarkdownNode {
+export interface MarkdownNode {
   type: string;
   value?: string;
   children?: MarkdownNode[];
+  data?: unknown;
 }
 
 export function parseCitationMarkdown(content: string): MarkdownNode {
@@ -19,12 +20,17 @@ export function parseCitationMarkdown(content: string): MarkdownNode {
 
 export function visitEligibleCitationText(
   node: MarkdownNode,
-  visit: (node: MarkdownNode & { value: string }) => void
+  visit: (node: MarkdownNode & { value: string }, parent?: MarkdownNode, index?: number) => void,
+  parent?: MarkdownNode,
+  index?: number
 ): void {
   if (excluded.has(node.type)) return;
   if (node.type === "text" && typeof node.value === "string") {
-    visit(node as MarkdownNode & { value: string });
+    visit(node as MarkdownNode & { value: string }, parent, index);
     return;
   }
-  for (const child of node.children ?? []) visitEligibleCitationText(child, visit);
+  // Snapshot indices: visitors may replace text nodes after traversal.
+  node.children?.forEach((child, childIndex) =>
+    visitEligibleCitationText(child, visit, node, childIndex)
+  );
 }

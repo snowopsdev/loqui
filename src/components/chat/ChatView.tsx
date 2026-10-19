@@ -181,6 +181,7 @@ export default function ChatView({
           {hasActiveChat ? (
             <>
               <ChatMessages
+                variant="document"
                 messages={persistence.messages}
                 emptyState={<NewChatEmptyState />}
                 contentClassName={PAGE_CONTENT_WIDTH_CLASS}

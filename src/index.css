@@ -2475,3 +2475,57 @@ a:hover {
     animation-duration: var(--motion-flash) !important;
   }
 }
+
+/* WS-R8 B: active thinking and document citation feedback. */
+.thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.thinking-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.35;
+  animation: thinking-dot var(--motion-loop-pulse) var(--motion-ease-std) infinite;
+}
+.thinking-dots i:nth-child(2) {
+  animation-delay: var(--motion-stagger);
+}
+.thinking-dots i:nth-child(3) {
+  animation-delay: calc(var(--motion-stagger) * 2);
+}
+@keyframes thinking-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.citation-in {
+  animation: citation-in var(--motion-fast) var(--motion-ease-enter) both;
+}
+@keyframes citation-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Shared link hover must retain readable paint despite the global anchor rule. */
+a.markdown-link:hover {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots i,
+  .citation-in,
+  .document-stream-cursor {
+    animation: none !important;
+  }
+  .thinking-dots i {
+    opacity: 0.7;
+  }
+}

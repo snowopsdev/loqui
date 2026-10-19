@@ -3083,7 +3083,13 @@
     "searchChats": "Cerca chat",
     "searchTitle": "Cerca conversazioni",
     "searchDescription": "Cerca in tutte le conversazioni",
-    "newChatEmpty": "Chiedi delle tue note, trascrizioni o qualsiasi altra cosa"
+    "newChatEmpty": "Chiedi delle tue note, trascrizioni o qualsiasi altra cosa",
+    "assistant": "Assistente",
+    "sources": {
+      "label": "Fonti",
+      "note": "Nota",
+      "meeting": "Riunione"
+    }
   },
   "support": {
     "documentation": "Documentazione",
@@ -3282,7 +3288,10 @@
       "copiedToClipboard": "Copiato negli appunti",
       "openNote": "Apri nota",
       "unknownTool": "Strumento sconosciuto: {{name}}",
-      "invalidArgs": "Argomenti dello strumento non validi per {{name}}"
+      "invalidArgs": "Argomenti dello strumento non validi per {{name}}",
+      "summary_one": "Ricerca in {{count}} nota",
+      "summary_many": "Ricerca in {{count}} note",
+      "summary_other": "Ricerca in {{count}} note"
     }
   },
   "assistant": {

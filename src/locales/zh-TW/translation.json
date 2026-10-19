@@ -3082,7 +3082,13 @@
     "searchChats": "搜尋聊天",
     "searchTitle": "搜尋對話",
     "searchDescription": "搜尋所有對話",
-    "newChatEmpty": "詢問關於筆記、轉錄或其他任何內容"
+    "newChatEmpty": "詢問關於筆記、轉錄或其他任何內容",
+    "assistant": "助理",
+    "sources": {
+      "label": "來源",
+      "note": "筆記",
+      "meeting": "會議"
+    }
   },
   "support": {
     "documentation": "文件",
@@ -3281,7 +3287,8 @@
       "copiedToClipboard": "已複製到剪貼簿",
       "openNote": "開啟筆記",
       "unknownTool": "未知工具：{{name}}",
-      "invalidArgs": "{{name}} 的工具參數無效"
+      "invalidArgs": "{{name}} 的工具參數無效",
+      "summary_other": "已搜尋 {{count}} 則筆記"
     }
   },
   "assistant": {

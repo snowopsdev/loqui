@@ -2579,7 +2579,13 @@
     "searchChats": "Search chats",
     "searchTitle": "Search conversations",
     "searchDescription": "Search across all your conversations",
-    "newChatEmpty": "Ask about your notes, transcripts, or anything else"
+    "newChatEmpty": "Ask about your notes, transcripts, or anything else",
+    "assistant": "Assistant",
+    "sources": {
+      "label": "Sources",
+      "note": "Note",
+      "meeting": "Meeting"
+    }
   },
   "referral": {
     "title": "Refer and earn rewards",
@@ -3451,7 +3457,9 @@
       "copiedToClipboard": "Copied to your clipboard",
       "openNote": "Open note",
       "unknownTool": "Unknown tool: {{name}}",
-      "invalidArgs": "Invalid tool arguments for {{name}}"
+      "invalidArgs": "Invalid tool arguments for {{name}}",
+      "summary_one": "Searched {{count}} note",
+      "summary_other": "Searched {{count}} notes"
     }
   },
   "assistant": {

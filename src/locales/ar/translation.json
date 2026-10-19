@@ -1297,7 +1297,13 @@
       "copiedToClipboard": "تم النسخ إلى حافظتك",
       "openNote": "فتح الملاحظة",
       "unknownTool": "أداة غير معروفة: {{name}}",
-      "invalidArgs": "وسيطات غير صالحة للأداة {{name}}"
+      "invalidArgs": "وسيطات غير صالحة للأداة {{name}}",
+      "summary_zero": "تم البحث في {{count}} ملاحظة",
+      "summary_one": "تم البحث في {{count}} ملاحظة",
+      "summary_two": "تم البحث في {{count}} ملاحظتين",
+      "summary_few": "تم البحث في {{count}} ملاحظات",
+      "summary_many": "تم البحث في {{count}} ملاحظة",
+      "summary_other": "تم البحث في {{count}} ملاحظة"
     }
   },
   "noteEditor": {
@@ -3667,7 +3673,13 @@
     "searchChats": "البحث في المحادثات",
     "searchTitle": "البحث في المحادثات",
     "searchDescription": "البحث في جميع محادثاتك",
-    "newChatEmpty": "اسأل عن ملاحظاتك أو نصوصك المفرَّغة أو أي شيء آخر"
+    "newChatEmpty": "اسأل عن ملاحظاتك أو نصوصك المفرَّغة أو أي شيء آخر",
+    "assistant": "المساعد",
+    "sources": {
+      "label": "المصادر",
+      "note": "ملاحظة",
+      "meeting": "اجتماع"
+    }
   },
   "support": {
     "documentation": "الوثائق",

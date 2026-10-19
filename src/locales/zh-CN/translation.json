@@ -3082,7 +3082,13 @@
     "searchChats": "搜索聊天",
     "searchTitle": "搜索对话",
     "searchDescription": "搜索所有对话",
-    "newChatEmpty": "询问关于笔记、转录或其他任何内容"
+    "newChatEmpty": "询问关于笔记、转录或其他任何内容",
+    "assistant": "助手",
+    "sources": {
+      "label": "来源",
+      "note": "笔记",
+      "meeting": "会议"
+    }
   },
   "support": {
     "documentation": "文档",
@@ -3281,7 +3287,8 @@
       "copiedToClipboard": "已复制到剪贴板",
       "openNote": "打开笔记",
       "unknownTool": "未知工具：{{name}}",
-      "invalidArgs": "{{name}} 的工具参数无效"
+      "invalidArgs": "{{name}} 的工具参数无效",
+      "summary_other": "已搜索 {{count}} 条笔记"
     }
   },
   "assistant": {

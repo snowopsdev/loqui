@@ -3082,7 +3082,13 @@
     "searchChats": "チャットを検索",
     "searchTitle": "会話を検索",
     "searchDescription": "すべての会話を検索",
-    "newChatEmpty": "ノートや文字起こし、その他なんでも聞いてください"
+    "newChatEmpty": "ノートや文字起こし、その他なんでも聞いてください",
+    "assistant": "アシスタント",
+    "sources": {
+      "label": "参照元",
+      "note": "ノート",
+      "meeting": "会議"
+    }
   },
   "support": {
     "documentation": "ドキュメント",
@@ -3281,7 +3287,8 @@
       "copiedToClipboard": "クリップボードにコピーしました",
       "openNote": "ノートを開く",
       "unknownTool": "不明なツール: {{name}}",
-      "invalidArgs": "{{name}} のツール引数が無効です"
+      "invalidArgs": "{{name}} のツール引数が無効です",
+      "summary_other": "{{count}}件のノートを検索しました"
     }
   },
   "assistant": {

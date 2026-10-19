@@ -1,10 +1,17 @@
 import { createContext, useContext, useId, type ReactElement } from "react";
-import Markdown, { type Components } from "react-markdown";
+import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { PluggableList } from "unified";
+import { getFoldersValue } from "../../stores/noteStore";
+import { parseMentionHref } from "../../utils/mentionMarkdown";
+import { sanitizeLinkHref } from "../../lib/linkHref";
+import { useWorkspaceNavigation } from "../workspaceNavigation";
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  remarkPlugins?: PluggableList;
+  components?: Partial<Components>;
 }
 
 const FootnotePrefixContext = createContext("");
@@ -38,20 +45,52 @@ const markdownComponents: Components = {
       {children}
     </li>
   ),
-  a: function MarkdownLink({ node: _node, ...props }): ReactElement {
+  a: function MarkdownLink({ node: _node, href, children, ...props }): ReactElement {
     const prefix = useContext(FootnotePrefixContext);
+    const navigation = useWorkspaceNavigation();
+    const mention = parseMentionHref(href);
+    if (mention) {
+      const id = Number(mention.entityId);
+      if (mention.kind === "person" || !Number.isSafeInteger(id) || id <= 0)
+        return <span>{children}</span>;
+      const open = () => {
+        if (mention.kind === "note" || mention.kind === "meeting") navigation.openNote(id);
+        else if (mention.kind === "dictation") navigation.openTranscript(id);
+        else if (mention.kind === "folder") {
+          const folder = getFoldersValue().find((f) => f.id === id && !f.deleted_at);
+          if (folder) navigation.openFolder(folder.space_id, folder.id);
+        }
+      };
+      return (
+        <button
+          type="button"
+          data-mention-kind={mention.kind}
+          onClick={open}
+          className="markdown-link rounded-sm text-link underline decoration-link/30 hover:decoration-link/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {children}
+        </button>
+      );
+    }
+    const isAnchor = href?.startsWith("#");
+    // Validate the allow-list, retaining the author's original allowed URL.
+    const safe = href && (isAnchor || sanitizeLinkHref(href)) ? href : null;
+    if (!safe) return <span>{children}</span>;
     return (
       <a
         {...props}
+        href={safe}
         aria-describedby={
           props["aria-describedby"] === "footnote-label"
             ? `${prefix}footnote-label`
             : props["aria-describedby"]
         }
-        target={props.href?.startsWith("#") ? undefined : "_blank"}
+        target={isAnchor ? undefined : "_blank"}
         rel="noopener noreferrer"
-        className="text-link underline decoration-link/30 hover:decoration-link/60 transition-colors"
-      />
+        className="markdown-link rounded-sm text-link underline decoration-link/30 hover:decoration-link/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {children}
+      </a>
     );
   },
   code: ({ children }): ReactElement => (
@@ -94,15 +133,21 @@ const markdownComponents: Components = {
   ),
 };
 
-export function MarkdownRenderer({ content, className }: MarkdownRendererProps): ReactElement {
+export function MarkdownRenderer({
+  content,
+  className,
+  remarkPlugins,
+  components,
+}: MarkdownRendererProps): ReactElement {
   const footnotePrefix = `user-content-${useId()}-`;
   return (
     <div dir="auto" className={className}>
       <FootnotePrefixContext value={footnotePrefix}>
         <Markdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, ...(remarkPlugins ?? [])]}
+          urlTransform={(url) => (parseMentionHref(url) ? url : defaultUrlTransform(url))}
           remarkRehypeOptions={{ clobberPrefix: footnotePrefix }}
-          components={markdownComponents}
+          components={components ? { ...markdownComponents, ...components } : markdownComponents}
         >
           {content}
         </Markdown>

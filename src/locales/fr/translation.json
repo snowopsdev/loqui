@@ -2580,7 +2580,13 @@
     "searchChats": "Rechercher",
     "searchTitle": "Rechercher des conversations",
     "searchDescription": "Rechercher dans toutes vos conversations",
-    "newChatEmpty": "Posez des questions sur vos notes, transcriptions ou autre"
+    "newChatEmpty": "Posez des questions sur vos notes, transcriptions ou autre",
+    "assistant": "Assistant",
+    "sources": {
+      "label": "Sources",
+      "note": "Note",
+      "meeting": "Réunion"
+    }
   },
   "referral": {
     "title": "Parrainez et gagnez des récompenses",
@@ -3452,7 +3458,10 @@
       "copiedToClipboard": "Copié dans le presse-papiers",
       "openNote": "Ouvrir la note",
       "unknownTool": "Outil inconnu : {{name}}",
-      "invalidArgs": "Arguments d'outil invalides pour {{name}}"
+      "invalidArgs": "Arguments d'outil invalides pour {{name}}",
+      "summary_one": "Recherche dans {{count}} note",
+      "summary_many": "Recherche dans {{count}} notes",
+      "summary_other": "Recherche dans {{count}} notes"
     }
   },
   "assistant": {

@@ -198,7 +198,7 @@ Tailwind utilities from `@theme` in `src/index.css`. Chrome, lists, menus and di
 No size below 11px. Readable text floors at 12px. Hierarchy comes from size and weight, never opacity: metadata is full `text-muted-foreground`.
 
 ### Note document ramp (WS-R6 B)
-Inside the note editor (`.rich-text-editor-content`) and the note title: title 32/1.15/600; h1 24/1.25/650; h2 19/1.3/600; h3 16/1.4/600; body 16/1.65 with a 68ch measure; code 14 mono. Chat answers use 15/1.6 at 68ch. Answer source metadata persists with its admitted conversation: compact tool hits and retrieved note references retain titles and excerpts of up to 240 characters. Citation numbering follows eligible Markdown and GFM text, excluding code and links; an answer without eligible citations retains up to five unnumbered sources. The document citation renderer and Sources row are added separately.
+Inside the note editor (`.rich-text-editor-content`) and the note title: title 32/1.15/600; h1 24/1.25/650; h2 19/1.3/600; h3 16/1.4/600; body 16/1.65 with a 68ch measure; code 14 mono. Chat answers use 15/1.6 at 68ch. Answer source metadata persists with its admitted conversation: compact tool hits and retrieved note references retain titles and excerpts of up to 240 characters. Citation numbering follows eligible Markdown and GFM text, excluding code and links; an answer without eligible citations retains up to five unnumbered sources. Document answers render eligible citations as numbered superscripts with a Sources row.
 
 ### Note slash menu (WS-R6 B)
 
@@ -329,6 +329,12 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 - **Provider tabs:** a real tablist. Arrow keys (reversed in RTL), Home and End move focus across enabled tabs; Enter, Space or a click selects. Focus alone never switches provider, local or remote. Tabbing into the list lands on the selected tab (WAI-ARIA tabs pattern). A saved key shows as a small dot with screen-reader text.
 - **Top bar:** 48px draggable title area with a breadcrumb (`Notes / Work / Product catch-up`, title column at least 120px), centred search (⌘K), and the Capture split button. Capture is neutral at rest and turns `live` only while listening.
 - **Collapsed:** a 56px icon rail (⌘\, or automatically below 1100px). There is no hover peek. Meeting mode and narrow open notes hide the sidebar and show "Back to notes".
+
+### Chat
+
+The Chat view answers as a document. Assistant turns are unbubbled 15px `text-body` prose at 1.6 line-height, capped at 68ch, 24px apart, under an Assistant label and Agent spark. While a turn streams it carries a 2px `--color-agent` rail; thinking uses three dots with a text twin and the shared cadence. User turns are a neutral `surface-3` block. Citations are superscript numerals in `--color-agent-text`, numbered by first eligible Markdown appearance. A Sources row of 28px chips follows each answer; pointer or keyboard focus reveals the persisted quote, constrained to the visible scroll area, with Escape dismissal. Activity expands through native buttons with readable detail. Sources, activity, copy and shared Markdown links use full-opacity 2px focus rings; copy appears on keyboard focus. Embedded and assistant-panel chats retain their default bubbles.
+
+The model chip and per-answer route disclosure are future Task 21 work. They must use Plan 03's `RouteDestinationChip` and, when not ready, `RouteStateChip`.
 
 ### Voice Pill
 

@@ -5,10 +5,12 @@ export default function WorkspacePresentation({
   active,
   children,
   className,
+  onInteraction,
 }: {
   active: boolean;
   children: ReactNode;
   className?: string;
+  onInteraction?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const lastFocus = useRef<HTMLElement | null>(null);
@@ -33,6 +35,10 @@ export default function WorkspacePresentation({
         style={!active ? { display: "none" } : undefined}
         tabIndex={-1}
         data-workspace-active={active}
+        onPointerDownCapture={active ? onInteraction : undefined}
+        onClickCapture={active ? onInteraction : undefined}
+        onKeyDownCapture={active ? onInteraction : undefined}
+        onInputCapture={active ? onInteraction : undefined}
         onFocusCapture={(event) => {
           if (active) lastFocus.current = event.target as HTMLElement;
         }}

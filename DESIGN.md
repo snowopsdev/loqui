@@ -784,6 +784,37 @@ workspace return, once; ordinary returns do not replay it. New setup requests
 clear superseded undelivered intents, and duplicate/old completions are inert.
 Creation and live-recording exclusion remain in the original `useCreateNote`.
 
+An already-consumed Ready note hand-off has separate, bounded activation
+eligibility. `useCreateNote` accepts optional `CreateNoteOptions.canActivate` on
+`createNote` and `createNoteIn`; omitted options preserve ordinary callers. The
+admitted save keeps its original container and completes, but the predicate is
+checked after saving and before context, reveal, selection or automatic recording.
+Panel checks it again before switching views. A newer setup request or workspace
+interaction expires activation without cancelling the original save, existing
+answers or an unrelated live recording. Pointer, click, key and input capture
+count as workspace interaction; automatic assistant/save completions and focus
+restoration do not. Explicit workspace navigation/Settings commands and new pending note/meeting
+navigation also expire it.
+
+**Additional Plan06 contact:** carry `workspaceActivationEpoch`, the existing
+host request-counter ref, alongside `workspaceActive`/`onReturnToWorkspace`.
+AppRouter increments it synchronously at the setup request boundary;
+BrowserPreview does so for direct config/restart requests too. The Panel also
+listens synchronously to the public setup event for default hosts. Preserve the
+local interaction generation and both activation checks
+beside the RAM consumer. This is eligibility for one admitted continuation, not
+another global routing or recording authority; the unconsumed one-shot slot is
+still cleared on supersession.
+
+Settings destination activations carry an optional `SettingsModal.activationId`.
+Every Ready Settings intent advances it, even for an identical path. The existing
+modal parses and reapplies section/subtab through the retained owner, without a
+modal key/remount or route/credential draft reset. Its logical open state and
+actual Settings search shortcut use workspace activity as well as requested open.
+Reactivation clears search and passes through an unset initial subtab so the
+existing private `useSubTab` consumes a repeated destination after manual tab
+navigation. Other modal callers omit the identity and retain their open/path API.
+
 The neutral translated setup checklist resumes the actual saved phase-1 step and
 always links Cleanup and Shortcut. It uses unfinished circles, ordinary ink
 buttons, logical layout and wrapping controls. Preview progress and dismissal

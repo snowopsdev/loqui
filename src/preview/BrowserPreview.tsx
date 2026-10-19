@@ -344,7 +344,11 @@ export default function BrowserPreview() {
             <>
               {workspaceMounted && (
                 <Suspense fallback={null}>
-                  <ControlPanel workspaceActive={!setup} onReturnToWorkspace={showWorkspace} />
+                  <ControlPanel
+                    workspaceActive={!setup}
+                    workspaceActivationEpoch={lifetimeRef}
+                    onReturnToWorkspace={showWorkspace}
+                  />
                 </Suspense>
               )}
               {setup && (

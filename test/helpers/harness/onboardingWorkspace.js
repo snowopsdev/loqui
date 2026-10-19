@@ -11,8 +11,11 @@ export default function Host() {
  if(!document.__workspaceFixture) {
   document.__workspaceFixture=true;
   const make=document.createElement;
-  document.createElement=(...args)=>{const node=make(...args);node.querySelectorAll=()=>[];node.getBoundingClientRect=()=>({width:0,height:0,left:0,top:0});return node;};
+  document.createElement=(...args)=>{const node=make(...args);node.select=()=>{};node.querySelectorAll=()=>[];node.getBoundingClientRect=()=>({width:0,height:0,left:0,top:0});return node;};
   document.body=document.createElement('body');
+  document.querySelector=()=>null;
+  document.addEventListener=(type,cb)=>{const listeners=globalThis.__workspace.documentListeners; if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type).add(cb);};
+  document.removeEventListener=(type,cb)=>globalThis.__workspace.documentListeners.get(type)?.delete(cb);
  }
  return React.createElement(React.StrictMode,null,React.createElement(AppRouter)); }`,
   "/components/OnboardingFlow.tsx": `import React from 'react'; export default function Flow(props) {
@@ -78,7 +81,7 @@ const act = (fn) =>
     await fn?.();
     await new Promise((r) => setTimeout(r, 0));
   });
-async function workspace(t, { firstLaunch = false } = {}) {
+async function workspace(t, { firstLaunch = false, realSettings = false } = {}) {
   installMicCaptureGlobals(t);
   const previousResize = globalThis.ResizeObserver;
   globalThis.ResizeObserver = class {
@@ -89,6 +92,8 @@ async function workspace(t, { firstLaunch = false } = {}) {
     globalThis.ResizeObserver = previousResize;
   });
   const state = {
+    documentListeners: new Map(),
+    savedNotes: [],
     flowId: 0,
     cancels: 0,
     requests: [],
@@ -118,7 +123,35 @@ async function workspace(t, { firstLaunch = false } = {}) {
   });
   const listeners = new Map();
   const ui = await mountComponent(t, "/Task19Host", {
-    mocks,
+    mocks: realSettings
+      ? Object.fromEntries(
+          Object.entries({
+            ...mocks,
+            // Actual modal, SettingsPage and private useSubTab run. Only presentation,
+            // provider/media leaves and unrelated hooks are replaced before imports.
+            "/SettingsModal": undefined,
+            "/hooks/useTheme": "export function useTheme(){return {theme:'light',setTheme(){}};}",
+            "/hooks/useSettings":
+              "import {useSettingsStore} from '/stores/settingsStore.ts'; export function useSettings(){return useSettingsStore();}",
+            "/ui/SidebarModal": `import React from 'react'; export default function Sidebar(p){return React.createElement('section',{'data-settings-section':p.activeSection,hidden:!p.open},p.search,p.sidebarItems.map(i=>React.createElement('button',{key:i.id,onClick:()=>p.onSectionChange(i.id)},i.id)),p.children);}`,
+            "/settings/routing/StagedRouteBar": "export function StagedRouteBar(){return null;}",
+            "/hooks/useWhisper":
+              "export function useWhisper(){return {checkWhisperInstallation(){}};}",
+            "/hooks/usePermissions": "export function usePermissions(){return {};}",
+            "/hooks/useSystemAudioPermission":
+              "export function useSystemAudioPermission(){return {};}",
+            "/hooks/useClipboard": "export function useClipboard(){}",
+            "/hooks/useHotkeyRegistration": "export function useHotkeyRegistration(){return {};}",
+            "/hooks/useHotkeyModeInfo": "export function useHotkeyModeInfo(){return {};}",
+            "/TranscriptionModelPicker": NULL,
+            "/SelfHostedPanel": NULL,
+            "/ui/MicrophoneSettings": NULL,
+            "/settings/MeetingSettings":
+              "import React from 'react';export function MeetingTranscriptionPanel(){return React.createElement('div',{'data-note-recording-settings':true},'Note recording fixture');}",
+            "/settings/UploadSettings": "export function UploadTranscriptionPanel(){return null;}",
+          }).filter(([, value]) => value !== undefined)
+        )
+      : mocks,
     windowProps: {
       location: { search: "?panel=true" },
       addEventListener(type, cb) {
@@ -150,7 +183,15 @@ async function workspace(t, { firstLaunch = false } = {}) {
       }),
     },
     api: {
+      onShowSettings: (cb) => {
+        state.showSettings = cb;
+        return () => {
+          state.showSettings = null;
+        };
+      },
       getPlatform: () => "linux",
+      listGpus: async () => [],
+      getAppVersion: async () => ({ version: "fixture" }),
       checkSystemAudioAccess: async () => ({
         granted: true,
         status: "granted",
@@ -203,7 +244,10 @@ async function workspace(t, { firstLaunch = false } = {}) {
       },
       saveNote: async (...args) => {
         state.saves.push(args);
-        return { success: true, note: { ...state.note, id: 99 } };
+        const note = { ...state.note, id: 99, space_id: args[6] ?? 1, folder_id: args[5] };
+        await state.noteSave?.promise;
+        state.savedNotes.push(note);
+        return { success: true, note };
       },
       semanticSearchNotes: async () => [],
     },

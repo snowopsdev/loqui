@@ -338,3 +338,235 @@ test("live recording return names the workspace and restores its existing chat d
   assert.equal(ui.meeting.getActiveRecordingSessionId(), session);
   assert.equal(ui.meeting.useMeetingRecordingStore.getState().isRecording, true);
 });
+
+const composer = (ui) => ui.findAll((n) => n.tagName === "TEXTAREA")[0];
+async function pendingReadyNote(ui) {
+  ui.state.noteSave = deferred();
+  await ui.start("finish");
+  await ui.wait(() => ui.state.flow);
+  await ui.act(() => ui.state.flow.onComplete({ next: { kind: "dictate-note" } }));
+  await ui.wait(() => ui.state.saves.length === 1);
+}
+async function typeDraft(ui, value) {
+  const node = composer(ui);
+  // The small DOM uses direct handlers: explicitly dispatch React's ancestor
+  // capture phase as a browser would, then the real controlled composer change.
+  await ui.act(() => {
+    const path = [];
+    for (let n = node; n; n = n.parentNode) path.unshift(n);
+    for (const n of path) ui.props(n)?.onInputCapture?.({ target: node });
+    ui.props(node).onChange({ target: { value } });
+  });
+}
+for (const newer of [
+  "setup-and-chat",
+  "same-chat-draft",
+  "workspace-selection",
+  "workspace-command",
+  "setup-request-boundary",
+])
+  test(`deferred Ready note saves under A without reclaiming ${newer}`, async (t) => {
+    const ui = await workspace(t);
+    await ui.act(() => ui.state.nav.onViewChange("chat"));
+    await ui.wait(() => composer(ui));
+    await ui.act(() => ui.notes.setActiveContext(1, 2));
+    await pendingReadyNote(ui);
+    let originalSelection = ui.notes.getActiveNoteIdValue();
+    if (newer === "setup-and-chat") {
+      await ui.start("cleanup");
+      await ui.return();
+      await ui.act(() => ui.state.nav.onViewChange("chat"));
+      await ui.act(() => ui.state.conversations.onSelectConversation(8));
+    } else if (newer === "workspace-command") {
+      await ui.act(() => ui.state.showSettings());
+    } else if (newer === "workspace-selection") {
+      await ui.act(() => ui.state.nav.onViewChange("home"));
+      await ui.act(() => {
+        ui.state.nav.onViewChange("chat");
+        ui.notes.setActiveContext(3, 4);
+        ui.notes.setActiveNoteId(77);
+      });
+      originalSelection = 77;
+    }
+    const expandedBefore = ui.storage.getItem("notesTree.expanded");
+    const folderBefore = ui.notes.getActiveFolderIdValue();
+    const node = composer(ui);
+    if (newer === "setup-and-chat") {
+      await typeDraft(ui, "New question B");
+      await ui.press(node, "Enter", {
+        shiftKey: false,
+        nativeEvent: { isComposing: false, keyCode: 13 },
+      });
+      await ui.wait(() => ui.state.requests.length === 1);
+    }
+    if (
+      newer !== "setup-request-boundary" &&
+      newer !== "workspace-selection" &&
+      newer !== "workspace-command"
+    )
+      await typeDraft(ui, "Newer unsent draft");
+    const cancels = ui.state.cancels;
+    await ui.act(() => {
+      if (newer === "setup-request-boundary")
+        globalThis.window.dispatchEvent(
+          new CustomEvent("loqui:start-onboarding", { detail: { step: "cleanup" } })
+        );
+      ui.state.noteSave.resolve();
+    });
+    await ui.wait(() => ui.state.savedNotes.length === 1);
+    assert.equal(
+      ui.notes.getActiveNoteIdValue(),
+      originalSelection,
+      "stale save must not select A"
+    );
+    assert.equal(ui.state.recordingStarts ?? 0, 0, "stale save cannot automatically start capture");
+    assert.equal(
+      ui.notes.getActiveFolderIdValue(),
+      folderBefore,
+      "stale save cannot change context"
+    );
+    assert.equal(
+      ui.storage.getItem("notesTree.expanded"),
+      expandedBefore,
+      "stale save cannot reveal A"
+    );
+    assert.equal(composer(ui) === node, true, "new Chat owner must stay mounted");
+    assert.equal(ui.state.cancels, cancels);
+    if (
+      newer !== "setup-request-boundary" &&
+      newer !== "workspace-selection" &&
+      newer !== "workspace-command"
+    )
+      assert.equal(ui.props(node).value, "Newer unsent draft");
+    if (newer === "setup-and-chat") {
+      await ui.act(() => ui.state.reply.resolve());
+      await ui.wait(() => ui.state.writes.some((w) => w.role === "assistant"));
+      assert.deepEqual(ui.state.writes, [
+        { id: 8, role: "user", content: "New question B" },
+        { id: 8, role: "assistant", content: "first answer" },
+      ]);
+      assert.equal(ui.props(node).value, "Newer unsent draft");
+    }
+    assert.deepEqual(ui.state.saves[0].slice(5), [2, 1], "A retains its admitted container");
+    assert.equal(ui.state.savedNotes[0].id, 99, "A's data save still completes");
+  });
+
+test("deferred Ready note with no newer interaction selects and starts exactly once", async (t) => {
+  const ui = await workspace(t);
+  await pendingReadyNote(ui);
+  await ui.act(() => ui.state.noteSave.resolve());
+  await ui.wait(() => ui.state.recordingStarts === 1);
+  assert.equal(ui.state.saves.length, 1);
+  assert.equal(ui.notes.getActiveNoteIdValue(), 99);
+  assert.equal(ui.meeting.useMeetingRecordingStore.getState().recordingNoteId, 99);
+  await ui.start("cleanup");
+  await ui.return();
+  assert.equal(ui.state.saves.length, 1);
+  assert.equal(ui.state.recordingStarts, 1);
+});
+
+test("deferred Ready note respects a recorder that became live during its save", async (t) => {
+  const ui = await workspace(t);
+  await pendingReadyNote(ui);
+  await ui.act(() =>
+    ui.meeting.startRecording({ noteId: 42, noteTitle: "Original", folderId: 2, seedSegments: [] })
+  );
+  const session = ui.meeting.getActiveRecordingSessionId();
+  await ui.act(() => ui.state.noteSave.resolve());
+  await ui.wait(() => ui.state.savedNotes.length === 1);
+  assert.equal(ui.notes.getActiveNoteIdValue(), 99);
+  assert.equal(ui.state.recordingStarts, 1);
+  assert.equal(ui.meeting.getActiveRecordingSessionId(), session);
+  assert.equal(ui.meeting.useMeetingRecordingStore.getState().recordingNoteId, 42);
+});
+
+for (const checkSearch of [true, false])
+  test(`actual retained Settings ${checkSearch ? "gates search" : "applies every Ready destination including identical sub-tabs"}`, async (t) => {
+    const ui = await workspace(t, { realSettings: true });
+    await ui.act(() => ui.state.nav.onOpenSettings());
+    await ui.wait(() => ui.byAttr("data-settings-section").length);
+    await ui.click("speechToText");
+    await ui.wait(() => ui.text().includes("settingsPage.reviewSetup.title"));
+    const search = ui.findAll((n) => n.tagName === "INPUT")[0];
+    const { useRouteDraftStore } = await ui.vite.ssrLoadModule("/stores/routeDraftStore.ts");
+    const draft = {
+      routeId: "chat",
+      kind: "patch",
+      patch: { azureEndpoint: "https://fixture.invalid" },
+    };
+    await ui.act(() => useRouteDraftStore.getState().stage(draft));
+    const requestEpoch = useRouteDraftStore.getState().requestEpoch;
+    for (let round = 0; round < 2; round++) {
+      // Actual SettingsPage Review setup caller, with modal logically open.
+      await ui.click("settingsPage.reviewSetup.title");
+      await ui.wait(() => ui.byAttr("data-setup-instance").length);
+      let prevented = false;
+      await ui.act(() => {
+        for (const cb of ui.state.documentListeners.get("keydown") ?? [])
+          cb({
+            key: "f",
+            ctrlKey: true,
+            target: { tagName: "DIV" },
+            preventDefault() {
+              prevented = true;
+            },
+          });
+      });
+      if (checkSearch)
+        assert.equal(prevented, false, "inactive actual Settings search must not consume Ctrl+F");
+      await ui.act(() =>
+        ui.state.flow.onComplete({ next: { kind: "open-settings", path: "stt/noteRecording" } })
+      );
+      assert.equal(
+        JSON.parse(ui.storage.getItem("settings.speechToTextTab")),
+        "noteRecording",
+        "actual retained useSubTab must apply the Ready path"
+      );
+      assert.equal(ui.byAttr("data-settings-section", "speechToText").length, 1);
+      const selected = ui.findAll((n) => n.attributes?.["aria-selected"] === "true");
+      assert.equal(
+        selected.some((n) => n.textContent.includes("tabs.noteRecording")),
+        true,
+        "real useSubTab renders requested destination"
+      );
+      assert.equal(
+        ui.findAll((n) => n.tagName === "INPUT")[0] === search,
+        true,
+        "modal subtree is retained"
+      );
+      assert.equal(
+        useRouteDraftStore.getState().draft === draft,
+        true,
+        "retained Settings keeps its route draft"
+      );
+      assert.equal(
+        useRouteDraftStore.getState().requestEpoch,
+        requestEpoch,
+        "hiding setup never ends the Settings draft session"
+      );
+      await ui.click("settingsPage.speechToText.tabs.dictation");
+      assert.equal(JSON.parse(ui.storage.getItem("settings.speechToTextTab")), "dictation");
+    }
+  });
+
+test("original assistant completion during A's deferred save does not expire A activation", async (t) => {
+  const ui = await workspace(t);
+  await ui.act(() => ui.state.nav.onViewChange("chat"));
+  await ui.wait(() => composer(ui));
+  await typeDraft(ui, "Original admitted question");
+  await ui.press(composer(ui), "Enter", {
+    shiftKey: false,
+    nativeEvent: { isComposing: false, keyCode: 13 },
+  });
+  await ui.wait(() => ui.state.requests.length === 1);
+  await pendingReadyNote(ui);
+  await ui.act(() => ui.state.reply.resolve());
+  await ui.wait(() => ui.state.writes.some((w) => w.role === "assistant"));
+  await ui.act(() => ui.state.noteSave.resolve());
+  await ui.wait(() => ui.state.recordingStarts === 1);
+  assert.equal(ui.notes.getActiveNoteIdValue(), 99);
+  assert.deepEqual(ui.state.writes, [
+    { id: 7, role: "user", content: "Original admitted question" },
+    { id: 7, role: "assistant", content: "first answer" },
+  ]);
+});

@@ -27,6 +27,11 @@ export function startRecordingForNote(note: NoteItem | null): Promise<boolean> {
   });
 }
 
+export interface CreateNoteOptions {
+  /** Saving still completes; only the caller's optional UI/automatic-start activation expires. */
+  canActivate?: () => boolean;
+}
+
 /**
  * Creates a note, opens it, and starts recording into it. A null space resolves
  * to the private space in the database, so this works before the Notes tree loads.
@@ -37,7 +42,7 @@ export function useCreateNote() {
   const isRecording = useMeetingRecordingStore((s) => s.isRecording);
 
   const createNoteIn = useCallback(
-    async (spaceId: number | null, folderId: number | null) => {
+    async (spaceId: number | null, folderId: number | null, options?: CreateNoteOptions) => {
       const result = await window.electronAPI.saveNote(
         t("notes.list.untitledNote"),
         "",
@@ -48,6 +53,7 @@ export function useCreateNote() {
         spaceId
       );
       if (!result.success || !result.note) return;
+      if (options?.canActivate && !options.canActivate()) return;
       setActiveContext(result.note.space_id, result.note.folder_id);
       revealContainer(result.note.space_id, result.note.folder_id);
       setActiveNoteId(result.note.id);
@@ -58,7 +64,8 @@ export function useCreateNote() {
   );
 
   const createNote = useCallback(
-    () => createNoteIn(activeContext?.spaceId ?? null, activeContext?.folderId ?? null),
+    (options?: CreateNoteOptions) =>
+      createNoteIn(activeContext?.spaceId ?? null, activeContext?.folderId ?? null, options),
     [activeContext, createNoteIn]
   );
 

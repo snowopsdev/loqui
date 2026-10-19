@@ -1,3 +1,4 @@
+import { useWorkspaceActive } from "../hooks/useWorkspaceActive";
 import { withDraftDiscard } from "../stores/routeDraftStore";
 import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -17,9 +18,18 @@ interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialSection?: string;
+  /** A new destination activation, including another request for an identical path. */
+  activationId?: number;
 }
 
-export default function SettingsModal({ open, onOpenChange, initialSection }: SettingsModalProps) {
+export default function SettingsModal({
+  open: requestedOpen,
+  onOpenChange,
+  initialSection,
+  activationId,
+}: SettingsModalProps) {
+  const workspaceActive = useWorkspaceActive();
+  const open = requestedOpen && workspaceActive;
   const { t } = useTranslation();
 
   const sidebarItems: SidebarItem<SettingsSectionType>[] = useMemo(() => {
@@ -111,6 +121,16 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
   }, [searchPath, open, handleNavigateToPath]);
 
   const search = useSettingsSearch({ open, navigateToPath: navigateFromSearch });
+  const clearSearch = search.clear;
+  useEffect(() => {
+    if (activationId === undefined || !open) return;
+    clearSearch();
+    // Pass through an unset sub-tab so the retained useSubTab owner consumes
+    // even an identical path after the user has manually moved elsewhere.
+    setInitialSubTab(undefined);
+    setSearchPath(initialSection ?? "general");
+  }, [activationId, initialSection, open, clearSearch]);
+
   const handleSectionChange = (section: SettingsSectionType) => {
     search.clear();
     setSearchPath(null);

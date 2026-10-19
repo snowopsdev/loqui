@@ -94,6 +94,7 @@ function MainApp() {
         <Suspense fallback={showOnboarding ? null : loading}>
           <ControlPanel
             workspaceActive={!showOnboarding}
+            workspaceActivationEpoch={requestKey}
             onReturnToWorkspace={() => completeSetup()}
           />
         </Suspense>

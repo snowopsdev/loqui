@@ -1,3 +1,4 @@
+import { useStartOnboardingListener } from "../hooks/useStartOnboarding";
 import WorkspacePresentation from "./WorkspacePresentation";
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -48,7 +49,7 @@ import MeetingRecordingPill from "./notes/MeetingRecordingPill";
 import NewNoteMenu from "./notes/NewNoteMenu";
 
 import { takeAfterSetupIntent } from "../utils/afterSetupIntent";
-import { useCreateNote } from "../hooks/useCreateNote";
+import { useCreateNote, type CreateNoteOptions } from "../hooks/useCreateNote";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
 import {
   initializeNotes,
@@ -84,6 +85,8 @@ const CommandSearch = React.lazy(() => import("./CommandSearch"));
 interface ControlPanelProps {
   /** Retain admitted owners during setup, but gate new workspace interaction. Plan06 carries both props. */
   workspaceActive?: boolean;
+  /** Host increments synchronously at every setup request, before React commits. */
+  workspaceActivationEpoch?: React.RefObject<number>;
   onReturnToWorkspace?: () => void;
   /** Open the settings modal at this section on mount (e.g. after onboarding). */
   initialSettingsSection?: string;
@@ -92,10 +95,17 @@ interface ControlPanelProps {
 export default function ControlPanel({
   initialSettingsSection,
   workspaceActive = true,
+  workspaceActivationEpoch,
   onReturnToWorkspace,
 }: ControlPanelProps = {}) {
   const activeRef = useRef(workspaceActive);
   activeRef.current = workspaceActive;
+  const interactionEpoch = useRef(0);
+  const invalidateActivation = useCallback(() => {
+    interactionEpoch.current += 1;
+  }, []);
+  // Also protects default hosts using the public request event without an epoch prop.
+  useStartOnboardingListener(invalidateActivation);
   const { t } = useTranslation();
   const history = useTranscriptions();
   const [isLoading, setIsLoading] = useState(true);
@@ -108,6 +118,7 @@ export default function ControlPanel({
     () => localStorage.getItem("aiCTADismissed") === "true"
   );
 
+  const [settingsActivation, setSettingsActivation] = useState(0);
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
   const [activeView, setActiveView] = useState<ControlPanelView>("home");
@@ -147,10 +158,13 @@ export default function ControlPanel({
 
   const { createNote } = useCreateNote();
   // The note is created before the view switches so Notes mounts with it already open.
-  const handleNewNote = useCallback(async () => {
-    await createNote();
-    setActiveView("personal-notes");
-  }, [createNote]);
+  const handleNewNote = useCallback(
+    async (options?: CreateNoteOptions) => {
+      await createNote(options);
+      if (!options?.canActivate || options.canActivate()) setActiveView("personal-notes");
+    },
+    [createNote]
+  );
 
   // Plan06 must carry this Ready hand-off beside handleNewNote. The existing
   // useCreateNote/meeting recorder owns creation and recording, including live capture.
@@ -160,12 +174,20 @@ export default function ControlPanel({
     const intent = takeAfterSetupIntent();
     if (!intent) return;
     if (intent.kind === "dictate-note") {
-      void handleNewNote();
+      const interaction = interactionEpoch.current;
+      const setup = workspaceActivationEpoch?.current;
+      void handleNewNote({
+        canActivate: () =>
+          activeRef.current &&
+          interactionEpoch.current === interaction &&
+          workspaceActivationEpoch?.current === setup,
+      });
     } else {
       setSettingsSection(intent.path);
+      setSettingsActivation((current) => current + 1);
       setShowSettings(true);
     }
-  }, [handleNewNote, workspaceActive]);
+  }, [handleNewNote, workspaceActive, workspaceActivationEpoch]);
 
   const policyMinAppVersion = null;
 
@@ -256,16 +278,18 @@ export default function ControlPanel({
       if (!activeRef.current) return;
       const mod = platform === "darwin" ? e.metaKey : e.ctrlKey;
       if (mod && e.key === "k") {
+        invalidateActivation();
         e.preventDefault();
         setShowSearch(true);
       } else if (mod && e.key === ",") {
+        invalidateActivation();
         e.preventDefault();
         setShowSettings(true);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [invalidateActivation]);
 
   const pendingMeetingNavigation = useRef(null);
   const pendingNoteNavigation = useRef(null);
@@ -279,6 +303,7 @@ export default function ControlPanel({
       if (!activeRef.current) return;
       pendingMeetingNavigation.current = null;
       if (!data) return;
+      invalidateActivation();
       setActiveFolderId(data.folderId);
       setActiveNoteId(data.noteId);
       setActiveView("personal-notes");
@@ -298,7 +323,7 @@ export default function ControlPanel({
     drain();
     const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(drain);
     return () => cleanup?.();
-  }, [workspaceActive]);
+  }, [workspaceActive, invalidateActivation]);
 
   useEffect(() => {
     if (!workspaceActive) return;
@@ -309,6 +334,7 @@ export default function ControlPanel({
       if (!activeRef.current) return;
       pendingNoteNavigation.current = null;
       if (!data) return;
+      invalidateActivation();
       if (data.folderId) {
         setActiveFolderId(data.folderId);
         initializeNotes(null, 50, data.folderId);
@@ -319,15 +345,16 @@ export default function ControlPanel({
     drain();
     const cleanup = window.electronAPI?.onNoteNavigationPending?.(drain);
     return () => cleanup?.();
-  }, [workspaceActive]);
+  }, [workspaceActive, invalidateActivation]);
 
   useEffect(() => {
     const cleanup = window.electronAPI?.onShowSettings?.(() => {
       if (!activeRef.current) return;
+      invalidateActivation();
       setShowSettings(true);
     });
     return () => cleanup?.();
-  }, []);
+  }, [invalidateActivation]);
 
   // When accessibility is missing on macOS, open the permissions settings page
   useEffect(() => {
@@ -673,6 +700,7 @@ export default function ControlPanel({
   return (
     <WorkspacePresentation
       active={workspaceActive}
+      onInteraction={invalidateActivation}
       className="h-screen bg-surface-window flex flex-col"
     >
       <MeetingRecordingMount />
@@ -716,6 +744,7 @@ export default function ControlPanel({
               if (!open) setSettingsSection(undefined);
             }}
             initialSection={settingsSection}
+            activationId={settingsActivation}
           />
         </Suspense>
       )}
@@ -762,8 +791,12 @@ export default function ControlPanel({
         >
           <ControlPanelSidebar
             activeView={activeView}
-            onViewChange={setActiveView}
+            onViewChange={(view) => {
+              invalidateActivation();
+              setActiveView(view);
+            }}
             onOpenSettings={() => {
+              invalidateActivation();
               setSettingsSection(undefined);
               setShowSettings(true);
             }}

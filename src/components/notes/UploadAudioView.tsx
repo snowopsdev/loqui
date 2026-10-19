@@ -959,7 +959,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
         )}
 
         {skippedNotice && (
-          <p className="text-[10px] text-amber-500/60 mt-2 text-center">{skippedNotice}</p>
+          <p className="text-caption text-foreground mt-2 text-center">{skippedNotice}</p>
         )}
 
         {pendingFiles.length > 0 && (
@@ -1058,7 +1058,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               {[0, 1, 2, 3, 4, 5, 6].map((i) => (
                 <div
                   key={i}
-                  className="w-[3px] rounded-full bg-primary/40 dark:bg-primary/50 origin-bottom"
+                  className="w-[3px] rounded-full bg-muted-foreground origin-bottom"
                   style={{
                     height: "100%",
                     animation: `waveform-bar ${0.8 + i * 0.12}s ease-in-out infinite`,
@@ -1071,7 +1071,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
             <div className="w-full max-w-[200px] h-[3px] rounded-full bg-foreground/5 dark:bg-white/5 overflow-hidden mb-3">
               <div
                 className={cn(
-                  "h-full rounded-full bg-primary/50 transition-[width] duration-500 ease-out",
+                  "h-full rounded-full bg-muted-foreground transition-[width] duration-500 ease-out",
                   // Percent 0 = size unknown (no content-length): pulse instead
                   // of sitting on an empty bar.
                   (downloadProgress.stage !== "downloading" || !downloadProgress.percent) &&
@@ -1086,14 +1086,14 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               />
             </div>
 
-            <p className="text-xs text-foreground/50 font-medium">
+            <p className="text-caption text-muted-foreground font-medium">
               {downloadProgress.stage === "resolving"
                 ? t("notes.upload.urlResolving")
                 : t("notes.upload.urlDownloading")}
             </p>
 
             {downloadProgress.title && (
-              <p dir="auto" className="text-xs text-foreground/45 mt-1 truncate max-w-50">
+              <p dir="auto" className="text-caption text-muted-foreground mt-1 truncate max-w-50">
                 {downloadProgress.title}
               </p>
             )}
@@ -1102,7 +1102,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               variant="ghost"
               size="sm"
               onClick={handleCancelDownload}
-              className="mt-3 h-7 text-xs text-foreground/45"
+              className="mt-3 h-7 text-caption text-muted-foreground"
             >
               {t("notes.upload.urlCancelDownload")}
             </Button>
@@ -1268,7 +1268,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
             <DialogTitle>{t("notes.upload.newFolder")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground/50">
+            <label className="text-caption font-medium text-muted-foreground">
               {t("notes.upload.folderName")}
             </label>
             <Input
@@ -1432,8 +1432,8 @@ function SelectedView({
     <div>
       <div className="rounded-lg border border-foreground/8 dark:border-white/10 bg-surface-1/40 dark:bg-white/[0.03] backdrop-blur-sm p-4 mb-3">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-[8px] bg-primary/8 dark:bg-primary/12 border border-primary/10 dark:border-primary/15 flex items-center justify-center shrink-0">
-            <FileAudio size={15} className="text-primary/60" />
+          <div className="w-9 h-9 rounded-[8px] bg-foreground/5 dark:bg-foreground/5 border border-border dark:border-border flex items-center justify-center shrink-0">
+            <FileAudio size={15} className="text-link" />
           </div>
           <div className="min-w-0 flex-1">
             <p dir="ltr" className="text-xs text-foreground truncate font-medium">
@@ -1469,7 +1469,7 @@ function SelectedView({
 
       {/* BYOK file too large — shared explanation */}
       {byokTooLarge && (
-        <div className="rounded-lg border border-primary/12 dark:border-primary/15 bg-primary/[0.03] px-3 py-2.5 mb-3">
+        <div className="rounded-lg border border-border dark:border-border bg-foreground/5 px-3 py-2.5 mb-3">
           <p className="text-xs text-muted-foreground leading-relaxed">
             {t("notes.upload.byokTooLarge", { size: byokMaxFileSizeMb })}
           </p>
@@ -1547,7 +1547,7 @@ function TranscribingView({
         {[0, 1, 2, 3, 4, 5, 6].map((i) => (
           <div
             key={i}
-            className="w-[3px] rounded-full bg-primary/40 dark:bg-primary/50 origin-bottom"
+            className="w-[3px] rounded-full bg-muted-foreground origin-bottom"
             style={{
               height: "100%",
               animation: `waveform-bar ${0.8 + i * 0.12}s ease-in-out infinite`,
@@ -1559,14 +1559,14 @@ function TranscribingView({
 
       <div className="w-full max-w-[200px] h-[3px] rounded-full bg-foreground/5 dark:bg-white/5 overflow-hidden mb-3">
         <div
-          className="h-full rounded-full bg-primary/50 transition-[width] duration-500 ease-out"
+          className="h-full rounded-full bg-muted-foreground transition-[width] duration-500 ease-out"
           style={{ width: `${Math.min(progress, 100)}%` }}
         />
       </div>
 
-      <p className="text-xs text-foreground/50 font-medium">{getTranscribingLabel()}</p>
+      <p className="text-caption text-muted-foreground font-medium">{getTranscribingLabel()}</p>
       {hasChunkInfo ? (
-        <p className="text-xs text-foreground/45 mt-1">
+        <p className="text-caption text-muted-foreground mt-1">
           {t("notes.upload.chunkProgress", {
             completed: chunkProgress.chunksCompleted,
             total: chunkProgress.chunksTotal,
@@ -1574,7 +1574,7 @@ function TranscribingView({
         </p>
       ) : null}
       {!hasChunkInfo && file ? (
-        <p dir="ltr" className="text-xs text-foreground/45 mt-1 truncate max-w-50">
+        <p dir="ltr" className="text-caption text-muted-foreground mt-1 truncate max-w-50">
           {file.name}
         </p>
       ) : null}
@@ -1582,7 +1582,7 @@ function TranscribingView({
         variant="ghost"
         size="sm"
         onClick={onCancel}
-        className="h-7 text-xs text-foreground/45 mt-4"
+        className="h-7 text-caption text-muted-foreground mt-4"
       >
         {t("notes.upload.cancelTranscription")}
       </Button>
@@ -1609,9 +1609,9 @@ function FolderSelect({
 }: FolderSelectProps) {
   return (
     <div className={cn("flex items-center justify-center gap-2", className)}>
-      <FolderOpen size={12} className="text-foreground/45 shrink-0" />
+      <FolderOpen size={12} className="text-muted-foreground shrink-0" />
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-7 w-44 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
+        <SelectTrigger className="focus-visible:ring-2 focus-visible:ring-ring focus:ring-2 focus:ring-ring dark:focus:ring-ring h-7 w-44 text-caption rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
           <SelectValue placeholder={t("notes.upload.selectFolder")} />
         </SelectTrigger>
         <SelectContent>
@@ -1627,7 +1627,7 @@ function FolderSelect({
                 <span className="flex items-center gap-1.5">
                   <span dir="auto">{f.name}</span>
                   {isMeetings && (
-                    <span className="text-[8px] uppercase tracking-wider text-foreground/45 font-medium">
+                    <span className="text-caption uppercase tracking-wider text-muted-foreground font-medium">
                       {t("notes.folders.soon")}
                     </span>
                   )}
@@ -1639,7 +1639,7 @@ function FolderSelect({
             <>
               <SelectSeparator />
               <SelectItem value="__create_new__" className="text-xs py-1.5 ps-2.5 pe-7 rounded-md">
-                <span className="flex items-center gap-1.5 text-primary/60">
+                <span className="flex items-center gap-1.5 text-link">
                   <Plus size={11} />
                   {t("notes.upload.newFolder")}
                 </span>
@@ -1717,10 +1717,10 @@ function CompleteView({
         </div>
       </div>
 
-      <p className="text-xs text-foreground/60 font-medium mb-1">
+      <p className="text-caption text-muted-foreground font-medium mb-1">
         {t("notes.upload.transcriptionComplete")}
       </p>
-      <p className="text-xs text-foreground/45 max-w-[240px] text-center line-clamp-2 mb-4">
+      <p className="text-caption text-muted-foreground max-w-[240px] text-center line-clamp-2 mb-4">
         {result.slice(0, 150)}
       </p>
 
@@ -1758,7 +1758,7 @@ function CompleteView({
           variant="ghost"
           size="sm"
           onClick={reset}
-          className="h-8 text-xs text-foreground/45"
+          className="h-8 text-caption text-muted-foreground"
         >
           {t("notes.upload.uploadAnother")}
         </Button>

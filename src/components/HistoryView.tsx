@@ -1,3 +1,4 @@
+import { DataRetentionNotice } from "./ui/DataRetentionNotice";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLiveClock, type CaptureStatusModel } from "../hooks/useCaptureStatus";
@@ -265,7 +266,7 @@ export default function HistoryView({
         onTakeNotes={() => next && startMeetingNotes(next.event)}
       />
       {!useCleanupModel && !aiCTADismissed && (
-        <div className="mb-3 relative rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/10 p-3">
+        <div className="mb-3 relative rounded-lg border border-border bg-foreground/5 dark:bg-foreground/5 p-3">
           <button
             onClick={() => {
               localStorage.setItem("aiCTADismissed", "true");
@@ -277,8 +278,8 @@ export default function HistoryView({
             <X size={14} />
           </button>
           <div className="flex items-start gap-3 pe-6">
-            <div className="shrink-0 w-8 h-8 rounded-md bg-primary/10 dark:bg-primary/20 flex items-center justify-center">
-              <Sparkles size={16} className="text-primary" />
+            <div className="shrink-0 w-8 h-8 rounded-md bg-ai/12 border border-ai/30 flex items-center justify-center">
+              <Sparkles size={16} className="text-ai" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-foreground mb-0.5">
@@ -303,12 +304,10 @@ export default function HistoryView({
       <div className="flex gap-8">
         <div className="min-w-0 flex-1">
           {!dataRetentionEnabled && (
-            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10 px-3.5 py-2.5 flex items-center gap-2.5">
-              <span className="text-amber-600 dark:text-amber-400 shrink-0 text-sm">⊘</span>
-              <p className="text-xs text-amber-700 dark:text-amber-300/90 leading-relaxed">
-                {t("controlPanel.history.dataRetentionDisabled")}
-              </p>
-            </div>
+            <DataRetentionNotice
+              className="mb-3"
+              messageKey="controlPanel.history.dataRetentionDisabled"
+            />
           )}
           <HistoryToolbar
             query={query}
@@ -344,7 +343,7 @@ export default function HistoryView({
           {isLoading && history.length === 0 ? (
             <div className="rounded-2xl border border-border/70 bg-card/50 dark:border-white/10 dark:bg-surface-2/60">
               <div className="flex items-center justify-center gap-2 py-10">
-                <Loader2 size={14} className="animate-spin text-primary" />
+                <Loader2 size={14} className="animate-spin text-link" />
                 <span className="text-sm text-muted-foreground">{t("controlPanel.loading")}</span>
               </div>
             </div>
@@ -375,8 +374,8 @@ export default function HistoryView({
                   <span dir="ltr" className="inline-flex items-center gap-1">
                     {parseHotkeyList(hotkey).map((hk, index) => (
                       <Fragment key={hk}>
-                        {index > 0 && <span className="text-foreground/45">/</span>}
-                        <kbd className="rounded-md bg-background px-1.5 py-px font-sans text-[11px] font-medium text-foreground/80 shadow-sm dark:bg-surface-2">
+                        {index > 0 && <span className="text-muted-foreground">/</span>}
+                        <kbd className="rounded-md bg-background px-1.5 py-px font-sans text-micro font-medium text-foreground/80 shadow-sm dark:bg-surface-2">
                           {formatHotkeyLabel(hk)}
                         </kbd>
                       </Fragment>

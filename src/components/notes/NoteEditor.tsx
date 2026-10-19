@@ -63,7 +63,7 @@ import {
 } from "./shared";
 
 const SEGMENT_BUTTON_CLASS =
-  "relative z-1 flex h-[26px] items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors duration-150";
+  "focus-visible:ring-2 focus-visible:ring-ring relative z-1 flex h-[26px] items-center gap-1.5 rounded-full px-2.5 text-caption font-medium transition-colors duration-150";
 
 const TRANSCRIPT_EXPORT_LABEL_KEYS = {
   txt: "notes.editor.asTranscriptText",
@@ -702,7 +702,7 @@ export default function NoteEditor({
             role="textbox"
             aria-label={t("notes.editor.noteTitle")}
           />
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2 [&_button]:focus-visible:ring-2! [&_button]:focus-visible:ring-ring!">
             <NoteParticipants
               noteId={note.id}
               participants={parsedParticipants}
@@ -711,14 +711,14 @@ export default function NoteEditor({
             />
             {calendarEventName && (
               <span className={cn(NOTE_META_CHIP_CLASS, "cursor-default")}>
-                <LinkIcon size={14} className="shrink-0 text-foreground/60" />
+                <LinkIcon size={14} className="shrink-0 text-muted-foreground" />
                 <span className="max-w-40 truncate">{calendarEventName}</span>
               </span>
             )}
 
             {folders && onMoveToFolder && !canMoveToFolders && folderName && (
               <span className={cn(NOTE_META_CHIP_CLASS, "cursor-default")}>
-                <FolderOpen size={14} className="shrink-0 text-foreground/60" />
+                <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
                 <span dir="auto">{folderName}</span>
               </span>
             )}
@@ -733,8 +733,13 @@ export default function NoteEditor({
                 }}
               >
                 <DropdownMenuTrigger asChild>
-                  <button className={NOTE_META_CHIP_CLASS}>
-                    <FolderOpen size={14} className="shrink-0 text-foreground/60" />
+                  <button
+                    className={cn(
+                      NOTE_META_CHIP_CLASS,
+                      "focus-visible:ring-2 focus-visible:ring-ring"
+                    )}
+                  >
+                    <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
                     {folderName ? <span dir="auto">{folderName}</span> : t("notes.editor.noFolder")}
                   </button>
                 </DropdownMenuTrigger>
@@ -744,7 +749,7 @@ export default function NoteEditor({
                       <div className="relative px-1.5 py-0.5">
                         <Search
                           size={9}
-                          className="absolute start-3.5 top-1/2 -translate-y-1/2 text-foreground/45 pointer-events-none"
+                          className="absolute start-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
                         />
                         <input
                           dir="auto"
@@ -752,7 +757,7 @@ export default function NoteEditor({
                           onChange={(e) => setFolderSearch(e.target.value)}
                           onKeyDown={(e) => e.stopPropagation()}
                           placeholder={t("notes.context.searchFolders")}
-                          className="input-inline w-full ps-4.5 pe-1 py-0.5 text-xs text-foreground placeholder:text-foreground/45 outline-none border-none appearance-none"
+                          className="focus-visible:ring-2 focus-visible:ring-ring input-inline w-full ps-4.5 pe-1 py-0.5 text-caption text-foreground placeholder:text-muted-foreground outline-none border-none appearance-none"
                         />
                       </div>
                       <DropdownMenuSeparator />
@@ -766,18 +771,18 @@ export default function NoteEditor({
                           key={folder.id}
                           disabled={isCurrent}
                           onClick={() => onMoveToFolder(note.id, folder.id)}
-                          className="text-xs gap-2 rounded-md px-2 py-1.5"
+                          className="focus-visible:ring-2 focus-visible:ring-ring text-caption gap-2 rounded-md px-2 py-1.5"
                         >
-                          <FolderOpen size={11} className="text-foreground/45 shrink-0" />
+                          <FolderOpen size={11} className="text-muted-foreground shrink-0" />
                           <span dir="auto" className="truncate flex-1">
                             {defaultFolderDisplayName(folder, t)}
                           </span>
-                          {isCurrent && <Check size={9} className="text-primary shrink-0" />}
+                          {isCurrent && <Check size={9} className="text-link shrink-0" />}
                         </DropdownMenuItem>
                       );
                     })}
                     {folderSearch && filteredFolders.length === 0 && (
-                      <p className="text-xs text-foreground/45 text-center py-1.5">
+                      <p className="text-caption text-muted-foreground text-center py-1.5">
                         {t("notes.context.noResults")}
                       </p>
                     )}
@@ -805,7 +810,7 @@ export default function NoteEditor({
                               }
                             }}
                             placeholder={t("notes.folders.folderName")}
-                            className="input-inline w-full px-2 py-1.5 rounded-md bg-transparent text-xs text-foreground placeholder:text-foreground/45 outline-none border-none appearance-none"
+                            className="focus-visible:ring-2 focus-visible:ring-ring input-inline w-full px-2 py-1.5 rounded-md bg-transparent text-caption text-foreground placeholder:text-muted-foreground outline-none border-none appearance-none"
                           />
                         </div>
                       ) : (
@@ -814,7 +819,7 @@ export default function NoteEditor({
                             e.preventDefault();
                             setIsCreatingFolder(true);
                           }}
-                          className="text-xs gap-2 rounded-md px-2 py-1.5 text-foreground/45"
+                          className="focus-visible:ring-2 focus-visible:ring-ring text-caption gap-2 rounded-md px-2 py-1.5 text-muted-foreground"
                         >
                           <Plus size={10} />
                           {t("notes.context.newFolder")}
@@ -827,7 +832,7 @@ export default function NoteEditor({
             )}
 
             {isSaving && (
-              <span className="inline-flex items-center gap-1 text-xs text-foreground/45 tabular-nums">
+              <span className="inline-flex items-center gap-1 text-caption text-muted-foreground tabular-nums">
                 <Loader2 size={10} className="animate-spin" />
                 {t("notes.editor.saving")}
               </span>
@@ -851,7 +856,7 @@ export default function NoteEditor({
                     SEGMENT_BUTTON_CLASS,
                     viewMode === "transcript"
                       ? "text-foreground"
-                      : "text-foreground/60 hover:text-foreground/80"
+                      : "text-muted-foreground hover:text-foreground/80"
                   )}
                 >
                   {isRecording ? <RecordingWave /> : <MessageSquareText size={12} />}
@@ -865,7 +870,7 @@ export default function NoteEditor({
                     SEGMENT_BUTTON_CLASS,
                     viewMode === "raw"
                       ? "text-foreground"
-                      : "text-foreground/60 hover:text-foreground/80"
+                      : "text-muted-foreground hover:text-foreground/80"
                   )}
                 >
                   <AlignLeft size={12} />
@@ -880,14 +885,14 @@ export default function NoteEditor({
                       SEGMENT_BUTTON_CLASS,
                       viewMode === "enhanced"
                         ? "text-foreground"
-                        : "text-foreground/60 hover:text-foreground/80"
+                        : "text-muted-foreground hover:text-foreground/80"
                     )}
                   >
                     <Sparkles size={12} />
                     {t("notes.editor.aiSummary")}
                     {enhancement.isStale && (
                       <span
-                        className="h-1 w-1 rounded-full bg-amber-400/60"
+                        className="h-1 w-1 rounded-full bg-warning"
                         title={t("notes.editor.staleIndicator")}
                       />
                     )}
@@ -910,7 +915,7 @@ export default function NoteEditor({
                   <button
                     key={option.id}
                     onClick={option.onSelect}
-                    className="px-2 py-1 text-xs rounded border hover:bg-accent"
+                    className="focus-visible:ring-2 focus-visible:ring-ring px-2 py-1 text-caption rounded border hover:bg-accent"
                   >
                     {option.label}
                   </button>
@@ -1034,8 +1039,12 @@ export default function NoteEditor({
             actionPicker={isRecording || !canEditNote ? undefined : actionPicker}
             callout={
               showSummaryCallout && (
-                <Button className="h-9 gap-2 px-4 text-sm" onClick={onGenerateSummary}>
-                  <AlignLeft size={16} />
+                <Button
+                  variant="secondary"
+                  className="h-9 gap-2 px-4 text-ui"
+                  onClick={onGenerateSummary}
+                >
+                  <AlignLeft size={16} className="text-ai" />
                   {t("notes.editor.generateSummary")}
                 </Button>
               )

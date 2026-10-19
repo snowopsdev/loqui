@@ -860,10 +860,10 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                   activeView === "home" &&
                   !gpuBannerDismissed && (
                     <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 mb-3")}>
-                      <div className="rounded-lg border border-primary/20 dark:border-primary/15 bg-primary/5 p-3">
+                      <div className="rounded-lg border border-border dark:border-border bg-foreground/5 p-3">
                         <div className="flex items-start gap-3">
-                          <div className="shrink-0 w-8 h-8 rounded-md bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
-                            <Zap size={16} className="text-primary" />
+                          <div className="shrink-0 w-8 h-8 rounded-md bg-ai/12 border border-ai/30 flex items-center justify-center">
+                            <Zap size={16} className="text-ai" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium text-foreground mb-0.5">
@@ -895,7 +895,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                                   setGpuBannerDismissed(true);
                                   localStorage.setItem("gpuBannerDismissedUnified", "true");
                                 }}
-                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                className="focus-visible:ring-2 focus-visible:ring-ring text-caption text-muted-foreground hover:text-foreground transition-colors"
                               >
                                 {t("controlPanel.gpu.dismissButton")}
                               </button>

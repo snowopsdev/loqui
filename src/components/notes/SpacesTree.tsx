@@ -204,7 +204,7 @@ export default function SpacesTree({
   return (
     <div className="px-2 py-3 text-sm">
       <div
-        className={`group flex items-center rounded-md ${dragState.dragOverKey === rootKey ? "bg-primary/10" : ""}`}
+        className={`group flex items-center rounded-md ${dragState.dragOverKey === rootKey ? "bg-foreground/5" : ""}`}
         {...dropTargetHandlers({ spaceId: space.id, folderId: null })}
       >
         <button
@@ -255,7 +255,7 @@ export default function SpacesTree({
             return (
               <div key={folder.id}>
                 <div
-                  className={`group flex items-center rounded-md ${dragState.dragOverKey === key ? "bg-primary/10" : context?.folderId === folder.id ? "bg-primary/8" : "hover:bg-accent"}`}
+                  className={`group flex items-center rounded-md ${dragState.dragOverKey === key ? "bg-foreground/5" : context?.folderId === folder.id ? "bg-foreground/5" : "hover:bg-accent"}`}
                   {...dropTargetHandlers({
                     spaceId: space.id,
                     folderId: folder.id,

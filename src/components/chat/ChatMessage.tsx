@@ -124,27 +124,27 @@ function ToolCallStep({
           size={12}
           className={cn(
             "shrink-0 transition-colors duration-300",
-            isExecuting && "text-primary/70",
-            isCompleted && !isError && !isClipboard && "text-muted-foreground/70",
+            isExecuting && "text-link",
+            isCompleted && !isError && !isClipboard && "text-muted-foreground",
             isClipboard && "text-emerald-500/70",
             isError && "text-destructive/60"
           )}
         />
 
         {isExecuting ? (
-          <span className="text-[11px] text-muted-foreground/80">
+          <span className="text-caption text-muted-foreground">
             {t(`agentMode.tools.${toolCall.name}Status`, { defaultValue: toolCall.name })}
           </span>
         ) : isError ? (
           <div className="flex items-center gap-1">
             <CircleAlert size={10} className="text-destructive/60 shrink-0" />
-            <span className="text-[11px] text-destructive/70">
+            <span className="text-caption text-destructive">
               {toolCall.result || toolCall.name}
             </span>
           </div>
         ) : isClipboard ? (
           <div className="flex items-center gap-1">
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400/80">
+            <span className="text-caption text-muted-foreground">
               {t("agentMode.tools.copiedToClipboard")}
             </span>
             <Check
@@ -154,7 +154,7 @@ function ToolCallStep({
             />
           </div>
         ) : (
-          <span className="text-[11px] text-muted-foreground/70">
+          <span className="text-caption text-muted-foreground">
             {toolCall.result || toolCall.name}
           </span>
         )}
@@ -163,7 +163,7 @@ function ToolCallStep({
           <ChevronDown
             size={10}
             className={cn(
-              "ms-auto text-muted-foreground/70 shrink-0 transition-transform duration-200",
+              "ms-auto text-muted-foreground shrink-0 transition-transform duration-200",
               expanded && "rotate-180"
             )}
           />
@@ -177,7 +177,7 @@ function ToolCallStep({
         >
           <pre
             dir="ltr"
-            className="text-[10px] text-muted-foreground/70 px-2.5 pb-1.5 whitespace-pre-wrap leading-tight"
+            className="text-caption text-muted-foreground px-2.5 pb-1.5 whitespace-pre-wrap leading-tight"
           >
             {toolCall.result}
           </pre>
@@ -204,26 +204,27 @@ function NoteCard({
         onOpenNote ? onOpenNote(noteId) : window.electronAPI?.agentOpenNote?.(noteId)
       }
       className={cn(
+        "focus-visible:ring-2 focus-visible:ring-ring",
         "flex items-center gap-2 w-full mt-2 px-2.5 py-2 rounded-md",
-        "bg-primary/6 border border-primary/12",
-        "hover:bg-primary/10 hover:border-primary/20",
+        "bg-foreground/5 border border-border",
+        "hover:bg-foreground/5 hover:border-border",
         "active:scale-[0.99]",
         "transition-all duration-150",
         "text-start group/note"
       )}
     >
-      <div className={cn("shrink-0 p-1 rounded", "bg-primary/10")}>
-        <FileText size={12} className="text-primary/70" />
+      <div className={cn("shrink-0 p-1 rounded", "bg-foreground/5")}>
+        <FileText size={12} className="text-link" />
       </div>
       <div className="min-w-0 flex-1">
-        <p dir="auto" className="text-[12px] font-medium text-foreground truncate">
+        <p dir="auto" className="text-caption font-medium text-foreground truncate">
           {title}
         </p>
-        <p className="text-[10px] text-muted-foreground/70">{t("agentMode.tools.openNote")}</p>
+        <p className="text-caption text-muted-foreground">{t("agentMode.tools.openNote")}</p>
       </div>
       <ChevronRight
         size={12}
-        className="text-muted-foreground/70 group-hover/note:text-primary/50 shrink-0 transition-colors duration-150 rtl:rotate-180"
+        className="text-muted-foreground group-hover/note:text-link shrink-0 transition-colors duration-150 rtl:rotate-180"
       />
     </button>
   );
@@ -337,8 +338,8 @@ export function ChatMessage({
           data-chat-bubble
           className={cn(
             "max-w-[80%] px-3 py-2 rounded-lg rounded-ee-sm",
-            "bg-primary/90 text-primary-foreground",
-            "text-[13px] leading-relaxed"
+            "bg-secondary text-foreground",
+            "text-ui leading-relaxed"
           )}
         >
           <span dir="auto">{content}</span>
@@ -431,7 +432,7 @@ export function ChatMessage({
         className={cn(
           "max-w-[85%] px-3 py-2 rounded-lg rounded-es-sm",
           "bg-surface-1 border border-border/70 text-foreground",
-          "text-[13px] leading-relaxed"
+          "text-ui leading-relaxed"
         )}
       >
         {hasToolCalls && (
@@ -449,7 +450,7 @@ export function ChatMessage({
         {hasContent && (
           <MarkdownRenderer
             content={content}
-            className="text-[13px] leading-relaxed [&_p]:text-[13px] [&_li]:text-[13px]"
+            className="text-ui leading-relaxed [&_p]:text-ui [&_li]:text-ui"
           />
         )}
 
@@ -461,7 +462,7 @@ export function ChatMessage({
         )}
 
         {isStreaming && !hasContent && !hasToolCalls && (
-          <span className="text-[13px] font-medium select-none thinking-shimmer-text">
+          <span className="text-ui font-medium select-none thinking-shimmer-text">
             {t("agentMode.input.thinking")}...
           </span>
         )}
@@ -485,9 +486,9 @@ export function ChatMessage({
               onClick={handleCopy}
               className={cn(
                 "p-1 rounded-sm",
-                "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/8",
-                "opacity-0 group-hover/msg:opacity-100 transition-all duration-150",
-                "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
+                "text-muted-foreground hover:text-foreground hover:bg-foreground/8",
+                "opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 transition-all duration-150",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               )}
             >
               {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}

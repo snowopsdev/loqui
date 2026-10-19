@@ -1,3 +1,4 @@
+import { DataRetentionNotice } from "./ui/DataRetentionNotice";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { BarChart3, Flame, Gauge, Loader2, Mic2 } from "./icons";
@@ -262,7 +263,7 @@ function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) 
           <button
             type="button"
             onClick={() => void load()}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+            className="focus-visible:ring-2 focus-visible:ring-ring rounded-md border border-border px-3 py-1.5 text-caption font-medium text-foreground hover:bg-accent"
           >
             {t("common.retry")}
           </button>
@@ -275,7 +276,7 @@ function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) 
     return (
       <div className="rounded-lg border border-border bg-card/50 backdrop-blur-sm dark:bg-card/60">
         <div className="flex items-center justify-center gap-2 py-8">
-          <Loader2 size={14} className="animate-spin text-primary" />
+          <Loader2 size={14} className="animate-spin text-link" />
           <span className="text-sm text-muted-foreground">{t("controlPanel.loading")}</span>
         </div>
       </div>
@@ -285,18 +286,13 @@ function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) 
   return (
     <>
       {!dataRetentionEnabled && (
-        <div className="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10 px-3.5 py-2.5 flex items-center gap-2.5">
-          <span className="text-amber-600 dark:text-amber-400 shrink-0 text-sm">⊘</span>
-          <p className="text-xs text-amber-700 dark:text-amber-300/90 leading-relaxed">
-            {t("insights.dataRetentionDisabled")}
-          </p>
-        </div>
+        <DataRetentionNotice className="mb-5" messageKey="insights.dataRetentionDisabled" />
       )}
 
       {summary.totalDictations === 0 ? (
         <div className="rounded-lg border border-border bg-card/50 backdrop-blur-sm dark:bg-card/60">
           <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-            <BarChart3 size={40} className="mb-4 text-foreground/45" aria-hidden="true" />
+            <BarChart3 size={40} className="mb-4 text-muted-foreground" aria-hidden="true" />
             <h2 className="text-sm font-medium text-foreground">{t("insights.emptyTitle")}</h2>
             <p className="mt-1.5 max-w-sm text-xs text-muted-foreground">
               {t("insights.emptyBody")}

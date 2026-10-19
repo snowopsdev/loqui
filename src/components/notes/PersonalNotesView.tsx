@@ -902,17 +902,17 @@ export default function PersonalNotesView({
             </svg>
             {notes.length === 0 ? (
               <>
-                <h3 className="text-xs font-semibold text-foreground/60 mb-1">
+                <h3 className="text-caption font-semibold text-muted-foreground mb-1">
                   {t(notesEmptyTitleKey(activeFolderId != null))}
                 </h3>
-                <p className="text-xs text-foreground/50 dark:text-foreground/45 text-center max-w-55 mb-4">
+                <p className="text-caption text-muted-foreground dark:text-muted-foreground text-center max-w-55 mb-4">
                   {t("notes.empty.description")}
                 </p>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => void createNote()}
-                    className="flex items-center gap-1.5 px-4 h-7 rounded-md bg-primary/8 dark:bg-primary/10 border border-primary/12 dark:border-primary/15 text-xs font-medium text-primary/70 hover:bg-primary/12 hover:text-primary hover:border-primary/20 transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex items-center gap-1.5 px-4 h-7 rounded-md bg-foreground/5 dark:bg-foreground/5 border border-border dark:border-border text-caption font-medium text-foreground hover:bg-foreground/5 hover:text-foreground hover:border-border transition-colors focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <Plus size={11} />
                     {t("notes.empty.createNote")}
@@ -922,7 +922,7 @@ export default function PersonalNotesView({
                   {activeFolderId != null && (
                     <button
                       onClick={() => setShowAddNotesDialog(true)}
-                      className="flex items-center gap-1.5 px-4 h-7 rounded-md border border-foreground/8 dark:border-white/10 text-xs text-foreground/45 hover:text-foreground/60 hover:border-foreground/15 hover:bg-foreground/3 dark:hover:bg-white/3 transition-colors"
+                      className="focus-visible:ring-2 focus-visible:ring-ring flex items-center gap-1.5 px-4 h-7 rounded-md border border-foreground/8 dark:border-white/10 text-caption text-muted-foreground hover:text-muted-foreground hover:border-foreground/15 hover:bg-foreground/3 dark:hover:bg-white/3 transition-colors"
                     >
                       {t("notes.addToFolder.addExisting")}
                     </button>
@@ -931,10 +931,10 @@ export default function PersonalNotesView({
               </>
             ) : (
               <>
-                <h3 className="text-xs font-semibold text-foreground/60 mb-1">
+                <h3 className="text-caption font-semibold text-muted-foreground mb-1">
                   {t("notes.empty.selectTitle")}
                 </h3>
-                <p className="text-xs text-foreground/50 dark:text-foreground/45 text-center max-w-50">
+                <p className="text-caption text-muted-foreground dark:text-muted-foreground text-center max-w-50">
                   {t("notes.empty.selectDescription")}
                 </p>
               </>

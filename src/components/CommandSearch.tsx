@@ -478,7 +478,7 @@ export default function CommandSearch({
           <div ref={listRef} className="overflow-y-auto max-h-[340px] p-1.5">
             {!hasResults ? (
               <div className="flex items-center justify-center py-10">
-                <p className="text-xs text-muted-foreground/70">
+                <p className="text-caption text-muted-foreground">
                   {query.trim()
                     ? t("commandSearch.noResults")
                     : isConversationsMode
@@ -497,7 +497,7 @@ export default function CommandSearch({
                   className={cn(
                     "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-start transition-colors duration-100 outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     selectedIndex === idx
-                      ? "bg-primary/8 dark:bg-primary/10"
+                      ? "bg-foreground/5 dark:bg-foreground/5"
                       : "hover:bg-foreground/4 dark:hover:bg-white/4"
                   )}
                 >
@@ -505,7 +505,7 @@ export default function CommandSearch({
                     size={13}
                     className={cn(
                       "shrink-0 mt-px transition-colors",
-                      selectedIndex === idx ? "text-primary" : "text-muted-foreground/70"
+                      selectedIndex === idx ? "text-link" : "text-muted-foreground"
                     )}
                   />
                   <div className="flex-1 min-w-0">
@@ -513,12 +513,12 @@ export default function CommandSearch({
                       {conv.title}
                     </p>
                     {conv.last_message && (
-                      <p dir="auto" className="text-[11px] text-muted-foreground/55 truncate mt-px">
+                      <p dir="auto" className="text-caption text-muted-foreground truncate mt-px">
                         {conv.last_message.slice(0, 90)}
                       </p>
                     )}
                   </div>
-                  <span className="text-[10px] text-muted-foreground/70 tabular-nums shrink-0">
+                  <span className="text-caption text-muted-foreground tabular-nums shrink-0">
                     {formatRelativeTime(conv.updated_at, t, locale)}
                   </span>
                 </button>

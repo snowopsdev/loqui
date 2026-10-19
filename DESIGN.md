@@ -402,6 +402,9 @@ separate from these presentational components.
 
 ### Do:
 
+- **Do** use the UI ramp utilities (`text-micro` through `text-display`) in workspace components. Arbitrary `text-[Npx]` sizes fail `workspaceTokenAdoption.test.js`; Tailwind's standard sizes (`text-sm`, `text-xs`) are not flagged and migrate to the ramp when a file is touched.
+- **Do** show metadata at full `text-muted-foreground`; hierarchy comes from size and weight, not opacity.
+
 - **Do** use the ink CTA for everyday actions, Signal Orange for live voice, and the deeper orange nav marker for current navigation state in the light theme; in Plum Night, magenta marks current navigation.
 - **Do** use Electric Fuchsia as a supporting accent, keeping the two roles distinct.
 - **Do** preserve the Plum Night surface steps and soft rims when adding dark-theme surfaces.
@@ -409,6 +412,11 @@ separate from these presentational components.
 - **Do** adapt window controls and traffic-light clearance to the host OS while keeping the shared React interface coherent.
 
 ### Don't:
+
+- **Don't** fill non-voice surfaces with orange or tint them with `primary`; orange means live voice (D1). Notes, chips and CTAs are ink or neutral.
+- **Don't** use text glyphs (⊘, ✕) as status icons; use the Lucide icon with a token colour and a word.
+- **Don't** put a leading icon on a default (ink) Button; its brand dot already leads. Icon buttons are `live` (voice) or `secondary`/`outline`.
+- **Don't** show `providerDisplayName` output in the UI; name providers with `providerDisplayLabel(providerId, t)` so custom endpoints and unknown providers are localised.
 
 - **Don't** drift into generic AI-dashboard styling or decorative marketing-page chrome.
 - **Don't** swap orange and fuchsia roles or make both accents compete for the live-voice signal.
@@ -466,3 +474,13 @@ aria-disabled and the cursor convey availability. Changed native controls have
 full opaque two-pixel focus rings. Drag feedback uses neutral ink and an opaque
 border pulse only during an enabled active drag, timed by shared motion tokens.
 Reduced motion keeps a static border and colour, with no transform or loop.
+
+### Workspace contrast and validation policy
+
+Home and Insights share `DataRetentionNotice`: existing translated retention copy uses foreground text at the 13px UI step, with a warning glyph and warning frame. Warning colour supports the icon, not small readable text. AI glyphs retain the AI accent; small AI labels use `text-ai-text`. Everyday actions stay neutral; recording controls use `live`.
+
+The published workspace token guard retains its scoped file list and same-line reasoned opt-outs. Missing native focus rings and faded ancestors require a separate audit: the regex guard alone cannot certify accessibility. Native controls use an opaque 2px focus ring, hover-revealed actions remain visible with keyboard focus, and explanatory disabled text stays unfaded. Composite editor options retain their existing keyboard ownership.
+
+Root ESLint intentionally excludes retained nonproduct QA evidence in `.superpowers/**` and generated `**/browser-vite-cache/**` directories. Authored lookalike filenames outside QA, including `test/fixtures/browser-vite-cache-authored.js`, and ordinary test guards remain linted. The policy regression uses the real ESLint configuration and verifies `no-undef` on authored source.
+
+Dictionary's header keeps the shared Toggle and existing action order. Caller-scoped styles make its track neutral in both states, retain a distinguishable thumb and boundary, and override the inherited translucent ring with an opaque 2px ring. Shared Toggle behavior and styling elsewhere are unchanged.

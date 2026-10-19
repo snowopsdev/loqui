@@ -25,7 +25,7 @@ export function ChatModelChip({ route, onOpenSettings }: ChatModelChipProps) {
     >
       <RouteDestinationChip
         route={route}
-        className="h-auto min-w-0 text-caption [&_.locality-ring>span]:text-[12px]!"
+        className="h-auto min-w-0 text-caption [&_.locality-ring>span]:text-caption!"
       />
       {route.state.status !== "ready" && (
         <RouteStateChip state={route.state} className="h-auto shrink-0 px-0 text-caption" />
@@ -39,7 +39,7 @@ export function RouteTag({ route }: { route: MessageRoute }) {
   return (
     <RouteDestinationChip
       route={route}
-      className="h-auto text-caption text-muted-foreground [&_.locality-ring>span]:text-[12px]!"
+      className="h-auto text-caption text-muted-foreground [&_.locality-ring>span]:text-caption!"
     />
   );
 }

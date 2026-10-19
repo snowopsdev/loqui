@@ -44,7 +44,7 @@ test("next-message destination uses published locality/provider/model labels", a
     assert.match(html, /class="sr-only">Change in Settings</);
     assert.match(html, /data-settings-path="llms\/chatIntelligence"/);
     assert.match(html, /focus-visible:ring-2/);
-    assert.match(html, /locality-ring&gt;span\]:text-\[12px\]/);
+    assert.match(html, /locality-ring&gt;span\]:text-caption!/);
     assert.match(html, /focus-visible:ring-ring/);
     assert.doesNotMatch(html, /ring-ring\/|text-muted-foreground\//);
   }
@@ -73,5 +73,5 @@ test("answer tags use the stored stamp without readiness or current Settings", a
   assert.match(html, /data-locality="device"/);
   assert.ok(html.includes("On this device · Qwen3.5 2B"));
   assert.doesNotMatch(html, /data-state|button/);
-  assert.match(html, /locality-ring&gt;span\]:text-\[12px\]/);
+  assert.match(html, /locality-ring&gt;span\]:text-caption!/);
 });

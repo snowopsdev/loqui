@@ -32,12 +32,12 @@ function formatTimeRange(locale: string, startTime: string, endTime: string): st
 const MAX_STACKED_AVATARS = 2;
 
 const ATTENDEE_COUNT_PILL_CLASS =
-  "flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-surface-3 px-0.5 text-[11px] font-medium tabular-nums text-muted-foreground ring-1 ring-background";
+  "flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-surface-3 px-0.5 text-micro font-medium tabular-nums text-muted-foreground ring-1 ring-background";
 
 const RSVP_DOT: Record<string, string> = {
   accepted: "bg-green-500",
   declined: "bg-red-400",
-  tentative: "bg-amber-400",
+  tentative: "bg-warning",
 };
 
 function AttendeePopover({
@@ -58,7 +58,7 @@ function AttendeePopover({
       <PopoverTrigger asChild>
         <button
           aria-label={`${attendees.length} ${t("notes.participants.attendees")}`}
-          className="flex shrink-0 items-center -space-x-1 rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex shrink-0 items-center -space-x-1 rounded-full outline-none transition-colors duration-(--motion-fast) hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring"
         >
           {attendees.slice(0, MAX_STACKED_AVATARS).map((a) => (
             <PersonAvatar
@@ -81,7 +81,7 @@ function AttendeePopover({
           <p dir="auto" className="text-xs font-medium leading-snug text-foreground">
             {event.summary || t("upcoming.untitledEvent")}
           </p>
-          <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">{timeRange}</p>
+          <p className="mt-0.5 text-caption tabular-nums text-muted-foreground">{timeRange}</p>
         </div>
         <div className="max-h-56 overflow-y-auto p-1">
           {attendees.map((a) => (
@@ -91,10 +91,10 @@ function AttendeePopover({
                 <p dir="auto" className="truncate text-xs text-foreground/80">
                   {a.displayName || a.email.split("@")[0]}
                   {a.self && (
-                    <span className="ms-1 text-foreground/45">{t("notes.participants.me")}</span>
+                    <span className="ms-1 text-muted-foreground">{t("notes.participants.me")}</span>
                   )}
                 </p>
-                <p dir="ltr" className="truncate text-[11px] text-foreground/45">
+                <p dir="ltr" className="truncate text-caption text-muted-foreground">
                   {a.email}
                 </p>
               </div>
@@ -277,7 +277,7 @@ export default function UpcomingMeetings({
       {/* Loading state */}
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-6">
-          <Loader2 size={14} className="animate-spin text-primary" />
+          <Loader2 size={14} className="animate-spin text-link" />
         </div>
       )}
 

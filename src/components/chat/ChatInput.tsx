@@ -39,7 +39,7 @@ function RecordingIndicator() {
   return (
     <div className="relative flex items-center justify-center w-5 h-5 shrink-0">
       <div className="absolute inset-0 rounded-full border-2 border-primary/40 animate-pulse" />
-      <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+      <div className="w-2.5 h-2.5 rounded-full bg-live" />
     </div>
   );
 }
@@ -275,7 +275,7 @@ export function ChatInput({
         {isListening && (
           <>
             <RecordingIndicator />
-            <span className="text-[12px] text-foreground/80 truncate flex-1">
+            <span className="text-caption text-foreground/80 truncate flex-1">
               {/* A live transcript's informative part is its tail — show the
                   latest words once the line fills instead of a frozen start. */}
               {partialTranscript.length > 60
@@ -288,7 +288,7 @@ export function ChatInput({
         {isTranscribing && (
           <>
             <ProcessingIndicator />
-            <span className="text-[12px] text-muted-foreground select-none">
+            <span className="text-caption text-muted-foreground select-none">
               {t("agentMode.input.transcribing")}
             </span>
           </>
@@ -301,7 +301,7 @@ export function ChatInput({
               bars="auto"
               className="flex-1 overflow-hidden"
             />
-            <span className="text-[13px] font-semibold tabular-nums tracking-[0.08em] text-foreground/85 shrink-0">
+            <span className="text-ui font-semibold tabular-nums tracking-[0.08em] text-foreground/85 shrink-0">
               {formatMmSs(voice.elapsed)}
             </span>
             <button
@@ -310,7 +310,7 @@ export function ChatInput({
               title={t("common.cancel")}
               className={cn(
                 "flex items-center justify-center w-7 h-7 rounded-full shrink-0",
-                "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/8",
+                "text-muted-foreground hover:text-foreground hover:bg-foreground/8",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-colors duration-100"
               )}
@@ -338,7 +338,7 @@ export function ChatInput({
         {isVoiceTranscribing && (
           <>
             <ProcessingIndicator />
-            <span className="text-[12px] text-muted-foreground select-none">
+            <span className="text-caption text-muted-foreground select-none">
               {t("agentMode.input.transcribing")}
             </span>
           </>
@@ -366,8 +366,9 @@ export function ChatInput({
               autoFocus={active && autoFocus}
               placeholder={placeholder ?? t("agentMode.input.typeMessage")}
               className={cn(
+                "focus-visible:ring-2 focus-visible:ring-ring",
                 "input-inline flex-1 resize-none outline-none bg-transparent caret-primary",
-                "text-[13px] leading-5 text-foreground placeholder:text-muted-foreground/70",
+                "text-ui leading-5 text-foreground placeholder:text-muted-foreground",
                 "min-w-0 py-1.5 px-0"
               )}
             />
@@ -382,7 +383,7 @@ export function ChatInput({
                 title={t("common.cancel")}
                 className={cn(
                   "flex items-center justify-center w-7 h-7 rounded-full shrink-0",
-                  "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/8",
+                  "text-muted-foreground hover:text-foreground hover:bg-foreground/8",
                   "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   "transition-colors duration-100"
                 )}
@@ -435,7 +436,7 @@ export function ChatInput({
       {queued && (
         <p
           id={queuedHintId}
-          className="mt-1 flex items-center gap-2 ps-4 text-[11px] text-muted-foreground"
+          className="mt-1 flex items-center gap-2 ps-4 text-caption text-muted-foreground"
         >
           {t("agentMode.input.queued")}
           <button
@@ -448,14 +449,14 @@ export function ChatInput({
         </p>
       )}
       {queueDropped && (
-        <p role="status" className="mt-1 ps-4 text-[11px] text-muted-foreground">
+        <p role="status" className="mt-1 ps-4 text-caption text-muted-foreground">
           {t("agentMode.input.queueDropped")}
         </p>
       )}
       {unsent !== null && (
         <div
           role="alert"
-          className="mt-1 flex flex-wrap items-center gap-2 ps-4 text-[11px] text-muted-foreground"
+          className="mt-1 flex flex-wrap items-center gap-2 ps-4 text-caption text-muted-foreground"
         >
           {t("agentMode.input.unsent")}
           <button

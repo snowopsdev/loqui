@@ -110,3 +110,20 @@ test("[change-driving] dictionary actions have visible words and auto-learn is i
     }
   );
 });
+
+test("Task25 caller-local header styles preserve the shared Toggle and published guard scope", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { scanFiles, WORKSPACE_GUARDED_FILES } = require("../helpers/workspaceTokenGuard");
+  const file = "src/components/DictionaryHeaderActions.tsx";
+  const source = fs.readFileSync(path.join(__dirname, "../..", file), "utf8");
+  assert.deepEqual(scanFiles([file]), []);
+  assert.equal(WORKSPACE_GUARDED_FILES.includes(file), false);
+  assert.match(source, /<Toggle\s+checked=\{props.autoLearn\}/);
+  assert.match(source, /\[&>button:focus-visible\]:ring-2!/);
+  assert.match(source, /\[&>button:focus-visible\]:ring-ring!/);
+  assert.match(source, /\[&>button\[aria-checked=true\]\]:bg-foreground!/);
+  assert.match(source, /\[&>button>span\]:bg-muted-foreground!/);
+  assert.match(source, /\[&>button>span\]:duration-\(--motion-fast\)!/);
+  assert.doesNotMatch(source, /duration-\d+/);
+});

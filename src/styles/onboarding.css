@@ -1019,12 +1019,11 @@
 .onb-tour__dot {
   display: grid;
   place-items: center;
-  width: 28px;
+  width: 36px;
   height: 28px;
   padding: 0;
   border-radius: 9999px;
   background: transparent;
-  transition: width var(--motion-fast) var(--motion-ease-std);
 }
 
 .onb-tour__dot::before {
@@ -1033,10 +1032,6 @@
   height: 6px;
   border-radius: inherit;
   background: var(--color-muted-foreground);
-}
-
-.onb-tour__dot[aria-current="true"] {
-  width: 36px;
 }
 
 .onb-tour__dot[aria-current="true"]::before {

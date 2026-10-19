@@ -407,7 +407,10 @@ Plan03 route facts remain Checking. Restart only retries the committed voice.
 The existing guarded trial remains the stage's child until Task 15 replaces it.
 
 The tour has one visible, accessible slide, previous/next buttons and labelled
-dots using the nav-marker token. Arrow keys follow reading direction. Its
+dots using the nav-marker token. Arrow keys follow reading direction. The
+dot buttons keep a fixed 36px hit target; selection changes the static inner
+marker without animating layout or shifting neighbouring controls. The arrival
+uses the approved shared spring-snap token. The
 four-second timer and decorative keycap demo stop under reduced motion, while
 hovered or focused within, when the page is hidden, after Skip and on unmount.
 Focus moving between tour controls keeps it paused; leaving one pause source

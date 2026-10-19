@@ -76,6 +76,7 @@ test("the real hook: Escape from Open focuses the chip and leaves the card close
   await act(() => root.render(React.createElement(Probe)));
   const within = { contains: () => true };
   const outside = { contains: () => false };
+  await act(() => api.boundary.onMouseEnter()); // Pointer stays parked on the chip throughout.
   await act(() => api.boundary.onFocus()); // Tab reaches the chip
   await act(() => api.boundary.onBlur({ relatedTarget: {}, currentTarget: within })); // chip → Open
   await act(() => api.boundary.onFocus());
@@ -129,4 +130,17 @@ test("real hook keeps the card while either pointer or keyboard focus owns the b
   await act(() => api.boundary.onMouseEnter());
   await act(() => new Promise((resolve) => setTimeout(resolve, 170)));
   assert.equal(api.open, true, "re-entry cancels delayed close");
+  await act(() => api.boundary.onMouseLeave());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 170)));
+  assert.equal(api.open, false, "leaving both expires the real 150ms timer");
+  await act(() => api.boundary.onMouseEnter());
+  await act(() => api.boundary.onMouseLeave());
+  await act(() => api.boundary.onKeyDown({ key: "Escape", stopPropagation() {} }));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 170)));
+  assert.equal(api.open, false, "Escape cancels a pending close timer");
+  await act(() => api.boundary.onFocus());
+  assert.equal(api.open, false, "Escape restoration stays dismissed");
+  await act(() => api.boundary.onMouseLeave());
+  await act(() => api.boundary.onFocus());
+  assert.equal(api.open, true, "real pointer leave clears dismissal even while focus owns it");
 });

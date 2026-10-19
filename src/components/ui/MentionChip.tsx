@@ -5,6 +5,7 @@ import PersonAvatar from "./PersonAvatar";
 import { MentionMarker } from "./MentionSuggestions";
 import { MentionPreview, type MentionPreviewState } from "./MentionHoverCard";
 import { useHoverCard } from "./useHoverCard";
+import { useMentionHoverPosition } from "./useMentionHoverPosition";
 import { useWorkspaceNavigation } from "../workspaceNavigation";
 import { getFoldersValue } from "../../stores/noteStore";
 import { quoteExcerpt } from "../../lib/mentionSearch";
@@ -29,6 +30,13 @@ export default function MentionChip({ node, editor, getPos }: NodeViewProps) {
   };
   const chipRef = useRef<HTMLButtonElement>(null);
   const { open, boundary } = useHoverCard(chipRef);
+  const cardRef = useRef<HTMLSpanElement>(null);
+  useMentionHoverPosition(
+    chipRef,
+    cardRef,
+    open && kind !== "person" && kind !== "folder",
+    i18n.language
+  );
   const [attempt, setAttempt] = useState(0);
   // Task17 stores exact positive-integer strings. Numeric IPC must never round one.
   const numericId = entityId && /^[1-9]\d*$/.test(entityId) ? Number(entityId) : NaN;
@@ -164,7 +172,13 @@ export default function MentionChip({ node, editor, getPos }: NodeViewProps) {
           {label}
         </button>
         {open && kind !== "folder" && (
-          <span data-editor-chrome="" className="absolute start-0 top-full z-50 pt-1">
+          <span
+            ref={cardRef}
+            data-editor-chrome=""
+            data-mention-hover-card=""
+            className="fixed z-50 w-60 overflow-y-auto pt-1"
+            style={{ visibility: "hidden" }}
+          >
             <MentionPreview
               kind={kind}
               state={preview}

@@ -4,9 +4,9 @@ export const HOVER_CARD_CLOSE_DELAY_MS = 150;
 
 export type HoverCardEvent =
   | { type: "pointerEnter" }
-  | { type: "pointerLeave" }
+  | { type: "pointerLeave"; keepOpen?: boolean }
   | { type: "focusIn" }
-  | { type: "focusOut"; staysInside: boolean }
+  | { type: "focusOut"; staysInside: boolean; keepOpen?: boolean }
   | { type: "escape" }
   | { type: "closeTimer" };
 
@@ -28,9 +28,11 @@ export function hoverCardReducer(state: HoverCardState, event: HoverCardEvent): 
       // focus or the pointer has left the boundary (dismissed-until-leave).
       return state.dismissed ? state : { open: true, closing: false, dismissed: false };
     case "pointerLeave":
+      if (event.keepOpen) return { ...state, dismissed: false };
       return state.open ? { ...state, closing: true } : { ...state, dismissed: false };
     case "focusOut":
-      return event.staysInside ? state : CLOSED;
+      if (event.staysInside) return state;
+      return event.keepOpen && state.open ? { ...state, dismissed: false } : CLOSED;
     case "escape":
       return { open: false, closing: false, dismissed: true };
     case "closeTimer":
@@ -54,7 +56,7 @@ export function useHoverCard(triggerRef: React.RefObject<HTMLElement | null>) {
     }, []),
     onMouseLeave: useCallback(() => {
       pointerInside.current = false;
-      if (!focusInside.current) dispatch({ type: "pointerLeave" });
+      dispatch({ type: "pointerLeave", keepOpen: focusInside.current });
     }, []),
     onFocus: useCallback(() => {
       focusInside.current = true;
@@ -64,7 +66,7 @@ export function useHoverCard(triggerRef: React.RefObject<HTMLElement | null>) {
       const next = e.relatedTarget as Node | null;
       const staysInside = !!next && e.currentTarget.contains(next);
       focusInside.current = staysInside;
-      if (staysInside || !pointerInside.current) dispatch({ type: "focusOut", staysInside });
+      dispatch({ type: "focusOut", staysInside, keepOpen: pointerInside.current });
     }, []),
     onKeyDown: useCallback(
       (e: React.KeyboardEvent) => {

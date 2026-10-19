@@ -23,7 +23,7 @@ export function MentionPreview({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="w-60 rounded-lg border border-border bg-popover p-3 text-start shadow-lg">
+    <div className="w-60 max-w-full rounded-lg border border-border bg-popover p-3 text-start shadow-lg">
       {state.status === "loading" && (
         <p className="text-caption text-muted-foreground">{t("mention.loading")}</p>
       )}

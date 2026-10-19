@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { parseRules, isLayered } = require("../helpers/harness/cssRules");
 
 const root = path.join(__dirname, "../..");
 const css = fs.readFileSync(path.join(root, "src/index.css"), "utf8");
@@ -44,6 +45,15 @@ test("links in notes use the link role, not orange-on-white", () => {
     rule(".rich-text-editor-content a:focus-visible"),
     /outline:\s*2px solid var\(--color-ring\)/
   );
+});
+
+test("note-link hover overrides global fading outside Tailwind layers", () => {
+  const hover = parseRules(css).find((r) => r.selector === ".rich-text-editor-content a:hover");
+  assert.ok(hover, "note links need their own hover opacity override");
+  // Unlayered a:hover beats layered utilities regardless of specificity.
+  assert.equal(isLayered(hover), false, "the override must compete with global a:hover");
+  assert.match(hover.body, /opacity:\s*1\s*;/);
+  assert.match(rule("a:hover"), /opacity:\s*0\.8\s*;/, "keep the fix scoped to notes");
 });
 
 test("the note title is 32/1.15 semibold", () => {

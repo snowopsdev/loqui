@@ -1996,6 +1996,10 @@ a:hover {
   text-underline-offset: 2px;
 }
 
+.rich-text-editor-content a:hover {
+  opacity: 1;
+}
+
 .rich-text-editor-content a:focus-visible {
   outline: 2px solid var(--color-ring);
   outline-offset: 2px;

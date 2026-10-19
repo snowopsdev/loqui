@@ -763,8 +763,17 @@
 .pill-caption {
   position: absolute;
   bottom: calc(100% + 8px);
-  left: 0; /* physical: follows the pill's screen dock, like .notice-stack[data-placement="pill"] */
-  max-width: 184px;
+  right: 0; /* physical dock; measured clamping also follows in-flight travel */
+  width: max-content;
+  max-width: min(184px, calc(100vw - 24px));
+  max-height: 48px; /* first-paint fallback; actual space above is measured */
+  box-sizing: border-box;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ring) var(--color-popover);
   padding: 5px 9px;
   border-radius: 10px;
   background: var(--color-popover);
@@ -775,8 +784,12 @@
   animation: notice-in var(--motion-base) var(--motion-ease-enter) both;
 }
 .pill-caption[data-direction="left"] {
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
+}
+.pill-caption:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
 
 .locality-ring--blocked {

@@ -43,6 +43,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
     delete globalThis.__pillAppAssistant;
     delete globalThis.__pillAppPanel;
     delete globalThis.__pillAppOptions;
+    delete globalThis.__pillAppInput;
     delete globalThis.__pillAppReturnResize;
   });
   const calls = [];
@@ -86,6 +87,8 @@ test("App retains original destinations through audio, banked consumption/busy, 
       "/hooks/useWindowResizeCompensation": "export const useWindowResizeCompensation = () => {};",
       "/hooks/useAudioRecording":
         "export const useAudioRecording = (options) => { globalThis.__pillAppOptions = options; return globalThis.__pillAppAudio; };",
+      "/hooks/useLinuxPillInteractivity":
+        'import { useLinuxPillInteractivity as real } from "/hooks/useLinuxPillInteractivity.ts"; export const useLinuxPillInteractivity = (p) => { globalThis.__pillAppInput = p; return real(p); };',
       "/hooks/useMainWindowSizeOwner":
         'import { useMainWindowSizeOwner as real } from "/hooks/useMainWindowSizeOwner.js"; export const useMainWindowSizeOwner = (p) => { const value = real(p); return { ...value, panelReturnResizeActive: globalThis.__pillAppReturnResize ?? value.panelReturnResizeActive }; };',
       "/hooks/useAssistantPanel":
@@ -236,6 +239,35 @@ test("App retains original destinations through audio, banked consumption/busy, 
       .onMouseEnter()
   );
   assert.equal(pause, 1);
+  const caption = tree.find((n) => n.attributes?.class === "pill-caption");
+  assert.equal(caption.attributes.tabindex, "0", "receiver overflow is keyboard reachable");
+  assert.equal(
+    globalThis.__pillAppInput.captionRef.current,
+    caption,
+    "actual caption joins Linux input policy"
+  );
+  const handlers = () =>
+    tree.props(tree.find((n) => n.attributes?.class?.includes("assistant-pill-presence")));
+  await React.act(async () => handlers().onFocusCapture());
+  await React.act(async () => handlers().onMouseLeave());
+  assert.equal(resume, 0, "focus keeps the hold paused after the pointer leaves");
+  assert.equal(
+    globalThis.__pillAppOptions.isPillHovered(),
+    true,
+    "focused reader also pauses a newly opened hold"
+  );
+  await React.act(async () =>
+    handlers().onBlurCapture({ currentTarget: { contains: () => true }, relatedTarget: caption })
+  );
+  assert.equal(resume, 0, "moving focus between caption and Undo retains the pause");
+  await React.act(async () => handlers().onFocusCapture());
+  assert.equal(pause, 1, "internal focus movement does not publish a second pause");
+  await React.act(async () => handlers().onMouseEnter());
+  await React.act(async () =>
+    handlers().onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null })
+  );
+  assert.equal(pause, 1, "pointer and focus share one active pause");
+  assert.equal(resume, 0, "pointer still inside retains pause on focus exit");
   await React.act(async () => tree.props(pill()).onClick({ preventDefault() {} }));
   await React.act(async () =>
     tree.props(pill()).onKeyDown({ key: "Enter", repeat: false, preventDefault() {} })
@@ -248,6 +280,17 @@ test("App retains original destinations through audio, banked consumption/busy, 
       .onMouseLeave()
   );
   assert.equal(resume, 1);
+  await React.act(async () => handlers().onFocusCapture());
+  assert.equal(pause, 2, "keyboard-only focus pauses the same hold");
+  assert.equal(
+    tree.find((n) => n.attributes?.class === "pill-countdown"),
+    countdown1,
+    "focus never changes hold generation"
+  );
+  await React.act(async () =>
+    handlers().onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null })
+  );
+  assert.equal(resume, 2, "leaving both focus and hover resumes");
   await render({ cancelHold: { generation: 2, durationMs: 10000, session } });
   const countdown2 = tree.find((n) => n.attributes?.class === "pill-countdown");
   assert.notEqual(
@@ -378,4 +421,11 @@ test("App retains original destinations through audio, banked consumption/busy, 
     "idle return resize retains its mask"
   );
   globalThis.__pillAppReturnResize = false;
+  await render();
+  await React.act(async () => handlers().onFocusCapture());
+  assert.equal(
+    globalThis.__pillAppOptions.isPillHovered(),
+    false,
+    "idle focus does not create a reading hold/capture policy"
+  );
 });

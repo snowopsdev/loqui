@@ -54,6 +54,10 @@ test("pill labels and semantic edges retain contrast in light and Plum Night, in
         `${theme} ${role} semantic mark`
       );
     }
+    assert.ok(
+      contrastRatio(t["--color-ring"], t["--color-popover"]) >= 3,
+      `${theme} caption focus/scroll affordance`
+    );
     const rest = composite(t["--color-foreground"], t["--color-surface-1"], 0.6);
     assert.ok(contrastRatio(rest, t["--color-surface-1"]) >= 3, `${theme} resting bar composite`);
     for (const role of ["--color-locality-network", "--color-locality-remote"]) {

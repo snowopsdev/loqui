@@ -73,6 +73,7 @@ export default function App() {
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const buttonRef = useRef(null);
   const pillPresenceRef = useRef(null);
+  const pillCaptionRef = useRef(null);
   const { noticeCount, wordsCardVisible } = useNoticeWindowState();
   const noticesOnScreen = noticeCount > 0 || wordsCardVisible;
   const noticeHotkey = usePillHotkey(
@@ -96,6 +97,8 @@ export default function App() {
   const floatingIconAutoHide = useSettingsStore((s) => s.floatingIconAutoHide);
   const panelStartPosition = useSettingsStore((s) => s.panelStartPosition);
   const pillHoveredRef = useRef(false);
+  const pillFocusedRef = useRef(false);
+  const [isPillFocused, setIsPillFocused] = useState(false);
   const [voiceHorizontalDirection, setVoiceHorizontalDirection] = useState(() =>
     resolveVoiceHorizontalDirection(panelStartPosition)
   );
@@ -234,7 +237,7 @@ export default function App() {
     processingStage,
     outcome,
   } = useAudioRecording({
-    isPillHovered: () => pillHoveredRef.current,
+    isPillHovered: () => pillHoveredRef.current || pillFocusedRef.current,
     onToggle: handleDictationToggle,
     onDemoEvent: publishOnboardingDemoEvent,
     onAssistantCommand: assistant.handleCommand,
@@ -354,12 +357,13 @@ export default function App() {
   useEffect(() => {
     if (isCommandMenuOpen || noticesOnScreen || assistant.mounted || liveTranscript.mounted) {
       setWindowInteractivity(true);
-    } else if (!isHovered) {
+    } else if (!isHovered && !isPillFocused) {
       setWindowInteractivity(false);
     }
   }, [
     isCommandMenuOpen,
     isHovered,
+    isPillFocused,
     noticesOnScreen,
     assistant.mounted,
     liveTranscript.mounted,
@@ -580,6 +584,13 @@ export default function App() {
       : pillStage === "sealedPaused"
         ? t("pill.caption.sealedPaused")
         : null;
+  const readingSurfaceActive = Boolean(cancelled || pillCaption);
+  useEffect(() => {
+    if (!readingSurfaceActive) {
+      pillFocusedRef.current = false;
+      setIsPillFocused(false);
+    }
+  }, [readingSurfaceActive]);
   usePillAutoHide({
     floatingIconAutoHide,
     isRecording,
@@ -703,6 +714,7 @@ export default function App() {
 
   useLinuxPillInteractivity({
     pillRef: pillPresenceRef,
+    captionRef: pillCaptionRef,
     captureWindow: isCommandMenuOpen || noticesOnScreen || anyPanelMounted || isDragging,
     pillInteractive: pillIsInteractive && !pillVisuallySuppressed,
   });
@@ -729,21 +741,39 @@ export default function App() {
             "--assistant-pill-retreat-duration": `${ASSISTANT_FOOTER_TRANSITION_TIMING.pillRetreatMs}ms`,
             "--assistant-pill-entrance-duration": `${ASSISTANT_FOOTER_TRANSITION_TIMING.pillEntranceMs}ms`,
           }}
+          onFocusCapture={() => {
+            if (!readingSurfaceActive) return;
+            const alreadyFocused = pillFocusedRef.current;
+            pillFocusedRef.current = true;
+            setIsPillFocused(true);
+            if (cancelled && !pillHoveredRef.current && !alreadyFocused) pauseUndo();
+            setWindowInteractivity(true);
+          }}
+          onBlurCapture={(event) => {
+            if (!pillFocusedRef.current || event.currentTarget.contains(event.relatedTarget))
+              return;
+            pillFocusedRef.current = false;
+            setIsPillFocused(false);
+            if (cancelled && !pillHoveredRef.current) resumeUndo();
+            if (!pillHoveredRef.current && !isCommandMenuOpen && !anyPanelMounted) {
+              setWindowInteractivity(false);
+            }
+          }}
           onMouseEnter={() => {
             // Track the real pointer even while a panel owns input. A hold
             // opening under it must pause without waiting for another enter.
             pillHoveredRef.current = true;
             if (!pillIsInteractive) return;
             setIsHovered(true);
-            if (cancelled) pauseUndo();
+            if (cancelled && !pillFocusedRef.current) pauseUndo();
             setWindowInteractivity(true);
           }}
           onMouseLeave={() => {
             pillHoveredRef.current = false;
             setIsHovered(false);
-            if (cancelled) resumeUndo();
+            if (cancelled && !pillFocusedRef.current) resumeUndo();
             if (!pillIsInteractive) return;
-            if (!isCommandMenuOpen && !assistant.mounted) {
+            if (!pillFocusedRef.current && !isCommandMenuOpen && !assistant.mounted) {
               setWindowInteractivity(false);
             }
           }}
@@ -843,7 +873,9 @@ export default function App() {
             </kbd>
           ) : null}
           {pillCaption ? (
-            <PillCaption horizontalDirection={voiceHorizontalDirection}>{pillCaption}</PillCaption>
+            <PillCaption elementRef={pillCaptionRef} horizontalDirection={voiceHorizontalDirection}>
+              {pillCaption}
+            </PillCaption>
           ) : null}
           <LiquidCancelButton
             visible={voicePillInteraction.cancelVisible}

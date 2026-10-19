@@ -137,3 +137,28 @@ test("App passes the frozen active session to locality while live Settings say o
   });
   assert.match(html, /data-locality="remote"/);
 });
+
+for (const [name, target, alsoSentTo] of [
+  ["network hostname", "host:speech.department.company.example", []],
+  ["three receivers", "openai", ["anthropic", "gemini"]],
+]) {
+  test(`actual App exposes complete ${name} in the focusable caption beside usable Undo`, async (t) => {
+    const { html } = await renderApp(t, {
+      cancelled: {
+        ...cancelled,
+        remoteAlreadySent: {
+          target,
+          alsoSentTo,
+          payload: "audio",
+          evidence: "dispatched",
+        },
+      },
+    });
+    assert.match(html, /class="pill-caption" tabindex="0"/);
+    assert.match(html, /data-pill-state="cancelled"[^>]*role="button"/);
+    if (alsoSentTo.length) {
+      for (const receiver of ["OpenAI", "Anthropic", "Google Gemini"])
+        assert.ok(html.includes(receiver));
+    } else assert.ok(html.includes("speech.department.company.example"));
+  });
+}

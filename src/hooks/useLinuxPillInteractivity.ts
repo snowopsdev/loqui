@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
 
 interface LinuxPillInteractivityOptions {
   pillRef: RefObject<HTMLElement | null>;
+  captionRef?: RefObject<HTMLElement | null>;
   captureWindow: boolean;
   pillInteractive: boolean;
 }
@@ -10,6 +11,7 @@ interface LinuxPillInteractivityOptions {
 // when the pointer crosses between XWayland and native Wayland applications.
 export function useLinuxPillInteractivity({
   pillRef,
+  captionRef,
   captureWindow,
   pillInteractive,
 }: LinuxPillInteractivityOptions): void {
@@ -48,7 +50,23 @@ export function useLinuxPillInteractivity({
       if (disposed || pending || !nativeVisibleRef.current || document.hidden) return;
       pending = true;
       try {
-        const rect = pillInteractive ? pillRef.current?.getBoundingClientRect() : null;
+        const pill = pillInteractive ? pillRef.current?.getBoundingClientRect() : null;
+        const caption = pill && captionRef?.current?.getBoundingClientRect();
+        // The caption is absolute and outside the pill's DOM bounding box.
+        // Include its scroll/focus surface only while that pill owns input.
+        const rect =
+          pill && caption
+            ? {
+                x: Math.min(pill.x, caption.x),
+                y: Math.min(pill.y, caption.y),
+                width:
+                  Math.max(pill.x + pill.width, caption.x + caption.width) -
+                  Math.min(pill.x, caption.x),
+                height:
+                  Math.max(pill.y + pill.height, caption.y + caption.height) -
+                  Math.min(pill.y, caption.y),
+              }
+            : pill;
         await applyRegion({
           x: rect?.x ?? 0,
           y: rect?.y ?? 0,
@@ -87,5 +105,5 @@ export function useLinuxPillInteractivity({
       // The native writer orders this after any pending narrow-region update.
       void api.setMainWindowInputRegion(null).catch(() => {});
     };
-  }, [captureWindow, pillInteractive, pillRef]);
+  }, [captureWindow, pillInteractive, pillRef, captionRef]);
 }

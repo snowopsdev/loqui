@@ -5,7 +5,7 @@ const { createRoot } = require("react-dom/client");
 const { setup, startBatch } = require("./harness/cancelledAudioManager");
 const { createRendererServer, installHookDom } = require("../lib/rendererTestHarness");
 
-test("real hold callbacks publish only frozen presentation, reset same-id buffers, and pause an already-hovered opening", async (t) => {
+test("real hold callbacks freeze presentation and preserve pointer/focus pause through same-id reholds", async (t) => {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -57,8 +57,9 @@ test("real hold callbacks publish only frozen presentation, reset same-id buffer
   const { useAudioRecording } = await hookVite.ssrLoadModule("/hooks/useAudioRecording.js");
   let api;
   let hovered = true;
+  let focused = false;
   function Harness() {
-    api = useAudioRecording({ isPillHovered: () => hovered });
+    api = useAudioRecording({ isPillHovered: () => hovered || focused });
     return null;
   }
   root = createRoot(container);
@@ -99,11 +100,14 @@ test("real hold callbacks publish only frozen presentation, reset same-id buffer
     "evidence/paused-clock publications preserve generation and duration"
   );
   hovered = false;
-  // A refused restore may synchronously close and re-open the same session.
-  // Real manager callbacks are delivered in the same React batch.
+  focused = true;
+  // The pointer is outside, but the reader retains keyboard focus. A refused
+  // restore takes the real RAM buffer then reinstalls its SAME session/buffer
+  // in a fresh, initially running undo window, within one React batch.
   await React.act(async () => {
+    assert.equal(manager._undo.take(), original);
     manager.onCancelledChange(null, { sessionId: original.session.id, reason: "restored" });
-    manager._emitCancelled(original);
+    manager._openCancelled(original);
   });
   const second = api.cancelHold;
   assert.ok(
@@ -111,6 +115,12 @@ test("real hold callbacks publish only frozen presentation, reset same-id buffer
     "a close/reopen is a fresh window even for the identical session and buffer"
   );
   assert.equal(second.session.routes, original.session.routes);
+  assert.equal(api.cancelled.paused, true, "retained focus pauses the fresh same-buffer window");
+  assert.equal(manager._undo.state().paused, true, "real clock, not only renderer state");
+  await React.act(async () => advance(12000));
+  assert.equal(manager._undo.peek(), original, "focused reading outlives the unpaused5s deadline");
+  assert.equal(api.cancelHold, second, "clock/evidence cannot invent a new UI generation");
+  assert.equal(api.cancelled.remainingMs, 5000);
   // Replacing a hold with a fresh buffer for that same session also resets it,
   // even if a producer does not emit an intermediate close publication.
   const { createCancelBuffer } = await hookVite.ssrLoadModule("/helpers/cancelBuffer.js");
@@ -125,6 +135,33 @@ test("real hold callbacks publish only frozen presentation, reset same-id buffer
   assert.equal(api.cancelHold.durationMs, 10000);
   assert.equal(api.cancelHold.session.routes, original.session.routes);
   assert.equal(api.cancelHold.session.settings.voiceAgentScreenContext, true);
+  assert.equal(
+    api.cancelled.paused,
+    true,
+    "same-session fresh buffer also opens paused under retained focus"
+  );
+  const third = api.cancelHold;
+  await React.act(async () => advance(12000));
+  assert.equal(
+    manager._undo.peek(),
+    replacement,
+    "focused replacement outlives its unpaused10s deadline"
+  );
+  assert.equal(api.cancelHold, third);
+  assert.equal(api.cancelled.remainingMs, 10000);
+  focused = false;
+  await React.act(async () => {
+    manager.resumeCancelHold();
+    await advance(100);
+    manager._emitCancelled(replacement);
+  });
+  assert.equal(
+    api.cancelled.paused,
+    false,
+    "leaving the reading focus resumes the existing window"
+  );
+  assert.equal(api.cancelled.remainingMs, 9900);
+  assert.equal(api.cancelHold, third, "resume does not reset generation or duration");
   await React.act(async () => {
     recorder.finish();
     await manager.flushCancelHold();

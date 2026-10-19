@@ -1,3 +1,4 @@
+const { ipcDownloaderLeaf } = require("./harness/ipcDownloaderLeaf");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
@@ -54,14 +55,8 @@ const electronStub = {
 
 Module._load = function loadWithMocks(request, parent, isMain) {
   if (request === "electron") return electronStub;
-  // Unrelated setup leaf must remain inert through setup and awaited handlers.
-  if (parent?.filename === handlersModulePath && request === "./urlAudioDownloader")
-    return {
-      sweepStaleTempArtifacts() {},
-      download() {
-        throw new Error("Fixture blocks downloads");
-      },
-    };
+  const downloader = ipcDownloaderLeaf(request, parent);
+  if (downloader) return downloader;
   if (parent?.filename === handlersModulePath) {
     if (request === "./debugLogger") {
       return new Proxy({}, { get: () => () => {} });

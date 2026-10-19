@@ -1,3 +1,4 @@
+const { registerHttpServerCleanup } = require("./harness/httpServerCleanup");
 const test = require("node:test");
 require("./harness/inertElectron").install(test, [
   "whisperServer",
@@ -28,12 +29,7 @@ async function serveTranscript(t, onBody) {
       res.end(JSON.stringify({ text: "hello" }));
     });
   });
-  t.after(async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-      server.closeAllConnections();
-    });
-  });
+  registerHttpServerCleanup(t, server);
   return port;
 }
 

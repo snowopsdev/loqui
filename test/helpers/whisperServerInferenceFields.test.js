@@ -1,3 +1,4 @@
+const { registerHttpServerCleanup } = require("./harness/httpServerCleanup");
 const test = require("node:test");
 require("./harness/inertElectron").install(test, [
   "whisperServer",
@@ -59,12 +60,7 @@ test("pins the measured anti-hallucination thresholds from #1458", () => {
 
 test("sends the decoder threshold fields alongside the existing inference fields", async (t) => {
   const { server, port, getBody } = await startCapturingServer();
-  t.after(async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-      server.closeAllConnections();
-    });
-  });
+  registerHttpServerCleanup(t, server);
 
   const manager = createManager(port);
   const result = await manager.transcribe(Buffer.from("audio"), {
@@ -97,12 +93,7 @@ test("sends the decoder threshold fields alongside the existing inference fields
 
 test("sends the decoder threshold fields even without an initial prompt", async (t) => {
   const { server, port, getBody } = await startCapturingServer();
-  t.after(async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-      server.closeAllConnections();
-    });
-  });
+  registerHttpServerCleanup(t, server);
 
   const manager = createManager(port);
   await manager.transcribe(Buffer.from("audio"), { language: "en" });
@@ -118,12 +109,7 @@ test("sends the decoder threshold fields even without an initial prompt", async 
 
 test("skipDecoderThresholds omits the raised fields so the server keeps its defaults", async (t) => {
   const { server, port, getBody } = await startCapturingServer();
-  t.after(async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-      server.closeAllConnections();
-    });
-  });
+  registerHttpServerCleanup(t, server);
 
   const manager = createManager(port);
   const result = await manager.transcribe(Buffer.from("audio"), {

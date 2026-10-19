@@ -774,7 +774,8 @@ return. Existing answers and saves continue under their captured owners. Dialog,
 Settings, search, menu and popover portals cannot expose hidden commands or trap
 setup focus. Transient modal contents close during setup; the editor/chat and
 recording owners remain mounted. `onReturnToWorkspace` restores the retained
-workspace from its live recording control.
+workspace from its live recording control. While setup is shown, that control
+uses the existing “Open workspace” label, without promising a note navigation.
 
 **Plan06 contact:** carry `workspaceActive` and `onReturnToWorkspace`, the retained
 presentation/interaction gates, and the RAM-only `takeAfterSetupIntent` effect

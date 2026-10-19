@@ -301,3 +301,40 @@ test("restart preserves a pending first creation, newer draft and original captu
     { id: 7, role: "assistant", content: "first answer" },
   ]);
 });
+
+test("live recording return names the workspace and restores its existing chat draft without retargeting", async (t) => {
+  const ui = await workspace(t);
+  await ui.act(() => ui.state.nav.onViewChange("chat"));
+  await ui.wait(() => ui.findAll((n) => n.tagName === "TEXTAREA").length);
+  const textarea = () => ui.findAll((n) => n.tagName === "TEXTAREA")[0];
+  await ui.act(() => ui.props(textarea()).onChange({ target: { value: "Keep this draft" } }));
+  const node = textarea();
+  await ui.act(() =>
+    ui.meeting.startRecording({
+      noteId: 42,
+      noteTitle: "Original",
+      folderId: 2,
+      seedSegments: [],
+      autoEndEligible: true,
+    })
+  );
+  const session = ui.meeting.getActiveRecordingSessionId();
+  await ui.start("cleanup");
+  await ui.wait(() => ui.byAttr("data-setup-instance").length);
+  const buttons = [];
+  const visit = (n) => {
+    if (n.tagName === "BUTTON") buttons.push(n);
+    for (const child of n.childNodes ?? []) visit(child);
+  };
+  visit(globalThis.document.body);
+  const control = buttons.find(
+    (n) => n.attributes?.["aria-label"] === "setupFlow.ready.openWorkspace"
+  );
+  assert.ok(control, "the setup companion truthfully offers Open workspace");
+  await ui.click(control);
+  assert.equal(ui.byAttr("data-setup-instance").length, 0);
+  assert.equal(textarea() === node, true);
+  assert.equal(ui.props(textarea()).value, "Keep this draft");
+  assert.equal(ui.meeting.getActiveRecordingSessionId(), session);
+  assert.equal(ui.meeting.useMeetingRecordingStore.getState().isRecording, true);
+});

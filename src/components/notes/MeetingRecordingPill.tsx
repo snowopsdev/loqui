@@ -61,7 +61,9 @@ export default function MeetingRecordingPill({
   };
 
   const title = truncateTitle(recordingNoteTitle ?? "");
-  const returnLabel = t("notes.meetingPill.returnToNote");
+  const returnLabel = t(
+    workspaceActive ? "notes.meetingPill.returnToNote" : "setupFlow.ready.openWorkspace"
+  );
   const stopLabel = t("notes.editor.stop");
 
   return createPortal(

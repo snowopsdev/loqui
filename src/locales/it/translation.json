@@ -4359,5 +4359,23 @@
       "session_many": "Sessione · {{count}} registrazioni · {{duration}}",
       "loadFailed": "Impossibile caricare questa dettatura. Riprova."
     }
+  },
+  "mention": {
+    "groups": {
+      "person": "Persone",
+      "note": "Note",
+      "meeting": "Riunioni",
+      "dictation": "Dettati",
+      "folder": "Cartelle"
+    },
+    "empty": "Nessun elemento da menzionare",
+    "loading": "Caricamento…",
+    "missing": "Questo elemento non esiste più.",
+    "open": "Apri",
+    "insertQuote": "Inserisci citazione",
+    "folderMeta": "Cartella",
+    "error": "Impossibile caricare questo elemento.",
+    "retry": "Riprova",
+    "pickerLabel": "Menziona un elemento"
   }
 }

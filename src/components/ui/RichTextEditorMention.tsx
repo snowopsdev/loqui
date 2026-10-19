@@ -1,4 +1,4 @@
-import Mention from "@tiptap/extension-mention";
+import Mention, { type MentionOptions } from "@tiptap/extension-mention";
 import { ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { createSuggestionPopup } from "./editor/suggestionPopup";
 import MentionChip from "./MentionChip";
@@ -10,10 +10,15 @@ import {
   buildEntityMentionMarkdown,
   mentionHref,
   parseMentionHref,
-  type MentionPerson,
 } from "../../utils/mentionMarkdown";
 
-const SUGGESTION_WIDTH = 240;
+import {
+  flattenMentionGroups,
+  searchMentionEntities,
+  type MentionSources,
+} from "../../lib/mentionSearch";
+
+const SUGGESTION_WIDTH = 262;
 
 const suggestionRender = createSuggestionPopup<MentionSuggestionItem, MentionSuggestionsProps>(
   MentionSuggestions,
@@ -23,22 +28,14 @@ const suggestionRender = createSuggestionPopup<MentionSuggestionItem, MentionSug
   }
 );
 
-const toSuggestionItems = (people: MentionPerson[], query: string): MentionSuggestionItem[] => {
-  const q = query.toLowerCase();
-  return people
-    .filter((p) => !q || p.name.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q))
-    .slice(0, 6)
-    .map((p) => ({ id: p.email ?? p.name, label: p.name, email: p.email }));
-};
-
 /**
  * Mention extension that round-trips through tiptap-markdown as a
- * `[@Name](mention:email)` link — see buildMentionMarkdown. `getPeople` is
- * read lazily so suggestions always reflect the latest known people without
+ * `[@Name](mention:email)` link — see buildMentionMarkdown. `getSources` is
+ * read lazily so suggestions always reflect the latest sources without
  * rebuilding the editor.
  */
-export function createMentionExtension(getPeople: () => MentionPerson[]) {
-  return Mention.extend({
+export function createMentionExtension(getSources: () => MentionSources) {
+  return Mention.extend<MentionOptions<MentionSuggestionItem, MentionSuggestionItem>>({
     addAttributes() {
       return {
         label: { default: "" },
@@ -96,14 +93,23 @@ export function createMentionExtension(getPeople: () => MentionPerson[]) {
     },
   }).configure({
     suggestion: {
-      items: ({ query }) => toSuggestionItems(getPeople(), query),
+      items: async ({ query }) =>
+        flattenMentionGroups(await searchMentionEntities(query, getSources())),
       command: ({ editor, range, props }) => {
-        const item = props as MentionSuggestionItem;
+        const item = props;
         editor
           .chain()
           .focus()
           .insertContentAt(range, [
-            { type: "mention", attrs: { label: item.label, email: item.email } },
+            {
+              type: "mention",
+              attrs: {
+                label: item.label,
+                email: item.email,
+                kind: item.kind,
+                entityId: item.entityId,
+              },
+            },
             { type: "text", text: " " },
           ])
           .run();

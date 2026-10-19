@@ -267,3 +267,14 @@ test("history load failures are localized separately from absence, with explicit
     assert.ok(translation.common.retry?.trim(), `${lang}: common.retry`);
   }
 });
+
+test("mention preview errors, missing state and explicit Retry resolve distinctly in every locale", () => {
+  for (const locale of ["ar", "de", "en", "es", "fr", "it", "ja", "pt", "ru", "zh-CN", "zh-TW"]) {
+    const strings = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "../../src/locales", locale, "translation.json"), "utf8")
+    ).mention;
+    assert.ok(strings.error && strings.retry && strings.loading && strings.missing, locale);
+    assert.notEqual(strings.error, strings.missing, locale);
+    assert.equal(Object.keys(strings.groups).length, 5, locale);
+  }
+});

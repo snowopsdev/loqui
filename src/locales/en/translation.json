@@ -4348,5 +4348,23 @@
       "session_other": "Session · {{count}} captures · {{duration}}",
       "loadFailed": "Could not load that dictation. Try again."
     }
+  },
+  "mention": {
+    "groups": {
+      "person": "People",
+      "note": "Notes",
+      "meeting": "Meetings",
+      "dictation": "Dictations",
+      "folder": "Folders"
+    },
+    "empty": "Nothing to mention",
+    "loading": "Loading…",
+    "missing": "This item no longer exists.",
+    "open": "Open",
+    "insertQuote": "Insert quote",
+    "folderMeta": "Folder",
+    "error": "This item could not be loaded.",
+    "retry": "Retry",
+    "pickerLabel": "Mention an item"
   }
 }

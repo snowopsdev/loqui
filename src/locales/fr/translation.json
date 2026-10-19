@@ -4359,5 +4359,23 @@
       "session_many": "Session · {{count}} enregistrements · {{duration}}",
       "loadFailed": "Impossible de charger cette dictée. Réessayez."
     }
+  },
+  "mention": {
+    "groups": {
+      "person": "Personnes",
+      "note": "Notes",
+      "meeting": "Réunions",
+      "dictation": "Dictées",
+      "folder": "Dossiers"
+    },
+    "empty": "Aucun élément à mentionner",
+    "loading": "Chargement…",
+    "missing": "Cet élément n’existe plus.",
+    "open": "Ouvrir",
+    "insertQuote": "Insérer une citation",
+    "folderMeta": "Dossier",
+    "error": "Impossible de charger cet élément.",
+    "retry": "Réessayer",
+    "pickerLabel": "Mentionner un élément"
   }
 }

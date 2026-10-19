@@ -14,6 +14,12 @@ import { createSlashCommand, SLASH_PLUGIN_KEY } from "./editor/SlashCommand";
 import { slashItemsFromProp } from "./editor/slashItems";
 import { BubbleToolbar } from "./editor/BubbleToolbar";
 import { isEditorChromeTarget } from "./editor/editorChrome";
+import { useTranscriptions } from "../../stores/transcriptionStore";
+import { useFolders } from "../../stores/noteStore";
+import { useRecentNotes } from "../../hooks/useRecentNotes";
+import { formatRelativeTime } from "../../utils/dateFormatting";
+import { formatMmSs } from "../../utils/formatDuration";
+import type { MentionSources } from "../../lib/mentionSearch";
 import type { MentionPerson } from "../../utils/mentionMarkdown";
 
 export interface RichTextEditorProps {
@@ -24,7 +30,7 @@ export interface RichTextEditorProps {
   disabled?: boolean;
   onAskAi?: (selection: string) => void;
   editorRef?: MutableRefObject<Editor | null>;
-  /** Enables @mention tagging with these people as suggestions. */
+  /** Enables universal @mentions, including these people as suggestions. */
   mentionPeople?: MentionPerson[];
   /** Enables / at mount; current callbacks and route readiness are read through refs. */
   slash?: {
@@ -54,13 +60,39 @@ export function RichTextEditor({
   const internalValueRef = useRef(value);
   const suppressUpdateRef = useRef(false);
 
-  // Mention support is decided at mount; the ref keeps suggestions current
-  // without rebuilding the editor when the people list changes.
-  const mentionPeopleRef = useRef(mentionPeople);
-  useEffect(() => {
-    mentionPeopleRef.current = mentionPeople;
-  }, [mentionPeople]);
+  // The extension reads current sources lazily without rebuilding the editor.
+  const transcriptions = useTranscriptions();
+  const folders = useFolders();
+  const recentNotes = useRecentNotes(6);
   const withMentions = useRef(mentionPeople != null).current;
+  const sourcesRef = useRef<MentionSources | null>(null);
+  sourcesRef.current = {
+    people: mentionPeople ?? [],
+    searchContacts: async (query) =>
+      (await window.electronAPI.searchContacts(query))?.contacts ?? [],
+    searchNotes: (query, limit) => window.electronAPI.searchNotes(query, limit),
+    recentNotes,
+    transcriptions,
+    folders,
+    describe: {
+      note: (note) =>
+        [
+          folders.find((f) => f.id === note.folder_id)?.name,
+          formatRelativeTime(note.updated_at, t, i18n.language),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      meeting: (note) => formatRelativeTime(note.created_at, t, i18n.language),
+      dictation: (item) =>
+        [
+          formatRelativeTime(item.created_at, t, i18n.language),
+          item.audio_duration_ms != null ? formatMmSs(item.audio_duration_ms / 1000) : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      folder: () => t("mention.folderMeta"),
+    },
+  };
 
   const slashRef = useRef(slash);
   slashRef.current = slash;
@@ -100,7 +132,7 @@ export function RichTextEditor({
             }),
           ]
         : []),
-      ...(withMentions ? [createMentionExtension(() => mentionPeopleRef.current ?? [])] : []),
+      ...(withMentions ? [createMentionExtension(() => sourcesRef.current!)] : []),
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         link: { openOnClick: false, autolink: true },

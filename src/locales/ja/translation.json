@@ -4317,5 +4317,23 @@
       "session_other": "セッション · 録音 {{count}} 件 · {{duration}}",
       "loadFailed": "この音声入力を読み込めませんでした。もう一度お試しください。"
     }
+  },
+  "mention": {
+    "groups": {
+      "person": "ユーザー",
+      "note": "ノート",
+      "meeting": "会議",
+      "dictation": "音声入力",
+      "folder": "フォルダー"
+    },
+    "empty": "メンションできる項目がありません",
+    "loading": "読み込み中…",
+    "missing": "この項目は削除されました。",
+    "open": "開く",
+    "insertQuote": "引用を挿入",
+    "folderMeta": "フォルダー",
+    "error": "この項目を読み込めませんでした。",
+    "retry": "再試行",
+    "pickerLabel": "項目をメンション"
   }
 }

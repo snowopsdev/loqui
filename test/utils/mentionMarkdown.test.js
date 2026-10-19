@@ -250,7 +250,15 @@ test("production TipTap mention nodes parse and serialize entity and person link
   const { DOMParser: HtmlParser } = require("@xmldom/xmldom");
   const { DOMParser: TipTapDOMParser } = await import("@tiptap/pm/model");
   const { mentionHref } = await load();
-  const mention = createMentionExtension(() => []);
+  const mention = createMentionExtension(() => ({
+    people: [],
+    searchContacts: async () => [],
+    searchNotes: async () => [],
+    recentNotes: [],
+    transcriptions: [],
+    folders: [],
+    describe: { note: () => "", meeting: () => "", dictation: () => "", folder: () => "" },
+  }));
   const schema = getSchema([
     mention,
     StarterKit.configure({ link: { openOnClick: false } }),

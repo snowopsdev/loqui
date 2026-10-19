@@ -4359,5 +4359,23 @@
       "session_many": "Sesión · {{count}} grabaciones · {{duration}}",
       "loadFailed": "No se pudo cargar ese dictado. Inténtalo de nuevo."
     }
+  },
+  "mention": {
+    "groups": {
+      "person": "Personas",
+      "note": "Notas",
+      "meeting": "Reuniones",
+      "dictation": "Dictados",
+      "folder": "Carpetas"
+    },
+    "empty": "No hay elementos para mencionar",
+    "loading": "Cargando…",
+    "missing": "Este elemento ya no existe.",
+    "open": "Abrir",
+    "insertQuote": "Insertar cita",
+    "folderMeta": "Carpeta",
+    "error": "No se pudo cargar este elemento.",
+    "retry": "Reintentar",
+    "pickerLabel": "Mencionar un elemento"
   }
 }

@@ -4317,5 +4317,23 @@
       "session_other": "会话 · {{count}} 段录音 · {{duration}}",
       "loadFailed": "无法加载这条听写。请重试。"
     }
+  },
+  "mention": {
+    "groups": {
+      "person": "联系人",
+      "note": "笔记",
+      "meeting": "会议",
+      "dictation": "听写",
+      "folder": "文件夹"
+    },
+    "empty": "没有可提及的项目",
+    "loading": "正在加载…",
+    "missing": "此项目已不存在。",
+    "open": "打开",
+    "insertQuote": "插入引用",
+    "folderMeta": "文件夹",
+    "error": "无法加载此项目。",
+    "retry": "重试",
+    "pickerLabel": "提及项目"
   }
 }

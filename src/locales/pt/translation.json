@@ -4359,5 +4359,23 @@
       "session_many": "Sessão · {{count}} gravações · {{duration}}",
       "loadFailed": "Não foi possível carregar esse ditado. Tente novamente."
     }
+  },
+  "mention": {
+    "groups": {
+      "person": "Pessoas",
+      "note": "Notas",
+      "meeting": "Reuniões",
+      "dictation": "Ditados",
+      "folder": "Pastas"
+    },
+    "empty": "Nenhum item para mencionar",
+    "loading": "Carregando…",
+    "missing": "Este item não existe mais.",
+    "open": "Abrir",
+    "insertQuote": "Inserir citação",
+    "folderMeta": "Pasta",
+    "error": "Não foi possível carregar este item.",
+    "retry": "Tentar novamente",
+    "pickerLabel": "Mencionar um item"
   }
 }

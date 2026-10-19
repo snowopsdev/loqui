@@ -208,6 +208,10 @@ Changes to slash readiness, actions or locale dismiss an open menu immediately, 
 
 Slash and mention suggestions share a caret popup that clamps horizontally, flips above near the bottom, and marks its wrapper with `data-editor-chrome`. Mention insertion and Markdown round-tripping keep their existing contract.
 
+Universal mention suggestions group People, Notes, Meetings, Dictations and Folders in that order, with at most three rows each in a 262px caret picker. Empty queries use Recent notes; contact and note searches fail independently. Headers and metadata use readable 12px tokens at full opacity. Stored dictations use a neutral marker. Compact person markers retain the avatar/name with an 11px dark initial on the existing local pastel.
+
+Entity chips navigate within the workspace. Hover and keyboard focus share one chip/card boundary, including its padded gap; Escape returns focus once and stays dismissed until a real leave and re-entry. Preview failures show an explicit Retry separately from deleted items. Only ready, nonempty meeting/dictation excerpts can be inserted, as a local document quote; pending or stale requests cannot change another target or editor. Chip and card controls use the opaque shared focus ring.
+
 Mention links keep people on the `mention:` scheme and store note, meeting, dictation and folder references as readable `[@Label](kind:id)` Markdown links. Labels escape Markdown display characters while entity identifiers and existing person fallback identities remain unchanged.
 
 ### Note selection toolbar (WS-R6 B)

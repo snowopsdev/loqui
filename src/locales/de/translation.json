@@ -4348,5 +4348,23 @@
       "session_other": "Sitzung · {{count}} Aufnahmen · {{duration}}",
       "loadFailed": "Dieses Diktat konnte nicht geladen werden. Versuche es erneut."
     }
+  },
+  "mention": {
+    "groups": {
+      "person": "Personen",
+      "note": "Notizen",
+      "meeting": "Besprechungen",
+      "dictation": "Diktate",
+      "folder": "Ordner"
+    },
+    "empty": "Keine passenden Einträge",
+    "loading": "Wird geladen…",
+    "missing": "Dieser Eintrag existiert nicht mehr.",
+    "open": "Öffnen",
+    "insertQuote": "Zitat einfügen",
+    "folderMeta": "Ordner",
+    "error": "Dieser Eintrag konnte nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "pickerLabel": "Eintrag erwähnen"
   }
 }

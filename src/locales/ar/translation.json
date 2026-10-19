@@ -4492,8 +4492,7 @@
       "finish": {
         "title": "Here is where you are.",
         "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now.",
-        "openWorkspace": "Open workspace"
+        "bodyOther": "Everything below is true right now."
       }
     },
     "hello": {
@@ -4760,6 +4759,81 @@
       "autoPasteBodyMac": "الصق كلماتك في موضع المؤشر. يتطلب ذلك إذن تسهيلات الاستخدام على macOS.",
       "autoPasteBodyOther": "الصق كلماتك في موضع المؤشر.",
       "accessibilityBody": "لا يسمح macOS لتطبيق Loqui بالتعرف على الاختصار واللصق إلا بعد موافقتك. يمكنك منح الإذن الآن أو لاحقًا في الإعدادات."
+    },
+    "ready": {
+      "titleProven": "أنت تملي الآن.",
+      "titleConfigured": "اكتمل الإعداد. جرّبه مرة للتأكد.",
+      "titlePending_one": "أوشكنا على الانتهاء: بقي {{count}} بند.",
+      "titlePending_other": "أوشكنا على الانتهاء: بقي {{count}} بند.",
+      "subAllLocalMac": "نجح إملاؤك الأول. كل شيء يعمل على جهاز Mac هذا.",
+      "subAllLocalOther": "نجح إملاؤك الأول. كل شيء يعمل على هذا الكمبيوتر.",
+      "subProven": "نجح إملاؤك الأول.",
+      "subConfigured": "جرّب الإملاء مرة للتأكد من هذا الإعداد.",
+      "subPending": "أكمل هذه البنود. يفتح كل بند مكان إصلاحه.",
+      "rows": {
+        "speech": "الصوت",
+        "microphone": "الميكروفون",
+        "shortcut": "الاختصار",
+        "cleanup": "تنقيح النص"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}، تم التعرّف على إملائك الأول",
+          "checking": "جارٍ التحقق…",
+          "configured": "{{voice}}، لم يُجرّب بعد",
+          "downloading": "التنزيل مستمر",
+          "needsModel": "نزّل نموذج صوت",
+          "unavailable": "أكمل التهيئة في الإعدادات"
+        },
+        "microphone": {
+          "heard": "يعمل",
+          "allowed": "مسموح، ولم يُسمع صوت بعد",
+          "denied": "اسمح به في إعدادات النظام",
+          "untested": "قل شيئًا للاختبار"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}، اضغط للبدء والإيقاف",
+            "push": "{{key}}، استمر بالضغط للتحدث"
+          },
+          "configured": {
+            "tap": "{{key}}، لم يُجرّب بعد",
+            "push": "{{key}}، لم يُجرّب بعد"
+          },
+          "needsAccessibility": "امنح إذن تسهيلات الاستخدام",
+          "checkAccessibility": "تحقق من إذن تسهيلات الاستخدام"
+        },
+        "cleanup": {
+          "off": "متوقف. أضفه لاحقًا",
+          "checking": "ما زال التحقق جاريًا",
+          "needsConnection": "اربط ChatGPT",
+          "needsKey": "أضف مفتاح {{provider}} في الإعدادات",
+          "needsModel": "نزّل النموذج المحلي في الإعدادات",
+          "unreachable": "يتعذر الوصول إلى {{provider}}",
+          "configured": "تمت التهيئة باستخدام {{name}}",
+          "configuredNetwork": "تمت التهيئة لدى {{provider}} باستخدام {{name}}"
+        }
+      },
+      "dictateNote": "أملِ في ملاحظة",
+      "openWorkspace": "افتح مساحة العمل",
+      "noteLocal": "تُفرَّغ الملاحظات على هذا الجهاز.",
+      "noteSends": "ترسل الملاحظات الصوت إلى {{provider}}.",
+      "noteChecking": "جارٍ التحقق من طريقة تفريغ الملاحظات…",
+      "noteBlocked": {
+        "microphone": "تحتاج الملاحظات إلى الميكروفون.",
+        "unsupported": "تسجيل الملاحظات مضبوط على خدمة لا تدعمها الملاحظات بعد، مثل خادم مستضاف ذاتيًا.",
+        "sealed": "وضع الإغلاق مفعّل، لذا لا يمكن لتسجيل الملاحظات الوصول إلى {{provider}}.",
+        "needsModel": "يحتاج تسجيل الملاحظات إلى نموذج صوت على هذا الجهاز.",
+        "needsKey": "يحتاج تسجيل الملاحظات إلى مفتاح {{provider}}.",
+        "needsUrl": "يحتاج تسجيل الملاحظات إلى عنوان خادم.",
+        "unreachable": "لا يستطيع Loqui الوصول إلى {{provider}} لتسجيل الملاحظات."
+      },
+      "fixNote": "أصلح هذا",
+      "noteNetwork": "الملاحظات مضبوطة لإرسال الصوت إلى {{provider}}.",
+      "titlePending_zero": "أوشكنا على الانتهاء: بقي {{count}} بند.",
+      "titlePending_two": "أوشكنا على الانتهاء: بقي بندان ({{count}}).",
+      "titlePending_few": "أوشكنا على الانتهاء: بقي {{count}} بنود.",
+      "titlePending_many": "أوشكنا على الانتهاء: بقي {{count}} بندًا."
     }
   }
 }

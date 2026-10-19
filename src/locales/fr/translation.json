@@ -4290,8 +4290,7 @@
       "finish": {
         "title": "Here is where you are.",
         "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now.",
-        "openWorkspace": "Open workspace"
+        "bodyOther": "Everything below is true right now."
       }
     },
     "hello": {
@@ -4538,6 +4537,78 @@
       "autoPasteBodyMac": "Collez vos mots à la position du curseur. Nécessite une autorisation d’accessibilité sous macOS.",
       "autoPasteBodyOther": "Collez vos mots à la position du curseur.",
       "accessibilityBody": "macOS permet à Loqui de détecter le raccourci et de coller uniquement après votre autorisation. Vous pouvez l’accorder maintenant ou plus tard dans les réglages."
+    },
+    "ready": {
+      "titleProven": "Vous dictez.",
+      "titleConfigured": "Tout est configuré. Essayez une fois pour vérifier.",
+      "titlePending_one": "Presque prêt : encore {{count}} point.",
+      "titlePending_other": "Presque prêt : encore {{count}} points.",
+      "subAllLocalMac": "Votre première dictée a fonctionné. Tout s’exécute sur ce Mac.",
+      "subAllLocalOther": "Votre première dictée a fonctionné. Tout s’exécute sur cet ordinateur.",
+      "subProven": "Votre première dictée a fonctionné.",
+      "subConfigured": "Essayez une dictée pour vérifier cette configuration.",
+      "subPending": "Terminez ces points. Chacun ouvre l’endroit où le résoudre.",
+      "rows": {
+        "speech": "Voix",
+        "microphone": "Microphone",
+        "shortcut": "Raccourci",
+        "cleanup": "Nettoyage"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}, votre première dictée a été reconnue",
+          "checking": "Vérification…",
+          "configured": "{{voice}}, pas encore essayé",
+          "downloading": "Téléchargement en cours",
+          "needsModel": "Télécharger une voix",
+          "unavailable": "Terminer la configuration dans les réglages"
+        },
+        "microphone": {
+          "heard": "Fonctionne",
+          "allowed": "Autorisé, pas encore entendu",
+          "denied": "Autoriser dans les réglages système",
+          "untested": "Dites quelque chose pour tester"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}, appuyez pour démarrer et arrêter",
+            "push": "{{key}}, maintenez pour parler"
+          },
+          "configured": {
+            "tap": "{{key}}, pas encore essayé",
+            "push": "{{key}}, pas encore essayé"
+          },
+          "needsAccessibility": "Autoriser l’accessibilité",
+          "checkAccessibility": "Vérifier l’accès à l’accessibilité"
+        },
+        "cleanup": {
+          "off": "Désactivé. À ajouter plus tard",
+          "checking": "Vérification en cours",
+          "needsConnection": "Connecter ChatGPT",
+          "needsKey": "Ajouter votre clé {{provider}} dans les réglages",
+          "needsModel": "Télécharger le modèle local dans les réglages",
+          "unreachable": "Impossible de joindre {{provider}}",
+          "configured": "Configuré avec {{name}}",
+          "configuredNetwork": "Configuré sur {{provider}} avec {{name}}"
+        }
+      },
+      "dictateNote": "Dicter dans une note",
+      "openWorkspace": "Ouvrir l’espace de travail",
+      "noteLocal": "Les notes sont transcrites sur cet appareil.",
+      "noteSends": "Les notes envoient l’audio à {{provider}}.",
+      "noteChecking": "Vérification du mode de transcription des notes…",
+      "noteBlocked": {
+        "microphone": "Les notes ont besoin de votre microphone.",
+        "unsupported": "L’enregistrement des notes utilise un service encore incompatible, comme un serveur auto-hébergé.",
+        "sealed": "Le mode scellé est activé : l’enregistrement des notes ne peut pas joindre {{provider}}.",
+        "needsModel": "L’enregistrement des notes nécessite un modèle vocal sur cet appareil.",
+        "needsKey": "L’enregistrement des notes nécessite votre clé {{provider}}.",
+        "needsUrl": "L’enregistrement des notes nécessite une adresse de serveur.",
+        "unreachable": "Loqui ne peut pas joindre {{provider}} pour l’enregistrement des notes."
+      },
+      "fixNote": "Corriger",
+      "noteNetwork": "Les notes sont configurées pour envoyer l’audio à {{provider}}.",
+      "titlePending_many": "Presque prêt : encore {{count}} points."
     }
   }
 }

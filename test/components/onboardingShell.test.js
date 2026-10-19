@@ -6,34 +6,6 @@ const path = require("node:path");
 const repoRoot = path.join(__dirname, "../..");
 const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
 
-test("the shell pins html, body and #root while onboarding is mounted", () => {
-  const css = read("src/styles/onboarding-welcome.css");
-  assert.match(
-    css,
-    /html:has\(\.onboarding-welcome\),\s*html:has\(\.onboarding-welcome\) body,\s*html:has\(\.onboarding-welcome\) #root\s*\{\s*height: 100%;\s*\}/
-  );
-  assert.doesNotMatch(
-    read("src/index.css"),
-    /onboarding-welcome/,
-    "onboarding CSS stays out of index.css"
-  );
-});
-
-test("traffic-light clearance is physical, not logical, and survives the narrow layout", () => {
-  const css = read("src/styles/onboarding-welcome.css");
-  const wide = css.match(
-    /\.onboarding-welcome\[data-platform="darwin"\] \.onboarding-welcome-header\s*\{([^}]*)\}/
-  );
-  assert.ok(wide, "macOS header rule exists");
-  assert.match(wide[1], /padding-left: max\(84px, calc\(\(100vw - 1320px\) \/ 2\)\);/);
-  assert.doesNotMatch(wide[1], /padding-inline-start/);
-  const narrow = css.match(/@media \(max-width: 760px\)\s*\{([\s\S]*?)\n\}/)[1];
-  assert.match(
-    narrow,
-    /\.onboarding-welcome\[data-platform="darwin"\] \.onboarding-welcome-header\s*\{\s*padding-left: 84px;\s*\}/
-  );
-});
-
 const { resolveTokens } = require("../helpers/harness/cssTokens");
 const { mountComponent, expectKey } = require("../helpers/harness/mountComponent");
 const React = require("react");

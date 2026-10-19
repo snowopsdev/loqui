@@ -306,7 +306,7 @@ Recovery uses one `RecoveryCard` alert with a title, a single explanatory body a
 
 Hello asks for microphone permission through an explicit “Allow microphone” action. A confirmed grant enables an analyser-only preview: no recording, playback, storage or provider work. The meter and rail follow the same input level. Opening, live and failed states remain distinct; a failed open can retry while permission is still granted. Leaving, changing inputs and partial setup failure release every stream, analyser context, timer and device listener, including a stream that resolves after its owner leaves. Silence below the shared voice floor for 2.5 seconds highlights the input picker, and speech clears the hint.
 
-Hello’s picker reads and writes the existing dictation microphone mode, device ID and label. It offers system default, a detected built-in input and concrete inputs; the shared resolver recovers a uniquely labelled replugged device and discloses a missing saved input’s system fallback. Voice evidence is scoped to the listening selection and is invalidated on a device change. Full route/take proof belongs to the trial and Ready integration. “Get started” advances once to Voice; “Look around first” exits through the existing completion path. Privacy/history and automatic-update defaults now appear under the legacy Ready list, retaining their existing settings and update IPC until the new Ready body replaces it. Preview design 02 renders the same `OnboardingFlow` as desktop. The legacy welcome stylesheet stays imported by the flow for the remaining legacy bodies.
+Hello’s picker reads and writes the existing dictation microphone mode, device ID and label. It offers system default, a detected built-in input and concrete inputs; the shared resolver recovers a uniquely labelled replugged device and discloses a missing saved input’s system fallback. Voice evidence is scoped to the listening selection and is invalidated on a device change. Full route/take proof belongs to the trial and Ready integration. “Get started” advances once to Voice; “Look around first” exits through the existing completion path. Privacy/history and automatic-update defaults appear under Ready, retaining their existing settings and update IPC. Preview design 02 renders the same `OnboardingFlow` as desktop. The legacy welcome and guided stylesheets have been removed.
 
 The Voice step’s detected pick comes only from OS locale preferences and advisory free disk space (`src/utils/onboardingDetection.ts`); it never infers language from speech. A low-space result is informational because Electron main remains the download-admission authority. Language edits keep a compatible voice, choose a compatible catalog voice when available, or clear the choice.
 
@@ -651,3 +651,40 @@ all eleven locales; previous placeholder translations and final native-speaker,
 native audio, OS permission, motion and real zoom verification keep their later
 owners. Task18's final Ready summary and Task22's real Plan04 composition remain
 separate work.
+
+### Honest Ready and workspace hand-off (Plan05 Task18)
+
+Ready summarizes Voice, Microphone, Shortcut and Cleanup in that order. Only
+current admitted voice/model/device evidence proves dictation; installation,
+historical words and the docked mark cannot do so. The microphone must have been
+heard on its selected input, and known denial overrides old proof. A shortcut
+requires the acknowledged current binding and activation mode. macOS Accessibility
+is observed on Ready too; an unresolved answer remains pending.
+
+Configured rows resume their step; pending rows open the exact fix, including
+Settings-only destinations. Proven and optional rows are static. Cleanup Off is
+optional, while a chosen unavailable cleanup stays pending according to the same
+choice-first check as Cleanup. A successful configuration check is labelled
+configured, not evidence of provider execution. A network configuration names
+its actual host. The subtitle invites a dictation test without claiming no other
+part has been tested. Status colour lives only on icons; words remain neutral. Ready and pending icons use the neutral background token so their glyphs clear 3:1; tinted status fills reduced warning contrast below that threshold.
+The rows reflow at narrow widths and share the motion and focus tokens.
+
+“Dictate into a note” uses Plan03's noteRecordingStt route and published destination
+chip, independently of dictation. Unknown routes say Checking and cannot finish;
+self-hosted notes are unsupported and open stt/noteRecording. Denied microphone
+returns to Hello. Unknown microphone may proceed to the existing recorder's
+permission prompt. The action re-reads the authoritative route snapshot at click.
+A device-only subtitle requires actual device localities for dictation, chosen
+cleanup and notes. No installed candidate or advisory flag overrides them.
+
+AppRouter forwards the single OnboardingCompleteOptions.next type to a one-shot,
+in-memory slot. ControlPanel consumes it beside handleNewNote, through the existing
+useCreateNote/recording owner or the exact Settings path. StrictMode replay and
+remount do not repeat it. Plan06 must carry that effect beside handleNewNote;
+no second recorder, cancel manager or persisted intent is introduced. Ready has
+its own actions and no primary, Skip or Finish later footer action. Ready imports
+PrivacyDefaults itself. New Ready copy is translated in all eleven locales;
+existing placeholders elsewhere remain Task20 work. Captured-provider source
+limits, native/manual verification and Task22's real Plan04 integration remain
+open. No Sealed or zero-byte assurance is made.

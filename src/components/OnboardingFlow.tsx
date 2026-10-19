@@ -6,10 +6,8 @@ import {
   setResolvedLLMConfig,
   reasoningModelBelongsToProvider,
 } from "../stores/settingsStore";
-import { usePermissions } from "../hooks/usePermissions";
 import { micPickerModel, selectionFor, type AudioInput } from "../utils/onboardingMic";
 import { HelloStep } from "./onboarding/HelloStep";
-import { PrivacyDefaults } from "./onboarding/PrivacyDefaults";
 import { useMicrophoneAccess } from "./onboarding/useMicrophoneAccess";
 import { useMicLevelPreview } from "./onboarding/useMicLevelPreview";
 import { MeetLoquiTour } from "./onboarding/MeetLoquiTour";
@@ -20,17 +18,10 @@ import {
   voiceReadyNotice,
 } from "./onboarding/onboardingNotices";
 import { useOnboardingNotifier } from "./onboarding/useOnboardingNotifier";
-import "../styles/onboarding-welcome.css";
-import "../styles/onboarding-guided.css";
 import "../styles/onboarding.css";
 import { getDefaultHotkey, parseHotkeyList } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
-import { CheckCircle2, CircleAlert } from "./icons";
-import type {
-  OnboardingPreviewConfig,
-  OnboardingReadiness,
-  OnboardingStep,
-} from "../utils/onboardingState";
+import type { OnboardingPreviewConfig, OnboardingStep } from "../utils/onboardingState";
 import {
   onboardingPreviewStorageKey,
   readOnboardingProgress,
@@ -84,7 +75,9 @@ import { useSystemProfile } from "./onboarding/useSystemProfile";
 import { useVoiceDownload } from "./onboarding/useVoiceDownload";
 import { VoiceStep } from "./onboarding/VoiceStep";
 import { DownloadChip } from "./onboarding/DownloadChip";
-import { useResolvedRoute } from "../lib/routes";
+import { resolveRoutes, routeSnapshotFromSettings, useResolvedRoute } from "../lib/routes";
+import { noteActionState, summarizeReadiness } from "../utils/onboardingReadiness";
+import { ReadyStep } from "./onboarding/ReadyStep";
 import { providerDisplayLabel } from "../lib/locality";
 import { CleanupStep, type CleanupRemoteAttempt } from "./onboarding/CleanupStep";
 import { createSetupCleanupOperation } from "./onboarding/cleanupRunner";
@@ -114,88 +107,6 @@ const cleanupModelCatalog: CleanupModelCatalog = {
     pickDefaultModelId(modelRegistryData.cloudProviders.find((entry) => entry.id === provider)),
 };
 
-function FinishStep({
-  readiness,
-  onResume,
-  privacy,
-}: {
-  privacy: ReactNode;
-  readiness: OnboardingReadiness;
-  onResume: (step: OnboardingStep) => void;
-}) {
-  const items: Array<[keyof OnboardingReadiness, string, string, OnboardingStep]> = [
-    ["speech", "Speech model", "Choose and download a local speech model.", "speech"],
-    ["microphone", "Microphone", "Start a trial recording to confirm access.", "try"],
-    ["cleanup", "Text cleanup", "Optional. Raw transcripts work without it.", "cleanup"],
-    ["shortcut", "Shortcut and paste", "Optional for using Loqui in other apps.", "shortcuts"],
-  ];
-  return (
-    <div className="onboarding-guided-work">
-      <div className="onboarding-guided-section-head">
-        <h2>Your setup at a glance</h2>
-        <span>Finish anytime</span>
-      </div>
-      <div className="onboarding-guided-readiness space-y-2">
-        {items.map(([key, label, detail, step]) => {
-          const state = readiness[key];
-          const ok = state === "ready" || state === "skipped";
-          const status =
-            state === "ready"
-              ? "Ready"
-              : state === "skipped"
-                ? "Optional"
-                : state === "checking"
-                  ? "Checking"
-                  : state === "failed"
-                    ? "Needs attention"
-                    : "Pending";
-          const description =
-            state === "ready"
-              ? key === "speech"
-                ? "Local model ready."
-                : key === "microphone"
-                  ? "Trial dictation captured."
-                  : `${label} is ready.`
-              : state === "skipped"
-                ? key === "cleanup"
-                  ? "Raw transcripts work without cleanup."
-                  : "Record inside Loqui without automatic paste."
-                : detail;
-          return (
-            <button
-              type="button"
-              key={key}
-              onClick={() => onResume(step)}
-              className="onboarding-guided-readiness-row flex w-full items-start gap-3 rounded-xl border border-border bg-card p-4 text-start hover:bg-muted/40"
-            >
-              <span className="mt-0.5">
-                {ok ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                ) : (
-                  <CircleAlert className="h-4 w-4 text-amber-500" />
-                )}
-              </span>
-              <span className="flex-1">
-                <span className="block text-sm font-semibold">{label}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{description}</span>
-              </span>
-              <span className="text-xs text-muted-foreground">{status}</span>
-            </button>
-          );
-        })}
-      </div>
-      {privacy}
-      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-xs leading-relaxed text-muted-foreground">
-        <p className="font-semibold text-foreground">Next</p>
-        <p className="mt-1">
-          Open Notes to edit a sample note, or use Record from the workspace. Meetings, calendar
-          connections, search models, and advanced providers can be configured later.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export default function OnboardingFlow({
   onComplete,
   onExplore,
@@ -224,7 +135,6 @@ export default function OnboardingFlow({
   const autoPasteEnabled = useSettingsStore((s) => s.autoPasteEnabled);
   const dataRetentionEnabled = useSettingsStore((s) => s.dataRetentionEnabled);
   const setDataRetentionEnabled = useSettingsStore((s) => s.setDataRetentionEnabled);
-  const permissions = usePermissions(undefined, { macAccessibilityChecksEnabled: true });
   const platform = (
     config?.platform === "macos"
       ? "darwin"
@@ -260,9 +170,7 @@ export default function OnboardingFlow({
         setMicHeard(micSelection);
     }
   }, [helloPreview.status, helloPreview.heardVoice, micSelection]);
-  // Until T18, the legacy readiness list continues to use its trial evidence.
   const micHeard = micHeardSelection === micSelection;
-  void micHeard;
   const pickMicrophone = (value: string) => {
     setMicHeard(null);
     const { mode, device: picked } = selectionFor(value, helloInputs);
@@ -275,7 +183,6 @@ export default function OnboardingFlow({
     void window.electronAPI?.updates?.preferences?.({ enabled: value });
   };
 
-  const scenario = config?.scenario ?? "fresh";
   const initialCleanupChoice: CleanupChoice = !useCleanupModel
     ? "none"
     : cleanupMode === "local"
@@ -447,7 +354,10 @@ export default function OnboardingFlow({
   const shortcutProven =
     bindingMatches(keycap.binding, expectedBinding) &&
     ((keycap.presses > 0 && keycap.lastStyle !== null) || shortcutProofCurrent);
-  const accessibility = useAccessibilityGate(platform, step === "try" || step === "shortcuts");
+  const accessibility = useAccessibilityGate(
+    platform,
+    step === "try" || step === "shortcuts" || step === "finish"
+  );
   const nowMs = useTicker(trial.phase === "recording");
   const [docked, setDocked] = useState(false);
   useEffect(() => {
@@ -595,47 +505,6 @@ export default function OnboardingFlow({
     });
   }, [cleanupChoice, cleanupStatus, config]);
 
-  const readiness = useMemo<OnboardingReadiness>(() => {
-    const cleanupFailed =
-      scenario === "cleanup-failed" ||
-      (cleanupChoice === "codex" &&
-        (scenario === "codex-missing" || scenario === "codex-expired")) ||
-      (cleanupChoice === "provider" && scenario === "invalid-provider-key");
-    return {
-      microphone: trialProofCurrent ? "ready" : mic.access === "denied" ? "failed" : "pending",
-      speech: localVoiceActive ? "ready" : voiceStatus === "error" ? "failed" : "pending",
-      cleanup:
-        cleanupChoice === "none"
-          ? "skipped"
-          : cleanupFailed || cleanupStatus === "failed"
-            ? "failed"
-            : cleanupStatus === "ready"
-              ? "ready"
-              : cleanupStatus === "checking"
-                ? "checking"
-                : "pending",
-      shortcut: !autoPasteEnabled
-        ? "skipped"
-        : platform === "darwin" && !permissions.accessibilityPermissionGranted
-          ? "pending"
-          : shortcutProven
-            ? "ready"
-            : "pending",
-    };
-  }, [
-    voiceStatus,
-    permissions.accessibilityPermissionGranted,
-    platform,
-    scenario,
-    autoPasteEnabled,
-    cleanupChoice,
-    cleanupStatus,
-    localVoiceActive,
-    trialProofCurrent,
-    shortcutProven,
-    mic.access,
-  ]);
-
   const reuseStorageKey = progressStorageKey
     ? `${progressStorageKey}.reuseCleanup`
     : "loqui.onboarding.reuseCleanup";
@@ -658,28 +527,40 @@ export default function OnboardingFlow({
       ? (cleanupRoute.host ?? providerDisplayLabel(null, t))
       : providerDisplayLabel(cleanupRoute.providerId ?? choiceProviderId, t);
   const cleanupSelection = captureSetupCleanupSelection();
-  let content: ReactNode = null;
-  if (step === "finish")
-    content = (
-      <FinishStep
-        readiness={readiness}
-        onResume={goTo}
-        privacy={
-          <PrivacyDefaults
-            platform={platform}
-            historyEnabled={dataRetentionEnabled}
-            onHistoryChange={setDataRetentionEnabled}
-            updatesEnabled={updatesEnabled}
-            onUpdatesChange={changeUpdates}
-          />
-        }
-      />
+  const noteRoute = useResolvedRoute("noteRecordingStt");
+  const summary = summarizeReadiness({
+    speechRoute: dictationRoute,
+    noteRoute,
+    localVoiceActive,
+    voiceDownload: voiceStatus,
+    microphone: mic.access,
+    micHeard,
+    trialSucceeded: trialProofCurrent,
+    platform,
+    accessibilityGranted: accessibility.granted,
+    shortcutProven,
+    shortcutLabel: hotkeyLabel,
+    activationMode,
+    cleanupChoice,
+    cleanupStatus,
+    cleanupRoute,
+    cleanupProviderLabel,
+  });
+  const noteAction = noteActionState({ route: noteRoute, microphone: mic.access });
+  const noteMicrophone = useRef(mic.access);
+  noteMicrophone.current = mic.access;
+  // Re-read Plan03 at the action boundary: a stale rendered button grants nothing.
+  const dictateNote = () => {
+    const latest = resolveRoutes(routeSnapshotFromSettings(useSettingsStore.getState())).find(
+      (route) => route.id === "noteRecordingStt"
     );
-
-  // T11 interim: keep each legacy body until its owning step task replaces it.
-  const legacy = (node: ReactNode) => (
-    <div className="onboarding-welcome onboarding-guided onb-legacy">{node}</div>
-  );
+    if (
+      !latest ||
+      noteActionState({ route: latest, microphone: noteMicrophone.current }).status !== "ready"
+    )
+      return;
+    finish({ next: { kind: "dictate-note" } });
+  };
   const stepView = (): StepView => {
     if (step === "shortcuts")
       return {
@@ -889,17 +770,32 @@ export default function OnboardingFlow({
       };
     return {
       rail: {
-        title: t(`setupFlow.rail.${step}.title`),
-        body: t(`setupFlow.rail.${step}.body${device}`),
-        mode: { kind: "idle" },
+        title: t("setupFlow.rail.finish.title"),
+        body: t(`setupFlow.rail.finish.body${device}`),
+        mode: downloadRail ?? { kind: "idle" },
       },
-      primary:
-        step === "finish"
-          ? { label: t("setupFlow.rail.finish.openWorkspace"), onClick: () => finish() }
-          : { label: t("setupFlow.continue"), onClick: advance },
-      onSkip: step === "finish" ? undefined : skip,
-      finishLaterLabel: t("setupFlow.finishLater"),
-      content: legacy(content),
+      content: (
+        <ReadyStep
+          platform={platform}
+          summary={summary}
+          note={noteAction}
+          noteProviderLabel={
+            noteRoute.locality === "network" && noteRoute.host
+              ? noteRoute.host
+              : providerDisplayLabel(noteAction.providerId, t)
+          }
+          onResume={goTo}
+          onDictateNote={dictateNote}
+          onOpenSettings={(path) => finish({ next: { kind: "open-settings", path } })}
+          onOpenWorkspace={() => finish()}
+          privacy={{
+            historyEnabled: dataRetentionEnabled,
+            onHistoryChange: setDataRetentionEnabled,
+            updatesEnabled,
+            onUpdatesChange: changeUpdates,
+          }}
+        />
+      ),
     };
   };
   const view = stepView();

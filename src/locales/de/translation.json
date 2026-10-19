@@ -4284,8 +4284,7 @@
       "finish": {
         "title": "Here is where you are.",
         "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now.",
-        "openWorkspace": "Open workspace"
+        "bodyOther": "Everything below is true right now."
       }
     },
     "hello": {
@@ -4532,6 +4531,77 @@
       "autoPasteBodyMac": "Füge deine Worte an der Cursorposition ein. Dafür ist unter macOS die Berechtigung für Bedienungshilfen nötig.",
       "autoPasteBodyOther": "Füge deine Worte an der Cursorposition ein.",
       "accessibilityBody": "macOS erlaubt Loqui das Erkennen des Tastenkürzels und Einfügen erst nach deiner Zustimmung. Du kannst sie jetzt oder später in den Einstellungen erteilen."
+    },
+    "ready": {
+      "titleProven": "Du diktierst.",
+      "titleConfigured": "Alles eingerichtet. Probiere es einmal aus.",
+      "titlePending_one": "Fast fertig: Noch {{count}} Punkt.",
+      "titlePending_other": "Fast fertig: Noch {{count}} Punkte.",
+      "subAllLocalMac": "Dein erstes Diktat hat funktioniert. Alles läuft auf diesem Mac.",
+      "subAllLocalOther": "Dein erstes Diktat hat funktioniert. Alles läuft auf diesem Computer.",
+      "subProven": "Dein erstes Diktat hat funktioniert.",
+      "subConfigured": "Probiere ein Diktat aus, um diese Einrichtung zu bestätigen.",
+      "subPending": "Erledige diese Punkte. Jeder öffnet die passende Stelle.",
+      "rows": {
+        "speech": "Stimme",
+        "microphone": "Mikrofon",
+        "shortcut": "Tastenkürzel",
+        "cleanup": "Textbereinigung"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}, dein erstes Diktat wurde erkannt",
+          "checking": "Wird geprüft…",
+          "configured": "{{voice}}, noch nicht ausprobiert",
+          "downloading": "Download läuft noch",
+          "needsModel": "Stimme herunterladen",
+          "unavailable": "Einrichtung in den Einstellungen abschließen"
+        },
+        "microphone": {
+          "heard": "Funktioniert",
+          "allowed": "Zugriff erlaubt, noch nichts gehört",
+          "denied": "In den Systemeinstellungen erlauben",
+          "untested": "Sprich etwas zum Testen"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}, zum Starten und Stoppen drücken",
+            "push": "{{key}}, zum Sprechen gedrückt halten"
+          },
+          "configured": {
+            "tap": "{{key}}, noch nicht ausprobiert",
+            "push": "{{key}}, noch nicht ausprobiert"
+          },
+          "needsAccessibility": "Bedienungshilfen erlauben",
+          "checkAccessibility": "Zugriff auf Bedienungshilfen prüfen"
+        },
+        "cleanup": {
+          "off": "Aus. Später hinzufügen",
+          "checking": "Wird noch geprüft",
+          "needsConnection": "ChatGPT verbinden",
+          "needsKey": "{{provider}}-Schlüssel in den Einstellungen hinzufügen",
+          "needsModel": "Lokales Modell in den Einstellungen herunterladen",
+          "unreachable": "{{provider}} ist nicht erreichbar",
+          "configured": "Mit {{name}} eingerichtet",
+          "configuredNetwork": "Bei {{provider}} mit {{name}} eingerichtet"
+        }
+      },
+      "dictateNote": "In eine Notiz diktieren",
+      "openWorkspace": "Arbeitsbereich öffnen",
+      "noteLocal": "Notizen werden auf diesem Gerät transkribiert.",
+      "noteSends": "Notizen senden Audio an {{provider}}.",
+      "noteChecking": "Transkriptionsweg für Notizen wird geprüft…",
+      "noteBlocked": {
+        "microphone": "Notizen benötigen dein Mikrofon.",
+        "unsupported": "Für Notizen ist ein Dienst eingestellt, den sie noch nicht nutzen können, etwa ein selbst gehosteter Server.",
+        "sealed": "Der versiegelte Modus ist aktiv. Notizaufnahmen können {{provider}} nicht erreichen.",
+        "needsModel": "Notizaufnahmen benötigen ein Sprachmodell auf diesem Gerät.",
+        "needsKey": "Notizaufnahmen benötigen deinen {{provider}}-Schlüssel.",
+        "needsUrl": "Notizaufnahmen benötigen eine Serveradresse.",
+        "unreachable": "Loqui kann {{provider}} für Notizaufnahmen nicht erreichen."
+      },
+      "fixNote": "Beheben",
+      "noteNetwork": "Notizen sind zum Senden von Audio an {{provider}} eingerichtet."
     }
   }
 }

@@ -4258,8 +4258,7 @@
       "finish": {
         "title": "Here is where you are.",
         "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now.",
-        "openWorkspace": "Open workspace"
+        "bodyOther": "Everything below is true right now."
       }
     },
     "hello": {
@@ -4501,6 +4500,77 @@
       "autoPasteBodyMac": "将文字粘贴到光标所在位置。macOS需要辅助功能权限。",
       "autoPasteBodyOther": "将文字粘贴到光标所在位置。",
       "accessibilityBody": "只有获得你的许可后，macOS才允许Loqui检测快捷键和粘贴。你可以现在授权，也可以稍后在设置中授权。"
+    },
+    "ready": {
+      "titleProven": "你已开始听写。",
+      "titleConfigured": "设置完成。试一次来确认吧。",
+      "titlePending_one": "快好了：还剩{{count}}项。",
+      "titlePending_other": "快好了：还剩{{count}}项。",
+      "subAllLocalMac": "首次听写成功。所有处理都在这台 Mac 上运行。",
+      "subAllLocalOther": "首次听写成功。所有处理都在这台电脑上运行。",
+      "subProven": "首次听写成功。",
+      "subConfigured": "试着听写一次，确认此设置可用。",
+      "subPending": "完成这些项目即可。每项都会打开对应的设置位置。",
+      "rows": {
+        "speech": "语音",
+        "microphone": "麦克风",
+        "shortcut": "快捷键",
+        "cleanup": "文本整理"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}，已识别首次听写",
+          "checking": "正在检查…",
+          "configured": "{{voice}}，尚未试用",
+          "downloading": "仍在下载",
+          "needsModel": "下载语音模型",
+          "unavailable": "在设置中完成配置"
+        },
+        "microphone": {
+          "heard": "工作正常",
+          "allowed": "已允许，尚未检测到语音",
+          "denied": "在系统设置中允许",
+          "untested": "说点什么来测试"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}，按下开始或停止",
+            "push": "{{key}}，按住说话"
+          },
+          "configured": {
+            "tap": "{{key}}，尚未试用",
+            "push": "{{key}}，尚未试用"
+          },
+          "needsAccessibility": "授予辅助功能权限",
+          "checkAccessibility": "检查辅助功能权限"
+        },
+        "cleanup": {
+          "off": "已关闭。可稍后添加",
+          "checking": "仍在检查",
+          "needsConnection": "连接 ChatGPT",
+          "needsKey": "在设置中添加 {{provider}} 密钥",
+          "needsModel": "在设置中下载本地模型",
+          "unreachable": "无法连接 {{provider}}",
+          "configured": "已配置 {{name}}",
+          "configuredNetwork": "已在 {{provider}} 配置 {{name}}"
+        }
+      },
+      "dictateNote": "向笔记听写",
+      "openWorkspace": "打开工作区",
+      "noteLocal": "笔记在此设备上转写。",
+      "noteSends": "笔记会将音频发送至 {{provider}}。",
+      "noteChecking": "正在检查笔记的转写方式…",
+      "noteBlocked": {
+        "microphone": "笔记需要使用麦克风。",
+        "unsupported": "笔记录音配置了尚不支持的服务，例如自托管服务器。",
+        "sealed": "密封模式已开启，笔记录音无法连接 {{provider}}。",
+        "needsModel": "笔记录音需要此设备上的语音模型。",
+        "needsKey": "笔记录音需要你的 {{provider}} 密钥。",
+        "needsUrl": "笔记录音需要服务器地址。",
+        "unreachable": "Loqui 无法连接 {{provider}} 进行笔记录音。"
+      },
+      "fixNote": "修复此项",
+      "noteNetwork": "笔记已设为向 {{provider}} 发送音频。"
     }
   }
 }

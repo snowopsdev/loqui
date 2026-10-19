@@ -46,6 +46,7 @@ import MeetingRecordingMount from "./MeetingRecordingMount";
 import MeetingRecordingPill from "./notes/MeetingRecordingPill";
 import NewNoteMenu from "./notes/NewNoteMenu";
 
+import { takeAfterSetupIntent } from "../utils/afterSetupIntent";
 import { useCreateNote } from "../hooks/useCreateNote";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
 import {
@@ -140,6 +141,19 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     await createNote();
     setActiveView("personal-notes");
   }, [createNote]);
+
+  // Plan06 must carry this Ready hand-off beside handleNewNote. The existing
+  // useCreateNote/meeting recorder owns creation and recording, including live capture.
+  useEffect(() => {
+    const intent = takeAfterSetupIntent();
+    if (!intent) return;
+    if (intent.kind === "dictate-note") {
+      void handleNewNote();
+    } else {
+      setSettingsSection(intent.path);
+      setShowSettings(true);
+    }
+  }, [handleNewNote]);
 
   const policyMinAppVersion = null;
 

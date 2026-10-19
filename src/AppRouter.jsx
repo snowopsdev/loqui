@@ -1,3 +1,4 @@
+import { setAfterSetupIntent } from "./utils/afterSetupIntent";
 import UpdateSettings from "./components/settings/UpdateSettings";
 import { flushForUpdate } from "./utils/updateFlush";
 import React, { Suspense, useEffect, useState } from "react";
@@ -64,9 +65,10 @@ function MainApp() {
       {isControlPanel ? (
         showOnboarding ? (
           <OnboardingFlow
-            onComplete={() => {
+            onComplete={(options) => {
               localStorage.setItem("onboardingCompleted", "true");
               window.electronAPI?.updates?.completeSetup();
+              if (options?.next) setAfterSetupIntent(options.next);
               setShowOnboarding(false);
             }}
           />

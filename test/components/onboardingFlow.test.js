@@ -512,6 +512,12 @@ for (const mode of ["self-hosted", "providers"]) {
       await ui.vite.ssrLoadModule("/stores/settingsStore.ts")
     ).useSettingsStore.getState();
     assert.equal(settings.transcriptionMode, mode, "Skip never commits the candidate");
+    await ui.click("setupFlow.skipStep"); // Try -> Cleanup
+    await ui.click(primary(ui)); // Cleanup -> Shortcut
+    await ui.click(primary(ui)); // Shortcut -> Ready
+    assert.notEqual(ui.byAttr("data-status")[0].attributes["data-status"], "ready");
+    assert.equal(ui.text().includes("setupFlow.ready.titleProven"), false);
+    assert.equal(ui.text().includes("setupFlow.ready.subAllLocal"), false);
   });
 }
 
@@ -1185,37 +1191,27 @@ test("Choose voice from an uncommitted trial uses the established progress navig
   assert.equal(currentStep(ui), "setupFlow.progress.goTo(step=setupFlow.steps.speech)");
 });
 
-test("interim Finish never borrows shortcut A or microphone A proof for a new acknowledged/current choice", async (t) => {
+test("Ready never borrows shortcut A or microphone A proof for a new acknowledged/current choice", async (t) => {
   const h = await realTrialFlow(t, { storage: { autoPasteEnabled: "true" } });
   await React.act(async () => h.f.manager.createHotkeyCallback()("F7"));
   await h.publish({ status: "listening" });
   await h.publish({ status: "success", text: "A", rawText: "um A" });
   await h.ui.click("setupFlow.try.startUsing");
-  const row = (label) =>
-    h.ui.findAll(
-      (n) =>
-        n.tagName === "BUTTON" &&
-        (n.attributes.class ?? "").includes("onboarding-guided-readiness-row") &&
-        n.textContent.includes(label)
-    )[0].textContent;
-  assert.ok(row("Shortcut and paste").endsWith("Ready"));
-  assert.ok(row("Microphone").endsWith("Ready"));
+  const row = (key) =>
+    h.ui.byAttr("data-status")[["speech", "microphone", "shortcut", "cleanup"].indexOf(key)]
+      .attributes["data-status"];
+  assert.equal(row("shortcut"), "ready");
+  assert.equal(row("microphone"), "ready");
   const store = (await h.ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
   h.f.manager.hotkeyManager.slots.get("dictation").hotkeys = ["F8"];
   await React.act(async () => store.setState({ dictationKey: "F8", activeDictationKey: "F8" }));
-  assert.ok(
-    row("Shortcut and paste").endsWith("Pending"),
-    "acknowledged B is configured but unproven"
-  );
+  assert.ok(row("shortcut") === "configured", "acknowledged B is configured but unproven");
   await React.act(async () => store.setState({ dictationKey: "F9", activeDictationKey: "F9" }));
-  assert.ok(
-    row("Shortcut and paste").endsWith("Pending"),
-    "failed C acknowledgement is also unproven"
-  );
+  assert.ok(row("shortcut") === "configured", "failed C acknowledgement is also unproven");
   await React.act(async () =>
     store.setState({ microphoneSelectionMode: "specific", selectedMicDeviceId: "device-B" })
   );
-  assert.ok(row("Microphone").endsWith("Pending"));
+  assert.ok(row("microphone") !== "ready");
   assert.equal(h.f.manager._onboardingDemoSession, null, "Finish makes no recording admission");
 });
 
@@ -1238,6 +1234,10 @@ test("choosing API key without a key names its unmet prerequisite using the real
     ).length,
     0
   );
+  await ui.click(primary(ui));
+  await ui.click(primary(ui));
+  expectKey(ui, "setupFlow.ready.details.cleanup.needsKey", { provider: "OpenAI" });
+  assert.equal(ui.byAttr("data-row", "cleanup").length, 1);
 });
 
 test("reuse keeps its existing key/default and never enables cleanup for None or a superseded check", async (t) => {
@@ -1587,12 +1587,156 @@ test("Shortcut proof follows requested key, real main acknowledgement and mode; 
     "failed C leaves actual B unable to prove C"
   );
   await advance(ui);
-  const row = ui.findAll(
-    (n) =>
-      n.tagName === "BUTTON" &&
-      (n.attributes.class ?? "").includes("onboarding-guided-readiness-row") &&
-      n.textContent.includes("Shortcut and paste")
-  )[0];
-  assert.ok(row.textContent.endsWith("Pending"));
+  assert.equal(ui.byAttr("data-status")[2].attributes["data-status"], "configured");
   assert.equal(f.context._onboardingDemoSession, null);
+});
+
+test("Ready without a trial is configured, has no footer completion and resumes only three configured rows", async (t) => {
+  const { ui } = await mountFlow(t, { initialStep: "finish" }, { api: voiceApi(["en-US"]) });
+  assert.equal(ui.text().includes("setupFlow.ready.titleProven"), false);
+  assert.equal(ui.byAttr("data-onb-primary").length, 0);
+  assert.equal(ui.text().includes("setupFlow.finishLater"), false);
+  assert.deepEqual(
+    ui.byAttr("data-row").map((n) => n.attributes["data-row"]),
+    ["speech", "microphone", "shortcut"]
+  );
+});
+
+test("self-hosted notes are blocked on their own route and hand off the exact Settings destination", async (t) => {
+  const { ui, completed } = await mountFlow(
+    t,
+    { initialStep: "finish" },
+    {
+      api: voiceApi(["en-US"]),
+      storage: {
+        meetingTranscriptionMode: "self-hosted",
+        remoteTranscriptionUrl: "http://10.0.0.5:9000",
+      },
+    }
+  );
+  const [dictate] = ui.byAttr("data-variant", "live");
+  assert.ok(dictate, "Ready renders the note action");
+  assert.ok("disabled" in dictate.attributes);
+  assert.ok(ui.text().includes("setupFlow.ready.noteBlocked.unsupported"));
+  await ui.click("setupFlow.ready.fixNote");
+  assert.deepEqual(completed(), [{ next: { kind: "open-settings", path: "stt/noteRecording" } }]);
+});
+
+const noteReadyOptions = {
+  storage: {
+    meetingTranscriptionMode: "local",
+    meetingUseLocalWhisper: "true",
+    meetingLocalTranscriptionProvider: "whisper",
+    meetingWhisperModel: "base",
+  },
+  api: {
+    listWhisperModels: async () => ({
+      success: true,
+      models: [{ model: "base", downloaded: true }],
+    }),
+  },
+};
+
+test("Ready click revalidates the current note route even before React renders the settings change", async (t) => {
+  const { ui, completed } = await mountFlow(t, { initialStep: "finish" }, noteReadyOptions);
+  const [button] = ui.byAttr("data-variant", "live");
+  assert.equal("disabled" in button.attributes, false);
+  const staleClick = ui.props(button).onClick;
+  const store = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  await React.act(async () => {
+    store.setState({
+      meetingTranscriptionMode: "self-hosted",
+      meetingUseLocalWhisper: false,
+      meetingRemoteTranscriptionUrl: "http://10.0.0.5:9000",
+    });
+    staleClick();
+  });
+  assert.deepEqual(completed(), []);
+  assert.ok(ui.text().includes("setupFlow.ready.noteBlocked.unsupported"));
+  await React.act(async () =>
+    store.setState({ meetingTranscriptionMode: "local", meetingUseLocalWhisper: true })
+  );
+  await ui.click("setupFlow.ready.dictateNote");
+  assert.deepEqual(completed(), [{ next: { kind: "dictate-note" } }]);
+});
+
+test("Ready unknown note route cannot complete, unknown microphone may reach the existing recorder prompt", async (t) => {
+  const { ui, completed } = await mountFlow(
+    t,
+    { initialStep: "finish" },
+    { ...noteReadyOptions, api: { checkMicrophoneAccess: undefined, listWhisperModels: undefined } }
+  );
+  assert.ok(ui.text().includes("setupFlow.ready.noteChecking"));
+  const disabled = ui.byAttr("data-variant", "live")[0];
+  assert.ok("disabled" in disabled.attributes);
+  await React.act(async () => ui.props(disabled).onClick());
+  assert.equal(completed().length, 0);
+  const facts = (await ui.vite.ssrLoadModule("/stores/routeFactsStore.ts")).useRouteFactsStore;
+  await React.act(async () =>
+    facts.setState((s) => ({
+      facts: { ...s.facts, installed: { ...s.facts.installed, whisper: new Set(["base"]) } },
+    }))
+  );
+  assert.equal("disabled" in ui.byAttr("data-variant", "live")[0].attributes, false);
+  await ui.click("setupFlow.ready.dictateNote");
+  assert.deepEqual(completed(), [{ next: { kind: "dictate-note" } }]);
+  assert.equal(
+    ui.calls.some(([name]) => name === "requestMicrophoneAccess"),
+    false
+  );
+});
+
+test("Ready known microphone denial overrides even an admitted successful historical take", async (t) => {
+  const h = await realTrialFlow(t, {
+    api: { checkMicrophoneAccess: async () => ({ status: "denied" }) },
+  });
+  await React.act(async () => h.f.manager.createHotkeyCallback()("F7"));
+  await h.publish({ status: "listening" });
+  await h.publish({ status: "success", text: "A", rawText: "um A" });
+  await h.ui.click("setupFlow.try.startUsing");
+  assert.equal(h.ui.byAttr("data-status")[1].attributes["data-status"], "pending");
+  assert.ok(h.ui.text().includes("setupFlow.ready.details.microphone.denied"));
+  assert.ok("disabled" in h.ui.byAttr("data-variant", "live")[0].attributes);
+  await h.ui.click("setupFlow.ready.fixNote");
+  assert.equal(currentStep(h.ui), "setupFlow.progress.goTo(step=setupFlow.steps.welcome)");
+});
+
+test("Ready observes Accessibility on entry; an unresolved macOS answer never masquerades as granted", async (t) => {
+  let resolve;
+  const { ui } = await mountFlow(
+    t,
+    {
+      initialStep: "finish",
+      previewConfig: { step: "finish", scenario: "ready", platform: "macos" },
+    },
+    { api: { checkAccessibilityPermission: () => new Promise((r) => (resolve = r)) } }
+  );
+  assert.ok(ui.text().includes("setupFlow.ready.details.shortcut.checkAccessibility"));
+  assert.equal(typeof resolve, "function", "Ready starts its own observation");
+  await React.act(async () => resolve(true));
+  assert.equal(ui.byAttr("data-status")[2].attributes["data-status"], "configured");
+});
+
+test("Ready invalidates voice proof when the admitted model/route changes, while keeping historical words for Cleanup", async (t) => {
+  const h = await realTrialFlow(t);
+  await React.act(async () => h.f.manager.createHotkeyCallback()("F7"));
+  await h.publish({ status: "listening" });
+  await h.publish({ status: "success", text: "A", rawText: "um A" });
+  await h.ui.click("setupFlow.try.startUsing");
+  assert.equal(h.ui.byAttr("data-status")[0].attributes["data-status"], "ready");
+  const store = (await h.ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  await React.act(async () => store.setState({ parakeetModel: "orukeet-v0.1.0" }));
+  assert.notEqual(h.ui.byAttr("data-status")[0].attributes["data-status"], "ready");
+  assert.equal(h.ui.text().includes("setupFlow.ready.titleProven"), false);
+  await React.act(async () =>
+    store.setState({
+      transcriptionMode: "providers",
+      useLocalWhisper: false,
+      cloudTranscriptionProvider: "openai",
+    })
+  );
+  assert.equal(h.ui.text().includes("setupFlow.ready.subAllLocal"), false);
+  await h.ui.click("setupFlow.back");
+  await h.ui.click("setupFlow.back");
+  assert.ok(h.ui.text().includes("um A"), "historical words stay in RAM for Cleanup");
 });

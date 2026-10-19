@@ -4290,8 +4290,7 @@
       "finish": {
         "title": "Here is where you are.",
         "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now.",
-        "openWorkspace": "Open workspace"
+        "bodyOther": "Everything below is true right now."
       }
     },
     "hello": {
@@ -4538,6 +4537,78 @@
       "autoPasteBodyMac": "Pega tus palabras donde esté el cursor. Requiere acceso de Accesibilidad en macOS.",
       "autoPasteBodyOther": "Pega tus palabras donde esté el cursor.",
       "accessibilityBody": "macOS solo permite que Loqui detecte el atajo y pegue después de que lo autorices. Puedes conceder acceso ahora o más tarde en Ajustes."
+    },
+    "ready": {
+      "titleProven": "Ya estás dictando.",
+      "titleConfigured": "Todo configurado. Pruébalo una vez para asegurarte.",
+      "titlePending_one": "Casi listo: queda {{count}} cosa.",
+      "titlePending_other": "Casi listo: quedan {{count}} cosas.",
+      "subAllLocalMac": "Tu primer dictado funcionó. Todo se ejecuta en este Mac.",
+      "subAllLocalOther": "Tu primer dictado funcionó. Todo se ejecuta en este ordenador.",
+      "subProven": "Tu primer dictado funcionó.",
+      "subConfigured": "Prueba a dictar para comprobar esta configuración.",
+      "subPending": "Completa estos puntos. Cada uno abre el lugar donde se resuelve.",
+      "rows": {
+        "speech": "Voz",
+        "microphone": "Micrófono",
+        "shortcut": "Atajo",
+        "cleanup": "Limpieza"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}, reconoció tu primer dictado",
+          "checking": "Comprobando…",
+          "configured": "{{voice}}, aún sin probar",
+          "downloading": "La descarga sigue en curso",
+          "needsModel": "Descarga una voz",
+          "unavailable": "Termina la configuración en Ajustes"
+        },
+        "microphone": {
+          "heard": "Funciona",
+          "allowed": "Permitido, aún sin oírte",
+          "denied": "Permitir en los ajustes del sistema",
+          "untested": "Di algo para probarlo"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}, pulsa para iniciar y detener",
+            "push": "{{key}}, mantén pulsado para hablar"
+          },
+          "configured": {
+            "tap": "{{key}}, aún sin probar",
+            "push": "{{key}}, aún sin probar"
+          },
+          "needsAccessibility": "Permitir Accesibilidad",
+          "checkAccessibility": "Comprobar el acceso de Accesibilidad"
+        },
+        "cleanup": {
+          "off": "Desactivada. Añádela más tarde",
+          "checking": "Aún comprobando",
+          "needsConnection": "Conectar ChatGPT",
+          "needsKey": "Añade tu clave de {{provider}} en Ajustes",
+          "needsModel": "Descarga el modelo local en Ajustes",
+          "unreachable": "No se puede acceder a {{provider}}",
+          "configured": "Configurada con {{name}}",
+          "configuredNetwork": "Configurada en {{provider}} con {{name}}"
+        }
+      },
+      "dictateNote": "Dictar en una nota",
+      "openWorkspace": "Abrir el espacio de trabajo",
+      "noteLocal": "Las notas se transcriben en este dispositivo.",
+      "noteSends": "Las notas envían audio a {{provider}}.",
+      "noteChecking": "Comprobando cómo se transcriben las notas…",
+      "noteBlocked": {
+        "microphone": "Las notas necesitan tu micrófono.",
+        "unsupported": "La grabación de notas usa un servicio que las notas aún no admiten, como un servidor propio.",
+        "sealed": "El modo sellado está activado y la grabación de notas no puede acceder a {{provider}}.",
+        "needsModel": "La grabación de notas necesita un modelo de voz en este dispositivo.",
+        "needsKey": "La grabación de notas necesita tu clave de {{provider}}.",
+        "needsUrl": "La grabación de notas necesita una dirección de servidor.",
+        "unreachable": "Loqui no puede acceder a {{provider}} para grabar notas."
+      },
+      "fixNote": "Solucionar",
+      "noteNetwork": "Las notas están configuradas para enviar audio a {{provider}}.",
+      "titlePending_many": "Casi listo: quedan {{count}} cosas."
     }
   }
 }

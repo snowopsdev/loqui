@@ -4258,8 +4258,7 @@
       "finish": {
         "title": "Here is where you are.",
         "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now.",
-        "openWorkspace": "Open workspace"
+        "bodyOther": "Everything below is true right now."
       }
     },
     "hello": {
@@ -4501,6 +4500,77 @@
       "autoPasteBodyMac": "將文字貼到游標所在位置。macOS需要輔助使用權限。",
       "autoPasteBodyOther": "將文字貼到游標所在位置。",
       "accessibilityBody": "只有獲得你的許可後，macOS才允許Loqui偵測快捷鍵並貼上。你可以現在授權，也可以稍後在設定中授權。"
+    },
+    "ready": {
+      "titleProven": "你已開始聽寫。",
+      "titleConfigured": "設定完成。試一次確認看看。",
+      "titlePending_one": "快好了：還剩{{count}}項。",
+      "titlePending_other": "快好了：還剩{{count}}項。",
+      "subAllLocalMac": "首次聽寫成功。所有處理都在這台 Mac 上執行。",
+      "subAllLocalOther": "首次聽寫成功。所有處理都在這台電腦上執行。",
+      "subProven": "首次聽寫成功。",
+      "subConfigured": "試著聽寫一次，確認此設定可用。",
+      "subPending": "完成這些項目即可。每項都會開啟對應的設定位置。",
+      "rows": {
+        "speech": "語音",
+        "microphone": "麥克風",
+        "shortcut": "快捷鍵",
+        "cleanup": "文字整理"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}，已辨識首次聽寫",
+          "checking": "正在檢查…",
+          "configured": "{{voice}}，尚未試用",
+          "downloading": "仍在下載",
+          "needsModel": "下載語音模型",
+          "unavailable": "在設定中完成配置"
+        },
+        "microphone": {
+          "heard": "運作正常",
+          "allowed": "已允許，尚未偵測到語音",
+          "denied": "在系統設定中允許",
+          "untested": "說點什麼來測試"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}，按下開始或停止",
+            "push": "{{key}}，按住說話"
+          },
+          "configured": {
+            "tap": "{{key}}，尚未試用",
+            "push": "{{key}}，尚未試用"
+          },
+          "needsAccessibility": "授予輔助使用權限",
+          "checkAccessibility": "檢查輔助使用權限"
+        },
+        "cleanup": {
+          "off": "已關閉。可稍後新增",
+          "checking": "仍在檢查",
+          "needsConnection": "連接 ChatGPT",
+          "needsKey": "在設定中新增 {{provider}} 金鑰",
+          "needsModel": "在設定中下載本機模型",
+          "unreachable": "無法連接 {{provider}}",
+          "configured": "已設定 {{name}}",
+          "configuredNetwork": "已在 {{provider}} 設定 {{name}}"
+        }
+      },
+      "dictateNote": "向筆記聽寫",
+      "openWorkspace": "開啟工作區",
+      "noteLocal": "筆記在此裝置上轉寫。",
+      "noteSends": "筆記會將音訊傳送至 {{provider}}。",
+      "noteChecking": "正在檢查筆記的轉寫方式…",
+      "noteBlocked": {
+        "microphone": "筆記需要使用麥克風。",
+        "unsupported": "筆記錄音設定了尚未支援的服務，例如自行託管的伺服器。",
+        "sealed": "密封模式已開啟，筆記錄音無法連接 {{provider}}。",
+        "needsModel": "筆記錄音需要此裝置上的語音模型。",
+        "needsKey": "筆記錄音需要你的 {{provider}} 金鑰。",
+        "needsUrl": "筆記錄音需要伺服器位址。",
+        "unreachable": "Loqui 無法連接 {{provider}} 進行筆記錄音。"
+      },
+      "fixNote": "修正此項",
+      "noteNetwork": "筆記已設為向 {{provider}} 傳送音訊。"
     }
   }
 }

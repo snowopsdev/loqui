@@ -4258,8 +4258,7 @@
       "finish": {
         "title": "Here is where you are.",
         "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now.",
-        "openWorkspace": "Open workspace"
+        "bodyOther": "Everything below is true right now."
       }
     },
     "hello": {
@@ -4501,6 +4500,77 @@
       "autoPasteBodyMac": "カーソルの位置に文字を貼り付けます。macOSではアクセシビリティの許可が必要です。",
       "autoPasteBodyOther": "カーソルの位置に文字を貼り付けます。",
       "accessibilityBody": "macOSでは、許可した後にのみLoquiがショートカットを検出し、貼り付けられます。今すぐ許可するか、後で設定から許可できます。"
+    },
+    "ready": {
+      "titleProven": "音声入力できました。",
+      "titleConfigured": "設定できました。一度試して確認しましょう。",
+      "titlePending_one": "あと少し：残り{{count}}項目です。",
+      "titlePending_other": "あと少し：残り{{count}}項目です。",
+      "subAllLocalMac": "最初の音声入力に成功しました。すべてこのMacで動作します。",
+      "subAllLocalOther": "最初の音声入力に成功しました。すべてこのコンピュータで動作します。",
+      "subProven": "最初の音声入力に成功しました。",
+      "subConfigured": "一度音声入力して、この設定を確認しましょう。",
+      "subPending": "残りの項目を完了しましょう。各項目から設定場所を開けます。",
+      "rows": {
+        "speech": "音声",
+        "microphone": "マイク",
+        "shortcut": "ショートカット",
+        "cleanup": "文章の整形"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}、最初の音声入力を認識しました",
+          "checking": "確認中…",
+          "configured": "{{voice}}、まだ試していません",
+          "downloading": "ダウンロード中です",
+          "needsModel": "音声モデルをダウンロード",
+          "unavailable": "設定でセットアップを完了"
+        },
+        "microphone": {
+          "heard": "動作しています",
+          "allowed": "許可済み、音声は未確認",
+          "denied": "システム設定で許可",
+          "untested": "何か話して確認"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}、押すと開始・停止",
+            "push": "{{key}}、押している間に話す"
+          },
+          "configured": {
+            "tap": "{{key}}、まだ試していません",
+            "push": "{{key}}、まだ試していません"
+          },
+          "needsAccessibility": "アクセシビリティを許可",
+          "checkAccessibility": "アクセシビリティの許可を確認"
+        },
+        "cleanup": {
+          "off": "オフ。後で追加できます",
+          "checking": "確認中です",
+          "needsConnection": "ChatGPTに接続",
+          "needsKey": "設定で{{provider}}のキーを追加",
+          "needsModel": "設定でローカルモデルをダウンロード",
+          "unreachable": "{{provider}}に接続できません",
+          "configured": "{{name}}で設定済み",
+          "configuredNetwork": "{{provider}}で{{name}}を設定済み"
+        }
+      },
+      "dictateNote": "ノートに音声入力",
+      "openWorkspace": "ワークスペースを開く",
+      "noteLocal": "ノートはこのデバイスで文字起こしされます。",
+      "noteSends": "ノートの音声は{{provider}}に送信されます。",
+      "noteChecking": "ノートの文字起こし方法を確認中…",
+      "noteBlocked": {
+        "microphone": "ノートにはマイクが必要です。",
+        "unsupported": "ノートの録音に、自前のサーバーなど、まだ対応していないサービスが設定されています。",
+        "sealed": "封印モードが有効なため、ノートの録音は{{provider}}に接続できません。",
+        "needsModel": "ノートの録音には、このデバイス上の音声モデルが必要です。",
+        "needsKey": "ノートの録音には{{provider}}のキーが必要です。",
+        "needsUrl": "ノートの録音にはサーバーアドレスが必要です。",
+        "unreachable": "Loquiはノートの録音用に{{provider}}へ接続できません。"
+      },
+      "fixNote": "修正する",
+      "noteNetwork": "ノートの音声は{{provider}}に送信する設定です。"
     }
   }
 }

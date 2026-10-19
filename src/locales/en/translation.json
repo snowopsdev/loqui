@@ -4284,8 +4284,7 @@
       "finish": {
         "title": "Here is where you are.",
         "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now.",
-        "openWorkspace": "Open workspace"
+        "bodyOther": "Everything below is true right now."
       }
     },
     "hello": {
@@ -4532,6 +4531,77 @@
       "autoPasteBodyMac": "Paste your words where the cursor is. Needs Accessibility access on macOS.",
       "autoPasteBodyOther": "Paste your words where the cursor is.",
       "accessibilityBody": "macOS only lets Loqui hear the shortcut and paste after you allow it. You can grant it now or later in Settings."
+    },
+    "ready": {
+      "titleProven": "You're dictating.",
+      "titleConfigured": "You're set up. Try it once to be sure.",
+      "titlePending_one": "Almost set: {{count}} thing left.",
+      "titlePending_other": "Almost set: {{count}} things left.",
+      "subAllLocalMac": "Your first dictation worked. Everything runs on this Mac.",
+      "subAllLocalOther": "Your first dictation worked. Everything runs on this computer.",
+      "subProven": "Your first dictation worked.",
+      "subConfigured": "Try dictation once to confirm this setup.",
+      "subPending": "Finish these and you're ready. Each one opens where it's fixed.",
+      "rows": {
+        "speech": "Voice",
+        "microphone": "Microphone",
+        "shortcut": "Shortcut",
+        "cleanup": "Cleanup"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}, heard your first dictation",
+          "checking": "Checking…",
+          "configured": "{{voice}}, not tried yet",
+          "downloading": "Still downloading",
+          "needsModel": "Download a voice",
+          "unavailable": "Finish setting it up in Settings"
+        },
+        "microphone": {
+          "heard": "Working",
+          "allowed": "Allowed, not heard yet",
+          "denied": "Allow in System Settings",
+          "untested": "Say something to test it"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}, tap to start and stop",
+            "push": "{{key}}, hold to talk"
+          },
+          "configured": {
+            "tap": "{{key}}, not tried yet",
+            "push": "{{key}}, not tried yet"
+          },
+          "needsAccessibility": "Grant Accessibility",
+          "checkAccessibility": "Check Accessibility access"
+        },
+        "cleanup": {
+          "off": "Off. Add it later",
+          "checking": "Still checking",
+          "needsConnection": "Connect ChatGPT",
+          "needsKey": "Add your {{provider}} key in Settings",
+          "needsModel": "Download the local model in Settings",
+          "unreachable": "Can't reach {{provider}}",
+          "configured": "Set up with {{name}}",
+          "configuredNetwork": "Set up at {{provider}} with {{name}}"
+        }
+      },
+      "dictateNote": "Dictate into a note",
+      "openWorkspace": "Open workspace",
+      "noteLocal": "Notes are transcribed on this device.",
+      "noteSends": "Notes send audio to {{provider}}.",
+      "noteChecking": "Checking how notes are transcribed…",
+      "noteBlocked": {
+        "microphone": "Notes need your microphone.",
+        "unsupported": "Note recording is set to a service notes can't use yet, such as a self-hosted server.",
+        "sealed": "Sealed mode is on, so note recording can't reach {{provider}}.",
+        "needsModel": "Note recording needs a voice model on this device.",
+        "needsKey": "Note recording needs your {{provider}} key.",
+        "needsUrl": "Note recording needs a server address.",
+        "unreachable": "Loqui can't reach {{provider}} for note recording."
+      },
+      "fixNote": "Fix this",
+      "noteNetwork": "Notes are set to send audio to {{provider}}."
     }
   }
 }

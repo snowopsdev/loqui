@@ -19,6 +19,7 @@ export type ToggleControl = {
 };
 export type SelectControl = {
   kind: "select";
+  disabled?: (s: SettingsState) => boolean;
   get: (s: SettingsState) => string;
   set: (s: SettingsState, value: string) => void;
   options: { value: string; labelKey: string }[];
@@ -92,6 +93,41 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
       (s) => s.audioCuesEnabled,
       (s, v) => s.setAudioCuesEnabled(v)
     )
+  ),
+  item(
+    "dictationCueSet",
+    "general",
+    `${G}.soundEffects.cueSet`,
+    `${G}.soundEffects.dictationSoundsDescription`,
+    "sound effects audio cues cueSet soft classic",
+    {
+      kind: "select",
+      get: (s) => s.dictationCueSet,
+      set: (s, v) => s.setDictationCueSet(v as SettingsState["dictationCueSet"]),
+      disabled: (s) => !s.audioCuesEnabled,
+      options: [
+        { value: "soft", labelKey: `${G}.soundEffects.cueSetSoft` },
+        { value: "classic", labelKey: `${G}.soundEffects.cueSetClassic` },
+      ],
+    }
+  ),
+  item(
+    "dictationCueVolume",
+    "general",
+    `${G}.soundEffects.cueVolume`,
+    `${G}.soundEffects.dictationSoundsDescription`,
+    "sound effects audio cues cueVolume low medium high",
+    {
+      kind: "select",
+      get: (s) => s.dictationCueVolume,
+      set: (s, v) => s.setDictationCueVolume(v as SettingsState["dictationCueVolume"]),
+      disabled: (s) => !s.audioCuesEnabled,
+      options: [
+        { value: "low", labelKey: `${G}.soundEffects.cueVolumeLow` },
+        { value: "medium", labelKey: `${G}.soundEffects.cueVolumeMedium` },
+        { value: "high", labelKey: `${G}.soundEffects.cueVolumeHigh` },
+      ],
+    }
   ),
   // The page row is "Disable all notifications" (checked = !notificationsEnabled): mirror it.
   item(

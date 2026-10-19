@@ -257,6 +257,29 @@ test("[change-driving] live controls write through the real store, mirroring the
   };
   const toggle = (id) => () => LiveToggle({ entry: entry(id), control: entry(id).control });
 
+  await t.test(
+    "cue choices mirror real settings, persist and disable with sounds off",
+    async () => {
+      for (const [id, value, key] of [
+        ["dictationCueSet", "classic", "cueSet"],
+        ["dictationCueVolume", "low", "cueVolume"],
+      ]) {
+        const selected = entry(id);
+        assert.equal(selected.control.kind, "select");
+        await write((s) => s.setAudioCuesEnabled(false));
+        await show(() => LiveSelect({ entry: selected, control: selected.control }));
+        assert.equal(tree.props.disabled, true);
+        assert.equal(tree.props["aria-label"], `settingsPage.general.soundEffects.${key}`);
+        await write((s) => s.setAudioCuesEnabled(true));
+        assert.equal(tree.props.disabled, false, "live subscription re-enables the select");
+        await React.act(async () => tree.props.onChange({ target: { value } }));
+        assert.equal(store()[id], value);
+        assert.equal(tree.props.value, value);
+        assert.equal(localStorage.getItem(id), value);
+      }
+    }
+  );
+
   await t.test("[change-driving] a plain toggle flips the store", async () => {
     await write((s) => s.setAudioCuesEnabled(false));
     await show(toggle("audioCues"));

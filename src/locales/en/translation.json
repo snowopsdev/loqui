@@ -1751,7 +1751,14 @@
         "dictationSoundsDescription": "Play a tone when recording starts and stops",
         "pauseMedia": "Pause media",
         "pauseMediaDescription": "Automatically pause music when dictation starts",
-        "title": "Sound Effects"
+        "title": "Sound Effects",
+        "cueSet": "Sound style",
+        "cueSetSoft": "Soft",
+        "cueSetClassic": "Classic",
+        "cueVolume": "Volume",
+        "cueVolumeLow": "Low",
+        "cueVolumeMedium": "Medium",
+        "cueVolumeHigh": "High"
       },
       "notifications": {
         "title": "Notifications",
@@ -4244,7 +4251,10 @@
     }
   },
   "pill": {
-    "tooltip": { "hold": "Hold {{hotkey}} to talk", "press": "Press {{hotkey}} to start" },
+    "tooltip": {
+      "hold": "Hold {{hotkey}} to talk",
+      "press": "Press {{hotkey}} to start"
+    },
     "caption": {
       "remoteAudio": "{{provider}} already received audio.",
       "remoteText": "{{provider}} already received text.",

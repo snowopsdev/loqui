@@ -2,7 +2,14 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import AudioManager from "../helpers/audioManager";
 import logger from "../utils/logger";
-import { playStartCue, playStopCue } from "../utils/dictationCues";
+import {
+  playStartCue,
+  playStopCue,
+  playSuccessCue,
+  playCancelCue,
+  playErrorCue,
+  playMicBackCue,
+} from "../utils/dictationCues";
 import { getSettings, useSettingsStore } from "../stores/settingsStore";
 import { expandSnippets } from "../utils/snippets";
 import { getRecordingErrorTitle, getRecordingErrorDescription } from "../utils/recordingErrors";
@@ -70,6 +77,9 @@ export const useAudioRecording = (options = {}) => {
   const escHeldRef = useRef(false);
   const busyRef = useRef(false);
   const outcomeGenerationRef = useRef(0);
+  const successCueGenerationRef = useRef(-1);
+  const cuedCancellationsRef = useRef(new WeakSet());
+  const cancelCueOwnerRef = useRef({});
   const managerInstallationRef = useRef(0);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -89,6 +99,7 @@ export const useAudioRecording = (options = {}) => {
   const stopLockRef = useRef(false);
   const preparationGenerationRef = useRef(0);
   const pressCandidateRef = useRef(null);
+  const cuedPressesRef = useRef(new WeakSet());
   const startingCandidateRef = useRef(null);
   const wasRecordingRef = useRef(false);
   const wasMicUnavailableRef = useRef(false);
@@ -182,6 +193,10 @@ export const useAudioRecording = (options = {}) => {
           );
         pressCandidateRef.current = candidate;
         startingCandidateRef.current = candidate;
+        if (!cuedPressesRef.current.has(candidate)) {
+          cuedPressesRef.current.add(candidate);
+          void playStartCue();
+        }
         if (!manager.isPressCandidateAllowed(candidate)) {
           manager.cancelPreparedMicCapture(candidate);
           manager._showUnknownRecipientBlockedStart();
@@ -267,7 +282,6 @@ export const useAudioRecording = (options = {}) => {
           if (getSettings().pauseMediaOnDictation) {
             window.electronAPI?.pauseMediaPlayback?.();
           }
-          void playStartCue();
         }
 
         return didStart;
@@ -343,6 +357,10 @@ export const useAudioRecording = (options = {}) => {
     const installation = ++managerInstallationRef.current;
     const manager = new AudioManager();
     audioManagerRef.current = manager;
+    cuedPressesRef.current = new WeakSet();
+    cuedCancellationsRef.current = new WeakSet();
+    cancelCueOwnerRef.current = {};
+    wasMicUnavailableRef.current = false;
     liveTextSessionRef.current = null;
     setLiveText(emptyLiveText());
     const ownsInstallation = () =>
@@ -378,6 +396,8 @@ export const useAudioRecording = (options = {}) => {
       },
       extraActions = []
     ) => {
+      if (ownsInstallation() && outcomeGeneration === outcomeGenerationRef.current)
+        void playErrorCue();
       const recoverAssistant = Boolean(audioManagerRef.current?.voiceAgentRequested);
       if (outcomeGeneration === outcomeGenerationRef.current) {
         const next = { sessionId: sessionId ?? "", kind: "failed", at: Date.now() };
@@ -507,6 +527,7 @@ export const useAudioRecording = (options = {}) => {
         const busy = Boolean(isRecording || isProcessing);
         setActiveSession(busy ? (audioManagerRef.current?.activeSession ?? null) : null);
         if (newRecording || (busy && !busyRef.current)) {
+          cancelCueOwnerRef.current = {};
           outcomeGenerationRef.current += 1;
           setOutcome(null);
           setOutcomePresentation(null);
@@ -563,6 +584,7 @@ export const useAudioRecording = (options = {}) => {
             });
           } else if (micCaptureStatus === "active" && wasMicUnavailableRef.current) {
             wasMicUnavailableRef.current = false;
+            void playMicBackCue();
             notify({
               id: "mic",
               title: t("hooks.audioRecording.micRestored.title"),
@@ -582,6 +604,7 @@ export const useAudioRecording = (options = {}) => {
         if (ownsInstallation()) setProcessingStage(stage);
       },
       onError: (error) => {
+        if (!ownsInstallation()) return;
         const sessionId = audioManagerRef.current?.activeSession?.id ?? null;
         setIsPreparing(false);
         setIsStopping(false);
@@ -612,6 +635,7 @@ export const useAudioRecording = (options = {}) => {
         }
       },
       onNoAudio: () => {
+        if (!ownsInstallation()) return;
         setIsPreparing(false);
         setIsStopping(false);
         onDemoEventRef.current?.({
@@ -901,7 +925,7 @@ export const useAudioRecording = (options = {}) => {
               });
             }
             if (pasteSucceeded) {
-              if (outcomeGeneration === outcomeGenerationRef.current) {
+              if (ownsInstallation() && outcomeGeneration === outcomeGenerationRef.current) {
                 const next = {
                   sessionId: sessionId ?? "",
                   kind: "pasted",
@@ -909,6 +933,10 @@ export const useAudioRecording = (options = {}) => {
                   at: Date.now(),
                 };
                 setOutcome(next);
+                if (successCueGenerationRef.current !== outcomeGeneration) {
+                  successCueGenerationRef.current = outcomeGeneration;
+                  void playSuccessCue();
+                }
                 setOutcomePresentation({ outcome: next, session: presentation });
               }
               window.electronAPI?.hideDictationPreview?.();
@@ -1029,6 +1057,10 @@ export const useAudioRecording = (options = {}) => {
         { newPress: true }
       );
       pressCandidateRef.current = candidate;
+      if (!cuedPressesRef.current.has(candidate)) {
+        cuedPressesRef.current.add(candidate);
+        void playStartCue();
+      }
       if (!manager.isPressCandidateAllowed(candidate)) {
         manager.cancelPreparedMicCapture(candidate);
         if (pressCandidateRef.current === candidate) pressCandidateRef.current = null;
@@ -1125,23 +1157,48 @@ export const useAudioRecording = (options = {}) => {
       setIsStopping(false);
       audioManagerRef.current.cancelPreparedMicCapture?.(pressCandidateRef.current);
       pressCandidateRef.current = null;
-      const state = audioManagerRef.current.getState();
+      const manager = audioManagerRef.current;
+      const installation = managerInstallationRef.current;
+      const state = manager.getState();
       if (getSettings().pauseMediaOnDictation) {
         window.electronAPI?.resumeMediaPlayback?.();
       }
       // A streaming start in its mic-open phase is not yet `isStreaming`;
       // only the streaming cancel knows how to abandon it.
-      if (state.isStreaming || state.isStreamingStartInProgress) {
-        return await audioManagerRef.current.cancelStreamingRecording();
+      const cancellation =
+        state.isStreaming || state.isStreamingStartInProgress
+          ? manager.cancelStreamingRecording()
+          : manager.cancelRecording();
+      // Cancellation may synchronously publish its hold. Fence from that point,
+      // so a later recording/Undo cannot inherit a delayed cancellation sound.
+      const generation = outcomeGenerationRef.current;
+      const owner = cancelCueOwnerRef.current;
+      const didCancel = await cancellation;
+      if (
+        didCancel &&
+        managerInstallationRef.current === installation &&
+        audioManagerRef.current === manager &&
+        outcomeGenerationRef.current === generation &&
+        !cuedCancellationsRef.current.has(owner)
+      ) {
+        cuedCancellationsRef.current.add(owner);
+        void playCancelCue();
       }
-      return audioManagerRef.current.cancelRecording();
+      return didCancel;
     }
     return false;
   }, []);
 
   const cancelProcessing = useCallback(() => {
     if (audioManagerRef.current) {
-      return audioManagerRef.current.cancelProcessing();
+      const manager = audioManagerRef.current;
+      const didCancel = manager.cancelProcessing();
+      const owner = cancelCueOwnerRef.current;
+      if (didCancel && !cuedCancellationsRef.current.has(owner)) {
+        cuedCancellationsRef.current.add(owner);
+        void playCancelCue();
+      }
+      return didCancel;
     }
     return false;
   }, []);

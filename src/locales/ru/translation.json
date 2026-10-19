@@ -1662,7 +1662,14 @@
         "dictationSoundsDescription": "Воспроизводить звуковой сигнал при начале и окончании записи",
         "pauseMedia": "Пауза медиа",
         "pauseMediaDescription": "Автоматически приостанавливать музыку при начале диктовки",
-        "title": "Звуковые эффекты"
+        "title": "Звуковые эффекты",
+        "cueSet": "Стиль звука",
+        "cueSetSoft": "Мягкий",
+        "cueSetClassic": "Классический",
+        "cueVolume": "Громкость",
+        "cueVolumeLow": "Низкая",
+        "cueVolumeMedium": "Средняя",
+        "cueVolumeHigh": "Высокая"
       },
       "notifications": {
         "title": "Уведомления",

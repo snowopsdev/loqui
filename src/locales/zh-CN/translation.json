@@ -1658,7 +1658,14 @@
         "dictationSoundsDescription": "在录音开始和停止时播放提示音",
         "pauseMedia": "暂停媒体",
         "pauseMediaDescription": "开始听写时自动暂停音乐",
-        "title": "音效"
+        "title": "音效",
+        "cueSet": "音效风格",
+        "cueSetSoft": "柔和",
+        "cueSetClassic": "经典",
+        "cueVolume": "音量",
+        "cueVolumeLow": "低",
+        "cueVolumeMedium": "中",
+        "cueVolumeHigh": "高"
       },
       "notifications": {
         "title": "通知",
@@ -4217,7 +4224,10 @@
     }
   },
   "pill": {
-    "tooltip": { "hold": "按住 {{hotkey}} 说话", "press": "按 {{hotkey}} 开始" },
+    "tooltip": {
+      "hold": "按住 {{hotkey}} 说话",
+      "press": "按 {{hotkey}} 开始"
+    },
     "caption": {
       "remoteAudio": "{{provider}} 已收到音频。",
       "remoteText": "{{provider}} 已收到文本。",

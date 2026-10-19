@@ -1637,7 +1637,14 @@
         "dictationSoundsDescription": "Tocar um som ao iniciar e parar a gravação",
         "pauseMedia": "Pausar mídia",
         "pauseMediaDescription": "Pausar a música automaticamente ao iniciar o ditado",
-        "title": "Efeitos sonoros"
+        "title": "Efeitos sonoros",
+        "cueSet": "Estilo de som",
+        "cueSetSoft": "Suave",
+        "cueSetClassic": "Clássico",
+        "cueVolume": "Volume",
+        "cueVolumeLow": "Baixo",
+        "cueVolumeMedium": "Médio",
+        "cueVolumeHigh": "Alto"
       },
       "notifications": {
         "title": "Notificações",

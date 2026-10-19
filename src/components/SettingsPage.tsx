@@ -910,6 +910,10 @@ export default function SettingsPage({
     notifyCalendarReminders,
     setNotifyCalendarReminders,
     audioCuesEnabled,
+    dictationCueSet,
+    setDictationCueSet,
+    dictationCueVolume,
+    setDictationCueVolume,
     setAudioCuesEnabled,
     pauseMediaOnDictation,
     setPauseMediaOnDictation,
@@ -1485,6 +1489,47 @@ export default function SettingsPage({
                     description={t("settingsPage.general.soundEffects.dictationSoundsDescription")}
                   >
                     <Toggle checked={audioCuesEnabled} onChange={setAudioCuesEnabled} />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow settingId="dictationCueSet">
+                  <SettingsRow label={t("settingsPage.general.soundEffects.cueSet")}>
+                    <select
+                      aria-label={t("settingsPage.general.soundEffects.cueSet")}
+                      value={dictationCueSet}
+                      disabled={!audioCuesEnabled}
+                      onChange={(e) => setDictationCueSet(e.target.value as "soft" | "classic")}
+                      className="h-7 rounded border border-input-border bg-background px-2.5 text-xs font-medium text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="soft">
+                        {t("settingsPage.general.soundEffects.cueSetSoft")}
+                      </option>
+                      <option value="classic">
+                        {t("settingsPage.general.soundEffects.cueSetClassic")}
+                      </option>
+                    </select>
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow settingId="dictationCueVolume">
+                  <SettingsRow label={t("settingsPage.general.soundEffects.cueVolume")}>
+                    <select
+                      aria-label={t("settingsPage.general.soundEffects.cueVolume")}
+                      value={dictationCueVolume}
+                      disabled={!audioCuesEnabled}
+                      onChange={(e) =>
+                        setDictationCueVolume(e.target.value as "low" | "medium" | "high")
+                      }
+                      className="h-7 rounded border border-input-border bg-background px-2.5 text-xs font-medium text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="low">
+                        {t("settingsPage.general.soundEffects.cueVolumeLow")}
+                      </option>
+                      <option value="medium">
+                        {t("settingsPage.general.soundEffects.cueVolumeMedium")}
+                      </option>
+                      <option value="high">
+                        {t("settingsPage.general.soundEffects.cueVolumeHigh")}
+                      </option>
+                    </select>
                   </SettingsRow>
                 </SettingsPanelRow>
                 <SettingsPanelRow>

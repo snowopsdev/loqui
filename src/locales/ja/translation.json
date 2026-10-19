@@ -1658,7 +1658,14 @@
         "dictationSoundsDescription": "録音の開始・停止時に効果音を再生",
         "pauseMedia": "メディアを一時停止",
         "pauseMediaDescription": "ディクテーション開始時に音楽を自動的に一時停止",
-        "title": "サウンドエフェクト"
+        "title": "サウンドエフェクト",
+        "cueSet": "効果音の種類",
+        "cueSetSoft": "ソフト",
+        "cueSetClassic": "クラシック",
+        "cueVolume": "音量",
+        "cueVolumeLow": "小",
+        "cueVolumeMedium": "中",
+        "cueVolumeHigh": "大"
       },
       "notifications": {
         "title": "通知",

@@ -374,6 +374,10 @@ Voice notices use the same stack: cleanup failure is an amber notice with Retry 
 - **Don't** rely on shadow alone to distinguish dark surfaces; use the existing tonal layers and borders.
 - **Don't** use movement as the only cue for recording, processing, selection, focus, or error states.
 
+### Dictation sounds
+
+Sound Effects offers Soft (default) and Classic styles plus Low, Medium (default) and High volume. Both selects follow the Dictation sounds toggle, including their live Settings search controls, and synchronize between windows. Soft uses sine tones with a quiet second harmonic for press, stop, delivered paste, successful cancellation, errors and microphone recovery. Classic preserves the two original start/stop melodies and leaves the other events silent. Acknowledged presses sound before microphone acquisition; an actual failure may follow with an error. Stale outcomes and refused cancellations stay silent.
+
 ### Dictation disclosure and streaming ownership
 
 Dictation captures its five resolved routes at the recording press. Main sends a

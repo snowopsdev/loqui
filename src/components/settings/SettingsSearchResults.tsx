@@ -31,10 +31,12 @@ export function LiveToggle({ entry, control }: { entry: SettingEntry; control: T
 export function LiveSelect({ entry, control }: { entry: SettingEntry; control: SelectControl }) {
   const { t } = useTranslation();
   const value = useSettingsStore((s) => control.get(s));
+  const disabled = useSettingsStore((s) => control.disabled?.(s) ?? false);
   return (
     <select
       aria-label={t(entry.labelKey)}
       value={value}
+      disabled={disabled}
       onChange={(e) => control.set(useSettingsStore.getState(), e.target.value)}
       className="h-7 rounded-md border border-input-border bg-background px-2 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring"
     >

@@ -1658,7 +1658,14 @@
         "dictationSoundsDescription": "Riproduci un tono quando la registrazione inizia e finisce",
         "pauseMedia": "Pausa multimedia",
         "pauseMediaDescription": "Metti automaticamente in pausa la musica quando inizia la dettatura",
-        "title": "Effetti sonori"
+        "title": "Effetti sonori",
+        "cueSet": "Stile del suono",
+        "cueSetSoft": "Delicato",
+        "cueSetClassic": "Classico",
+        "cueVolume": "Volume",
+        "cueVolumeLow": "Basso",
+        "cueVolumeMedium": "Medio",
+        "cueVolumeHigh": "Alto"
       },
       "notifications": {
         "title": "Notifiche",

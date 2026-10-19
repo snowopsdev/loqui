@@ -12,6 +12,7 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__task9ReinstallManager;
     delete globalThis.__task9ReinstallTranslate;
+    delete globalThis.__task15ReinstallCues;
   });
   const { manager: original, advance, window: win, AudioManager } = await setup(t);
   const initialFields = {
@@ -36,11 +37,19 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
   };
   const translate = (key) => key;
   globalThis.__task9ReinstallTranslate = translate;
+  const cueLog = [];
+  globalThis.__task15ReinstallCues = cueLog;
   const container = installHookDom(t);
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-undo-reinstall-",
     noExternal: ["react-i18next"],
     mockModules: {
+      "/utils/dictationCues": ["Start", "Stop", "Success", "Cancel", "Error", "MicBack"]
+        .map(
+          (name) =>
+            `export const play${name}Cue = async () => globalThis.__task15ReinstallCues.push("${name}");`
+        )
+        .join("\n"),
       "/helpers/audioManager":
         "export default class { constructor() { return globalThis.__task9ReinstallManager(); } }",
       "react-i18next":
@@ -95,7 +104,12 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
     let recorder;
     await React.act(async () => {
       recorder = startBatch(oldManager, [1], 2, { manualStop: true });
-      oldManager.cancelRecording();
+      oldManager.onStateChange(oldManager.getState());
+      const before = cueLog.length;
+      assert.equal(await ref.api.cancelRecording(), true);
+      assert.deepEqual(cueLog.slice(before), ["Cancel"]);
+      assert.equal(await ref.api.cancelRecording(), false);
+      assert.deepEqual(cueLog.slice(before), ["Cancel"], "real manager no-op stays silent");
       await advance(0);
     });
     const heldA = oldManager._undo.peek();
@@ -104,6 +118,7 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
     const stalePartial = oldManager.onPartialTranscript;
     const staleCommit = oldManager.onStreamingCommit;
     const staleCompletion = oldManager.onTranscriptionComplete;
+    const staleError = oldManager.onError;
     const leaseA = leaseId;
     assert.equal(stateA.sessionId, heldA.session.id);
     assert.equal(ref.hotkey.held, true);
@@ -159,14 +174,18 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
 
     await React.act(async () => {
       startBatch(replacement, [], 3);
-      replacement.cancelRecording();
+      replacement.onStateChange(replacement.getState());
+      const before = cueLog.length;
+      assert.equal(await ref.api.cancelRecording(), true);
+      assert.deepEqual(cueLog.slice(before), ["Cancel"]);
       await advance(0);
     });
     const heldB = replacement._undo.peek();
     assert.equal(ref.api.cancelled.sessionId, heldB.session.id);
     assert.equal(ref.hotkey.held, true);
-    const beforeStale = { demo: demo.length, log: log.length };
+    const beforeStale = { demo: demo.length, log: log.length, cues: cueLog.length };
     await React.act(async () => {
+      staleError({ message: "retired failure" });
       stalePartial("retired partial");
       staleCommit("retired commit");
       await staleCompletion({ success: true, text: "retired cleaned" });
@@ -185,6 +204,7 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
     assert.equal(replacement._undo.peek(), heldB);
     assert.equal(heldB.context.released, false);
     assert.equal(ref.hotkey.held, true);
+    assert.equal(cueLog.length, beforeStale.cues, "retired real-manager callbacks stay silent");
     assert.equal(demo.length, beforeStale.demo, "retired callbacks cannot publish over B");
     assert.equal(log.length, beforeStale.log, "retired callbacks cannot report lifecycle over B");
     assert.deepEqual(bridge.windowManager.lastCancelledDictation, { sessionId: heldB.session.id });

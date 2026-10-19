@@ -98,6 +98,8 @@ test("[change-driving] settings registry", async (t) => {
       "setAudioCuesEnabled",
       "setAutoPasteEnabled",
       "setDataRetentionEnabled",
+      "setDictationCueSet",
+      "setDictationCueVolume",
       "setFloatingIconAutoHide",
       "setKeepTranscriptionInClipboard",
       "setNotificationsEnabled",

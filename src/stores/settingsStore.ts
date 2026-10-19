@@ -202,6 +202,14 @@ const BOOLEAN_SETTINGS = new Set([
   "appleCalendarConnected",
 ]);
 
+type DictationCueSet = "soft" | "classic";
+type DictationCueVolume = "low" | "medium" | "high";
+const normalizeCueSet = (value: unknown): DictationCueSet =>
+  value === "classic" ? "classic" : "soft";
+const normalizeCueVolume = (value: unknown): DictationCueVolume =>
+  value === "low" || value === "high" ? value : "medium";
+const STRING_SETTINGS = new Set(["dictationCueSet", "dictationCueVolume"]);
+
 const ARRAY_SETTINGS = new Set([
   "customDictionary",
   "snippets",
@@ -751,6 +759,8 @@ export interface SettingsState
     ThemeSettings,
     ChatAgentSettings {
   audioCuesEnabled: boolean;
+  dictationCueSet: DictationCueSet;
+  dictationCueVolume: DictationCueVolume;
   pauseMediaOnDictation: boolean;
   floatingIconAutoHide: boolean;
   startMinimized: boolean;
@@ -1063,6 +1073,8 @@ export interface SettingsState
   setDataRetentionEnabled: (value: boolean) => void;
   setSaveDiscardedTranscriptions: (value: boolean) => void;
   setAudioCuesEnabled: (value: boolean) => void;
+  setDictationCueSet: (value: DictationCueSet) => void;
+  setDictationCueVolume: (value: DictationCueVolume) => void;
   setPauseMediaOnDictation: (value: boolean) => void;
   setFloatingIconAutoHide: (enabled: boolean) => void;
   setStartMinimized: (enabled: boolean) => void;
@@ -1810,6 +1822,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   dataRetentionEnabled: readBoolean("dataRetentionEnabled", true),
   saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),
   audioCuesEnabled: readBoolean("audioCuesEnabled", true),
+  dictationCueSet: normalizeCueSet(readString("dictationCueSet", "soft")),
+  dictationCueVolume: normalizeCueVolume(readString("dictationCueVolume", "medium")),
   pauseMediaOnDictation: readBoolean("pauseMediaOnDictation", false),
   floatingIconAutoHide: readBoolean("floatingIconAutoHide", false),
   startMinimized: readBoolean("startMinimized", false),
@@ -2428,6 +2442,16 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
   setSaveDiscardedTranscriptions: createBooleanSetter("saveDiscardedTranscriptions"),
   setAudioCuesEnabled: createBooleanSetter("audioCuesEnabled"),
+  setDictationCueSet: (value) => {
+    const dictationCueSet = normalizeCueSet(value);
+    if (isBrowser) localStorage.setItem("dictationCueSet", dictationCueSet);
+    set({ dictationCueSet });
+  },
+  setDictationCueVolume: (value) => {
+    const dictationCueVolume = normalizeCueVolume(value);
+    if (isBrowser) localStorage.setItem("dictationCueVolume", dictationCueVolume);
+    set({ dictationCueVolume });
+  },
   setPauseMediaOnDictation: createBooleanSetter("pauseMediaOnDictation"),
 
   setFloatingIconAutoHide: (enabled: boolean) => {
@@ -3434,7 +3458,14 @@ export async function initializeSettings(): Promise<void> {
 
   // Sync Zustand store when another window writes to localStorage
   window.addEventListener("storage", (event) => {
-    if (!event.key || event.storageArea !== localStorage || event.newValue === null) return;
+    if (!event.key || event.storageArea !== localStorage) return;
+    if (STRING_SETTINGS.has(event.key)) {
+      if (event.key === "dictationCueSet")
+        useSettingsStore.setState({ dictationCueSet: normalizeCueSet(event.newValue) });
+      else useSettingsStore.setState({ dictationCueVolume: normalizeCueVolume(event.newValue) });
+      return;
+    }
+    if (event.newValue === null) return;
 
     const { key, newValue } = event;
     // Per-key peer storage delivery is not an atomic main acknowledgement.

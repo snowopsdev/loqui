@@ -1,11 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { MeetingPresence } from "../../types/dictation";
+import { meetingCapsuleState } from "../../utils/meetingCapsuleState";
 import { formatMmSs } from "../../utils/formatDuration";
-
-export function meetingCapsuleState(p: MeetingPresence): "recording" | "quiet" | "lost" {
-  if (p.interruption) return "lost";
-  return p.quiet ? "quiet" : "recording";
-}
 
 /** VO-R12 A content inside the pill: dot, elapsed time, what was lost, Stop. */
 export function MeetingCapsule({

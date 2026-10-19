@@ -4201,6 +4201,7 @@
     }
   },
   "notices": {
+    "messageDetails": "消息和操作",
     "dismiss": "关闭",
     "moreActions": "更多操作",
     "wordsCard": {

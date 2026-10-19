@@ -4201,6 +4201,7 @@
     }
   },
   "notices": {
+    "messageDetails": "メッセージと操作",
     "dismiss": "閉じる",
     "moreActions": "その他の操作",
     "wordsCard": {

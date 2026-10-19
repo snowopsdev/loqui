@@ -1,10 +1,24 @@
 const test = require("node:test");
+
+// Explicit key-only fixture instance: no missing-instance warning, while
+// assertions deliberately keep translation keys instead of product copy.
+test.before(async () => {
+  const i18n = require("i18next").createInstance();
+  const { initReactI18next, setI18n } = await import("react-i18next");
+  require("react-i18next").setI18n(i18n);
+  setI18n(i18n);
+  await i18n.use(initReactI18next).init({
+    lng: "en",
+    resources: { en: { translation: {} } },
+    initImmediate: false,
+  });
+});
 const assert = require("node:assert/strict");
 const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
-// The harness renders i18n keys verbatim (no i18next instance is initialized), so
+// The harness renders i18n keys verbatim (an explicit key-only i18next instance is initialized), so
 // assertions match on the raw translation key rather than resolved copy. The dropdown
 // primitives are stubbed so the menu's items render inline instead of into a portal.
 async function renderMenu(t, { canCreateTeamSpace, withAssistant = true }) {

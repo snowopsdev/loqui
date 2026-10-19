@@ -4201,6 +4201,7 @@
     }
   },
   "notices": {
+    "messageDetails": "訊息與操作",
     "dismiss": "關閉",
     "moreActions": "更多操作",
     "wordsCard": {

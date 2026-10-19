@@ -4319,6 +4319,7 @@
     }
   },
   "notices": {
+    "messageDetails": "Сообщение и действия",
     "dismiss": "Закрыть",
     "moreActions": "Другие действия",
     "wordsCard": {

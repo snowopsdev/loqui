@@ -578,11 +578,23 @@ test("same-session Undo retains raw words but clears the previous cleaned result
   const am = globalThis.__am;
   am.activeSession = { id: STATE.sessionId };
   await fire("onStateChange", { isRecording: true, isProcessing: false });
-  am.streamingFinalText = "retained";
-  await fire("onPartialTranscript", "words");
+  am.saveTranscription = async () => true;
+  am.safePaste = async () => true;
+  await fire("onTranscriptionComplete", {
+    success: true,
+    rawText: "retained words",
+    text: "Retained words.",
+  });
+  assert.equal(
+    ref.api.liveText.cleaned,
+    "Retained words.",
+    "real completion installs cleaned text"
+  );
+  const retained = { committed: ref.api.liveText.committed, partial: ref.api.liveText.partial };
+  assert.equal(retained.committed, "retained words");
   await fire("onCancelledChange", STATE);
   await fire("onStateChange", { isRecording: false, isProcessing: false });
   await fire("onCancelledChange", null, { sessionId: STATE.sessionId, reason: "restored" });
   await fire("onStateChange", { isRecording: false, isProcessing: true });
-  assert.deepEqual(ref.api.liveText, { committed: "retained", partial: "words", cleaned: null });
+  assert.deepEqual(ref.api.liveText, { ...retained, cleaned: null });
 });

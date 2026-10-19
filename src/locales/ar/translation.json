@@ -4435,6 +4435,7 @@
     }
   },
   "notices": {
+    "messageDetails": "الرسالة والإجراءات",
     "dismiss": "تجاهل",
     "moreActions": "المزيد من الإجراءات",
     "wordsCard": {

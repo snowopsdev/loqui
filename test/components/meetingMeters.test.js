@@ -235,8 +235,27 @@ test("mounted sampler atomically publishes at <=12Hz, reports quiet, resets and 
   assert.equal(state.getState().micQuiet, true);
   globalThis.__meetingMeterAnalyser = null;
   await tick(10084);
+  assert.equal(state.getState().micQuiet, false, "unknown input clears an already quiet state");
+  assert.equal(state.getState().currentMicLevel, 0);
+  // Separate sharp threshold control; keep the quiet-to-unknown control above.
+  amplitude = 0.2;
+  globalThis.__meetingMeterAnalyser = analyser();
+  await tick(10168);
+  amplitude = 0.006;
+  globalThis.__meetingMeterAnalyser = analyser();
+  await tick(10252);
+  assert.ok(state.getState().currentMicLevel > 0 && state.getState().currentMicLevel <= 0.005);
+  const beforeMissing = publications.length;
+  globalThis.__meetingMeterAnalyser = null;
+  await tick(10336);
+  assert.equal(
+    publications.length,
+    beforeMissing + 1,
+    "tiny finite to missing publishes one exact reset"
+  );
   assert.equal(state.getState().micQuiet, false);
   assert.equal(state.getState().currentMicLevel, 0);
+  amplitude = 0;
   state.setState({ currentMicLevel: 0.25 });
   assert.equal(readMeetingMicLevel(), 0.25, "missing analyser uses fallback");
   state.setState({ currentMicLevel: 0 });
@@ -263,8 +282,20 @@ test("mounted sampler atomically publishes at <=12Hz, reports quiet, resets and 
   await tick(30084);
   assert.equal(state.getState().micQuiet, false);
   await React.act(async () => state.setState({ micCaptureStatus: "active" }));
+  amplitude = 0.2;
+  await tick(30832);
+  amplitude = 0.006;
+  globalThis.__meetingMeterAnalyser = analyser();
+  await tick(30916);
+  assert.ok(state.getState().currentMicLevel > 0 && state.getState().currentMicLevel <= 0.005);
+  const beforeInvalid = publications.length;
   amplitude = NaN;
   await tick(31000);
+  assert.equal(
+    publications.length,
+    beforeInvalid + 1,
+    "tiny finite to NaN publishes one exact reset"
+  );
   assert.equal(state.getState().currentMicLevel, 0);
   assert.equal(state.getState().micQuiet, false);
   amplitude = 0;

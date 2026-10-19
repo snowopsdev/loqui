@@ -1101,8 +1101,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   _readSealed() {
-    const snapshot = sealedStore.getSealedSnapshot?.();
-    return snapshot ? snapshot.sealed === true : sealedStore.getSealed?.() === true;
+    // The shared store is the supported present authority. Plan07 may extend
+    // that boundary when its real producer exists; do not probe absent exports.
+    return sealedStore.getSealed() === true;
   }
 
   _dropSessionAudio() {

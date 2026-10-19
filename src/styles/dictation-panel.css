@@ -1018,6 +1018,7 @@
 
 /* Agent Mode (VO-R8 B): violet orbit, satellites, radial level ticks. */
 .agent-orbit {
+  --agent-orbit-period: var(--motion-agent-thinking);
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -1055,6 +1056,9 @@
 /* The spin-up uses the shared token for its picked 1.2 s cadence. The
    dissolve is an ordinary exit: --motion-hero after --motion-slow, which ends
    at 880 ms, inside useAgentAnswering's AGENT_ANSWERING_MS. */
+.agent-orbit[data-phase="answering"] {
+  --agent-orbit-period: var(--motion-agent-answering);
+}
 .agent-orbit[data-phase="answering"] .agent-orbit__ring {
   animation:
     agent-orbit var(--motion-agent-answering) linear infinite,
@@ -1063,7 +1067,7 @@
 .agent-orbit__satellite {
   position: absolute;
   inset: 0;
-  animation: agent-satellite var(--motion-agent-thinking) linear infinite;
+  animation: agent-satellite var(--agent-orbit-period) linear infinite;
 }
 .agent-orbit__satellite::before {
   content: "";
@@ -1078,7 +1082,7 @@
   box-shadow: 0 0 6px currentColor;
 }
 .agent-orbit__satellite--b {
-  animation-delay: calc(-1 * var(--motion-agent-answering));
+  animation-delay: calc(-0.5 * var(--agent-orbit-period));
 }
 .agent-orbit__satellite--b::before {
   background: white;
@@ -1107,10 +1111,8 @@
     transform: scale(1.06);
   }
 }
-/* Satellites dissolve with the ring, inside the answering owner. */
-.agent-orbit[data-phase="answering"] .agent-orbit__satellite {
-  animation-duration: var(--motion-agent-answering);
-}
+/* Satellites dissolve with the ring, inside the answering owner. Their
+   shared active period keeps the two dots half a cycle apart in both phases. */
 .agent-orbit[data-phase="answering"] .agent-orbit__satellite::before {
   animation: agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow) forwards;
 }

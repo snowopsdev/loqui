@@ -4233,6 +4233,7 @@
     }
   },
   "notices": {
+    "messageDetails": "Mensaje y acciones",
     "dismiss": "Descartar",
     "moreActions": "Más acciones",
     "wordsCard": {

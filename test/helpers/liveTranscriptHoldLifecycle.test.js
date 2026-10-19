@@ -56,6 +56,7 @@ async function mountLiveTranscript(t, initialProps = {}, { withPanel = false } =
   const tree = withPanel ? require("./harness/fakeDomTree").installTree() : null;
   if (tree) container = tree.container;
   let fixtureI18n;
+  let I18nextProvider;
   if (withPanel) {
     const originalResizeObserver = globalThis.ResizeObserver;
     globalThis.ResizeObserver = class {
@@ -67,7 +68,11 @@ async function mountLiveTranscript(t, initialProps = {}, { withPanel = false } =
       else globalThis.ResizeObserver = originalResizeObserver;
     });
     fixtureI18n = require("i18next").createInstance();
-    await fixtureI18n.init({ lng: "en", resources: { en: { translation: {} } } });
+    const reactI18n = await import("react-i18next");
+    I18nextProvider = reactI18n.I18nextProvider;
+    await fixtureI18n
+      .use(reactI18n.initReactI18next)
+      .init({ lng: "en", resources: { en: { translation: {} } } });
   }
 
   const vite = await createRendererServer(t, {
@@ -96,7 +101,7 @@ async function mountLiveTranscript(t, initialProps = {}, { withPanel = false } =
     if (!LiveTranscriptPanel) return null;
     const entrance = resolveLiveTranscriptEntrancePresentation(panel.entrancePhase);
     return React.createElement(
-      require("react-i18next").I18nextProvider,
+      I18nextProvider,
       { i18n: fixtureI18n },
       React.createElement(LiveTranscriptPanel, {
         text: panel.text,

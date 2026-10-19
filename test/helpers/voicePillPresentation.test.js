@@ -70,6 +70,18 @@ test("Live Transcript shows first words by 700ms (VO-Q18)", async () => {
 
 test("every pill footprint fits the 184px dock budget", async () => {
   const { VOICE_PILL_FOOTPRINT, VOICE_PILL_MAX_WIDTH } = await load();
+  assert.deepEqual(VOICE_PILL_FOOTPRINT, {
+    idle: { width: 40, height: 40 },
+    recording: { width: 98, height: 36 },
+    transcribing: { width: 144, height: 36 },
+    cleaning: { width: 144, height: 36 },
+    pasted: { width: 164, height: 36 },
+    cancelled: { width: 160, height: 36 },
+    meeting: { width: 124, height: 36 },
+    meetingInterrupted: { width: 184, height: 36 },
+    sealedPaused: { width: 124, height: 36 },
+  });
+  assert.equal(VOICE_PILL_MAX_WIDTH, 184);
   for (const [name, size] of Object.entries(VOICE_PILL_FOOTPRINT)) {
     assert.ok(size.width <= VOICE_PILL_MAX_WIDTH, name);
     assert.ok(size.height <= 40, name);
@@ -169,6 +181,17 @@ test("one ownership policy for the long-lived stages (I4)", async () => {
     interactive: false,
     outranksFooter: false,
   });
+  for (const stage of ["failed", "sealedPaused"]) {
+    assert.deepEqual(
+      resolvePillOwnership(stage),
+      {
+        holdsWindow: true,
+        interactive: false,
+        outranksFooter: false,
+      },
+      stage
+    );
+  }
   assert.deepEqual(resolvePillOwnership(null), {
     holdsWindow: false,
     interactive: false,
@@ -188,7 +211,7 @@ test("auto-hide never hides an undo window, a success beat or the meeting record
     liveTranscriptMounted: false,
   };
   assert.equal(shouldAutoHidePill({ ...idle, ownership: resolvePillOwnership(null) }), true);
-  for (const stage of ["cancelled", "pasted", "failed", "meeting"]) {
+  for (const stage of ["cancelled", "pasted", "failed", "meeting", "sealedPaused"]) {
     assert.equal(
       shouldAutoHidePill({ ...idle, ownership: resolvePillOwnership(stage) }),
       false,
@@ -1131,4 +1154,38 @@ test("owned preparation keeps its existing processing acknowledgement ahead of r
     { holdsWindow: false, interactive: false, outranksFooter: false },
     "no new resting ownership is forged"
   );
+});
+
+test("sealedPaused holds auto-hide but yields the footer and panel input", async () => {
+  const {
+    resolvePillOwnership,
+    shouldSuppressPillForAssistantActions,
+    resolveVoicePillInteraction,
+  } = await load();
+  const ownership = resolvePillOwnership("sealedPaused");
+  assert.equal(
+    shouldSuppressPillForAssistantActions({
+      assistantOpen: true,
+      footerPillVisible: false,
+      assistantClosing: false,
+      hasLiveActivity: false,
+      ownership,
+    }),
+    true
+  );
+  for (const panel of [
+    { assistantMounted: true, liveTranscriptMounted: false },
+    { assistantMounted: false, liveTranscriptMounted: true },
+  ]) {
+    assert.equal(
+      resolveVoicePillInteraction({
+        isRecording: false,
+        isProcessing: false,
+        isHovered: false,
+        ...panel,
+        ownership,
+      }).pillInteractive,
+      false
+    );
+  }
 });

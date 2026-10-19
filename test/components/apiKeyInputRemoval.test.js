@@ -1044,7 +1044,7 @@ test("[change-driving] notices render migrated structured actions and keepOpen r
   };
   await click("Migrated action");
   await React.act(async () => {
-    const more = tree.find((node) => node.attributes?.["aria-label"] === "notices.moreActions");
+    const more = tree.find((node) => node.attributes?.["aria-label"] === "notices.messageDetails");
     assert.ok(more, "secondary actions remain reachable behind More");
     more.click();
   });

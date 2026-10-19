@@ -331,3 +331,82 @@ test("More exposes the complete selectable explanation and exact recovery comman
   assert.equal(explanation.attributes.dir, "auto");
   assert.equal(explanation.textContent, body);
 });
+
+for (const uiDirection of ["ltr", "rtl"]) {
+  for (const words of [
+    "Keep the original words?",
+    "هل نحفظ الكلمات الأصلية؟",
+    "English first.\n\nفقرة عربية؟",
+  ]) {
+    test(`recovered content isolates direction and preserves copy/drag bytes in ${uiDirection}: ${words.slice(0, 8)}`, async (t) => {
+      const writes = [];
+      const stack = await mountStack(t, {
+        electronAPI: {
+          writeClipboard: async (text) => {
+            writes.push(text);
+            return { success: true };
+          },
+        },
+      });
+      globalThis.document.dir = uiDirection;
+      stack.notices.notify({ id: "direction", kind: "alert", title: "Preserved", words });
+      await stack.render({ placement: "pill", horizontalDirection: "left" });
+      const paragraph = stack.find((node) => node.attributes?.class === "words-card__words");
+      assert.equal(paragraph.attributes.dir, "auto");
+      assert.equal(paragraph.textContent, words);
+      const propsKey = Object.keys(paragraph).find((key) => key.startsWith("__reactProps$"));
+      const drag = [];
+      const currentTarget = { classList: { add() {}, remove() {} } };
+      paragraph[propsKey].onDragStart({
+        currentTarget,
+        dataTransfer: { setData: (...args) => drag.push(args) },
+      });
+      assert.deepEqual(drag, [["text/plain", words]]);
+      await stack.clickNode(stack.copyButton());
+      assert.deepEqual(writes, [words]);
+      assert.equal(stack.notices.getNotices()[0].words, words);
+      const anchor = stack.find((node) => node.attributes?.class === "notice-stack");
+      assert.equal(anchor.attributes["data-direction"], "left");
+    });
+  }
+}
+
+for (const diagnostic of [false, true]) {
+  test(`actual ${diagnostic ? "diagnostic" : "title-only"} chip disclosure reveals the full title and retains its primary`, async (t) => {
+    const stack = await mountStack(t);
+    const title = "The meeting could not be saved. Open notes to check what was kept.";
+    let opened = 0;
+    stack.notices.notify({
+      id: "full-title",
+      kind: "alert",
+      title,
+      persistent: true,
+      ...(diagnostic ? { details: { underlyingError: "Synthetic diagnostic" } } : {}),
+      actions: [
+        {
+          label: "Open notes",
+          primary: true,
+          keepOpen: true,
+          onClick: () => {
+            opened++;
+          },
+        },
+      ],
+    });
+    await stack.render();
+    const findMore = () => stack.find((node) => node.attributes?.class === "notice-chip__more");
+    assert.equal(findMore().attributes["aria-expanded"], "false");
+    await stack.clickNode(findMore());
+    const full = stack.find((node) => node.attributes?.class === "notice-chip__expanded-title");
+    assert.equal(full?.textContent, title);
+    assert.equal(full?.attributes.dir, "auto");
+    assert.equal(findMore().attributes["aria-expanded"], "true");
+    await stack.click("Open notes");
+    assert.equal(opened, 1);
+    await stack.clickNode(findMore());
+    assert.equal(
+      stack.find((node) => node.attributes?.class === "notice-chip__expanded-title"),
+      null
+    );
+  });
+}

@@ -76,7 +76,7 @@ test("every action stays reachable: secondary actions sit behind an accessible M
     notice: { ...notice, actions: [notice.actions[0]] },
     stagger: 0,
   });
-  assert.doesNotMatch(single, /notice-chip__more/);
+  assert.match(single, /notice-chip__more/, "a title-only chip also reveals its complete message");
 });
 
 test("buttons are disabled while the notice's action is running", async () => {
@@ -160,4 +160,41 @@ test("chip CSS uses the motion tokens and no ease-in", () => {
     /prefers-reduced-motion: reduce[\s\S]*\.words-card \{\s*\/\*[^*]*\*\/\s*animation: notice-fade var\(--motion-fast\) linear both !important;/,
     "the fade survives index.css's global cut"
   );
+});
+
+for (const diagnostic of [false, true]) {
+  test(`full title is reachable in a ${diagnostic ? "diagnostic" : "title-only primary-action"} chip`, async () => {
+    const { NoticeChip } = await import("../../src/components/ui/NoticeChip.tsx");
+    const title = "The meeting could not be saved. Open notes to check what was kept.";
+    const notice = {
+      ...base,
+      id: "long-title",
+      kind: "alert",
+      title,
+      ...(diagnostic
+        ? { body: "Preserved in memory", details: { underlyingError: "Synthetic diagnostic" } }
+        : {}),
+      actions: [{ label: "Open notes", primary: true, onClick() {} }],
+    };
+    const collapsed = renderStatic(NoticeChip, { notice, stagger: 0 });
+    assert.match(collapsed, /class="notice-chip__more"[^>]*aria-expanded="false"/);
+    const expanded = renderStatic(NoticeChip, { notice, stagger: 0, defaultExpanded: true });
+    assert.match(expanded, /class="notice-chip__expanded-title"[^>]*dir="auto"/);
+    assert.equal(expanded.includes(title), true);
+    assert.match(expanded, /aria-expanded="true"/);
+    assert.match(expanded, />Open notes</);
+  });
+}
+
+test("satellites use half their active phase period", () => {
+  const css = fs.readFileSync(path.join(repoRoot, "src/styles/dictation-panel.css"), "utf8");
+  assert.match(
+    css,
+    /\.agent-orbit\s*\{[^}]*--agent-orbit-period:\s*var\(--motion-agent-thinking\)/
+  );
+  assert.match(
+    css,
+    /data-phase="answering"[^}]*--agent-orbit-period:\s*var\(--motion-agent-answering\)/
+  );
+  assert.match(css, /animation-delay:\s*calc\(-0\.5 \* var\(--agent-orbit-period\)\)/);
 });

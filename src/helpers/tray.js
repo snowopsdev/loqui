@@ -10,7 +10,16 @@ const dockManager = require("./dockManager");
 const { i18nMain } = require("./i18nMain");
 
 class TrayManager {
-  constructor() {
+  constructor({
+    now = Date.now,
+    setInterval: startTimer = setInterval,
+    clearInterval: stopTimer = clearInterval,
+  } = {}) {
+    this.now = now;
+    this.startRecordingTimer = startTimer;
+    this.stopRecordingTimer = stopTimer;
+    this.recordingTimer = null;
+    this.recordingTimerSession = null;
     this.meetingPresence = null;
     this.linuxNotificationPromise = null;
     this.meetingNotification = null;
@@ -90,8 +99,29 @@ class TrayManager {
     this.updateTrayMenu();
   }
 
+  _clearRecordingTimer() {
+    if (this.recordingTimer !== null) this.stopRecordingTimer(this.recordingTimer);
+    this.recordingTimer = null;
+    this.recordingTimerSession = null;
+  }
+
+  _syncRecordingTimer() {
+    const sessionId =
+      !this.meetingNotificationShutdown && this.tray && this.meetingPresence?.sessionId;
+    if (sessionId && this.recordingTimerSession === sessionId) return;
+    this._clearRecordingTimer();
+    if (!sessionId) return;
+    this.recordingTimerSession = sessionId;
+    this.recordingTimer = this.startRecordingTimer(() => {
+      if (this.recordingTimerSession === sessionId && this.meetingPresence?.sessionId === sessionId)
+        this.updateTrayMenu();
+    }, 1000);
+    this.recordingTimer.unref?.();
+  }
+
   teardownMeetingNotification() {
     this.meetingNotificationShutdown = true;
+    this._clearRecordingTimer();
     this.meetingNotificationGeneration += 1;
     this.meetingPresence = null;
     void this.meetingNotification?.close();
@@ -340,6 +370,7 @@ class TrayManager {
     const sessionId = this.meetingPresence?.sessionId;
     const recording = buildTrayRecordingItems(this.meetingPresence, {
       t: (k, o) => i18nMain.t(k, o),
+      now: this.now(),
     }).map((item) =>
       item.action === "stop"
         ? {
@@ -408,6 +439,7 @@ class TrayManager {
   }
 
   updateTrayMenu() {
+    this._syncRecordingTimer();
     if (!this.tray) return;
 
     const contextMenu = Menu.buildFromTemplate(this.buildContextMenuTemplate());
@@ -431,6 +463,7 @@ class TrayManager {
     this.tray.on("destroyed", () => {
       debugLogger.debug("Tray icon destroyed", undefined, "tray");
       this.tray = null;
+      this._clearRecordingTimer();
     });
   }
 }

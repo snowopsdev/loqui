@@ -1760,3 +1760,13 @@ test("cancel settles renderer merge without waiting for a never-finishing conver
   await manager._undo.peek().ready();
   await manager.flushCancelHold();
 });
+
+test("Undo seal read follows the current shared store authority without future exports", async (t) => {
+  const { manager, vite } = await setup(t);
+  delete manager._readSealed; // Exercise the real prototype, not the fixture's default false seam.
+  const { useSealedStore } = await vite.ssrLoadModule("/stores/sealedStore.ts");
+  for (const sealed of [false, true, false]) {
+    useSealedStore.setState({ sealed, known: true });
+    assert.equal(manager._readSealed(), sealed);
+  }
+});

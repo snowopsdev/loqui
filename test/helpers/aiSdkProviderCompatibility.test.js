@@ -100,8 +100,8 @@ for (const scenario of imageCases) {
             role: "user",
             content: [
               { type: "text", text: "Describe this screenshot." },
-              // This is the shape sent by ReasoningService's screenContext.
-              { type: "image", image: pngUrl },
+              // Exercise the installed SDK file-part protocol with identical screenshot bytes.
+              { type: "file", data: pngUrl, mediaType: "image/png" },
             ],
           },
         ],
@@ -150,7 +150,7 @@ test("Tinfoil's resolved adapter supports the installed SDK message protocol", a
         role: "user",
         content: [
           { type: "text", text: "Check compatibility." },
-          { type: "image", image: pngUrl },
+          { type: "file", data: pngUrl, mediaType: "image/png" },
         ],
       },
     ],

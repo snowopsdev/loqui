@@ -72,6 +72,7 @@
   padding: 0 10px 7px;
   white-space: normal;
 }
+.notice-chip__expanded-title,
 .notice-chip__expanded-body {
   margin-block: 5px;
   font: 400 12px/1.4 var(--font-family-sans);
@@ -79,6 +80,9 @@
   overflow-wrap: anywhere;
   unicode-bidi: plaintext;
   user-select: text;
+}
+.notice-chip__expanded-title {
+  font-weight: 600;
 }
 .notice-chip__more-actions {
   display: flex;
@@ -184,6 +188,7 @@
   color: var(--color-destructive);
 }
 .words-card__words {
+  unicode-bidi: plaintext;
   margin: 8px 0 9px;
   padding-block: 8px;
   padding-inline: 9px 24px;

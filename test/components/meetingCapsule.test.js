@@ -29,7 +29,8 @@ test("the capsule shows a dot, mm:ss and a labelled Stop", async () => {
 });
 
 test("quiet pales the dot; a lost source is labelled and amber", async () => {
-  const { meetingCapsuleState, MeetingCapsule } = await load();
+  const { MeetingCapsule } = await load();
+  const { meetingCapsuleState } = await import("../../src/utils/meetingCapsuleState.ts");
   assert.equal(meetingCapsuleState({ startedAt: 1, interruption: null, quiet: true }), "quiet");
   assert.equal(
     meetingCapsuleState({ startedAt: 1, interruption: "systemAudio", quiet: true }),

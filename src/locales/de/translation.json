@@ -4227,6 +4227,7 @@
     }
   },
   "notices": {
+    "messageDetails": "Nachricht und Aktionen",
     "dismiss": "Schließen",
     "moreActions": "Weitere Aktionen",
     "wordsCard": {

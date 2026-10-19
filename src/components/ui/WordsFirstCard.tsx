@@ -79,6 +79,7 @@ export function WordsFirstCard({
       </span>
       <p
         className="words-card__words"
+        dir="auto"
         draggable="true"
         title={t("notices.wordsCard.dragHint")}
         onDragStart={(e) => {

@@ -13,7 +13,10 @@ Module._load = function loadTrayWithStubs(request, parent, isMain) {
     };
   if (request === "./debugLogger") return { info: () => undefined, debug: () => undefined };
   if (request === "./dockManager") return {};
-  if (request === "./i18nMain") return { i18nMain: { t: (key) => key } };
+  if (request === "./i18nMain")
+    return {
+      i18nMain: { t: (key, options) => (options?.elapsed ? `${key}:${options.elapsed}` : key) },
+    };
   return originalLoad.call(this, request, parent, isMain);
 };
 const TrayManager = require("../../src/helpers/tray");
@@ -64,8 +67,9 @@ test("the tray's listen item stops the recording it reflects", () => {
   assert.deepEqual(calls, ["stop-dictation"]);
 });
 
-test("the actual Linux tray paints the recording icon, tooltip and source-loss menu then restores idle", async () => {
+test("the actual Linux tray paints the recording icon, tooltip and source-loss menu then restores idle", async (t) => {
   const tray = new TrayManager();
+  t.after(() => tray.teardownMeetingNotification());
   tray.platform = "linux";
   const shown = [];
   tray.createNotificationClient = async () => null;
@@ -98,7 +102,7 @@ test("the actual Linux tray paints the recording icon, tooltip and source-loss m
   assert.equal(tooltips.at(-1), "tray.tooltipRecording");
   const i = (12 * 16 + 12) * 4;
   assert.deepEqual([...images[0].bitmap.subarray(i, i + 4)], [0x1f, 0x5a, 0xff, 0xff]);
-  assert.equal(menus.at(-1)[0].label, "tray.meetingRecording");
+  assert.match(menus.at(-1)[0].label, /^tray\.meetingRecording:/);
   assert.equal(menus.at(-1)[1].label, "tray.stopMeetingRecording");
   tray.setMeetingPresence({
     sessionId: "A",
@@ -115,4 +119,64 @@ test("the actual Linux tray paints the recording icon, tooltip and source-loss m
   assert.equal(tooltips.at(-1), "tray.tooltip");
   await tray.teardownMeetingNotification();
   assert.equal(shown[0].closed, true);
+});
+
+test("steady recording refreshes elapsed with one owned timer; replacement/end/destroy retire it", async (t) => {
+  let now = 1000;
+  const timers = new Map();
+  let next = 0;
+  const tray = new TrayManager({
+    now: () => now,
+    setInterval: (fn, ms) => {
+      const id = ++next;
+      timers.set(id, { fn, ms });
+      return id;
+    },
+    clearInterval: (id) => timers.delete(id),
+  });
+  tray.platform = "win32";
+  t.after(() => tray.teardownMeetingNotification());
+  const events = new Map();
+  const menus = [];
+  const stops = [];
+  tray.windowManager = { requestStopMeetingRecording: (id) => stops.push(id) };
+  tray.tray = {
+    setToolTip() {},
+    setContextMenu: (menu) => menus.push(menu),
+    on: (event, fn) => events.set(event, fn),
+  };
+  tray.setupTrayEventHandlers();
+  tray.setMeetingPresence({ sessionId: "A", startedAt: 1000 });
+  assert.equal(timers.size, 1);
+  const [firstId, first] = [...timers][0];
+  assert.equal(first.ms, 1000);
+  const initialStop = menus.at(-1)[1];
+  now = 62000;
+  first.fn();
+  assert.equal(menus.length, 2, "refresh without a presence/window change");
+  // The formatter sees the injected time, not a frozen first-menu timestamp.
+  assert.equal(tray.buildContextMenuTemplate()[0].label, "tray.meetingRecording:1:01");
+  menus.at(-1)[1].click();
+  assert.deepEqual(stops, ["A"]);
+  tray.setMeetingPresence({ sessionId: "A", startedAt: 1000, quiet: true });
+  assert.equal([...timers.keys()][0], firstId, "liveness update does not restart timer");
+  tray.setMeetingPresence({ sessionId: "B", startedAt: now });
+  assert.equal(timers.has(firstId), false);
+  assert.equal(timers.size, 1);
+  const count = menus.length;
+  first.fn();
+  assert.equal(menus.length, count, "retired callback cannot touch replacement");
+  initialStop.click();
+  menus.at(-1)[1].click();
+  assert.deepEqual(stops, ["A", "A", "B"], "old Stop retains exact old session; main rejects it");
+  tray.setMeetingPresence(null);
+  assert.equal(timers.size, 0);
+  tray.setMeetingPresence({ sessionId: "C", startedAt: now });
+  events.get("destroyed")();
+  assert.equal(timers.size, 0);
+  tray.tray = { setToolTip() {}, setContextMenu() {} };
+  tray.updateTrayMenu();
+  assert.equal(timers.size, 1, "replacement tray resumes only live recording");
+  await tray.teardownMeetingNotification();
+  assert.equal(timers.size, 0);
 });

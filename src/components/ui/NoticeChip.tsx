@@ -8,9 +8,9 @@ const ICONS = { receipt: Check, notice: Info, alert: AlertTriangle } as const;
 
 /**
  * One 32px line per message (VO-R14 B): icon, title, muted body, the primary
- * action inline, then "More" when there are other actions, then close. "More"
- * expands the chip in place with every other action (I11), so a notice never
- * hides an action its sender relies on.
+ * action inline, then message disclosure and close. The disclosure expands
+ * the complete title and explanation in place, including title-only failures,
+ * with every other action (I11). The stack keeps overflow locally scrollable.
  */
 export function NoticeChip({
   notice,
@@ -27,7 +27,7 @@ export function NoticeChip({
   const actions = notice.actions ?? [];
   const primary = actions.find((a) => a.primary) ?? actions[0];
   const secondary = actions.filter((a) => a !== primary);
-  const hasMore = Boolean(secondary.length || notice.body || notice.details);
+  const hasMore = Boolean(notice.title || secondary.length || notice.body || notice.details);
   const moreId = `notice-more-${notice.id}`;
   return (
     <div
@@ -45,7 +45,9 @@ export function NoticeChip({
         <span className="notice-chip__icon" aria-hidden="true">
           <Icon size={12} />
         </span>
-        <b className="notice-chip__title">{notice.title}</b>
+        <b className="notice-chip__title" aria-hidden={expanded && hasMore ? true : undefined}>
+          {notice.title}
+        </b>
         {notice.body ? <span className="notice-chip__body">{notice.body}</span> : null}
         {primary ? (
           <button
@@ -63,7 +65,7 @@ export function NoticeChip({
             className="notice-chip__more"
             aria-expanded={expanded ? "true" : "false"}
             aria-controls={moreId}
-            aria-label={t("notices.moreActions")}
+            aria-label={t("notices.messageDetails")}
             onClick={() => setExpanded((v) => !v)}
           >
             ⋯
@@ -83,8 +85,11 @@ export function NoticeChip({
           id={moreId}
           className="notice-chip__expanded"
           role="group"
-          aria-label={t("notices.moreActions")}
+          aria-label={t("notices.messageDetails")}
         >
+          <p className="notice-chip__expanded-title" dir="auto">
+            {notice.title}
+          </p>
           {notice.body ? (
             <p className="notice-chip__expanded-body" dir="auto">
               {notice.body}

@@ -324,6 +324,12 @@ class WindowPositionUtil {
     };
   }
 
+  static getNotchDropPosition(display) {
+    const { x, y, width } = display.workArea;
+    const { width: w, height } = NOTIFICATION_WINDOW_CONFIG;
+    return { x: Math.round(x + (width - w) / 2), y: y + 8, width: w, height };
+  }
+
   static getNotificationPosition(display) {
     const { width, height } = NOTIFICATION_WINDOW_CONFIG;
     const MARGIN = 16;

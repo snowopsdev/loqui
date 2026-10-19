@@ -3741,7 +3741,12 @@
       "underway": "你的會議似乎已在進行中。要開始記錄嗎？"
     },
     "start": "開始記錄",
-    "join": "加入並轉錄"
+    "join": "加入並轉錄",
+    "bodyApp": "偵測到 {{app}} 中的會議。",
+    "privacy": "在此裝置上偵測到。尚未錄製任何內容。",
+    "mini": "開會？開始記筆記",
+    "accepted": "正在記筆記",
+    "dismiss": "關閉"
   },
   "codexConnection": {
     "title": "ChatGPT subscription (Codex)",

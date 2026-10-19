@@ -182,6 +182,7 @@ test("detection prompts carry the detection payload", () => {
       event,
       variant: "underway",
       joinUrl: null,
+      appName: null,
     },
   ]);
   engine.stop();

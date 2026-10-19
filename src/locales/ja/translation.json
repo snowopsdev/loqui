@@ -3741,7 +3741,12 @@
       "underway": "会議はすでに進行中のようです。メモを取りますか？"
     },
     "start": "メモを取る",
-    "join": "参加して文字起こし"
+    "join": "参加して文字起こし",
+    "bodyApp": "{{app}}で会議を検出しました。",
+    "privacy": "このデバイス上で検出しました。まだ録音していません。",
+    "mini": "会議ですか？ メモを開始",
+    "accepted": "メモを作成中",
+    "dismiss": "閉じる"
   },
   "codexConnection": {
     "title": "ChatGPT subscription (Codex)",

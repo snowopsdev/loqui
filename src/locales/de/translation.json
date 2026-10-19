@@ -3741,7 +3741,12 @@
       "underway": "Es klingt, als wäre dein Meeting schon im Gange. Notizen aufnehmen?"
     },
     "start": "Notizen aufnehmen",
-    "join": "Beitreten & transkribieren"
+    "join": "Beitreten & transkribieren",
+    "bodyApp": "Meeting in {{app}} erkannt.",
+    "privacy": "Auf diesem Gerät erkannt. Noch nichts aufgenommen.",
+    "mini": "Meeting? Notizen starten",
+    "accepted": "Notizen werden erstellt",
+    "dismiss": "Schließen"
   },
   "codexConnection": {
     "title": "ChatGPT subscription (Codex)",

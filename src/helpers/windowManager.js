@@ -183,9 +183,12 @@ class WindowManager {
     this._assistantPanelBusy = false;
     this._pendingMeetingNoteNavigation = null;
     this._pendingNoteNavigation = null;
+    this._meetingPrompt = null;
+    this._meetingPromptGeneration = 0;
 
     app.on("before-quit", () => {
       this.isQuitting = true;
+      this.dismissMeetingNotification({ notifyEngine: false });
       this.hotkeyManager.unregisterAll();
     });
   }
@@ -2110,8 +2113,32 @@ class WindowManager {
     }
   }
 
+  // Each asynchronous preparation and its shortcut belong to one prompt.
+  _beginMeetingPrompt(detectionId) {
+    this._endMeetingPrompt();
+    const generation = ++this._meetingPromptGeneration;
+    this._meetingPrompt = {
+      generation,
+      detectionId: detectionId ?? null,
+      ownerId: `main:meeting-prompt:${generation}`,
+      shown: false,
+      loaded: false,
+    };
+    return this._meetingPrompt;
+  }
+
+  _endMeetingPrompt() {
+    const prompt = this._meetingPrompt;
+    this._meetingPrompt = null;
+    this._meetingPromptGeneration += 1;
+    if (prompt) this.hotkeyLeases.releaseOwner(prompt.ownerId);
+    return prompt;
+  }
+
   async showMeetingNotification(promptData, { autoDismiss = true } = {}) {
-    if (this._onboardingActive) return false;
+    if (this._onboardingActive || this.isQuitting) return false;
+    const prompt = this._beginMeetingPrompt(promptData?.detectionId);
+    const isCurrent = () => this._meetingPrompt === prompt;
     if (this.notificationWindow && !this.notificationWindow.isDestroyed()) {
       const previousWindow = this.notificationWindow;
       this.notificationWindow = null;
@@ -2124,19 +2151,72 @@ class WindowManager {
       this._notificationReadyFallback = null;
     }
 
-    const display = screen.getPrimaryDisplay();
-    const position = WindowPositionUtil.getNotificationPosition(display);
+    let display;
+    try {
+      display = await this._resolveActiveDisplay();
+    } catch {
+      display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    }
+    if (!isCurrent()) return false;
+    const position = WindowPositionUtil.getNotchDropPosition(display);
+    let leaseReleased = false;
+    const lease = await this.hotkeyLeases.acquire({
+      slot: "meetingAccept",
+      ownerId: prompt.ownerId,
+      onPress: () => {
+        if (
+          !isCurrent() ||
+          !prompt.shown ||
+          !prompt.loaded ||
+          this.notificationWindow !== prompt.window ||
+          prompt.window.isDestroyed()
+        )
+          return;
+        void this.meetingDetectionEngine?.handleNotificationResponse?.(
+          prompt.detectionId,
+          promptData?.joinUrl ? "join" : "start"
+        );
+      },
+      onRelease: () => {
+        leaseReleased = true;
+        if (!isCurrent() || !this._pendingNotificationData) return;
+        this._pendingNotificationData = {
+          ...this._pendingNotificationData,
+          acceptHotkeyLabel: null,
+        };
+        const win = prompt.window;
+        if (prompt.loaded && win && !win.isDestroyed()) {
+          win.webContents.send("meeting-notification-data", this._pendingNotificationData);
+        }
+      },
+    });
+    if (!isCurrent()) {
+      this.hotkeyLeases.release(lease.leaseId, prompt.ownerId);
+      return false;
+    }
+    const data = {
+      ...promptData,
+      acceptHotkeyLabel:
+        lease.held && !leaseReleased
+          ? process.platform === "darwin"
+            ? "⌥⌘M"
+            : "Ctrl+Alt+M"
+          : null,
+    };
 
     const win = new BrowserWindow({
       ...NOTIFICATION_WINDOW_CONFIG,
       ...position,
     });
     this.notificationWindow = win;
+    prompt.window = win;
 
     // "closed" fires asynchronously, so a replaced prompt's window emits it
     // after the replacement already took over the reference and the countdown.
     win.on("closed", () => {
+      this.hotkeyLeases.releaseOwner(prompt.ownerId);
       if (this.notificationWindow !== win) return;
+      if (isCurrent()) this._endMeetingPrompt();
       const closedDetectionId = this._pendingNotificationData?.detectionId ?? null;
       this.notificationWindow = null;
       this._pendingNotificationData = null;
@@ -2150,6 +2230,12 @@ class WindowManager {
       }
     });
 
+    const promptLost = () => {
+      this.hotkeyLeases.releaseOwner(prompt.ownerId);
+      if (isCurrent() && this.notificationWindow === win) this.dismissMeetingNotification();
+    };
+    win.webContents.on("render-process-gone", promptLost);
+    win.webContents.on("destroyed", promptLost);
     win.setContentProtection(true);
 
     if (process.platform === "darwin") {
@@ -2160,7 +2246,7 @@ class WindowManager {
     // dictation panel and assistant pill.
     WindowPositionUtil.setupAlwaysOnTop(win, { level: "screen-saver" });
 
-    this._pendingNotificationData = promptData;
+    this._pendingNotificationData = data;
 
     // Everything past the load addresses `win` directly: a replacement taking
     // over mid-load must not have this prompt's data, countdown or force-show
@@ -2168,7 +2254,7 @@ class WindowManager {
     try {
       if (process.env.NODE_ENV === "development") {
         await DevServerManager.waitForDevServer();
-        if (this.notificationWindow !== win) return false;
+        if (!isCurrent() || this.notificationWindow !== win) return false;
         await win.loadURL(`${DevServerManager.DEV_SERVER_URL}?meeting-notification=true`);
       } else {
         const fileInfo = DevServerManager.getAppFilePath(false);
@@ -2179,23 +2265,36 @@ class WindowManager {
     } catch (error) {
       // A load aborted by our own replacement or dismissal is not a failure —
       // but the caller must still learn the notification never appeared.
-      if (this.notificationWindow !== win) return false;
+      if (!isCurrent() || this.notificationWindow !== win) return false;
       this.dismissMeetingNotification();
       throw error;
     }
-    if (this.notificationWindow !== win) return false;
+    if (!isCurrent() || this.notificationWindow !== win) return false;
     if (this._onboardingActive) {
       this.dismissMeetingNotification();
       return false;
     }
 
+    prompt.loaded = true;
+    win.webContents.on("did-start-navigation", (details) => {
+      if (details?.isMainFrame && !details.isSameDocument) promptLost();
+    });
+    // A release during load changed the pending snapshot; never restore `data`.
+    win.webContents.send("meeting-notification-data", this._pendingNotificationData);
     const readyFallback = setTimeout(() => {
       if (this._notificationReadyFallback !== readyFallback) return;
       this._notificationReadyFallback = null;
-      if (this._onboardingActive || this.notificationWindow !== win || win.isDestroyed()) return;
+      if (
+        !isCurrent() ||
+        this._onboardingActive ||
+        this.notificationWindow !== win ||
+        win.isDestroyed()
+      )
+        return;
       debugLogger.warn("Notification renderer did not signal ready, force-showing", {}, "meeting");
-      win.webContents.send("meeting-notification-data", promptData);
+      win.webContents.send("meeting-notification-data", this._pendingNotificationData);
       win.showInactive();
+      prompt.shown = true;
     }, 3000);
     this._notificationReadyFallback = readyFallback;
 
@@ -2221,11 +2320,16 @@ class WindowManager {
       clearTimeout(this._notificationReadyFallback);
       this._notificationReadyFallback = null;
     }
+    if (this._meetingPrompt?.window !== win || !this._meetingPrompt.loaded) return;
     win.showInactive();
+    this._meetingPrompt.shown = true;
   }
 
   dismissMeetingNotification({ notifyEngine = true, flushQueued = true } = {}) {
-    const notification = this._pendingNotificationData;
+    const prompt = this._endMeetingPrompt();
+    const notification =
+      this._pendingNotificationData ??
+      (prompt?.detectionId ? { detectionId: prompt.detectionId } : null);
     this._pendingNotificationData = null;
     if (this._notificationReadyFallback) {
       clearTimeout(this._notificationReadyFallback);

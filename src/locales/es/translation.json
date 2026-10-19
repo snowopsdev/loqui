@@ -3742,7 +3742,12 @@
       "underway": "Parece que tu reunión ya está en curso. ¿Quieres tomar notas?"
     },
     "start": "Tomar notas",
-    "join": "Unirse y transcribir"
+    "join": "Unirse y transcribir",
+    "bodyApp": "Se detectó una reunión en {{app}}.",
+    "privacy": "Detectada en este dispositivo. Aún no se ha grabado nada.",
+    "mini": "¿Reunión? Tomar notas",
+    "accepted": "Tomando notas",
+    "dismiss": "Descartar"
   },
   "codexConnection": {
     "title": "ChatGPT subscription (Codex)",

@@ -284,3 +284,164 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* VO-R11 B: fixed native frame, top-centre entry and hover-paused mini fold. */
+.meeting-notification-window {
+  padding: 6px 8px;
+}
+.meeting-notification-motion {
+  transition:
+    opacity var(--motion-fast) var(--motion-ease-exit),
+    transform var(--motion-fast) var(--motion-ease-exit);
+}
+.meeting-notification-motion--dragging {
+  transition: none;
+}
+.meeting-drop {
+  transform-origin: top center;
+  animation: meeting-drop var(--motion-hero) var(--motion-spring-settle) both;
+}
+@keyframes meeting-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-80px) scale(0.7);
+  }
+}
+.meeting-card {
+  position: relative;
+  width: 100%;
+  height: 80px;
+  padding-block: 8px 6px;
+  padding-inline: 26px 10px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-card, 0 4px 16px #0000001a);
+  backdrop-filter: blur(16px);
+  transition:
+    border-radius var(--motion-slow) var(--motion-ease-std),
+    padding var(--motion-slow) var(--motion-ease-std),
+    height var(--motion-slow) var(--motion-ease-std),
+    width var(--motion-slow) var(--motion-ease-std);
+}
+.meeting-card__close {
+  position: absolute;
+  inset-inline-start: 2px;
+  top: 2px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--color-foreground);
+  opacity: 0.65;
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.meeting-card__close:hover,
+.meeting-card__close:focus-visible {
+  opacity: 1;
+}
+.meeting-card__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 38px;
+}
+.meeting-card__copy {
+  flex: 1;
+  min-width: 0;
+  max-height: 38px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.meeting-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--color-foreground);
+}
+.meeting-card__body {
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--color-muted-foreground);
+}
+.meeting-card__privacy {
+  color: color-mix(in srgb, var(--color-success) 65%, var(--color-foreground));
+  font-size: 12px;
+  line-height: 14px;
+  max-height: 28px;
+  overflow: auto;
+  flex: 1;
+  min-width: 0;
+}
+.meeting-card__start {
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--motion-ease-std);
+  flex-shrink: 0;
+  max-width: 122px;
+  height: auto;
+  min-height: 32px;
+  padding: 4px 8px;
+  white-space: normal;
+  font-size: 12px;
+  line-height: 14px;
+}
+.meeting-card kbd {
+  font: 600 10px/12px var(--font-family-sans);
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}
+.meeting-card[data-phase="mini"] {
+  width: 224px;
+  height: 36px;
+  margin-inline: auto;
+  padding-block: 0;
+  padding-inline: 26px 8px;
+  border-radius: 9999px;
+}
+.meeting-card__mini {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 34px;
+  font: 600 12.5px/1 var(--font-family-sans);
+  color: var(--color-foreground);
+}
+.meeting-card__mini-label {
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+  white-space: nowrap;
+}
+.meeting-card__dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-live) 85%, var(--color-foreground));
+}
+@media (prefers-reduced-motion: reduce) {
+  .meeting-drop {
+    animation: notice-fade var(--motion-fast) linear both !important;
+    transform: none !important;
+  }
+  .meeting-card,
+  .meeting-notification-motion {
+    transition: opacity var(--motion-fast) linear;
+    transform: none !important;
+  }
+}
+
+.meeting-card button:focus-visible,
+.meeting-card__copy:focus-visible,
+.meeting-card__privacy:focus-visible {
+  outline: 2px solid var(--color-foreground);
+  outline-offset: 1px;
+}
+
+.meeting-card__footer {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}

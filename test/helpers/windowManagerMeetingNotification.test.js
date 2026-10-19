@@ -26,9 +26,9 @@ class FakeBrowserWindow extends EventEmitter {
     this.loadUrlCount = 0;
     this.showCount = 0;
     this.ignoreMouseEvents = [];
-    this.webContents = {
+    this.webContents = Object.assign(new EventEmitter(), {
       send: (channel, payload) => this.messages.push({ channel, payload }),
-    };
+    });
     createdWindows.push(this);
   }
 
@@ -63,7 +63,30 @@ class FakeBrowserWindow extends EventEmitter {
 }
 
 class FakeHotkeyManager {
-  unregisterAll() {}
+  constructor() {
+    this.registered = new Map();
+    this.pendingRegistrations = [];
+    this.registerCalls = 0;
+    this.deferRegistrations = false;
+  }
+
+  registerSlot(slot, _accelerator, callback) {
+    this.registerCalls += 1;
+    const answer = (ok = true) => {
+      if (ok) this.registered.set(slot, callback);
+      return ok ? { success: true } : { success: false, reason: "conflict" };
+    };
+    if (!this.deferRegistrations) return Promise.resolve(answer());
+    return new Promise((resolve) => this.pendingRegistrations.push((ok) => resolve(answer(ok))));
+  }
+
+  unregisterSlot(slot) {
+    this.registered.delete(slot);
+  }
+
+  unregisterAll() {
+    this.registered.clear();
+  }
 
   isInListeningMode() {
     return false;
@@ -75,12 +98,25 @@ class FakeDragManager {
   cleanup() {}
 }
 
+const appListeners = {};
 const originalLoad = Module._load;
 Module._load = function loadWindowManagerWithStubs(request, parent, isMain) {
   if (request === "electron") {
     return {
-      app: { on: () => undefined },
-      screen: { getPrimaryDisplay: () => ({}), on: () => undefined },
+      app: { on: (event, listener) => (appListeners[event] ??= []).push(listener) },
+      screen: {
+        getPrimaryDisplay: () => ({}),
+        getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+        getDisplayNearestPoint: () => ({
+          id: "cursor",
+          workArea: { x: 0, y: 0, width: 1000, height: 800 },
+        }),
+        getDisplayMatching: () => ({
+          id: "target",
+          workArea: { x: 0, y: 0, width: 1000, height: 800 },
+        }),
+        on: () => undefined,
+      },
       BrowserWindow: FakeBrowserWindow,
       shell: {},
       dialog: {},
@@ -115,6 +151,7 @@ Module._load = function loadWindowManagerWithStubs(request, parent, isMain) {
       NOTIFICATION_WINDOW_CONFIG: { ...notificationSize, acceptFirstMouse: true },
       WINDOW_SIZES: {},
       WindowPositionUtil: {
+        getNotchDropPosition: () => ({ ...notificationSize, x: 304, y: 8 }),
         getNotificationPosition: () => ({
           ...notificationSize,
           x: 1000 - notificationSize.width,
@@ -129,9 +166,17 @@ Module._load = function loadWindowManagerWithStubs(request, parent, isMain) {
 const WindowManager = require("../../src/helpers/windowManager");
 const TrayManager = require("../../src/helpers/tray");
 const { getNotificationTimeoutMs } = require("../../src/helpers/notificationTimer");
-Module._load = originalLoad;
+test.after(async () => {
+  await settle();
+  Module._load = originalLoad;
+});
 
 const notificationWindowFor = (index) => createdWindows[index];
+const ACCEPT_LABEL = process.platform === "darwin" ? "⌥⌘M" : "Ctrl+Alt+M";
+async function windowCreated(index) {
+  await until(() => createdWindows.length > index);
+  return createdWindows[index];
+}
 
 function createNormalWindowManager() {
   const manager = new WindowManager();
@@ -361,7 +406,7 @@ test("window creation uses the notification dimensions and position", async () =
 
   try {
     const showPromise = manager.showMeetingNotification(notification, { autoDismiss: false });
-    const notificationWindow = createdWindows[0];
+    const notificationWindow = await windowCreated(0);
 
     assert.deepEqual(
       {
@@ -371,10 +416,13 @@ test("window creation uses the notification dimensions and position", async () =
         x: notificationWindow.options.x,
         y: notificationWindow.options.y,
       },
-      { acceptFirstMouse: true, width: 392, height: 92, x: 608, y: 16 }
+      { acceptFirstMouse: true, width: 392, height: 92, x: 304, y: 8 }
     );
     // The payload the overlay fetches is stored verbatim.
-    assert.deepEqual(manager._pendingNotificationData, notification);
+    assert.deepEqual(manager._pendingNotificationData, {
+      ...notification,
+      acceptHotkeyLabel: ACCEPT_LABEL,
+    });
 
     notificationWindow.loadDeferred.resolve();
     await showPromise;
@@ -393,12 +441,12 @@ test("a replaced deferred notification cannot send its payload to the newer wind
       { detectionId: "first" },
       { autoDismiss: false }
     );
-    const firstWindow = createdWindows[0];
+    const firstWindow = await windowCreated(0);
     secondShowPromise = manager.showMeetingNotification(
       { detectionId: "second" },
       { autoDismiss: false }
     );
-    const secondWindow = createdWindows[1];
+    const secondWindow = await windowCreated(1);
 
     firstWindow.loadDeferred.resolve();
     await firstShowPromise;
@@ -424,7 +472,7 @@ test("canceling during a deferred load prevents later timers and timeout callbac
     },
   };
   const showPromise = manager.showMeetingNotification({ detectionId: "first" });
-  const notificationWindow = createdWindows[0];
+  const notificationWindow = await windowCreated(0);
 
   try {
     manager.dismissMeetingNotification();
@@ -454,7 +502,7 @@ test("canceling while waiting for the dev server never loads the stale window", 
 
   try {
     const showPromise = manager.showMeetingNotification({ detectionId: "first" });
-    const notificationWindow = createdWindows[0];
+    const notificationWindow = await windowCreated(0);
     manager.dismissMeetingNotification();
     devServerWait.resolve();
 
@@ -477,7 +525,7 @@ test("a stale ready callback cannot show the replacement notification window", a
       { detectionId: "first" },
       { autoDismiss: false }
     );
-    const firstWindow = createdWindows[0];
+    const firstWindow = await windowCreated(0);
     firstWindow.loadDeferred.resolve();
     await firstShowPromise;
 
@@ -485,7 +533,7 @@ test("a stale ready callback cannot show the replacement notification window", a
       { detectionId: "second" },
       { autoDismiss: false }
     );
-    const secondWindow = createdWindows[1];
+    const secondWindow = await windowCreated(1);
     secondWindow.loadDeferred.resolve();
     await secondShowPromise;
 
@@ -522,11 +570,11 @@ test("a notification raised from the timeout handler survives the dismissal that
   });
 
   try {
-    notificationWindowFor(0).loadDeferred.resolve();
+    (await windowCreated(0)).loadDeferred.resolve();
     await showPromise;
 
     timers.runDelay(getNotificationTimeoutMs("calendar"));
-    notificationWindowFor(1).loadDeferred.resolve();
+    (await windowCreated(1)).loadDeferred.resolve();
     await replacementPromise;
 
     assert.equal(createdWindows.length, 2);
@@ -538,8 +586,10 @@ test("a notification raised from the timeout handler survives the dismissal that
   }
 });
 
-test("unexpected detection card closure releases that detection", async () => {
+test("unexpected detection card closure releases that detection and its shortcut (R1-I7)", async () => {
   const manager = createNormalWindowManager();
+  const hotkeys = manager.hotkeyManager;
+  hotkeys.deferRegistrations = true;
   const closedDetections = [];
   manager.meetingDetectionEngine = {
     handleDetectionNotificationClosed: (detectionId) => closedDetections.push(detectionId),
@@ -549,14 +599,27 @@ test("unexpected detection card closure releases that detection", async () => {
     detectionId: "audio:sustained-audio",
     source: "audio",
   });
-  const notificationWindow = createdWindows[0];
+  await until(() => hotkeys.pendingRegistrations.length === 1);
+  assert.equal(createdWindows.length, 0, "no window before the shortcut answers");
+  hotkeys.pendingRegistrations.shift()(true);
+  const notificationWindow = await windowCreated(0);
   notificationWindow.loadDeferred.resolve();
   await showPromise;
+  assert.equal(hotkeys.registered.has("temp:meetingAccept"), true);
+  assert.equal(manager._pendingNotificationData.acceptHotkeyLabel, ACCEPT_LABEL);
 
-  // A compositor window kill never reaches the renderer's response IPC.
+  // A compositor window kill never reaches the renderer's response IPC, and
+  // never calls dismissMeetingNotification.
   notificationWindow.close();
+  await settle();
 
   assert.deepEqual(closedDetections, ["audio:sustained-audio"]);
+  assert.equal(
+    hotkeys.registered.has("temp:meetingAccept"),
+    false,
+    "the shortcut went with the window"
+  );
+  assert.equal(manager._meetingPrompt, null);
 });
 
 test("an expired detection reports the timeout once, not also as a close", async () => {
@@ -575,7 +638,7 @@ test("an expired detection reports the timeout once, not also as a close", async
     detectionId: "audio:sustained-audio",
     source: "audio",
   });
-  createdWindows[0].loadDeferred.resolve();
+  (await windowCreated(0)).loadDeferred.resolve();
   await showPromise;
 
   try {
@@ -599,7 +662,7 @@ test("a detection card whose load fails releases that detection", async () => {
     detectionId: "audio:sustained-audio",
     source: "audio",
   });
-  createdWindows[0].loadDeferred.reject(new Error("load failed"));
+  (await windowCreated(0)).loadDeferred.reject(new Error("load failed"));
 
   // The card never appeared and no countdown ever started, so nothing else
   // would ever settle this detection.
@@ -1192,3 +1255,268 @@ for (const lossBeforeAck of [true, false]) {
     );
   });
 }
+
+test("a crash or a navigation in the prompt's renderer releases its shortcut and closes it (R1-I7)", async () => {
+  const losses = [
+    ["destroyed", (win) => win.webContents.emit("destroyed")],
+    ["crash", (win) => win.webContents.emit("render-process-gone", {}, { reason: "crashed" })],
+    [
+      "navigation",
+      (win) =>
+        win.webContents.emit("did-start-navigation", {
+          isMainFrame: true,
+          isSameDocument: false,
+          url: "file:///elsewhere",
+        }),
+    ],
+  ];
+  for (const [label, lose] of losses) {
+    createdWindows.length = 0;
+    const manager = createNormalWindowManager();
+    const closedDetections = [];
+    manager.meetingDetectionEngine = {
+      handleDetectionNotificationClosed: (detectionId) => closedDetections.push(detectionId),
+    };
+    const showPromise = manager.showMeetingNotification({
+      detectionId: `audio:${label}`,
+      source: "audio",
+    });
+    const win = await windowCreated(0);
+    win.loadDeferred.resolve();
+    await showPromise;
+
+    win.webContents.emit("did-start-navigation", {
+      isMainFrame: true,
+      isSameDocument: true,
+      url: "file:///app#x",
+    });
+    assert.equal(
+      manager.notificationWindow,
+      win,
+      `${label}: a same-document navigation is not a loss`
+    );
+
+    lose(win);
+    await settle();
+    assert.equal(manager.hotkeyManager.registered.has("temp:meetingAccept"), false, label);
+    assert.equal(manager.notificationWindow, null, label);
+    assert.equal(win.isDestroyed(), true, label);
+    assert.deepEqual(closedDetections, [`audio:${label}`], label);
+  }
+});
+
+test("a prompt dismissed while its display resolves never appears or registers (R2-I2)", async () => {
+  const manager = createNormalWindowManager();
+  const bounds = createDeferred();
+  manager.textEditMonitor = { lastTargetPid: 42, getTargetWindowBounds: () => bounds.promise };
+  const closedDetections = [];
+  manager.meetingDetectionEngine = {
+    handleDetectionNotificationClosed: (detectionId) => closedDetections.push(detectionId),
+  };
+
+  const showPromise = manager.showMeetingNotification({ detectionId: "audio:a", source: "audio" });
+  manager.dismissMeetingNotification();
+  bounds.resolve({ x: 0, y: 0, width: 10, height: 10 });
+
+  assert.equal(await showPromise, false);
+  assert.equal(createdWindows.length, 0);
+  assert.equal(manager.hotkeyManager.registerCalls, 0);
+  assert.deepEqual(closedDetections, ["audio:a"], "the engine learns this prompt will not show");
+});
+
+test("a prompt dismissed while its shortcut registers never appears, and the late registration is undone (R2-I2)", async () => {
+  const manager = createNormalWindowManager();
+  const hotkeys = manager.hotkeyManager;
+  hotkeys.deferRegistrations = true;
+
+  const showPromise = manager.showMeetingNotification({ detectionId: "audio:a", source: "audio" });
+  await until(() => hotkeys.pendingRegistrations.length === 1);
+  manager.dismissMeetingNotification();
+  hotkeys.pendingRegistrations.shift()(true); // the backend answers after the dismissal
+
+  assert.equal(await showPromise, false);
+  await settle();
+  assert.equal(createdWindows.length, 0);
+  assert.equal(hotkeys.registered.has("temp:meetingAccept"), false);
+});
+
+test("an older prompt whose display resolves last never replaces the newer prompt (R2-I2)", async () => {
+  const manager = createNormalWindowManager();
+  const lookups = [createDeferred(), createDeferred()];
+  let lookup = 0;
+  manager.textEditMonitor = {
+    lastTargetPid: 42,
+    getTargetWindowBounds: () => lookups[lookup++].promise,
+  };
+  const responses = [];
+  manager.meetingDetectionEngine = {
+    handleNotificationResponse: (detectionId, action) => responses.push([detectionId, action]),
+    handleDetectionNotificationClosed: () => undefined,
+  };
+
+  try {
+    const older = manager.showMeetingNotification({ detectionId: "older" }, { autoDismiss: false });
+    const newer = manager.showMeetingNotification({ detectionId: "newer" }, { autoDismiss: false });
+    lookups[1].resolve({ x: 0, y: 0, width: 10, height: 10 });
+    const newerWindow = await windowCreated(0);
+    lookups[0].resolve({ x: 0, y: 0, width: 10, height: 10 }); // the older lookup lands last
+
+    assert.equal(await older, false);
+    newerWindow.loadDeferred.resolve();
+    assert.equal(await newer, true);
+    assert.equal(createdWindows.length, 1);
+    assert.equal(manager.notificationWindow, newerWindow);
+    assert.equal(manager._pendingNotificationData.detectionId, "newer");
+    manager.showNotificationWindow(newerWindow.webContents);
+    manager.hotkeyManager.registered.get("temp:meetingAccept")();
+    assert.deepEqual(responses, [["newer", "start"]]);
+  } finally {
+    manager.dismissMeetingNotification();
+  }
+});
+
+test("an older prompt's late shortcut answer never takes the newer prompt's lease (R2-I2)", async () => {
+  const manager = createNormalWindowManager();
+  const hotkeys = manager.hotkeyManager;
+  hotkeys.deferRegistrations = true;
+  const responses = [];
+  manager.meetingDetectionEngine = {
+    handleNotificationResponse: (detectionId, action) => responses.push([detectionId, action]),
+    handleDetectionNotificationClosed: () => undefined,
+  };
+
+  try {
+    const older = manager.showMeetingNotification({ detectionId: "older" }, { autoDismiss: false });
+    await until(() => hotkeys.pendingRegistrations.length === 1); // older is registering
+    const newer = manager.showMeetingNotification({ detectionId: "newer" }, { autoDismiss: false });
+    hotkeys.pendingRegistrations.shift()(true); // older's answer arrives after it was replaced
+    assert.equal(await older, false);
+
+    await until(() => hotkeys.pendingRegistrations.length === 1); // newer registers after older's slot work
+    hotkeys.pendingRegistrations.shift()(true);
+    const newerWindow = await windowCreated(0);
+    newerWindow.loadDeferred.resolve();
+    assert.equal(await newer, true);
+
+    assert.equal(createdWindows.length, 1);
+    assert.equal(manager._pendingNotificationData.acceptHotkeyLabel, ACCEPT_LABEL);
+    manager.showNotificationWindow(newerWindow.webContents);
+    hotkeys.registered.get("temp:meetingAccept")();
+    assert.deepEqual(responses, [["newer", "start"]]);
+  } finally {
+    manager.dismissMeetingNotification();
+  }
+});
+
+test("quitting while a prompt is still being prepared shows nothing and leaves no shortcut (R1-I7)", async () => {
+  const manager = createNormalWindowManager();
+  const hotkeys = manager.hotkeyManager;
+  hotkeys.deferRegistrations = true;
+
+  const showPromise = manager.showMeetingNotification({ detectionId: "audio:q", source: "audio" });
+  await until(() => hotkeys.pendingRegistrations.length === 1);
+  appListeners["before-quit"].at(-1)(); // this manager's handler; each constructor adds one
+  hotkeys.pendingRegistrations.shift()(true);
+
+  assert.equal(await showPromise, false);
+  await settle();
+  assert.equal(createdWindows.length, 0);
+  assert.equal(hotkeys.registered.has("temp:meetingAccept"), false);
+});
+
+test("only the exact loaded AND shown prompt accepts; TTL publishes a null label", async () => {
+  const timers = installFakeTimers();
+  const manager = createNormalWindowManager();
+  const responses = [];
+  manager.meetingDetectionEngine = {
+    handleNotificationResponse: (...args) => responses.push(args),
+  };
+  try {
+    const loading = manager.showMeetingNotification(
+      { detectionId: "A", joinUrl: "https://example.invalid/meeting" },
+      { autoDismiss: false }
+    );
+    const win = await windowCreated(0);
+    const press = manager.hotkeyManager.registered.get("temp:meetingAccept");
+    press();
+    manager.showNotificationWindow(win.webContents);
+    assert.equal(win.showCount, 0, "ready while loading cannot reveal");
+    assert.deepEqual(responses, []);
+    win.loadDeferred.resolve();
+    await loading;
+    press();
+    assert.deepEqual(responses, [], "loaded but hidden cannot accept");
+    manager.showNotificationWindow(win.webContents);
+    press();
+    assert.deepEqual(responses, [["A", "join"]]);
+    timers.runDelay(120000);
+    await settle();
+    assert.equal(manager._pendingNotificationData.acceptHotkeyLabel, null);
+    assert.equal(win.messages.at(-1).payload.acceptHotkeyLabel, null);
+    press();
+    assert.equal(responses.length, 1);
+  } finally {
+    manager.dismissMeetingNotification();
+    await settle();
+    timers.restore();
+  }
+});
+
+test("TTL during load cannot regain a label; stale A renderer loss leaves shown B intact", async () => {
+  const timers = installFakeTimers();
+  const manager = createNormalWindowManager();
+  try {
+    const first = manager.showMeetingNotification({ detectionId: "A" }, { autoDismiss: false });
+    const a = await windowCreated(0);
+    timers.runDelay(120000);
+    await settle();
+    a.loadDeferred.resolve();
+    await first;
+    assert.equal(manager._pendingNotificationData.acceptHotkeyLabel, null);
+    assert.equal(a.messages.at(-1).payload.acceptHotkeyLabel, null);
+    const second = manager.showMeetingNotification({ detectionId: "B" }, { autoDismiss: false });
+    const b = await windowCreated(1);
+    b.loadDeferred.resolve();
+    await second;
+    manager.showNotificationWindow(b.webContents);
+    a.webContents.emit("render-process-gone");
+    a.webContents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+    a.emit("closed");
+    await settle();
+    assert.equal(manager.notificationWindow, b);
+    assert.equal(manager._pendingNotificationData.acceptHotkeyLabel, ACCEPT_LABEL);
+    assert.equal(manager.hotkeyManager.registered.has("temp:meetingAccept"), true);
+  } finally {
+    manager.dismissMeetingNotification();
+    await settle();
+    timers.restore();
+  }
+});
+
+test("TTL while backend registration is pending cannot publish a held label or accept", async () => {
+  const timers = installFakeTimers();
+  const manager = createNormalWindowManager();
+  manager.hotkeyManager.deferRegistrations = true;
+  let responses = 0;
+  manager.meetingDetectionEngine = { handleNotificationResponse: () => responses++ };
+  try {
+    const loading = manager.showMeetingNotification(
+      { detectionId: "pending" },
+      { autoDismiss: false }
+    );
+    await until(() => manager.hotkeyManager.pendingRegistrations.length === 1);
+    timers.runDelay(120000);
+    manager.hotkeyManager.pendingRegistrations.shift()(true);
+    const win = await windowCreated(0);
+    win.loadDeferred.resolve();
+    await loading;
+    manager.showNotificationWindow(win.webContents);
+    assert.equal(manager._pendingNotificationData.acceptHotkeyLabel, null);
+    assert.equal(manager.hotkeyManager.registered.has("temp:meetingAccept"), false);
+    assert.equal(responses, 0);
+  } finally {
+    manager.dismissMeetingNotification();
+    await settle();
+    timers.restore();
+  }
+});

@@ -258,6 +258,8 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 
 ### Buttons
 
+Meeting prompt Start / Join & transcribe use `live`: they start a recording.
+
 - **Shape:** Capsule for text actions (9999px); icon-only buttons use a 6px radius.
 - **Primary:** Default buttons are ink capsules with a leading orange dot; `live` buttons use the orange glass surface with ink text and are reserved for voice controls. 40px default height and 16px horizontal padding.
 - **Hover / Focus:** Hover shifts the fill of the ink CTA (`--color-cta-hover`: a step lighter in light, a step darker in Plum Night) and the orange glass (`--gradient-brand-glass-hover`); press goes deeper (`--color-cta-active`, `--gradient-brand-glass-active`). Feedback is a fill change, never a CSS filter or opacity, because a filter would recolour the box-shadow focus ring. Keyboard focus uses a 2px visible ring with a small offset; pressed controls scale slightly to confirm activation.
@@ -468,3 +470,5 @@ notification service, so fallback copy also names the tray. Every Stop, reveal a
 notification lifetime belongs to its original meeting session; stale items do
 nothing. Shutdown awaits resident-notification closure through the bounded sidecar
 registry. Interruption alerts retain their separate action-free notification path.
+
+The meeting prompt drops from the top centre of the active work area in a 392×92 window. Its 8s hover-paused card folds to a 224px mini action; close remains visible and labelled in every phase. Shortcut labels reflect only the current prompt’s held main lease. Entry uses `--motion-hero --motion-spring-settle`, fold uses `--motion-slow`, and exit uses `--motion-fast --motion-ease-exit`; reduced motion removes transforms. Long localized copy scrolls within the bounded card using pointer or focused PageDown/PageUp. Mini labels scroll horizontally with pointer input or Left/Right arrows on their native action button; Enter/Space retain acceptance. The 24px close sits 2px inside the logical start edge so it stays inside the native frame.

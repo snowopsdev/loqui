@@ -95,3 +95,13 @@ test("clamps against negative-origin displays and falls back to bounds", () => {
     { x: -451, y: -1440 }
   );
 });
+
+test("notch prompt centres the exact 392x92 frame eight pixels inside a negative-origin work area", () => {
+  const display = { workArea: { x: -1920, y: -1080, width: 1920, height: 1056 } };
+  assert.deepEqual(WindowPositionUtil.getNotchDropPosition(display), {
+    x: -1156,
+    y: -1072,
+    width: 392,
+    height: 92,
+  });
+});

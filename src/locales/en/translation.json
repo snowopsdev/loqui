@@ -3741,7 +3741,12 @@
       "underway": "It sounds like your meeting is underway. Want to take notes?"
     },
     "start": "Take notes",
-    "join": "Join & transcribe"
+    "join": "Join & transcribe",
+    "bodyApp": "Meeting in {{app}} detected.",
+    "privacy": "Detected on this device. Nothing recorded yet.",
+    "mini": "Meeting? Start notes",
+    "accepted": "Taking notes",
+    "dismiss": "Dismiss"
   },
   "localModels": {
     "importedProvider": "Imported GGUF",

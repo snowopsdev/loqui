@@ -140,6 +140,8 @@ export type TranscriptionErrorCode =
 type MeetingPromptVariant = "detected" | "starting" | "underway";
 
 export interface MeetingNotificationData {
+  appName?: string | null;
+  acceptHotkeyLabel?: string | null;
   detectionId: string;
   source: string;
   key: string;

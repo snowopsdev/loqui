@@ -18,6 +18,8 @@ test("detection presentation preserves event title, join action, and dismissal",
     {
       title: "Weekly planning",
       bodyKey: "meetingNotification.body.starting",
+      bodyParams: {},
+      privacyKey: null,
       actionKey: "meetingNotification.join",
       action: "join",
       dismissible: true,
@@ -25,17 +27,17 @@ test("detection presentation preserves event title, join action, and dismissal",
   );
 });
 
-test("a dismissible meeting notification closes after an 80px horizontal swipe", async () => {
+test("a dismissible meeting notification closes after an 80px upward swipe", async () => {
   const { shouldDismissMeetingNotificationSwipe } = await load();
 
-  assert.equal(shouldDismissMeetingNotificationSwipe(true, 80), true);
+  assert.equal(shouldDismissMeetingNotificationSwipe(true, 80), false);
   assert.equal(shouldDismissMeetingNotificationSwipe(true, -80), true);
   assert.equal(shouldDismissMeetingNotificationSwipe(true, 79), false);
 });
 
 // The card on screen when the pointer is released decides, not the one the
 // swipe started on: a newer prompt can replace it mid-drag.
-test("non-dismissible meeting notifications ignore horizontal swipes", async () => {
+test("non-dismissible meeting notifications ignore vertical swipes", async () => {
   const { shouldDismissMeetingNotificationSwipe } = await load();
 
   assert.equal(shouldDismissMeetingNotificationSwipe(false, 200), false);
@@ -92,4 +94,35 @@ test("overlay initialization cleanup cancels reveal and invalidates a pending pu
   assert.equal(visibleCount, 0);
   assert.equal(readyCount, 0);
   assert.equal(unsubscribeCount, 1);
+});
+
+test("lease label updates beat the pending getter and never replay an old label", async () => {
+  const { initializeMeetingNotificationOverlay } = await load();
+  let push, resolve;
+  const received = [];
+  const pending = new Promise((r) => {
+    resolve = r;
+  });
+  const cleanup = initializeMeetingNotificationOverlay({
+    subscribe: (cb) => {
+      push = cb;
+      return () => {};
+    },
+    getPendingData: () => pending,
+    onData: (d) => received.push(d),
+    onVisible() {},
+    onReady() {},
+    setTimeout: () => 1,
+    clearTimeout() {},
+  });
+  push({ detectionId: "A", acceptHotkeyLabel: "⌥⌘M" });
+  push({ detectionId: "A", acceptHotkeyLabel: null });
+  resolve({ detectionId: "A", acceptHotkeyLabel: "⌥⌘M" });
+  await pending;
+  await Promise.resolve();
+  assert.equal(received.length, 2);
+  assert.equal(received.at(-1).acceptHotkeyLabel, null);
+  push({ detectionId: "B", acceptHotkeyLabel: "Ctrl+Alt+M" });
+  assert.equal(received.at(-1).detectionId, "B");
+  cleanup();
 });

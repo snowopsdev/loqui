@@ -722,7 +722,14 @@ prepare or start cannot reopen an earlier take. Setup control calls accept an
 additional expected string take ID (or null before the first take); once a take
 exists, omitted or mismatched IDs refuse. The setup observer captures that ID
 before awaiting admission. Ordinary user controls retain their existing
-semantics. A release without an admitted take only releases its admission.
+semantics. While setup is displayed without a demo, all fresh input kinds,
+including manual meetings, remain blocked. A matching cached recording toggle
+routes only to the existing stop command with an explicit normal-owner marker;
+the original overlay rechecks its current reservation and recording state. A
+stale cache can therefore never turn that control into a fresh start, and a
+new demo reservation cannot be stopped by a delayed normal-owner control.
+Surface visibility/recreation remains separate from input admission. A release
+without an admitted take only releases its admission.
 
 The original AudioManager and preparation generations still own recording and
 cancellation. Captured private policy is fixed before any wait, including before
@@ -730,7 +737,11 @@ a cross-window completion-flag update. A setup admission guard travels with the
 existing recording snapshot and is checked at the existing asynchronous
 microphone/provider boundaries. Pending completion and saver accounting extends
 that manager's eligibility through visual idle, including a public discard's
-final recorder event, merge and audio save. It does not change public retention,
+final recorder event, merge and audio save. Each cancelled recorder's final-event
+obligation has one idempotent release: successful asynchronous completion retains
+it through merge/save, while synchronous reset/state-publication/stop failures
+release only that obligation and propagate the original error. A late callback
+cannot decrement another pending owner's count. It does not change public retention,
 replace snapshot savers or introduce a recording/session/Undo owner. Cleanup
 retirement checks every supplied original operation identity field. Plan 04's
 sole audio setter, private hold, session and Undo composition remain Task 22

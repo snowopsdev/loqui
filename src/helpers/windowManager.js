@@ -872,7 +872,6 @@ class WindowManager {
   }
 
   _isOnboardingInputAllowed(inputKind) {
-    if (!this._onboardingDemoKind && this._dictationLifecycleState !== "idle") return true;
     return isOnboardingInputAllowed(this._onboardingActive, this._onboardingDemoKind, inputKind);
   }
 
@@ -932,7 +931,18 @@ class WindowManager {
   }
 
   _sendDictationToggle(channel, inputKind) {
-    if (!this._isOnboardingInputAllowed(inputKind)) return;
+    if (!this._isOnboardingInputAllowed(inputKind)) {
+      // Cached lifecycle only offers an existing owner's Stop control. Never
+      // send an ordinary toggle: the original overlay may already be idle.
+      if (
+        this._onboardingActive &&
+        !this._onboardingDemoSession &&
+        this._dictationLifecycleState === DICTATION_LIFECYCLE.RECORDING &&
+        this._dictationInputKind === inputKind
+      )
+        this.sendStopDictation({ onboardingTake: null });
+      return;
+    }
     if (this._shouldBlockDictationInput(inputKind)) {
       return;
     }

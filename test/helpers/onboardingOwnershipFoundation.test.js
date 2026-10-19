@@ -3,6 +3,7 @@ const test = require("node:test");
 const fs = require("node:fs");
 const path = require("node:path");
 const ts = require("typescript");
+const vm = require("node:vm");
 const React = require("react");
 const { mountTrial, flush, deferred, configureStreamingStartup } = require(
   path.resolve("test/helpers/harness/audioRecordingTrial")
@@ -670,3 +671,280 @@ for (const method of [
     await idleDemo(f, "supported");
     await f.setupApi.endOnboardingDemo("supported");
   });
+
+// The complete real engine manual-entry consumer, with database/navigation and
+// unrelated constructor services replaced before import. No engine refusal mock.
+function manualMeetingConsumer(f) {
+  const saved = [],
+    navigated = [];
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync("src/helpers/meetingDetectionEngine.js", "utf8"), {
+    module,
+    require: (name) =>
+      name === "./debugLogger"
+        ? { info() {}, error() {} }
+        : name === "./windowBroadcast"
+          ? { broadcastToWindows() {} }
+          : {},
+    Date,
+  });
+  f.manager.queueMeetingNoteNavigation = async (payload) => navigated.push(payload);
+  f.manager.meetingDetectionEngine = Object.assign(Object.create(module.exports.prototype), {
+    windowManager: f.manager,
+    databaseManager: {
+      getActiveEvents: () => [],
+      saveNote: (...args) => {
+        saved.push(args);
+        return { note: { id: 42 } };
+      },
+      getMeetingsFolder: () => ({ id: 7 }),
+    },
+  });
+  return { saved, navigated };
+}
+
+for (const phase of ["recording", "processing"]) {
+  test(`setup cached ${phase} does not admit new meeting IPC or cross-kind input`, async (t) => {
+    const f = bridgeFixture();
+    t.after(() => f.dispose());
+    await f.setupApi.setOnboardingActive(true);
+    f.manager.setDictationLifecycleState(phase, "dictation");
+    const meeting = manualMeetingConsumer(f);
+    assert.equal(f.manager._onboardingDemoSession, null);
+    await f.handlers.get("start-manual-meeting")({ sender: f.setupSender });
+    assert.equal(meeting.saved.length, 0, "real engine must not create a meeting note");
+    assert.equal(meeting.navigated.length, 0, "no recording navigation");
+    assert.equal(f.manager.isMeetingInputAllowed(), false);
+    for (const kind of ["dictation", "assistant", "translation", "meeting"])
+      assert.equal(f.manager._isOnboardingInputAllowed(kind), false, kind);
+    const sentBefore = f.sent.length;
+    f.manager.sendStartDictation();
+    f.manager.sendPrepareDictation();
+    f.manager.sendToggleVoiceAgent();
+    f.manager.sendToggleTranslation();
+    assert.equal(f.sent.length, sentBefore, "no fresh kind/start/preparation delivery");
+  });
+}
+
+test("outside setup manual meeting IPC really saves and requests recording navigation", async (t) => {
+  const f = bridgeFixture();
+  t.after(() => f.dispose());
+  await f.setupApi.setOnboardingActive(false);
+  const meeting = manualMeetingConsumer(f);
+  assert.equal(f.manager.isMeetingInputAllowed(), true);
+  await f.handlers.get("start-manual-meeting")({ sender: f.setupSender });
+  assert.equal(meeting.saved.length, 1);
+  assert.equal(meeting.saved[0][2], "meeting");
+  assert.equal(meeting.navigated.length, 1);
+  assert.equal(meeting.navigated[0].noteId, 42);
+});
+
+for (const cached of ["recording", "processing"]) {
+  test(`setup stale cached ${cached} toggle cannot start an actually idle original overlay`, async (t) => {
+    const { f, h } = await connected(t);
+    await (await h.start(null)).finish();
+    await completePublic(h);
+    assert.equal(h.manager().hasPendingRecordingWork(), false);
+    await f.setupApi.setOnboardingActive(true);
+    // Deliberately retain an obsolete advisory after the actual owner completed.
+    f.manager.setDictationLifecycleState(cached, "dictation");
+    const sentBefore = f.sent.length;
+    const writesBefore = h.writes.length;
+    h.reset();
+    await React.act(async () => {
+      f.manager.sendToggleDictation();
+      await flush();
+    });
+    assert.equal(h.api().isPreparing, false, "no new acquisition/preparation");
+    assert.equal(h.manager().isRecording, false);
+    assert.equal(h.manager().hasPendingRecordingWork(), false);
+    assert.equal(h.writes.length, writesBefore);
+    assert.equal(
+      f.sent
+        .slice(sentBefore)
+        .some(([name]) =>
+          ["toggle-dictation", "start-dictation", "prepare-dictation"].includes(name)
+        ),
+      false,
+      "only the original overlay's stop-only consumer may receive a cached control"
+    );
+  });
+}
+
+for (const failure of ["reset", "publication", "stop"]) {
+  test(`cancel ${failure} throw releases only its final-event obligation, then idle admission succeeds`, async (t) => {
+    const { f, h } = await connected(t);
+    await (await h.start(null)).finish();
+    const owner = h.manager(),
+      recorder = owner.mediaRecorder;
+    const independent = deferred();
+    const independentWork = owner._trackRecordingWork(() => independent.promise);
+    const injected = new Error(`fixture ${failure} failure`);
+    const teardown = owner.teardownSpeechGate,
+      publish = owner.onStateChange,
+      stop = recorder.stop;
+    if (failure === "reset")
+      owner.teardownSpeechGate = () => {
+        throw injected;
+      };
+    if (failure === "publication")
+      owner.onStateChange = () => {
+        throw injected;
+      };
+    if (failure === "stop")
+      recorder.stop = () => {
+        throw injected;
+      };
+    try {
+      await React.act(async () => {
+        assert.throws(
+          () => owner.cancelRecording(),
+          (error) => error === injected,
+          "original synchronous diagnostic propagates"
+        );
+      });
+    } finally {
+      owner.teardownSpeechGate = teardown;
+      owner.onStateChange = publish;
+      recorder.stop = stop;
+    }
+    const delayedFinalEvent = recorder.onstop;
+    await React.act(async () => {
+      // Real reset/cleanup after the injected primitive failure, not zeroing a counter.
+      owner.resetDiscardedBatchRecordingState();
+      await flush();
+    });
+    assert.equal(owner._pendingRecordingWork, 1, "independent work alone remains counted");
+    assert.equal(
+      await f.setupApi.beginOnboardingDemo({ id: "still-busy", kind: "dictation" }),
+      false
+    );
+    await React.act(async () => {
+      await delayedFinalEvent();
+      await flush();
+    });
+    assert.equal(owner._pendingRecordingWork, 1, "delayed callback cannot release another owner");
+    assert.equal(owner.hasPendingRecordingWork(), true);
+    assert.equal(
+      await f.setupApi.beginOnboardingDemo({ id: "still-busy-late", kind: "dictation" }),
+      false
+    );
+    await React.act(async () => {
+      independent.resolve();
+      await independentWork;
+      await flush();
+    });
+    assert.equal(owner._pendingRecordingWork, 0);
+    assert.equal(owner.hasPendingRecordingWork(), false);
+    await idleDemo(f, "recovered");
+    await startDemo(f, h, "recovered");
+    assert.equal(owner._recordingPrivate, true, "actual recovered admission records privately");
+    await React.act(async () => {
+      await f.setupApi.endOnboardingDemo("recovered");
+      await flush();
+    });
+  });
+}
+
+for (const phase of ["recording", "processing"]) {
+  test(`setup cached ${phase} keeps every fresh input admission closed`, async (t) => {
+    const f = bridgeFixture();
+    t.after(() => f.dispose());
+    await f.setupApi.setOnboardingActive(true);
+    f.manager.setDictationLifecycleState(phase, "dictation");
+    for (const kind of ["dictation", "assistant", "translation", "meeting"])
+      assert.equal(f.manager._isOnboardingInputAllowed(kind), false, kind);
+    const sentBefore = f.sent.length;
+    f.manager.sendStartDictation();
+    f.manager.sendPrepareDictation();
+    f.manager.sendToggleVoiceAgent();
+    f.manager.sendToggleTranslation();
+    assert.equal(f.sent.length, sentBefore);
+  });
+}
+
+test("cancel retains its final-event obligation until the delayed final event, merge and saver settle", async (t) => {
+  const { f, h } = await connected(t);
+  await (await h.start(null)).finish();
+  const owner = h.manager(),
+    recorder = owner.mediaRecorder;
+  owner.recordingStartTime = Date.now() - 2000;
+  const merge = deferred(),
+    row = deferred();
+  owner.mergeRecordedSegments = () => merge.promise;
+  h.window.electronAPI.saveTranscription = async (...args) => {
+    h.writes.push(["history", ...args]);
+    return row.promise;
+  };
+  // Faithful injected MediaRecorder primitive: stop requests a later final event.
+  recorder.stop = () => {
+    recorder.state = "inactive";
+  };
+  await React.act(async () => {
+    assert.equal(await h.api().cancelRecording(), true);
+    await flush();
+  });
+  assert.equal(owner.isRecording, false);
+  assert.equal(owner._pendingRecordingWork, 1, "final event alone retains the obligation");
+  assert.equal(
+    await f.setupApi.beginOnboardingDemo({ id: "event-pending", kind: "dictation" }),
+    false
+  );
+  let finalEvent;
+  await React.act(async () => {
+    recorder.ondataavailable({ data: new Blob(["final fixture audio"]) });
+    finalEvent = recorder.onstop();
+    await flush();
+  });
+  assert.equal(owner._pendingRecordingWork, 2, "final event and merge each retain their own work");
+  assert.equal(
+    await f.setupApi.beginOnboardingDemo({ id: "merge-pending", kind: "dictation" }),
+    false
+  );
+  await React.act(async () => {
+    merge.resolve(new Blob(["merged fixture audio"]));
+    await flush();
+  });
+  assert.equal(owner._pendingRecordingWork, 3, "final event, merge and saver remain pending");
+  assert.equal(
+    await f.setupApi.beginOnboardingDemo({ id: "row-pending", kind: "dictation" }),
+    false
+  );
+  await React.act(async () => {
+    row.resolve({ id: 19 });
+    await finalEvent;
+    await flush();
+  });
+  assert.equal(owner._pendingRecordingWork, 0);
+  assert.equal(h.writes.filter(([kind]) => kind === "history").length, 1);
+  assert.equal(h.writes.filter(([kind]) => kind === "audio").length, 1);
+  await idleDemo(f, "after-final-event");
+});
+
+test("delayed normal-owner stop from setup cannot stop a newly reserved demo", async (t) => {
+  const { f, h } = await connected(t);
+  await f.setupApi.setOnboardingActive(true);
+  f.manager.setDictationLifecycleState("recording", "dictation");
+  const listener = f.overlayListeners.get("stop-dictation");
+  let delayed;
+  f.overlayListeners.set("stop-dictation", (_event, options) => {
+    delayed = options;
+  });
+  f.manager.sendToggleDictation();
+  f.overlayListeners.set("stop-dictation", listener);
+  assert.equal(delayed?.onboardingTake, null, "explicit normal-owner marker");
+  // The current idle publication arrives before the next demo starts; only
+  // the captured old stop command remains queued across that new reservation.
+  f.manager.setDictationLifecycleState("idle", "dictation");
+  await idleDemo(f);
+  await startDemo(f, h);
+  await React.act(async () => {
+    f.deliver("stop-dictation", delayed);
+    await flush();
+  });
+  assert.equal(h.manager().isRecording, true, "original overlay rejects the old normal control");
+  await React.act(async () => {
+    await f.setupApi.endOnboardingDemo("A");
+    await flush();
+  });
+});

@@ -1825,21 +1825,31 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // The original recorder's final dataavailable/merge/save still owns work
       // after the visible recording flag clears. Demo admission must await it.
       this._pendingRecordingWork = (this._pendingRecordingWork ?? 0) + 1;
-      this.mediaRecorder.onstop = async () => {
-        try {
-          recorder.stream?.getTracks().forEach((track) => track.stop());
-          await this.persistDiscardedBatchRecording(discarded);
-        } finally {
-          this._pendingRecordingWork -= 1;
-        }
+      let finalEventReleased = false;
+      const releaseFinalEvent = () => {
+        if (finalEventReleased) return;
+        finalEventReleased = true;
+        this._pendingRecordingWork -= 1;
       };
+      try {
+        recorder.onstop = async () => {
+          try {
+            recorder.stream?.getTracks().forEach((track) => track.stop());
+            await this.persistDiscardedBatchRecording(discarded);
+          } finally {
+            releaseFinalEvent();
+          }
+        };
 
-      // Detach from manager state before recorder.stop(): its final
-      // dataavailable/onstop land async and must not block or observe the
-      // next recording.
-      this.resetDiscardedBatchRecordingState();
-
-      recorder.stop();
+        // Detach before stop: final events must not observe the next recording.
+        this.resetDiscardedBatchRecordingState();
+        recorder.stop();
+      } catch (error) {
+        // A synchronous failure leaves no reliable final event. Its late
+        // callback may still arrive, but cannot release another owner's work.
+        releaseFinalEvent();
+        throw error;
+      }
 
       if (recorder.stream) {
         recorder.stream.getTracks().forEach((track) => track.stop());

@@ -4230,7 +4230,16 @@
       "accept": "Accepter",
       "choose": "En choisir un autre"
     },
-    "pasteFailed": "Impossible de coller vos mots"
+    "pasteFailed": "Impossible de coller vos mots",
+    "undo": {
+      "sealed": "Annulation impossible : le mode scellé est activé et le parcours de cet enregistrement quitte l’appareil.",
+      "routeUnavailable": "Impossible de rétablir : le parcours prévu pour cet enregistrement n’est plus disponible.",
+      "noAudio": "Impossible de rétablir : l’enregistrement était vide.",
+      "busy": "Terminez la dictée en cours, puis rétablissez l’enregistrement.",
+      "expired": "Il est trop tard pour rétablir : cet enregistrement a déjà été supprimé.",
+      "notReady": "L’enregistrement est encore en cours de réception. Réessayez de le rétablir.",
+      "unavailable": "Impossible de joindre la fenêtre de dictée pour rétablir l’enregistrement."
+    }
   },
   "voiceOverlay": {
     "errors": {

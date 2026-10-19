@@ -4230,7 +4230,16 @@
       "accept": "Aceptar",
       "choose": "Elegir otro"
     },
-    "pasteFailed": "No se pudieron pegar tus palabras"
+    "pasteFailed": "No se pudieron pegar tus palabras",
+    "undo": {
+      "sealed": "No se puede deshacer: el modo sellado está activado y la ruta de esta grabación sale del dispositivo.",
+      "routeUnavailable": "No se pudo deshacer: la ruta para la que se hizo esta grabación ya no está disponible.",
+      "noAudio": "No se pudo deshacer: la grabación estaba vacía.",
+      "busy": "Termina el dictado actual y luego deshaz la cancelación.",
+      "expired": "Es demasiado tarde para deshacer: esa grabación ya se descartó.",
+      "notReady": "La grabación aún está llegando. Vuelve a intentar deshacer.",
+      "unavailable": "No se pudo acceder a la ventana de dictado para deshacer."
+    }
   },
   "voiceOverlay": {
     "errors": {

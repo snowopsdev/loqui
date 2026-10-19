@@ -219,12 +219,12 @@ test("unmounting releases Esc even mid-processing", async (t) => {
   );
 });
 
-test("a recording already idle when start resolves releases Esc immediately", async (t) => {
+test("a start that never publishes a busy lifecycle never acquires Esc", async (t) => {
   globalThis.__startAlreadyIdle = true;
   t.after(() => delete globalThis.__startAlreadyIdle);
   const h = await mountHarness(t);
   await h.start();
-  assert.deepEqual(sinceStart(h.hotkey), ["register:Escape", "unregister"]);
+  assert.deepEqual(h.hotkey, [], "an idle lifecycle never owns Escape");
 });
 
 test("the cancel hotkey cancels processing when nothing is recording", () => {

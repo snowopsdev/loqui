@@ -77,7 +77,11 @@ const { GeminiLiveStreaming, GEMINI_LIVE_MODEL } = require("./geminiLiveStreamin
 const CortiStreaming = require("./cortiStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const { getCortiToken } = require("./cortiAuth");
-const { ONBOARDING_DEMO_KINDS, ONBOARDING_DEMO_STATUSES } = require("./onboardingInputPolicy");
+const {
+  ONBOARDING_DEMO_KINDS,
+  ONBOARDING_DEMO_STATUSES,
+  buildOnboardingDemoBroadcast,
+} = require("./onboardingInputPolicy");
 const { focusWindowsHotkeyCaptureWindow } = require("./hotkeyCaptureFocus");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
@@ -1251,6 +1255,7 @@ class IPCHandlers {
     // later dictation's transcripts on onboarding-demo-event forever.
     this.windowManager.onOnboardingDemoTeardown = () => {
       this._onboardingDemoSession = null;
+      this.windowManager.lastCancelledDictation = null;
     };
 
     ipcMain.handle("onboarding-set-active", (_event, active) => {
@@ -1292,21 +1297,25 @@ class IPCHandlers {
       const session = this._onboardingDemoSession;
       if (!session || !event || event.kind !== session.kind) return false;
       if (!ONBOARDING_DEMO_STATUSES.has(event.status)) return false;
-      const text = typeof event.text === "string" ? event.text.slice(0, 20000) : undefined;
-      const message = typeof event.message === "string" ? event.message.slice(0, 500) : undefined;
-      const tool = typeof event.tool === "string" ? event.tool.slice(0, 64) : undefined;
-      const level = Number.isFinite(event.level)
-        ? Math.min(1, Math.max(0, event.level))
-        : undefined;
-      broadcastToWindows("onboarding-demo-event", {
-        demoId: session.id,
-        kind: session.kind,
-        status: event.status,
-        text,
-        message,
-        tool,
-        level,
-      });
+      // Only the overlay owns the held recording; another window cannot
+      // advertise or clear its cross-window Undo target.
+      if (
+        (event.status === "cancelled" || event.status === "cancelClosed") &&
+        _event.sender !== this.windowManager.mainWindow?.webContents
+      )
+        return false;
+      const broadcast = buildOnboardingDemoBroadcast(session, event);
+      if (event.status === "cancelled" && broadcast.cancelled) {
+        this.windowManager.lastCancelledDictation = { sessionId: broadcast.cancelled.sessionId };
+      }
+      if (
+        event.status === "cancelClosed" &&
+        broadcast.reason &&
+        this.windowManager.lastCancelledDictation?.sessionId === broadcast.sessionId
+      ) {
+        this.windowManager.lastCancelledDictation = null;
+      }
+      broadcastToWindows("onboarding-demo-event", broadcast);
       return true;
     });
 

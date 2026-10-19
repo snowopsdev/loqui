@@ -103,3 +103,30 @@ test("onboarding demo listener strips the Electron event and disposes cleanly", 
   unsubscribe();
   assert.equal(listeners.has("onboarding-demo-event"), false);
 });
+
+test("Undo and flush preload APIs strip events, reply on exact channels and unsubscribe", () => {
+  const { api, sends, listeners } = loadPreloadApi();
+  const request = { token: 7, sessionId: "A", deadlineAt: 1500 };
+  let undo, flush;
+  const offUndo = api.onUndoCancelRequest((req) => {
+    undo = req;
+  });
+  const offFlush = api.onDictationFlushRequest((req) => {
+    flush = req;
+  });
+  listeners.get("undo-cancel-request")({}, request);
+  listeners.get("dictation-flush-request")({}, { token: 8 });
+  assert.equal(undo, request);
+  assert.equal(flush.token, 8);
+  const result = { restored: false, sessionId: "A", reason: "expired" };
+  api.replyUndoCancel(7, result);
+  api.replyDictationFlush(8);
+  assert.deepEqual(sends, [
+    ["undo-cancel-reply", 7, result],
+    ["dictation-flush-reply", 8, true],
+  ]);
+  offUndo();
+  offFlush();
+  assert.equal(listeners.has("undo-cancel-request"), false);
+  assert.equal(listeners.has("dictation-flush-request"), false);
+});

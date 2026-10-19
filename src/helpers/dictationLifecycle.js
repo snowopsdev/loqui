@@ -3,6 +3,7 @@ const DICTATION_LIFECYCLE = Object.freeze({
   PREPARING: "preparing",
   RECORDING: "recording",
   PROCESSING: "processing",
+  CANCELLED: "cancelled",
 });
 
 const DICTATION_INPUT_KIND = Object.freeze({
@@ -23,7 +24,9 @@ function normalizeDictationInputKind(inputKind) {
 }
 
 function resolveAgentDictationPillState(state, inputKind) {
-  const lifecycle = normalizeDictationLifecycle(state);
+  const normalized = normalizeDictationLifecycle(state);
+  const lifecycle =
+    normalized === DICTATION_LIFECYCLE.CANCELLED ? DICTATION_LIFECYCLE.IDLE : normalized;
   const normalizedInputKind = normalizeDictationInputKind(inputKind);
   const ownsLifecycle =
     lifecycle === DICTATION_LIFECYCLE.IDLE ||

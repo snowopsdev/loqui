@@ -1,3 +1,4 @@
+const { createQuitCoordinator } = require("./src/helpers/quitCoordinator");
 const { hasExistingSettingsProfile } = require("./src/helpers/settingsProfile");
 const product = require("./src/config/product.json");
 // Chromium picks the display backend before JS runs, so appendSwitch is too
@@ -1480,14 +1481,18 @@ if (gotSingleInstanceLock) {
     }
   });
 
-  let isShuttingDown = false;
-  app.on("before-quit", (event) => {
-    if (updateExit || isShuttingDown) return;
-    isShuttingDown = true;
-    event.preventDefault();
-    performSyncTeardown();
-    sidecarRegistry.shutdownAll().finally(() => app.exit(0));
-  });
+  // D3: an open cancel window, and any close still saving, is persisted (only if retention
+  // saves discarded audio) and zeroed before the app exits. A dead renderer times out.
+  app.on(
+    "before-quit",
+    createQuitCoordinator({
+      isUpdateExit: () => updateExit,
+      flush: () => windowManager?.flushDictationBeforeQuit?.({ timeoutMs: 3000 }),
+      teardown: performSyncTeardown,
+      shutdown: () => sidecarRegistry.shutdownAll(),
+      exit: (code) => app.exit(code),
+    })
+  );
 }
 
 function performSyncTeardown() {

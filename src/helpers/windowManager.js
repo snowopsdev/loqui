@@ -1,4 +1,9 @@
 const { app, screen, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
+const {
+  requestFromRenderer,
+  UNDO_BRIDGE_TIMEOUT_MS,
+  UNDO_BRIDGE_BUDGET_MS,
+} = require("./rendererRequest");
 const debugLogger = require("./debugLogger");
 const { createLinuxWindowInputRegion } = require("./linuxWindowInputRegion");
 // Aliased: this class has an openExternalUrl method wrapping the helper.
@@ -48,8 +53,35 @@ const { createHotkeyRepeatGate } = require("./hotkeyRepeatGate");
 const { createSettingsLinkQueue } = require("./settingsLinks");
 
 class WindowManager {
+  sendUndoCancelDictation(sessionId = this.lastCancelledDictation?.sessionId ?? null) {
+    return requestFromRenderer({
+      ipcMain,
+      webContents: this.mainWindow?.webContents,
+      channel: "undo-cancel-request",
+      replyChannel: "undo-cancel-reply",
+      // R3-I1: an absolute deadline, set as the request leaves main, so the overlay's
+      // admission window ends before main's own 2 s timeout however late the request arrives.
+      payload: { sessionId, deadlineAt: Date.now() + UNDO_BRIDGE_BUDGET_MS },
+      timeoutMs: UNDO_BRIDGE_TIMEOUT_MS,
+      fallback: { restored: false, sessionId, reason: "unavailable" },
+    });
+  }
+
+  async flushDictationBeforeQuit({ timeoutMs }) {
+    const ack = await requestFromRenderer({
+      ipcMain,
+      webContents: this.mainWindow?.webContents,
+      channel: "dictation-flush-request",
+      replyChannel: "dictation-flush-reply",
+      timeoutMs,
+      fallback: false,
+    });
+    return ack === true;
+  }
+
   constructor() {
     this.mainWindow = null;
+    this.lastCancelledDictation = null;
     this.controlPanelWindow = null;
     this.settingsLinks = createSettingsLinkQueue();
     this._resizeMaskTokenCounter = 0;

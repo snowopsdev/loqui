@@ -375,3 +375,25 @@ route and context. Streaming restores open a fresh attempt on the original provi
 and replay exact PCM at four times real time. Failed restores retain recoverable
 audio. Snapshot savers capture original privacy, Blob, owner and assignment token
 before awaits; a stale completion cannot persist or release a newer recording.
+
+The overlay owns Escape throughout recording and processing, including processing
+started by Undo, and releases it at idle or renderer teardown. Undo's ⌥Z lease exists
+only while the cancel window is open; its visible shortcut follows main's held
+authority, including expiry, while a click remains available. A refused Undo has
+one translated notice; audio still arriving asks the user to try again. Pasted
+and failed outcomes carry the captured session, with word counts only on paste.
+
+Cross-window Undo is a token- and sender-bound request to the overlay, with a
+2-second round trip and an absolute 1.5-second admission budget. Delivery and final
+audio consume that same budget; a late request cannot start a pipeline. Reload,
+destruction and timeout dispose request listeners. Onboarding receives sanitised
+rich cancelled/cancelClosed demo events, including every disclosed recipient; the
+workspace receives only the cancelled lifecycle state on the existing lifecycle
+channel. A late close for an older session cannot clear a newer hold. Normal quit
+waits up to 3 seconds for the overlay's RAM-hold flush before teardown, sidecar
+shutdown and exit; repeated quit events remain held during that coordination.
+
+Hook teardown also revokes a restore that has claimed its recording but is still
+waiting for final audio. That exact buffer closes through the existing retention
+policy; late bytes are erased and cannot reopen Undo or start the old pipeline.
+Callbacks detach before disposal, while a fresh installation remains usable.

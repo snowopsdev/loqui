@@ -4196,7 +4196,16 @@
       "accept": "接受",
       "choose": "選擇其他模型"
     },
-    "pasteFailed": "無法貼上您的文字"
+    "pasteFailed": "無法貼上您的文字",
+    "undo": {
+      "sealed": "無法復原：密封模式已開啟，而此錄音的路由會將資料傳送至裝置外。",
+      "routeUnavailable": "無法復原：此錄音原先使用的路由已無法使用。",
+      "noAudio": "無法復原：錄音為空。",
+      "busy": "請先完成目前的聽寫，再復原取消操作。",
+      "expired": "已無法復原：該錄音已被捨棄。",
+      "notReady": "錄音仍在接收中。請再次嘗試復原。",
+      "unavailable": "無法連線至聽寫視窗以執行復原。"
+    }
   },
   "voiceOverlay": {
     "errors": {

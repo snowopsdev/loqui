@@ -4230,7 +4230,16 @@
       "accept": "Aceitar",
       "choose": "Escolher outro"
     },
-    "pasteFailed": "Não foi possível colar suas palavras"
+    "pasteFailed": "Não foi possível colar suas palavras",
+    "undo": {
+      "sealed": "Não é possível desfazer: o modo selado está ativado e a rota desta gravação envia dados para fora do dispositivo.",
+      "routeUnavailable": "Não foi possível desfazer: a rota para a qual esta gravação foi feita já não está disponível.",
+      "noAudio": "Não foi possível desfazer: a gravação estava vazia.",
+      "busy": "Termine o ditado atual e depois desfaça o cancelamento.",
+      "expired": "É tarde demais para desfazer: essa gravação já foi descartada.",
+      "notReady": "A gravação ainda está a chegar. Tente desfazer novamente.",
+      "unavailable": "Não foi possível aceder à janela de ditado para desfazer."
+    }
   },
   "voiceOverlay": {
     "errors": {

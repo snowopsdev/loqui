@@ -4196,7 +4196,16 @@
       "accept": "接受",
       "choose": "选择其他模型"
     },
-    "pasteFailed": "无法粘贴您的文字"
+    "pasteFailed": "无法粘贴您的文字",
+    "undo": {
+      "sealed": "无法撤销：密封模式已开启，而此录音的路由会将数据发送到设备外。",
+      "routeUnavailable": "无法撤销：此录音原先使用的路由已不可用。",
+      "noAudio": "无法撤销：录音为空。",
+      "busy": "请先完成当前听写，再撤销取消操作。",
+      "expired": "已无法撤销：该录音已被丢弃。",
+      "notReady": "录音仍在接收中。请再次尝试撤销。",
+      "unavailable": "无法连接到听写窗口以执行撤销。"
+    }
   },
   "voiceOverlay": {
     "errors": {

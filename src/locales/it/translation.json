@@ -4230,7 +4230,16 @@
       "accept": "Accetta",
       "choose": "Scegline un altro"
     },
-    "pasteFailed": "Impossibile incollare le tue parole"
+    "pasteFailed": "Impossibile incollare le tue parole",
+    "undo": {
+      "sealed": "Ripristino bloccato: la modalità sigillata è attiva e il percorso di questa registrazione invia dati fuori dal dispositivo.",
+      "routeUnavailable": "Impossibile ripristinare: il percorso previsto per questa registrazione non è più disponibile.",
+      "noAudio": "Impossibile ripristinare: la registrazione era vuota.",
+      "busy": "Termina la dettatura attuale, poi ripristina la registrazione.",
+      "expired": "È troppo tardi per ripristinare: la registrazione è già stata scartata.",
+      "notReady": "La registrazione è ancora in arrivo. Prova di nuovo a ripristinarla.",
+      "unavailable": "Impossibile raggiungere la finestra di dettatura per ripristinare la registrazione."
+    }
   },
   "voiceOverlay": {
     "errors": {

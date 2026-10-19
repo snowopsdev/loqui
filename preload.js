@@ -173,6 +173,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     (callback) => (_event, payload) => callback(payload)
   ),
   micWarmHoldChanged: (active) => ipcRenderer.send("mic-warm-hold-changed", active),
+  onUndoCancelRequest: registerListener("undo-cancel-request", (cb) => (_e, req) => cb(req)),
+  replyUndoCancel: (token, result) => ipcRenderer.send("undo-cancel-reply", token, result),
+  onDictationFlushRequest: registerListener(
+    "dictation-flush-request",
+    (cb) => (_e, req) => cb(req)
+  ),
+  replyDictationFlush: (token) => ipcRenderer.send("dictation-flush-reply", token, true),
   dictationLifecycleStateChanged: (state, inputKind) =>
     ipcRenderer.send("dictation-lifecycle-state-changed", state, inputKind),
   dictationAudioLevelChanged: (level) => ipcRenderer.send("dictation-audio-level-changed", level),

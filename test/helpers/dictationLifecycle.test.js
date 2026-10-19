@@ -161,3 +161,9 @@ test("mic preparation is a first-class lifecycle mirrored only for ordinary dict
     interactive: false,
   });
 });
+
+test("cancelled passes normalisation, permits a new take and is idle to the Agent pill", () => {
+  assert.equal(normalizeDictationLifecycle("cancelled"), "cancelled");
+  assert.equal(shouldIgnoreDictationHotkey("cancelled"), false);
+  assert.equal(resolveAgentDictationPillState("cancelled", "assistant").lifecycle, "idle");
+});

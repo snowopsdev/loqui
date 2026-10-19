@@ -4223,7 +4223,16 @@
       "accept": "Accept",
       "choose": "Choose another"
     },
-    "pasteFailed": "Couldn’t paste your words"
+    "pasteFailed": "Couldn’t paste your words",
+    "undo": {
+      "sealed": "Undo blocked: Sealed mode is on and this recording's route leaves the device.",
+      "routeUnavailable": "Couldn't undo: the route this was recorded for is no longer available.",
+      "noAudio": "Couldn't undo: the recording was empty.",
+      "busy": "Finish the current dictation, then undo.",
+      "expired": "Too late to undo: that recording was already discarded.",
+      "notReady": "The recording is still arriving. Try Undo again.",
+      "unavailable": "Couldn't reach the dictation window to undo."
+    }
   },
   "voiceOverlay": {
     "errors": {

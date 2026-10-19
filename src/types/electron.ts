@@ -1,3 +1,4 @@
+import type { CancelledState, UndoResult } from "./dictation";
 /** Fresh dictation attempt identity; main binds it to one sender, generation and adapter. */
 export interface DictationStreamingOperationOptions {
   operationId?: string;
@@ -767,11 +768,22 @@ export type OnboardingDemoKind = "dictation" | "assistant";
  * microphone level while listening.
  */
 type OnboardingDemoStatus =
-  "listening" | "level" | "processing" | "partial" | "replying" | "success" | "error";
+  | "listening"
+  | "level"
+  | "processing"
+  | "partial"
+  | "replying"
+  | "success"
+  | "error"
+  | "cancelled"
+  | "cancelClosed";
 export interface OnboardingDemoEvent {
   demoId: string;
   kind: OnboardingDemoKind;
   status: OnboardingDemoStatus;
+  sessionId?: string;
+  cancelled?: CancelledState;
+  reason?: "expired" | "restored" | "replaced" | "flushed";
   text?: string;
   message?: string;
   /** Tool the assistant is running while it replies (a tool registry name). */
@@ -996,8 +1008,14 @@ declare global {
         callback: (payload?: { reason?: "timeout" | "reset" | "manual" }) => void
       ) => () => void;
       micWarmHoldChanged?: (active: boolean) => void;
+      onUndoCancelRequest?: (
+        cb: (req: { token: number; sessionId: string | null; deadlineAt: number }) => void
+      ) => () => void;
+      replyUndoCancel?: (token: number, result: UndoResult) => void;
+      onDictationFlushRequest?: (cb: (req: { token: number }) => void) => () => void;
+      replyDictationFlush?: (token: number) => void;
       dictationLifecycleStateChanged: (
-        state: "idle" | "preparing" | "recording" | "processing",
+        state: "idle" | "preparing" | "recording" | "processing" | "cancelled",
         inputKind?: "dictation" | "assistant" | "translation"
       ) => void;
       dictationAudioLevelChanged?: (level: number) => void;

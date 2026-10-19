@@ -1,5 +1,6 @@
 import { NoticeStack, useNoticeWindowState } from "./components/ui/NoticeStack";
 import { notify, getNotices, runNoticeAction, wordsCardNotice } from "./components/ui/notices";
+import { useUndoCancelHotkey } from "./hooks/useUndoCancelHotkey";
 import { usePillHotkey } from "./hooks/usePillHotkey";
 import { getCachedPlatform } from "./utils/platform";
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
@@ -215,6 +216,12 @@ export default function App() {
     cancelRecording,
     cancelProcessing,
     getAudioLevel,
+    cancelled,
+    undoCancel,
+    pauseUndo,
+    resumeUndo,
+    processingStage,
+    outcome,
   } = useAudioRecording({
     onToggle: handleDictationToggle,
     onDemoEvent: publishOnboardingDemoEvent,
@@ -224,6 +231,7 @@ export default function App() {
     getAssistantSelectionContext: assistant.getSelectionContext,
     assistantOpenRef,
   });
+  const undoHotkey = useUndoCancelHotkey(cancelled, undoCancel);
   const isVisuallyProcessing = isProcessing || isPreparing || isStopping;
 
   useLayoutEffect(() => {
@@ -234,6 +242,13 @@ export default function App() {
       isProcessing,
       cancelRecording,
       cancelProcessing,
+      cancelled,
+      undoCancel,
+      pauseUndo,
+      resumeUndo,
+      processingStage,
+      outcome,
+      undoHotkey,
     };
   });
 

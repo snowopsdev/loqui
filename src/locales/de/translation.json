@@ -4223,7 +4223,16 @@
       "accept": "Akzeptieren",
       "choose": "Anderes wählen"
     },
-    "pasteFailed": "Deine Worte konnten nicht eingefügt werden"
+    "pasteFailed": "Deine Worte konnten nicht eingefügt werden",
+    "undo": {
+      "sealed": "Rückgängig blockiert: Der versiegelte Modus ist aktiv und die Route dieser Aufnahme verlässt das Gerät.",
+      "routeUnavailable": "Rückgängig nicht möglich: Die Route dieser Aufnahme ist nicht mehr verfügbar.",
+      "noAudio": "Rückgängig nicht möglich: Die Aufnahme war leer.",
+      "busy": "Beende das aktuelle Diktat und mache dann den Abbruch rückgängig.",
+      "expired": "Zu spät zum Rückgängigmachen: Diese Aufnahme wurde bereits verworfen.",
+      "notReady": "Die Aufnahme wird noch empfangen. Versuche es erneut mit Rückgängig.",
+      "unavailable": "Das Diktierfenster konnte zum Rückgängigmachen nicht erreicht werden."
+    }
   },
   "voiceOverlay": {
     "errors": {

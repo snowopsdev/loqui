@@ -839,6 +839,19 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // Claim before any await (I3): the window closes, the lifecycle is busy.
     this._undo.take();
     const generation = (this._restoreGeneration = (this._restoreGeneration ?? 0) + 1);
+    // A claimed buffer is no longer in the Undo window. Keep exact preflight
+    // ownership until admission so hook teardown can dispose it as well.
+    let endPreflight;
+    const preflight = {
+      buffer,
+      disposed: false,
+      ended: new Promise((resolve) => {
+        endPreflight = resolve;
+      }),
+      end: () => endPreflight(),
+    };
+    (this._restorePreflights ??= new Set()).add(preflight);
+    const finishPreflight = () => this._restorePreflights.delete(preflight);
     // §5.2 order: the window closes ("restored"), then processing starts (R1-I6).
     this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason: "restored" });
     this.isProcessing = true;
@@ -846,8 +859,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     // This restore owns the lifecycle only while its generation is current. Esc
     // (cancelProcessing / cancelRecording) bumps it and settles idle itself (R1-I3).
-    const owns = () => generation === this._restoreGeneration;
+    const owns = () => !preflight.disposed && generation === this._restoreGeneration;
     const refuse = (reason, { keep }) => {
+      finishPreflight();
+      // cleanup already closed this exact buffer through the retention path.
+      // It must never reopen a window or publish from the old hook's continuation.
+      if (preflight.disposed)
+        return { restored: false, sessionId: buffer.session.id, reason: "unavailable" };
       if (owns()) {
         this.isProcessing = false;
         this.onStateChange?.({ isRecording: false, isProcessing: false });
@@ -873,7 +891,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // late chunk still lands in it.
     let complete;
     try {
-      complete = await buffer.ready({ until: this._delay(waitMs) });
+      complete = await buffer.ready({
+        until: Promise.race([this._delay(waitMs), preflight.ended]),
+      });
     } catch {
       return refuse("noAudio", { keep: false });
     }
@@ -893,6 +913,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     if (deadline !== null && this._now() >= deadline) return refuse("unavailable", { keep: true }); // main already answered
 
+    finishPreflight();
     // Task 7 keeps the evidence; Task 6 hands back the press-time selection and screenshot (R1-C2).
     this.applySessionIntents(buffer.session, { tracker: buffer.tracker, context: buffer.context });
     // Preflight claimed busy before a session was attached. Publish again now
@@ -5261,6 +5282,30 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   cleanup() {
+    // Revoke this installation's waiting restores before any asynchronous final
+    // audio can land. No permanent disposed flag: setCallbacks may reinstall a
+    // deliberately reused manager, while these exact preflights stay revoked.
+    this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
+    this.onStateChange = null;
+    this.onError = null;
+    this.onTranscriptionComplete = null;
+    this.onPartialTranscript = null;
+    this.onStreamingCommit = null;
+    this.onCancelledChange = null;
+    this.onProcessingStage = null;
+    this.onNoAudio = null;
+    this.onTranslationFallback = null;
+    for (const preflight of this._restorePreflights ?? []) {
+      preflight.disposed = true;
+      preflight.end();
+      void this._undoWindow()
+        .discard(preflight.buffer, "abandoned")
+        .catch(() => {});
+    }
+    this._restorePreflights?.clear();
+    // This also joins preflight disposal and earlier closes still saving.
+    void this.flushCancelHold().catch(() => {});
+    this.isProcessing = false;
     this.micRecovery.stop();
     this._unsubscribeSettings?.();
     this.cancelPreparedMicCapture();
@@ -5288,12 +5333,6 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     } catch (e) {
       // Ignore errors during cleanup (page may be unloading)
     }
-    this.onStateChange = null;
-    this.onError = null;
-    this.onTranscriptionComplete = null;
-    this.onPartialTranscript = null;
-    this.onStreamingCommit = null;
-
     if (this._onDeviceChange) {
       navigator.mediaDevices?.removeEventListener?.("devicechange", this._onDeviceChange);
     }

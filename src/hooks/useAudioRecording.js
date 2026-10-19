@@ -30,11 +30,21 @@ const SELECTION_EDIT_DETAIL_KEY_BY_CODE = {
   paste_failed: "pasteFailed",
 };
 const COMPANION_AUDIO_LEVEL_INTERVAL_MS = 80;
+const countWords = (text) => (text.trim() ? text.trim().split(/\s+/u).length : 0);
 
 let localRecoveryKey = 0;
 
 export const useAudioRecording = (options = {}) => {
   const { t } = useTranslation();
+  const [cancelled, setCancelled] = useState(null);
+  const [processingStage, setProcessingStage] = useState(null);
+  const [outcome, setOutcome] = useState(null);
+  const cancelledRef = useRef(null);
+  cancelledRef.current = cancelled;
+  const escHeldRef = useRef(false);
+  const busyRef = useRef(false);
+  const outcomeGenerationRef = useRef(0);
+  const managerInstallationRef = useRef(0);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -206,15 +216,6 @@ export const useAudioRecording = (options = {}) => {
         if (didStart && pressCandidateRef.current === candidate) pressCandidateRef.current = null;
         if (didStart) {
           dismissNotice(DICTATION_STATUS_NOTICE_ID);
-          // Arm Esc as soon as a recording exists, including one whose stop
-          // landed mid-start: its processing must be cancellable too (D3).
-          // onStateChange releases it at idle; a start that is already idle
-          // (a tap that ended inside the start call) releases it right here.
-          window.electronAPI?.registerCancelHotkey?.("Escape");
-          const started = audioManagerRef.current.getState();
-          if (!started.isRecording && !started.isProcessing) {
-            window.electronAPI?.unregisterCancelHotkey?.();
-          }
         }
 
         // A stop that landed while the start was still awaiting the mic open was
@@ -311,6 +312,7 @@ export const useAudioRecording = (options = {}) => {
   }, []);
 
   useEffect(() => {
+    managerInstallationRef.current += 1;
     audioManagerRef.current = new AudioManager();
 
     // Resolve and pin the input device now, not on the first hotkey press, which
@@ -330,10 +332,20 @@ export const useAudioRecording = (options = {}) => {
 
     // Only a delivered Paste again or explicit Dismiss removes held words.
     const showDictationError = (
-      { title, description, transcript = "", recoveryHeld = false, sessionId = null },
+      {
+        title,
+        description,
+        transcript = "",
+        recoveryHeld = false,
+        sessionId = null,
+        outcomeGeneration = outcomeGenerationRef.current,
+      },
       extraActions = []
     ) => {
       const recoverAssistant = Boolean(audioManagerRef.current?.voiceAgentRequested);
+      if (outcomeGeneration === outcomeGenerationRef.current) {
+        setOutcome({ sessionId: sessionId ?? "", kind: "failed", at: Date.now() });
+      }
       onDictationError?.({ recoverAssistant });
       const noticeId = notify(
         buildDictationErrorNotice(
@@ -372,16 +384,32 @@ export const useAudioRecording = (options = {}) => {
 
     audioManagerRef.current.setCallbacks({
       onStateChange: ({ isRecording, isProcessing, isStreaming, micCaptureStatus }) => {
-        reportLifecycle(isRecording ? "recording" : isProcessing ? "processing" : "idle");
+        const busy = Boolean(isRecording || isProcessing);
+        if ((isRecording && !wasRecordingRef.current) || (busy && !busyRef.current)) {
+          outcomeGenerationRef.current += 1;
+        }
+        busyRef.current = busy;
+        if (busy && !escHeldRef.current) {
+          escHeldRef.current = true;
+          window.electronAPI?.registerCancelHotkey?.("Escape");
+        } else if (!busy && escHeldRef.current) {
+          escHeldRef.current = false;
+          window.electronAPI?.unregisterCancelHotkey?.();
+        }
+        if (!busy) setProcessingStage(null);
+        reportLifecycle(
+          isRecording
+            ? "recording"
+            : isProcessing
+              ? "processing"
+              : cancelledRef.current
+                ? "cancelled"
+                : "idle"
+        );
         if (isRecording) {
           onDemoEventRef.current?.({ kind: demoKindRef.current, status: "listening" });
         } else if (isProcessing) {
           onDemoEventRef.current?.({ kind: demoKindRef.current, status: "processing" });
-        }
-        if (!isRecording && !isProcessing) {
-          // Esc is armed from recording start until the whole pipeline is
-          // idle, so the keyboard can cancel a slow transcription (D3).
-          window.electronAPI?.unregisterCancelHotkey?.();
         }
         if (!isRecording) {
           // Resume media the instant recording ends, not after transcription.
@@ -426,6 +454,33 @@ export const useAudioRecording = (options = {}) => {
           setPartialTranscript("");
         }
       },
+      onCancelledChange: (state, closed) => {
+        // An old save can close A after the manager has already opened B.
+        // It owns neither B's UI nor its lifecycle report or demo publication.
+        if (!state && closed && cancelledRef.current?.sessionId !== closed.sessionId) return;
+        cancelledRef.current = state;
+        setCancelled(state);
+        const am = audioManagerRef.current;
+        if (!busyRef.current && !am?.isRecording && !am?.isProcessing) {
+          reportLifecycle(state ? "cancelled" : "idle");
+        }
+        if (state) {
+          onDemoEventRef.current?.({
+            kind: demoKindRef.current,
+            status: "cancelled",
+            sessionId: state.sessionId,
+            cancelled: state,
+          });
+        } else if (closed) {
+          onDemoEventRef.current?.({
+            kind: demoKindRef.current,
+            status: "cancelClosed",
+            sessionId: closed.sessionId,
+            reason: closed.reason,
+          });
+        }
+      },
+      onProcessingStage: (stage) => setProcessingStage(stage),
       onError: (error) => {
         const sessionId = audioManagerRef.current?.activeSession?.id ?? null;
         setIsPreparing(false);
@@ -500,6 +555,7 @@ export const useAudioRecording = (options = {}) => {
         const session = audioManagerRef.current?.activeSession ?? null;
         const sessionId = session?.id ?? null;
         const sessionPrivate = session?.private === true;
+        const outcomeGeneration = outcomeGenerationRef.current;
         // Capture the operation before persistence or paste can yield.
         const retryCleanup = result.cleanupFailure?.retryCleanup;
         if (result.success) {
@@ -509,6 +565,7 @@ export const useAudioRecording = (options = {}) => {
           if (!transcribedText) {
             window.electronAPI?.hideDictationPreview?.();
             showDictationError({
+              outcomeGeneration,
               sessionId,
               title: t("hooks.audioRecording.noAudio.title"),
               description: t("hooks.audioRecording.noAudio.description"),
@@ -655,6 +712,7 @@ export const useAudioRecording = (options = {}) => {
             const keptInClipboard = await keepInClipboard("push-force-stopped");
             window.electronAPI?.hideDictationPreview?.();
             showDictationError({
+              outcomeGeneration,
               sessionId,
               title: t("hooks.audioRecording.pushForceStopped.title"),
               // Never promise a clipboard that rejected the write; the transcript
@@ -687,6 +745,7 @@ export const useAudioRecording = (options = {}) => {
                 const detailKey =
                   SELECTION_EDIT_DETAIL_KEY_BY_CODE[replacement?.code] || "unavailable";
                 showDictationError({
+                  outcomeGeneration,
                   sessionId,
                   title: t("hooks.audioRecording.selectionEditing.notAppliedTitle"),
                   description: t(`hooks.audioRecording.selectionEditing.${detailKey}`),
@@ -717,12 +776,21 @@ export const useAudioRecording = (options = {}) => {
             // visible somewhere.
             if (!pasteSucceeded && !result.selectionEdit?.sessionId) {
               showDictationError({
+                outcomeGeneration,
                 sessionId,
                 title: t("notices.pasteFailed"),
                 transcript: result.rawText ?? result.text,
               });
             }
             if (pasteSucceeded) {
+              if (outcomeGeneration === outcomeGenerationRef.current) {
+                setOutcome({
+                  sessionId: sessionId ?? "",
+                  kind: "pasted",
+                  words: countWords(result.text),
+                  at: Date.now(),
+                });
+              }
               window.electronAPI?.hideDictationPreview?.();
               if (result.cleanupFailure)
                 recordCleanupFailure({
@@ -898,9 +966,13 @@ export const useAudioRecording = (options = {}) => {
 
     // Cleanup
     return () => {
+      managerInstallationRef.current += 1;
       reportLifecycle("idle");
       // Never leave a global Esc capture behind a reload or a route change.
-      window.electronAPI?.unregisterCancelHotkey?.();
+      if (escHeldRef.current) window.electronAPI?.unregisterCancelHotkey?.();
+      escHeldRef.current = false;
+      busyRef.current = false;
+      outcomeGenerationRef.current += 1;
       unsubscribeSettings();
       disposeToggle?.();
       disposeVoiceAgentToggle?.();
@@ -931,7 +1003,6 @@ export const useAudioRecording = (options = {}) => {
       setIsStopping(false);
       audioManagerRef.current.cancelPreparedMicCapture?.(pressCandidateRef.current);
       pressCandidateRef.current = null;
-      window.electronAPI?.unregisterCancelHotkey?.();
       const state = audioManagerRef.current.getState();
       if (getSettings().pauseMediaOnDictation) {
         window.electronAPI?.resumeMediaPlayback?.();
@@ -952,6 +1023,60 @@ export const useAudioRecording = (options = {}) => {
     }
     return false;
   }, []);
+
+  const restore = useCallback(
+    async (sessionId, options) => {
+      const installation = managerInstallationRef.current;
+      const result = (await audioManagerRef.current?.restoreCancelled?.(
+        sessionId ?? undefined,
+        options
+      )) ?? {
+        restored: false,
+        sessionId: sessionId ?? null,
+        reason: "unavailable",
+      };
+      if (!result.restored && installation === managerInstallationRef.current) {
+        const notReady =
+          result.reason === "noAudio" && cancelledRef.current?.sessionId === result.sessionId;
+        notify({
+          id: "undo-failed",
+          kind: "alert",
+          title: t(notReady ? "notices.undo.notReady" : `notices.undo.${result.reason}`),
+        });
+      }
+      return result;
+    },
+    [t]
+  );
+  const undoCancel = useCallback(
+    async () => (await restore(cancelledRef.current?.sessionId)).restored,
+    [restore]
+  );
+  const pauseUndo = useCallback(() => audioManagerRef.current?.pauseCancelHold?.(), []);
+  const resumeUndo = useCallback(() => audioManagerRef.current?.resumeCancelHold?.(), []);
+
+  useEffect(() => {
+    let live = true;
+    const offUndo = window.electronAPI?.onUndoCancelRequest?.(
+      async ({ token, sessionId, deadlineAt }) => {
+        const result = await restore(sessionId, { deadlineAt });
+        if (live) window.electronAPI?.replyUndoCancel?.(token, result);
+      }
+    );
+    const offFlush = window.electronAPI?.onDictationFlushRequest?.(({ token }) => {
+      Promise.resolve()
+        .then(() => audioManagerRef.current?.flushCancelHold?.())
+        .catch(() => {})
+        .finally(() => {
+          if (live) window.electronAPI?.replyDictationFlush?.(token);
+        });
+    });
+    return () => {
+      live = false;
+      offUndo?.();
+      offFlush?.();
+    };
+  }, [restore]);
 
   const getAudioLevel = useCallback(
     () => audioManagerRef.current?.getRecordingAudioLevel() ?? null,
@@ -991,6 +1116,12 @@ export const useAudioRecording = (options = {}) => {
   };
 
   return {
+    cancelled,
+    undoCancel,
+    pauseUndo,
+    resumeUndo,
+    processingStage,
+    outcome,
     isRecording,
     isProcessing,
     isStreaming,

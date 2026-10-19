@@ -103,6 +103,10 @@ export default function App() {
   const panelStartPosition = useSettingsStore((s) => s.panelStartPosition);
   const pillHoveredRef = useRef(false);
   const pillFocusedRef = useRef(false);
+  const hasPillFocus = () => {
+    const presence = pillPresenceRef.current;
+    return Boolean(presence?.contains(presence.ownerDocument.activeElement));
+  };
   const [isPillFocused, setIsPillFocused] = useState(false);
   const [voiceHorizontalDirection, setVoiceHorizontalDirection] = useState(() =>
     resolveVoiceHorizontalDirection(panelStartPosition)
@@ -243,7 +247,7 @@ export default function App() {
     processingStage,
     outcome,
   } = useAudioRecording({
-    isPillHovered: () => pillHoveredRef.current || pillFocusedRef.current,
+    isPillHovered: () => pillHoveredRef.current || (pillFocusedRef.current && hasPillFocus()),
     onToggle: handleDictationToggle,
     onDemoEvent: publishOnboardingDemoEvent,
     onAssistantCommand: assistant.handleCommand,
@@ -625,12 +629,14 @@ export default function App() {
   const readingSurfaceActive = Boolean(
     cancelled || visiblePillCaption || condensed.length || isPillTooltipVisible
   );
-  useEffect(() => {
-    if (!readingSurfaceActive) {
-      pillFocusedRef.current = false;
-      setIsPillFocused(false);
-    }
-  }, [readingSurfaceActive]);
+  useLayoutEffect(() => {
+    // Captions/panels can replace a focused tooltip without a blur event. The
+    // remaining DOM owns focus; another reading surface alone cannot inherit it.
+    if (!pillFocusedRef.current || hasPillFocus()) return;
+    pillFocusedRef.current = false;
+    setIsPillFocused(false);
+    if (cancelled && !pillHoveredRef.current) resumeUndo();
+  }, [cancelled, visiblePillCaption, condensed, anyPanelMounted, isPillTooltipVisible, resumeUndo]);
   usePillAutoHide({
     floatingIconAutoHide,
     isRecording,

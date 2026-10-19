@@ -3,7 +3,7 @@ const React = require("react");
 
 // Shared element tree for react-dom/client tests with direct React handlers.
 // Call installBrowserGlobals and installHookDom before installing the tree.
-function installTree() {
+function installTree({ trackFocusRemoval = false } = {}) {
   const document = globalThis.document;
   const make = (nodeType, props) => {
     const node = {
@@ -32,9 +32,13 @@ function installTree() {
         return child;
       },
       removeChild(child) {
+        // Optional DOM focus model: removal retires activeElement without
+        // synthesizing blur/focusout, matching the path under test.
+        const removedFocus = trackFocusRemoval && child.contains?.(document.activeElement);
         const index = node.childNodes.indexOf(child);
         if (index >= 0) node.childNodes.splice(index, 1);
         child.parentNode = null;
+        if (removedFocus) document.activeElement = null;
         return child;
       },
       get firstChild() {
@@ -76,7 +80,14 @@ function installTree() {
       },
       addEventListener() {},
       removeEventListener() {},
-      focus() {},
+      contains(other) {
+        for (let current = other; current; current = current.parentNode)
+          if (current === node) return true;
+        return false;
+      },
+      focus() {
+        if (trackFocusRemoval) document.activeElement = node;
+      },
       querySelector: () => null,
       closest: () => null,
       ...props,

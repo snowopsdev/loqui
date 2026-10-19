@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type React from "react";
 import { PillCaption } from "./PillCaption";
 
@@ -22,9 +22,16 @@ export function PillTooltip({
   elementRef,
   onVisibilityChange,
 }: PillTooltipProps): React.JSX.Element {
+  const anchorRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const visible = (hovered || focused) && !disabled;
+  useLayoutEffect(() => {
+    // Removing a focused bubble need not dispatch blur. Reconcile after the
+    // commit, preserving focus on a trigger that actually remains mounted.
+    const anchor = anchorRef.current;
+    if (focused && !anchor?.contains(anchor.ownerDocument.activeElement)) setFocused(false);
+  }, [disabled, focused, children, content]);
   useEffect(() => {
     onVisibilityChange?.(visible);
     return () => onVisibilityChange?.(false);
@@ -36,6 +43,7 @@ export function PillTooltip({
 
   return (
     <div
+      ref={anchorRef}
       className="pill-tooltip-anchor relative inline-block"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

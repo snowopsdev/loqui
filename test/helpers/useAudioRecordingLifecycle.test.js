@@ -452,6 +452,40 @@ test("an actual hold opened while already hovered pauses the manager immediately
   assert.deepEqual(am.calls, [["pause"]]);
 });
 
+test("a real hold follows actual reader focus through rehold and no-blur removal", async (t) => {
+  let reader;
+  const { ref } = await mount(
+    t,
+    {},
+    {
+      isPillHovered: () => Boolean(reader?.contains(globalThis.document.activeElement)),
+    }
+  );
+  const { installTree } = require("./harness/fakeDomTree");
+  installTree({ trackFocusRemoval: true });
+  reader = globalThis.document.createElement("div");
+  const focusedNode = globalThis.document.createElement("div");
+  reader.appendChild(focusedNode);
+  focusedNode.focus();
+  const am = globalThis.__am;
+  am.pauseCancelHold = () => {
+    am.calls.push(["pause"]);
+    am.cb.onCancelledChange({ ...STATE, paused: true });
+  };
+  await fire("onCancelledChange", STATE);
+  assert.equal(ref.api.cancelled.paused, true);
+  await fire("onCancelledChange", null, { sessionId: STATE.sessionId, reason: "busy" });
+  await fire("onCancelledChange", STATE);
+  assert.equal(ref.api.cancelled.paused, true, "a still-focused reader pauses the rehold");
+  assert.equal(am.calls.filter(([kind]) => kind === "pause").length, 2);
+  await fire("onCancelledChange", null, { sessionId: STATE.sessionId, reason: "expired" });
+  reader.removeChild(focusedNode);
+  assert.equal(globalThis.document.activeElement, null, "removal sends no synthetic blur");
+  await fire("onCancelledChange", STATE);
+  assert.equal(ref.api.cancelled.paused, false, "removed focus cannot create an initial D3 pause");
+  assert.equal(am.calls.filter(([kind]) => kind === "pause").length, 2);
+});
+
 test("live words survive recording, commits, cleanup, idle during paste and the owning pasted beat", async (t) => {
   const pasted = deferred();
   const { ref, vite } = await mount(t, { replaceSelectedText: () => pasted.promise });

@@ -142,7 +142,7 @@ test("tooltip reuses bounded caption geometry with distinct non-live tooltip sem
   });
   installBrowserGlobals(t, { window: { innerWidth: 208, innerHeight: 120 } });
   installHookDom(t);
-  const tree = installTree();
+  const tree = installTree({ trackFocusRemoval: true });
   const original = globalThis.document.createElement;
   globalThis.document.createElement = (tag) => {
     const element = original(tag);
@@ -192,6 +192,7 @@ test("tooltip reuses bounded caption geometry with distinct non-live tooltip sem
   assert.equal(tooltip.textContent, receivers);
   assert.equal(tooltip.style.left, "-144px");
   assert.equal(tooltip.style.maxHeight, "48px");
+  tooltip.focus();
   await React.act(async () => propsOf(anchor).onFocusCapture());
   await React.act(async () => propsOf(anchor).onMouseLeave());
   assert.equal(
@@ -206,12 +207,25 @@ test("tooltip reuses bounded caption geometry with distinct non-live tooltip sem
   await render(true);
   assert.equal(elementRef.current, null, "higher-priority caption can suppress tooltip");
   assert.equal(visible.at(-1), false);
+  assert.equal(globalThis.document.activeElement, null, "removal did not synthesize blur");
+  await render(false);
+  assert.equal(Boolean(elementRef.current), false, "removed bubble cannot reopen from stale focus");
+  await React.act(async () => propsOf(anchor).onMouseEnter());
   await render(false, "center");
   assert.equal(
     elementRef.current.style.left,
     "-144px",
     "center preference still clamps to viewport"
   );
+  const trigger = tree.find((n) => n.tagName === "BUTTON");
+  trigger.focus();
+  await React.act(async () => propsOf(anchor).onFocusCapture());
+  await React.act(async () => propsOf(anchor).onMouseLeave());
+  await render(true);
+  assert.equal(globalThis.document.activeElement, trigger, "persistent trigger keeps actual focus");
+  await render(false);
+  assert.ok(elementRef.current, "genuinely focused trigger restores the tooltip");
+  globalThis.document.activeElement = null;
   await React.act(async () =>
     propsOf(anchor).onBlurCapture({ currentTarget: anchor, relatedTarget: null })
   );

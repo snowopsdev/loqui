@@ -77,7 +77,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
     },
   });
   installHookDom(t);
-  const tree = installTree();
+  const tree = installTree({ trackFocusRemoval: true });
   globalThis.document.querySelector = () => null;
   globalThis.window.clearInterval = () => {};
   const vite = await createRendererServer(t, {
@@ -157,6 +157,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
   await render();
   const idlePresence = () =>
     tree.props(tree.find((n) => n.attributes?.class?.includes("assistant-pill-presence")));
+  pill().focus();
   await React.act(async () =>
     idlePresence().onFocusCapture({ target: { closest: () => tooltipAnchor() } })
   );
@@ -165,6 +166,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
     true,
     "first keyboard focus on the idle tooltip trigger owns reading input"
   );
+  globalThis.document.activeElement = null;
   await React.act(async () =>
     idlePresence().onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null })
   );
@@ -178,12 +180,14 @@ test("App retains original destinations through audio, banked consumption/busy, 
   );
   const readingHandlers = () =>
     tree.props(tree.find((n) => n.attributes?.class?.includes("assistant-pill-presence")));
+  tooltip().focus();
   await React.act(async () => readingHandlers().onFocusCapture());
   assert.equal(
     globalThis.__pillAppOptions.isPillHovered(),
     true,
     "tooltip focus joins existing reader ownership"
   );
+  globalThis.document.activeElement = null;
   await React.act(async () =>
     readingHandlers().onBlurCapture({
       currentTarget: { contains: () => false },
@@ -192,6 +196,105 @@ test("App retains original destinations through audio, banked consumption/busy, 
   );
   await React.act(async () => tree.props(tooltipAnchor()).onMouseLeave());
   assert.equal(tooltip(), null);
+  const persistentTrigger = pill();
+  persistentTrigger.focus();
+  await React.act(async () => {
+    idlePresence().onFocusCapture({ target: { closest: () => tooltipAnchor() } });
+    tree.props(tooltipAnchor()).onFocusCapture();
+  });
+  await render({
+    isRecording: true,
+    activeSession: session,
+    liveText: { committed: "remaining reader", partial: "", cleaned: null },
+  });
+  assert.equal(globalThis.document.activeElement, persistentTrigger);
+  assert.equal(
+    globalThis.__pillAppOptions.isPillHovered(),
+    true,
+    "a focused persistent trigger retains shared ownership under words"
+  );
+  await render({
+    isRecording: false,
+    activeSession: null,
+    liveText: { committed: "", partial: "", cleaned: null },
+  });
+  assert.ok(tooltip(), "persistent trigger focus legitimately restores the tooltip");
+  globalThis.document.activeElement = null;
+  await React.act(async () => {
+    tree
+      .props(tooltipAnchor())
+      .onBlurCapture({ currentTarget: tooltipAnchor(), relatedTarget: null });
+    idlePresence().onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null });
+  });
+  for (const replacement of ["caption", "words", "panel"]) {
+    await render();
+    pill().focus();
+    await React.act(async () => {
+      idlePresence().onFocusCapture({ target: { closest: () => tooltipAnchor() } });
+      tree.props(tooltipAnchor()).onFocusCapture();
+    });
+    const focusedBubble = tooltip();
+    assert.ok(focusedBubble);
+    focusedBubble.focus();
+    await React.act(async () => tree.props(tooltipAnchor()).onFocusCapture());
+    assert.equal(globalThis.__pillAppOptions.isPillHovered(), true);
+    if (replacement === "caption") {
+      await render({
+        cancelled: {
+          sessionId: "focus-removal",
+          undoUntil: Date.now() + 5000,
+          remainingMs: 5000,
+          paused: false,
+          remoteAlreadySent: {
+            target: "anthropic",
+            alsoSentTo: [],
+            payload: "audio",
+            evidence: "dispatched",
+          },
+        },
+        cancelHold: { generation: 99, durationMs: 5000, session },
+      });
+    } else if (replacement === "words") {
+      await render({
+        isRecording: true,
+        activeSession: session,
+        liveText: { committed: "remaining words", partial: "", cleaned: null },
+      });
+    } else {
+      await React.act(async () => globalThis.__pillAppAssistant.openPanel());
+    }
+    assert.equal(tooltip(), null, `${replacement} removes the focused bubble`);
+    assert.equal(globalThis.document.activeElement, null, "DOM removal model sent no blur");
+    assert.equal(
+      globalThis.__pillAppOptions.isPillHovered(),
+      false,
+      `${replacement} cannot inherit removed tooltip focus`
+    );
+    if (replacement === "panel") {
+      await React.act(async () => {
+        globalThis.__pillAppAssistant.handleClose();
+        globalThis.__pillAppAssistant.completeContentFade();
+      });
+      await React.act(async () => new Promise((r) => setTimeout(r, 350)));
+    }
+    await render({
+      isRecording: false,
+      activeSession: null,
+      cancelled: null,
+      cancelHold: null,
+      liveText: { committed: "", partial: "", cleaned: null },
+    });
+    assert.equal(tooltip(), null, `${replacement} ending cannot remount a ghost tooltip`);
+    assert.equal(globalThis.__pillAppOptions.isPillHovered(), false);
+  }
+  assert.equal(
+    resume,
+    1,
+    "retiring focused tooltip ownership resumes the replacement hold without blur"
+  );
+  // The following established lifecycle scenario has its own pause/resume counts.
+  pause = 0;
+  resume = 0;
   await render({ isRecording: true, isAssistantVoice: true, activeSession: session });
   await React.act(async () => tree.props(tooltipAnchor()).onMouseEnter());
   assert.equal(tooltip(), null, "Agent caption owns the layer on actual hover");
@@ -400,6 +503,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
   );
   const handlers = () =>
     tree.props(tree.find((n) => n.attributes?.class?.includes("assistant-pill-presence")));
+  caption.focus();
   await React.act(async () => handlers().onFocusCapture());
   await React.act(async () => handlers().onMouseLeave());
   assert.equal(resume, 0, "focus keeps the hold paused after the pointer leaves");
@@ -412,9 +516,11 @@ test("App retains original destinations through audio, banked consumption/busy, 
     handlers().onBlurCapture({ currentTarget: { contains: () => true }, relatedTarget: caption })
   );
   assert.equal(resume, 0, "moving focus between caption and Undo retains the pause");
+  caption.focus();
   await React.act(async () => handlers().onFocusCapture());
   assert.equal(pause, 1, "internal focus movement does not publish a second pause");
   await React.act(async () => handlers().onMouseEnter());
+  globalThis.document.activeElement = null;
   await React.act(async () =>
     handlers().onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null })
   );
@@ -432,6 +538,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
       .onMouseLeave()
   );
   assert.equal(resume, 1);
+  caption.focus();
   await React.act(async () => handlers().onFocusCapture());
   assert.equal(pause, 2, "keyboard-only focus pauses the same hold");
   assert.equal(
@@ -439,6 +546,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
     countdown1,
     "focus never changes hold generation"
   );
+  globalThis.document.activeElement = null;
   await React.act(async () =>
     handlers().onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null })
   );
@@ -589,6 +697,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
   );
   globalThis.__pillAppReturnResize = false;
   await render();
+  globalThis.document.activeElement = null;
   await React.act(async () => handlers().onFocusCapture());
   assert.equal(
     globalThis.__pillAppOptions.isPillHovered(),

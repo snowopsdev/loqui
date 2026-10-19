@@ -4516,6 +4516,28 @@
       "attemptNotice_one": "You allowed {{count}} word to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "Prova la scorciatoia.",
+      "testerLabel": "Test della scorciatoia. Premi {{key}}.",
+      "hint": "Premi {{key}}. Un tocco rapido avvia e arresta; tenendo premuto puoi parlare finché tieni premuto il tasto.",
+      "fills": "Ciao, funziona.",
+      "works": "La scorciatoia funziona",
+      "detected": {
+        "tap": "Rilevato: tocco per avviare e arrestare",
+        "hold": "Rilevato: pressione prolungata per parlare"
+      },
+      "suggest": {
+        "push": "Hai tenuto premuto il tasto. Passare alla pressione prolungata per parlare?",
+        "tap": "Hai toccato il tasto. Passare al tocco per avviare e arrestare?"
+      },
+      "switch": "Cambia",
+      "change": "Cambia scorciatoia",
+      "changeHelp": "Premi questa scorciatoia ovunque per parlare. Cambiala se interferisce con un’altra app.",
+      "autoPaste": "Incolla automaticamente",
+      "autoPasteBodyMac": "Incolla le parole dove si trova il cursore. Richiede l’accesso ad Accessibilità su macOS.",
+      "autoPasteBodyOther": "Incolla le parole dove si trova il cursore.",
+      "accessibilityBody": "macOS consente a Loqui di rilevare la scorciatoia e incollare solo dopo la tua autorizzazione. Puoi concederla ora o in seguito nelle Impostazioni."
     }
   }
 }

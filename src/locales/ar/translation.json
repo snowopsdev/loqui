@@ -4738,6 +4738,28 @@
       "previousAttemptNotice_few": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_many": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "جرّب اختصارك.",
+      "testerLabel": "اختبار الاختصار. اضغط على {{key}}.",
+      "hint": "اضغط على {{key}}. ضغطة سريعة تبدأ التسجيل وتوقفه؛ والضغط المطوّل يتيح التحدث ما دمت تضغط على المفتاح.",
+      "fills": "مرحبًا، إنه يعمل.",
+      "works": "الاختصار يعمل",
+      "detected": {
+        "tap": "تم اكتشاف ضغطة لبدء التسجيل وإيقافه",
+        "hold": "تم اكتشاف ضغط مطوّل للتحدث"
+      },
+      "suggest": {
+        "push": "لقد ضغطت مطوّلًا على المفتاح. هل تريد التبديل إلى الضغط المطوّل للتحدث؟",
+        "tap": "لقد ضغطت سريعًا على المفتاح. هل تريد التبديل إلى الضغط لبدء التسجيل وإيقافه؟"
+      },
+      "switch": "تبديل",
+      "change": "تغيير الاختصار",
+      "changeHelp": "اضغط على هذا الاختصار من أي مكان للتحدث. غيّره إذا تعارض مع تطبيق آخر.",
+      "autoPaste": "اللصق التلقائي",
+      "autoPasteBodyMac": "الصق كلماتك في موضع المؤشر. يتطلب ذلك إذن تسهيلات الاستخدام على macOS.",
+      "autoPasteBodyOther": "الصق كلماتك في موضع المؤشر.",
+      "accessibilityBody": "لا يسمح macOS لتطبيق Loqui بالتعرف على الاختصار واللصق إلا بعد موافقتك. يمكنك منح الإذن الآن أو لاحقًا في الإعدادات."
     }
   }
 }

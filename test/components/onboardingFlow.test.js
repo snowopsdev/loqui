@@ -1455,3 +1455,144 @@ for (const outcome of ["failed", "pending", "successful"]) {
     );
   });
 }
+
+test("Shortcut offers push only after the current key capabilities load, and observes paste settings (ONB-19)", async (t) => {
+  const { expectKey } = require("../helpers/harness/mountComponent");
+  const { bridgeFixture } = require("../helpers/harness/onboardingBridgeFixture");
+  const f = bridgeFixture();
+  f.manager.hotkeyManager.slots = new Map([["dictation", { hotkeys: ["F7"], callback() {} }]]);
+  f.manager._cachedActivationMode = "tap";
+  const pending = new Map();
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "shortcuts" },
+    {
+      storage: {
+        dictationKey: "F7",
+        activeDictationKey: "F7",
+        activationMode: "tap",
+        autoPasteEnabled: "true",
+      },
+      api: {
+        ...f.setupApi,
+        getHotkeyModeInfo: (key) => new Promise((resolve) => pending.set(key, resolve)),
+      },
+    }
+  );
+  const held = async () => {
+    const now = Date.now;
+    try {
+      Date.now = () => 0;
+      await React.act(async () => f.manager.reportDictationHotkey("down", "F7"));
+      Date.now = () => 600;
+      await React.act(async () => f.manager.reportDictationHotkey("up", "F7"));
+    } finally {
+      Date.now = now;
+    }
+  };
+  assert.equal(f.manager._onboardingDemoKind, "shortcut");
+  await held();
+  expectKey(ui, "setupFlow.shortcut.detected.hold");
+  assert.equal(ui.text().includes("setupFlow.shortcut.switch"), false);
+  await React.act(async () => pending.get("F7")({ supportsPushToTalk: true }));
+  expectKey(ui, "setupFlow.shortcut.switch");
+  await ui.click("setupFlow.shortcut.switch");
+  const store = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  assert.equal(store.getState().activationMode, "push");
+  assert.equal(
+    ui.text().includes("setupFlow.shortcut.works"),
+    false,
+    "mode changes need a new matching press"
+  );
+  const paste = ui.byAttr("aria-label", "setupFlow.shortcut.autoPaste")[0];
+  await ui.click(paste);
+  assert.equal(store.getState().autoPasteEnabled, false);
+  assert.equal(
+    ui.byAttr("aria-label", "setupFlow.shortcut.autoPaste")[0].attributes["aria-checked"],
+    "false"
+  );
+  await React.act(async () => store.setState({ autoPasteEnabled: true }));
+  assert.equal(
+    ui.byAttr("aria-label", "setupFlow.shortcut.autoPaste")[0].attributes["aria-checked"],
+    "true"
+  );
+  assert.equal(
+    f.sent.some(([name]) => /^(start|toggle)-dictation$/.test(name)),
+    false,
+    "shortcut never records"
+  );
+});
+
+test("Shortcut proof follows requested key, real main acknowledgement and mode; capture never proves a change", async (t) => {
+  const { expectKey } = require("../helpers/harness/mountComponent");
+  const { bridgeFixture } = require("../helpers/harness/onboardingBridgeFixture");
+  const f = bridgeFixture();
+  f.manager.hotkeyManager.slots = new Map([["dictation", { hotkeys: ["F7"], callback() {} }]]);
+  f.manager._cachedActivationMode = "tap";
+  const requested = [];
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "shortcuts" },
+    {
+      storage: {
+        dictationKey: "F7",
+        activeDictationKey: "F7",
+        activationMode: "tap",
+        autoPasteEnabled: "true",
+      },
+      api: {
+        ...f.setupApi,
+        notifyHotkeyChanged: (key) => requested.push(key),
+        getHotkeyModeInfo: async () => ({ supportsPushToTalk: true }),
+      },
+    }
+  );
+  const store = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  await React.act(async () => f.manager.createHotkeyCallback()("F7"));
+  expectKey(ui, "setupFlow.shortcut.works");
+  await React.act(async () => store.getState().setDictationKey("F8"));
+  assert.deepEqual(requested, ["F8"]);
+  assert.equal(
+    ui.text().includes("setupFlow.shortcut.works"),
+    false,
+    "pending B cannot borrow active A proof"
+  );
+  expectKey(ui, "setupFlow.shortcut.hint", { key: "F8" });
+  // Main registration acknowledgement is configured, not a test.
+  f.manager.hotkeyManager.slots.get("dictation").hotkeys = ["F8"];
+  await React.act(async () => store.setState({ activeDictationKey: "F8" }));
+  assert.equal(ui.text().includes("setupFlow.shortcut.works"), false);
+  f.setListening(true);
+  await React.act(async () => f.manager.createHotkeyCallback()("F8"));
+  assert.equal(ui.text().includes("setupFlow.shortcut.works"), false);
+  f.setListening(false);
+  await React.act(async () => f.manager.createHotkeyCallback()("F8"));
+  expectKey(ui, "setupFlow.shortcut.works");
+  await React.act(async () => store.getState().setActivationMode("push"));
+  assert.equal(ui.text().includes("setupFlow.shortcut.works"), false);
+  await React.act(async () => f.manager.reportDictationHotkey("tap", "F8"));
+  assert.equal(
+    ui.text().includes("setupFlow.shortcut.works"),
+    false,
+    "old actual mode is not the new mode acknowledgement"
+  );
+  f.manager._cachedActivationMode = "push";
+  await React.act(async () => f.manager.reportDictationHotkey("tap", "F8"));
+  expectKey(ui, "setupFlow.shortcut.works");
+  await React.act(async () => store.getState().setDictationKey("F9"));
+  await React.act(async () => f.manager.reportDictationHotkey("tap", "F8"));
+  assert.equal(
+    ui.text().includes("setupFlow.shortcut.works"),
+    false,
+    "failed C leaves actual B unable to prove C"
+  );
+  await advance(ui);
+  const row = ui.findAll(
+    (n) =>
+      n.tagName === "BUTTON" &&
+      (n.attributes.class ?? "").includes("onboarding-guided-readiness-row") &&
+      n.textContent.includes("Shortcut and paste")
+  )[0];
+  assert.ok(row.textContent.endsWith("Pending"));
+  assert.equal(f.context._onboardingDemoSession, null);
+});

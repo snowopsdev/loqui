@@ -432,6 +432,16 @@ export function createOnboardingScenarioBridge(
     openAccessibilitySettings: async () => ({ success: true }),
     markMacAccessibilityFeaturesReady: () => {},
     getDictationBinding: async () => (accessibilityMissing() ? null : currentBinding()),
+    // The toolbar supplies both phases for simulated keys. This describes the
+    // in-memory simulator, never the desktop's native shortcut capabilities.
+    getHotkeyModeInfo: async () => ({
+      isUsingGnome: false,
+      isUsingKDE: false,
+      isUsingNativeShortcut: false,
+      isUsingHyprland: false,
+      supportsPushToTalk: true,
+      pushToTalkUnavailableReason: null,
+    }),
     beginOnboardingDemo: async ({
       id,
       kind,
@@ -520,6 +530,7 @@ export function createOnboardingScenarioBridge(
     | "openAccessibilitySettings"
     | "markMacAccessibilityFeaturesReady"
     | "getDictationBinding"
+    | "getHotkeyModeInfo"
     | "beginOnboardingDemo"
     | "endOnboardingDemo"
     | "stopOnboardingDemo"

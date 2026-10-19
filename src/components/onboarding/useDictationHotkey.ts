@@ -49,3 +49,37 @@ export function useDictationHotkey(active: boolean, expected?: DictationBinding)
   const acknowledged = active && bindingMatches(ack, expected) ? ack : null;
   return { ...(acknowledged ? state : INITIAL_KEYCAP), binding: acknowledged };
 }
+
+let shortcutDemoSequence = 0;
+
+/** A shortcut demo only mirrors presses through the existing main owner. */
+export function useShortcutDemo(active: boolean): void {
+  useEffect(() => {
+    if (!active) return;
+    const api = window.electronAPI;
+    // A partial preload must not open a demo it cannot release.
+    if (
+      typeof api?.beginOnboardingDemo !== "function" ||
+      typeof api.endOnboardingDemo !== "function"
+    )
+      return;
+    const id = `onboarding-shortcut-${++shortcutDemoSequence}-${crypto.randomUUID()}`;
+    let begun: Promise<unknown>;
+    try {
+      begun = Promise.resolve(api.beginOnboardingDemo({ id, kind: "shortcut" })).catch(() => false);
+    } catch {
+      begun = Promise.resolve(false);
+    }
+    return () => {
+      // IPC may have applied a begin whose acknowledgement was refused/lost.
+      // Await it, then end only this id; main fences off any newer owner.
+      void begun.then(async () => {
+        try {
+          await api.endOnboardingDemo(id);
+        } catch {
+          // The original main owner is unavailable. Never cancel another demo.
+        }
+      });
+    };
+  }, [active]);
+}

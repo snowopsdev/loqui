@@ -4479,6 +4479,28 @@
       "exampleInProgress": "Example text while your request runs. Your result appears only when cleanup succeeds.",
       "attemptNotice_other": "You allowed {{count}} words to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "ショートカットを試しましょう。",
+      "testerLabel": "ショートカットのテスト。{{key}}を押してください。",
+      "hint": "{{key}}を押してください。短く押すと開始・停止し、長押しすると押している間だけ話せます。",
+      "fills": "こんにちは、動作しています。",
+      "works": "ショートカットは正常です",
+      "detected": {
+        "tap": "短押しで開始・停止を検出",
+        "hold": "長押しで話す操作を検出"
+      },
+      "suggest": {
+        "push": "キーの長押しを検出しました。長押しで話すモードに切り替えますか？",
+        "tap": "キーの短押しを検出しました。短押しで開始・停止するモードに切り替えますか？"
+      },
+      "switch": "切り替える",
+      "change": "ショートカットを変更",
+      "changeHelp": "どのアプリでも、このキーを押して話せます。他のアプリと競合する場合は変更してください。",
+      "autoPaste": "自動貼り付け",
+      "autoPasteBodyMac": "カーソルの位置に文字を貼り付けます。macOSではアクセシビリティの許可が必要です。",
+      "autoPasteBodyOther": "カーソルの位置に文字を貼り付けます。",
+      "accessibilityBody": "macOSでは、許可した後にのみLoquiがショートカットを検出し、貼り付けられます。今すぐ許可するか、後で設定から許可できます。"
     }
   }
 }

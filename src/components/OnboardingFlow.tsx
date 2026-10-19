@@ -7,9 +7,6 @@ import {
   reasoningModelBelongsToProvider,
 } from "../stores/settingsStore";
 import { usePermissions } from "../hooks/usePermissions";
-import { Button } from "./ui/button";
-import { Toggle } from "./ui/toggle";
-import { HotkeyListInput } from "./ui/HotkeyListInput";
 import { micPickerModel, selectionFor, type AudioInput } from "../utils/onboardingMic";
 import { HelloStep } from "./onboarding/HelloStep";
 import { PrivacyDefaults } from "./onboarding/PrivacyDefaults";
@@ -26,9 +23,9 @@ import { useOnboardingNotifier } from "./onboarding/useOnboardingNotifier";
 import "../styles/onboarding-welcome.css";
 import "../styles/onboarding-guided.css";
 import "../styles/onboarding.css";
-import { formatHotkeyLabel, getDefaultHotkey, parseHotkeyList } from "../utils/hotkeys";
+import { getDefaultHotkey, parseHotkeyList } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
-import { CheckCircle2, CircleAlert, Keyboard, ShieldCheck } from "./icons";
+import { CheckCircle2, CircleAlert } from "./icons";
 import type {
   OnboardingPreviewConfig,
   OnboardingReadiness,
@@ -62,7 +59,13 @@ import { keycapLabel } from "../utils/onboardingShortcut";
 import { trialContext } from "../utils/onboardingTrialContext";
 import { getParakeetModelInfo } from "../models/ModelRegistry";
 import { useTrialSession } from "./onboarding/useTrialSession";
-import { useDictationHotkey, bindingMatches } from "./onboarding/useDictationHotkey";
+import {
+  useDictationHotkey,
+  useShortcutDemo,
+  bindingMatches,
+} from "./onboarding/useDictationHotkey";
+import { useHotkeyModeInfo } from "../hooks/useHotkeyModeInfo";
+import { ShortcutStep } from "./onboarding/ShortcutStep";
 import { useAccessibilityGate } from "./onboarding/useAccessibilityGate";
 import { useTicker } from "./onboarding/useTicker";
 import { HotkeyTrial } from "./onboarding/HotkeyTrial";
@@ -110,101 +113,6 @@ const cleanupModelCatalog: CleanupModelCatalog = {
   defaultModel: (provider) =>
     pickDefaultModelId(modelRegistryData.cloudProviders.find((entry) => entry.id === provider)),
 };
-
-function ShortcutsStep({
-  platform,
-  permissions,
-}: {
-  platform: "darwin" | "linux" | "win32";
-  permissions: ReturnType<typeof usePermissions>;
-}) {
-  const dictationKey = useSettingsStore((s) => s.dictationKey);
-  const setDictationKey = useSettingsStore((s) => s.setDictationKey);
-  const autoPasteEnabled = useSettingsStore((s) => s.autoPasteEnabled);
-  const setAutoPasteEnabled = useSettingsStore((s) => s.setAutoPasteEnabled);
-  const hotkey = dictationKey || getDefaultHotkey();
-  const simulatedDenied = Boolean(
-    window.loquiBrowserPreview && window.loquiBrowserPreviewConfig?.scenario === "microphone-denied"
-  );
-  const accessibilityReady = simulatedDenied
-    ? false
-    : permissions.accessibilityPermissionGranted || platform !== "darwin";
-  return (
-    <div className="onboarding-guided-work">
-      <div className="onboarding-guided-section-head">
-        <h2>Use Loqui outside this window</h2>
-        <span>Optional</span>
-      </div>
-      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
-        <div className="flex items-start gap-3">
-          <Keyboard className="mt-0.5 h-5 w-5 text-primary" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold">Dictation shortcut</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              The registered default is platform-specific. Change it here if it conflicts with
-              another app.
-            </p>
-            <div className="mt-3">
-              <HotkeyListInput
-                value={hotkey}
-                onChange={(value) => {
-                  setDictationKey(value);
-                }}
-                required
-                maxHotkeys={1}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold">Automatic paste</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              When enabled, completed dictation is pasted into the focused app. You can turn this
-              off later.
-            </p>
-          </div>
-          <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
-        </div>
-      </div>
-      {platform === "darwin" && (
-        <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
-          <div className="flex items-start gap-3">
-            <ShieldCheck className="mt-0.5 h-5 w-5 text-primary" />
-            <div className="flex-1">
-              <p className="text-sm font-semibold">Accessibility permission</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                macOS needs this for global shortcuts and pasting into other apps.
-              </p>
-              {accessibilityReady ? (
-                <p className="mt-3 text-xs font-medium text-emerald-600">Permission ready.</p>
-              ) : (
-                <Button
-                  className="mt-3"
-                  size="sm"
-                  onClick={() => {
-                    if (window.loquiBrowserPreview) return;
-                    void permissions.requestAccessibilityPermission();
-                  }}
-                >
-                  Grant access
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      {platform === "linux" && (
-        <p className="rounded-lg border border-border/70 bg-muted/25 p-3 text-xs text-muted-foreground">
-          Linux paste support depends on your desktop session. Loqui will show the exact helper
-          guidance in Settings if a paste tool is missing.
-        </p>
-      )}
-    </div>
-  );
-}
 
 function FinishStep({
   readiness,
@@ -428,10 +336,10 @@ export default function OnboardingFlow({
     skip();
   };
 
-  // T14: unconditional subscription across every step; T15 replaces these shortcut bindings.
+  // Shared motion preference and the requested key; only main can acknowledge registration.
   const reducedMotion = usePrefersReducedMotion();
   const settingsHotkey =
-    parseHotkeyList(useSettingsStore((s) => s.activeDictationKey || s.dictationKey))[0] ||
+    parseHotkeyList(useSettingsStore((s) => s.dictationKey || s.activeDictationKey))[0] ||
     getDefaultHotkey();
   const hotkeyLabel = keycapLabel(settingsHotkey, platform);
   const activationMode = useSettingsStore((s) => s.activationMode);
@@ -533,6 +441,12 @@ export default function OnboardingFlow({
     lastTake?.usedHotkey === true &&
     bindingMatches(lastTake.binding, expectedBinding) &&
     bindingMatches(keycap.binding, expectedBinding);
+  useShortcutDemo(step === "shortcuts");
+  const modeInfo = useHotkeyModeInfo("dictation", settingsHotkey);
+  // Current main acknowledgement fences both mirrored presses and historical trial proof.
+  const shortcutProven =
+    bindingMatches(keycap.binding, expectedBinding) &&
+    ((keycap.presses > 0 && keycap.lastStyle !== null) || shortcutProofCurrent);
   const accessibility = useAccessibilityGate(platform, step === "try" || step === "shortcuts");
   const nowMs = useTicker(trial.phase === "recording");
   const [docked, setDocked] = useState(false);
@@ -704,7 +618,7 @@ export default function OnboardingFlow({
         ? "skipped"
         : platform === "darwin" && !permissions.accessibilityPermissionGranted
           ? "pending"
-          : shortcutProofCurrent
+          : shortcutProven
             ? "ready"
             : "pending",
     };
@@ -718,7 +632,7 @@ export default function OnboardingFlow({
     cleanupStatus,
     localVoiceActive,
     trialProofCurrent,
-    shortcutProofCurrent,
+    shortcutProven,
     mic.access,
   ]);
 
@@ -745,8 +659,6 @@ export default function OnboardingFlow({
       : providerDisplayLabel(cleanupRoute.providerId ?? choiceProviderId, t);
   const cleanupSelection = captureSetupCleanupSelection();
   let content: ReactNode = null;
-  if (step === "shortcuts")
-    content = <ShortcutsStep platform={platform} permissions={permissions} />;
   if (step === "finish")
     content = (
       <FinishStep
@@ -769,6 +681,34 @@ export default function OnboardingFlow({
     <div className="onboarding-welcome onboarding-guided onb-legacy">{node}</div>
   );
   const stepView = (): StepView => {
+    if (step === "shortcuts")
+      return {
+        rail: {
+          title: t("setupFlow.rail.shortcuts.title"),
+          body: t(`setupFlow.rail.shortcuts.body${device}`),
+          mode: downloadRail ?? { kind: "idle" },
+        },
+        primary: { label: t("setupFlow.continue"), onClick: advance },
+        onSkip: skip,
+        finishLaterLabel: t("setupFlow.finishLater"),
+        content: (
+          <ShortcutStep
+            platform={platform}
+            hotkey={settingsHotkey}
+            hotkeyLabel={hotkeyLabel}
+            activationMode={activationMode}
+            pushSupported={modeInfo.loaded && modeInfo.supportsPushToTalk}
+            keycap={keycap}
+            accessibilityMissing={accessibility.granted === false}
+            onGrantAccessibility={accessibility.request}
+            autoPasteEnabled={autoPasteEnabled}
+            onAutoPasteChange={(value) => useSettingsStore.getState().setAutoPasteEnabled(value)}
+            onActivationModeChange={(mode) => useSettingsStore.getState().setActivationMode(mode)}
+            onHotkeyChange={(value) => useSettingsStore.getState().setDictationKey(value)}
+          />
+        ),
+      };
+
     if (step === "cleanup")
       return {
         rail: {

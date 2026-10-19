@@ -4516,6 +4516,28 @@
       "attemptNotice_other": "You allowed {{count}} words to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
       "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "Essayez votre raccourci.",
+      "testerLabel": "Test du raccourci. Appuyez sur {{key}}.",
+      "hint": "Appuyez sur {{key}}. Une pression brève démarre et arrête ; une pression prolongée permet de parler tant que la touche est maintenue.",
+      "fills": "Bonjour, ça marche.",
+      "works": "Le raccourci fonctionne",
+      "detected": {
+        "tap": "Pression brève pour démarrer et arrêter détectée",
+        "hold": "Pression prolongée pour parler détectée"
+      },
+      "suggest": {
+        "push": "Vous avez maintenu la touche. Passer au mode maintenir pour parler ?",
+        "tap": "Vous avez brièvement appuyé sur la touche. Passer au mode appuyer pour démarrer et arrêter ?"
+      },
+      "switch": "Changer",
+      "change": "Changer de raccourci",
+      "changeHelp": "Utilisez ce raccourci où que vous soyez pour parler. Changez-le en cas de conflit avec une autre app.",
+      "autoPaste": "Collage automatique",
+      "autoPasteBodyMac": "Collez vos mots à la position du curseur. Nécessite une autorisation d’accessibilité sous macOS.",
+      "autoPasteBodyOther": "Collez vos mots à la position du curseur.",
+      "accessibilityBody": "macOS permet à Loqui de détecter le raccourci et de coller uniquement après votre autorisation. Vous pouvez l’accorder maintenant ou plus tard dans les réglages."
     }
   }
 }

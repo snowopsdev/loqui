@@ -519,8 +519,9 @@ an audio/cancellation manager. Completed proof belongs to its original context;
 changing a route/device leaves current setup unproven while historical words stay
 available for the later Cleanup step. The interim Finish microphone row requires
 that current matching trial, never a historical success count. Its shortcut row
-also requires a matching successful hotkey take and a current main binding
-query; permissions alone cannot prove a new binding. Task18 replaces these
+accepts either a completed mirrored press in Shortcut or a matching successful
+hotkey take in the current voice/device context, with current main binding
+acknowledgement; permissions alone cannot prove a new binding. Task18 replaces these
 interim rows with the final configured/proven summary.
 
 `getDictationBinding` reads the registered main hotkey slot and acknowledged
@@ -617,3 +618,36 @@ success is asserted. Task18 consumes cleanupSituation and historical trial words
 separately from current voice/device/shortcut proof. Task22 still needs the real
 Plan04 tags/private-hold/sole-setter/session/disclosure/Undo integration; no new
 recording/cancellation owner, Sealed or zero-byte contract is introduced here.
+
+### Onboarding shortcut tester (Plan05 Task17)
+
+Shortcut is a separate, recording-free test of the registered key. Its focusable,
+named tester mirrors down/up feedback through LiveKeycap and announces a completed
+tap or hold politely. A hold can suggest push-to-talk only after main answers for
+the current requested key; a stale key's capabilities, missing method, rejected
+query or unsupported answer cannot authorize that suggestion. Mode, key and
+paste changes use the existing settings setters and real HotkeyListInput. Paste
+is an observable store selection, with a named, neutral high-contrast switch.
+macOS Accessibility recovery stays platform-specific.
+
+Each active shortcut demo has a unique effect-lifetime id, including StrictMode
+replay. A partial bridge with no matching end method never begins; delayed or
+failed acknowledgements are settled before id-matched teardown. Only the existing
+main session ends, so a stale end cannot destroy a newer trial or shortcut demo.
+No recorder, separate cancellation owner or invented Undo is introduced. Native
+capture remains excluded centrally and retains its separate forwarding channels.
+
+The requested key stays visible while registration is pending or refused. Main's
+actual slot/callback and activation mode acknowledge it; editable preferences and
+a retained older active key are not proof. Changing either key or mode clears
+current press eligibility. Historical trial proof still requires its admitted
+voice/microphone context; raw historical words and the session's nonsecret Cleanup
+attempt disclosure survive step navigation under their existing owners.
+
+The in-memory browser bridge explicitly reports support for its simulated
+key-release events; this is preview behavior, not desktop capability evidence.
+The production step contains no preview branches. Task17 strings are authored in
+all eleven locales; previous placeholder translations and final native-speaker,
+native audio, OS permission, motion and real zoom verification keep their later
+owners. Task18's final Ready summary and Task22's real Plan04 composition remain
+separate work.

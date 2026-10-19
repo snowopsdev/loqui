@@ -4516,6 +4516,28 @@
       "attemptNotice_one": "You allowed {{count}} word to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "Prueba tu atajo.",
+      "testerLabel": "Probador de atajos. Pulsa {{key}}.",
+      "hint": "Pulsa {{key}}. Un toque rápido inicia y detiene; mantener pulsado permite hablar mientras lo mantienes.",
+      "fills": "Hola, funciona.",
+      "works": "El atajo funciona",
+      "detected": {
+        "tap": "Detectado: tocar para iniciar y detener",
+        "hold": "Detectado: mantener pulsado para hablar"
+      },
+      "suggest": {
+        "push": "Has mantenido la tecla pulsada. ¿Cambiar a mantener pulsado para hablar?",
+        "tap": "Has tocado la tecla. ¿Cambiar a tocar para iniciar y detener?"
+      },
+      "switch": "Cambiar",
+      "change": "Cambiar atajo",
+      "changeHelp": "Pulsa este atajo desde cualquier lugar para hablar. Cámbialo si entra en conflicto con otra app.",
+      "autoPaste": "Pegado automático",
+      "autoPasteBodyMac": "Pega tus palabras donde esté el cursor. Requiere acceso de Accesibilidad en macOS.",
+      "autoPasteBodyOther": "Pega tus palabras donde esté el cursor.",
+      "accessibilityBody": "macOS solo permite que Loqui detecte el atajo y pegue después de que lo autorices. Puedes conceder acceso ahora o más tarde en Ajustes."
     }
   }
 }

@@ -1345,3 +1345,46 @@
     animation: none;
   }
 }
+
+/* R7 B: the shortcut tester observes the registered key without recording. */
+.onb-tester {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  min-inline-size: 0;
+  padding: 16px;
+  border: 1px dashed var(--color-border-hover);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+
+.onb-tester:focus-visible {
+  border-style: solid;
+  border-color: var(--color-ring);
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Keep this preference neutral; orange belongs to live voice controls. */
+.onb-shortcut [role="switch"] {
+  flex-shrink: 0;
+  border: 1px solid var(--color-input-border);
+  background: var(--color-card);
+}
+
+.onb-shortcut [role="switch"] > span {
+  background: var(--color-foreground);
+}
+
+.onb-shortcut [role="switch"][aria-checked="true"] {
+  background: var(--color-cta);
+}
+
+.onb-shortcut [role="switch"][aria-checked="true"] > span {
+  background: var(--color-cta-foreground);
+}
+
+.onb-shortcut [role="switch"]:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}

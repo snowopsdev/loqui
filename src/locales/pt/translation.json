@@ -4516,6 +4516,28 @@
       "attemptNotice_other": "You allowed {{count}} words to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
       "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "Experimente o seu atalho.",
+      "testerLabel": "Teste do atalho. Prima {{key}}.",
+      "hint": "Prima {{key}}. Um toque rápido inicia e para; manter premido permite falar enquanto segura a tecla.",
+      "fills": "Olá, funciona.",
+      "works": "O atalho funciona",
+      "detected": {
+        "tap": "Detetado: tocar para iniciar e parar",
+        "hold": "Detetado: manter premido para falar"
+      },
+      "suggest": {
+        "push": "Manteve a tecla premida. Mudar para manter premido para falar?",
+        "tap": "Tocou na tecla. Mudar para tocar para iniciar e parar?"
+      },
+      "switch": "Mudar",
+      "change": "Alterar atalho",
+      "changeHelp": "Use este atalho em qualquer lugar para falar. Altere-o se entrar em conflito com outra aplicação.",
+      "autoPaste": "Colagem automática",
+      "autoPasteBodyMac": "Cole as suas palavras onde estiver o cursor. Requer acesso de Acessibilidade no macOS.",
+      "autoPasteBodyOther": "Cole as suas palavras onde estiver o cursor.",
+      "accessibilityBody": "O macOS só permite que o Loqui detete o atalho e cole após a sua autorização. Pode concedê-la agora ou mais tarde nas Definições."
     }
   }
 }

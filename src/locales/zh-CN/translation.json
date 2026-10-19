@@ -4479,6 +4479,28 @@
       "exampleInProgress": "Example text while your request runs. Your result appears only when cleanup succeeds.",
       "attemptNotice_other": "You allowed {{count}} words to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "试试你的快捷键。",
+      "testerLabel": "快捷键测试。请按{{key}}。",
+      "hint": "请按{{key}}。轻按可开始或停止；长按时，只在按住期间录音。",
+      "fills": "你好，可以用了。",
+      "works": "快捷键正常",
+      "detected": {
+        "tap": "已检测到轻按开始和停止",
+        "hold": "已检测到按住说话"
+      },
+      "suggest": {
+        "push": "你按住了按键。要切换为按住说话吗？",
+        "tap": "你轻按了按键。要切换为轻按开始和停止吗？"
+      },
+      "switch": "切换",
+      "change": "更改快捷键",
+      "changeHelp": "在任何应用中按此快捷键即可说话。如果与其他应用冲突，请更改。",
+      "autoPaste": "自动粘贴",
+      "autoPasteBodyMac": "将文字粘贴到光标所在位置。macOS需要辅助功能权限。",
+      "autoPasteBodyOther": "将文字粘贴到光标所在位置。",
+      "accessibilityBody": "只有获得你的许可后，macOS才允许Loqui检测快捷键和粘贴。你可以现在授权，也可以稍后在设置中授权。"
     }
   }
 }

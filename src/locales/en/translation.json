@@ -4510,6 +4510,28 @@
       "attemptNotice_one": "You allowed {{count}} word to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "Try your shortcut.",
+      "testerLabel": "Shortcut tester. Press {{key}}.",
+      "hint": "Press {{key}}. A quick tap starts and stops; holding talks while you hold.",
+      "fills": "Hello, it works.",
+      "works": "Shortcut works",
+      "detected": {
+        "tap": "Tap to start and stop detected",
+        "hold": "Hold to talk detected"
+      },
+      "suggest": {
+        "push": "You held the key. Switch to hold to talk?",
+        "tap": "You tapped the key. Switch to tap to start and stop?"
+      },
+      "switch": "Switch",
+      "change": "Change shortcut",
+      "changeHelp": "Press this anywhere to talk. Change it if it clashes with another app.",
+      "autoPaste": "Automatic paste",
+      "autoPasteBodyMac": "Paste your words where the cursor is. Needs Accessibility access on macOS.",
+      "autoPasteBodyOther": "Paste your words where the cursor is.",
+      "accessibilityBody": "macOS only lets Loqui hear the shortcut and paste after you allow it. You can grant it now or later in Settings."
     }
   }
 }

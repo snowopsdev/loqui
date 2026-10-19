@@ -599,3 +599,25 @@ test("cleanup retry stays with the completed failed take, refuses duplicates and
   await api.endOnboardingDemo("demo-1");
   bridge.reset();
 });
+
+test("shortcut preview explicitly reports its simulated release capability without recording", async () => {
+  const { api, bridge, time } = await bridgeFor("ready", "macos");
+  assert.equal(typeof api.getHotkeyModeInfo, "function");
+  const info = await api.getHotkeyModeInfo("GLOBE");
+  assert.equal(info.supportsPushToTalk, true);
+  const events = [];
+  api.onOnboardingDemoEvent((event) => events.push(event));
+  const keys = [];
+  api.onDictationHotkeyEvent((event) => keys.push(event));
+  await api.beginOnboardingDemo({ id: "shortcut-capability", kind: "shortcut" });
+  bridge.simulateHotkey("down");
+  time.advance(600);
+  bridge.simulateHotkey("up");
+  assert.deepEqual(
+    keys.map((event) => event.phase),
+    ["down", "up"]
+  );
+  assert.equal(keys[1].at - keys[0].at, 600);
+  assert.equal(await api.toggleOnboardingDemo("shortcut-capability"), false);
+  assert.deepEqual(events, []);
+});

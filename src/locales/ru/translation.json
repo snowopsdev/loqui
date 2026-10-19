@@ -4612,6 +4612,28 @@
       "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_few": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
       "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "Попробуйте сочетание клавиш.",
+      "testerLabel": "Проверка сочетания клавиш. Нажмите {{key}}.",
+      "hint": "Нажмите {{key}}. Короткое нажатие запускает и останавливает запись; удержание позволяет говорить, пока клавиша нажата.",
+      "fills": "Привет, всё работает.",
+      "works": "Сочетание клавиш работает",
+      "detected": {
+        "tap": "Обнаружено короткое нажатие для запуска и остановки",
+        "hold": "Обнаружено удержание для записи речи"
+      },
+      "suggest": {
+        "push": "Вы удерживали клавишу. Переключиться на запись при удержании?",
+        "tap": "Вы коротко нажали клавишу. Переключиться на запуск и остановку нажатием?"
+      },
+      "switch": "Переключить",
+      "change": "Изменить сочетание клавиш",
+      "changeHelp": "Нажмите это сочетание в любом приложении, чтобы говорить. Измените его, если оно конфликтует с другим приложением.",
+      "autoPaste": "Автоматическая вставка",
+      "autoPasteBodyMac": "Вставляйте слова в позицию курсора. В macOS требуется разрешение в разделе «Универсальный доступ».",
+      "autoPasteBodyOther": "Вставляйте слова в позицию курсора.",
+      "accessibilityBody": "macOS разрешает Loqui распознавать сочетание клавиш и вставлять текст только с вашего согласия. Разрешение можно выдать сейчас или позже в настройках."
     }
   }
 }

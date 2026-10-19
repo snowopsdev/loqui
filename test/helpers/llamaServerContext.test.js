@@ -424,3 +424,46 @@ test("a context step-down is recorded, so the server reports what it actually ha
   // prompt the server cannot take.
   assert.equal(manager.contextSize, 16384);
 });
+
+test("retired captured preflight never sends its second tokenization request", async () => {
+  const manager = new LlamaServerManager();
+  manager.ready = true;
+  manager.process = {};
+  let live = true;
+  const requests = [];
+  manager._requestJson = async (path) => {
+    requests.push(path);
+    live = false;
+    return { prompt: "fixture private words" };
+  };
+  await assert.rejects(
+    manager.countPromptTokens([{ role: "user", content: "fixture private words" }], {
+      execution: {
+        assertLive() {
+          if (!live) throw new Error("Retired");
+        },
+      },
+    }),
+    /Retired/
+  );
+  assert.deepEqual(requests, ["/apply-template"]);
+});
+
+test("captured local server errors never include a response body or JSON excerpt", async (t) => {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(500);
+    res.end("fixture private words");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const manager = new LlamaServerManager();
+  manager.ready = true;
+  manager.process = {};
+  manager.port = server.address().port;
+  t.after(() => manager.clearIdleTimer());
+  await assert.rejects(
+    manager.inference([{ role: "user", content: "fixture private words" }], { privateText: true }),
+    (error) =>
+      !error.message.includes("fixture private words") && error.message.includes("status 500")
+  );
+});

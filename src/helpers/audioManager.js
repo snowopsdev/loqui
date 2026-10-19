@@ -1,3 +1,4 @@
+import { createCapturedCleanupOperation } from "../services/capturedCleanupOperation";
 import ReasoningService from "../services/ReasoningService";
 import logger from "../utils/logger";
 
@@ -629,6 +630,45 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   // Policy applies only to future admissions. The recorder/pipeline carries its
   // own privacy through acquisition, retries, completion and delayed callbacks.
+  // Extends the original recorder admission. This is cleanup ownership only;
+  // recording privacy/cancellation and future Plan04 audio/session owners stay put.
+  admitCleanupOperation(take, recording, enabled = true) {
+    if (!take?.demoId || typeof take.takeId !== "string" || !enabled || recording.cleanupOperation)
+      return;
+    this.retireCapturedCleanup();
+    const identity = { ...take, operationId: crypto.randomUUID() };
+    const settings = getSettings();
+    const language = settings.preferredLanguage;
+    const scriptPreference = settings.chineseScriptPreference;
+    const operation = createCapturedCleanupOperation(identity, undefined, (text) =>
+      applyChineseScript(text, resolveChineseScriptTarget(language, scriptPreference, text))
+    );
+    recording.cleanupOperation = operation;
+    this._retainedCleanupOperation = operation;
+  }
+
+  retireCapturedCleanup(identity) {
+    const operation = this._retainedCleanupOperation;
+    if (!operation || (identity && operation.identity.operationId !== identity.operationId)) return;
+    this._retainedCleanupOperation = null;
+    operation.retire();
+  }
+
+  async retryCapturedCleanup(request) {
+    const operation = this._retainedCleanupOperation;
+    if (
+      !operation ||
+      !["demoId", "takeId", "operationId"].every((key) => operation.identity[key] === request[key])
+    )
+      return { ...request, code: "CLEANUP_OPERATION_UNAVAILABLE" };
+    try {
+      const text = await operation.retry();
+      return text ? { ...request, text } : { ...request, code: "CLEANUP_FAILED" };
+    } catch (error) {
+      return { ...request, code: error.code || "CLEANUP_FAILED" };
+    }
+  }
+
   setPrivateSession(enabled) {
     this._privateSession = enabled === true;
   }
@@ -1661,6 +1701,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   cancelRecording() {
+    this.retireCapturedCleanup();
     this.micRecovery.stop();
     if (this._rotatingBatchRecorder) {
       this._cancelRequestedDuringMicRecovery = true;
@@ -1809,6 +1850,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   cancelProcessing() {
+    this.retireCapturedCleanup();
     if (this.isProcessing) {
       this._processingCancellationGeneration = (this._processingCancellationGeneration ?? 0) + 1;
       this._requestStreamingCancellation();
@@ -2354,6 +2396,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // transcription result — batch or streaming — carries them.
   _takePendingResultExtras() {
     const extras = {
+      ...(this._retainedCleanupOperation
+        ? { cleanupOperationId: this._retainedCleanupOperation.identity.operationId }
+        : {}),
       ...(this.pendingAssistantConversation
         ? { assistantConversation: this.pendingAssistantConversation }
         : {}),
@@ -2638,13 +2683,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async processTranscription(text, source, wasCancelled = neverCancelled, detectedLanguage) {
+    const capturedCleanup =
+      this._activeProcessingPipeline?.recording?.cleanupOperation ||
+      this._recordingContext?.cleanupOperation;
     const result = await this.processTranscriptionCore(
       text,
       source,
       wasCancelled,
       detectedLanguage
     );
-    if (wasCancelled()) return result;
+    if (wasCancelled() || capturedCleanup) return result;
     return this.finalizeChineseScript(result);
   }
 
@@ -2659,6 +2707,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return normalizedText;
     }
     if (wasCancelled()) return normalizedText;
+
+    const cleanupOperation =
+      this._activeProcessingPipeline?.recording?.cleanupOperation ||
+      this._recordingContext?.cleanupOperation;
+    if (cleanupOperation) {
+      try {
+        const result = await cleanupOperation.run(normalizedText);
+        if (wasCancelled()) return normalizedText;
+        return result || (await cleanupOperation.finalizeOutput(normalizedText));
+      } catch (error) {
+        if (!wasCancelled()) this.pendingCleanupFailure = cleanupFailureFromError(error);
+        return normalizedText;
+      }
+    }
 
     logger.logReasoning("TRANSCRIPTION_RECEIVED", {
       source,
@@ -3904,6 +3966,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   _requestStreamingCancellation() {
+    this.retireCapturedCleanup();
     this._streamingCancellationGeneration += 1;
     ReasoningService.cancelAllRequests();
     this._activeTranscriptionAbortController?.abort();
@@ -4370,6 +4433,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   cleanup() {
+    this.retireCapturedCleanup();
     this.micRecovery.stop();
     this._unsubscribeSettings?.();
     this.preparedMicCapture.cancel();

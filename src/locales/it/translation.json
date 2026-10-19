@@ -4421,6 +4421,13 @@
       },
       "readyTitle": "Ready. Say something.",
       "readyBody": "Your voice model is on this device."
+    },
+    "cleanupAuthority": {
+      "unavailable": "La pulizia originale non è più disponibile. Le tue parole originali sono conservate.",
+      "changed": "La destinazione o le credenziali della pulizia sono cambiate. Le tue parole originali sono conservate.",
+      "unsupported": "La fonte di autenticazione selezionata per {{provider}} non può essere mantenuta per la pulizia. Le tue parole originali sono conservate.",
+      "failed": "La pulizia non è riuscita. Le tue parole originali sono conservate.",
+      "busy": "La pulizia è già in corso."
     }
   }
 }

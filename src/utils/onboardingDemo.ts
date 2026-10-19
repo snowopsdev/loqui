@@ -47,7 +47,12 @@ export function demoCleanupOutcome(result: {
 
 export function buildDemoSuccessEvent(
   kind: OnboardingDemoKind,
-  result: { text: string; rawText?: string | null; cleanupFailure?: unknown }
+  result: {
+    text: string;
+    rawText?: string | null;
+    cleanupFailure?: unknown;
+    cleanupOperationId?: string;
+  }
 ) {
   return {
     kind,
@@ -55,6 +60,7 @@ export function buildDemoSuccessEvent(
     text: result.text,
     rawText: typeof result.rawText === "string" ? result.rawText : undefined,
     cleanup: demoCleanupOutcome(result),
+    ...(result.cleanupOperationId ? { cleanupOperationId: result.cleanupOperationId } : {}),
   };
 }
 

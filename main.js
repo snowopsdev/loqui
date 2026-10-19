@@ -437,6 +437,29 @@ function initializeCoreManagers() {
     ipcMain,
     userDataPath: app.getPath("userData"),
     credentials: ipcHandlers.credentials,
+    textOperationSnapshot: (request) => {
+      const selected = require("./src/helpers/textOperationCapture").textOperationSnapshot(
+        environmentManager,
+        request
+      );
+      for (const [key, value] of Object.entries(request.expectedEnterprise || {})) {
+        if (selected[key] !== value)
+          throw Object.assign(
+            new Error("The cleanup recipient changed. Your original words are preserved."),
+            { code: "RECIPIENT_CHANGED" }
+          );
+      }
+      return selected;
+    },
+    onTextOperationsDisposed: () => ipcHandlers.onboardingCleanup.dispose(),
+    onTextOperationIssued: (sender, request, token) => {
+      if (request.cleanupIdentity)
+        ipcHandlers.onboardingCleanup.bind(sender, request.cleanupIdentity, token);
+    },
+    authorizeTextOperation: (sender, request) =>
+      request.cleanupIdentity
+        ? ipcHandlers.onboardingCleanup.authorized(sender, request.cleanupIdentity)
+        : sender === windowManager.controlPanelWindow?.webContents,
     waitForAdmission: () => ipcHandlers.vertexAuthSourceReady,
     getCredential: async (ref) => {
       const target = require("./src/helpers/credentialAuthority").slotForCredentialRef(ref);

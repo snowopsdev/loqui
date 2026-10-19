@@ -1,3 +1,8 @@
+import { createCapturedTextBridge } from "./capturedTextBridge";
+import type {
+  CleanupOperationIdentity,
+  CleanupRetryResult,
+} from "../services/ai/personalInferenceTypes";
 import type {
   DictationHotkeyEvent,
   OnboardingDemoEvent,
@@ -60,6 +65,7 @@ export function createOnboardingScenarioBridge(
   getConfig: () => OnboardingPreviewConfig,
   clock: ScenarioClock = realClock
 ) {
+  const textOperations = createCapturedTextBridge(async () => PREVIEW_SENTENCE);
   const progressListeners = new Set<ProgressListener>();
   const demoListeners = new Set<(event: OnboardingDemoEvent) => void>();
   const hotkeyListeners = new Set<(event: DictationHotkeyEvent) => void>();
@@ -68,6 +74,16 @@ export function createOnboardingScenarioBridge(
   const interrupted = new Set<string>();
   let active: Transfer | null = null;
   let session: Demo | null = null;
+  let cleanupOperation: {
+    identity: CleanupOperationIdentity;
+    failed: boolean;
+    pending?: (result: CleanupRetryResult) => void;
+  } | null = null;
+  const retireCleanup = () => {
+    const old = cleanupOperation;
+    cleanupOperation = null;
+    old?.pending?.({ ...old.identity, ok: false, code: "CLEANUP_OPERATION_UNAVAILABLE" });
+  };
   let take: Take | null = null;
   // Like main, event sequence and admitted take IDs never rewind on reset.
   let sequence = 0;
@@ -198,6 +214,7 @@ export function createOnboardingScenarioBridge(
 
   function startTrial() {
     if (!session || session.kind !== "dictation" || take) return;
+    retireCleanup();
     const owner: Take = {
       demo: session,
       id: String(++takeSequence),
@@ -247,7 +264,19 @@ export function createOnboardingScenarioBridge(
       } else {
         const failed = owner.scenario === "cleanup-failed";
         const text = failed ? PREVIEW_RAW_SENTENCE : PREVIEW_SENTENCE;
+        if (failed)
+          cleanupOperation = {
+            identity: {
+              demoId: owner.demo.id,
+              takeId: owner.id,
+              operationId: `cleanup-${owner.id}`,
+            },
+            failed,
+          };
         emitDemo(owner, {
+          ...(cleanupOperation
+            ? { cleanupOperationId: cleanupOperation.identity.operationId }
+            : {}),
           status: "success",
           text,
           rawText: text,
@@ -259,6 +288,7 @@ export function createOnboardingScenarioBridge(
   }
 
   function endSession() {
+    retireCleanup();
     if (take) clearTimers(take);
     take = null;
     session = null;
@@ -296,6 +326,7 @@ export function createOnboardingScenarioBridge(
     );
   }
   function reset() {
+    textOperations.reset();
     settleActive("Preview reset");
     downloaded.clear();
     kept.clear();
@@ -392,12 +423,41 @@ export function createOnboardingScenarioBridge(
       return true;
     },
     cancelOnboardingDemo: async (id: string) => {
+      if (session?.id === id) retireCleanup();
       const owner = take;
       if (session?.id !== id || !owner) return false;
       clearTimers(owner);
       emitDemo(owner, { status: "cancelled" });
       if (take === owner) take = null;
       return true;
+    },
+    retryOnboardingCleanup: async (
+      identity: CleanupOperationIdentity
+    ): Promise<CleanupRetryResult> => {
+      const owner = cleanupOperation;
+      if (
+        !owner ||
+        session?.id !== identity.demoId ||
+        !["demoId", "takeId", "operationId"].every(
+          (key) =>
+            identity[key as keyof CleanupOperationIdentity] ===
+            owner.identity[key as keyof CleanupOperationIdentity]
+        )
+      )
+        return { ...identity, ok: false, code: "CLEANUP_OPERATION_UNAVAILABLE" };
+      if (owner.pending) return { ...identity, ok: false, code: "CLEANUP_OPERATION_BUSY" };
+      return new Promise((resolve) => {
+        owner.pending = resolve;
+        clock.setTimeout(() => {
+          if (cleanupOperation !== owner) return;
+          owner.pending = undefined;
+          resolve(
+            owner.failed
+              ? { ...identity, ok: false, code: "CLEANUP_FAILED" }
+              : { ...identity, ok: true, text: PREVIEW_SENTENCE }
+          );
+        }, PROCESS_MS);
+      });
     },
     // Honest pre-Plan04 fallback: no hold or shared CancelledState exists yet.
     undoOnboardingDemoCancel: async (_id: string) => false,
@@ -424,10 +484,11 @@ export function createOnboardingScenarioBridge(
     | "stopOnboardingDemo"
     | "toggleOnboardingDemo"
     | "cancelOnboardingDemo"
+    | "retryOnboardingCleanup"
     | "undoOnboardingDemoCancel"
     | "onOnboardingDemoEvent"
     | "onDictationHotkeyEvent"
   >;
 
-  return { api, simulateHotkey, reset };
+  return { api, simulateHotkey, reset, textOperations };
 }

@@ -170,20 +170,59 @@ function validateRequest(input) {
   return { ...input, baseUrl, inferenceScope: scope, credentialRef: expectedRef };
 }
 
-async function createModel(provider, model, apiKey, baseURL, disableThinking, enterprise) {
+async function createModel(
+  provider,
+  model,
+  apiKey,
+  baseURL,
+  disableThinking,
+  enterprise,
+  execution
+) {
+  execution?.assertLive();
+  const guardedFetch = execution
+    ? (input, init) => {
+        execution.assertLive();
+        return fetch(input, {
+          ...init,
+          signal: init?.signal
+            ? AbortSignal.any([execution.signal, init.signal])
+            : execution.signal,
+          redirect: "error",
+        });
+      }
+    : undefined;
   if (["bedrock", "azure", "vertex"].includes(provider))
     return require("./enterpriseAiProviders").getEnterpriseAIModel(
       provider,
       model,
       apiKey,
-      enterprise
+      enterprise,
+      execution
     );
   const { createOpenAI } = require("@ai-sdk/openai");
-  if (provider === "openai") return createOpenAI({ apiKey })(model);
+  if (provider === "openai")
+    return createOpenAI({
+      apiKey,
+      ...(execution ? { baseURL: enterprise.sdkBaseURL } : {}),
+      ...(guardedFetch ? { fetch: guardedFetch } : {}),
+    })(model);
   if (provider === "anthropic")
-    return require("@ai-sdk/anthropic").createAnthropic({ apiKey })(model);
-  if (provider === "gemini") return require("@ai-sdk/google").createGoogle({ apiKey })(model);
-  if (provider === "groq") return require("@ai-sdk/groq").createGroq({ apiKey })(model);
+    return require("@ai-sdk/anthropic").createAnthropic({
+      apiKey,
+      ...(execution ? { baseURL: enterprise.sdkBaseURL } : {}),
+      ...(guardedFetch ? { fetch: guardedFetch } : {}),
+    })(model);
+  if (provider === "gemini")
+    return require("@ai-sdk/google").createGoogle({
+      apiKey,
+      ...(guardedFetch ? { fetch: guardedFetch } : {}),
+    })(model);
+  if (provider === "groq")
+    return require("@ai-sdk/groq").createGroq({
+      apiKey,
+      ...(guardedFetch ? { fetch: guardedFetch } : {}),
+    })(model);
   if (provider === "tinfoil")
     return (await (await import("tinfoil")).createTinfoilAI(apiKey))(model);
   const customFetch =
@@ -194,14 +233,16 @@ async function createModel(provider, model, apiKey, baseURL, disableThinking, en
               ...init,
               body: JSON.stringify({ ...JSON.parse(init.body), reasoning: { enabled: false } }),
             };
-          return fetch(url, init);
+          return (guardedFetch || fetch)(url, init);
         }
       : undefined;
   return createOpenAI({
     apiKey: apiKey || "no-key",
     baseURL: ALIASES[provider] || baseURL,
-    headers: require("./openCodeSession").openCodeSessionHeaders(ALIASES[provider] || baseURL),
-    ...(customFetch ? { fetch: customFetch } : {}),
+    headers: execution
+      ? enterprise.openCodeHeaders
+      : require("./openCodeSession").openCodeSessionHeaders(ALIASES[provider] || baseURL),
+    ...(customFetch || guardedFetch ? { fetch: customFetch || guardedFetch } : {}),
   }).chat(model);
 }
 
@@ -217,7 +258,20 @@ function registerPersonalInferenceIPC({
   modelFactory = createModel,
   getEnterpriseConfig = () => ({}),
   waitForAdmission = async () => {},
+  textOperationSnapshot = () => ({}),
+  authorizeTextOperation = () => true,
+  onTextOperationIssued = () => {},
+  onTextOperationsDisposed = () => {},
+  captureTextFactoryInputs = require("./textOperationCapture").captureTextFactoryInputs,
+  aiRuntime = () => require("ai"),
 }) {
+  const textOperations = require("./textOperationAuthority").createTextOperationAuthority({
+    credentials,
+    snapshot: textOperationSnapshot,
+    waitForAdmission,
+    authorize: authorizeTextOperation,
+    captureFactoryInputs: captureTextFactoryInputs,
+  });
   const recipients = require("./recipientAuthority").createRecipientAuthority();
   const active = new Map();
   const pendingTools = new Map();
@@ -230,7 +284,16 @@ function registerPersonalInferenceIPC({
     const channel = `personal-inference:${name}`;
     channels.push(channel);
     ipcMain.handle(channel, async (...args) => {
-      if (!["text-cancel", "text-tool-result"].includes(name)) await waitForAdmission();
+      if (
+        ![
+          "text-cancel",
+          "text-tool-result",
+          "text-operation-capture",
+          "text-operation-run",
+          "text-operation-retire",
+        ].includes(name)
+      )
+        await waitForAdmission();
       return fn(...args);
     });
   };
@@ -393,7 +456,7 @@ function registerPersonalInferenceIPC({
     else pending.resolve(result);
   });
 
-  async function execute(event, raw, streaming) {
+  async function execute(event, raw, streaming, captured = null, operationExecution = null) {
     const request = validateRequest(raw);
     const sender = event.sender;
     track(sender);
@@ -405,6 +468,16 @@ function registerPersonalInferenceIPC({
       () => controller.abort(new Error("Text request timed out.")),
       Math.min(Math.max(request.timeoutMs || 180000, 1000), 600000)
     );
+    const execution = operationExecution
+      ? {
+          ...operationExecution,
+          signal: AbortSignal.any([controller.signal, operationExecution.signal]),
+          assertLive() {
+            operationExecution.assertLive();
+            controller.signal.throwIfAborted();
+          },
+        }
+      : null;
     const emit = (chunk) => send(sender, { type: "chunk", requestId: request.requestId, chunk });
     // The abort reason carries why the request ended (timeout vs. cancel).
     const abortFailure = () =>
@@ -453,22 +526,30 @@ function registerPersonalInferenceIPC({
         if (streaming) emit({ type: "done", finishReason: "stop" });
         return { text };
       }
-      const apiKey = ["local", "bedrock"].includes(request.provider)
-        ? ""
-        : await getCredential(request.credentialRef);
+      execution?.assertLive();
+      const apiKey = captured
+        ? captured.apiKey
+        : ["local", "bedrock"].includes(request.provider)
+          ? ""
+          : await getCredential(request.credentialRef);
       if (!apiKey && !["local", "lan", "custom", "bedrock", "vertex"].includes(request.provider))
         throw new Error(`Configure the ${request.provider} API key in Settings.`);
+      execution?.assertLive();
       const model = await modelFactory(
         request.provider,
         request.model,
         apiKey,
         request.baseUrl,
         request.disableThinking,
-        ["bedrock", "azure", "vertex"].includes(request.provider)
-          ? await getEnterpriseConfig(request.provider)
-          : undefined
+        captured
+          ? captured.enterprise
+          : ["bedrock", "azure", "vertex"].includes(request.provider)
+            ? await getEnterpriseConfig(request.provider)
+            : undefined,
+        execution
       );
-      const { streamText, generateText, isStepCount, jsonSchema } = require("ai");
+      execution?.assertLive();
+      const { streamText, generateText, isStepCount, jsonSchema } = aiRuntime();
       let tools = request.tools?.length
         ? Object.fromEntries(
             request.tools.map((tool) => [
@@ -501,7 +582,7 @@ function registerPersonalInferenceIPC({
         model,
         messages: request.messages,
         instructions: request.systemPrompt || undefined,
-        abortSignal: controller.signal,
+        abortSignal: execution?.signal || controller.signal,
         tools,
         stopWhen: isStepCount(tools ? 20 : 1),
         maxRetries: 0,
@@ -535,7 +616,9 @@ function registerPersonalInferenceIPC({
         emit({ type: "done", finishReason });
         return {};
       }
+      execution?.assertLive();
       const result = await generateText(options);
+      execution?.assertLive();
       if (request.requireCompleteOutput && result.finishReason === "length")
         throw new Error(
           "The model truncated its response. Your original content is preserved; retry with a larger context or output budget."
@@ -559,6 +642,72 @@ function registerPersonalInferenceIPC({
         }
     }
   }
+  // Electron invoke does not preserve custom Error properties. New operation
+  // channels return a safe code envelope; preload reconstructs the typed error.
+  const operationHandle = (name, fn) =>
+    handle(name, (...args) => {
+      const refused = (error) => ({
+        ok: false,
+        code: [
+          "RECIPIENT_CHANGED",
+          "UNSUPPORTED_AUTH_SOURCE",
+          "CLEANUP_OPERATION_UNAVAILABLE",
+          "CLEANUP_OPERATION_BUSY",
+          "CLEANUP_REQUEST_CHANGED",
+        ].includes(error?.code)
+          ? error.code
+          : "CLEANUP_FAILED",
+      });
+      try {
+        return Promise.resolve(fn(...args)).then((value) => ({ ok: true, value }), refused);
+      } catch (error) {
+        return refused(error);
+      }
+    });
+  operationHandle("text-operation-capture", (event, descriptor) => {
+    if (["codex", "tinfoil"].includes(descriptor?.provider))
+      throw Object.assign(new Error("The selected authentication source cannot be retained."), {
+        code: "UNSUPPORTED_AUTH_SOURCE",
+      });
+    if (
+      descriptor?.inferenceScope !== "dictationCleanup" ||
+      descriptor.tools?.length ||
+      descriptor.webSearch
+    )
+      throw new Error("Captured operations support cleanup text only.");
+    const request = validateRequest({
+      ...descriptor,
+      requestId: "captured-cleanup",
+      messages: [],
+      ...(descriptor.provider === "local" ? { baseUrl: "http://127.0.0.1:1/v1" } : {}),
+    });
+    if (descriptor.provider === "local") delete request.baseUrl;
+    return textOperations.capture(event.sender, request, (token) =>
+      onTextOperationIssued(event.sender, request, token)
+    );
+  });
+  const { validateCapturedTextInput } = require("./capturedTextInput");
+  operationHandle("text-operation-run", (event, { token, request }) =>
+    textOperations.execute(
+      event.sender,
+      token,
+      validateCapturedTextInput(request),
+      (original, captured, execution, descriptor) => {
+        if (descriptor.provider === "local")
+          throw new Error("Use the captured local reasoning path.");
+        return execute(
+          event,
+          { ...descriptor, ...original, requestId: randomUUID() },
+          false,
+          captured,
+          execution
+        );
+      }
+    )
+  );
+  operationHandle("text-operation-retire", (event, token) =>
+    textOperations.retire(event.sender, token)
+  );
   handle("text-generate", (event, request) => execute(event, request, false));
   handle("text-stream", async (event, request) => {
     try {
@@ -579,12 +728,27 @@ function registerPersonalInferenceIPC({
     }
   });
   return {
-    isBusy: () => active.size > 0,
+    retireTextOperation: (sender, token) => textOperations.retire(sender, token),
+    runCapturedLocal(event, token, request, run) {
+      return textOperations.execute(
+        event.sender,
+        token,
+        validateCapturedTextInput(request),
+        (original, _captured, execution, descriptor) => {
+          if (descriptor.provider !== "local")
+            throw new Error("The captured operation is not local.");
+          return run(original, descriptor, execution);
+        }
+      );
+    },
+    isBusy: () => active.size > 0 || textOperations.isBusy(),
     eraseCodexProfile: () => codex.erase(),
     dispose() {
       for (const { controller } of active.values()) controller.abort();
       for (const channel of channels) ipcMain.removeHandler(channel);
       recipients.dispose();
+      textOperations.dispose();
+      onTextOperationsDisposed();
       codex.off("notification", notification);
       codex.stop();
     },

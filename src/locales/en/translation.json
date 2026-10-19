@@ -4415,6 +4415,13 @@
       },
       "readyTitle": "Ready. Say something.",
       "readyBody": "Your voice model is on this device."
+    },
+    "cleanupAuthority": {
+      "unavailable": "The original cleanup is no longer available. Your original words are preserved.",
+      "changed": "The cleanup destination or credential changed. Your original words are preserved.",
+      "unsupported": "The selected {{provider}} authentication source cannot be retained for cleanup. Your original words are preserved.",
+      "failed": "Cleanup failed. Your original words are preserved.",
+      "busy": "Cleanup is already running."
     }
   }
 }

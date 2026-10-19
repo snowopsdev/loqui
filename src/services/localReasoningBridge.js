@@ -17,6 +17,7 @@ class LocalReasoningService {
   }
 
   async processText(text, modelId, config = {}) {
+    config.execution?.assertLive();
     debugLogger.logReasoning("LOCAL_BRIDGE_START", {
       modelId,
       textLength: text.length,
@@ -44,26 +45,36 @@ class LocalReasoningService {
         // field-by-field is what silently orphaned it before #2142: it was
         // declared, written by selection editing, and never forwarded.
         contextSize: config.contextSize,
+        ...(config.execution ? { execution: config.execution } : {}),
       };
 
       debugLogger.logReasoning("LOCAL_BRIDGE_INFERENCE", {
         modelId,
-        config: inferenceConfig,
+        config: config.execution
+          ? { ...inferenceConfig, systemPrompt: "[captured]", execution: "[main-only]" }
+          : inferenceConfig,
       });
 
+      config.execution?.assertLive();
       const result = await modelManager.runInference(modelId, text, inferenceConfig);
       const stripThinking = config.disableThinking !== false;
       const cleanResult = stripThinking
         ? (await import("../helpers/stripThinking.js")).stripThinkingTags(result)
         : result.trim();
 
+      config.execution?.assertLive();
       const processingTime = Date.now() - startTime;
 
       debugLogger.logReasoning("LOCAL_BRIDGE_SUCCESS", {
         modelId,
         processingTimeMs: processingTime,
         resultLength: cleanResult.length,
-        resultPreview: cleanResult.substring(0, 100) + (cleanResult.length > 100 ? "..." : ""),
+        ...(config.execution
+          ? {}
+          : {
+              resultPreview:
+                cleanResult.substring(0, 100) + (cleanResult.length > 100 ? "..." : ""),
+            }),
       });
 
       return cleanResult;

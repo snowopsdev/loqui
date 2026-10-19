@@ -431,3 +431,65 @@ Task 7's sole adapter; inline Voice/Try failures create no alert. Cancellation
 pending/refused is not terminal. Failure Retry retains its original model and
 requires that model still be committed and selected, otherwise it returns to
 Voice. Existing cancellation toasts and measured footer placement remain intact.
+
+### Captured onboarding cleanup authority (Plan 05 Task 15 foundation)
+
+The original overlay AudioManager admits a cleanup operation synchronously with
+its string demo/take identity, before microphone, visual, import or credential
+waits. It captures the selected nonsecret provider/model/endpoint, prompt,
+dictionary, language, thinking/output options and final script conversion. The
+first text admission fixes the wrapped sentence and word count. Both the first
+cleanup and Retry execute this same retained request. A settings change cannot
+retarget it or introduce a remote fallback for an admitted device model. Main
+checks the actual loaded local model again before text-bearing preflight or
+inference dispatch, including after joining an existing server startup.
+
+Main's separate text-operation registry captures committed route/version and
+credential generation at IPC entry, waits for admission/committed credentials,
+and revalidates after each factory/auth wait and before transport. Credentials,
+ADC content, profile keys and provider tokens remain in main. SDK construction
+uses captured inputs, including captured ambient endpoint defaults and retained
+OpenCode session headers. Discovery recipient tokens remain sender-bound and
+retain their existing Verify semantics
+and twelve-second budget. Cleanup uses its normal per-request timeout; its
+capability expires after five minutes with no automatic renewal.
+
+Public typed contracts are in `personalInferenceTypes.ts` and `electron.ts`:
+`captureTextOperation(descriptor)` returns an opaque sender-bound token;
+`runTextOperation({token, request})` accepts one user message plus its original
+word count; `retireTextOperation(token)` invalidates it. Local callers use
+`processLocalReasoning` with `textOperationToken` and `wordCount`; main supplies
+the admitted model/config, ignoring the later model argument. The reusable
+renderer runner `createCapturedCleanupOperation` exposes `run(text)` once,
+argument-free `retry()`, and `retire()`. Refusals preserve original words and
+carry stable, localized safe errors, never provider response bodies.
+
+Setup receives only `cleanupOperationId` on a main-validated demo success event.
+It calls `retryOnboardingCleanup({demoId, takeId, operationId})`. Main validates
+the actual setup sender/current take/original overlay, forwards a nonce-tagged
+request via `onOnboardingCleanupRetry`, and accepts only the original overlay's
+matching `replyOnboardingCleanup`. Setup never receives the inference token or
+rebuilds the sentence. Duplicate in-flight retries and stale replies are refused.
+Failed cleanup remains retryable after that same take's success while its demo
+and owners remain current. Replacement, cancel, leaving Try/demo teardown,
+either owner destruction and disposal retire eligibility and abort active
+inference. Pending replies cannot mutate a newer operation or clear its audio.
+This extends the existing recorder/private saver and inference cancellation
+owners; it adds no audio hold, recording session or Undo framework.
+
+Supported captured paths include ordinary API-key/custom/LAN providers, explicit
+local models, Azure, Vertex API keys, strict Vertex service-account/authorized-user
+ADC files, and Bedrock explicit keys/static selected profiles. ADC and profile
+content is read once into main memory and never reread on Retry. Dynamic Bedrock
+profiles/ambient chains, unsupported Vertex ADC/metadata sources, Codex app-server
+account binding and Tinfoil's SDK bootstrap currently return source-specific
+unsupported errors. Generic chat and Verify retain their previous defaults.
+The typed in-memory preview bridge exercises request retention, local routing,
+duplicate refusal and retirement without provider, auth or microphone access.
+
+This commit is the authority foundation only. The following Task 15 UI subtask
+must retain the event's string take/operation identity, request Retry through the
+relay, and gate late results to that identity. Task 16 must capture a fresh
+setup-owned operation after new named-provider/count consent. Task 22 composes
+retirement with real Plan 04 tags/owners after integration; no Plan 04 session,
+Undo, Sealed or attestation contract is asserted here.

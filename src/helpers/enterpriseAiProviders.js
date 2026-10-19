@@ -12,6 +12,7 @@
 // model construction keeps the existing SDK transport defaults.
 function checkVerification(execution) {
   if (!execution) return;
+  execution.assertLive?.();
   execution.signal.throwIfAborted();
   if (Date.now() >= execution.deadlineAt)
     throw new DOMException("The connection test timed out.", "TimeoutError");
@@ -186,15 +187,19 @@ async function createVertexModel(model, apiKey, enterprise, execution) {
         );
       let input;
       try {
-        if (!enterprise.vertexAdcFile) throw unsupported();
-        checkVerification(execution);
-        const raw = await require("node:fs/promises").readFile(enterprise.vertexAdcFile, {
-          encoding: "utf8",
-          signal: execution.signal,
-        });
-        checkVerification(execution);
-        if (raw.length > 131072) throw unsupported();
-        input = JSON.parse(raw);
+        if (enterprise.capturedAdcCredentials) {
+          input = enterprise.capturedAdcCredentials;
+        } else {
+          if (!enterprise.vertexAdcFile) throw unsupported();
+          checkVerification(execution);
+          const raw = await require("node:fs/promises").readFile(enterprise.vertexAdcFile, {
+            encoding: "utf8",
+            signal: execution.signal,
+          });
+          checkVerification(execution);
+          if (raw.length > 131072) throw unsupported();
+          input = JSON.parse(raw);
+        }
       } catch {
         checkVerification(execution);
         throw unsupported();

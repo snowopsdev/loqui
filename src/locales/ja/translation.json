@@ -4389,6 +4389,13 @@
       },
       "readyTitle": "Ready. Say something.",
       "readyBody": "Your voice model is on this device."
+    },
+    "cleanupAuthority": {
+      "unavailable": "元の文章整形は利用できなくなりました。元の言葉は保持されています。",
+      "changed": "文章整形の送信先または認証情報が変更されました。元の言葉は保持されています。",
+      "unsupported": "選択した {{provider}} の認証元は文章整形用に保持できません。元の言葉は保持されています。",
+      "failed": "文章整形に失敗しました。元の言葉は保持されています。",
+      "busy": "文章整形はすでに実行中です。"
     }
   }
 }

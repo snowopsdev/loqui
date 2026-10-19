@@ -146,6 +146,11 @@ export const useAudioRecording = (toast, options = {}) => {
 
         // Capture at admission, before any visual/microphone await. Callback
         // metadata comes from AudioManager's original operation, never this ref.
+        manager.admitCleanupOperation?.(
+          onboardingTake,
+          recording,
+          !voiceAgentRequested && !translationRequested
+        );
         demoTakeRef.current = onboardingTake ?? null;
         demoKindRef.current = getOnboardingDemoKind(voiceAgentRequested);
 
@@ -846,6 +851,11 @@ export const useAudioRecording = (toast, options = {}) => {
         onboardingTake: options?.onboardingTake,
         recording: { private: trialModeRef.current === true },
       };
+      manager.admitCleanupOperation?.(
+        options?.onboardingTake,
+        preparedRecordingRef.current.recording,
+        !options?.inputKind || options.inputKind === "dictation"
+      );
       demoTakeRef.current = options?.onboardingTake ?? null;
       setIsAssistantVoice(false);
       setIsPreparing(true);
@@ -862,9 +872,18 @@ export const useAudioRecording = (toast, options = {}) => {
       preparationGenerationRef.current += 1;
       preparedRecordingRef.current = null;
       setIsPreparing(false);
+      manager?.retireCapturedCleanup?.();
       manager?.cancelPreparedMicCapture?.();
       if (reportedLifecycleRef.current?.startsWith("preparing:")) reportLifecycle("idle");
     });
+
+    const disposeCleanupRetry = window.electronAPI.onOnboardingCleanupRetry?.(async (request) => {
+      const reply = await manager.retryCapturedCleanup(request);
+      await window.electronAPI.replyOnboardingCleanup?.(reply);
+    });
+    const disposeCleanupRetired = window.electronAPI.onOnboardingCleanupRetired?.((identity) =>
+      manager.retireCapturedCleanup(identity)
+    );
 
     const disposeStop = window.electronAPI.onStopDictation?.(() => {
       handleStop();
@@ -896,6 +915,8 @@ export const useAudioRecording = (toast, options = {}) => {
       disposePrepare?.();
       disposeCancelPreparation?.();
       disposeStop?.();
+      disposeCleanupRetry?.();
+      disposeCleanupRetired?.();
       disposeForceStopped?.();
       if (manager) {
         manager.releasePrivateAudio?.();

@@ -159,7 +159,11 @@ function createBrowserPreviewAPI(
     notes.filter((note) =>
       `${note.title} ${note.content}`.toLowerCase().includes(query.toLowerCase())
     );
+  const capturedText = setup.textOperations;
   const personalInference: PersonalInferenceAPI = {
+    captureTextOperation: capturedText.captureTextOperation,
+    runTextOperation: capturedText.runTextOperation,
+    retireTextOperation: capturedText.retireTextOperation,
     describeModels: async () => {
       throw new Error("unavailable");
     },
@@ -200,6 +204,7 @@ function createBrowserPreviewAPI(
   };
   return {
     personalInference,
+    processLocalReasoning: capturedText.processLocalReasoning,
     probeSelfHosted: async () => ({ ok: false as const, code: "network" as const }),
     getEnterpriseRouteState: async () => enterpriseState(),
     onEnterpriseRouteChanged: on("enterprise-route-changed"),

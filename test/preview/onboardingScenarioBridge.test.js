@@ -467,6 +467,7 @@ test("insufficient-memory and clean/raw success values stay exact", async () => 
         text: "um remind me to send the draft before lunch",
         rawText: "um remind me to send the draft before lunch",
         cleanup: "failed",
+        cleanupOperationId: "cleanup-1",
       },
     ],
   ]) {
@@ -555,4 +556,30 @@ test("push activation records only while held and reset does not rewind take ide
   assert.equal(events.at(-1).takeId, "2");
   await api.cancelOnboardingDemo("demo-1");
   assert.equal(await api.undoOnboardingDemoCancel("demo-1"), false);
+});
+
+test("cleanup retry stays with the completed failed take, refuses duplicates and retires on replacement/end/reset", async () => {
+  const { api, time, events, bridge } = await trial("cleanup-failed");
+  await api.toggleOnboardingDemo("demo-1");
+  time.advance(200);
+  await api.toggleOnboardingDemo("demo-1");
+  time.advance(400);
+  const event = events.at(-1);
+  const identity = {
+    demoId: event.demoId,
+    takeId: event.takeId,
+    operationId: event.cleanupOperationId,
+  };
+  assert.ok(identity.operationId);
+  const pending = api.retryOnboardingCleanup(identity);
+  assert.equal((await api.retryOnboardingCleanup(identity)).code, "CLEANUP_OPERATION_BUSY");
+  time.advance(400);
+  assert.equal((await pending).code, "CLEANUP_FAILED");
+  const old = api.retryOnboardingCleanup(identity);
+  await api.toggleOnboardingDemo("demo-1");
+  assert.equal((await old).code, "CLEANUP_OPERATION_UNAVAILABLE");
+  time.advance(400);
+  assert.equal((await api.retryOnboardingCleanup(identity)).code, "CLEANUP_OPERATION_UNAVAILABLE");
+  await api.endOnboardingDemo("demo-1");
+  bridge.reset();
 });

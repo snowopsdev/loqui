@@ -4415,6 +4415,13 @@
       },
       "readyTitle": "Ready. Say something.",
       "readyBody": "Your voice model is on this device."
+    },
+    "cleanupAuthority": {
+      "unavailable": "Die ursprüngliche Textbereinigung ist nicht mehr verfügbar. Deine ursprünglichen Worte bleiben erhalten.",
+      "changed": "Das Ziel oder die Zugangsdaten der Textbereinigung haben sich geändert. Deine ursprünglichen Worte bleiben erhalten.",
+      "unsupported": "Die gewählte Authentifizierungsquelle für {{provider}} kann nicht für die Textbereinigung beibehalten werden. Deine ursprünglichen Worte bleiben erhalten.",
+      "failed": "Die Textbereinigung ist fehlgeschlagen. Deine ursprünglichen Worte bleiben erhalten.",
+      "busy": "Die Textbereinigung läuft bereits."
     }
   }
 }

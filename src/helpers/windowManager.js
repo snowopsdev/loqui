@@ -1642,6 +1642,7 @@ class WindowManager {
   }
 
   _prepareOnboardingTake() {
+    this.onOnboardingCleanupRetire?.();
     const session = this._onboardingDemoSession;
     if (!session) return;
     this._onboardingTakeSequence = (this._onboardingTakeSequence || 0) + 1;
@@ -1693,6 +1694,7 @@ class WindowManager {
   }
 
   _cancelOnboardingTake() {
+    this.onOnboardingCleanupRetire?.();
     if (this._onboardingDemoSession) this._onboardingDemoSession.cancelRequested = true;
     this.sendCancelDictationPreparation();
     this.sendCancelActiveDictation();

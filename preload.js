@@ -62,6 +62,15 @@ const registerListener = (channel, handlerFactory) => {
   };
 };
 
+const invokeTextOperation = async (channel, input) => {
+  const result = await ipcRenderer.invoke(channel, input);
+  if (!result?.ok)
+    throw Object.assign(new Error(result?.code || "CLEANUP_FAILED"), {
+      code: result?.code || "CLEANUP_FAILED",
+    });
+  return result.value;
+};
+
 contextBridge.exposeInMainWorld("electronAPI", {
   getSearchModelStatus: () => ipcRenderer.invoke("get-search-model-status"),
   downloadSearchModel: () => ipcRenderer.invoke("download-search-model"),
@@ -76,6 +85,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     prepared: (nonce, error) => ipcRenderer.send("loqui-update:prepared", nonce, !!error),
   },
   personalInference: {
+    captureTextOperation: (descriptor) =>
+      invokeTextOperation("personal-inference:text-operation-capture", descriptor),
+    runTextOperation: (input) =>
+      invokeTextOperation("personal-inference:text-operation-run", input),
+    retireTextOperation: (token) =>
+      invokeTextOperation("personal-inference:text-operation-retire", token),
     describeModels: (input) => ipcRenderer.invoke("personal-inference:describe-models", input),
     codexStatus: () => ipcRenderer.invoke("personal-inference:codex-status"),
     codexLogin: () => ipcRenderer.invoke("personal-inference:codex-login"),
@@ -133,6 +148,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onOnboardingDemoEvent: registerListener(
     "onboarding-demo-event",
     (callback) => (_event, payload) => callback(payload)
+  ),
+  retryOnboardingCleanup: (identity) => ipcRenderer.invoke("onboarding-cleanup-retry", identity),
+  replyOnboardingCleanup: (reply) => ipcRenderer.invoke("onboarding-cleanup-reply", reply),
+  onOnboardingCleanupRetry: registerListener(
+    "onboarding-cleanup-retry",
+    (callback) => (_event, request) => callback(request)
+  ),
+  onOnboardingCleanupRetired: registerListener(
+    "onboarding-cleanup-retired",
+    (callback) => (_event, identity) => callback(identity)
   ),
   getSystemProfile: () => ipcRenderer.invoke("get-system-profile"),
   toggleOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-toggle", id),

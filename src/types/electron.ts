@@ -1,3 +1,9 @@
+import type {
+  CleanupOperationIdentity,
+  CleanupRetryRequest,
+  CleanupRetryReply,
+  CleanupRetryResult,
+} from "../services/ai/personalInferenceTypes";
 export type VertexAuthSource = "adc" | "apiKey";
 export interface EnterpriseRouteSettings {
   bedrockRegion: string;
@@ -791,6 +797,7 @@ type OnboardingDemoStatus =
 export interface OnboardingDemoEvent {
   demoId: string;
   takeId?: string;
+  cleanupOperationId?: string;
   kind: OnboardingDemoKind;
   status: OnboardingDemoStatus;
   rawText?: string;
@@ -922,6 +929,12 @@ declare global {
       // Basic window operations
       setOnboardingWindowMode?: (mode: "compact" | "expanded" | "restore") => Promise<boolean>;
       setOnboardingActive?: (active: boolean) => Promise<boolean>;
+      retryOnboardingCleanup?: (identity: CleanupOperationIdentity) => Promise<CleanupRetryResult>;
+      replyOnboardingCleanup?: (reply: CleanupRetryReply) => Promise<boolean>;
+      onOnboardingCleanupRetry?: (callback: (request: CleanupRetryRequest) => void) => () => void;
+      onOnboardingCleanupRetired?: (
+        callback: (identity: CleanupOperationIdentity) => void
+      ) => () => void;
       beginOnboardingDemo?: (session: { id: string; kind: OnboardingDemoKind }) => Promise<boolean>;
       endOnboardingDemo?: (id: string) => Promise<boolean>;
       stopOnboardingDemo?: (id: string) => Promise<boolean>;

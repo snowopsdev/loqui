@@ -1232,6 +1232,19 @@ class IPCHandlers {
   }
 
   setupHandlers() {
+    this.onboardingCleanup = require("./onboardingCleanupRelay").createOnboardingCleanupRelay({
+      getSession: () => this.windowManager._onboardingDemoSession,
+      getSetup: () => this.windowManager.controlPanelWindow?.webContents,
+      getOverlay: () => this.windowManager.mainWindow?.webContents,
+      retire: (sender, token) => this.getPersonalInference?.()?.retireTextOperation(sender, token),
+    });
+    this.windowManager.onOnboardingCleanupRetire = () => this.onboardingCleanup.retire();
+    ipcMain.handle("onboarding-cleanup-retry", (event, identity) =>
+      this.onboardingCleanup.retry(event.sender, identity)
+    );
+    ipcMain.handle("onboarding-cleanup-reply", (event, reply) =>
+      this.onboardingCleanup.reply(event.sender, reply)
+    );
     ipcMain.handle("onboarding-set-window-mode", (_event, mode) =>
       this.windowManager.setOnboardingWindowMode(mode)
     );
@@ -1241,6 +1254,7 @@ class IPCHandlers {
     // renderer crash mid-demo would leave the session set and broadcast every
     // later dictation's transcripts on onboarding-demo-event forever.
     this.windowManager.onOnboardingDemoTeardown = () => {
+      this.onboardingCleanup.retire();
       this._onboardingDemoSession = null;
     };
 
@@ -1311,6 +1325,11 @@ class IPCHandlers {
     ipcMain.handle("onboarding-demo-publish", (_event, event) => {
       const payload = publishDemoEvent(event, this._onboardingDemoSession, this.windowManager);
       if (!payload) return false;
+      const selector = this.onboardingCleanup.selector(_event.sender, {
+        ...event,
+        operationId: event.cleanupOperationId,
+      });
+      if (selector) payload.cleanupOperationId = selector.operationId;
       broadcastToWindows("onboarding-demo-event", payload);
       return true;
     });
@@ -4723,10 +4742,34 @@ class IPCHandlers {
 
     ipcMain.handle("process-local-reasoning", async (event, text, modelId, _agentName, config) => {
       try {
-        const LocalReasoningService = require("../services/localReasoningBridge").default;
-        const result = await LocalReasoningService.processText(text, modelId, config);
+        const localReasoning = () => require("../services/localReasoningBridge").default;
+        const result = config?.textOperationToken
+          ? await this.getPersonalInference().runCapturedLocal(
+              event,
+              config.textOperationToken,
+              { messages: [{ role: "user", content: text }], wordCount: config.wordCount },
+              (original, descriptor, execution) =>
+                localReasoning().processText(original.messages[0].content, descriptor.model, {
+                  ...descriptor,
+                  execution,
+                })
+            )
+          : await localReasoning().processText(text, modelId, config);
         return { success: true, text: result };
       } catch (error) {
+        if (config?.textOperationToken)
+          return {
+            success: false,
+            error: "Cleanup failed. Your original words are preserved.",
+            code: [
+              "RECIPIENT_CHANGED",
+              "CLEANUP_OPERATION_UNAVAILABLE",
+              "CLEANUP_OPERATION_BUSY",
+              "CLEANUP_REQUEST_CHANGED",
+            ].includes(error.code)
+              ? error.code
+              : "CLEANUP_FAILED",
+          };
         // code/details carry the machine-readable failure across to the
         // renderer, which owns the translation keys. Flattening to a bare
         // string is how llama.cpp JSON used to reach users (#2142).

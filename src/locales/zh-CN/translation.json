@@ -4389,6 +4389,13 @@
       },
       "readyTitle": "Ready. Say something.",
       "readyBody": "Your voice model is on this device."
+    },
+    "cleanupAuthority": {
+      "unavailable": "原来的文本整理已不可用。原始文字已保留。",
+      "changed": "文本整理的目标或凭据已更改。原始文字已保留。",
+      "unsupported": "无法为文本整理保留所选的 {{provider}} 身份验证来源。原始文字已保留。",
+      "failed": "文本整理失败。原始文字已保留。",
+      "busy": "文本整理已在运行。"
     }
   }
 }

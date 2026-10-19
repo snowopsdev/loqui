@@ -135,3 +135,30 @@ test("hotkey listener strips the Electron event and disposes cleanly", () => {
   unsubscribe();
   assert.equal(listeners.has("dictation-hotkey-event"), false);
 });
+
+test("captured cleanup relay forwards exact typed selectors/replies and disposes owner listeners", async () => {
+  const { api, invocations, listeners } = loadPreloadApi();
+  const identity = { demoId: "demo", takeId: "take", operationId: "cleanup-operation" };
+  const reply = { ...identity, requestId: "request", text: "Fixture." };
+  await api.retryOnboardingCleanup(identity);
+  await api.replyOnboardingCleanup(reply);
+  assert.deepEqual(invocations, [
+    ["onboarding-cleanup-retry", identity],
+    ["onboarding-cleanup-reply", reply],
+  ]);
+  let received;
+  const off = api.onOnboardingCleanupRetry((value) => {
+    received = value;
+  });
+  listeners.get("onboarding-cleanup-retry")({ sender: "ipc" }, reply);
+  assert.equal(received, reply);
+  off();
+  assert.equal(listeners.has("onboarding-cleanup-retry"), false);
+  const retired = api.onOnboardingCleanupRetired((value) => {
+    received = value;
+  });
+  listeners.get("onboarding-cleanup-retired")({}, identity);
+  assert.equal(received, identity);
+  retired();
+  assert.equal(listeners.has("onboarding-cleanup-retired"), false);
+});

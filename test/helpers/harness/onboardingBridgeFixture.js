@@ -1,3 +1,4 @@
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
@@ -14,7 +15,7 @@ function inert() {
 
 // Complete production main/IPC/preload modules, with only Electron, unrelated
 // services and window presentation replaced. No native listeners or user data.
-function bridgeFixture() {
+function bridgeFixture({ localReasoning } = {}) {
   const handlers = new Map();
   const overlayListeners = new Map();
   const setupListeners = new Map();
@@ -71,24 +72,30 @@ function bridgeFixture() {
   manager._hideNormalAppSurfaces = () => {};
   const overlay = {
     isDestroyed: () => false,
-    webContents: {
+    webContents: Object.assign(new EventEmitter(), {
+      id: 1,
+      isDestroyed: () => false,
       send: (name, payload) => {
         sent.push([name, payload]);
         overlayListeners.get(name)?.({}, payload);
       },
-    },
+    }),
   };
   const setup = {
     isDestroyed: () => false,
-    webContents: {
+    webContents: Object.assign(new EventEmitter(), {
+      id: 2,
+      isDestroyed: () => false,
       send: (name, payload) => setupListeners.get(name)?.({}, payload),
-    },
+    }),
   };
   manager.mainWindow = overlay;
   manager.controlPanelWindow = setup;
   const IPCHandlers = load("src/helpers/ipcHandlers.js", {
     electron,
     "./onboardingInputPolicy": policy,
+    "./onboardingCleanupRelay": require("../../../src/helpers/onboardingCleanupRelay"),
+    ...(localReasoning ? { "../services/localReasoningBridge": { default: localReasoning } } : {}),
     "./windowBroadcast": {
       broadcastToWindows: (name, payload) => {
         broadcasts.push([name, payload]);
@@ -97,14 +104,13 @@ function bridgeFixture() {
     },
   });
   const context = new Proxy(
-    { windowManager: manager, _onboardingDemoSession: null },
+    { windowManager: manager, _onboardingDemoSession: null, getPersonalInference: () => undefined },
     {
       get: (target, key) => (key in target ? target[key] : inert()),
     }
   );
   IPCHandlers.prototype.setupHandlers.call(context);
-  const sender = { sender: overlay.webContents };
-  function api(listeners) {
+  function api(listeners, sender) {
     let exposed;
     load("preload.js", {
       electron: {
@@ -116,7 +122,11 @@ function bridgeFixture() {
         webUtils: {},
         ipcRenderer: {
           invoke: async (name, ...args) =>
-            name.startsWith("onboarding-") ? handlers.get(name)?.(sender, ...args) : undefined,
+            name.startsWith("onboarding-") ||
+            name.startsWith("personal-inference:") ||
+            name === "process-local-reasoning"
+              ? handlers.get(name)?.({ sender }, ...args)
+              : undefined,
           on: (name, fn) => listeners.set(name, fn),
           removeListener: (name, fn) => {
             if (listeners.get(name) === fn) listeners.delete(name);
@@ -133,8 +143,11 @@ function bridgeFixture() {
     context,
     sent,
     broadcasts,
-    overlayApi: api(overlayListeners),
-    setupApi: api(setupListeners),
+    overlayApi: api(overlayListeners, overlay.webContents),
+    setupApi: api(setupListeners, setup.webContents),
+    handlers,
+    overlaySender: overlay.webContents,
+    setupSender: setup.webContents,
     setListening: (value) => {
       listening = value;
     },

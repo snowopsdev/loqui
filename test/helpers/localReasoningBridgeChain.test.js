@@ -93,6 +93,7 @@ async function setupChain(t, respond) {
   serverManager.ready = true;
   serverManager.process = {};
   serverManager.port = server.address().port;
+  serverManager.modelPath = path.join(modelManager.modelsDir, model.fileName);
   modelManager.currentServerModelId = model.id;
   t.after(() => serverManager.clearIdleTimer());
 
@@ -152,4 +153,86 @@ test("a caller's contextSize reaches the server start (regression: it was droppe
   await bridge.processText("short text", modelId, { contextSize: 32768 });
 
   assert.deepEqual(started, [32768]);
+});
+
+test("captured local execution revalidates after model-file wait before any inference dispatch", async (t) => {
+  const chain = await setupChain(t, () => ({
+    choices: [{ message: { content: "Local." }, finish_reason: "stop" }],
+  }));
+  const modelManager = require("../../src/helpers/modelManagerBridge.js").default;
+  let release;
+  let live = true;
+  modelManager.checkModelValid = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  const execution = {
+    signal: new AbortController().signal,
+    assertLive() {
+      if (!live)
+        throw Object.assign(new Error("Retired"), { code: "CLEANUP_OPERATION_UNAVAILABLE" });
+    },
+  };
+  const pending = chain.bridge.processText("fixture words", chain.modelId, {
+    systemPrompt: "fixture captured prompt",
+    execution,
+  });
+  const refused = assert.rejects(pending, { code: "CLEANUP_OPERATION_UNAVAILABLE" });
+  live = false;
+  release(true);
+  await refused;
+  assert.deepEqual(chain.requests, []);
+});
+
+test("captured local cleanup refuses a different loaded model before sending private text", async (t) => {
+  const chain = await setupChain(t, () => completion("stop", "Wrong model."));
+  chain.serverManager.modelPath = "/fixture/different-loaded-model.gguf";
+  const execution = { signal: new AbortController().signal, assertLive() {} };
+  await assert.rejects(
+    chain.bridge.processText("fixture private words", chain.modelId, { execution }),
+    { code: "RECIPIENT_CHANGED" }
+  );
+  assert.equal(chain.requests.length, 0);
+});
+
+test("captured local cleanup dispatches successfully when the actual loaded model matches", async (t) => {
+  const chain = await setupChain(t, () => completion("stop", "Local fixture."));
+  const execution = { signal: new AbortController().signal, assertLive() {} };
+  assert.equal(
+    await chain.bridge.processText("fixture words", chain.modelId, {
+      execution,
+      systemPrompt: "fixture prompt",
+      temperature: 0,
+    }),
+    "Local fixture."
+  );
+  assert.equal(chain.requests.length, 1);
+  assert.equal(chain.requests[0].messages[0].content, "fixture prompt");
+  assert.equal(chain.requests[0].temperature, 0);
+});
+
+test("captured local startup wait cannot borrow a different concurrent model", async (t) => {
+  const chain = await setupChain(t, () => completion("stop", "Wrong model."));
+  let release, joined;
+  const entered = new Promise((resolve) => {
+    joined = resolve;
+  });
+  chain.serverManager.ready = false;
+  chain.serverManager.startupPromise = new Promise((resolve) => {
+    release = resolve;
+  });
+  const start = chain.serverManager.start.bind(chain.serverManager);
+  chain.serverManager.start = (...args) => {
+    joined();
+    return start(...args);
+  };
+  const execution = { signal: new AbortController().signal, assertLive() {} };
+  const pending = chain.bridge.processText("fixture private words", chain.modelId, { execution });
+  const refused = assert.rejects(pending, { code: "RECIPIENT_CHANGED" });
+  await entered;
+  chain.serverManager.modelPath = "/fixture/different-startup-model.gguf";
+  chain.serverManager.ready = true;
+  release();
+  await refused;
+  assert.equal(chain.requests.length, 0);
 });

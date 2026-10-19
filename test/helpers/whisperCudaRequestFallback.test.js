@@ -1,4 +1,11 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, [
+  "whisperServer",
+  "sidecarPidFile",
+  "downloadUtils",
+  "modelDirUtils",
+  "gpuBinaryManager",
+]);
 const assert = require("node:assert/strict");
 const http = require("node:http");
 
@@ -127,7 +134,12 @@ test("falls back to CPU and retries once when the CUDA server dies mid-request",
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ text: "hello" }));
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
 
@@ -168,7 +180,12 @@ test("falls back to CPU and emits gpu-fallback when a Vulkan server dies mid-req
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ text: "hello" }));
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: false, useVulkan: true });
 
@@ -216,7 +233,12 @@ test("falls back to CPU when a peer's replacement is another doomed CUDA server"
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ text: "hello" }));
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
 
@@ -250,7 +272,12 @@ test("does not fall back when the request fails on a CPU server", async (t) => {
     manager.process = null;
     req.socket.destroy();
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: false });
 
@@ -296,7 +323,12 @@ test("recovers both callers when two concurrent requests hit the same crash", as
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ text: "hello" }));
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
 
@@ -354,7 +386,12 @@ test("waits for a peer's in-flight restart before retrying", async (t) => {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ text: "hello" }));
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
 
@@ -394,7 +431,12 @@ test("throws the original error when the peer's restart fails", async (t) => {
     }, 100);
     req.socket.destroy();
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
 
@@ -433,7 +475,12 @@ test("aborts the fallback when a stop request lands during the exit wait", async
     }, 100);
     req.socket.destroy();
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
 
@@ -467,7 +514,12 @@ test("does not fall back while the CUDA server process stays alive", async (t) =
     requestCount += 1;
     req.socket.destroy();
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   const manager = createManager(port, { useCuda: true });
 
@@ -542,7 +594,12 @@ test("propagates the CPU restart failure without notifying (CPU never came up)",
     manager.process = null;
     req.socket.destroy();
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
   manager.start = async () => {
@@ -572,7 +629,12 @@ test("rejects immediately for a CPU server without waiting for process exit", as
     requestCount += 1;
     req.socket.destroy();
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   // The process stays alive: the old code polled it for the full exit timeout.
   const manager = createManager(port, { useCuda: false });
@@ -615,7 +677,12 @@ test("an aborted request rejects with AbortError and never triggers CPU fallback
     manager.process = null;
     gotRequest.resolve();
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
 
@@ -649,7 +716,12 @@ test("a pre-aborted signal rejects before any request is sent", async (t) => {
   const { server, port } = await startServer(() => {
     requestCount += 1;
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   const manager = createManager(port, { useCuda: false });
   const controller = new AbortController();
@@ -675,7 +747,12 @@ test("does not fall back after an intentional stop", async (t) => {
     manager.process = null;
     req.socket.destroy();
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   manager = createManager(port, { useCuda: true });
   manager._stopRequested = true;

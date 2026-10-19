@@ -4325,5 +4325,12 @@
       "thinking": "Denkt nach · vorgesehen für {{where}}",
       "thinkingScreenContext": "Denkt mit Bildschirmkontext nach · vorgesehen für {{where}}"
     }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "Aufnahmen können wiederhergestellt werden",
+      "transcribe": "Aufnahmen transkribieren",
+      "discard": "Aufnahmen verwerfen"
+    }
   }
 }

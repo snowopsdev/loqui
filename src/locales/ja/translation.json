@@ -4297,5 +4297,12 @@
       "thinking": "思考中 · 送信予定先：{{where}}",
       "thinkingScreenContext": "画面コンテキストを使って思考中 · 送信予定先：{{where}}"
     }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "復元できる録音があります",
+      "transcribe": "録音を文字起こし",
+      "discard": "録音を破棄"
+    }
   }
 }

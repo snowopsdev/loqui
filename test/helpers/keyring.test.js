@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+require("./harness/inertElectron").install(test, ["cortiAuth"]);
 const { EventEmitter } = require("node:events");
 const { deferred } = require("./harness/deferred");
 const { fakeCredentialEnv, fakeCodexFs } = require("./harness/fakeCredentialEnv");

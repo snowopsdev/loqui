@@ -99,7 +99,7 @@ async function fixture(t, settings = {}) {
         getRecordingAudioLevel() { return 0; }
       }`,
       "/utils/dictationCues":
-        "export const playStartCue = () => {}; export const playStopCue = () => {};",
+        "export const playStartCue = () => {}; export const playStopCue = () => {}; export const playErrorCue = () => {}; export const playCancelCue = () => {};",
       "/utils/visualFrame":
         "export function waitForVisualFrames() { return new Promise((resolve) => globalThis.__pressVisuals.push(resolve)); }",
       "/components/ui/notices":

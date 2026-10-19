@@ -407,7 +407,7 @@ test("[baseline source guard] an available renderer build does not enter authore
   assert.ok(authored.every((file) => !file.startsWith("src/dist/")));
 });
 
-test("[change-driving source guard] root lint ignores only the generated browser-vite-cache directory", async () => {
+test("[change-driving source guard] lint excludes retained scratch and generated cache while authored source remains linted", async () => {
   const { ESLint } = require("eslint");
   const lint = new ESLint({ cwd: root });
   assert.equal(
@@ -420,8 +420,35 @@ test("[change-driving source guard] root lint ignores only the generated browser
     await lint.isPathIgnored(
       path.join(root, ".superpowers/fixture/browser-vite-cache-authored.js")
     ),
+    true
+  );
+  assert.equal(
+    await lint.isPathIgnored(path.join(root, "test/fixtures/browser-vite-cache-authored.js")),
     false
   );
+  assert.equal(await lint.isPathIgnored(path.join(root, "main.js")), false);
+  // The suite's tsx loader changes ESLint's ESM-config loading. Check the same
+  // plain-Node boundary used by `cd src && eslint .`, with guards inherited.
+  const { spawnSync } = require("node:child_process");
+  const rendererProbe = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `
+    const { ESLint } = require("eslint");
+    (async () => {
+      const lint = new ESLint({ cwd: process.cwd() });
+      const file = require("node:path").resolve("components/dictation/pillLocality.ts");
+      const config = await lint.calculateConfigForFile(file);
+      console.log(JSON.stringify({ ignored: await lint.isPathIgnored(file),
+        hooks: config?.rules?.["react-hooks/rules-of-hooks"]?.[0] }));
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `,
+    ],
+    { cwd: path.join(root, "src"), env: { ...process.env }, encoding: "utf8" }
+  );
+  assert.equal(rendererProbe.status, 0, rendererProbe.stderr);
+  assert.deepEqual(JSON.parse(rendererProbe.stdout), { ignored: false, hooks: 2 });
   assert.equal(
     await lint.isPathIgnored(path.join(root, "test/components/routeFactsNoNetwork.test.js")),
     false

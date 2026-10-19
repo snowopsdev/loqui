@@ -55,6 +55,14 @@ const electronStub = {
 
 Module._load = function loadWithElectronStub(request, parent, isMain) {
   if (request === "electron") return electronStub;
+  // Unrelated setup leaf must remain inert through setup and awaited handlers.
+  if (parent?.filename === handlersModulePath && request === "./urlAudioDownloader")
+    return {
+      sweepStaleTempArtifacts() {},
+      download() {
+        throw new Error("Fixture blocks downloads");
+      },
+    };
   if (parent?.filename === handlersModulePath && request === "./debugLogger") {
     return new Proxy({}, { get: () => () => {} });
   }

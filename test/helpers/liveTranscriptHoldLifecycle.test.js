@@ -33,7 +33,7 @@ function capturePanelTimers(t) {
   return () => timers.findLast((timer) => timer.delay === FINAL_HIDE_MS && !timer.cancelled);
 }
 
-async function mountLiveTranscript(t, initialProps = {}) {
+async function mountLiveTranscript(t, initialProps = {}, { withPanel = false } = {}) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -52,11 +52,35 @@ async function mountLiveTranscript(t, initialProps = {}) {
       ),
     },
   });
-  const container = installHookDom(t);
+  let container = installHookDom(t);
+  const tree = withPanel ? require("./harness/fakeDomTree").installTree() : null;
+  if (tree) container = tree.container;
+  let fixtureI18n;
+  if (withPanel) {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+    };
+    t.after(() => {
+      if (originalResizeObserver === undefined) delete globalThis.ResizeObserver;
+      else globalThis.ResizeObserver = originalResizeObserver;
+    });
+    fixtureI18n = require("i18next").createInstance();
+    await fixtureI18n.init({ lng: "en", resources: { en: { translation: {} } } });
+  }
+
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-live-transcript-hold-test-",
   });
   const { useLiveTranscriptPanel } = await vite.ssrLoadModule("/hooks/useLiveTranscriptPanel.js");
+  const LiveTranscriptPanel = withPanel
+    ? (await vite.ssrLoadModule("/components/dictation/LiveTranscriptPanel.tsx"))
+        .LiveTranscriptPanel
+    : null;
+  const { resolveLiveTranscriptEntrancePresentation } = await vite.ssrLoadModule(
+    "/helpers/voicePillPresentation.js"
+  );
   let props = {
     resizeToContent: async () => ({ success: true }),
     assistantOpenRef: { current: false },
@@ -69,7 +93,21 @@ async function mountLiveTranscript(t, initialProps = {}) {
   let panel;
   function Harness() {
     panel = useLiveTranscriptPanel(props);
-    return null;
+    if (!LiveTranscriptPanel) return null;
+    const entrance = resolveLiveTranscriptEntrancePresentation(panel.entrancePhase);
+    return React.createElement(
+      require("react-i18next").I18nextProvider,
+      { i18n: fixtureI18n },
+      React.createElement(LiveTranscriptPanel, {
+        text: panel.text,
+        measurementText: panel.measurementText,
+        phase: panel.phase,
+        processing: false,
+        controlsVisible: panel.mounted && entrance.controlsVisible,
+        contentVisible: panel.mounted && entrance.contentVisible,
+        onCollapse: () => panel.close({ suppress: true }),
+      })
+    );
   }
 
   root = createRoot(container);
@@ -78,6 +116,7 @@ async function mountLiveTranscript(t, initialProps = {}) {
   });
   return {
     getPanel: () => panel,
+    getTree: () => tree,
     emitPreview: async (method, payload) => {
       assert.ok(previewListeners.has(method), `Missing preview listener: ${method}`);
       await React.act(async () => previewListeners.get(method)(payload));
@@ -245,3 +284,64 @@ test("hovering a final transcript pauses its active hide countdown and leaving r
   await React.act(async () => resumedHideTimer.callback());
   assert.equal(getPanel().openRef.current, false);
 });
+
+for (const acknowledgementDelay of [20, 800]) {
+  test(`real transcript hook and panel wait for owned resize ACK (${acknowledgementDelay}ms) and add no second opacity deadline`, async (t) => {
+    let resolveInitial, resolveMeasurement;
+    const initial = new Promise((resolve) => {
+      resolveInitial = resolve;
+    });
+    const measurement = new Promise((resolve) => {
+      resolveMeasurement = resolve;
+    });
+    let requests = 0;
+    const { getPanel, getTree, emitPreview } = await mountLiveTranscript(
+      t,
+      {
+        isRecording: true,
+        resizeToContent: () => (++requests === 1 ? initial : measurement),
+      },
+      { withPanel: true }
+    );
+    const advance = capturePresentationClock(t);
+    await emitPreview("onPreviewText", "owned first words");
+    assert.equal(
+      getPanel().mounted,
+      false,
+      "initial native footprint must acknowledge before mounting"
+    );
+    await advance(20);
+    await React.act(async () => {
+      resolveInitial({ success: true });
+    });
+    await advance(240);
+    assert.equal(getPanel().entrancePhase, "prepare");
+    await React.act(async () => {
+      void getPanel().requestHeight(168, "owned first words");
+    });
+    await advance(acknowledgementDelay);
+    assert.equal(getPanel().text, "", "unacknowledged measured content cannot become visible");
+    await React.act(async () => {
+      resolveMeasurement({ success: true, changed: true });
+    });
+    await advance(400);
+    assert.equal(getPanel().text, "owned first words");
+    const main = getTree().find((node) => node.tagName === "MAIN");
+    assert.equal(main.attributes["aria-hidden"], "false");
+    assert.match(main.textContent, /owned first words/);
+    assert.match(
+      main.attributes.class,
+      /\bdelay-0\b/,
+      "the hook owns the reveal deadline; the production panel must not postpone opacity again"
+    );
+    assert.ok(
+      main.attributes.class.includes("duration-(--motion-fast)"),
+      "content fade uses shared duration"
+    );
+    assert.ok(
+      main.attributes.class.includes("ease-(--motion-ease-enter)"),
+      "content fade uses shared entry curve"
+    );
+    assert.doesNotMatch(main.attributes.class, /pointer-events-none/);
+  });
+}

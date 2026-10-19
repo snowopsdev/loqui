@@ -1,4 +1,5 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, ["geminiTranscription"]);
 const assert = require("node:assert/strict");
 const { transcribeWithGemini } = require("../../src/helpers/geminiTranscription");
 

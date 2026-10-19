@@ -4333,5 +4333,12 @@
       "thinking": "Réflexion · destination prévue : {{where}}",
       "thinkingScreenContext": "Réflexion avec le contexte de l’écran · destination prévue : {{where}}"
     }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "Enregistrements prêts à être récupérés",
+      "transcribe": "Transcrire les enregistrements",
+      "discard": "Supprimer les enregistrements"
+    }
   }
 }

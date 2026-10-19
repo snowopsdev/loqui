@@ -4541,5 +4541,12 @@
       "thinking": "يفكّر · الوجهة المقصودة {{where}}",
       "thinkingScreenContext": "يفكّر مع سياق الشاشة · الوجهة المقصودة {{where}}"
     }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "تسجيلات جاهزة للاستعادة",
+      "transcribe": "تفريغ التسجيلات نصيًا",
+      "discard": "حذف التسجيلات"
+    }
   }
 }

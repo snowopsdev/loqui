@@ -1,4 +1,11 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, [
+  "downloadUtils",
+  "modelDirUtils",
+  "sidecarPidFile",
+  "whisperServer",
+  "gpuBinaryManager",
+]);
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const Module = require("node:module");

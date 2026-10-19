@@ -1,4 +1,11 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, [
+  "whisperServer",
+  "sidecarPidFile",
+  "downloadUtils",
+  "modelDirUtils",
+  "gpuBinaryManager",
+]);
 const assert = require("node:assert/strict");
 
 const WhisperManager = require("../../src/helpers/whisper.js");

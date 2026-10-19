@@ -19,7 +19,15 @@ const route = (id, locality, provider, state = { status: "ready" }) => ({
   kind: "speech",
   locality,
   provider,
-  providerId: null,
+  providerId:
+    locality === "remote"
+      ? ({
+          OpenAI: "openai",
+          Anthropic: "anthropic",
+          Gemini: "gemini",
+          "Custom endpoint": "custom",
+        }[provider] ?? null)
+      : null,
   recipient: null,
   model: null,
   state,
@@ -144,7 +152,7 @@ test("only the frozen session's enabled Agent, vision and translation intents co
     );
     const pill = combinePillLocality(routes, t);
     assert.equal(pill.locality, locality);
-    assert.equal(pill.provider, provider);
+    assert.equal(pill.provider, provider === "Gemini" ? "Google Gemini" : provider);
     for (const [id, key] of [
       ["voiceAssistant", "agent"],
       ["assistantVision", "vision"],
@@ -211,7 +219,7 @@ test("recording, processing and Undo use frozen routes; idle uses live routes; S
   );
   globalThis.__pillLiveRoutes.dictationStt = route("dictationStt", "remote", "Gemini");
   assert.equal(sample(local, true).locality, "device", "processing uses the same snapshot");
-  assert.equal(sample(null, false).provider, "Gemini", "idle returns to live Settings");
+  assert.equal(sample(null, false).provider, "Google Gemini", "idle returns to live Settings");
   assert.equal(sample(local, true).locality, "device", "Undo republishes that original session");
   const remote = snapshot({ intents: { voiceAgentRequested: true } });
   globalThis.__pillLiveRoutes.dictationStt = route("dictationStt", "device", null);
@@ -236,4 +244,16 @@ test("recording, processing and Undo use frozen routes; idle uses live routes; S
     "a missing busy session cannot fall back to live local routes"
   );
   assert.equal(sample(null, false).locality, "device");
+});
+
+test("missing provider IDs never expose a route's English log label in the pill", async (ctx) => {
+  const { routeProviderLabel } = await load(ctx);
+  for (const providerId of [null, undefined, ""]) {
+    const malformed = {
+      ...route("dictationStt", "remote", "English log label must stay private"),
+      providerId,
+    };
+    if (providerId === undefined) delete malformed.providerId;
+    assert.equal(routeProviderLabel(malformed, t), "locality.unknownProvider");
+  }
 });

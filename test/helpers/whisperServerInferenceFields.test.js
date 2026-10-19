@@ -1,4 +1,11 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, [
+  "whisperServer",
+  "sidecarPidFile",
+  "downloadUtils",
+  "modelDirUtils",
+  "gpuBinaryManager",
+]);
 const assert = require("node:assert/strict");
 const http = require("node:http");
 
@@ -52,7 +59,12 @@ test("pins the measured anti-hallucination thresholds from #1458", () => {
 
 test("sends the decoder threshold fields alongside the existing inference fields", async (t) => {
   const { server, port, getBody } = await startCapturingServer();
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   const manager = createManager(port);
   const result = await manager.transcribe(Buffer.from("audio"), {
@@ -85,7 +97,12 @@ test("sends the decoder threshold fields alongside the existing inference fields
 
 test("sends the decoder threshold fields even without an initial prompt", async (t) => {
   const { server, port, getBody } = await startCapturingServer();
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   const manager = createManager(port);
   await manager.transcribe(Buffer.from("audio"), { language: "en" });
@@ -101,7 +118,12 @@ test("sends the decoder threshold fields even without an initial prompt", async 
 
 test("skipDecoderThresholds omits the raised fields so the server keeps its defaults", async (t) => {
   const { server, port, getBody } = await startCapturingServer();
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
 
   const manager = createManager(port);
   const result = await manager.transcribe(Buffer.from("audio"), {

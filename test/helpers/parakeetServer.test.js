@@ -1,4 +1,5 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, ["modelDirUtils", "sidecarPidFile"]);
 const assert = require("node:assert/strict");
 
 const ParakeetServerManager = require("../../src/helpers/parakeetServer");

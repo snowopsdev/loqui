@@ -52,7 +52,7 @@ exit 1
           ...process.env,
           CI: "",
           LOQUI_RELEASE_BUILD: "",
-          PATH: path.join(dir, "commands"),
+          PATH: `${path.join(dir, "commands")}:${path.dirname(process.execPath)}`,
           LOQUI_TEST_COMMAND_LOG: path.join(dir, "compiler.log"),
           ...env,
         },

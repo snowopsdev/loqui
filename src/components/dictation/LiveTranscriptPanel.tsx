@@ -58,9 +58,9 @@ export function LiveTranscriptPanel({
         onMouseEnter={() => onHoldChange?.(true)}
         onMouseLeave={() => onHoldChange?.(false)}
         data-panel-scroll-region
-        className={`agent-chat-scroll min-h-0 flex-auto overflow-y-auto overscroll-contain px-5 pb-3 pt-8 transition-[opacity,transform] duration-200 ease-out ${
+        className={`agent-chat-scroll min-h-0 flex-auto overflow-y-auto overscroll-contain px-5 pb-3 pt-8 transition-[opacity,transform] duration-(--motion-fast) ease-(--motion-ease-enter) ${
           contentVisible
-            ? "translate-y-0 opacity-100 delay-75"
+            ? "translate-y-0 opacity-100 delay-0"
             : "pointer-events-none translate-y-2 opacity-0 delay-0"
         }`}
         aria-label={t("transcriptionPreview.label")}

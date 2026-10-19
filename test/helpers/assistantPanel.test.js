@@ -1060,9 +1060,6 @@ test("the panel sends a voice command with its dictation operation", async (t) =
       "/utils/hotkeys": `
         export function formatHotkeyListLabel() { return ""; }
       `,
-      "/ui/useToast": `
-        export function useToast() { return { toast() {} }; }
-      `,
     },
   });
   const [{ default: viteI18next }, { initReactI18next }] = await Promise.all([

@@ -215,7 +215,8 @@ test("Prompt Studio preserves the dictation-agent task scope", async (t) => {
         },
       },
     ],
-    server: { middlewareMode: true },
+    // SSR needs transforms only; middlewareMode still starts Vite 8 HMR by default.
+    server: { middlewareMode: true, ws: false, hmr: false },
   });
 
   t.after(async () => {

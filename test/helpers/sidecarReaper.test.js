@@ -4,6 +4,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { once } = require("node:events");
 
 let userDataDir;
 const electronPath = require.resolve("electron");
@@ -41,12 +42,11 @@ function spawnFakeSidecar(t, { scriptName, ignoreSigterm }) {
   const scriptPath = path.join(userDataDir, scriptName);
   fs.writeFileSync(scriptPath, `${handler}console.log("ready");setInterval(() => {}, 1000);`);
   const child = spawn(process.execPath, [scriptPath], { stdio: ["ignore", "pipe", "ignore"] });
-  t.after(() => {
-    try {
-      process.kill(child.pid, "SIGKILL");
-    } catch {
-      // Already dead.
-    }
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const closed = once(child, "close");
+    child.kill("SIGKILL");
+    await closed;
   });
   return new Promise((resolve) => {
     child.stdout.once("data", () => resolve(child));

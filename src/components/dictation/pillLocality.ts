@@ -64,16 +64,9 @@ export function sessionPillRoutes(session: PillSession | null): ResolvedRoute[] 
 
 const RANK: Record<Locality, number> = { device: 0, network: 1, remote: 2 };
 
-/**
- * Display name for a route's provider. Plan 01: names shown in the pill come
- * from providerDisplayLabel so "Custom endpoint" / "Unknown provider" are
- * localised. Legacy routes without an id retain the resolver's display
- * string; a missing name fails toward Unknown provider (CCR-7).
- */
+/** UI labels use the raw route id; malformed legacy routes fail to localized Unknown. */
 export function routeProviderLabel(route: ResolvedRoute, t: T): string {
-  const id = (route as ResolvedRoute & { providerId?: string | null }).providerId;
-  if (id) return providerDisplayLabel(id, t);
-  return route.provider ?? providerDisplayLabel(null, t);
+  return providerDisplayLabel(route.providerId, t);
 }
 
 function stageLine(

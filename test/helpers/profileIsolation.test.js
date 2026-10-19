@@ -1,4 +1,5 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, ["windowBroadcast"]);
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");

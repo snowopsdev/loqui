@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+require("../helpers/harness/inertElectron").install(test, ["cortiAuth"]);
 const { getCortiToken } = require("../../src/helpers/cortiAuth");
 const { createRendererServer, installBrowserGlobals } = require("./rendererTestHarness");
 const { routeBaseState, testFacts, TEST_COPY, MIGRATED_STORAGE } = require("./routeStateFixture");

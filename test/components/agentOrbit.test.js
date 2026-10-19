@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { mediaContents } = require("../helpers/harness/cssMedia");
 const { renderStatic } = require("../helpers/harness/reactSsr");
 
 const repoRoot = path.join(__dirname, "../..");
@@ -201,7 +202,7 @@ test("mounted reduced-motion listening still meters audio with a flat phase and 
 
 test("reduced-motion answering retains the opacity dissolve without the rotational loop", () => {
   const styles = css();
-  const reduce = styles.slice(styles.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
+  const reduce = mediaContents(styles, "prefers-reduced-motion: reduce");
   assert.match(
     reduce,
     /\.agent-orbit\[data-phase="answering"\] \.agent-orbit__ring[^{}]*\{[^}]*animation: agent-orbit-fade var\(--motion-hero\)/

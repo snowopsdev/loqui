@@ -125,7 +125,8 @@ function normalize(input: NoticeInput): NoticeInput {
 export function noticeLifetimeMs(input: NoticeInput): number | null {
   if (input.persistent) return null;
   if (input.kind === "alert" && input.words) return null;
-  if (input.kind === "receipt" && input.actions?.length) return NOTICE_DURATION_MS.receiptWithAction;
+  if (input.kind === "receipt" && input.actions?.length)
+    return NOTICE_DURATION_MS.receiptWithAction;
   return NOTICE_DURATION_MS[input.kind];
 }
 

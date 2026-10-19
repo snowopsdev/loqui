@@ -4297,5 +4297,12 @@
       "thinking": "正在思考 · 預計傳送至 {{where}}",
       "thinkingScreenContext": "結合螢幕上下文思考中 · 預計傳送至 {{where}}"
     }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "錄音已可復原",
+      "transcribe": "轉錄錄音",
+      "discard": "捨棄錄音"
+    }
   }
 }

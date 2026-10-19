@@ -4333,5 +4333,12 @@
       "thinking": "Pensando · destino previsto: {{where}}",
       "thinkingScreenContext": "Pensando con contexto de pantalla · destino previsto: {{where}}"
     }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "Grabaciones listas para recuperar",
+      "transcribe": "Transcribir grabaciones",
+      "discard": "Descartar grabaciones"
+    }
   }
 }

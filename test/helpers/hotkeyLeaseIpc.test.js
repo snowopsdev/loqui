@@ -13,7 +13,7 @@ function anything() {
   });
 }
 
-function fixture() {
+function fixture(t) {
   const handlers = new Map();
   const originalLoad = Module._load;
   Module._load = function (request, parent, isMain) {
@@ -64,9 +64,14 @@ function fixture() {
     IPCHandlers.prototype.setupHandlers.call(
       new Proxy(target, { get: (obj, key) => (key in obj ? obj[key] : anything()) })
     );
-  } finally {
+  } catch (error) {
     Module._load = originalLoad;
+    throw error;
   }
+  t.after(() => {
+    Module._load = originalLoad;
+    delete require.cache[handlersPath];
+  });
   return {
     target,
     contents,
@@ -88,8 +93,8 @@ for (const [name, event] of [
   ["render-process-gone", []],
   ["did-start-navigation", [{ isMainFrame: true, isSameDocument: false }]],
 ]) {
-  test(`IPC ${name} releases registered and pending pill leases without React`, async () => {
-    const f = fixture();
+  test(`IPC ${name} releases registered and pending pill leases without React`, async (t) => {
+    const f = fixture(t);
     const first = f.invoke("acquire-pill-hotkey", "undoCancel");
     await tick();
     f.pending.shift()();
@@ -116,8 +121,8 @@ for (const [name, event] of [
   });
 }
 
-test("IPC rejects arbitrary accelerators, meeting-only slots and other renderers; release is owner scoped", async () => {
-  const f = fixture();
+test("IPC rejects arbitrary accelerators, meeting-only slots and other renderers; release is owner scoped", async (t) => {
+  const f = fixture(t);
   for (const slot of ["meetingAccept", "Alt+Z", "toString"])
     assert.equal((await f.invoke("acquire-pill-hotkey", slot)).held, false);
   assert.equal(
@@ -138,8 +143,8 @@ test("IPC rejects arbitrary accelerators, meeting-only slots and other renderers
   assert.equal(f.registered.size, 0);
 });
 
-test("IPC main TTL notifies the exact held lease", async () => {
-  const f = fixture();
+test("IPC main TTL notifies the exact held lease", async (t) => {
+  const f = fixture(t);
   const acquire = f.invoke("acquire-pill-hotkey", "undoCancel");
   await tick();
   f.pending.shift()();
@@ -154,8 +159,8 @@ test("IPC main TTL notifies the exact held lease", async () => {
 });
 
 for (const event of ["destroyed", "render-process-gone", "did-start-navigation"]) {
-  test(`Escape has owner cleanup on ${event}, including a pending registration`, async () => {
-    const f = fixture();
+  test(`Escape has owner cleanup on ${event}, including a pending registration`, async (t) => {
+    const f = fixture(t);
     const pending = f.invoke("register-cancel-hotkey", "Escape");
     await tick();
     f.contents.emit(event, { isMainFrame: true, isSameDocument: false });
@@ -167,8 +172,8 @@ for (const event of ["destroyed", "render-process-gone", "did-start-navigation"]
   });
 }
 
-test("IPC cannot report held after TTL wins the backend-answer/reply race", async () => {
-  const f = fixture();
+test("IPC cannot report held after TTL wins the backend-answer/reply race", async (t) => {
+  const f = fixture(t);
   const pending = f.invoke("acquire-pill-hotkey", "undoCancel");
   await tick();
   f.pending.shift()();
@@ -180,8 +185,8 @@ test("IPC cannot report held after TTL wins the backend-answer/reply race", asyn
   assert.equal(f.registered.size, 0);
 });
 
-test("Escape owner loss cannot let a late registration unregister a new owner's shortcut", async () => {
-  const f = fixture();
+test("Escape owner loss cannot let a late registration unregister a new owner's shortcut", async (t) => {
+  const f = fixture(t);
   const first = f.invoke("register-cancel-hotkey", "Escape");
   await tick();
   f.contents.emit("render-process-gone");

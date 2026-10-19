@@ -1,5 +1,23 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const Module = require("node:module");
+const authPath = require.resolve("../../src/helpers/cortiAuth");
+const originalLoad = Module._load;
+Module._load = function (request, parent, isMain) {
+  if (request === "electron" && parent?.filename === authPath)
+    return {
+      net: {
+        fetch() {
+          throw new Error("Corti unit fixture forbids network");
+        },
+      },
+    };
+  return originalLoad.call(this, request, parent, isMain);
+};
+test.after(() => {
+  Module._load = originalLoad;
+  delete require.cache[authPath];
+});
 const { getCortiToken } = require("../../src/helpers/cortiAuth");
 
 function makeFetch(tokenByCall) {

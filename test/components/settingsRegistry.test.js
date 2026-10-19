@@ -106,6 +106,7 @@ test("[change-driving] settings registry", async (t) => {
       "setNotifyCalendarReminders",
       "setNotifyMeetingDetection",
       "setSaveDiscardedTranscriptions",
+      "setShowMeetingRecorderOnScreen",
       "setStartMinimized",
       "setTheme",
     ]);

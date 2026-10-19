@@ -1,4 +1,5 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, ["hotkeyManager"]);
 const assert = require("node:assert/strict");
 
 const HotkeyManager = require("../../src/helpers/hotkeyManager.js");

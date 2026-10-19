@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { mediaContents } = require("../helpers/harness/cssMedia");
 const { renderStatic } = require("../helpers/harness/reactSsr");
 
 const i18next = require("i18next");
@@ -306,7 +307,7 @@ test("the recorder boundary stays opaque while only its fill pulses, with a shar
 
 test("reduced motion overrides the active recording selector at equal specificity", () => {
   const css = fs.readFileSync(path.join(repoRoot, "src/styles/dictation-panel.css"), "utf8");
-  const reduced = css.slice(css.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
+  const reduced = mediaContents(css, "prefers-reduced-motion: reduce");
   assert.match(reduced, /\.meeting-capsule\[data-rs="recording"\] \.meeting-capsule__dot/);
 });
 

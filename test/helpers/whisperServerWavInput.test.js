@@ -1,4 +1,11 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, [
+  "whisperServer",
+  "sidecarPidFile",
+  "downloadUtils",
+  "modelDirUtils",
+  "gpuBinaryManager",
+]);
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const WhisperServerManager = require("../../src/helpers/whisperServer");
@@ -21,7 +28,12 @@ async function serveTranscript(t, onBody) {
       res.end(JSON.stringify({ text: "hello" }));
     });
   });
-  t.after(() => server.close());
+  t.after(async () => {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  });
   return port;
 }
 

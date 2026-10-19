@@ -4,6 +4,7 @@ const globals = require("globals");
 module.exports = [
   {
     ignores: [
+      ".superpowers/**", // retained local verification evidence, not authored source
       "dist/**",
       "node_modules/**",
       "**/browser-vite-cache/**", // generated validation-browser dependencies, not authored source

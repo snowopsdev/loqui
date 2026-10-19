@@ -4297,5 +4297,12 @@
       "thinking": "正在思考 · 预计发送至 {{where}}",
       "thinkingScreenContext": "结合屏幕上下文思考中 · 预计发送至 {{where}}"
     }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "录音已可恢复",
+      "transcribe": "转写录音",
+      "discard": "丢弃录音"
+    }
   }
 }

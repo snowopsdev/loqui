@@ -80,7 +80,7 @@ for (const mode of ["success", "failure"]) {
   test(`real dotenv preserves profile precedence and secrets when migration is ${mode}`, () => {
     const result = spawnSync(process.execPath, ["-e", fixture, mode], {
       cwd: path.join(__dirname, "../.."),
-      env: {},
+      env: { PATH: process.env.PATH, NODE_OPTIONS: process.env.NODE_OPTIONS || "" },
       encoding: "utf8",
       timeout: 10000,
     });

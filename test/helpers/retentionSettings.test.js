@@ -101,8 +101,8 @@ test("only the main renderer can replace process-global retention settings", () 
   assert.equal(cleanupRuns, 2);
 });
 
-test("no sweep runs before the renderer has synced the persisted settings", () => {
-  const IPCHandlers = require("../../src/helpers/ipcHandlers");
+test("no sweep runs before the renderer has synced the persisted settings", (t) => {
+  const { IPCHandlers } = require("./harness/ipcPrototype").loadIpcPrototype(t);
   const sweeps = [];
   const context = {
     _retentionCleanupInterval: null,

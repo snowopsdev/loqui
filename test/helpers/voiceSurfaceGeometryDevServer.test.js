@@ -33,7 +33,8 @@ test("the Vite dev module graph exposes the shared renderer geometry exports", a
     appType: "custom",
     logLevel: "silent",
     optimizeDeps: { noDiscovery: true },
-    server: { middlewareMode: true },
+    // SSR needs transforms only; middlewareMode still starts Vite 8 HMR by default.
+    server: { middlewareMode: true, ws: false, hmr: false },
   });
   const modules = new Map();
 

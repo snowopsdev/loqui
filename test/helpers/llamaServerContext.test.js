@@ -1,4 +1,10 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, [
+  "llamaServer",
+  "sidecarPidFile",
+  "gpuBinaryManager",
+  "downloadUtils",
+]);
 const assert = require("node:assert/strict");
 const http = require("node:http");
 

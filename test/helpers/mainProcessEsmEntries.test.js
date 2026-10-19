@@ -12,7 +12,7 @@ const MAIN_PROCESS_ESM_ENTRIES = ["src/helpers/transcriptionRoute.ts"];
 
 const repoRoot = path.resolve(__dirname, "../..");
 const bareEnv = { ...process.env };
-delete bareEnv.NODE_OPTIONS;
+// Preserve pre-import safety guards; tsx is an argv import, not NODE_OPTIONS.
 
 for (const entry of MAIN_PROCESS_ESM_ENTRIES) {
   test(`${entry} imports under a bare Node ESM loader`, () => {

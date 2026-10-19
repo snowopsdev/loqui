@@ -909,6 +909,8 @@ export default function SettingsPage({
     setNotifyMeetingDetection,
     notifyCalendarReminders,
     setNotifyCalendarReminders,
+    showMeetingRecorderOnScreen,
+    setShowMeetingRecorderOnScreen,
     audioCuesEnabled,
     dictationCueSet,
     setDictationCueSet,
@@ -1572,6 +1574,19 @@ export default function SettingsPage({
                       checked={notifyMeetingDetection}
                       onChange={setNotifyMeetingDetection}
                       disabled={!notificationsEnabled}
+                    />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow settingId="meetingRecorderOnScreen">
+                  <SettingsRow
+                    label={t("settingsPage.general.notifications.meetingRecorderOnScreen")}
+                    description={t(
+                      "settingsPage.general.notifications.meetingRecorderOnScreenDescription"
+                    )}
+                  >
+                    <Toggle
+                      checked={showMeetingRecorderOnScreen}
+                      onChange={setShowMeetingRecorderOnScreen}
                     />
                   </SettingsRow>
                 </SettingsPanelRow>

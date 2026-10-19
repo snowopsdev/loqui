@@ -2559,7 +2559,9 @@
         "meetingDetection": "اكتشاف الاجتماع",
         "meetingDetectionDescription": "إعلام عند اكتشاف اجتماع حتى تتمكن من بدء التسجيل",
         "calendarReminders": "تذكيرات التقويم",
-        "calendarRemindersDescription": "إعلام عند اقتراب موعد بدء اجتماع مجدول"
+        "calendarRemindersDescription": "إعلام عند اقتراب موعد بدء اجتماع مجدول",
+        "meetingRecorderOnScreen": "إظهار مسجّل الاجتماع على الشاشة",
+        "meetingRecorderOnScreenDescription": "أثناء تسجيل الاجتماع، يعرض شريط الإملاء مؤقّتًا وزر إيقاف."
       },
       "clipboard": {
         "title": "الحافظة",
@@ -3068,7 +3070,18 @@
     "notificationTitle": "يسجّل Loqui هذا الاجتماع",
     "notificationBody": "أوقف التسجيل من هنا أو من قائمة علبة النظام أو شريط Loqui العائم.",
     "notificationFallbackBody": "انقر لإظهار شريط Loqui العائم وإيقاف التسجيل منه، أو استخدم قائمة علبة النظام.",
-    "stop": "إيقاف"
+    "stop": "إيقاف",
+    "systemLost": "انقطع صوت النظام",
+    "micLost": "انقطع الميكروفون",
+    "stopAria": "إيقاف تسجيل الاجتماع",
+    "groupAria": "مسجّل الاجتماع",
+    "saved": "تم حفظ الاجتماع · {{elapsed}}",
+    "openNotes": "فتح الملاحظات",
+    "failed": {
+      "save": "توقف الاجتماع، لكن تعذّر حفظ نصه. افتح الملاحظة للتحقق مما تم الاحتفاظ به.",
+      "stop": "لم يتوقف تسجيل الاجتماع بشكل سليم. افتح الملاحظة للتحقق منه.",
+      "ownerLost": "توقف مسجّل الاجتماع بشكل غير متوقع. افتح الملاحظة للتحقق مما تم الاحتفاظ به."
+    }
   },
   "tray": {
     "toggleDictation": {

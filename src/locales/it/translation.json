@@ -63,7 +63,18 @@
     "notificationTitle": "Loqui sta registrando questa riunione",
     "notificationBody": "Interrompi qui, dalla barra delle applicazioni o dalla capsula Loqui.",
     "notificationFallbackBody": "Fai clic per mostrare la capsula Loqui e interrompere la registrazione, oppure usa il menu nella barra delle applicazioni.",
-    "stop": "Interrompi"
+    "stop": "Interrompi",
+    "systemLost": "Audio di sistema perso",
+    "micLost": "Microfono perso",
+    "stopAria": "Interrompi la registrazione della riunione",
+    "groupAria": "Registratore di riunioni",
+    "saved": "Riunione salvata · {{elapsed}}",
+    "openNotes": "Apri le note",
+    "failed": {
+      "save": "La riunione si è interrotta, ma non è stato possibile salvare la trascrizione. Apri la nota per verificare cosa è stato conservato.",
+      "stop": "La registrazione della riunione non si è interrotta correttamente. Apri la nota per verificarla.",
+      "ownerLost": "Il registratore di riunioni si è interrotto inaspettatamente. Apri la nota per verificare cosa è stato conservato."
+    }
   },
   "tray": {
     "toggleDictation": {
@@ -1686,7 +1697,9 @@
         "meetingDetection": "Rilevamento riunioni",
         "meetingDetectionDescription": "Avvisa quando viene rilevata una riunione per avviare la registrazione",
         "calendarReminders": "Promemoria calendario",
-        "calendarRemindersDescription": "Avvisa quando una riunione programmata sta per iniziare"
+        "calendarRemindersDescription": "Avvisa quando una riunione programmata sta per iniziare",
+        "meetingRecorderOnScreen": "Mostra il registratore di riunioni sullo schermo",
+        "meetingRecorderOnScreenDescription": "Durante la registrazione di una riunione, la barra di dettatura mostra un timer e un pulsante Interrompi."
       },
       "clipboard": {
         "title": "Appunti",

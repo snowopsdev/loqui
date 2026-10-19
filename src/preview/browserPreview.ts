@@ -361,6 +361,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     downloadUrlAudio: async () => ({ success: false, error: desktopMessage }),
     reportMeetingRecordingPresence: () => {},
     reportMeetingRecordingOutcome: () => {},
+    showControlPanel: async () => {},
     getMeetingRecordingPresence: async () => null,
     onMeetingRecordingPresenceChanged: unsubscribe,
     onMeetingRecordingOutcome: unsubscribe,

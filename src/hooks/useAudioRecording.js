@@ -1,3 +1,4 @@
+import { useMeetingRecordingPresence } from "./useMeetingRecordingPresence";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import AudioManager from "../helpers/audioManager";
@@ -60,6 +61,7 @@ const pillSessionPresentation = (session) =>
 let localRecoveryKey = 0;
 
 export const useAudioRecording = (options = {}) => {
+  const meetingRecording = useMeetingRecordingPresence();
   const { t } = useTranslation();
   const [cancelled, setCancelled] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
@@ -1295,6 +1297,7 @@ export const useAudioRecording = (options = {}) => {
   };
 
   return {
+    meetingRecording,
     activeSession,
     outcomePresentation,
     cancelHold,

@@ -2361,6 +2361,7 @@ declare global {
         quiet?: boolean;
       }) => void;
       reportMeetingRecordingOutcome?: (o: MeetingOutcome) => void;
+      showControlPanel?: () => Promise<void>;
       getMeetingRecordingPresence?: () => Promise<MeetingPresence | null>;
       onMeetingRecordingPresenceChanged?: (cb: (p: MeetingPresence | null) => void) => () => void;
       onMeetingRecordingOutcome?: (cb: (o: MeetingOutcome) => void) => () => void;

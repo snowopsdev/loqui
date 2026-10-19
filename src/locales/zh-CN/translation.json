@@ -63,7 +63,18 @@
     "notificationTitle": "Loqui 正在录制此会议",
     "notificationBody": "可在此处、托盘菜单或 Loqui 胶囊中停止录制。",
     "notificationFallbackBody": "点击显示 Loqui 胶囊并停止录制，或使用托盘菜单。",
-    "stop": "停止"
+    "stop": "停止",
+    "systemLost": "系统音频已中断",
+    "micLost": "麦克风已中断",
+    "stopAria": "停止会议录音",
+    "groupAria": "会议录音器",
+    "saved": "会议已保存 · {{elapsed}}",
+    "openNotes": "打开笔记",
+    "failed": {
+      "save": "会议已停止，但无法保存转录。请打开笔记查看保留的内容。",
+      "stop": "会议录音未正常停止。请打开笔记查看。",
+      "ownerLost": "会议录音器意外停止。请打开笔记查看保留的内容。"
+    }
   },
   "tray": {
     "toggleDictation": {
@@ -1686,7 +1697,9 @@
         "meetingDetection": "会议检测",
         "meetingDetectionDescription": "检测到会议时通知您以便开始录音",
         "calendarReminders": "日历提醒",
-        "calendarRemindersDescription": "预定会议即将开始时通知您"
+        "calendarRemindersDescription": "预定会议即将开始时通知您",
+        "meetingRecorderOnScreen": "在屏幕上显示会议录音器",
+        "meetingRecorderOnScreenDescription": "录制会议时，听写胶囊会显示计时器和停止按钮。"
       },
       "clipboard": {
         "title": "剪贴板",

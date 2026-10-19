@@ -10,6 +10,9 @@ import { useHotkey } from "./hooks/useHotkey";
 import { formatHotkeyListLabel } from "./utils/hotkeys";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import { useLinuxPillInteractivity } from "./hooks/useLinuxPillInteractivity";
+import { MeetingCapsule } from "./components/dictation/MeetingCapsule";
+import { useMeetingRecorderRevealed } from "./hooks/useMeetingRecordingPresence";
+import { formatMmSs } from "./utils/formatDuration";
 import { useAudioRecording } from "./hooks/useAudioRecording";
 import { useAssistantPanel } from "./hooks/useAssistantPanel";
 import { useOnboardingAssistantDemo } from "./hooks/useOnboardingAssistantDemo";
@@ -246,6 +249,7 @@ export default function App() {
     resumeUndo,
     processingStage,
     outcome,
+    meetingRecording,
   } = useAudioRecording({
     isPillHovered: () => pillHoveredRef.current || (pillFocusedRef.current && hasPillFocus()),
     onToggle: handleDictationToggle,
@@ -256,6 +260,46 @@ export default function App() {
     getAssistantSelectionContext: assistant.getSelectionContext,
     assistantOpenRef,
   });
+  const showMeetingRecorderSetting = useSettingsStore((s) => s.showMeetingRecorderOnScreen);
+  const meetingRecorderRevealed = useMeetingRecorderRevealed(meetingRecording);
+  const showMeetingRecorder = showMeetingRecorderSetting || meetingRecorderRevealed;
+  const meetingRecorderVisible = Boolean(meetingRecording && showMeetingRecorder);
+  const [meetingNow, setMeetingNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!meetingRecorderVisible) return;
+    setMeetingNow(Date.now());
+    const id = setInterval(() => setMeetingNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [meetingRecorderVisible]);
+  useEffect(
+    () =>
+      window.electronAPI?.onMeetingRecordingOutcome?.((outcome) => {
+        if (outcome.kind === "saved") {
+          notify({
+            id: `meeting-${outcome.sessionId}`,
+            kind: "receipt",
+            title: t("meetingRecorder.saved", {
+              elapsed: formatMmSs(Math.round(outcome.durationMs / 1000)),
+            }),
+          });
+        } else {
+          notify({
+            id: `meeting-${outcome.sessionId}`,
+            kind: "alert",
+            persistent: true,
+            title: t(`meetingRecorder.failed.${outcome.reason}`),
+            actions: [
+              {
+                label: t("meetingRecorder.openNotes"),
+                primary: true,
+                onClick: () => void window.electronAPI?.showControlPanel?.(),
+              },
+            ],
+          });
+        }
+      }),
+    [t]
+  );
   const undoHotkey = useUndoCancelHotkey(cancelled, undoCancel);
   const isVisuallyProcessing = isProcessing || isPreparing || isStopping;
 
@@ -565,6 +609,11 @@ export default function App() {
       {line}
     </span>
   ));
+  const agentAnswering = useAgentAnswering(
+    assistant.thinking,
+    assistant.busy,
+    assistant.responsePhase
+  );
   const pillStage = resolvePillStage({
     isRecording: voicePillIsRecording,
     micUnavailable: micState === "unavailable",
@@ -573,8 +622,13 @@ export default function App() {
     agentMode: agentModeActive,
     cancelled,
     recentOutcome,
-    meetingRecording: null,
-    showMeetingRecorder: true,
+    meetingRecording,
+    showMeetingRecorder,
+    agentResponseActive: Boolean(
+      assistant.typedPresentation &&
+      assistant.responsePhase?.owner &&
+      (assistant.thinking || agentAnswering)
+    ),
     dictationSealed: pillLocality.blocked,
   });
   const pillOwnership = resolvePillOwnership(pillStage);
@@ -607,18 +661,14 @@ export default function App() {
     }
     return [];
   }, [liveTranscript.mounted, pillStage, liveText]);
-  const agentAnswering = useAgentAnswering(
-    assistant.thinking,
-    assistant.busy,
-    assistant.responsePhase
-  );
-  const agentCaption = !agentModeActive
-    ? null
-    : voicePillIsRecording
-      ? agentPillCaption(pillSession, "listening", t)
-      : voiceActivity.isAgentThinking || agentAnswering
-        ? agentPillCaption(pillSession, "thinking", t)
-        : null;
+  const agentCaption =
+    !agentModeActive || pillStage === "meeting"
+      ? null
+      : voicePillIsRecording
+        ? agentPillCaption(pillSession, "listening", t)
+        : voiceActivity.isAgentThinking || agentAnswering
+          ? agentPillCaption(pillSession, "thinking", t)
+          : null;
   const visiblePillCaption = pillCaption ?? agentCaption;
   const agentOrbitVisible =
     agentModeActive &&
@@ -847,7 +897,24 @@ export default function App() {
                   ? "idle"
                   : commonPillState
               }
-              label={stageLabel}
+              label={
+                pillStage === "meeting" ? (
+                  <MeetingCapsule
+                    presence={meetingRecording}
+                    now={meetingNow}
+                    onStop={() =>
+                      void window.electronAPI?.requestStopMeetingRecording?.(
+                        meetingRecording.sessionId
+                      )
+                    }
+                  />
+                ) : (
+                  stageLabel
+                )
+              }
+              meetingInterrupted={
+                pillStage === "meeting" && Boolean(meetingRecording?.interruption)
+              }
               aria-keyshortcuts={pillStage === "cancelled" && undoHotkey.held ? "Alt+Z" : undefined}
               locality={pillLocality}
               countdown={
@@ -869,17 +936,19 @@ export default function App() {
               getAudioLevel={getAudioLevel}
               isDragging={isDragging}
               horizontalDirection={voiceHorizontalDirection}
-              role={pillIsInteractive ? "button" : "status"}
+              role={pillStage === "meeting" ? "group" : pillIsInteractive ? "button" : "status"}
               tabIndex={pillIsInteractive ? 0 : undefined}
               aria-label={
-                stageLabel ??
-                (canReopenLiveTranscript
-                  ? t("transcriptionPreview.label")
-                  : assistant.mounted
-                    ? t("settingsPage.agentConfig.title")
-                    : liveTranscript.mounted
+                pillStage === "meeting"
+                  ? t("meetingRecorder.groupAria")
+                  : (stageLabel ??
+                    (canReopenLiveTranscript
                       ? t("transcriptionPreview.label")
-                      : micTooltipLabel)
+                      : assistant.mounted
+                        ? t("settingsPage.agentConfig.title")
+                        : liveTranscript.mounted
+                          ? t("transcriptionPreview.label")
+                          : micTooltipLabel))
               }
               onMouseDown={(e) => {
                 if (anyPanelMounted) {
@@ -914,7 +983,12 @@ export default function App() {
                 e.preventDefault();
               }}
               onKeyDown={(event) => {
-                if (event.repeat || !isVoicePillActivationKey(event.key)) return;
+                if (
+                  event.target !== event.currentTarget ||
+                  event.repeat ||
+                  !isVoicePillActivationKey(event.key)
+                )
+                  return;
                 event.preventDefault();
                 activateVoicePill();
               }}

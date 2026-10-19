@@ -154,6 +154,17 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
     )
   ),
   item(
+    "meetingRecorderOnScreen",
+    "general",
+    `${G}.notifications.meetingRecorderOnScreen`,
+    `${G}.notifications.meetingRecorderOnScreenDescription`,
+    "meeting recorder pill timer stop screen",
+    toggle(
+      (s) => s.showMeetingRecorderOnScreen,
+      (s, v) => s.setShowMeetingRecorderOnScreen(v)
+    )
+  ),
+  item(
     "calendarReminders",
     "general",
     `${G}.notifications.calendarReminders`,

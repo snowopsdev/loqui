@@ -63,7 +63,18 @@
     "notificationTitle": "Loqui nimmt diese Besprechung auf",
     "notificationBody": "Hier, über das Infobereich-Menü oder die Loqui-Kapsel stoppen.",
     "notificationFallbackBody": "Klicken, um die Loqui-Kapsel anzuzeigen und dort zu stoppen, oder das Infobereich-Menü verwenden.",
-    "stop": "Stoppen"
+    "stop": "Stoppen",
+    "systemLost": "Systemaudio unterbrochen",
+    "micLost": "Mikrofon unterbrochen",
+    "stopAria": "Besprechungsaufnahme stoppen",
+    "groupAria": "Besprechungsrekorder",
+    "saved": "Besprechung gespeichert · {{elapsed}}",
+    "openNotes": "Notizen öffnen",
+    "failed": {
+      "save": "Die Besprechung wurde beendet, aber das Transkript konnte nicht gespeichert werden. Öffne die Notiz, um zu prüfen, was erhalten blieb.",
+      "stop": "Die Besprechungsaufnahme wurde nicht ordnungsgemäß beendet. Öffne die Notiz, um sie zu prüfen.",
+      "ownerLost": "Der Besprechungsrekorder wurde unerwartet beendet. Öffne die Notiz, um zu prüfen, was erhalten blieb."
+    }
   },
   "tray": {
     "toggleDictation": {
@@ -1779,7 +1790,9 @@
         "meetingDetection": "Meeting-Erkennung",
         "meetingDetectionDescription": "Benachrichtigen, wenn ein Meeting erkannt wird, um die Aufnahme zu starten",
         "calendarReminders": "Kalendererinnerungen",
-        "calendarRemindersDescription": "Benachrichtigen, wenn ein geplantes Meeting bald beginnt"
+        "calendarRemindersDescription": "Benachrichtigen, wenn ein geplantes Meeting bald beginnt",
+        "meetingRecorderOnScreen": "Besprechungsrekorder auf dem Bildschirm anzeigen",
+        "meetingRecorderOnScreenDescription": "Während einer Besprechungsaufnahme zeigt die Diktierleiste einen Timer und eine Stopp-Taste."
       },
       "clipboard": {
         "title": "Zwischenablage",

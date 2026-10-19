@@ -175,6 +175,7 @@ const BOOLEAN_SETTINGS = new Set([
   "translationDisableThinking",
   "preferBuiltInMic",
   "audioCuesEnabled",
+  "showMeetingRecorderOnScreen",
   "pauseMediaOnDictation",
   "floatingIconAutoHide",
   "startMinimized",
@@ -759,6 +760,7 @@ export interface SettingsState
     ThemeSettings,
     ChatAgentSettings {
   audioCuesEnabled: boolean;
+  showMeetingRecorderOnScreen: boolean;
   dictationCueSet: DictationCueSet;
   dictationCueVolume: DictationCueVolume;
   pauseMediaOnDictation: boolean;
@@ -1072,6 +1074,7 @@ export interface SettingsState
   setTranscriptRetentionDays: (days: number) => void;
   setDataRetentionEnabled: (value: boolean) => void;
   setSaveDiscardedTranscriptions: (value: boolean) => void;
+  setShowMeetingRecorderOnScreen: (enabled: boolean) => void;
   setAudioCuesEnabled: (value: boolean) => void;
   setDictationCueSet: (value: DictationCueSet) => void;
   setDictationCueVolume: (value: DictationCueVolume) => void;
@@ -1821,6 +1824,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   transcriptRetentionDays: readNumber("transcriptRetentionDays", 0),
   dataRetentionEnabled: readBoolean("dataRetentionEnabled", true),
   saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),
+  showMeetingRecorderOnScreen: readBoolean("showMeetingRecorderOnScreen", true),
   audioCuesEnabled: readBoolean("audioCuesEnabled", true),
   dictationCueSet: normalizeCueSet(readString("dictationCueSet", "soft")),
   dictationCueVolume: normalizeCueVolume(readString("dictationCueVolume", "medium")),
@@ -2441,6 +2445,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     );
   },
   setSaveDiscardedTranscriptions: createBooleanSetter("saveDiscardedTranscriptions"),
+  setShowMeetingRecorderOnScreen: createBooleanSetter("showMeetingRecorderOnScreen"),
   setAudioCuesEnabled: createBooleanSetter("audioCuesEnabled"),
   setDictationCueSet: (value) => {
     const dictationCueSet = normalizeCueSet(value);

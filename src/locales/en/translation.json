@@ -63,7 +63,18 @@
     "notificationTitle": "Loqui is recording this meeting",
     "notificationBody": "Stop it here, from the tray, or from the Loqui pill.",
     "notificationFallbackBody": "Click to show the Loqui pill and stop it there, or use the tray menu.",
-    "stop": "Stop"
+    "stop": "Stop",
+    "systemLost": "System audio lost",
+    "micLost": "Microphone lost",
+    "stopAria": "Stop meeting recording",
+    "groupAria": "Meeting recorder",
+    "saved": "Meeting saved · {{elapsed}}",
+    "openNotes": "Open notes",
+    "failed": {
+      "save": "The meeting stopped, but its transcript could not be saved. Open the note to check what was kept.",
+      "stop": "The meeting recording did not stop cleanly. Open the note to check it.",
+      "ownerLost": "The meeting recorder stopped unexpectedly. Open the note to check what was kept."
+    }
   },
   "tray": {
     "toggleDictation": {
@@ -1779,7 +1790,9 @@
         "meetingDetection": "Meeting detection",
         "meetingDetectionDescription": "Notify when a meeting is detected so you can start recording",
         "calendarReminders": "Calendar reminders",
-        "calendarRemindersDescription": "Notify when a scheduled meeting is about to start"
+        "calendarRemindersDescription": "Notify when a scheduled meeting is about to start",
+        "meetingRecorderOnScreen": "Show meeting recorder on screen",
+        "meetingRecorderOnScreenDescription": "While a meeting records, the dictation pill shows a timer and a Stop button."
       },
       "clipboard": {
         "title": "Clipboard",

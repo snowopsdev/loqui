@@ -63,7 +63,18 @@
     "notificationTitle": "Loqui enregistre cette réunion",
     "notificationBody": "Arrêtez l’enregistrement ici, depuis la zone de notification ou depuis la capsule Loqui.",
     "notificationFallbackBody": "Cliquez pour afficher la capsule Loqui et y arrêter l’enregistrement, ou utilisez le menu de la zone de notification.",
-    "stop": "Arrêter"
+    "stop": "Arrêter",
+    "systemLost": "Audio système perdu",
+    "micLost": "Microphone perdu",
+    "stopAria": "Arrêter l’enregistrement de la réunion",
+    "groupAria": "Enregistreur de réunion",
+    "saved": "Réunion enregistrée · {{elapsed}}",
+    "openNotes": "Ouvrir les notes",
+    "failed": {
+      "save": "La réunion s’est arrêtée, mais sa transcription n’a pas pu être enregistrée. Ouvrez la note pour vérifier ce qui a été conservé.",
+      "stop": "L’enregistrement de la réunion ne s’est pas arrêté correctement. Ouvrez la note pour le vérifier.",
+      "ownerLost": "L’enregistreur de réunion s’est arrêté de façon inattendue. Ouvrez la note pour vérifier ce qui a été conservé."
+    }
   },
   "tray": {
     "toggleDictation": {
@@ -1779,7 +1790,9 @@
         "meetingDetection": "Détection de réunion",
         "meetingDetectionDescription": "Prévenir quand une réunion est détectée pour lancer l'enregistrement",
         "calendarReminders": "Rappels de calendrier",
-        "calendarRemindersDescription": "Prévenir quand une réunion planifiée va commencer"
+        "calendarRemindersDescription": "Prévenir quand une réunion planifiée va commencer",
+        "meetingRecorderOnScreen": "Afficher l’enregistreur de réunion à l’écran",
+        "meetingRecorderOnScreenDescription": "Pendant l’enregistrement d’une réunion, la barre de dictée affiche un minuteur et un bouton Arrêter."
       },
       "clipboard": {
         "title": "Presse-papiers",

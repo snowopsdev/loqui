@@ -295,6 +295,7 @@ export function resolvePillStage({
   recentOutcome,
   meetingRecording,
   showMeetingRecorder,
+  agentResponseActive = false,
   dictationSealed = false,
 }) {
   if (isRecording) return micUnavailable ? "unavailable" : "recording";
@@ -307,7 +308,8 @@ export function resolvePillStage({
     if (recentOutcome.kind === "pasted") return "pasted";
     return dictationSealed ? "sealedPaused" : "failed";
   }
-  if (meetingRecording && showMeetingRecorder) return "meeting";
+  // A live owned Agent response keeps its existing orbit before meeting resumes.
+  if (meetingRecording && showMeetingRecorder) return agentResponseActive ? "thinking" : "meeting";
   return null;
 }
 

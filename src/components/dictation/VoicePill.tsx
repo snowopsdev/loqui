@@ -45,6 +45,7 @@ interface VoicePillProps extends Omit<HTMLAttributes<HTMLDivElement>, "children"
   horizontalDirection?: "left" | "right";
   /** Stage text for labelled states (transcribing, cleaning, pasted, cancelled). */
   label?: ReactNode;
+  meetingInterrupted?: boolean;
   /** Where dictation goes; drawn as the ring around the identity (D4). */
   locality?: PillLocality | null;
   /** Undo window underline for the cancelled state (D3). */
@@ -59,6 +60,7 @@ const LABELLED = new Set<VoicePillState>([
   "pasted",
   "cancelled",
   "sealedPaused",
+  "meeting",
 ]);
 const GLOWING = new Set<VoicePillState>(["thinking", "transcribing", "cleaning"]);
 const REST_HEIGHTS = LOGO_BAR_SHAPE.map((scale) => Math.round(scale * 20));
@@ -100,6 +102,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
     isDragging = false,
     horizontalDirection = "right",
     label,
+    meetingInterrupted = false,
     locality = null,
     countdown = null,
     className,
@@ -125,13 +128,16 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
     !collapseToIdentity &&
     (isRecording || hasLabel || expanded || (isPanel && !waveformOnlyWhileRecording));
   const showWaveformSlot = showCompactPill && !hasLabel;
-  const footprint = hasLabel
-    ? VOICE_PILL_FOOTPRINT[
-        state as "transcribing" | "cleaning" | "pasted" | "cancelled" | "sealedPaused"
-      ]
-    : showCompactPill
-      ? VOICE_PILL_FOOTPRINT.recording
-      : VOICE_PILL_FOOTPRINT.idle;
+  const footprint =
+    state === "meeting"
+      ? VOICE_PILL_FOOTPRINT[meetingInterrupted ? "meetingInterrupted" : "meeting"]
+      : hasLabel
+        ? VOICE_PILL_FOOTPRINT[
+            state as "transcribing" | "cleaning" | "pasted" | "cancelled" | "sealedPaused"
+          ]
+        : showCompactPill
+          ? VOICE_PILL_FOOTPRINT.recording
+          : VOICE_PILL_FOOTPRINT.idle;
   const floatingHover = !isPanel && state === "hover";
   // LevelBars holds readLevel in a ref and treats non-finite or sub-floor
   // input as silence (Plan 01 172f9df), so an inline adapter is enough.
@@ -164,8 +170,8 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
       ref={ref}
       className={cn(
         "voice-pill-control relative flex items-center justify-center overflow-hidden rounded-full border",
-        showCompactPill && "pe-1.5",
-        hasLabel && "ps-1 pe-3",
+        showCompactPill && state !== "meeting" && "pe-1.5",
+        hasLabel && state !== "meeting" && "ps-1 pe-3",
         "voice-pill-shadow",
         STATE_APPEARANCE[state],
         className
@@ -200,46 +206,52 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
         style={{ opacity: state === "hover" ? 0.72 : 0 }}
       />
 
-      <span
-        className="voice-pill-identity-slot relative inline-grid shrink-0 place-items-center"
-        style={{
-          width: locality ? IDENTITY_RING_PX : 22,
-          height: locality ? IDENTITY_RING_PX : 22,
-        }}
-        aria-hidden={locality ? undefined : "true"}
-      >
+      {state !== "meeting" ? (
         <span
-          className={cn(
-            "voice-pill-identity-logo absolute inset-0 grid place-items-center",
-            showExpandChevron ? "translate-y-1 scale-75 opacity-0" : "scale-100 opacity-100"
-          )}
+          className="voice-pill-identity-slot relative inline-grid shrink-0 place-items-center"
+          style={{
+            width: locality ? IDENTITY_RING_PX : 22,
+            height: locality ? IDENTITY_RING_PX : 22,
+          }}
+          aria-hidden={locality ? undefined : "true"}
         >
-          {locality ? (
-            <LocalityRing
-              locality={locality.locality}
-              provider={locality.provider}
-              label={locality.label}
-              active={busy && locality.locality === "remote"}
-              size={IDENTITY_RING_PX}
-              className={cn(locality.blocked && "locality-ring--blocked")}
-            >
-              {icon}
-            </LocalityRing>
-          ) : (
-            icon
-          )}
+          <span
+            className={cn(
+              "voice-pill-identity-logo absolute inset-0 grid place-items-center",
+              showExpandChevron ? "translate-y-1 scale-75 opacity-0" : "scale-100 opacity-100"
+            )}
+          >
+            {locality ? (
+              <LocalityRing
+                locality={locality.locality}
+                provider={locality.provider}
+                label={locality.label}
+                active={busy && locality.locality === "remote"}
+                size={IDENTITY_RING_PX}
+                className={cn(locality.blocked && "locality-ring--blocked")}
+              >
+                {icon}
+              </LocalityRing>
+            ) : (
+              icon
+            )}
+          </span>
+          <ChevronUp
+            className={cn(
+              "voice-pill-expand-chevron absolute inset-0 m-auto size-5",
+              showExpandChevron ? "scale-100 opacity-100" : "translate-y-1 scale-75 opacity-0"
+            )}
+            strokeWidth={2}
+          />
         </span>
-        <ChevronUp
-          className={cn(
-            "voice-pill-expand-chevron absolute inset-0 m-auto size-5",
-            showExpandChevron ? "scale-100 opacity-100" : "translate-y-1 scale-75 opacity-0"
-          )}
-          strokeWidth={2}
-        />
-      </span>
+      ) : null}
 
       {hasLabel ? (
-        <span className="pill-stage-label ms-1.5">{label}</span>
+        state === "meeting" ? (
+          label
+        ) : (
+          <span className="pill-stage-label ms-1.5">{label}</span>
+        )
       ) : (
         <div
           className="voice-pill-waveform relative grid shrink-0 place-items-center overflow-hidden"

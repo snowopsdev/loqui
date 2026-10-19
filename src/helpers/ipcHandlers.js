@@ -1401,6 +1401,8 @@ class IPCHandlers {
       this.windowManager.hideDictationPanel();
     });
 
+    ipcMain.handle("show-control-panel", () => this.windowManager._showControlPanel());
+
     ipcMain.handle("show-dictation-panel", () => {
       this.windowManager.showDictationPanel({ reposition: true });
     });

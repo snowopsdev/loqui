@@ -63,7 +63,18 @@
     "notificationTitle": "O Loqui está gravando esta reunião",
     "notificationBody": "Pare a gravação aqui, pela bandeja do sistema ou pela cápsula do Loqui.",
     "notificationFallbackBody": "Clique para mostrar a cápsula do Loqui e parar a gravação, ou use o menu da bandeja do sistema.",
-    "stop": "Parar"
+    "stop": "Parar",
+    "systemLost": "Áudio do sistema perdido",
+    "micLost": "Microfone perdido",
+    "stopAria": "Parar a gravação da reunião",
+    "groupAria": "Gravador de reuniões",
+    "saved": "Reunião salva · {{elapsed}}",
+    "openNotes": "Abrir notas",
+    "failed": {
+      "save": "A reunião parou, mas não foi possível salvar a transcrição. Abra a nota para conferir o que foi mantido.",
+      "stop": "A gravação da reunião não parou corretamente. Abra a nota para conferir.",
+      "ownerLost": "O gravador de reuniões parou inesperadamente. Abra a nota para conferir o que foi mantido."
+    }
   },
   "tray": {
     "toggleDictation": {
@@ -1665,7 +1676,9 @@
         "meetingDetection": "Detecção de reuniões",
         "meetingDetectionDescription": "Notificar quando uma reunião for detectada para iniciar a gravação",
         "calendarReminders": "Lembretes do calendário",
-        "calendarRemindersDescription": "Notificar quando uma reunião agendada está prestes a começar"
+        "calendarRemindersDescription": "Notificar quando uma reunião agendada está prestes a começar",
+        "meetingRecorderOnScreen": "Mostrar o gravador de reuniões na tela",
+        "meetingRecorderOnScreenDescription": "Durante a gravação de uma reunião, a barra de ditado mostra um cronômetro e um botão Parar."
       },
       "clipboard": {
         "title": "Área de transferência",

@@ -915,6 +915,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("meeting-transcription-set-system-audio-available", sessionId, available),
   reportMeetingRecordingPresence: (p) => ipcRenderer.send("meeting-recording-presence", p),
   reportMeetingRecordingOutcome: (o) => ipcRenderer.send("meeting-recording-outcome", o),
+  showControlPanel: () => ipcRenderer.invoke("show-control-panel"),
   getMeetingRecordingPresence: () => ipcRenderer.invoke("get-meeting-recording-presence"),
   requestStopMeetingRecording: (sessionId) =>
     ipcRenderer.invoke("request-stop-meeting-recording", sessionId),

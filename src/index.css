@@ -194,6 +194,7 @@
   --motion-agent-thinking: 2400ms;
   --motion-agent-answering: 1200ms;
   --motion-thinking-shimmer: 2000ms;
+  --motion-meeting-dot: 1200ms;
   --motion-ease-ambient: ease-in-out;
 
   /* Bundled open-source fonts work without network access. */

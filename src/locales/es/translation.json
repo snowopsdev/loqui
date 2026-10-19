@@ -63,7 +63,18 @@
     "notificationTitle": "Loqui está grabando esta reunión",
     "notificationBody": "Detén la grabación aquí, desde la bandeja del sistema o desde la cápsula de Loqui.",
     "notificationFallbackBody": "Haz clic para mostrar la cápsula de Loqui y detener la grabación, o usa el menú de la bandeja del sistema.",
-    "stop": "Detener"
+    "stop": "Detener",
+    "systemLost": "Se perdió el audio del sistema",
+    "micLost": "Se perdió el micrófono",
+    "stopAria": "Detener la grabación de la reunión",
+    "groupAria": "Grabadora de reuniones",
+    "saved": "Reunión guardada · {{elapsed}}",
+    "openNotes": "Abrir notas",
+    "failed": {
+      "save": "La reunión se detuvo, pero no se pudo guardar la transcripción. Abre la nota para comprobar qué se conservó.",
+      "stop": "La grabación de la reunión no se detuvo correctamente. Abre la nota para revisarla.",
+      "ownerLost": "La grabadora de reuniones se detuvo inesperadamente. Abre la nota para comprobar qué se conservó."
+    }
   },
   "tray": {
     "toggleDictation": {
@@ -1739,7 +1750,9 @@
         "meetingDetection": "Detección de reuniones",
         "meetingDetectionDescription": "Notificar cuando se detecta una reunión para iniciar la grabación",
         "calendarReminders": "Recordatorios del calendario",
-        "calendarRemindersDescription": "Notificar cuando una reunión programada está a punto de comenzar"
+        "calendarRemindersDescription": "Notificar cuando una reunión programada está a punto de comenzar",
+        "meetingRecorderOnScreen": "Mostrar la grabadora de reuniones en pantalla",
+        "meetingRecorderOnScreenDescription": "Mientras se graba una reunión, la barra de dictado muestra un temporizador y un botón Detener."
       },
       "clipboard": {
         "title": "Portapapeles",

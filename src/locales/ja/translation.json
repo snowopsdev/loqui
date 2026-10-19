@@ -63,7 +63,18 @@
     "notificationTitle": "Loqui がこの会議を録音しています",
     "notificationBody": "ここ、トレイメニュー、または Loqui のピルから停止できます。",
     "notificationFallbackBody": "クリックして Loqui のピルを表示して停止するか、トレイメニューを使用してください。",
-    "stop": "停止"
+    "stop": "停止",
+    "systemLost": "システム音声が途切れました",
+    "micLost": "マイクが途切れました",
+    "stopAria": "会議の録音を停止",
+    "groupAria": "会議レコーダー",
+    "saved": "会議を保存しました · {{elapsed}}",
+    "openNotes": "ノートを開く",
+    "failed": {
+      "save": "会議は停止しましたが、文字起こしを保存できませんでした。ノートを開いて保存された内容を確認してください。",
+      "stop": "会議の録音が正常に停止しませんでした。ノートを開いて確認してください。",
+      "ownerLost": "会議レコーダーが予期せず停止しました。ノートを開いて保存された内容を確認してください。"
+    }
   },
   "tray": {
     "toggleDictation": {
@@ -1686,7 +1697,9 @@
         "meetingDetection": "会議の検出",
         "meetingDetectionDescription": "会議が検出されたときに通知して録音を開始できるようにする",
         "calendarReminders": "カレンダーリマインダー",
-        "calendarRemindersDescription": "予定された会議がまもなく始まるときに通知する"
+        "calendarRemindersDescription": "予定された会議がまもなく始まるときに通知する",
+        "meetingRecorderOnScreen": "会議レコーダーを画面に表示",
+        "meetingRecorderOnScreenDescription": "会議の録音中、音声入力ピルにタイマーと停止ボタンを表示します。"
       },
       "clipboard": {
         "title": "クリップボード",

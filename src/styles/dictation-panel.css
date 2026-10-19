@@ -1168,3 +1168,92 @@
   opacity: 0;
   animation: none;
 }
+
+/* VO-R12 A inside the pill (D2). */
+.meeting-capsule {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding-inline: 10px 4px;
+  font: 600 12px/1 var(--font-family-sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.meeting-capsule__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-live);
+  border: 1px solid var(--color-foreground);
+  transition: background var(--motion-fast) var(--motion-ease-std);
+}
+.meeting-capsule[data-rs="recording"] .meeting-capsule__dot {
+  animation: meeting-dot var(--motion-meeting-dot) var(--motion-ease-ambient) infinite;
+}
+.meeting-capsule[data-rs="quiet"] .meeting-capsule__dot {
+  background: color-mix(in oklch, var(--color-live) 45%, var(--color-surface-1));
+}
+.meeting-capsule[data-rs="lost"] .meeting-capsule__dot {
+  background: var(--color-warning);
+}
+.voice-pill-control[data-pill-state="meeting"]:has(.meeting-capsule[data-rs="lost"]) {
+  border-color: var(--color-warning);
+  box-shadow:
+    0 0 0 2px color-mix(in oklch, var(--color-warning) 55%, transparent),
+    var(--shadow-card, 0 1px 3px rgb(0 0 0 / 0.12));
+}
+.meeting-capsule__note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+}
+.meeting-capsule__stop {
+  margin-inline-start: auto;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: var(--color-foreground);
+}
+.meeting-capsule__stop::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--color-background);
+}
+@keyframes meeting-dot {
+  50% {
+    background: color-mix(in oklch, var(--color-live) 55%, var(--color-surface-1));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .meeting-capsule[data-rs="recording"] .meeting-capsule__dot,
+  .meeting-capsule__dot {
+    animation: none;
+  }
+}
+
+/* Only the recorder setting owns these boundaries; the shared Toggle stays unchanged. */
+:is([data-setting-id="meetingRecorderOnScreen"], [data-result="meetingRecorderOnScreen"])
+  button[role="switch"] {
+  outline: 1px solid var(--color-foreground);
+  outline-offset: -1px;
+}
+:is([data-setting-id="meetingRecorderOnScreen"], [data-result="meetingRecorderOnScreen"])
+  button[role="switch"][aria-checked="false"]
+  > span {
+  background: var(--color-foreground);
+}
+:is([data-setting-id="meetingRecorderOnScreen"], [data-result="meetingRecorderOnScreen"])
+  button[role="switch"][aria-checked="true"]
+  > span {
+  background: var(--color-primary-foreground);
+}

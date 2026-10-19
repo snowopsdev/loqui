@@ -1055,3 +1055,31 @@ test("owned capsules bypass close and return masks while explicit hard gates rem
     }
   }
 });
+
+test("owned Agent response presentation preempts only the meeting resting stage", async () => {
+  const { resolvePillStage } = await load();
+  const base = {
+    meetingRecording: { sessionId: "m1", startedAt: 1, quiet: false, interruption: null },
+    showMeetingRecorder: true,
+    agentResponseActive: true,
+  };
+  assert.equal(resolvePillStage(base), "thinking");
+  assert.equal(resolvePillStage({ ...base, agentResponseActive: false }), "meeting");
+  assert.equal(resolvePillStage({ ...base, isRecording: true }), "recording");
+  assert.equal(
+    resolvePillStage({ ...base, isProcessing: true, processingStage: "cleaning" }),
+    "cleaning"
+  );
+  assert.equal(resolvePillStage({ ...base, cancelled: { sessionId: "d1" } }), "cancelled");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "pasted" } }), "pasted");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "failed" } }), "failed");
+  assert.equal(
+    resolvePillStage({ ...base, recentOutcome: { kind: "failed" }, dictationSealed: true }),
+    "sealedPaused"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, meetingRecording: null }),
+    null,
+    "default Agent callers retain their existing presentation path"
+  );
+});

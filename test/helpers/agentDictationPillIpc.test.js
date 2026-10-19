@@ -292,3 +292,16 @@ test("the final-transcript relay is accepted only from the dictation renderer", 
   finalTranscriptHandler({ sender: mainContents }, "hello world");
   assert.deepEqual(shown, ["hello world"]);
 });
+
+test("the meeting failure action opens the control panel through its registered IPC", () => {
+  let shown = 0;
+  installWindowManager({
+    _showControlPanel() {
+      shown++;
+    },
+  });
+  const show = handlers.get("show-control-panel");
+  assert.equal(typeof show, "function");
+  show({ sender: {} });
+  assert.equal(shown, 1);
+});

@@ -3028,7 +3028,10 @@
       "saved": "圖片已下載。",
       "failed": "無法建立分享卡片。",
       "unnamedMember": "團隊成員"
-    }
+    },
+    "openHistory": "開啟歷史記錄",
+    "openDictations": "在歷史記錄中顯示聽寫",
+    "focusHeatmap": "前往活動圖表"
   },
   "sidebar": {
     "sections": {

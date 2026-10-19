@@ -2450,7 +2450,10 @@
       "saved": "Image téléchargée.",
       "failed": "La carte de partage n’a pas pu être créée.",
       "unnamedMember": "Coéquipier"
-    }
+    },
+    "openHistory": "Ouvrir l’historique",
+    "openDictations": "Afficher les dictées dans l’historique",
+    "focusHeatmap": "Aller au graphique d’activité"
   },
   "sidebar": {
     "sections": {

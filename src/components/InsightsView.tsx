@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { BarChart3, Flame, Gauge, Loader2, Mic2 } from "./icons";
 
@@ -10,15 +10,18 @@ import type { AnalyticsDailyBucket, AnalyticsSummary } from "../types/electron";
 import { cn } from "./lib/utils";
 import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
 import { Tooltip } from "./ui/tooltip";
+import { MetricCard } from "./insights/MetricCard";
+import { useWorkspaceNavigation } from "./workspaceNavigation";
+import { setHomeFilter, setHomeQuery } from "../stores/homeViewStore";
 
 type ActivityDay = { date: string; words: number };
 
 const ACTIVITY_INTENSITY_CLASSES = [
-  "bg-foreground/6 dark:bg-white/6",
-  "bg-primary/25",
-  "bg-primary/45",
-  "bg-primary/70",
-  "bg-primary",
+  "bg-foreground/6",
+  "bg-foreground/20",
+  "bg-foreground/40",
+  "bg-foreground/60",
+  "bg-foreground/80",
 ] as const;
 
 function dateFromLocalKey(value: string) {
@@ -26,7 +29,13 @@ function dateFromLocalKey(value: string) {
   return new Date(year, month - 1, day, 12);
 }
 
-function Heatmap({ daily }: { daily: AnalyticsDailyBucket[] }) {
+function Heatmap({
+  daily,
+  heatmapRef,
+}: {
+  daily: AnalyticsDailyBucket[];
+  heatmapRef: RefObject<HTMLDivElement | null>;
+}) {
   const { t, i18n } = useTranslation();
   const calendar = useMemo(() => {
     const days: ActivityDay[] = buildAnalyticsActivityDays(daily);
@@ -69,140 +78,132 @@ function Heatmap({ daily }: { daily: AnalyticsDailyBucket[] }) {
       ),
     [i18n.language]
   );
-  // Fixed tracks, sized to the 1.5rem cells they hold. minmax(0, 1fr) let every
-  // week column collapse toward zero while the cells stayed 24px wide, so the
-  // squares overflowed their tracks and overlapped each other; the grid also
-  // contributed no intrinsic width, leaving overflow-x nothing to scroll, so
-  // the newest weeks — today's cell among them — were painted outside the
-  // scrollable area on any window narrower than about 1050px.
-  const columnStyle = { gridTemplateColumns: `repeat(${calendar.weeks.length}, 1.5rem)` };
+  const weeks = calendar.weeks.length;
+  // WS-Q11: fixed tracks prevent overlapping cells and preserve horizontal
+  // overflow at the 10px floor. Weekday labels and their gap reserve 3rem.
+  const cellStyle = {
+    "--cell": `clamp(10px, calc((100cqi - 3rem - ${weeks - 1} * 2px) / ${weeks}), 18px)`,
+  } as React.CSSProperties;
+  const columnStyle = { gridTemplateColumns: `repeat(${weeks}, var(--cell))` };
+  const rowStyle = { gridTemplateRows: "repeat(7, var(--cell))" };
 
   return (
     // Focusable, so the chart can be scrolled without a mouse. role="img" used
     // to sit on the container, which made every descendant presentational and
     // silently discarded the per-day labels below it; the cells carry it now
     // and the group only names the chart.
-    <div
-      className="overflow-x-auto rounded-sm pb-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-      tabIndex={0}
-      role="group"
-      aria-label={t("insights.activityLabel")}
-    >
-      <div className="w-max">
-        <div className="grid grid-cols-[auto_max-content] gap-x-3">
-          <div aria-hidden="true" />
-          <div className="grid h-4 gap-2" style={columnStyle} aria-hidden="true">
-            {calendar.monthLabels.map((label, index) => (
-              <span
-                key={index}
-                className="truncate text-[10px] font-medium text-muted-foreground/70"
-              >
-                {label}
-              </span>
-            ))}
-          </div>
+    <div className="@container min-w-0" style={cellStyle}>
+      <div
+        ref={heatmapRef}
+        data-cellsize="10–18px"
+        className="overflow-x-auto rounded-sm pb-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        tabIndex={0}
+        role="group"
+        aria-label={t("insights.activityLabel")}
+      >
+        <div className="w-max">
+          <div className="grid grid-cols-[2.25rem_max-content] gap-x-3">
+            <div aria-hidden="true" />
+            <div className="grid h-5 gap-0.5" style={columnStyle} aria-hidden="true">
+              {calendar.monthLabels.map((label, index) => {
+                if (!label) return null;
+                const next = calendar.monthLabels.findIndex((month, i) => i > index && month);
+                return (
+                  <span
+                    key={index}
+                    style={{ gridColumn: `${index + 1} / ${next < 0 ? weeks + 1 : next + 1}` }}
+                    className="text-caption font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {label}
+                  </span>
+                );
+              })}
+            </div>
 
-          <div className="grid grid-rows-7 gap-0.5" aria-hidden="true">
-            {weekdayLabels.map((label) => (
-              <span key={label} className="flex items-center text-[10px] text-muted-foreground/70">
-                {label}
-              </span>
-            ))}
-          </div>
-
-          <div className="grid gap-2" style={columnStyle}>
-            {calendar.weeks.map((week, weekIndex) => (
-              <div key={weekIndex} className="grid grid-rows-7 gap-0.5">
-                {week.map((day, dayIndex) => {
-                  if (!day) {
-                    return (
-                      <div
-                        key={dayIndex}
-                        aria-hidden="true"
-                        className="size-6 justify-self-center"
-                      />
-                    );
-                  }
-                  const intensity =
-                    day.words === 0
-                      ? 0
-                      : Math.max(1, Math.ceil((day.words / calendar.maxWords) * 4));
-                  const tooltip = t("insights.dayTooltip", {
-                    date: day.date,
-                    count: day.words,
-                  });
-                  return (
-                    <div key={day.date} className="justify-self-center">
-                      <Tooltip content={tooltip}>
-                        <div
-                          role="img"
-                          aria-label={tooltip}
-                          className={cn(
-                            "size-6 rounded-sm",
-                            ACTIVITY_INTENSITY_CLASSES[intensity],
-                            day.date === calendar.todayDate &&
-                              "ring-1 ring-primary ring-offset-1 ring-offset-card"
-                          )}
-                        />
-                      </Tooltip>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-2 flex items-center text-[10px] text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <span>{t("insights.activityLess")}</span>
-            <div className="flex items-center gap-1" aria-hidden="true">
-              {ACTIVITY_INTENSITY_CLASSES.slice(1).map((className) => (
-                <span key={className} className={cn("size-3 rounded-sm", className)} />
+            <div className="grid gap-0.5" style={rowStyle} aria-hidden="true">
+              {weekdayLabels.map((label) => (
+                <span
+                  key={label}
+                  className="flex items-center text-caption leading-none text-muted-foreground whitespace-nowrap"
+                >
+                  {label}
+                </span>
               ))}
             </div>
-            <span>{t("insights.activityMore")}</span>
+
+            <div className="grid gap-0.5" style={columnStyle}>
+              {calendar.weeks.map((week, weekIndex) => (
+                <div key={weekIndex} className="grid gap-0.5" style={rowStyle}>
+                  {week.map((day, dayIndex) => {
+                    if (!day) {
+                      return (
+                        <div
+                          key={dayIndex}
+                          aria-hidden="true"
+                          className="size-(--cell) justify-self-center"
+                        />
+                      );
+                    }
+                    const intensity =
+                      day.words === 0
+                        ? 0
+                        : Math.max(1, Math.ceil((day.words / calendar.maxWords) * 4));
+                    const tooltip = t("insights.dayTooltip", {
+                      date: day.date,
+                      count: day.words,
+                    });
+                    return (
+                      <div key={day.date} className="flex items-center justify-self-center">
+                        <Tooltip content={tooltip}>
+                          <div
+                            data-intensity={intensity}
+                            data-today={day.date === calendar.todayDate || undefined}
+                            role="img"
+                            aria-label={tooltip}
+                            className={cn(
+                              "size-(--cell) rounded-sm border border-muted-foreground",
+                              ACTIVITY_INTENSITY_CLASSES[intensity],
+                              day.date === calendar.todayDate && "ring-1 ring-foreground"
+                            )}
+                          />
+                        </Tooltip>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-2 flex items-center text-caption text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <span>{t("insights.activityLess")}</span>
+              <div className="flex items-center gap-1" aria-hidden="true">
+                {ACTIVITY_INTENSITY_CLASSES.slice(1).map((className) => (
+                  <span
+                    key={className}
+                    className={cn("size-3 rounded-sm border border-muted-foreground", className)}
+                  />
+                ))}
+              </div>
+              <span>{t("insights.activityMore")}</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function MetricCard({
-  icon: Icon,
-  label,
-  value,
-  detail,
-  largeValue = false,
-}: {
-  icon: typeof BarChart3;
-  label: string;
-  value: string;
-  detail: string;
-  largeValue?: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-border/70 dark:border-white/10 bg-card/70 p-4">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Icon size={14} />
-        <span className="text-xs">{label}</span>
-      </div>
-      <p
-        className={cn(
-          "mt-3 font-semibold tracking-tight text-foreground",
-          largeValue ? "text-3xl" : "text-2xl"
-        )}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-[11px] text-muted-foreground/70">{detail}</p>
     </div>
   );
 }
 
 function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) {
   const { t, i18n } = useTranslation();
+  const navigation = useWorkspaceNavigation();
+  const heatmapRef = useRef<HTMLDivElement>(null);
+  const openHistory = (filter: "all" | "dictations") => {
+    setHomeQuery("");
+    setHomeFilter(filter);
+    navigation.openView("home");
+  };
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -304,10 +305,12 @@ function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) 
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 @min-[720px]:grid-cols-4">
             <MetricCard
               icon={Mic2}
               label={t("insights.wordsSpoken")}
+              onSelect={() => openHistory("all")}
+              selectLabel={t("insights.openHistory")}
               value={number.format(summary.totalWords)}
               detail={t("insights.allTime")}
               largeValue
@@ -315,6 +318,8 @@ function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) 
             <MetricCard
               icon={Gauge}
               label={t("insights.wordsPerMinute")}
+              onSelect={() => openHistory("all")}
+              selectLabel={t("insights.openHistory")}
               value={summary.averageWpm == null ? "—" : number.format(summary.averageWpm)}
               detail={t("insights.wpmCoverage", { count: summary.wpmCoveragePercent })}
               largeValue
@@ -322,6 +327,8 @@ function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) 
             <MetricCard
               icon={BarChart3}
               label={t("insights.dictations")}
+              onSelect={() => openHistory("dictations")}
+              selectLabel={t("insights.openDictations")}
               value={number.format(summary.totalDictations)}
               detail={t("insights.allTime")}
               largeValue
@@ -329,15 +336,20 @@ function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) 
             <MetricCard
               icon={Flame}
               label={t("insights.currentStreak")}
+              onSelect={() => {
+                heatmapRef.current?.scrollIntoView({ block: "center" });
+                heatmapRef.current?.focus();
+              }}
+              selectLabel={t("insights.focusHeatmap")}
               value={t("insights.days", { count: summary.currentStreakDays })}
               detail={t("insights.longestStreak", { count: summary.longestStreakDays })}
             />
           </div>
 
-          <div className="mt-5 rounded-2xl border border-border/70 bg-card/70 px-5 py-2.5 dark:border-white/10">
+          <div className="mt-5 rounded-xl border border-border/70 bg-card/70 px-5 py-2.5 dark:border-white/10">
             <h2 className="text-base font-medium text-foreground">{t("insights.activity")}</h2>
             <div className="mt-2">
-              <Heatmap daily={summary.daily} />
+              <Heatmap daily={summary.daily} heatmapRef={heatmapRef} />
             </div>
           </div>
         </>
@@ -350,7 +362,7 @@ export default function InsightsView() {
   const { t } = useTranslation();
   const { dataRetentionEnabled } = useSettings();
   return (
-    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 py-6")}>
+    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "@container px-6 py-6")}>
       <YourUsage dataRetentionEnabled={dataRetentionEnabled} />
       <p className="pt-8 text-center text-xs text-muted-foreground">
         {t("insights.onDevicePrivacy")}

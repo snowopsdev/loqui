@@ -3029,7 +3029,10 @@
       "saved": "Immagine scaricata.",
       "failed": "Impossibile creare la scheda da condividere.",
       "unnamedMember": "Compagno di squadra"
-    }
+    },
+    "openHistory": "Apri la cronologia",
+    "openDictations": "Mostra le dettature nella cronologia",
+    "focusHeatmap": "Vai al grafico delle attività"
   },
   "sidebar": {
     "sections": {

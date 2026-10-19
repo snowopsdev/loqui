@@ -3029,7 +3029,10 @@
       "saved": "Imagem baixada.",
       "failed": "Não foi possível criar o cartão de compartilhamento.",
       "unnamedMember": "Colega de equipe"
-    }
+    },
+    "openHistory": "Abrir histórico",
+    "openDictations": "Mostrar ditados no histórico",
+    "focusHeatmap": "Ir para o gráfico de atividade"
   },
   "sidebar": {
     "sections": {

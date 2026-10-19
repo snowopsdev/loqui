@@ -2449,7 +2449,10 @@
       "saved": "Bild heruntergeladen.",
       "failed": "Die Karte konnte nicht erstellt werden.",
       "unnamedMember": "Teammitglied"
-    }
+    },
+    "openHistory": "Verlauf öffnen",
+    "openDictations": "Diktate im Verlauf anzeigen",
+    "focusHeatmap": "Zum Aktivitätsdiagramm"
   },
   "sidebar": {
     "sections": {

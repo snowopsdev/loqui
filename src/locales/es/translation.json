@@ -3082,7 +3082,10 @@
       "saved": "Imagen descargada.",
       "failed": "No se pudo crear la tarjeta para compartir.",
       "unnamedMember": "Compañero de equipo"
-    }
+    },
+    "openHistory": "Abrir el historial",
+    "openDictations": "Mostrar dictados en el historial",
+    "focusHeatmap": "Ir al gráfico de actividad"
   },
   "sidebar": {
     "sections": {

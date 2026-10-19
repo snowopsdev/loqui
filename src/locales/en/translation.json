@@ -2481,7 +2481,10 @@
       "saved": "Image downloaded.",
       "failed": "The share card couldn't be created.",
       "unnamedMember": "Teammate"
-    }
+    },
+    "openHistory": "Open History",
+    "openDictations": "Show dictations in History",
+    "focusHeatmap": "Go to the activity chart"
   },
   "workspaces": {
     "switcher": {

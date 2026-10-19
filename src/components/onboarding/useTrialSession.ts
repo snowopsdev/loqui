@@ -158,7 +158,7 @@ export function useTrialSession(active: boolean, context = "", binding?: Dictati
           /* Fall through to the existing main cancel owner. */
         }
         try {
-          await api?.cancelOnboardingDemo?.(id);
+          await api?.cancelOnboardingDemo?.(id, owner.take);
         } catch {
           /* Owner no longer available. */
         }
@@ -171,10 +171,11 @@ export function useTrialSession(active: boolean, context = "", binding?: Dictati
   const control = useCallback(
     async (action: "toggleOnboardingDemo" | "cancelOnboardingDemo") => {
       const owner = lifetime.current;
-      if (!owner || !live(owner) || !(await owner.accepted) || !live(owner)) return false;
+      if (!owner || !live(owner)) return false;
       const take = owner.take;
+      if (!(await owner.accepted) || !live(owner) || owner.take !== take) return false;
       try {
-        if ((await window.electronAPI?.[action]?.(owner.id)) === true) {
+        if ((await window.electronAPI?.[action]?.(owner.id, take)) === true) {
           if (live(owner) && owner.take === take) setControlError(false);
           return true;
         }

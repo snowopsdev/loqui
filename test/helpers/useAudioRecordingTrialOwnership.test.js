@@ -117,7 +117,9 @@ test("a public save waiting through setup restart persists only its captured aud
   assert.ok(publicAudio);
   await h.render(true);
   h.reset();
-  await (await h.start({ demoId: "private", takeId: "2" })).finish();
+  // This snapshot-saver stress test starts an ordinary operation under private
+  // policy. A setup demo now truthfully refuses until this public saver settles.
+  await (await h.start(null)).finish();
   let privateStop;
   await React.act(async () => {
     privateStop = h.manager().mediaRecorder.stop();
@@ -162,10 +164,11 @@ test("a private callback retained across release cannot clear a newer public or 
   assert.equal(snapshot.private, true);
   assert.equal(manager.lastAudioBlob, null);
   manager.onTranscriptionComplete = callback;
+  await h.releaseAdmission(originalTake);
   for (const privateMode of [false, true]) {
     await h.render(privateMode);
     h.reset();
-    await (await h.start({ demoId: "newer", takeId: privateMode ? "3" : "2" })).finish();
+    await (await h.start(null)).finish();
     let newerFinish;
     await React.act(async () => {
       newerFinish = manager.mediaRecorder.stop();
@@ -310,8 +313,9 @@ test("private batch privacy survives the automatic default-device retry after se
     return attempts === 1 ? h.mic().promise : retry.promise;
   };
   let start;
+  const take = await h.reserve({ demoId: "retry", takeId: "5" });
   await React.act(async () => {
-    start = h.api().startRecording({ onboardingTake: { demoId: "retry", takeId: "5" } });
+    start = h.api().startRecording({ onboardingTake: take });
     await flush();
   });
   await h.render(false);
@@ -409,8 +413,9 @@ test("completion/restart during the real batch start's deferred recovery await r
     return recovery.promise;
   };
   let start;
+  const take = await h.reserve({ demoId: "deferred-start", takeId: "8" });
   await React.act(async () => {
-    start = h.api().startRecording({ onboardingTake: { demoId: "deferred-start", takeId: "8" } });
+    start = h.api().startRecording({ onboardingTake: take });
     await h.waitAcquisition();
     h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
     await entered.promise;

@@ -195,6 +195,9 @@ export function createCapturedCleanupOperation(
     }
   };
   return {
+    get isRunning() {
+      return busy;
+    },
     identity,
     finalizeOutput,
     run(text: string) {

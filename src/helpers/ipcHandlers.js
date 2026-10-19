@@ -70,7 +70,7 @@ const { GeminiLiveStreaming, GEMINI_LIVE_MODEL } = require("./geminiLiveStreamin
 const CortiStreaming = require("./cortiStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const { getCortiToken } = require("./cortiAuth");
-const { ONBOARDING_DEMO_KINDS, publishDemoEvent } = require("./onboardingInputPolicy");
+const { publishDemoEvent } = require("./onboardingInputPolicy");
 const { focusWindowsHotkeyCaptureWindow } = require("./hotkeyCaptureFocus");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
@@ -1231,6 +1231,11 @@ class IPCHandlers {
     return result.ok === true ? { success: true } : { success: false, error: result.error };
   }
 
+  dispose() {
+    this.onboardingAdmission?.dispose();
+    this.onboardingCleanup?.dispose();
+  }
+
   setupHandlers() {
     this.onboardingCleanup = require("./onboardingCleanupRelay").createOnboardingCleanupRelay({
       getSession: () => this.windowManager._onboardingDemoSession,
@@ -1249,65 +1254,64 @@ class IPCHandlers {
       this.windowManager.setOnboardingWindowMode(mode)
     );
 
-    // WindowManager owns every teardown path for a demo (id-matched end,
-    // onboarding-set-active(false), control panel closed); without this hook a
-    // renderer crash mid-demo would leave the session set and broadcast every
-    // later dictation's transcripts on onboarding-demo-event forever.
-    this.windowManager.onOnboardingDemoTeardown = () => {
-      this.onboardingCleanup.retire();
+    this.onboardingAdmission = require("./onboardingDemoAdmission").createOnboardingDemoAdmission({
+      getSetup: () => this.windowManager.controlPanelWindow?.webContents,
+      getOverlay: () => this.windowManager.mainWindow?.webContents,
+      install: (session) => {
+        this._onboardingDemoSession = session;
+        return this.windowManager.beginOnboardingDemo(session.kind, session);
+      },
+      end: (identity) => {
+        const session = this.windowManager._onboardingDemoSession;
+        if (session?.id === identity.demoId && session.requestId === identity.requestId)
+          this.windowManager.endOnboardingDemo();
+      },
+    });
+    this.windowManager.onOnboardingDemoTeardown = (session) => {
       this._onboardingDemoSession = null;
+      this.onboardingAdmission.cancelPending();
+      this.onboardingAdmission.retire(
+        session && { demoId: session.id, requestId: session.requestId, takeId: session.takeId }
+      );
+      this.onboardingCleanup.retire();
     };
-
-    ipcMain.handle("onboarding-set-active", (_event, active) => {
-      if (typeof active !== "boolean") return false;
+    const isSetup = (event) => event.sender === this.windowManager.controlPanelWindow?.webContents;
+    ipcMain.handle("onboarding-set-active", (event, active) => {
+      if (!isSetup(event) || typeof active !== "boolean") return false;
       return this.windowManager.setOnboardingActive(active);
     });
-
-    ipcMain.handle("onboarding-demo-begin", (_event, session) => {
-      if (
-        !session ||
-        typeof session.id !== "string" ||
-        session.id.length > 128 ||
-        (session.context !== undefined &&
-          (typeof session.context !== "string" || session.context.length > 4096)) ||
-        !ONBOARDING_DEMO_KINDS.has(session.kind)
-      ) {
-        return false;
-      }
-      if (this._onboardingDemoSession) this.windowManager.endOnboardingDemo();
-      this._onboardingDemoSession = {
-        id: session.id,
-        kind: session.kind,
-        startedAt: Date.now(),
-        ...(typeof session.context === "string" && session.context.length <= 4096
-          ? { context: session.context }
-          : {}),
-      };
-      return this.windowManager.beginOnboardingDemo(session.kind, this._onboardingDemoSession);
-    });
-
-    ipcMain.handle("onboarding-demo-end", (_event, id) => {
-      if (this._onboardingDemoSession?.id === id) {
-        // Session cleanup rides on the teardown hook above.
-        this.windowManager.endOnboardingDemo();
-      }
+    ipcMain.handle("onboarding-demo-begin", (event, session) =>
+      this.onboardingAdmission.begin(event.sender, session)
+    );
+    ipcMain.handle("onboarding-demo-admission-reply", (event, reply) =>
+      this.onboardingAdmission.reply(event.sender, reply)
+    );
+    ipcMain.handle("onboarding-demo-admission-invalidated", (event, identity) =>
+      this.onboardingAdmission.invalidate(event.sender, identity)
+    );
+    ipcMain.handle("onboarding-demo-end", (event, id) => {
+      if (!isSetup(event)) return false;
+      this.onboardingAdmission.endPending(event.sender, id);
+      if (this._onboardingDemoSession?.id === id) this.windowManager.endOnboardingDemo();
       return true;
     });
-
-    ipcMain.handle("onboarding-demo-stop", (_event, id) => {
-      if (this._onboardingDemoSession?.id !== id) return false;
-      return this.windowManager.stopOnboardingDemoRecording();
-    });
-
-    const isCurrentDemo = (id) => this._onboardingDemoSession?.id === id;
-    ipcMain.handle("onboarding-demo-toggle", (_event, id) =>
-      isCurrentDemo(id) ? this.windowManager.toggleOnboardingDemoRecording() : false
+    const isCurrentDemo = (event, id) => isSetup(event) && this._onboardingDemoSession?.id === id;
+    const isCurrentTake = (event, id, takeId) =>
+      isCurrentDemo(event, id) &&
+      (this._onboardingDemoSession.takeId
+        ? typeof takeId === "string" && takeId === this._onboardingDemoSession.takeId
+        : takeId == null);
+    ipcMain.handle("onboarding-demo-stop", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.stopOnboardingDemoRecording() : false
     );
-    ipcMain.handle("onboarding-demo-cancel", (_event, id) =>
-      isCurrentDemo(id) ? this.windowManager.cancelOnboardingDemoRecording() : false
+    ipcMain.handle("onboarding-demo-toggle", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.toggleOnboardingDemoRecording() : false
     );
-    ipcMain.handle("onboarding-demo-undo-cancel", (_event, id) =>
-      isCurrentDemo(id) ? this.windowManager.undoOnboardingDemoCancel() : false
+    ipcMain.handle("onboarding-demo-cancel", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.cancelOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-undo-cancel", (event, id) =>
+      isCurrentDemo(event, id) ? this.windowManager.undoOnboardingDemoCancel() : false
     );
 
     // Cache advisory setup facts for this launch; the NVIDIA probe spawns a

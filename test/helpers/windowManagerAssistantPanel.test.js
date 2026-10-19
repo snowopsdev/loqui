@@ -821,7 +821,7 @@ test("a ready but hidden companion never counts as an available surface", () => 
   assert.equal(pill.isVisible(), true);
 });
 
-test("entering onboarding hides an already-visible companion pill", () => {
+test("setup presentation preserves an already-visible companion and its public stop/cancel controls", () => {
   createdBrowserWindows.length = 0;
   const manager = new WindowManager();
   manager.setOnboardingActive(false);
@@ -829,8 +829,7 @@ test("entering onboarding hides an already-visible companion pill", () => {
   manager.mainWindow = {
     isDestroyed: () => false,
     getBounds: () => ({ x: 1000, y: 100, width: 400, height: 600 }),
-    // Entering onboarding cancels any in-flight dictation before it hides
-    // the normal-app surfaces.
+    // Presentation is not an explicit user cancellation.
     webContents: { send: () => undefined },
   };
 
@@ -841,5 +840,28 @@ test("entering onboarding hides an already-visible companion pill", () => {
 
   manager.setOnboardingActive(true);
 
-  assert.equal(pill.isVisible(), false);
+  assert.equal(pill.isVisible(), true);
+});
+
+test("busy workspace companion can be recreated during setup presentation", () => {
+  createdBrowserWindows.length = 0;
+  const manager = new WindowManager();
+  manager.setOnboardingActive(false);
+  manager._assistantPanelOpen = true;
+  manager.mainWindow = {
+    isDestroyed: () => false,
+    getBounds: () => ({ x: 1000, y: 100, width: 400, height: 600 }),
+    webContents: { send() {} },
+  };
+  manager.setDictationLifecycleState("processing", "dictation");
+  manager.setOnboardingActive(true);
+  manager.showAgentDictationPill();
+  assert.equal(
+    createdBrowserWindows.length,
+    1,
+    "presentation must permit recovery of the existing busy owner's control surface"
+  );
+  const pill = createdBrowserWindows.at(-1);
+  pill.webContentsListeners.get("did-finish-load")();
+  assert.equal(pill.isVisible(), true);
 });

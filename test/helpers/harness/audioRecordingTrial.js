@@ -15,7 +15,7 @@ function deferred() {
 async function flush() {
   for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve));
 }
-async function mountTrial(t, initialPrivate = true) {
+async function mountTrial(t, initialPrivate = true, { bridge, strictMode = false } = {}) {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -40,8 +40,24 @@ async function mountTrial(t, initialPrivate = true) {
     events = [],
     managers = [];
   const listeners = {};
+  let localAdmission = null;
+  let localTakeSequence = 0;
+  let lastAdmissionReply = null;
   const noop = () => () => {};
   window.electronAPI = {
+    onOnboardingDemoAdmission: (listener) => {
+      listeners.admission = listener;
+      return () => delete listeners.admission;
+    },
+    onOnboardingDemoReservation: (listener) => {
+      listeners.reservation = listener;
+      return () => delete listeners.reservation;
+    },
+    replyOnboardingDemoAdmission: async (reply) => {
+      lastAdmissionReply = reply;
+      return reply.accepted;
+    },
+    invalidateOnboardingDemoAdmission: async () => true,
     onToggleDictation: noop,
     onToggleVoiceAgent: noop,
     onToggleTranslation: noop,
@@ -59,6 +75,17 @@ async function mountTrial(t, initialPrivate = true) {
     saveTranscriptionAudio: async (...args) => writes.push(["audio", ...args]),
     writeClipboard: async (...args) => writes.push(["clipboard", ...args]),
   };
+  const sinks = Object.fromEntries(
+    ["recordAnalyticsEvent", "saveTranscription", "saveTranscriptionAudio", "writeClipboard"].map(
+      (key) => [key, window.electronAPI[key]]
+    )
+  );
+  if (bridge)
+    Object.assign(window.electronAPI, bridge.overlayApi, sinks, {
+      // Actual lifecycle publication/event callbacks through the real main handlers.
+      dictationLifecycleStateChanged: (state, kind) =>
+        bridge.manager.setDictationLifecycleState(state, kind),
+    });
   let mic = deferred(),
     result = deferred(),
     acquisitions = 0,
@@ -144,7 +171,10 @@ async function mountTrial(t, initialPrivate = true) {
   };
   let api;
   const toast = () => {};
-  const onDemoEvent = (event) => events.push(event);
+  const onDemoEvent = (event) => {
+    events.push(event);
+    if (bridge) void bridge.overlayApi.publishOnboardingDemoEvent(event);
+  };
   function Harness({ privateMode, toastFn }) {
     api = useAudioRecording(toastFn, { trialMode: privateMode, onDemoEvent });
     return null;
@@ -152,7 +182,15 @@ async function mountTrial(t, initialPrivate = true) {
   root = createRoot(container);
   async function render(privateMode, toastFn = toast) {
     await React.act(async () =>
-      root.render(React.createElement(Harness, { privateMode, toastFn }))
+      root.render(
+        strictMode
+          ? React.createElement(
+              React.StrictMode,
+              null,
+              React.createElement(Harness, { privateMode, toastFn })
+            )
+          : React.createElement(Harness, { privateMode, toastFn })
+      )
     );
   }
   await render(initialPrivate);
@@ -162,7 +200,47 @@ async function mountTrial(t, initialPrivate = true) {
     writes,
     events,
     managers,
-    prepare: (options) => listeners.prepare(options),
+    async reserve(take) {
+      if (!take || bridge) return take;
+      if (localAdmission?.demoId === take.demoId) {
+        take.reservationId = localAdmission.requestId;
+        return take;
+      }
+      const request = {
+        demoId: take.demoId,
+        requestId: `fixture-${take.demoId}`,
+        kind: "dictation",
+        deadlineAt: Date.now() + 2000,
+      };
+      await React.act(async () => {
+        listeners.admission(request);
+        await flush();
+        listeners.reservation({ ...request, action: "commit" });
+      });
+      assert.equal(
+        lastAdmissionReply?.accepted,
+        true,
+        "fixture executes the original hook admission owner"
+      );
+      localAdmission = request;
+      take.reservationId = request.requestId;
+      return take;
+    },
+    async releaseAdmission(take) {
+      localAdmission = null;
+      await React.act(async () =>
+        listeners.reservation({
+          demoId: take.demoId,
+          requestId: take.reservationId,
+          takeId: take.takeId,
+          action: "release",
+        })
+      );
+    },
+    async prepare(options) {
+      await this.reserve(options?.onboardingTake);
+      return listeners.prepare(options);
+    },
     manager: () => managers.at(-1),
     api: () => api,
     render,
@@ -177,7 +255,10 @@ async function mountTrial(t, initialPrivate = true) {
       for (let i = 0; i < 100 && acquisitions < count; i++) await flush();
       assert.equal(acquisitions, count);
     },
-    async start(take = { demoId: "trial", takeId: "1" }) {
+    async start(
+      take = initialPrivate ? { demoId: "trial", takeId: String(++localTakeSequence) } : null
+    ) {
+      await this.reserve(take);
       let start;
       await React.act(async () => {
         start = api.startRecording({ onboardingTake: take });

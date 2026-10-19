@@ -207,6 +207,7 @@ export default function App() {
     toggleListening,
     cancelRecording,
     cancelProcessing,
+    cancelOnboardingTake,
     getAudioLevel,
   } = useAudioRecording(toast, {
     trialMode: setupIncomplete,
@@ -379,12 +380,20 @@ export default function App() {
   // The Agent companion pill's cancel button routes here: only this renderer
   // owns the recording, so it decides what "cancel" means at arrival time.
   useEffect(() => {
-    const unsubscribe = window.electronAPI?.onCancelDictation?.(() => {
+    const unsubscribe = window.electronAPI?.onCancelDictation?.((options) => {
+      if (options?.onboardingTake) return cancelOnboardingTake(options.onboardingTake);
       if (isRecording || isPreparing) cancelRecording();
       else if (isProcessing) cancelProcessing();
     });
     return () => unsubscribe?.();
-  }, [isRecording, isPreparing, isProcessing, cancelRecording, cancelProcessing]);
+  }, [
+    isRecording,
+    isPreparing,
+    isProcessing,
+    cancelRecording,
+    cancelProcessing,
+    cancelOnboardingTake,
+  ]);
 
   // Every tray refusal surfaces the pill first, so the message is visible even
   // when the pill was hidden. useTrayQuickActions decides when one is needed.

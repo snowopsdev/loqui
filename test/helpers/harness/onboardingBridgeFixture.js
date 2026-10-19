@@ -15,12 +15,13 @@ function inert() {
 
 // Complete production main/IPC/preload modules, with only Electron, unrelated
 // services and window presentation replaced. No native listeners or user data.
-function bridgeFixture({ localReasoning } = {}) {
+function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeoutMs } = {}) {
   const handlers = new Map();
   const overlayListeners = new Map();
   const setupListeners = new Map();
   const sent = [];
   const broadcasts = [];
+  const fakeOwner = { busy: false, reservation: null, take: null };
   let listening = false;
   const electron = {
     app: { on() {} },
@@ -77,7 +78,9 @@ function bridgeFixture({ localReasoning } = {}) {
       isDestroyed: () => false,
       send: (name, payload) => {
         sent.push([name, payload]);
-        overlayListeners.get(name)?.({}, payload);
+        if (name === "onboarding-demo-admission")
+          queueMicrotask(() => overlayListeners.get(name)?.({}, payload));
+        else overlayListeners.get(name)?.({}, payload);
       },
     }),
   };
@@ -95,6 +98,13 @@ function bridgeFixture({ localReasoning } = {}) {
     electron,
     "./onboardingInputPolicy": policy,
     "./onboardingCleanupRelay": require("../../../src/helpers/onboardingCleanupRelay"),
+    "./onboardingDemoAdmission": {
+      createOnboardingDemoAdmission: (options) =>
+        require("../../../src/helpers/onboardingDemoAdmission").createOnboardingDemoAdmission({
+          ...options,
+          ...(admissionTimeoutMs ? { timeoutMs: admissionTimeoutMs } : {}),
+        }),
+    },
     ...(localReasoning ? { "../services/localReasoningBridge": { default: localReasoning } } : {}),
     "./windowBroadcast": {
       broadcastToWindows: (name, payload) => {
@@ -121,13 +131,27 @@ function bridgeFixture({ localReasoning } = {}) {
         },
         webUtils: {},
         ipcRenderer: {
-          invoke: async (name, ...args) =>
-            name.startsWith("onboarding-") ||
-            name.startsWith("personal-inference:") ||
-            name === "get-dictation-binding" ||
-            name === "process-local-reasoning"
+          invoke: async (name, ...args) => {
+            if (
+              admissionOwner &&
+              sender === overlay.webContents &&
+              name === "onboarding-demo-publish"
+            ) {
+              const event = args[0];
+              if (
+                fakeOwner.take?.demoId === event?.demoId &&
+                fakeOwner.take?.takeId === event?.takeId &&
+                ["success", "error", "cancelled"].includes(event.status)
+              )
+                fakeOwner.busy = false;
+            }
+            return name.startsWith("onboarding-") ||
+              name.startsWith("personal-inference:") ||
+              name === "get-dictation-binding" ||
+              name === "process-local-reasoning"
               ? handlers.get(name)?.({ sender }, ...args)
-              : undefined,
+              : undefined;
+          },
           on: (name, fn) => listeners.set(name, fn),
           removeListener: (name, fn) => {
             if (listeners.get(name) === fn) listeners.delete(name);
@@ -139,12 +163,52 @@ function bridgeFixture({ localReasoning } = {}) {
     });
     return exposed;
   }
+  const overlayApi = api(overlayListeners, overlay.webContents);
+  if (admissionOwner) {
+    // Main-only tests use an independent fake original overlay owner, never
+    // main's cached lifecycle as an acknowledgement. Hook tests opt out.
+    overlayApi.onOnboardingDemoAdmission((request) => {
+      if (!fakeOwner.busy) fakeOwner.reservation = request;
+      void overlayApi.replyOnboardingDemoAdmission({ ...request, accepted: !fakeOwner.busy });
+    });
+    const owns = (take) =>
+      take &&
+      fakeOwner.reservation?.demoId === take.demoId &&
+      fakeOwner.reservation?.requestId === take.reservationId &&
+      typeof take.takeId === "string";
+    const prepare = (options) => {
+      if (owns(options?.onboardingTake)) {
+        fakeOwner.take = options.onboardingTake;
+        fakeOwner.busy = true;
+      }
+    };
+    overlayApi.onPrepareDictation(prepare);
+    overlayApi.onStartDictation(prepare);
+    overlayApi.onToggleDictation(prepare);
+    const cancel = (options) => {
+      if (owns(options?.onboardingTake) && fakeOwner.take?.takeId === options.onboardingTake.takeId)
+        fakeOwner.busy = false;
+    };
+    overlayApi.onCancelDictationPreparation(cancel);
+    overlayApi.onCancelDictation(cancel);
+    overlayApi.onOnboardingDemoReservation((command) => {
+      if (fakeOwner.reservation?.requestId === command.requestId && command.action === "release") {
+        fakeOwner.reservation = null;
+        fakeOwner.take = null;
+        fakeOwner.busy = false;
+      }
+    });
+  }
   return {
     manager,
     context,
+    dispose: () => IPCHandlers.prototype.dispose.call(context),
     sent,
     broadcasts,
-    overlayApi: api(overlayListeners, overlay.webContents),
+    overlayApi,
+    overlayListeners,
+    fakeOwner,
+    deliver: (channel, payload) => overlayListeners.get(channel)?.({}, payload),
     setupApi: api(setupListeners, setup.webContents),
     handlers,
     overlaySender: overlay.webContents,

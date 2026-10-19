@@ -104,7 +104,12 @@ async function trial(scenario, platform) {
   const events = [];
   context.api.onOnboardingDemoEvent((event) => events.push(event));
   await context.api.beginOnboardingDemo({ id: "demo-1", kind: "dictation" });
-  return { ...context, events };
+  const api = { ...context.api };
+  for (const name of ["toggleOnboardingDemo", "cancelOnboardingDemo", "stopOnboardingDemo"]) {
+    api[name] = (id, takeId = events.findLast((event) => event.demoId === id)?.takeId ?? null) =>
+      context.api[name](id, takeId);
+  }
+  return { ...context, api, events };
 }
 
 test("the trial streams listening, levels, words and a result", async () => {
@@ -422,8 +427,8 @@ test("queued old callbacks cannot borrow a reused demo id or take after reentry/
   const bridge = createOnboardingScenarioBridge(
     () => ({ step: "try", scenario: "ready", platform: "linux" }),
     {
-      setTimeout(callback) {
-        callbacks.push(callback);
+      setTimeout(callback, ms) {
+        if (ms !== 2000) callbacks.push(callback);
         return callback;
       },
       clearTimeout() {}, // A callback already queued by the browser may still run.
@@ -436,7 +441,7 @@ test("queued old callbacks cannot borrow a reused demo id or take after reentry/
   await api.beginOnboardingDemo({ id: "reused", kind: "dictation" });
   await api.toggleOnboardingDemo("reused");
   const oldLevel = callbacks.shift();
-  await api.stopOnboardingDemo("reused");
+  await api.stopOnboardingDemo("reused", events.at(-1).takeId);
   const oldResult = callbacks.shift();
   await api.endOnboardingDemo("reused");
   await api.beginOnboardingDemo({ id: "reused", kind: "dictation" });
@@ -446,9 +451,9 @@ test("queued old callbacks cannot borrow a reused demo id or take after reentry/
   oldResult();
   assert.deepEqual(events, before);
   const currentLevel = callbacks.shift();
-  await api.cancelOnboardingDemo("reused");
+  await api.cancelOnboardingDemo("reused", events.at(-1).takeId);
   assert.equal(events.at(-1).takeId, "2");
-  await api.toggleOnboardingDemo("reused");
+  await api.toggleOnboardingDemo("reused", events.at(-1).takeId);
   currentLevel();
   assert.equal(events.at(-1).takeId, "3");
   assert.equal(events.at(-1).status, "listening");
@@ -620,4 +625,102 @@ test("shortcut preview explicitly reports its simulated release capability witho
   assert.equal(keys[1].at - keys[0].at, 600);
   assert.equal(await api.toggleOnboardingDemo("shortcut-capability"), false);
   assert.deepEqual(events, []);
+});
+
+test("preview busy original take refuses replacement and exact string take controls cannot touch newer work", async () => {
+  const { bridge, api, time } = await bridgeFor("ready");
+  const events = [],
+    requests = [];
+  api.onOnboardingDemoEvent((event) => events.push(event));
+  api.onOnboardingDemoAdmission((value) => requests.push(value));
+  assert.equal(await api.beginOnboardingDemo({ id: "A", kind: "dictation" }), true);
+  assert.equal(await api.toggleOnboardingDemo("A", null), true);
+  const first = events.at(-1).takeId,
+    old = requests.at(-1);
+  assert.equal(await api.beginOnboardingDemo({ id: "B", kind: "dictation" }), false);
+  assert.equal(await api.stopOnboardingDemo("A"), false, "missing expected take cannot stop");
+  assert.equal(await api.cancelOnboardingDemo("A", 99), false, "numeric take rejected");
+  assert.equal(await api.stopOnboardingDemo("A", first), true);
+  assert.equal(await api.beginOnboardingDemo({ id: "processing", kind: "dictation" }), false);
+  time.advance(400);
+  assert.equal(events.at(-1).status, "success");
+  assert.equal(await api.beginOnboardingDemo({ id: "B", kind: "dictation" }), true);
+  assert.equal(await api.toggleOnboardingDemo("B", null), true);
+  const newer = events.at(-1).takeId;
+  assert.equal(await api.invalidateOnboardingDemoAdmission(old), false);
+  await api.endOnboardingDemo("A");
+  assert.equal(await api.cancelOnboardingDemo("B", first), false);
+  assert.equal(await api.stopOnboardingDemo("B", newer), true);
+  time.advance(400);
+  assert.equal(events.at(-1).demoId, "B");
+  assert.equal(events.at(-1).status, "success");
+  bridge.reset();
+});
+
+for (const response of ["missing", "false", "rejected", "late"])
+  test(`preview ${response} acknowledgement is bounded; subsequent actual idle positive works`, async () => {
+    const { createOnboardingScenarioBridge } = await load();
+    const time = manualClock();
+    let mode = response,
+      finish;
+    const bridge = createOnboardingScenarioBridge(
+      () => ({ step: "try", scenario: "ready", platform: "linux" }),
+      time.clock,
+      {
+        request: () =>
+          mode === "positive"
+            ? true
+            : mode === "false"
+              ? false
+              : mode === "rejected"
+                ? Promise.reject(new Error("fixture refusal"))
+                : mode === "late"
+                  ? new Promise((resolve) => {
+                      finish = resolve;
+                    })
+                  : undefined,
+      }
+    );
+    const api = bridge.api,
+      requests = [];
+    api.onOnboardingDemoAdmission((value) => requests.push(value));
+    const pending = api.beginOnboardingDemo({ id: "lost", kind: "dictation" });
+    await Promise.resolve();
+    time.advance(2000);
+    assert.equal(await pending, false);
+    const old = requests.at(-1);
+    mode = "positive";
+    assert.equal(await api.beginOnboardingDemo({ id: "new", kind: "dictation" }), true);
+    finish?.(true);
+    await Promise.resolve();
+    assert.equal(await api.replyOnboardingDemoAdmission({ ...old, accepted: true }), false);
+    assert.equal(await api.toggleOnboardingDemo("new", null), true);
+    assert.equal(await api.toggleOnboardingDemo("lost", null), false);
+    bridge.reset();
+  });
+
+test("preview pending end/reset and supersession settle only their own begin promises", async () => {
+  const { createOnboardingScenarioBridge } = await load();
+  const time = manualClock();
+  let positive = false;
+  const bridge = createOnboardingScenarioBridge(
+    () => ({ step: "try", scenario: "ready", platform: "linux" }),
+    time.clock,
+    { request: () => (positive ? true : undefined) }
+  );
+  const api = bridge.api;
+  const a = api.beginOnboardingDemo({ id: "A", kind: "shortcut" });
+  const b = api.beginOnboardingDemo({ id: "B", kind: "shortcut" });
+  assert.equal(await a, false);
+  await api.endOnboardingDemo("A");
+  bridge.reset();
+  assert.equal(await b, false);
+  positive = true;
+  assert.equal(await api.beginOnboardingDemo({ id: "C", kind: "shortcut" }), true);
+  const events = [];
+  api.onOnboardingDemoEvent((event) => events.push(event));
+  bridge.simulateHotkey("down");
+  bridge.simulateHotkey("up");
+  assert.deepEqual(events, []);
+  bridge.reset();
 });

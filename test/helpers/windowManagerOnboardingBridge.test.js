@@ -17,13 +17,31 @@ function prepared(f) {
 test("real IPC/preload gates trial controls and cancels preparation plus active processing", async () => {
   const f = bridgeFixture();
   await begin(f);
-  assert.equal(await f.setupApi.toggleOnboardingDemo("old"), false);
-  assert.equal(await f.setupApi.cancelOnboardingDemo("old"), false);
+  assert.equal(
+    await f.setupApi.toggleOnboardingDemo("old", f.manager._onboardingDemoSession?.takeId ?? null),
+    false
+  );
+  assert.equal(
+    await f.setupApi.cancelOnboardingDemo("old", f.manager._onboardingDemoSession?.takeId ?? null),
+    false
+  );
   assert.equal(await f.setupApi.undoOnboardingDemoCancel("demo-A"), false, "no Plan04 authority");
-  assert.equal(await f.setupApi.toggleOnboardingDemo("demo-A"), true);
+  assert.equal(
+    await f.setupApi.toggleOnboardingDemo(
+      "demo-A",
+      f.manager._onboardingDemoSession?.takeId ?? null
+    ),
+    true
+  );
   assert.ok(prepared(f)?.takeId, "main admits a take before preparation");
   f.sent.length = 0;
-  assert.equal(await f.setupApi.cancelOnboardingDemo("demo-A"), true);
+  assert.equal(
+    await f.setupApi.cancelOnboardingDemo(
+      "demo-A",
+      f.manager._onboardingDemoSession?.takeId ?? null
+    ),
+    true
+  );
   assert.deepEqual(
     f.sent.map(([name]) => name),
     ["cancel-dictation-preparation", "cancel-dictation"]
@@ -32,12 +50,24 @@ test("real IPC/preload gates trial controls and cancels preparation plus active 
   await f.setupApi.endOnboardingDemo("demo-A");
   assert.deepEqual(
     f.sent.map(([name]) => name),
-    ["cancel-dictation-preparation", "cancel-dictation"]
+    ["onboarding-demo-reservation"]
   );
   await begin(f, "short", "shortcut");
   f.sent.length = 0;
-  assert.equal(await f.setupApi.toggleOnboardingDemo("short"), false);
-  assert.equal(await f.setupApi.cancelOnboardingDemo("short"), false);
+  assert.equal(
+    await f.setupApi.toggleOnboardingDemo(
+      "short",
+      f.manager._onboardingDemoSession?.takeId ?? null
+    ),
+    false
+  );
+  assert.equal(
+    await f.setupApi.cancelOnboardingDemo(
+      "short",
+      f.manager._onboardingDemoSession?.takeId ?? null
+    ),
+    false
+  );
   assert.equal(await f.setupApi.undoOnboardingDemoCancel("short"), false);
   assert.equal(f.sent.length, 0);
 });
@@ -45,7 +75,7 @@ test("real IPC/preload gates trial controls and cancels preparation plus active 
 test("real publish refuses delayed old start/error/result across leave/reenter, even reused demo ID", async () => {
   const f = bridgeFixture();
   await begin(f);
-  await f.setupApi.toggleOnboardingDemo("demo-A");
+  await f.setupApi.toggleOnboardingDemo("demo-A", f.manager._onboardingDemoSession?.takeId ?? null);
   const old = prepared(f);
   await f.setupApi.endOnboardingDemo("demo-A");
   await begin(f); // Deliberately reuse the caller's ID: take IDs must still differ.
@@ -57,7 +87,7 @@ test("real publish refuses delayed old start/error/result across leave/reenter, 
     }),
     false
   );
-  await f.setupApi.toggleOnboardingDemo("demo-A");
+  await f.setupApi.toggleOnboardingDemo("demo-A", f.manager._onboardingDemoSession?.takeId ?? null);
   const current = prepared(f);
   assert.notDeepEqual(current, old);
   for (const status of ["listening", "error", "success", "processing", "cancelled"]) {
@@ -95,7 +125,7 @@ test("real publish refuses delayed old start/error/result across leave/reenter, 
     false,
     "a failed take cannot reopen"
   );
-  await f.setupApi.toggleOnboardingDemo("demo-A");
+  await f.setupApi.toggleOnboardingDemo("demo-A", f.manager._onboardingDemoSession?.takeId ?? null);
   const next = prepared(f);
   assert.equal(
     await f.overlayApi.publishOnboardingDemoEvent({
@@ -171,14 +201,17 @@ function nativeCallbacks(f, schedule = setTimeout) {
     Date,
     setTimeout: schedule,
     globeKeyIsRecording: false,
+    globeKeyOnboardingTake: undefined,
     globeKeyDownTime: 0,
     globeLastStopTime: 0,
     rightModDownTime: 0,
     rightModIsRecording: false,
+    rightModOnboardingTake: undefined,
     rightModLastStopTime: 0,
     rightModActiveKey: null,
     mouseButtonDownTime: 0,
     mouseButtonIsRecording: false,
+    mouseButtonOnboardingTake: undefined,
     mouseButtonLastStopTime: 0,
     mouseButtonActiveButton: null,
     MIN_HOLD_DURATION_MS: 150,
@@ -269,9 +302,9 @@ test("fallback cancellation cannot manufacture Plan04 tracking fields", async ()
   const f = bridgeFixture();
   await begin(f);
   f.manager.lastCancelledDictation = null;
-  await f.setupApi.toggleOnboardingDemo("demo-A");
+  await f.setupApi.toggleOnboardingDemo("demo-A", f.manager._onboardingDemoSession?.takeId ?? null);
   const take = prepared(f);
-  await f.setupApi.cancelOnboardingDemo("demo-A");
+  await f.setupApi.cancelOnboardingDemo("demo-A", f.manager._onboardingDemoSession?.takeId ?? null);
   assert.equal(
     await f.overlayApi.publishOnboardingDemoEvent({
       ...take,
@@ -291,7 +324,7 @@ test("fallback cancellation cannot manufacture Plan04 tracking fields", async ()
 test("setup cannot forge an overlay listening/success proof through publish", async () => {
   const f = bridgeFixture();
   await begin(f);
-  await f.setupApi.toggleOnboardingDemo("demo-A");
+  await f.setupApi.toggleOnboardingDemo("demo-A", f.manager._onboardingDemoSession?.takeId ?? null);
   const take = prepared(f);
   assert.equal(
     await f.setupApi.publishOnboardingDemoEvent({
@@ -346,3 +379,84 @@ test("native secondary shortcuts carry the key that actually fired, never the pr
   await callbacks["right-modifier-down"]("RightOption");
   assert.equal(f.manager._onboardingDemoSession.binding.hotkey, "RightOption");
 });
+
+for (const [down, up, key] of [
+  ["globe-down", "globe-up", undefined],
+  ["right-modifier-down", "right-modifier-up", "RightOption"],
+  ["mouse-button-down", "mouse-button-up", "Mouse4"],
+]) {
+  test(`actual native ${up} retains its original setup take across a new demo, with matching positive`, async () => {
+    const f = bridgeFixture();
+    await begin(f, "A");
+    f.manager._cachedActivationMode = "push";
+    const timers = [];
+    const callbacks = nativeCallbacks(f, (fn) => {
+      timers.push(fn);
+      return timers.length;
+    });
+    await callbacks[down](key);
+    await timers[0]();
+    const old = prepared(f);
+    await f.setupApi.endOnboardingDemo("A");
+    await begin(f, "B");
+    f.sent.length = 0;
+    await callbacks[up](key);
+    assert.equal(
+      f.sent.some(([channel]) =>
+        ["stop-dictation", "cancel-dictation-preparation", "dictation-force-stopped"].includes(
+          channel
+        )
+      ),
+      false
+    );
+    assert.equal(f.manager._onboardingDemoSession.id, "B");
+    const currentTimers = [];
+    const current = nativeCallbacks(f, (fn) => {
+      currentTimers.push(fn);
+      return currentTimers.length;
+    });
+    await current[down](key);
+    await currentTimers[0]();
+    const take = prepared(f);
+    assert.notEqual(take.takeId, old.takeId);
+    await current[up](key);
+    const stop = f.sent.findLast(([channel]) => channel === "stop-dictation")[1].onboardingTake;
+    assert.equal(stop.demoId, "B");
+    assert.equal(stop.takeId, take.takeId);
+    assert.equal(stop.reservationId, take.reservationId);
+    await f.setupApi.endOnboardingDemo("B");
+    f.dispose();
+  });
+}
+
+for (const platform of ["compound", "windows"])
+  test(`original ${platform} physical press state cannot stop a later setup owner`, async (t) => {
+    const f = bridgeFixture();
+    t.after(() => {
+      if (platform === "compound") f.manager.forceStopMacCompoundPush();
+      else f.manager.resetWindowsPushState();
+      f.dispose();
+    });
+    await begin(f, "A");
+    if (platform === "compound") f.manager.startMacCompoundPushToTalk("Command+F8");
+    else f.manager.startWindowsPushToTalk("F8");
+    await new Promise((resolve) => setTimeout(resolve, 170));
+    assert.equal(
+      f.sent.some(([channel]) => channel === "start-dictation"),
+      true
+    );
+    await f.setupApi.endOnboardingDemo("A");
+    await begin(f, "B");
+    f.sent.length = 0;
+    if (platform === "compound") f.manager.handleMacPushModifierUp("command");
+    else f.manager.handleWindowsPushKeyUp("F8", { reason: "reset" });
+    assert.equal(
+      f.sent.some(([channel]) =>
+        ["stop-dictation", "cancel-dictation-preparation", "dictation-force-stopped"].includes(
+          channel
+        )
+      ),
+      false
+    );
+    assert.equal(f.manager._onboardingDemoSession.id, "B");
+  });

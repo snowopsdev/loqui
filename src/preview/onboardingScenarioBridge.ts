@@ -9,6 +9,9 @@ import type {
   DictationBinding,
   OnboardingDemoEvent,
   OnboardingDemoKind,
+  OnboardingDemoAdmissionRequest,
+  OnboardingDemoAdmissionReply,
+  OnboardingDemoReservation,
   SystemFacts,
 } from "../types/electron";
 import type { OnboardingPreviewConfig } from "../utils/onboardingState";
@@ -52,6 +55,8 @@ interface Transfer {
   resolve(result: DownloadResult): void;
 }
 interface Demo {
+  requestId: string;
+  takeId?: string;
   context?: string;
   id: string;
   kind: OnboardingDemoKind;
@@ -68,7 +73,12 @@ interface Take {
 
 export function createOnboardingScenarioBridge(
   getConfig: () => OnboardingPreviewConfig,
-  clock: ScenarioClock = realClock
+  clock: ScenarioClock = realClock,
+  admission: {
+    request?: (
+      request: OnboardingDemoAdmissionRequest
+    ) => boolean | undefined | Promise<boolean | undefined>;
+  } = {}
 ) {
   const textOperations = createCapturedTextBridge(async (descriptor, sentence) => {
     if (["codex", "tinfoil"].includes(descriptor.provider))
@@ -89,6 +99,51 @@ export function createOnboardingScenarioBridge(
   const interrupted = new Set<string>();
   let active: Transfer | null = null;
   let session: Demo | null = null;
+  const admissionListeners = new Set<(request: OnboardingDemoAdmissionRequest) => void>();
+  const reservationListeners = new Set<(command: OnboardingDemoReservation) => void>();
+  let admissionSequence = 0;
+  let pendingAdmission: {
+    request: OnboardingDemoAdmissionRequest;
+    demo: Demo;
+    timer: unknown;
+    resolve(value: boolean): void;
+  } | null = null;
+  const reservationEvent = (command: OnboardingDemoReservation) => {
+    for (const listener of [...reservationListeners]) listener(command);
+  };
+  const failAdmission = () => {
+    const pending = pendingAdmission;
+    if (!pending) return;
+    pendingAdmission = null;
+    clock.clearTimeout(pending.timer);
+    reservationEvent({ ...pending.request, action: "release" });
+    pending.resolve(false);
+  };
+  const replyAdmission = async (reply: OnboardingDemoAdmissionReply) => {
+    const pending = pendingAdmission;
+    if (
+      !pending ||
+      pending.request.demoId !== reply.demoId ||
+      pending.request.requestId !== reply.requestId
+    )
+      return false;
+    if (
+      reply.accepted !== true ||
+      clock.now() >= pending.request.deadlineAt ||
+      take ||
+      cleanupOperation?.pending
+    ) {
+      failAdmission();
+      return false;
+    }
+    pendingAdmission = null;
+    clock.clearTimeout(pending.timer);
+    endSession();
+    session = pending.demo;
+    reservationEvent({ ...pending.request, action: "commit" });
+    pending.resolve(true);
+    return true;
+  };
   let cleanupOperation: {
     identity: CleanupOperationIdentity;
     failed: boolean;
@@ -238,7 +293,7 @@ export function createOnboardingScenarioBridge(
     activationMode: globalThis.localStorage?.getItem("activationMode") === "push" ? "push" : "tap",
   });
   function startTrial(origin: "button" | "hotkey" = "button") {
-    if (!session || session.kind !== "dictation" || take) return;
+    if (!session || session.kind !== "dictation" || take || pendingAdmission) return;
     retireCleanup();
     const owner: Take = {
       demo: session,
@@ -250,6 +305,7 @@ export function createOnboardingScenarioBridge(
       timers: new Set(),
     };
     take = owner;
+    session.takeId = owner.id;
     emitDemo(owner, { status: "preparing" });
     // F01: acquisition failure belongs to this admitted take, before listening.
     if (owner.scenario === "microphone-denied") {
@@ -316,6 +372,13 @@ export function createOnboardingScenarioBridge(
   }
 
   function endSession() {
+    if (session)
+      reservationEvent({
+        demoId: session.id,
+        requestId: session.requestId,
+        ...(session.takeId ? { takeId: session.takeId } : {}),
+        action: "release",
+      });
     retireCleanup();
     if (take) clearTimers(take);
     take = null;
@@ -355,6 +418,7 @@ export function createOnboardingScenarioBridge(
     );
   }
   function reset() {
+    failAdmission();
     textOperations.reset();
     settleActive("Preview reset");
     downloaded.clear();
@@ -442,6 +506,21 @@ export function createOnboardingScenarioBridge(
       supportsPushToTalk: true,
       pushToTalkUnavailableReason: null,
     }),
+    onOnboardingDemoAdmission: subscribe(admissionListeners),
+    onOnboardingDemoReservation: subscribe(reservationListeners),
+    replyOnboardingDemoAdmission: replyAdmission,
+    invalidateOnboardingDemoAdmission: async (identity) => {
+      if (
+        pendingAdmission?.request.requestId === identity.requestId &&
+        pendingAdmission.request.demoId === identity.demoId
+      ) {
+        failAdmission();
+        return true;
+      }
+      if (session?.id !== identity.demoId || session.requestId !== identity.requestId) return false;
+      endSession();
+      return true;
+    },
     beginOnboardingDemo: async ({
       id,
       kind,
@@ -451,30 +530,75 @@ export function createOnboardingScenarioBridge(
       kind: OnboardingDemoKind;
       context?: string;
     }) => {
-      endSession();
-      session = { id, kind, context };
-      return true;
+      if (
+        !id ||
+        id.length > 128 ||
+        !["dictation", "assistant", "shortcut"].includes(kind) ||
+        (context !== undefined && (typeof context !== "string" || context.length > 4096))
+      )
+        return false;
+      failAdmission();
+      return new Promise<boolean>((resolve) => {
+        const request: OnboardingDemoAdmissionRequest = {
+          demoId: id,
+          requestId: `preview-admission-${++admissionSequence}`,
+          kind,
+          deadlineAt: clock.now() + 2000,
+        };
+        pendingAdmission = {
+          request,
+          demo: { id, kind, context, requestId: request.requestId },
+          resolve,
+          timer: clock.setTimeout(() => {
+            if (pendingAdmission?.request === request) failAdmission();
+          }, 2000),
+        };
+        for (const listener of [...admissionListeners]) listener(request);
+        // The in-memory original owner reserves synchronously before any queued
+        // start. A deferred/missing/failed probe is bounded by the same deadline.
+        try {
+          const answer = admission.request
+            ? admission.request(request)
+            : !take && !cleanupOperation?.pending;
+          void Promise.resolve(answer).then(
+            (accepted) => {
+              if (accepted !== undefined) return replyAdmission({ ...request, accepted });
+            },
+            () => {
+              if (pendingAdmission?.request === request) failAdmission();
+            }
+          );
+        } catch {
+          if (pendingAdmission?.request === request) failAdmission();
+        }
+      });
     },
     endOnboardingDemo: async (id: string) => {
+      if (pendingAdmission?.demo.id === id) failAdmission();
       if (session?.id === id) endSession();
       return true;
     },
-    stopOnboardingDemo: async (id: string) => {
-      if (session?.id !== id) return false;
+    stopOnboardingDemo: async (id: string, takeId?: string | null) => {
+      if (session?.id !== id || !takeId || session.takeId !== takeId) return false;
       stopTrial();
       return true;
     },
-    toggleOnboardingDemo: async (id: string) => {
-      if (session?.id !== id || session.kind !== "dictation" || take?.state === "processing")
+    toggleOnboardingDemo: async (id: string, takeId?: string | null) => {
+      if (
+        session?.id !== id ||
+        session.kind !== "dictation" ||
+        take?.state === "processing" ||
+        (session.takeId ? session.takeId !== takeId : takeId != null)
+      )
         return false;
       if (take?.state === "recording") stopTrial();
       else startTrial();
       return true;
     },
-    cancelOnboardingDemo: async (id: string) => {
-      if (session?.id === id) retireCleanup();
+    cancelOnboardingDemo: async (id: string, takeId?: string | null) => {
       const owner = take;
-      if (session?.id !== id || !owner) return false;
+      if (session?.id !== id || !takeId || session.takeId !== takeId || !owner) return false;
+      retireCleanup();
       clearTimers(owner);
       emitDemo(owner, { status: "cancelled" });
       if (take === owner) take = null;
@@ -531,6 +655,10 @@ export function createOnboardingScenarioBridge(
     | "markMacAccessibilityFeaturesReady"
     | "getDictationBinding"
     | "getHotkeyModeInfo"
+    | "onOnboardingDemoAdmission"
+    | "onOnboardingDemoReservation"
+    | "replyOnboardingDemoAdmission"
+    | "invalidateOnboardingDemoAdmission"
     | "beginOnboardingDemo"
     | "endOnboardingDemo"
     | "stopOnboardingDemo"

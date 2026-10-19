@@ -635,6 +635,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // Extends the original recorder admission. This is cleanup ownership only;
   // recording privacy/cancellation and future Plan04 audio/session owners stay put.
   assertTrialContext(recording) {
+    recording?.assertOnboardingOwner?.();
     if (!recording?.trialContext) return;
     if (
       trialContext(getSettings()) !== recording.trialContext ||
@@ -654,7 +655,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (!take?.demoId || typeof take.takeId !== "string" || !enabled || recording.cleanupOperation)
       return;
     this.retireCapturedCleanup();
-    const identity = { ...take, operationId: crypto.randomUUID() };
+    const identity = { demoId: take.demoId, takeId: take.takeId, operationId: crypto.randomUUID() };
     const settings = getSettings();
     const language = settings.preferredLanguage;
     const scriptPreference = settings.chineseScriptPreference;
@@ -667,7 +668,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   retireCapturedCleanup(identity) {
     const operation = this._retainedCleanupOperation;
-    if (!operation || (identity && operation.identity.operationId !== identity.operationId)) return;
+    if (
+      !operation ||
+      (identity &&
+        (!["demoId", "takeId", "operationId"].some((key) => typeof identity[key] === "string") ||
+          !["demoId", "takeId", "operationId"].every(
+            (key) => identity[key] === undefined || identity[key] === operation.identity[key]
+          )))
+    )
+      return;
     this._retainedCleanupOperation = null;
     operation.retire();
   }
@@ -705,6 +714,37 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.lastAudioMetadata = null;
   }
 
+  hasPendingRecordingWork() {
+    const state = this.getState();
+    return !!(
+      state.isRecording ||
+      state.isProcessing ||
+      state.isStreaming ||
+      state.isStreamingStartInProgress ||
+      this._startInProgress ||
+      this._streamingStopPromise ||
+      this._activeProcessingPipeline ||
+      this._pendingRecordingWork ||
+      this._retainedCleanupOperation?.isRunning
+    );
+  }
+
+  _trackRecordingWork(run) {
+    this._pendingRecordingWork = (this._pendingRecordingWork ?? 0) + 1;
+    const done = () => {
+      this._pendingRecordingWork -= 1;
+    };
+    try {
+      const result = run();
+      if (result && typeof result.then === "function") return Promise.resolve(result).finally(done);
+      done();
+      return result;
+    } catch (error) {
+      done();
+      throw error;
+    }
+  }
+
   setCallbacks({
     onStateChange,
     onError,
@@ -718,7 +758,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.onStateChange = onStateChange;
     this.onError = onError;
     this.onNoAudio = onNoAudio;
-    this.onTranscriptionComplete = onTranscriptionComplete;
+    this.onTranscriptionComplete = (...args) =>
+      this._trackRecordingWork(() => onTranscriptionComplete?.(...args));
     this.onPartialTranscript = onPartialTranscript;
     this.onStreamingCommit = onStreamingCommit;
     this.onTranslationFallback = onTranslationFallback;
@@ -1781,9 +1822,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
       const recorder = this.mediaRecorder;
       const discarded = this.takeDiscardedBatchSnapshot();
-      this.mediaRecorder.onstop = () => {
-        recorder.stream?.getTracks().forEach((track) => track.stop());
-        this.persistDiscardedBatchRecording(discarded);
+      // The original recorder's final dataavailable/merge/save still owns work
+      // after the visible recording flag clears. Demo admission must await it.
+      this._pendingRecordingWork = (this._pendingRecordingWork ?? 0) + 1;
+      this.mediaRecorder.onstop = async () => {
+        try {
+          recorder.stream?.getTracks().forEach((track) => track.stop());
+          await this.persistDiscardedBatchRecording(discarded);
+        } finally {
+          this._pendingRecordingWork -= 1;
+        }
       };
 
       // Detach from manager state before recorder.stop(): its final
@@ -1861,7 +1909,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (shouldSave) {
       // Assemble and save in the background — the merge crosses IPC into FFmpeg
       // and must not delay the recorder becoming available again.
-      void (async () => {
+      return this._trackRecordingWork(async () => {
         try {
           const current = new Blob(chunks, { type: mimeType });
           const blob = await this.mergeRecordedSegments([...segments, current]);
@@ -1886,7 +1934,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           }
           logger.warn("Failed to save discarded recording", { error: error.message }, "audio");
         }
-      })();
+      });
     }
   }
 
@@ -3264,189 +3312,212 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     rawText = null,
     { clientTranscriptionId, analyticsOccurredAt, recording } = {}
   ) {
-    // Capture before the first await. Plan04's owned snapshot savers replace
-    // this local Blob identity guard at Task22 integration.
-    const audioBlob = recording ? recording.audioBlob : this.lastAudioBlob;
-    const audioPrivate = recording
-      ? recording.private === true
-      : this.lastAudioBlobPrivate === true;
-    const audioMetadata = recording ? recording.audioMetadata : this.lastAudioMetadata;
-    const routeKind = this.translationRequested ? "translation" : null;
-    const release = () => {
-      if (this.lastAudioBlob !== audioBlob) return;
-      this.lastAudioBlob = null;
-      this.lastAudioMetadata = null;
-    };
-    if (audioPrivate) {
-      release();
-      return;
-    }
-    const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
-    if (!dataRetentionEnabled) {
-      logger.debug("Skipping transcription save — data retention disabled", {}, "audio");
-      release();
-      return true;
-    }
-
-    const eventId = clientTranscriptionId || crypto.randomUUID();
-    const occurredAt = analyticsOccurredAt ? new Date(analyticsOccurredAt) : new Date();
-    const metadata = audioMetadata || {};
+    this._pendingRecordingWork = (this._pendingRecordingWork ?? 0) + 1;
     try {
-      await window.electronAPI.recordAnalyticsEvent({
-        eventId,
-        wordCount: countSpokenWords(rawText || text),
-        occurredAt: occurredAt.toISOString(),
-        localDate: localDateKey(occurredAt),
-        spokenDurationMs: metadata.durationMs || null,
-        mode: resolveAnalyticsMode(getSettings(), metadata.provider),
-        provider: metadata.provider || null,
-        model: metadata.model || null,
-      });
-    } catch (analyticsError) {
-      logger.warn(
-        "Failed to record local analytics event",
-        { error: analyticsError.message },
-        "analytics"
-      );
-    }
-
-    try {
-      const result = await window.electronAPI.saveTranscription(text, rawText, {
-        clientTranscriptionId: eventId,
-        routeKind,
-        analyticsOccurredAt: occurredAt.toISOString(),
-      });
-
-      // Save audio if we have a captured blob and the transcription was saved successfully
-      if (result?.id && audioBlob) {
-        if (audioRetentionDays > 0) {
-          try {
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, audioMetadata);
-          } catch (audioErr) {
-            // Non-blocking: transcription is saved even if audio save fails
-            logger.warn("Failed to save transcription audio", { error: audioErr.message }, "audio");
-          }
-        }
+      // Capture before the first await. Plan04's owned snapshot savers replace
+      // this local Blob identity guard at Task22 integration.
+      const audioBlob = recording ? recording.audioBlob : this.lastAudioBlob;
+      const audioPrivate = recording
+        ? recording.private === true
+        : this.lastAudioBlobPrivate === true;
+      const audioMetadata = recording ? recording.audioMetadata : this.lastAudioMetadata;
+      const routeKind = this.translationRequested ? "translation" : null;
+      const release = () => {
+        if (this.lastAudioBlob !== audioBlob) return;
+        this.lastAudioBlob = null;
+        this.lastAudioMetadata = null;
+      };
+      if (audioPrivate) {
         release();
+        return;
+      }
+      const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
+      if (!dataRetentionEnabled) {
+        logger.debug("Skipping transcription save — data retention disabled", {}, "audio");
+        release();
+        return true;
       }
 
-      return true;
-    } catch (error) {
-      return false;
+      const eventId = clientTranscriptionId || crypto.randomUUID();
+      const occurredAt = analyticsOccurredAt ? new Date(analyticsOccurredAt) : new Date();
+      const metadata = audioMetadata || {};
+      try {
+        await window.electronAPI.recordAnalyticsEvent({
+          eventId,
+          wordCount: countSpokenWords(rawText || text),
+          occurredAt: occurredAt.toISOString(),
+          localDate: localDateKey(occurredAt),
+          spokenDurationMs: metadata.durationMs || null,
+          mode: resolveAnalyticsMode(getSettings(), metadata.provider),
+          provider: metadata.provider || null,
+          model: metadata.model || null,
+        });
+      } catch (analyticsError) {
+        logger.warn(
+          "Failed to record local analytics event",
+          { error: analyticsError.message },
+          "analytics"
+        );
+      }
+
+      try {
+        const result = await window.electronAPI.saveTranscription(text, rawText, {
+          clientTranscriptionId: eventId,
+          routeKind,
+          analyticsOccurredAt: occurredAt.toISOString(),
+        });
+
+        // Save audio if we have a captured blob and the transcription was saved successfully
+        if (result?.id && audioBlob) {
+          if (audioRetentionDays > 0) {
+            try {
+              const arrayBuffer = await audioBlob.arrayBuffer();
+              await window.electronAPI.saveTranscriptionAudio(
+                result.id,
+                arrayBuffer,
+                audioMetadata
+              );
+            } catch (audioErr) {
+              // Non-blocking: transcription is saved even if audio save fails
+              logger.warn(
+                "Failed to save transcription audio",
+                { error: audioErr.message },
+                "audio"
+              );
+            }
+          }
+          release();
+        }
+
+        return true;
+      } catch (error) {
+        return false;
+      }
+    } finally {
+      this._pendingRecordingWork -= 1;
     }
   }
 
   async saveFailedTranscription(errorMessage, errorCode = null, metadata = {}, recording) {
-    // Capture before the first await. Plan04's owned snapshot savers replace
-    // this local Blob identity guard at Task22 integration.
-    const audioBlob = recording ? recording.audioBlob : this.lastAudioBlob;
-    const audioPrivate = recording
-      ? recording.private === true
-      : this.lastAudioBlobPrivate === true;
-    const failureMetadata = { ...metadata };
-    const routeKind = this.translationRequested ? "translation" : null;
-    const release = () => {
-      if (this.lastAudioBlob !== audioBlob) return;
-      this.lastAudioBlob = null;
-      this.lastAudioMetadata = null;
-    };
-    if (audioPrivate) {
-      release();
-      return;
-    }
-    const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
-    if (!dataRetentionEnabled) {
-      logger.debug("Skipping failed transcription save — data retention disabled", {}, "audio");
-      release();
-      return;
-    }
-
+    this._pendingRecordingWork = (this._pendingRecordingWork ?? 0) + 1;
     try {
-      const result = await window.electronAPI.saveTranscription("", null, {
-        status: "failed",
-        errorMessage,
-        errorCode,
-        routeKind,
-        ...(failureMetadata.analyticsOccurredAt
-          ? { analyticsOccurredAt: failureMetadata.analyticsOccurredAt }
-          : {}),
-      });
-
-      if (result?.id && audioBlob) {
-        if (audioRetentionDays > 0) {
-          try {
-            const durationMs = failureMetadata.durationSeconds
-              ? Math.round(failureMetadata.durationSeconds * 1000)
-              : null;
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, {
-              durationMs,
-              provider: null,
-              model: null,
-            });
-          } catch (audioErr) {
-            logger.warn(
-              "Failed to save audio for failed transcription",
-              {
-                error: audioErr.message,
-              },
-              "audio"
-            );
-          }
-        }
+      // Capture before the first await. Plan04's owned snapshot savers replace
+      // this local Blob identity guard at Task22 integration.
+      const audioBlob = recording ? recording.audioBlob : this.lastAudioBlob;
+      const audioPrivate = recording
+        ? recording.private === true
+        : this.lastAudioBlobPrivate === true;
+      const failureMetadata = { ...metadata };
+      const routeKind = this.translationRequested ? "translation" : null;
+      const release = () => {
+        if (this.lastAudioBlob !== audioBlob) return;
+        this.lastAudioBlob = null;
+        this.lastAudioMetadata = null;
+      };
+      if (audioPrivate) {
         release();
+        return;
       }
-    } catch (error) {
-      logger.error(
-        "Failed to save failed transcription record",
-        {
-          error: error.message,
-        },
-        "audio"
-      );
+      const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
+      if (!dataRetentionEnabled) {
+        logger.debug("Skipping failed transcription save — data retention disabled", {}, "audio");
+        release();
+        return;
+      }
+
+      try {
+        const result = await window.electronAPI.saveTranscription("", null, {
+          status: "failed",
+          errorMessage,
+          errorCode,
+          routeKind,
+          ...(failureMetadata.analyticsOccurredAt
+            ? { analyticsOccurredAt: failureMetadata.analyticsOccurredAt }
+            : {}),
+        });
+
+        if (result?.id && audioBlob) {
+          if (audioRetentionDays > 0) {
+            try {
+              const durationMs = failureMetadata.durationSeconds
+                ? Math.round(failureMetadata.durationSeconds * 1000)
+                : null;
+              const arrayBuffer = await audioBlob.arrayBuffer();
+              await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, {
+                durationMs,
+                provider: null,
+                model: null,
+              });
+            } catch (audioErr) {
+              logger.warn(
+                "Failed to save audio for failed transcription",
+                {
+                  error: audioErr.message,
+                },
+                "audio"
+              );
+            }
+          }
+          release();
+        }
+      } catch (error) {
+        logger.error(
+          "Failed to save failed transcription record",
+          {
+            error: error.message,
+          },
+          "audio"
+        );
+      }
+    } finally {
+      this._pendingRecordingWork -= 1;
     }
   }
 
   async saveDiscardedTranscription(blob, durationSeconds, analyticsOccurredAt = null) {
-    let savedId = null;
+    this._pendingRecordingWork = (this._pendingRecordingWork ?? 0) + 1;
     try {
-      const result = await window.electronAPI.saveTranscription("", null, {
-        status: "discarded",
-        routeKind: this.translationRequested ? "translation" : null,
-        ...(analyticsOccurredAt ? { analyticsOccurredAt } : {}),
-      });
-      if (!result?.id) return;
-      savedId = result.id;
-
-      if (blob) {
-        const durationMs = durationSeconds ? Math.round(durationSeconds * 1000) : null;
-        const arrayBuffer = await blob.arrayBuffer();
-        await window.electronAPI.saveTranscriptionAudio(savedId, arrayBuffer, {
-          durationMs,
-          provider: null,
-          model: null,
+      let savedId = null;
+      try {
+        const result = await window.electronAPI.saveTranscription("", null, {
+          status: "discarded",
+          routeKind: this.translationRequested ? "translation" : null,
+          ...(analyticsOccurredAt ? { analyticsOccurredAt } : {}),
         });
-      }
-    } catch (error) {
-      logger.error(
-        "Failed to save discarded transcription record",
-        { error: error.message },
-        "audio"
-      );
-      // A discarded row is only recoverable through its audio; if the audio save
-      // failed, drop the dead row instead of leaving an empty unrecoverable entry. See #907.
-      if (savedId != null) {
-        try {
-          await window.electronAPI.deleteTranscription(savedId);
-        } catch (cleanupError) {
-          logger.warn(
-            "Failed to clean up discarded row after audio save failure",
-            { error: cleanupError.message },
-            "audio"
-          );
+        if (!result?.id) return;
+        savedId = result.id;
+
+        if (blob) {
+          const durationMs = durationSeconds ? Math.round(durationSeconds * 1000) : null;
+          const arrayBuffer = await blob.arrayBuffer();
+          await window.electronAPI.saveTranscriptionAudio(savedId, arrayBuffer, {
+            durationMs,
+            provider: null,
+            model: null,
+          });
+        }
+      } catch (error) {
+        logger.error(
+          "Failed to save discarded transcription record",
+          { error: error.message },
+          "audio"
+        );
+        // A discarded row is only recoverable through its audio; if the audio save
+        // failed, drop the dead row instead of leaving an empty unrecoverable entry. See #907.
+        if (savedId != null) {
+          try {
+            await window.electronAPI.deleteTranscription(savedId);
+          } catch (cleanupError) {
+            logger.warn(
+              "Failed to clean up discarded row after audio save failure",
+              { error: cleanupError.message },
+              "audio"
+            );
+          }
         }
       }
+    } finally {
+      this._pendingRecordingWork -= 1;
     }
   }
 

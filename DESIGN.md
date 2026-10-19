@@ -688,3 +688,51 @@ PrivacyDefaults itself. New Ready copy is translated in all eleven locales;
 existing placeholders elsewhere remain Task20 work. Captured-provider source
 limits, native/manual verification and Task22's real Plan04 integration remain
 open. No Sealed or zero-byte assurance is made.
+
+### Setup ownership and admission (Plan 05 Task 19 foundation)
+
+Opening or closing setup is presentation, and never sends ordinary workspace
+cancel/reset commands. Existing workspace dictation, Stop/Esc controls and late
+transcription surfaces remain available while setup is presented. A trial can
+refuse as unavailable while that original operation is busy; a cached main
+lifecycle or a renderer preference cannot authorize a new private recording.
+
+`beginOnboardingDemo({id, kind, context?})` still resolves to a boolean. Main
+stages a two-second request for the current setup and original overlay
+webContents. The typed admission request contains only `demoId`, a unique
+`requestId`, `kind` and an absolute `deadlineAt`. The original
+`useAudioRecording` preparation/start owner checks its locks, prepared capture,
+AudioManager acquisition/streaming/processing, retained cleanup execution and
+pending completion/saver work. On a true idle admission it reserves that nonce
+synchronously before replying, excluding queued ordinary starts. Main validates
+the exact reply and both live senders again before installing a demo, then sends
+its matching commit. False, missing, rejected, expired or destroyed owners do
+not replace the current main demo or publish fictional listening. Pending
+admission, supersession, matching end, renderer disposal and window destruction
+release only their exact nonce and captured take, when one exists. Existing
+physical press owners carry that take through key release, interruption and
+forced stop as well. The in-memory preview follows the same admission
+and control contract with fake owners and no microphone or provider work.
+
+Main-admitted take payloads add `reservationId` to the immutable string
+`demoId`/`takeId`. Preparation, start, toggle, stop, cancellation and release are
+checked at the original overlay immediately before its existing operations.
+Each reservation remembers admitted take IDs, so a delayed completed/cancelled
+prepare or start cannot reopen an earlier take. Setup control calls accept an
+additional expected string take ID (or null before the first take); once a take
+exists, omitted or mismatched IDs refuse. The setup observer captures that ID
+before awaiting admission. Ordinary user controls retain their existing
+semantics. A release without an admitted take only releases its admission.
+
+The original AudioManager and preparation generations still own recording and
+cancellation. Captured private policy is fixed before any wait, including before
+a cross-window completion-flag update. A setup admission guard travels with the
+existing recording snapshot and is checked at the existing asynchronous
+microphone/provider boundaries. Pending completion and saver accounting extends
+that manager's eligibility through visual idle, including a public discard's
+final recorder event, merge and audio save. It does not change public retention,
+replace snapshot savers or introduce a recording/session/Undo owner. Cleanup
+retirement checks every supplied original operation identity field. Plan 04's
+sole audio setter, private hold, session and Undo composition remain Task 22
+second-merger work. This foundation supplies no resume card, restart listener,
+Router preservation remedy or whole-Task19 completion.

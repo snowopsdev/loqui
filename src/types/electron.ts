@@ -772,7 +772,24 @@ export interface DictationBinding {
   hotkey: string;
   activationMode: "tap" | "push";
 }
+/** Transport identity only; never a provider capability or Plan04 session. */
+export interface OnboardingDemoAdmissionIdentity {
+  demoId: string;
+  requestId: string;
+}
+export interface OnboardingDemoAdmissionRequest extends OnboardingDemoAdmissionIdentity {
+  kind: OnboardingDemoKind;
+  deadlineAt: number;
+}
+export interface OnboardingDemoAdmissionReply extends OnboardingDemoAdmissionIdentity {
+  accepted: boolean;
+}
+export interface OnboardingDemoReservation extends OnboardingDemoAdmissionIdentity {
+  takeId?: string;
+  action: "commit" | "release";
+}
 export interface OnboardingDemoTake {
+  reservationId: string;
   demoId: string;
   takeId: string;
   context?: string;
@@ -947,20 +964,30 @@ declare global {
       onOnboardingCleanupRetired?: (
         callback: (identity: CleanupOperationIdentity) => void
       ) => () => void;
+      replyOnboardingDemoAdmission?: (reply: OnboardingDemoAdmissionReply) => Promise<boolean>;
+      invalidateOnboardingDemoAdmission?: (
+        identity: OnboardingDemoAdmissionIdentity
+      ) => Promise<boolean>;
+      onOnboardingDemoAdmission?: (
+        callback: (request: OnboardingDemoAdmissionRequest) => void
+      ) => () => void;
+      onOnboardingDemoReservation?: (
+        callback: (command: OnboardingDemoReservation) => void
+      ) => () => void;
       beginOnboardingDemo?: (session: {
         id: string;
         kind: OnboardingDemoKind;
         context?: string;
       }) => Promise<boolean>;
       endOnboardingDemo?: (id: string) => Promise<boolean>;
-      stopOnboardingDemo?: (id: string) => Promise<boolean>;
+      stopOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
       publishOnboardingDemoEvent?: (
         event: Omit<OnboardingDemoEvent, "demoId"> & Partial<OnboardingDemoTake>
       ) => Promise<boolean>;
       onOnboardingDemoEvent?: (callback: (event: OnboardingDemoEvent) => void) => () => void;
       getSystemProfile?: () => Promise<SystemFacts>;
-      toggleOnboardingDemo?: (id: string) => Promise<boolean>;
-      cancelOnboardingDemo?: (id: string) => Promise<boolean>;
+      toggleOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
+      cancelOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
       undoOnboardingDemoCancel?: (id: string) => Promise<boolean>;
       onDictationHotkeyEvent?: (callback: (event: DictationHotkeyEvent) => void) => () => void;
       probeSelfHosted?: (baseUrl: string) => Promise<
@@ -1046,7 +1073,7 @@ declare global {
       onToggleTranslation?: (callback: () => void) => () => void;
       onOpenAssistantPanel?: (callback: () => void) => () => void;
       onStartDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
-      onStopDictation?: (callback: () => void) => () => void;
+      onStopDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onPrepareDictation?: (
         callback: (
           options?: DictationStartOptions & {
@@ -1054,8 +1081,10 @@ declare global {
           }
         ) => void
       ) => () => void;
-      onCancelDictationPreparation?: (callback: () => void) => () => void;
-      onCancelDictation?: (callback: () => void) => () => void;
+      onCancelDictationPreparation?: (
+        callback: (options?: DictationStartOptions) => void
+      ) => () => void;
+      onCancelDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onDictationForceStopped?: (
         callback: (payload?: { reason?: "timeout" | "reset" | "manual" }) => void
       ) => () => void;

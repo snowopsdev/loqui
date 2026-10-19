@@ -926,6 +926,7 @@ async function startApp() {
     const { isGlobeLikeHotkey, isMouseButtonHotkey } = require("./src/helpers/hotkeyManager");
     let globeKeyDownTime = 0;
     let globeKeyIsRecording = false;
+    let globeKeyOnboardingTake;
     let globeLastStopTime = 0;
     const MIN_HOLD_DURATION_MS = 150;
     const POST_STOP_COOLDOWN_MS = 300;
@@ -966,6 +967,7 @@ async function startApp() {
             }
             windowManager.showDictationPanel();
             const onboardingTake = windowManager.sendPrepareDictation();
+            globeKeyOnboardingTake = onboardingTake;
             const pressTime = now;
             globeKeyDownTime = pressTime;
             globeKeyIsRecording = false;
@@ -1027,9 +1029,14 @@ async function startApp() {
             if (globeKeyIsRecording) {
               globeKeyIsRecording = false;
               debugLogger?.debug("[Globe] Stopping dictation (push release)");
-              windowManager.sendStopDictation();
+              windowManager.sendStopDictation({ onboardingTake: globeKeyOnboardingTake });
             } else {
-              windowManager.sendCancelDictationPreparation();
+              if (
+                windowManager.sendCancelDictationPreparation({
+                  onboardingTake: globeKeyOnboardingTake,
+                }) === false
+              )
+                return;
               windowManager.hideDictationPanel();
             }
           }
@@ -1055,9 +1062,14 @@ async function startApp() {
       globeKeyIsRecording = false;
       globeLastStopTime = Date.now();
       if (wasRecording) {
-        windowManager.sendCancelDictation();
+        windowManager.sendCancelDictation({ onboardingTake: globeKeyOnboardingTake });
       } else {
-        windowManager.sendCancelDictationPreparation();
+        if (
+          windowManager.sendCancelDictationPreparation({
+            onboardingTake: globeKeyOnboardingTake,
+          }) === false
+        )
+          return;
         windowManager.hideDictationPanel();
       }
     });
@@ -1071,6 +1083,7 @@ async function startApp() {
     // Right-side single modifier handling (e.g., RightOption as hotkey)
     let rightModDownTime = 0;
     let rightModIsRecording = false;
+    let rightModOnboardingTake;
     let rightModLastStopTime = 0;
     let rightModActiveKey = null;
 
@@ -1097,6 +1110,7 @@ async function startApp() {
         if (now - rightModLastStopTime < POST_STOP_COOLDOWN_MS) return;
         windowManager.showDictationPanel();
         const onboardingTake = windowManager.sendPrepareDictation();
+        rightModOnboardingTake = onboardingTake;
         const pressTime = now;
         rightModActiveKey = modifier;
         rightModDownTime = pressTime;
@@ -1130,9 +1144,14 @@ async function startApp() {
             rightModLastStopTime = Date.now();
             if (rightModIsRecording) {
               rightModIsRecording = false;
-              windowManager.sendStopDictation();
+              windowManager.sendStopDictation({ onboardingTake: rightModOnboardingTake });
             } else {
-              windowManager.sendCancelDictationPreparation();
+              if (
+                windowManager.sendCancelDictationPreparation({
+                  onboardingTake: rightModOnboardingTake,
+                }) === false
+              )
+                return;
               windowManager.hideDictationPanel();
             }
           }
@@ -1161,6 +1180,7 @@ async function startApp() {
     // Mouse Button 4/5 handling (e.g., Logitech MX Master side buttons)
     let mouseButtonDownTime = 0;
     let mouseButtonIsRecording = false;
+    let mouseButtonOnboardingTake;
     let mouseButtonLastStopTime = 0;
     let mouseButtonActiveButton = null;
 
@@ -1190,6 +1210,7 @@ async function startApp() {
         if (now - mouseButtonLastStopTime < POST_STOP_COOLDOWN_MS) return;
         windowManager.showDictationPanel();
         const onboardingTake = windowManager.sendPrepareDictation();
+        mouseButtonOnboardingTake = onboardingTake;
         const pressTime = now;
         mouseButtonActiveButton = button;
         mouseButtonDownTime = pressTime;
@@ -1229,9 +1250,14 @@ async function startApp() {
           mouseButtonLastStopTime = Date.now();
           if (mouseButtonIsRecording) {
             mouseButtonIsRecording = false;
-            windowManager.sendStopDictation();
+            windowManager.sendStopDictation({ onboardingTake: mouseButtonOnboardingTake });
           } else {
-            windowManager.sendCancelDictationPreparation();
+            if (
+              windowManager.sendCancelDictationPreparation({
+                onboardingTake: mouseButtonOnboardingTake,
+              }) === false
+            )
+              return;
             windowManager.hideDictationPanel();
           }
         }
@@ -1533,6 +1559,7 @@ if (gotSingleInstanceLock) {
 }
 
 function performSyncTeardown() {
+  ipcHandlers?.dispose();
   updateManager?.dispose();
   if (wakeRewarmTimer) {
     clearTimeout(wakeRewarmTimer);

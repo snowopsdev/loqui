@@ -57,11 +57,10 @@ for (const text of ["private streamed words", ""]) {
   test(`genuine streaming startup and ${text ? "success" : "no-audio"} stay private through deferred connection, completion/restart and merge`, async (t) => {
     const h = await mountTrial(t);
     const stream = configureStreamingStartup(t, h);
+    const take = await h.reserve({ demoId: "original-stream", takeId: "11" });
     let start;
     await React.act(async () => {
-      start = h
-        .api()
-        .startRecording({ onboardingTake: { demoId: "original-stream", takeId: "11" } });
+      start = h.api().startRecording({ onboardingTake: take });
       await h.waitAcquisition();
     });
     await h.render(false);
@@ -130,9 +129,10 @@ for (const boundary of ["microphone", "connection"]) {
   test(`cancel during genuine deferred streaming ${boundary} preserves original take and leaves no audio`, async (t) => {
     const h = await mountTrial(t);
     const stream = configureStreamingStartup(t, h);
+    const take = await h.reserve({ demoId: "cancel-stream", takeId: "12" });
     let start, cancel;
     await React.act(async () => {
-      start = h.api().startRecording({ onboardingTake: { demoId: "cancel-stream", takeId: "12" } });
+      start = h.api().startRecording({ onboardingTake: take });
       await h.waitAcquisition();
       if (boundary === "connection") {
         h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
@@ -172,9 +172,10 @@ test("genuine streaming default-device retry keeps admission privacy and take th
   const retry = deferred();
   let attempts = 0;
   stream.manager._acquireCaptureStream = () => (++attempts === 1 ? h.mic().promise : retry.promise);
+  const take = await h.reserve({ demoId: "stream-retry", takeId: "13" });
   let start;
   await React.act(async () => {
-    start = h.api().startRecording({ onboardingTake: { demoId: "stream-retry", takeId: "13" } });
+    start = h.api().startRecording({ onboardingTake: take });
     await flush();
   });
   await h.render(false);
@@ -210,9 +211,10 @@ test("completion/restart during genuine streaming recovery await keeps original 
     entered.resolve();
     return recovery.promise;
   };
+  const take = await h.reserve({ demoId: "stream-recovery", takeId: "14" });
   let start;
   await React.act(async () => {
-    start = h.api().startRecording({ onboardingTake: { demoId: "stream-recovery", takeId: "14" } });
+    start = h.api().startRecording({ onboardingTake: take });
     await h.waitAcquisition();
     h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
     await entered.promise;
@@ -240,9 +242,10 @@ test("completion/restart during genuine streaming recovery await keeps original 
 test("disposing the real streaming owner during connection cancels it and cannot release newer manager audio", async (t) => {
   const h = await mountTrial(t);
   const stream = configureStreamingStartup(t, h);
+  const take = await h.reserve({ demoId: "disposed-stream", takeId: "15" });
   let start;
   await React.act(async () => {
-    start = h.api().startRecording({ onboardingTake: { demoId: "disposed-stream", takeId: "15" } });
+    start = h.api().startRecording({ onboardingTake: take });
     await h.waitAcquisition();
     h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
     await stream.waitConnect();

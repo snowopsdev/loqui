@@ -162,3 +162,41 @@ test("captured cleanup relay forwards exact typed selectors/replies and disposes
   retired();
   assert.equal(listeners.has("onboarding-cleanup-retired"), false);
 });
+
+test("admission and scoped stop/cancel/preparation payloads survive actual preload without Electron authority", async () => {
+  const { api, listeners, invocations } = loadPreloadApi();
+  const identity = { demoId: "A", requestId: "nonce" };
+  const request = { ...identity, kind: "dictation", deadlineAt: 2000 };
+  const take = { demoId: "A", takeId: "17", reservationId: "nonce" };
+  const seen = [];
+  const disposers = [
+    api.onOnboardingDemoAdmission((value) => seen.push(value)),
+    api.onOnboardingDemoReservation((value) => seen.push(value)),
+    api.onStopDictation((value) => seen.push(value)),
+    api.onCancelDictationPreparation((value) => seen.push(value)),
+    api.onCancelDictation((value) => seen.push(value)),
+  ];
+  listeners.get("onboarding-demo-admission")({ sender: "must strip" }, request);
+  listeners.get("onboarding-demo-reservation")({}, { ...identity, action: "release" });
+  for (const channel of ["stop-dictation", "cancel-dictation-preparation", "cancel-dictation"])
+    listeners.get(channel)({}, { onboardingTake: take });
+  assert.deepEqual(seen, [
+    request,
+    { ...identity, action: "release" },
+    ...Array(3).fill({ onboardingTake: take }),
+  ]);
+  await api.replyOnboardingDemoAdmission({ ...identity, accepted: true });
+  await api.invalidateOnboardingDemoAdmission(identity);
+  await api.stopOnboardingDemo("A", "17");
+  await api.toggleOnboardingDemo("A", "17");
+  await api.cancelOnboardingDemo("A", "17");
+  assert.deepEqual(invocations, [
+    ["onboarding-demo-admission-reply", { ...identity, accepted: true }],
+    ["onboarding-demo-admission-invalidated", identity],
+    ["onboarding-demo-stop", "A", "17"],
+    ["onboarding-demo-toggle", "A", "17"],
+    ["onboarding-demo-cancel", "A", "17"],
+  ]);
+  disposers.forEach((dispose) => dispose());
+  assert.equal(listeners.size, 0);
+});

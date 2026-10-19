@@ -141,9 +141,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
     expectedAccountScope
       ? ipcRenderer.send("mac-accessibility-features-ready", expectedAccountScope)
       : ipcRenderer.send("mac-accessibility-features-ready"),
+  replyOnboardingDemoAdmission: (reply) =>
+    ipcRenderer.invoke("onboarding-demo-admission-reply", reply),
+  invalidateOnboardingDemoAdmission: (identity) =>
+    ipcRenderer.invoke("onboarding-demo-admission-invalidated", identity),
+  onOnboardingDemoAdmission: registerListener(
+    "onboarding-demo-admission",
+    (callback) => (_event, request) => callback(request)
+  ),
+  onOnboardingDemoReservation: registerListener(
+    "onboarding-demo-reservation",
+    (callback) => (_event, command) => callback(command)
+  ),
   beginOnboardingDemo: (session) => ipcRenderer.invoke("onboarding-demo-begin", session),
   endOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-end", id),
-  stopOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-stop", id),
+  stopOnboardingDemo: (id, takeId) =>
+    takeId === undefined
+      ? ipcRenderer.invoke("onboarding-demo-stop", id)
+      : ipcRenderer.invoke("onboarding-demo-stop", id, takeId),
   publishOnboardingDemoEvent: (event) => ipcRenderer.invoke("onboarding-demo-publish", event),
   onOnboardingDemoEvent: registerListener(
     "onboarding-demo-event",
@@ -160,8 +175,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     (callback) => (_event, identity) => callback(identity)
   ),
   getSystemProfile: () => ipcRenderer.invoke("get-system-profile"),
-  toggleOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-toggle", id),
-  cancelOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-cancel", id),
+  toggleOnboardingDemo: (id, takeId) =>
+    takeId === undefined
+      ? ipcRenderer.invoke("onboarding-demo-toggle", id)
+      : ipcRenderer.invoke("onboarding-demo-toggle", id, takeId),
+  cancelOnboardingDemo: (id, takeId) =>
+    takeId === undefined
+      ? ipcRenderer.invoke("onboarding-demo-cancel", id)
+      : ipcRenderer.invoke("onboarding-demo-cancel", id, takeId),
   undoOnboardingDemoCancel: (id) => ipcRenderer.invoke("onboarding-demo-undo-cancel", id),
   onDictationHotkeyEvent: registerListener(
     "dictation-hotkey-event",
@@ -192,16 +213,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
     "start-dictation",
     (callback) => (_event, options) => callback(options)
   ),
-  onStopDictation: registerListener("stop-dictation", (callback) => () => callback()),
+  onStopDictation: registerListener(
+    "stop-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
   onPrepareDictation: registerListener(
     "prepare-dictation",
     (callback) => (_event, options) => callback(options)
   ),
   onCancelDictationPreparation: registerListener(
     "cancel-dictation-preparation",
-    (callback) => () => callback()
+    (callback) => (_event, options) => callback(options)
   ),
-  onCancelDictation: registerListener("cancel-dictation", (callback) => () => callback()),
+  onCancelDictation: registerListener(
+    "cancel-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
   onDictationForceStopped: registerListener(
     "dictation-force-stopped",
     (callback) => (_event, payload) => callback(payload)

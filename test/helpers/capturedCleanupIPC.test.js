@@ -438,7 +438,7 @@ test("production overlay → main relay → setup retry reuses a failed first cl
     f.context.onboardingCleanup.dispose();
   });
   await f.setupApi.beginOnboardingDemo({ id: "demo-a", kind: "dictation" });
-  await f.setupApi.toggleOnboardingDemo("demo-a");
+  await f.setupApi.toggleOnboardingDemo("demo-a", f.manager._onboardingDemoSession?.takeId ?? null);
   const take = f.sent.findLast(([name]) => name === "prepare-dictation")[1].onboardingTake;
   const recording = { private: true };
   manager.admitCleanupOperation(take, recording);
@@ -475,7 +475,7 @@ test("production overlay → main relay → setup retry reuses a failed first cl
   assert.equal(requests[0].instructions, requests[1].instructions);
   assert.equal(manager.lastAudioBlob, audio);
   assert.equal(manager.lastAudioBlobPrivate, true);
-  await f.setupApi.toggleOnboardingDemo("demo-a");
+  await f.setupApi.toggleOnboardingDemo("demo-a", f.manager._onboardingDemoSession?.takeId ?? null);
   assert.equal(
     (await f.setupApi.retryOnboardingCleanup(identity)).code,
     "CLEANUP_OPERATION_UNAVAILABLE"
@@ -753,7 +753,10 @@ test("production processLocalReasoning IPC consumes original token/model/config 
   });
   f.context.getPersonalInference = () => h.service;
   await f.setupApi.beginOnboardingDemo({ id: "local-demo", kind: "dictation" });
-  await f.setupApi.toggleOnboardingDemo("local-demo");
+  await f.setupApi.toggleOnboardingDemo(
+    "local-demo",
+    f.manager._onboardingDemoSession?.takeId ?? null
+  );
   const take = f.sent.findLast(([name]) => name === "prepare-dictation")[1].onboardingTake;
   const token = await f.overlayApi.personalInference.captureTextOperation({
     ...descriptor,

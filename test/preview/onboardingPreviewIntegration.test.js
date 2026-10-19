@@ -46,6 +46,8 @@ async function server(t) {
 }
 
 test("installed browser preview exposes the scenario API without inventing desktop authority", async (t) => {
+  let installedBridge;
+  t.after(() => installedBridge?.reset());
   const url = new URL(
     "http://127.0.0.1:5186/?preview=onboarding&step=speech&scenario=multilingual"
   );
@@ -64,6 +66,7 @@ test("installed browser preview exposes the scenario API without inventing deskt
   const vite = await server(t);
   const { installBrowserPreview } = await vite.ssrLoadModule("/preview/browserPreview.ts");
   installBrowserPreview();
+  installedBridge = globalThis.window.loquiPreviewBridge;
   const api = globalThis.window.electronAPI;
   assert.deepEqual((await api.getSystemProfile()).locales, ["es-ES", "en-US"]);
   assert.equal(typeof globalThis.window.loquiPreviewBridge.simulateHotkey, "function");
@@ -74,10 +77,27 @@ test("installed browser preview exposes the scenario API without inventing deskt
   await assert.rejects(api.personalInference.textGenerate({}), /desktop app/);
   const events = [];
   api.onOnboardingDemoEvent((event) => events.push(event));
-  await api.beginOnboardingDemo({ id: "installed", kind: "dictation" });
+  assert.equal(await api.beginOnboardingDemo({ id: "installed", kind: "dictation" }), true);
+  const binding = await api.getDictationBinding();
+  assert.ok(binding, "fake owner acknowledges the current binding");
   globalThis.window.loquiPreviewBridge.simulateHotkey("down");
   assert.deepEqual(events, [
-    { demoId: "installed", takeId: "1", kind: "dictation", status: "listening" },
+    {
+      demoId: "installed",
+      takeId: "1",
+      kind: "dictation",
+      origin: "hotkey",
+      binding,
+      status: "preparing",
+    },
+    {
+      demoId: "installed",
+      takeId: "1",
+      kind: "dictation",
+      origin: "hotkey",
+      binding,
+      status: "listening",
+    },
   ]);
   globalThis.window.loquiPreviewBridge.reset();
   assert.equal(await api.toggleOnboardingDemo("installed"), false);

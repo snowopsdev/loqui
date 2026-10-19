@@ -30,7 +30,7 @@ async function mount(t, observe = false) {
     settingsKey: "__onboardingBridgeSettings",
     settings,
   });
-  const f = bridgeFixture();
+  const f = bridgeFixture({ admissionOwner: false });
   window.electronAPI = {
     ...f.overlayApi,
     ...Object.fromEntries(
@@ -50,6 +50,8 @@ async function mount(t, observe = false) {
     isProcessing: false,
     isStreaming: false,
     sttConfig: {},
+    streamingCleanupFns: [],
+    _streamingCancellationGeneration: 0,
     voiceAgentRequested: false,
     translationRequested: false,
     preparedMicCapture: { take: async () => null },
@@ -128,7 +130,10 @@ test("real hook→AudioManager denied acquisition reaches current bridge before 
   const h = await mount(t);
   await h.f.setupApi.beginOnboardingDemo({ id: "A", kind: "dictation" });
   await React.act(async () => {
-    await h.f.setupApi.toggleOnboardingDemo("A");
+    await h.f.setupApi.toggleOnboardingDemo(
+      "A",
+      h.f.manager._onboardingDemoSession?.takeId ?? null
+    );
     await h.waitForAcquisition(1);
     h.acquisition().reject(new DOMException("fixture permission denied", "NotAllowedError"));
     await new Promise((r) => setTimeout(r, 0));
@@ -143,7 +148,10 @@ test("real hook→AudioManager denied acquisition reaches current bridge before 
   await h.f.setupApi.endOnboardingDemo("A");
   await h.f.setupApi.beginOnboardingDemo({ id: "B", kind: "dictation" });
   await React.act(async () => {
-    await h.f.setupApi.toggleOnboardingDemo("B");
+    await h.f.setupApi.toggleOnboardingDemo(
+      "B",
+      h.f.manager._onboardingDemoSession?.takeId ?? null
+    );
     await h.waitForAcquisition(2);
     await h.f.setupApi.endOnboardingDemo("B");
     await h.f.setupApi.beginOnboardingDemo({ id: "C", kind: "dictation" });
@@ -169,7 +177,10 @@ test("deferred batch start after leave/reenter cannot publish listening or retai
   };
   await h.f.setupApi.beginOnboardingDemo({ id: "A", kind: "dictation" });
   await React.act(async () => {
-    await h.f.setupApi.toggleOnboardingDemo("A");
+    await h.f.setupApi.toggleOnboardingDemo(
+      "A",
+      h.f.manager._onboardingDemoSession?.takeId ?? null
+    );
     await h.waitForAcquisition(1);
     await h.f.setupApi.endOnboardingDemo("A");
     await h.f.setupApi.beginOnboardingDemo({ id: "B", kind: "dictation" });
@@ -177,7 +188,11 @@ test("deferred batch start after leave/reenter cannot publish listening or retai
     await new Promise((r) => setTimeout(r, 0));
   });
   assert.equal(h.f.broadcasts.length, 0);
-  assert.equal(stopped, 1, "the existing owner cancels the late-started recording");
+  assert.equal(
+    stopped,
+    1,
+    "the existing owner cancels its pending start; late acquisition is refused before recording"
+  );
   assert.equal(h.manager.isRecording, false);
 });
 
@@ -188,26 +203,42 @@ test("real batch processing callback retains the admitted take across a deferred
   await React.act(async () => {
     old = h.f.manager.sendPrepareDictation();
   });
+  await React.act(async () => {
+    const start = h.controls().startRecording({ onboardingTake: old });
+    await h.waitForAcquisition(1);
+    h.acquisition().resolve({ getAudioTracks: () => [], getTracks: () => [] });
+    await start;
+  });
   const processing = deferred();
+  h.manager.isRecording = false;
   h.manager._onboardingTake = old;
   h.manager.isProcessing = true;
   h.manager.processWithLocalWhisper = () => processing.promise;
   let run;
   await React.act(async () => {
-    h.manager.onStateChange({ isRecording: true, isProcessing: false }, old);
+    h.manager.onStateChange({ isRecording: false, isProcessing: true }, old);
     run = h.manager.processAudio(new Blob(["fixture"]));
     await h.f.setupApi.endOnboardingDemo("A");
-    await h.f.setupApi.beginOnboardingDemo({ id: "B", kind: "dictation" });
+    assert.equal(
+      await h.f.setupApi.beginOnboardingDemo({ id: "B", kind: "dictation" }),
+      false,
+      "pending original pipeline is busy"
+    );
+    processing.resolve({ success: true, text: "old text", rawText: "um old text" });
+    await run;
+    h.manager.isProcessing = false;
+    assert.equal(await h.f.setupApi.beginOnboardingDemo({ id: "B", kind: "dictation" }), true);
     const next = h.f.manager.sendPrepareDictation();
     h.manager._onboardingTake = next;
     h.manager.onStateChange({ isRecording: true, isProcessing: false }, next);
-    processing.resolve({ success: true, text: "old text", rawText: "um old text" });
-    await run;
   });
+  // Teardown retires main publication before its exact owner cancellation.
+  // Explicit in-demo cancellation is covered separately by the full chain.
   assert.deepEqual(
     h.f.broadcasts.map(([, event]) => [event.demoId, event.status]),
     [
       ["A", "listening"],
+      ["A", "processing"],
       ["B", "listening"],
     ]
   );
@@ -221,7 +252,10 @@ test("real streaming start denial carries its own identity before any listening"
   h.manager._streamingStartSettlementWaiters = [];
   await h.f.setupApi.beginOnboardingDemo({ id: "stream", kind: "dictation" });
   await React.act(async () => {
-    await h.f.setupApi.toggleOnboardingDemo("stream");
+    await h.f.setupApi.toggleOnboardingDemo(
+      "stream",
+      h.f.manager._onboardingDemoSession?.takeId ?? null
+    );
     await h.waitForAcquisition(1);
     h.acquisition().reject(new DOMException("denied", "NotAllowedError"));
     await new Promise((r) => setTimeout(r, 0));
@@ -235,7 +269,10 @@ test("real streaming start denial carries its own identity before any listening"
   await h.f.setupApi.endOnboardingDemo("stream");
   await h.f.setupApi.beginOnboardingDemo({ id: "old-stream", kind: "dictation" });
   await React.act(async () => {
-    await h.f.setupApi.toggleOnboardingDemo("old-stream");
+    await h.f.setupApi.toggleOnboardingDemo(
+      "old-stream",
+      h.f.manager._onboardingDemoSession?.takeId ?? null
+    );
     await h.waitForAcquisition(2);
     await h.f.setupApi.endOnboardingDemo("old-stream");
     await h.f.setupApi.beginOnboardingDemo({ id: "new-stream", kind: "dictation" });
@@ -264,11 +301,17 @@ test("real setup hook observes actual overlay acquisition denial and ignores a s
   const old = h.f.manager._onboardingDemoSession.id;
   await h.render(false);
   await h.render(true);
-  assert.notEqual(h.f.manager._onboardingDemoSession.id, old);
+  // Reentry cannot replace the still-pending old acquisition. It refuses
+  // truthfully until that owner settles, rather than creating a fictional C.
+  assert.equal(h.f.manager._onboardingDemoSession, null);
   await React.act(async () => {
     h.acquisition().reject(new DOMException("old denied", "NotAllowedError"));
     await new Promise((r) => setTimeout(r, 0));
   });
-  assert.equal(h.session().state.phase, "idle");
+  assert.equal(h.session().state.phase, "error");
   assert.equal(h.session().state.successes, 0);
+  await h.render(false);
+  await h.render(true);
+  assert.equal(h.session().available, true);
+  assert.notEqual(h.f.manager._onboardingDemoSession.id, old);
 });

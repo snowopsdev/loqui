@@ -5,12 +5,17 @@ export function PillCaption({
   horizontalDirection,
   elementRef,
   gapPx = 8,
+  role = "status",
+  className,
 }: {
   children: ReactNode;
-  horizontalDirection: "left" | "right";
+  horizontalDirection: "left" | "right" | "center";
   elementRef?: RefObject<HTMLDivElement | null>;
   /** Extra clearance for the Agent listening ticks, within the same fixed window. */
   gapPx?: number;
+  /** Tooltip reuses the same bounded reading surface without live announcements. */
+  role?: "status" | "tooltip";
+  className?: string;
 }) {
   const ownRef = useRef<HTMLDivElement>(null);
   const captionRef = elementRef ?? ownRef;
@@ -21,7 +26,12 @@ export function PillCaption({
       const anchor = element.parentElement?.getBoundingClientRect();
       if (!anchor) return;
       const width = element.getBoundingClientRect().width;
-      const preferred = horizontalDirection === "left" ? anchor.x : anchor.x + anchor.width - width;
+      const preferred =
+        horizontalDirection === "left"
+          ? anchor.x
+          : horizontalDirection === "center"
+            ? anchor.x + (anchor.width - width) / 2
+            : anchor.x + anchor.width - width;
       const left = Math.max(12, Math.min(preferred, window.innerWidth - 12 - width));
       element.style.left = `${left - anchor.x}px`;
       element.style.right = "auto";
@@ -40,12 +50,12 @@ export function PillCaption({
   return (
     <div
       ref={captionRef}
-      className="pill-caption"
+      className={`pill-caption${className ? ` ${className}` : ""}`}
       style={gapPx === 8 ? undefined : { bottom: `calc(100% + ${gapPx}px)` }}
       tabIndex={0}
       data-direction={horizontalDirection}
-      role="status"
-      aria-live="polite"
+      role={role}
+      aria-live={role === "status" ? "polite" : undefined}
     >
       {children}
     </div>

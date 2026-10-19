@@ -550,16 +550,16 @@
   opacity: 1;
   filter: blur(0);
   transition:
-    opacity 260ms ease-out,
-    filter 260ms ease-out;
+    opacity var(--motion-base) var(--motion-ease-enter),
+    filter var(--motion-base) var(--motion-ease-enter);
 }
 
 .assistant-response-content-updating {
   opacity: 0.42;
   filter: blur(4px);
   transition:
-    opacity 480ms ease-in-out,
-    filter 480ms ease-in-out;
+    opacity var(--motion-slow) var(--motion-ease-exit),
+    filter var(--motion-slow) var(--motion-ease-exit);
   will-change: opacity, filter;
 }
 
@@ -1130,4 +1130,41 @@
     animation: agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow)
       forwards !important;
   }
+}
+
+/* The tooltip keeps the shared caption fit/scroll/focus policy. The invisible
+   bridge covers its 8px gap so pointer travel into the reading surface stays open. */
+.pill-tooltip-anchor:has(.pill-tooltip)::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: 8px;
+}
+.pill-tooltip {
+  padding: 6px 8px;
+  z-index: 10;
+  animation: none;
+}
+
+/* VO-Q19: idle contrast on any wallpaper, with a light-theme shadow fallback. */
+.voice-pill-control {
+  --pill-hairline: rgb(255 255 255 / 0.7);
+}
+.dark .voice-pill-control {
+  --pill-hairline: rgb(0 0 0 / 0.4);
+}
+.voice-pill-control[data-pill-state="idle"]:not([data-liquid-fused]) {
+  box-shadow:
+    0 0 0 1px var(--pill-hairline),
+    var(--shadow-card, 0 1px 3px rgb(0 0 0 / 0.12));
+}
+
+/* VO-Q20: the fused cancel skin keeps the comet, without a filled halo. */
+.voice-pill-glow-anchor:has(.voice-pill-control[data-liquid-fused="true"])
+  .processing-signal-glow::before,
+.voice-pill-glow-anchor:has(.voice-pill-control[data-liquid-fused="true"])
+  .processing-signal-glow::after {
+  opacity: 0;
+  animation: none;
 }

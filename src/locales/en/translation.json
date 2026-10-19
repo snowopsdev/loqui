@@ -4244,6 +4244,7 @@
     }
   },
   "pill": {
+    "tooltip": { "hold": "Hold {{hotkey}} to talk", "press": "Press {{hotkey}} to start" },
     "caption": {
       "remoteAudio": "{{provider}} already received audio.",
       "remoteText": "{{provider}} already received text.",

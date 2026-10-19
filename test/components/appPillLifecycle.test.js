@@ -151,7 +151,51 @@ test("App retains original destinations through audio, banked consumption/busy, 
         voiceAgentScreenContext: false,
       })
     );
+  const tooltipAnchor = () =>
+    tree.find((n) => n.attributes?.class?.includes("pill-tooltip-anchor"));
+  const tooltip = () => tree.find((n) => n.attributes?.role === "tooltip");
+  await render();
+  const idlePresence = () =>
+    tree.props(tree.find((n) => n.attributes?.class?.includes("assistant-pill-presence")));
+  await React.act(async () =>
+    idlePresence().onFocusCapture({ target: { closest: () => tooltipAnchor() } })
+  );
+  assert.equal(
+    globalThis.__pillAppOptions.isPillHovered(),
+    true,
+    "first keyboard focus on the idle tooltip trigger owns reading input"
+  );
+  await React.act(async () =>
+    idlePresence().onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null })
+  );
+  await React.act(async () => tree.props(tooltipAnchor()).onMouseEnter());
+  assert.ok(tooltip(), "idle hover retains the full instruction and route");
+  assert.match(tooltip().textContent, /Press .* to startSpeech:/);
+  assert.equal(
+    globalThis.__pillAppInput.captionRef.current,
+    tooltip(),
+    "actual tooltip uses the shared Linux reading region ref"
+  );
+  const readingHandlers = () =>
+    tree.props(tree.find((n) => n.attributes?.class?.includes("assistant-pill-presence")));
+  await React.act(async () => readingHandlers().onFocusCapture());
+  assert.equal(
+    globalThis.__pillAppOptions.isPillHovered(),
+    true,
+    "tooltip focus joins existing reader ownership"
+  );
+  await React.act(async () =>
+    readingHandlers().onBlurCapture({
+      currentTarget: { contains: () => false },
+      relatedTarget: null,
+    })
+  );
+  await React.act(async () => tree.props(tooltipAnchor()).onMouseLeave());
+  assert.equal(tooltip(), null);
   await render({ isRecording: true, isAssistantVoice: true, activeSession: session });
+  await React.act(async () => tree.props(tooltipAnchor()).onMouseEnter());
+  assert.equal(tooltip(), null, "Agent caption owns the layer on actual hover");
+  await React.act(async () => tree.props(tooltipAnchor()).onMouseLeave());
   assert.match(ring().attributes["aria-label"], /Anthropic/);
   await updateSettings();
   assert.equal(ring().attributes["data-locality"], "remote");
@@ -285,6 +329,9 @@ test("App retains original destinations through audio, banked consumption/busy, 
     "D3 receiver disclosure outranks Agent caption during answering"
   );
   assert.doesNotMatch(tree.text(), /Thinking with screen context/);
+  await React.act(async () => tree.props(tooltipAnchor()).onMouseEnter());
+  assert.equal(tooltip(), null, "D3 disclosure keeps priority over generic hover");
+  await React.act(async () => tree.props(tooltipAnchor()).onMouseLeave());
   assert.equal(pill().attributes.role, "button");
   assert.equal(
     tree.find((n) => n.attributes?.class === "agent-orbit"),

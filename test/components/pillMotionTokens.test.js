@@ -47,6 +47,7 @@ const MOTION_SOURCES = [
   "src/components/dictation/PillCaption.tsx",
   "src/components/dictation/CondensationWords.tsx",
   "src/components/dictation/AgentOrbit.tsx",
+  "src/components/dictation/PillTooltip.tsx",
 ];
 
 const DURATION = /(?<![\w.])\d*\.?\d+m?s(?![\w-])/g;

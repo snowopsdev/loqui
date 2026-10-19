@@ -4456,6 +4456,10 @@
     }
   },
   "pill": {
+    "tooltip": {
+      "hold": "اضغط باستمرار على {{hotkey}} للتحدث",
+      "press": "اضغط على {{hotkey}} للبدء"
+    },
     "caption": {
       "remoteAudio": "تلقّى {{provider}} الصوت بالفعل.",
       "remoteText": "تلقّى {{provider}} النص بالفعل.",

@@ -53,9 +53,9 @@ const pipeline = (state) => ({
   ...state,
 });
 
-async function renderApp(t, state = {}, extraMocks = {}) {
+async function renderApp(t, state = {}, extraMocks = {}, initialStorage = {}) {
   // "Auto-hide when idle" is on; the real settings store reads it at load.
-  installBrowserGlobals(t, { initialStorage: { floatingIconAutoHide: "true" } });
+  installBrowserGlobals(t, { initialStorage: { floatingIconAutoHide: "true", ...initialStorage } });
   const vite = await createRendererServer(t, {
     cachePrefix: "loqui-app-pill-",
     mockModules: { ...MOCKS, ...extraMocks },
@@ -196,4 +196,37 @@ test("the mounted full transcript panel takes precedence over condensed words", 
     }
   );
   assert.doesNotMatch(html, /condense-word|condense-track/);
+});
+
+test("idle App accessible label is plain text with instruction and owned route", async (t) => {
+  const { html } = await renderApp(t);
+  assert.doesNotMatch(html, /\[object Object\]/);
+  assert.match(html, /aria-label="Press .* to start[^"<>]*Speech:/);
+});
+
+test("push idle App names Hold and the route as plain text", async (t) => {
+  const { html } = await renderApp(t, {}, {}, { activationMode: "push" });
+  assert.doesNotMatch(html, /\[object Object\]/);
+  assert.match(html, /aria-label="Hold .* to talk[^"<>]*Speech:/);
+});
+
+test("recording accessible tooltip uses the frozen recipient while live Settings stay device", async (t) => {
+  const route = {
+    id: "dictationStt",
+    kind: "speech",
+    locality: "remote",
+    providerId: "anthropic",
+    provider: "Anthropic",
+    state: { status: "ready" },
+  };
+  const { html } = await renderApp(t, {
+    isRecording: true,
+    activeSession: {
+      routes: { dictationStt: route },
+      settings: { useCleanupModel: false },
+      intents: {},
+    },
+  });
+  assert.match(html, /aria-label="Recording[^"<>]*Speech: Sends to Anthropic/);
+  assert.doesNotMatch(html, /\[object Object\]/);
 });

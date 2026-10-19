@@ -4217,6 +4217,7 @@
     }
   },
   "pill": {
+    "tooltip": { "hold": "按住 {{hotkey}} 说话", "press": "按 {{hotkey}} 开始" },
     "caption": {
       "remoteAudio": "{{provider}} 已收到音频。",
       "remoteText": "{{provider}} 已收到文本。",

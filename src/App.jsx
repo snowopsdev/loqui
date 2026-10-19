@@ -32,6 +32,7 @@ import { VoicePill } from "./components/dictation/VoicePill";
 import { AssistantPanel } from "./components/dictation/AssistantPanel";
 import { LiveTranscriptPanel } from "./components/dictation/LiveTranscriptPanel";
 import { VoiceModePanelCore } from "./components/dictation/VoiceModePanelCore";
+import { buildPillTooltipLines } from "./components/dictation/pillTooltipLines";
 import { PillTooltip } from "./components/dictation/PillTooltip";
 import { PillCommandMenu } from "./components/dictation/PillCommandMenu";
 import { LiquidCancelButton } from "./components/dictation/LiquidCancelButton";
@@ -77,6 +78,7 @@ export default function App() {
   const buttonRef = useRef(null);
   const pillPresenceRef = useRef(null);
   const pillCaptionRef = useRef(null);
+  const [isPillTooltipVisible, setIsPillTooltipVisible] = useState(false);
   const { noticeCount, wordsCardVisible } = useNoticeWindowState();
   const noticesOnScreen = noticeCount > 0 || wordsCardVisible;
   const noticeHotkey = usePillHotkey(
@@ -480,20 +482,6 @@ export default function App() {
 
   const micState = getMicState();
 
-  const getMicTooltip = () => {
-    switch (micState) {
-      case "recording":
-        return t("app.mic.recording");
-      case "unavailable":
-        return t("app.mic.waitingForMicrophone");
-      case "processing":
-        return t("app.mic.processing");
-      default:
-        return formatPillHotkeyLabel(hotkey);
-    }
-  };
-
-  const micTooltip = getMicTooltip();
   const assistantVoiceState =
     isRecording && isAssistantVoice
       ? "listening"
@@ -559,6 +547,20 @@ export default function App() {
       isProcessing ||
       Boolean(cancelled || bankedOperation || agentPresentationBusy || recentOutcome)
   );
+  const activationMode = useSettingsStore((s) => s.activationMode);
+  const micTooltipLines = buildPillTooltipLines({
+    micState,
+    activationMode,
+    hotkeyLabel: formatPillHotkeyLabel(hotkey),
+    routeLine: pillLocality.routeLine,
+    t,
+  });
+  const micTooltipLabel = micTooltipLines.join(" · ");
+  const micTooltip = micTooltipLines.map((line, index) => (
+    <span key={index} className={index === 0 ? undefined : "text-muted-foreground"}>
+      {line}
+    </span>
+  ));
   const pillStage = resolvePillStage({
     isRecording: voicePillIsRecording,
     micUnavailable: micState === "unavailable",
@@ -620,7 +622,9 @@ export default function App() {
       assistant.thinking ||
       agentAnswering ||
       (isAssistantVoice && isProcessing));
-  const readingSurfaceActive = Boolean(cancelled || visiblePillCaption || condensed.length);
+  const readingSurfaceActive = Boolean(
+    cancelled || visiblePillCaption || condensed.length || isPillTooltipVisible
+  );
   useEffect(() => {
     if (!readingSurfaceActive) {
       pillFocusedRef.current = false;
@@ -777,8 +781,13 @@ export default function App() {
             "--assistant-pill-retreat-duration": `${ASSISTANT_FOOTER_TRANSITION_TIMING.pillRetreatMs}ms`,
             "--assistant-pill-entrance-duration": `${ASSISTANT_FOOTER_TRANSITION_TIMING.pillEntranceMs}ms`,
           }}
-          onFocusCapture={() => {
-            if (!readingSurfaceActive) return;
+          onFocusCapture={(event) => {
+            // Focusing the idle trigger opens its reading surface in this event.
+            if (
+              !readingSurfaceActive &&
+              (anyPanelMounted || !event?.target?.closest(".pill-tooltip-anchor"))
+            )
+              return;
             const alreadyFocused = pillFocusedRef.current;
             pillFocusedRef.current = true;
             setIsPillFocused(true);
@@ -816,7 +825,9 @@ export default function App() {
         >
           <PillTooltip
             content={canReopenLiveTranscript ? t("transcriptionPreview.label") : micTooltip}
-            disabled={anyPanelMounted || condensed.length > 0}
+            disabled={anyPanelMounted || Boolean(visiblePillCaption) || condensed.length > 0}
+            elementRef={pillCaptionRef}
+            onVisibilityChange={setIsPillTooltipVisible}
             align={panelStartPosition === "center" ? "center" : voiceHorizontalDirection}
           >
             <VoicePill
@@ -862,7 +873,7 @@ export default function App() {
                     ? t("settingsPage.agentConfig.title")
                     : liveTranscript.mounted
                       ? t("transcriptionPreview.label")
-                      : micTooltip)
+                      : micTooltipLabel)
               }
               onMouseDown={(e) => {
                 if (anyPanelMounted) {

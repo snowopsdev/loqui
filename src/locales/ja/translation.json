@@ -4217,6 +4217,10 @@
     }
   },
   "pill": {
+    "tooltip": {
+      "hold": "話すには {{hotkey}} を長押し",
+      "press": "開始するには {{hotkey}} を押す"
+    },
     "caption": {
       "remoteAudio": "{{provider}} はすでに音声を受信しました。",
       "remoteText": "{{provider}} はすでにテキストを受信しました。",

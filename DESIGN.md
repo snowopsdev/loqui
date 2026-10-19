@@ -414,3 +414,11 @@ separate from these presentational components.
 - **Don't** swap orange and fuchsia roles or make both accents compete for the live-voice signal.
 - **Don't** rely on shadow alone to distinguish dark surfaces; use the existing tonal layers and borders.
 - **Don't** use movement as the only cue for recording, processing, selection, focus, or error states.
+
+### Workspace · Next-message model and recorded answers
+
+Chat and the note editor’s visible Ask AI composer disclose the next message’s destination and model with Plan 03’s `RouteDestinationChip`. Non-ready routes add `RouteStateChip`; unknown stays neutral “Checking…”, and blocked network and remote routes show the existing Sealed state. The whole read-only chip opens that route’s Settings path. Model text may truncate; state words wrap and stay visible. Text uses the shared 12px caption floor, and keyboard focus uses a full opaque 2px ring.
+
+Each newly admitted answer records its destination from the same synchronous settings snapshot as inference, before conversation creation, user-save or context waits. The shared stream resolves Chat, Voice Assistant or the chosen Assistant Vision route according to its effective inference scope. Document answer headers render that recorded destination with the published chip; later Settings or fact changes update only the next-message chip. Unstamped legacy answers remain unstamped. Note Ask retains one composer across floating, sidebar and hide/reopen, preserving drafts and disarming replaced queues without sending.
+
+This is route disclosure and persisted request attribution. Synthetic readiness and Sealed display checks do not establish native isolation, attestation or a zero-byte claim; Plan 07 D16 remains blocked.

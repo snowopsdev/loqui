@@ -3088,6 +3088,9 @@
       "label": "来源",
       "note": "笔记",
       "meeting": "会议"
+    },
+    "model": {
+      "changeHint": "在设置中更改"
     }
   },
   "support": {

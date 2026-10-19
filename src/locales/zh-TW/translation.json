@@ -3088,6 +3088,9 @@
       "label": "來源",
       "note": "筆記",
       "meeting": "會議"
+    },
+    "model": {
+      "changeHint": "在設定中變更"
     }
   },
   "support": {

@@ -21,8 +21,10 @@ import {
 } from "../../utils/agentSelectionContext";
 import logger from "../../utils/logger";
 import { getDictionaryHintWords } from "../../utils/snippets";
-import type { AgentState, ChatImageAttachment, Message, ToolCallInfo } from "./types";
+import type { AgentState, ChatImageAttachment, Message, MessageRoute, ToolCallInfo } from "./types";
 import { buildRagContext } from "./ragContext";
+import { resolveRoute, routeSnapshotFromSettings } from "../../lib/routes";
+import { toMessageRoute } from "./messageRoute";
 const STREAM_FLUSH_INTERVAL_MS = 32;
 
 const LOCAL_TOOL_MIN_PARAMS_B = 4;
@@ -93,6 +95,7 @@ export interface SendToAIOptions {
 export interface ChatInferenceSnapshot {
   settings: ReturnType<typeof getSettings>;
   inference: ReturnType<typeof resolveChatStreamingInference>;
+  sentRoute: MessageRoute;
   webSearch: boolean;
   noteContext?: string;
   searchScope?: ContainerScope;
@@ -236,8 +239,18 @@ export function useChatStreaming({
         isProviderImageWired: providerSupportsImages,
       });
       const config = inference.config;
+      // Freeze disclosure at admission, before creation, user-save or RAG waits.
+      // The shared hook may answer on the agent or its chosen vision override.
+      const routeId =
+        config.scope === "dictationAgentVision"
+          ? "assistantVision"
+          : config.scope === "dictationAgent"
+            ? "voiceAssistant"
+            : "chat";
+      const sentRoute = toMessageRoute(resolveRoute(routeSnapshotFromSettings(settings), routeId));
       return {
         settings,
+        sentRoute,
         noteContext: noteContextRef.current,
         searchScope: searchScopeRef.current ? { ...searchScopeRef.current } : undefined,
         inference: { ...inference, config: { ...config } },
@@ -397,7 +410,7 @@ export function useChatStreaming({
           role: "assistant",
           content: "",
           isStreaming: true,
-          context: { ragNotes: rag.notes, route: null },
+          context: { ragNotes: rag.notes, route: snapshot.sentRoute },
         },
       ]);
       updateAgentState("streaming");

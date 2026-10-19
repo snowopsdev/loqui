@@ -2585,6 +2585,9 @@
       "label": "Quellen",
       "note": "Notiz",
       "meeting": "Besprechung"
+    },
+    "model": {
+      "changeHint": "In den Einstellungen ändern"
     }
   },
   "referral": {

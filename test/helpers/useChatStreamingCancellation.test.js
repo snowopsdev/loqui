@@ -52,7 +52,7 @@ const EMPTY_RESPONSE_TEXT = JSON.parse(
 
 async function renderChatStreaming(
   t,
-  { electronAPI = {}, settings = {}, onStreamComplete, live = false } = {}
+  { electronAPI = {}, settings = {}, onStreamComplete, live = false, hookOptions = {} } = {}
 ) {
   installBrowserGlobals(t, {
     window: { electronAPI: { personalInference: personalInferenceFixture(), ...electronAPI } },
@@ -109,6 +109,7 @@ async function renderChatStreaming(
       messages,
       setMessages,
       onStreamComplete,
+      ...hookOptions,
       onResponseContent: () => {
         responseContentCalls += 1;
       },
@@ -134,6 +135,8 @@ async function renderChatStreaming(
 
   return {
     captured,
+    useSettingsStore,
+    vite,
     getMessages: () => messages,
     getResponseContentCalls: () => responseContentCalls,
     unmount,
@@ -445,3 +448,99 @@ test("direct provider screen context crosses IPC without exposing credentials", 
   assert.equal(request.apiKey, undefined);
   assert.match(JSON.stringify(request.messages), /base64-image/);
 });
+
+for (const target of ["chat", "agent", "vision", "dropped-vision"]) {
+  test(`admission stamp matches the actual typed IPC target (${target})`, async (t) => {
+    const listeners = new Set(),
+      requests = [];
+    let releaseSearch,
+      searchStarted = false;
+    const search = new Promise((resolve) => (releaseSearch = resolve));
+    const { captured, getMessages, useSettingsStore, vite } = await renderChatStreaming(t, {
+      settings: {
+        chatAgentMode: "self-hosted",
+        chatAgentProvider: "lan",
+        chatAgentModel: "qwen3-4b-q4_k_m",
+        chatAgentRemoteUrl: "http://127.0.0.1:11434/v1",
+        useDictationAgent: true,
+        dictationAgentMode: "providers",
+        dictationAgentProvider: "openai",
+        dictationAgentModel: "gpt-4o",
+        useDictationAgentVisionModel: true,
+        dictationAgentVisionMode: "providers",
+        dictationAgentVisionProvider: target === "dropped-vision" ? "tinfoil" : "anthropic",
+        dictationAgentVisionModel: "claude-sonnet-4-5",
+        dictationAgentVisionCloudBaseUrl: "https://vision.invalid/v1",
+      },
+      hookOptions: { inferenceScope: target === "chat" ? "chatIntelligence" : "dictationAgent" },
+      electronAPI: {
+        getNote: async () => null,
+        semanticSearchNotes: () => {
+          searchStarted = true;
+          return search;
+        },
+        personalInference: {
+          onTextEvent: (fn) => {
+            listeners.add(fn);
+            return () => listeners.delete(fn);
+          },
+          textStream: async (request) => {
+            requests.push(request);
+            for (const fn of listeners) {
+              fn({
+                requestId: request.requestId,
+                type: "chunk",
+                chunk: { type: "content", text: "ok" },
+              });
+              fn({ requestId: request.requestId, type: "end" });
+            }
+          },
+          textCancel: async () => {},
+        },
+      },
+    });
+    const attachment = { image: "synthetic-image", mediaType: "image/png" };
+    const options = target.includes("vision") ? { attachment } : {};
+    const snapshot = captured.captureInference(options);
+    const pending = captured.sendToAI("hello", [{ role: "user", content: "hello" }], {
+      ...options,
+      inferenceSnapshot: snapshot,
+    });
+    for (let i = 0; i < 50 && !searchStarted; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(searchStarted, true);
+    useSettingsStore.setState({
+      chatAgentMode: "providers",
+      chatAgentProvider: "openai",
+      chatAgentModel: "gpt-5.6",
+      dictationAgentModel: "changed-after-admission",
+      dictationAgentVisionModel: "changed-after-admission",
+    });
+    releaseSearch([]);
+    await pending;
+    const request = requests[0];
+    assert.equal(requests.length, 1);
+    const { getCloudModel, getLocalModel } = await vite.ssrLoadModule("/models/ModelRegistry.ts");
+    const expectedModel =
+      target === "chat" ? "qwen3-4b-q4_k_m" : target === "vision" ? "claude-sonnet-4-5" : "gpt-4o";
+    const provider = target === "chat" ? "lan" : target === "vision" ? "anthropic" : "openai";
+    assert.equal(request.model, expectedModel);
+    assert.equal(request.provider, provider);
+    assert.equal(request.inferenceScope, target === "chat" ? "chatIntelligence" : "dictationAgent");
+    if (target === "chat") assert.equal(request.baseUrl, "http://127.0.0.1:11434/v1");
+    // Self-hosted endpoints disclose the requested server model id; built-in/provider routes use registry names.
+    const display =
+      target === "chat"
+        ? expectedModel
+        : (getCloudModel(expectedModel, provider)?.name ??
+          getLocalModel(expectedModel)?.name ??
+          expectedModel);
+    assert.deepEqual(getMessages()[0].context.route, {
+      model: display,
+      providerId: target === "chat" ? null : provider,
+      locality: target === "chat" ? "device" : "remote",
+    });
+    const content = request.messages.at(-1).content;
+    assert.equal(Array.isArray(content), target === "vision");
+    assert.equal(listeners.size, 0);
+  });
+}

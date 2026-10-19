@@ -3089,6 +3089,9 @@
       "label": "Fonti",
       "note": "Nota",
       "meeting": "Riunione"
+    },
+    "model": {
+      "changeHint": "Modifica nelle impostazioni"
     }
   },
   "support": {

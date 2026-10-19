@@ -3088,6 +3088,9 @@
       "label": "参照元",
       "note": "ノート",
       "meeting": "会議"
+    },
+    "model": {
+      "changeHint": "設定で変更"
     }
   },
   "support": {

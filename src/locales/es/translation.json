@@ -3142,6 +3142,9 @@
       "label": "Fuentes",
       "note": "Nota",
       "meeting": "Reunión"
+    },
+    "model": {
+      "changeHint": "Cambiar en Ajustes"
     }
   },
   "support": {

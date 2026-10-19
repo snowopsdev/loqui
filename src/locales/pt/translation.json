@@ -3089,6 +3089,9 @@
       "label": "Fontes",
       "note": "Nota",
       "meeting": "Reunião"
+    },
+    "model": {
+      "changeHint": "Alterar nas definições"
     }
   },
   "support": {

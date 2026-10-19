@@ -7,6 +7,9 @@ import { useChatStreaming } from "./useChatStreaming";
 import { useChatMessageSender } from "./useChatMessageSender";
 import { ChatMessages } from "./ChatMessages";
 import { ChatInput } from "./ChatInput";
+import { ChatModelChip } from "./ChatModelChip";
+import { useResolvedRoute } from "../../lib/routes";
+import { cn } from "../lib/utils";
 import { ChatEmptyIllustration } from "./ChatEmptyIllustration";
 import ConversationList from "./ConversationList";
 import EmptyChatState from "./EmptyChatState";
@@ -39,9 +42,10 @@ function NewChatEmptyState() {
 export default function ChatView({
   request = null,
   onRequestHandled,
-  onOpenSettings: _onOpenSettings,
+  onOpenSettings,
 }: ChatViewProps = {}) {
   const { t } = useTranslation();
+  const chatRoute = useResolvedRoute("chat");
   const routeKey = useChatRouteKey("chatIntelligence");
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [isNewChat, setIsNewChat] = useState(true);
@@ -187,6 +191,17 @@ export default function ChatView({
                 contentClassName={PAGE_CONTENT_WIDTH_CLASS}
               />
               <div className="px-3 pb-3 pt-1">
+                <div
+                  className={cn(
+                    PAGE_CONTENT_WIDTH_CLASS,
+                    "flex flex-wrap items-center gap-2 pb-1.5"
+                  )}
+                >
+                  <ChatModelChip
+                    route={chatRoute}
+                    onOpenSettings={(path) => onOpenSettings?.(path)}
+                  />
+                </div>
                 <ChatInput
                   className={PAGE_CONTENT_WIDTH_CLASS}
                   agentState={streaming.agentState}

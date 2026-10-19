@@ -4,6 +4,9 @@ import { X, PanelRight, PanelRightClose } from "../icons";
 import { cn } from "../lib/utils";
 import { ChatMessages } from "../chat/ChatMessages";
 import { ChatInput } from "../chat/ChatInput";
+import { ChatModelChip } from "../chat/ChatModelChip";
+import { useResolvedRoute } from "../../lib/routes";
+import { useWorkspaceNavigation } from "../workspaceNavigation";
 import type { ComposerSeed } from "../chat/chatRequest";
 import type { Message, AgentState } from "../chat/types";
 import { setActiveNoteId, setActiveFolderId } from "../../stores/noteStore";
@@ -57,6 +60,8 @@ export default function EmbeddedChat({
   floatingPanelRef,
 }: EmbeddedChatProps) {
   const { t } = useTranslation();
+  const chatRoute = useResolvedRoute("chat");
+  const navigation = useWorkspaceNavigation();
 
   const handleOpenNote = useCallback(async (noteId: number) => {
     const note = await window.electronAPI.getNote(noteId);
@@ -136,6 +141,9 @@ export default function EmbeddedChat({
       {header}
       <div className="flex-1 min-h-0 flex flex-col **:data-chat-bubble:max-w-full">
         <ChatMessages messages={messages} emptyState={<EmptyState />} onOpenNote={handleOpenNote} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2 px-3 pb-1.5">
+        <ChatModelChip route={chatRoute} onOpenSettings={navigation.openSettings} />
       </div>
       <ChatInput
         agentState={agentState}

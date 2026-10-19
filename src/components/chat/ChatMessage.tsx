@@ -1,3 +1,4 @@
+import { RouteTag } from "./ChatModelChip";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -364,7 +365,7 @@ export function ChatMessage({
           isStreaming ? "border-agent" : "border-transparent"
         )}
       >
-        <div className="mb-1.5 flex items-center gap-2 text-caption text-muted-foreground">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
           <span
             aria-hidden
             className="flex size-[18px] items-center justify-center rounded-md bg-agent/20 text-agent-text"
@@ -372,7 +373,7 @@ export function ChatMessage({
             <Sparkles size={11} />
           </span>
           <span className="text-ui font-medium text-foreground">{t("chat.assistant")}</span>
-          {/* Task 21 adds the Plan 03 route disclosure here. */}
+          {context?.route && <RouteTag route={context.route} />}
         </div>
         {hasToolCalls && <ToolActivityDisclosure toolCalls={toolCalls} />}
         {hasContent && (

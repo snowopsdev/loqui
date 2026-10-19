@@ -2586,6 +2586,9 @@
       "label": "Sources",
       "note": "Note",
       "meeting": "Réunion"
+    },
+    "model": {
+      "changeHint": "Modifier dans les paramètres"
     }
   },
   "referral": {

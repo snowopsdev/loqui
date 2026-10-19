@@ -143,6 +143,7 @@ async function harness(t, { firstSend = false, citations = true, fallback = fals
     emit,
     note,
     useSettingsStore,
+    vite,
     assistantWrite,
     listeners,
   };
@@ -193,6 +194,8 @@ async function harness(t, { firstSend = false, citations = true, fallback = fals
 for (const firstSend of [false, true]) {
   test(`late source metadata stays with admitted A through user-save and RAG waits (${firstSend ? "first creation" : "existing"})`, async (t) => {
     const h = await harness(t, { firstSend });
+    const { useRouteFactsStore } = await h.vite.ssrLoadModule("/stores/routeFactsStore.ts");
+    const { useSealedStore } = await h.vite.ssrLoadModule("/stores/sealedStore.ts");
     let pending;
     await act(() => {
       pending = h.send("A question");
@@ -203,12 +206,27 @@ for (const firstSend of [false, true]) {
       chatAgentModel: "model-b",
       chatAgentCloudBaseUrl: "https://b.invalid/v1",
     });
+    useRouteFactsStore.setState(({ facts }) => ({
+      facts: {
+        ...facts,
+        credentials: new Map([["openai", true]]),
+        installed: { ...facts.installed, llm: new Set(["new-model"]) },
+      },
+    }));
+    useSealedStore.setState({ sealed: true, known: true });
     if (firstSend) await act(() => h.creation.resolve({ id: 7 }));
     assert.equal(h.requests.length, 0);
     await act(() => h.userWrite.resolve());
     assert.deepEqual(h.searches, [["A question", 5, 3, 4]]);
     assert.equal(h.requests.length, 0, "RAG is still pending");
     await h.context("B context during RAG", { spaceId: 9 });
+    h.useSettingsStore.setState({
+      chatAgentMode: "providers",
+      chatAgentProvider: "openai",
+      chatAgentModel: "gpt-4o",
+    });
+    useRouteFactsStore.setState(({ facts }) => ({ facts: { ...facts, credentials: null } }));
+    useSealedStore.setState({ sealed: false, known: true });
     await act(() => h.search.resolve([{ id: 17, title: "A source" }]));
     const visibleB = h.persistence.messages;
     assert.equal(h.requests[0].model, "model-a");
@@ -240,7 +258,7 @@ for (const firstSend of [false, true]) {
       ragNotes: [
         { id: 17, title: "A source", type: "meeting", date: "2026-10-13", quote: "A raw source" },
       ],
-      route: null,
+      route: { model: "model-a", providerId: "custom", locality: "remote" },
     };
     assert.deepEqual(h.writes[1].metadata.context, expected);
     assert.deepEqual(h.writes[1].metadata.toolCalls[0].metadata, {
@@ -259,10 +277,12 @@ for (const firstSend of [false, true]) {
       pending = h.send("next question");
     });
     assert.deepEqual(h.searches[1], ["next question", 5, 9, null]);
-    assert.equal(h.requests[1].model, "model-b");
+    assert.equal(h.requests[1].model, "gpt-4o");
     assert.match(h.requests[1].systemPrompt, /B context during RAG/);
     await act(() => h.emit({ type: "end" }));
     await act(() => pending);
+    assert.equal(h.writes.at(-1).metadata.context.route.providerId, "openai");
+    assert.equal(h.writes.at(-1).metadata.context.route.locality, "remote");
   });
 }
 
@@ -287,7 +307,14 @@ for (const fallback of [false, true]) {
       assert.equal(deliveries, finish === "complete" ? 1 : 0);
       const assistantWrites = h.writes.filter((w) => w.role === "assistant");
       assert.equal(assistantWrites.length, finish === "stop" ? 0 : 1);
-      if (finish !== "stop") assert.equal(assistantWrites[0].metadata.context.ragNotes[0].id, 17);
+      if (finish !== "stop") {
+        assert.equal(assistantWrites[0].metadata.context.ragNotes[0].id, 17);
+        assert.deepEqual(assistantWrites[0].metadata.context.route, {
+          model: "model-a",
+          providerId: "custom",
+          locality: "remote",
+        });
+      }
       assert.equal(h.listeners.size, 0);
     });
   }
@@ -329,6 +356,7 @@ test("legacy and malformed history metadata stays loadable", async (t) => {
       "null",
       "[]",
       '{"context":null}',
+      '{"context":{"route":null}}',
       '{"context":"bad"}',
       '{"context":{"ragNotes":{}}}',
       '{"context":{"pinnedNotes":"bad"}}',
@@ -339,8 +367,11 @@ test("legacy and malformed history metadata stays loadable", async (t) => {
     }))
   );
   await act(() => h.persistence.loadConversation(7));
-  assert.equal(h.persistence.messages.length, 8);
-  assert.ok(h.persistence.messages.every((m) => m.context === undefined));
+  assert.equal(h.persistence.messages.length, 9);
+  assert.ok(
+    h.persistence.messages.filter((_, index) => index !== 5).every((m) => m.context === undefined)
+  );
+  assert.deepEqual(h.persistence.messages[5].context, { route: null });
 });
 
 for (const destination of ["new-null", "A-again"]) {

@@ -217,3 +217,19 @@ test("summary counts valid completed search notes only, with actual locale plura
   );
   assert.match(html, />Searched 2 notes<\/button>/);
 });
+
+test("document header shows only recorded answer routes and preserves unstamped legacy history", async (t) => {
+  const props = {
+    role: "assistant",
+    content: "Saved answer",
+    context: { route: { model: "Recorded model", providerId: "custom", locality: "remote" } },
+  };
+  const stamped = await render(t, props);
+  assert.match(stamped, /Recorded model/);
+  assert.match(stamped, /data-locality="remote"/);
+  assert.match(stamped, /flex-wrap/);
+  for (const context of [undefined, { route: null }]) {
+    const legacy = await render(t, { ...props, context });
+    assert.doesNotMatch(legacy, /data-locality|Recorded model/);
+  }
+});

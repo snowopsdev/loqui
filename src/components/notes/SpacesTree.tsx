@@ -40,6 +40,8 @@ interface Props {
   onMoveNote: (noteId: number, target: NoteMoveTarget) => Promise<void>;
   onCreateFolderAndMove: (noteId: number, folderName: string) => void | Promise<void>;
   onNavigate?: () => void;
+  /** The workspace owns note activation even when its selection is unchanged. */
+  onOpenNote?: (id: number) => void;
   onNewNote: (spaceId: number, folderId: number | null) => void;
 }
 
@@ -50,6 +52,7 @@ export default function SpacesTree({
   onCreateFolderAndMove,
   onNewNote,
   onNavigate,
+  onOpenNote,
 }: Props) {
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
@@ -133,6 +136,10 @@ export default function SpacesTree({
         >
           <button
             onClick={() => {
+              if (onOpenNote) {
+                onOpenNote(note.id);
+                return;
+              }
               if (
                 activeNoteId === note.id &&
                 context?.spaceId === note.space_id &&

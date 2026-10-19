@@ -120,6 +120,7 @@ export default function ControlPanelSidebar({
           section(
             "sidebar.sections.spaces",
             <SpacesTree
+              onOpenNote={navigation.openNote}
               onDeleteNote={treeActions.onDeleteNote}
               onMoveNote={treeActions.onMoveNote}
               onCreateFolderAndMove={treeActions.onCreateFolderAndMove}

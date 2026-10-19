@@ -98,3 +98,78 @@ test("real tree notifies only after note/container selection changes, never expa
   await click((n) => text(n) === "notes.spaces.personal");
   assert.equal(seen.length, 3);
 });
+
+test("sidebar activation delegates an already selected note to workspace navigation", async (t) => {
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: {
+        getSpaces: async () => [{ id: 1, kind: "private" }],
+        getFolders: async () => [{ id: 2, space_id: 1, name: "Work" }],
+        getFolderNoteCounts: async () => [],
+        getNotes: async () => [{ id: 9, title: "Note 9", folder_id: 2, space_id: 1 }],
+      },
+    },
+  });
+  const container = installHookDom(t);
+  const vite = await createRendererServer(t, {
+    noExternal: ["react-i18next"],
+    mockModules: {
+      "react-i18next":
+        'const t = key => key; export const useTranslation = () => ({ t, i18n: { dir: () => "ltr" } });',
+    },
+  });
+  const notes = await vite.ssrLoadModule("/stores/noteStore.ts");
+  await notes.initializeNotesTree();
+  notes.setActiveContext(1, 2);
+  notes.setActiveNoteId(9);
+  notes.revealContainer(1, 2);
+  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
+  const { default: SpacesTree } = await vite.ssrLoadModule("/components/notes/SpacesTree.tsx");
+  let view = "home";
+  const activated = [];
+  let tree;
+  function Probe() {
+    tree = SpacesTree({
+      onDeleteNote() {},
+      onMoveNote: async () => {},
+      onCreateFolderAndMove() {},
+      onNewNote() {},
+      onNavigate() {
+        assert.fail("workspace-owned activation must not run a second selection path");
+      },
+      onOpenNote(id) {
+        activated.push(id);
+        view = "personal-notes";
+      },
+    });
+    return null;
+  }
+  root = createRoot(container);
+  await React.act(async () =>
+    root.render(
+      React.createElement(
+        ToastContext.Provider,
+        { value: { toast() {} } },
+        React.createElement(Probe)
+      )
+    )
+  );
+  await React.act(async () => {
+    const button = find(tree, (node) => node.type === "button" && text(node) === "Note 9");
+    assert.ok(button);
+    button.props.onClick();
+  });
+  assert.equal(view, "personal-notes");
+  assert.deepEqual(activated, [9]);
+  assert.equal(notes.getActiveNoteIdValue(), 9);
+  assert.equal(notes.getActiveFolderIdValue(), 2);
+  const sidebar = require("node:fs").readFileSync(
+    require("node:path").join(__dirname, "../../src/components/ControlPanelSidebar.tsx"),
+    "utf8"
+  );
+  assert.match(sidebar, /onOpenNote=\{navigation\.openNote\}/);
+});

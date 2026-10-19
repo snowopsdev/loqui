@@ -166,6 +166,7 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 - **Progress** (downloads, installs): ink fill on a muted track with an `--color-input-border` edge, and ink percentage text. Orange stays reserved for live voice.
 
 ### AI and Agent
+
 - `--color-ai` (#d90078 light, #ff5fae Plum Night): machine-authored content. AI chips (12% fill, 1px 30% border), slash-menu AI items, the bubble toolbar's Ask AI. Small text uses `--color-ai-text` (#b8006a light).
 - `--color-agent` (#7b7bf7 light, #8787ff Plum Night): the Agent's presence. The streaming rail, the spark avatar, citation numerals. Small text uses `--color-agent-text` (#4a4ad8 light, #a5a5ff Plum Night).
 - Neither is ever a call to action, and neither is orange: orange means live voice (D1).
@@ -183,6 +184,7 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 **Character:** A neutral, highly legible sans keeps controls and transcripts quick to scan. Display and body use the same family; size, weight, and spacing create hierarchy rather than a decorative pairing.
 
 ### UI ramp (WS-R11 B)
+
 Tailwind utilities from `@theme` in `src/index.css`. Chrome, lists, menus and dialogs use these and nothing else.
 
 | Utility | Size / line / weight / tracking | Use |
@@ -198,6 +200,7 @@ Tailwind utilities from `@theme` in `src/index.css`. Chrome, lists, menus and di
 No size below 11px. Readable text floors at 12px. Hierarchy comes from size and weight, never opacity: metadata is full `text-muted-foreground`.
 
 ### Note document ramp (WS-R6 B)
+
 Inside the note editor (`.rich-text-editor-content`) and the note title: title 32/1.15/600; h1 24/1.25/650; h2 19/1.3/600; h3 16/1.4/600; body 16/1.65 with a 68ch measure; code 14 mono. Chat answers use 15/1.6 at 68ch. Answer source metadata persists with its admitted conversation: compact tool hits and retrieved note references retain titles and excerpts of up to 240 characters. Citation numbering follows eligible Markdown and GFM text, excluding code and links; an answer without eligible citations retains up to five unnumbered sources. Document answers render eligible citations as numbered superscripts with a Sources row.
 
 ### Note slash menu (WS-R6 B)
@@ -268,7 +271,7 @@ One language for every surface. **Hue is mode, shape is locality, motion is prog
 
 Rules:
 
-- Loops take their timing from these tokens. A rotation stays `linear`, because an eased spin stalls once per turn. Under reduced motion, keyframes stop except opacity-only loading cues (`.progress-pulse`), which keep running.
+- Loops take their timing from these tokens. Capture travel, thinking pulse, streaming blink and the deep-link dwell use the shared Plan 06 cadence values. A rotation stays `linear`, because an eased spin stalls once per turn. Under reduced motion, keyframes stop except opacity-only loading cues (`.progress-pulse`), which keep running.
 - First feedback within 50 ms.
 - At most two focal motions at once.
 - Animate only `transform`, `opacity`, `clip-path`, `filter` and registered properties.
@@ -328,6 +331,7 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 
 - **Provider tabs:** a real tablist. Arrow keys (reversed in RTL), Home and End move focus across enabled tabs; Enter, Space or a click selects. Focus alone never switches provider, local or remote. Tabbing into the list lands on the selected tab (WAI-ARIA tabs pattern). A saved key shows as a small dot with screen-reader text.
 - **Top bar:** 48px draggable title area with a breadcrumb (`Notes / Work / Product catch-up`, title column at least 120px), centred search (⌘K), and the Capture split button. Capture is neutral at rest and turns `live` only while listening.
+- **Tree navigation:** activating a sidebar note opens it through workspace navigation, including the currently selected note when Home is visible. Selection and container updates remain owned by the existing note-opening path.
 - **Collapsed:** a 56px icon rail (⌘\, or automatically below 1100px). There is no hover peek. Meeting mode and narrow open notes hide the sidebar and show "Back to notes".
 
 ### Chat
@@ -430,7 +434,6 @@ Chat and the note editor’s visible Ask AI composer disclose the next message�
 Each newly admitted answer records its destination from the same synchronous settings snapshot as inference, before conversation creation, user-save or context waits. The shared stream resolves Chat, Voice Assistant or the chosen Assistant Vision route according to its effective inference scope. Document answer headers render that recorded destination with the published chip; later Settings or fact changes update only the next-message chip. Unstamped legacy answers remain unstamped. Note Ask retains one composer across floating, sidebar and hide/reopen, preserving drafts and disarming replaced queues without sending.
 
 This is route disclosure and persisted request attribution. Synthetic readiness and Sealed display checks do not establish native isolation, attestation or a zero-byte claim; Plan 07 D16 remains blocked.
-
 
 ### Chat context rail and deliberate pins
 

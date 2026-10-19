@@ -136,10 +136,10 @@
   /* Loop and dwell cadences (Plan 06, CR-06-4). A loop runs only in its
      active state; reduced motion stops it (the policy below). */
   --motion-loop-travel: 1400ms; /* the capture rail's "Cleaning up…" band */
-  --motion-loop-pulse: 1200ms;  /* chat "thinking" dots */
-  --motion-loop-blink: 1000ms;  /* streaming cursor */
-  --motion-stagger: 150ms;      /* step between items of one loop */
-  --motion-dwell-ring: 1200ms;  /* a deep-linked history row's focus ring */
+  --motion-loop-pulse: 1200ms; /* chat "thinking" dots */
+  --motion-loop-blink: 1000ms; /* streaming cursor */
+  --motion-stagger: 150ms; /* step between items of one loop */
+  --motion-dwell-ring: 1200ms; /* a deep-linked history row's focus ring */
   /* One-shot landing flash on a searched setting (Settings search). The animation uses this
    duration and JS removes data-flash on animationend, so this is the only place it lives. */
   --motion-flash: 1400ms;

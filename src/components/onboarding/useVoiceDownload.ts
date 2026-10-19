@@ -24,7 +24,7 @@ const forModel = <T>(keyed: Keyed<T>, modelId: string | null, fallback: T): T =>
 export function useVoiceDownload(modelId: string | null): {
   state: VoiceDownloadState;
   milestone: DownloadMilestone | null;
-  /** Presentation identity, reset only by an admitted start (or the first restored transfer). */
+  /** Presentation identity for an admitted start or a newly observed active transfer. */
   transferId: number | null;
   start(): void;
   cancel(): Promise<void>;
@@ -46,8 +46,9 @@ export function useVoiceDownload(modelId: string | null): {
   });
   const cancelPendingRef = useRef(new Set<string>());
   const [samples, setSamples] = useState<Record<string, RateSample[]>>({});
-  const [milestone, setMilestone] = useState<Record<string, DownloadMilestone | null>>({});
-  const [transferIds, setTransferIds] = useState<Record<string, number>>({});
+  const [attempts, setAttempts] = useState<
+    Record<string, { id: number; milestone: DownloadMilestone | null }>
+  >({});
   const observedTransfers = useRef(new Set<string>());
   const startingTransfers = useRef(new Set<string>());
   const [keptBytes, setKeptBytes] = useState<Record<string, number | null>>({});
@@ -117,10 +118,11 @@ export function useVoiceDownload(modelId: string | null): {
       startingTransfers.current.delete(modelId);
       return;
     }
+    let newAttempt = false;
     if (!observedTransfers.current.has(modelId)) {
       observedTransfers.current.add(modelId);
-      if (!startingTransfers.current.delete(modelId))
-        setTransferIds((previous) => ({ ...previous, [modelId]: (previous[modelId] ?? 0) + 1 }));
+      newAttempt = !startingTransfers.current.delete(modelId);
+      if (newAttempt) lastPercentRef.current[modelId] = null;
     }
     const sample = () => {
       setSamples((previous) => ({
@@ -135,7 +137,17 @@ export function useVoiceDownload(modelId: string | null): {
     const percent = clampPercent(progress);
     const crossed = milestoneCrossed(lastPercentRef.current[modelId] ?? null, percent);
     lastPercentRef.current[modelId] = percent;
-    if (crossed !== null) setMilestone((previous) => ({ ...previous, [modelId]: crossed }));
+    if (newAttempt || crossed !== null) {
+      // Publish identity and milestone together: a newly observed transfer must
+      // never expose the preceding attempt's milestone, even for one render.
+      setAttempts((previous) => ({
+        ...previous,
+        [modelId]: {
+          id: (previous[modelId]?.id ?? 0) + (newAttempt ? 1 : 0),
+          milestone: crossed ?? (newAttempt ? null : (previous[modelId]?.milestone ?? null)),
+        },
+      }));
+    }
     const id = setInterval(sample, AGE_SAMPLE_MS);
     return () => clearInterval(id);
   }, [active, downloadedBytes, progress, modelId]);
@@ -166,10 +178,12 @@ export function useVoiceDownload(modelId: string | null): {
     setSamples((previous) => ({ ...previous, [id]: [] }));
     setKeptBytes((previous) => ({ ...previous, [id]: null }));
     setCancelled((previous) => ({ ...previous, [id]: false }));
-    setMilestone((previous) => ({ ...previous, [id]: null }));
     lastPercentRef.current[id] = null;
     startingTransfers.current.add(id);
-    setTransferIds((previous) => ({ ...previous, [id]: (previous[id] ?? 0) + 1 }));
+    setAttempts((previous) => ({
+      ...previous,
+      [id]: { id: (previous[id]?.id ?? 0) + 1, milestone: null },
+    }));
     void downloadModel(id);
   }, [download.downloads, downloadModel]);
   const cancel = useCallback(async () => {
@@ -188,8 +202,8 @@ export function useVoiceDownload(modelId: string | null): {
 
   return {
     state,
-    milestone: modelId ? (milestone[modelId] ?? null) : null,
-    transferId: modelId ? (transferIds[modelId] ?? null) : null,
+    milestone: modelId ? (attempts[modelId]?.milestone ?? null) : null,
+    transferId: modelId ? (attempts[modelId]?.id ?? null) : null,
     start,
     cancel,
   };

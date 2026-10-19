@@ -423,7 +423,10 @@ subscription on unmount. A ready stage pops in once after an observed transfer,
 never from a cold installed-status check. Model-keyed presentation attempt IDs
 extend useVoiceDownload without replacing its download, sequence, kept-byte or
 cancellation owners. The single shell announcer publishes each quarter milestone
-once per attempt, then completion. Off-step completion/failure goes through
+once per attempt, then completion. Each newly observed active period, including
+a restart by another owner, resets percentage history and atomically pairs its
+new presentation ID with its recomputed milestone. Low initial progress cannot
+expose or consume the prior attempt's milestone. Off-step completion/failure goes through
 Task 7's sole adapter; inline Voice/Try failures create no alert. Cancellation
 pending/refused is not terminal. Failure Retry retains its original model and
 requires that model still be committed and selected, otherwise it returns to

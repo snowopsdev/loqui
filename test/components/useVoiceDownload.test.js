@@ -16,7 +16,10 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function mount(t, { cancelResult = { success: true }, unsupported = false } = {}) {
+async function mount(
+  t,
+  { cancelResult = { success: true }, unsupported = false, activeDownloads = [] } = {}
+) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -36,7 +39,7 @@ async function mount(t, { cancelResult = { success: true }, unsupported = false 
       return request.promise;
     },
     onParakeetDownloadProgress: progress.subscribe,
-    modelGetActiveDownloads: async () => [],
+    modelGetActiveDownloads: async () => activeDownloads,
     downloadParakeetModel: (id) => {
       calls.push(["download", id]);
       const request = deferred();
@@ -65,8 +68,10 @@ async function mount(t, { cancelResult = { success: true }, unsupported = false 
     "/components/onboarding/useVoiceDownload.ts"
   );
   let current;
+  const renders = [];
   function Harness({ modelId }) {
     current = useVoiceDownload(modelId);
+    renders.push({ transferId: current.transferId, milestone: current.milestone });
     return null;
   }
   root = createRoot(container);
@@ -83,6 +88,7 @@ async function mount(t, { cancelResult = { success: true }, unsupported = false 
     checks,
     modelEvents,
     progress,
+    renders,
     unmount: () =>
       React.act(async () => {
         root.unmount();
@@ -505,3 +511,87 @@ for (const offSelectionTerminal of [true, false]) {
     assert.equal(h.current().state.percent, 0);
   });
 }
+
+for (const initialPercent of [0, 10, 50]) {
+  test(`a new observed attempt at ${initialPercent}% cannot expose the failed attempt's milestone in any render`, async (t) => {
+    const h = await mount(t);
+    const status = deferred();
+    h.status.set("a", status);
+    await h.render("a");
+    await React.act(async () => status.resolve({ downloaded: false }));
+    t.mock.timers.enable({ apis: ["Date"], now: 100000 });
+    let sequence = 0;
+    const progress = async (percentage) => {
+      t.mock.timers.tick(101);
+      await h.emit({
+        type: "progress",
+        model: "a",
+        percentage,
+        downloaded_bytes: percentage * 10,
+        total_bytes: 1000,
+        sequence: ++sequence,
+      });
+    };
+    await React.act(async () => h.current().start());
+    await progress(80);
+    const previousId = h.current().transferId;
+    assert.equal(h.current().milestone, 75);
+    await h.emit({
+      type: "error",
+      model: "a",
+      error: "reset",
+      keptBytes: 800,
+      sequence: ++sequence,
+    });
+    await h.settle({ success: false, error: "reset", keptBytes: 800 });
+    assert.equal(h.current().state.status, "error");
+
+    // A different owner restarted the model. Only the typed progress listener
+    // creates this active entry; do not call this hook's start() again.
+    const renderStart = h.renders.length;
+    await progress(initialPercent);
+    const expectedMilestone = initialPercent >= 50 ? 50 : null;
+    assert.equal(h.current().state.status, "downloading");
+    assert.equal(h.current().state.percent, initialPercent);
+    assert.equal(h.current().transferId, previousId + 1);
+    const newAttemptRenders = h.renders
+      .slice(renderStart)
+      .filter((r) => r.transferId === previousId + 1);
+    assert.ok(newAttemptRenders.length > 0);
+    assert.deepEqual(
+      [...new Set(newAttemptRenders.map((r) => r.milestone))],
+      [expectedMilestone],
+      "identity and recomputed milestone must agree even before effects settle"
+    );
+    if (initialPercent < 25) {
+      await progress(10);
+      assert.equal(h.current().milestone, null);
+      for (const percent of [25, 50, 75]) {
+        await progress(percent);
+        assert.equal(h.current().milestone, percent);
+      }
+    }
+    assert.equal(h.calls.filter(([name]) => name === "download").length, 1);
+  });
+}
+
+test("startup restoration computes the observed attempt's milestone without an explicit start", async (t) => {
+  const h = await mount(t, {
+    activeDownloads: [
+      {
+        modelType: "parakeet",
+        modelId: "a",
+        phase: "downloading",
+        progress: 60,
+        downloadedBytes: 600,
+        totalBytes: 1000,
+        sequence: 10,
+      },
+    ],
+  });
+  await h.render("a");
+  assert.equal(h.current().state.status, "downloading");
+  assert.equal(h.current().transferId, 1);
+  assert.equal(h.current().milestone, 50);
+  assert.deepEqual(h.calls, []);
+});

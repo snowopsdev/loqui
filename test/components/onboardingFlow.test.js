@@ -631,24 +631,8 @@ test("a download that finishes or fails off-step sends one §5.3 notice; on Voic
   assert.equal(failed.actions[0].label, "setupFlow.download.retry");
 });
 
-test("milestones reach one polite live region, once each", async (t) => {
-  const progress = listenerBus();
-  const { ui } = await mountFlow(
-    t,
-    { initialStep: "speech" },
-    {
-      api: voiceApi(["en-US"], { onParakeetDownloadProgress: progress.subscribe }),
-    }
-  );
-  await React.act(async () => {});
-  await ui.click(primary(ui));
-  const live = () =>
-    ui
-      .byAttr("aria-live", "polite")
-      .filter((node) => node.attributes["data-onb-announcer"] !== undefined);
-  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+function observeAnnouncements(announcer) {
   const updates = [];
-  const announcer = live()[0];
   const textContent = Object.getOwnPropertyDescriptor(announcer, "textContent");
   const observeText = (node) => {
     const descriptor = Object.getOwnPropertyDescriptor(node, "nodeValue");
@@ -668,6 +652,26 @@ test("milestones reach one polite live region, once each", async (t) => {
       for (const node of announcer.childNodes) if (node.nodeType === 3) observeText(node);
     },
   });
+  return updates;
+}
+
+test("milestones reach one polite live region, once each", async (t) => {
+  const progress = listenerBus();
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["en-US"], { onParakeetDownloadProgress: progress.subscribe }),
+    }
+  );
+  await React.act(async () => {});
+  await ui.click(primary(ui));
+  const live = () =>
+    ui
+      .byAttr("aria-live", "polite")
+      .filter((node) => node.attributes["data-onb-announcer"] !== undefined);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const updates = observeAnnouncements(live()[0]);
   for (const percentage of [10, 26, 27, 26, 50, 75, 99]) {
     t.mock.timers.tick(101);
     await React.act(async () =>
@@ -1012,4 +1016,63 @@ test("a cold installed snapshot has no download receipt or new live announcement
   );
   assert.equal(globalThis.__onbNotices.length, 0);
   assert.equal(ui.byAttr("data-onb-announcer")[0].textContent, "");
+});
+
+test("a same-model observed restart clears old live progress and publishes every new milestone once", async (t) => {
+  const ui = await realNoticeFlow(t);
+  await ui.click(primary(ui));
+  const announcer = ui.byAttr("data-onb-announcer")[0];
+  const updates = observeAnnouncements(announcer);
+  t.mock.timers.enable({ apis: ["Date"], now: 100000 });
+  let sequence = 0;
+  const progress = async (percentage) => {
+    t.mock.timers.tick(101);
+    await ui.emit({
+      type: "progress",
+      percentage,
+      downloaded_bytes: percentage * 10,
+      total_bytes: 1000,
+      sequence: ++sequence,
+    });
+  };
+  await progress(75);
+  assert.equal(announcer.textContent, "setupFlow.download.announcePercent(percent=75)");
+  await ui.emit({
+    type: "error",
+    error: "Network timeout",
+    code: "NETWORK",
+    keptBytes: 750,
+    sequence: ++sequence,
+  });
+  await ui.settle({
+    success: false,
+    downloaded: false,
+    error: "Network timeout",
+    code: "NETWORK",
+    keptBytes: 750,
+  });
+  assert.ok(ui.text().includes("setupFlow.download.retry"), "A has settled with no active entry");
+  assert.equal(ui.pending.length, 0);
+  updates.length = 0;
+
+  // Another owner starts B: actual sequenced native fan-out, no flow Retry/start.
+  const lowProgressText = [];
+  for (const percentage of [0, 10]) {
+    await progress(percentage);
+    lowProgressText.push(announcer.textContent);
+  }
+  for (const percentage of [25, 25, 20, 50, 50, 40, 75, 75, 70]) await progress(percentage);
+  assert.equal(ui.pending.length, 0, "observing B never starts a download request here");
+  assert.equal(ui.byAttr("data-onb-announcer").length, 1);
+  assert.deepEqual(
+    { lowProgressText, updates, finalText: announcer.textContent },
+    {
+      lowProgressText: ["", ""],
+      updates: [25, 50, 75].map(
+        (percent) => `setupFlow.download.announcePercent(percent=${percent})`
+      ),
+      finalText: "setupFlow.download.announcePercent(percent=75)",
+    },
+    "old 75 must neither publish early nor poison B's milestone set; duplicates/regressions stay quiet"
+  );
 });

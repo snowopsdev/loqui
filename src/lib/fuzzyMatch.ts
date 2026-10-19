@@ -7,27 +7,28 @@ export interface FuzzyMatch {
 const isWordStart = (text: string, index: number) =>
   index === 0 || /[\s\-_/.(]/.test(text[index - 1]);
 
-// Keep the whole-string locale casing (including contextual forms), while
-// mapping each folded UTF-16 unit back to its original code point. This is a
-// small offset map, not accent stripping or a general Unicode search engine.
+// Use locale-independent Unicode lowercase consistently for query, text and
+// mapping so search behavior is stable across runtime locales. Whole-string
+// lowercase preserves contextual forms; each folded UTF-16 unit maps back to
+// its original code point. This is not accent stripping or general normalization.
 function foldedText(text: string) {
   const starts: number[] = [];
   const ends: number[] = [];
   let offset = 0;
   for (const char of text) {
     const end = offset + char.length;
-    const foldedLength = char.toLocaleLowerCase().length;
+    const foldedLength = char.toLowerCase().length;
     for (let i = 0; i < foldedLength; i++) {
       starts.push(offset);
       ends.push(end);
     }
     offset = end;
   }
-  return { text: text.toLocaleLowerCase(), starts, ends };
+  return { text: text.toLowerCase(), starts, ends };
 }
 
 export function substringMatch(query: string, text: string): FuzzyMatch | null {
-  const needle = query.trim().toLocaleLowerCase();
+  const needle = query.trim().toLowerCase();
   if (!needle) return { score: 0, ranges: [] };
   const folded = foldedText(text);
   const index = folded.text.indexOf(needle);
@@ -47,7 +48,7 @@ export function substringMatch(query: string, text: string): FuzzyMatch | null {
 export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
   const direct = substringMatch(query, text);
   if (direct) return direct;
-  const needle = query.trim().toLocaleLowerCase().replace(/\s+/g, "");
+  const needle = query.trim().toLowerCase().replace(/\s+/g, "");
   const folded = foldedText(text);
   const haystack = folded.text;
   const ranges: Array<[number, number]> = [];

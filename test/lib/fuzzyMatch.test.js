@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { spawnSync } = require("node:child_process");
 
 const load = () => import("../../src/lib/fuzzyMatch.ts");
 
@@ -98,4 +99,48 @@ test("even a long late substring outranks a scattered match", async () => {
   assert.deepEqual(hit.ranges, [[600, 604]]);
   assert.ok(hit.score >= 500);
   assert.ok(hit.score > fuzzyMatch("meet", "Move every entry today").score);
+});
+
+test("contextual casing keeps original ranges across runtime locales", () => {
+  const cases = [
+    { locale: "lt_LT.UTF-8", query: "z", text: "I\u0301z", range: [2, 3] },
+    { locale: "tr_TR.UTF-8", query: "stan", text: "I\u0307stan", range: [2, 6] },
+  ];
+  for (const { locale, query, text, range } of cases) {
+    const script = `
+      const { fuzzyMatch, substringMatch, highlightSegments } = await import(${JSON.stringify(require("node:path").resolve(__dirname, "../../src/lib/fuzzyMatch.ts"))});
+      const query = ${JSON.stringify(query)};
+      const text = ${JSON.stringify(text)};
+      const expectedRange = ${JSON.stringify(range)};
+      const results = [substringMatch(query, text), fuzzyMatch(query, text)];
+      for (const result of results) {
+        if (!result || !Number.isFinite(result.score) || result.score < 500 || JSON.stringify(result.ranges) !== JSON.stringify([expectedRange])) throw new Error(JSON.stringify(result));
+        const segments = highlightSegments(text, result.ranges);
+        if (segments.map((segment) => segment.text).join("") !== text) throw new Error("segments do not roundtrip");
+        if (segments.filter((segment) => segment.match).map((segment) => segment.text).join("") !== text.slice(...expectedRange)) throw new Error("segments mark the wrong original text");
+      }
+      console.log(JSON.stringify({ locale: process.env.LC_ALL, results }));
+    `;
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+      encoding: "utf8",
+      env: { ...process.env, LANG: locale, LC_ALL: locale },
+    });
+    assert.equal(
+      child.status,
+      0,
+      `${locale} child failed\nstdout: ${child.stdout}\nstderr: ${child.stderr}`
+    );
+    const output = JSON.parse(child.stdout.trim().split("\n").at(-1));
+    assert.equal(output.locale, locale);
+    assert.equal(output.results.length, 2);
+  }
+});
+
+test("whole-string lowercase preserves contextual Greek sigma matching", async () => {
+  const { substringMatch, fuzzyMatch } = await load();
+  for (const matcher of [substringMatch, fuzzyMatch]) {
+    const hit = matcher("ος", "ΟΣ");
+    assert.deepEqual(hit.ranges, [[0, 2]]);
+    assert.ok(Number.isFinite(hit.score));
+  }
 });

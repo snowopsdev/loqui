@@ -3177,7 +3177,16 @@
     },
     "actionsModelHint": {
       "title": "Les actions nécessitent un modèle d'IA",
-      "choose": "Choisir un modèle"
+      "choose": "Choisir un modèle",
+      "needsProvider": "Les actions ont besoin d’un fournisseur d’IA",
+      "chooseProvider": "Choisir un fournisseur",
+      "needsKey": "Les actions ont besoin d’une clé API pour {{provider}}",
+      "addKey": "Ajouter la clé",
+      "needsUrl": "Les actions ont besoin de l’adresse de votre serveur",
+      "addUrl": "Ajouter l’adresse",
+      "sealed": "Les actions sont en pause tant que le mode scellé est activé",
+      "unreachable": "Les actions ne peuvent pas joindre le modèle de notes",
+      "openSettings": "Ouvrir les paramètres"
     },
     "slash": {
       "label": "Insérer un bloc",

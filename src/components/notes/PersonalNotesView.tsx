@@ -13,7 +13,6 @@ import { ContainerOverview } from "./overview/ContainerOverview";
 import { DETAILED_NOTES_KEY } from "../../helpers/builtinActions";
 import { useActionProcessing } from "../../hooks/useActionProcessing";
 import { startRecordingForNote, useCreateNote } from "../../hooks/useCreateNote";
-import { useNoteActionsReady } from "../../hooks/useNoteActionsReady";
 import { useNotesOnboarding } from "../../hooks/useNotesOnboarding";
 import { useResolvedRoute } from "../../lib/routes";
 import { slashReadiness } from "../ui/editor/slashItems";
@@ -55,6 +54,8 @@ import { parseTranscriptSegments } from "../../utils/parseTranscriptSegments";
 import { isExplicitSpeakerCount, resolveExpectedSpeakerCount } from "../../utils/participants";
 import ActionManagerDialog from "./ActionManagerDialog";
 import ActionPicker from "./ActionPicker";
+import { NotesActionsHint } from "./NotesActionsHint";
+import { notesActionsDisabledByRoute } from "./notesActionsHint";
 import AddNotesToFolderDialog from "./AddNotesToFolderDialog";
 
 import { handleMeetingRecordingRequest } from "../../helpers/meetingRecordingRequest";
@@ -76,7 +77,6 @@ import {
   defaultFolderDisplayName,
   notesEmptyTitleKey,
   NOTES_ACTIONS_MODEL_HINT_KEY,
-  shouldShowActionsModelHint,
 } from "./shared";
 
 function makeContentHash(content: string): string {
@@ -252,7 +252,6 @@ export default function PersonalNotesView({
 
   const effectiveModelId = noteFormatting.modelId;
   const { isComplete: isOnboardingComplete, complete: completeOnboarding } = useNotesOnboarding();
-  const noteActionsReady = useNoteActionsReady();
 
   // The old first-run screen is now the Actions manager's first run: notes
   // are never hidden behind it.
@@ -705,35 +704,13 @@ export default function PersonalNotesView({
   return (
     <div className="flex h-full">
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        <div className="px-3 pt-2">
-          {shouldShowActionsModelHint(noteActionsReady, modelHintDismissed) && (
-            <div
-              role="note"
-              className="mt-1 rounded-md border border-border/70 bg-muted/40 px-2 py-1.5 text-caption text-muted-foreground"
-            >
-              <div className="flex items-start gap-1.5">
-                <span className="flex-1">{t("notes.actionsModelHint.title")}</span>
-                <button
-                  type="button"
-                  onClick={dismissModelHint}
-                  aria-label={t("common.close")}
-                  className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <X size={12} aria-hidden="true" />
-                </button>
-              </div>
-              {onOpenSettings && (
-                <button
-                  type="button"
-                  onClick={() => onOpenSettings("intelligence")}
-                  className="mt-0.5 text-link hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-                >
-                  {t("notes.actionsModelHint.choose")}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <NotesActionsHint
+          className="mx-3 mt-2"
+          route={noteRoute}
+          dismissed={modelHintDismissed}
+          onOpenSettings={onOpenSettings}
+          onDismiss={dismissModelHint}
+        />
         {editorNote ? (
           <>
             <NoteEditor
@@ -783,7 +760,8 @@ export default function PersonalNotesView({
                     (!editorNote?.content?.trim() &&
                       !hasLiveTranscript &&
                       !activeNoteRawTranscript) ||
-                    actionProcessingState === "processing"
+                    actionProcessingState === "processing" ||
+                    notesActionsDisabledByRoute(noteRoute.state)
                   }
                 />
               }

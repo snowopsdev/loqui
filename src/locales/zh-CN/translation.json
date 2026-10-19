@@ -2803,7 +2803,16 @@
     },
     "actionsModelHint": {
       "title": "操作需要 AI 模型",
-      "choose": "选择模型"
+      "choose": "选择模型",
+      "needsProvider": "操作需要 AI 提供商",
+      "chooseProvider": "选择提供商",
+      "needsKey": "操作需要 {{provider}} 的 API 密钥",
+      "addKey": "添加密钥",
+      "needsUrl": "操作需要你的服务器地址",
+      "addUrl": "添加地址",
+      "sealed": "密封模式开启时，操作会暂停",
+      "unreachable": "操作无法连接到笔记模型",
+      "openSettings": "打开设置"
     },
     "slash": {
       "label": "插入块",

@@ -3176,7 +3176,16 @@
     },
     "actionsModelHint": {
       "title": "Actions need an AI model",
-      "choose": "Choose a model"
+      "choose": "Choose a model",
+      "needsProvider": "Actions need an AI provider",
+      "chooseProvider": "Choose a provider",
+      "needsKey": "Actions need an API key for {{provider}}",
+      "addKey": "Add the key",
+      "needsUrl": "Actions need your server's address",
+      "addUrl": "Add the address",
+      "sealed": "Actions are paused while Sealed mode is on",
+      "unreachable": "Actions can't reach the notes model",
+      "openSettings": "Open Settings"
     },
     "slash": {
       "label": "Insert block",

@@ -2731,7 +2731,16 @@
     },
     "actionsModelHint": {
       "title": "アクションには AI モデルが必要です",
-      "choose": "モデルを選択"
+      "choose": "モデルを選択",
+      "needsProvider": "アクションには AI プロバイダーが必要です",
+      "chooseProvider": "プロバイダーを選択",
+      "needsKey": "アクションには {{provider}} の API キーが必要です",
+      "addKey": "キーを追加",
+      "needsUrl": "アクションにはサーバーのアドレスが必要です",
+      "addUrl": "アドレスを追加",
+      "sealed": "シールモードがオンの間、アクションは一時停止します",
+      "unreachable": "アクションがノート用モデルに接続できません",
+      "openSettings": "設定を開く"
     },
     "slash": {
       "label": "ブロックを挿入",

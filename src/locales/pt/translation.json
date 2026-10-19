@@ -2804,7 +2804,16 @@
     },
     "actionsModelHint": {
       "title": "As ações precisam de um modelo de IA",
-      "choose": "Escolher um modelo"
+      "choose": "Escolher um modelo",
+      "needsProvider": "As ações precisam de um provedor de IA",
+      "chooseProvider": "Escolher um provedor",
+      "needsKey": "As ações precisam de uma chave de API para {{provider}}",
+      "addKey": "Adicionar a chave",
+      "needsUrl": "As ações precisam do endereço do seu servidor",
+      "addUrl": "Adicionar o endereço",
+      "sealed": "As ações estão pausadas enquanto o modo selado está ativado",
+      "unreachable": "As ações não conseguem acessar o modelo de notas",
+      "openSettings": "Abrir configurações"
     },
     "slash": {
       "label": "Inserir bloco",

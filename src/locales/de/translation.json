@@ -3176,7 +3176,16 @@
     },
     "actionsModelHint": {
       "title": "Aktionen benötigen ein KI-Modell",
-      "choose": "Modell wählen"
+      "choose": "Modell wählen",
+      "needsProvider": "Aktionen benötigen einen KI-Anbieter",
+      "chooseProvider": "Anbieter auswählen",
+      "needsKey": "Aktionen benötigen einen API-Schlüssel für {{provider}}",
+      "addKey": "Schlüssel hinzufügen",
+      "needsUrl": "Aktionen benötigen die Adresse deines Servers",
+      "addUrl": "Adresse hinzufügen",
+      "sealed": "Aktionen sind pausiert, solange der versiegelte Modus aktiv ist",
+      "unreachable": "Aktionen können das Notizmodell nicht erreichen",
+      "openSettings": "Einstellungen öffnen"
     },
     "slash": {
       "label": "Block einfügen",

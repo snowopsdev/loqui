@@ -67,7 +67,7 @@ export default function ActionPicker({
         "backdrop-blur-lg transform-gpu",
         "border border-black/10 dark:border-white/14",
         "shadow-(--shadow-glass)",
-        disabled && "opacity-40 pointer-events-none"
+        disabled && "bg-muted cursor-not-allowed pointer-events-none"
       )}
     >
       <button
@@ -76,14 +76,15 @@ export default function ActionPicker({
         aria-label={t("notes.actions.runAction", { name: getActionName(activeAction, t) })}
         className={cn(
           "flex items-center gap-1.5 h-7 ps-3 pe-1.5",
-          "text-accent/70 dark:text-accent/60",
-          "transition-colors duration-150",
-          "hover:bg-accent/8 dark:hover:bg-accent/12",
-          "hover:text-accent/90 dark:hover:text-accent/80"
+          "text-foreground disabled:cursor-not-allowed",
+          "transition-colors duration-(--motion-fast) ease-(--motion-ease)",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+          "enabled:hover:bg-muted",
+          "enabled:hover:text-foreground"
         )}
       >
-        <Sparkles size={11} />
-        <span className="text-[11px] font-semibold tracking-tight">
+        <Sparkles size={11} className="text-ai-text" />
+        <span className="text-caption font-semibold tracking-tight">
           {getActionCta(activeAction, t)}
         </span>
       </button>
@@ -96,10 +97,11 @@ export default function ActionPicker({
             className={cn(
               "flex items-center justify-center h-7 w-6 pe-0.5",
               "border-s border-black/6 dark:border-white/10",
-              "text-accent/40 dark:text-accent/30",
-              "transition-colors duration-150",
-              "hover:bg-accent/8 dark:hover:bg-accent/12",
-              "hover:text-accent/70"
+              "text-muted-foreground disabled:cursor-not-allowed",
+              "transition-colors duration-(--motion-fast) ease-(--motion-ease)",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+              "enabled:hover:bg-muted",
+              "enabled:hover:text-foreground"
             )}
           >
             <ChevronDown size={10} />
@@ -115,11 +117,11 @@ export default function ActionPicker({
                 action.id === activeAction.id && "bg-accent/5"
               )}
             >
-              <Sparkles size={12} className="text-accent/50 shrink-0" />
+              <Sparkles size={12} className="text-ai-text shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{getActionName(action, t)}</div>
                 {action.description && (
-                  <div className="text-xs text-muted-foreground/70 truncate">
+                  <div className="text-xs text-muted-foreground truncate">
                     {getActionDescription(action, t)}
                   </div>
                 )}
@@ -129,7 +131,7 @@ export default function ActionPicker({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={onManageActions}
-            className="text-xs gap-2.5 rounded-md px-2.5 py-1.5 text-muted-foreground/70"
+            className="text-xs gap-2.5 rounded-md px-2.5 py-1.5 text-muted-foreground"
           >
             <Settings2 size={12} />
             {t("notes.actions.manage")}

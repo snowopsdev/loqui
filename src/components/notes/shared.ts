@@ -121,9 +121,3 @@ export const NOTE_META_CHIP_CLASS = cn(
 );
 
 export const NOTES_ACTIONS_MODEL_HINT_KEY = "notesActionsModelHintDismissed";
-
-/** Notes always render; this row only explains why Actions cannot run yet.
- * `ready` is null while unknown, and unknown is not a reason to show it. */
-export function shouldShowActionsModelHint(ready: boolean | null, dismissed: boolean): boolean {
-  return !dismissed && ready === false;
-}

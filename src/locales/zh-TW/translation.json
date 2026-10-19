@@ -2803,7 +2803,16 @@
     },
     "actionsModelHint": {
       "title": "動作需要 AI 模型",
-      "choose": "選擇模型"
+      "choose": "選擇模型",
+      "needsProvider": "操作需要 AI 提供者",
+      "chooseProvider": "選擇提供者",
+      "needsKey": "操作需要 {{provider}} 的 API 金鑰",
+      "addKey": "新增金鑰",
+      "needsUrl": "操作需要你的伺服器位址",
+      "addUrl": "新增位址",
+      "sealed": "封存模式開啟時，操作會暫停",
+      "unreachable": "操作無法連線至筆記模型",
+      "openSettings": "開啟設定"
     },
     "slash": {
       "label": "插入區塊",

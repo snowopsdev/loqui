@@ -930,3 +930,239 @@
     transition: none;
   }
 }
+
+.onb-stage {
+  display: grid;
+  gap: 14px;
+}
+
+.onb-stage[data-arrived] > :not(.onb-stage__ready) {
+  animation: onb-popin var(--motion-base) var(--motion-spring-snap) both;
+}
+
+@keyframes onb-popin {
+  from {
+    opacity: 0.4;
+    transform: scale(0.96);
+  }
+}
+
+.onb-tour {
+  display: grid;
+  gap: 12px;
+}
+
+.onb-tour__head,
+.onb-tour__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.onb-tour__slides {
+  position: relative;
+  min-height: 168px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+
+.onb-tour__slide {
+  position: relative;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  opacity: 0;
+  transform: translateX(14px);
+  transition:
+    opacity var(--motion-base) var(--motion-ease-enter),
+    transform var(--motion-base) var(--motion-ease-enter);
+}
+
+.onb-tour__slide[data-active] {
+  opacity: 1;
+  transform: none;
+}
+
+.onb-tour__slide[hidden] {
+  display: none;
+}
+
+.onb-tour__title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.onb-tour__arrow,
+.onb-tour__dot {
+  border: 0;
+  cursor: pointer;
+}
+
+.onb-tour__arrow {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+[dir="rtl"] .onb-tour__arrow {
+  transform: scaleX(-1);
+}
+
+.onb-tour__dot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 9999px;
+  background: transparent;
+  transition: width var(--motion-fast) var(--motion-ease-std);
+}
+
+.onb-tour__dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: inherit;
+  background: var(--color-muted-foreground);
+}
+
+.onb-tour__dot[aria-current="true"] {
+  width: 36px;
+}
+
+.onb-tour__dot[aria-current="true"]::before {
+  width: 18px;
+  background: var(--color-nav-marker);
+}
+
+.onb-map {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.onb-demo {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.onb-demo__raw {
+  color: var(--color-muted-foreground);
+}
+
+.onb-demo[data-active] .onb-demo__final {
+  animation: onb-fade var(--motion-slow) var(--motion-ease-std) both;
+  animation-delay: calc(var(--motion-hero) * 2);
+}
+
+.onb-demo[data-reduced] .onb-demo__raw {
+  display: none;
+}
+
+.onb-keycap {
+  --keycap-size: 96px;
+  display: inline-grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  width: var(--keycap-size);
+  height: var(--keycap-size);
+  border: 1px solid var(--color-border-hover);
+  border-radius: calc(var(--keycap-size) / 6);
+  background: linear-gradient(180deg, var(--color-card), var(--color-muted));
+  box-shadow:
+    0 5px 0 var(--color-border-hover),
+    inset 0 1px 0 color-mix(in oklab, var(--color-background) 60%, transparent);
+  user-select: none;
+  transition:
+    transform var(--motion-instant) var(--motion-ease-std),
+    box-shadow var(--motion-instant) var(--motion-ease-std),
+    background-color var(--motion-instant) var(--motion-ease-std);
+}
+
+.onb-keycap[data-pressed] {
+  transform: translateY(4px);
+  background: color-mix(in oklab, var(--color-live) 18%, var(--color-card));
+  box-shadow: 0 1px 0 var(--color-border-hover);
+}
+
+.onb-keycap[data-flash] {
+  animation: onb-keypress var(--motion-base) var(--motion-ease-std) 1;
+}
+
+.onb-keycap[data-demo] {
+  animation: onb-keypress calc(var(--motion-hero) * 4.6) var(--motion-ease-std) infinite;
+}
+
+@keyframes onb-keypress {
+  30%,
+  60% {
+    transform: translateY(4px);
+    background: color-mix(in oklab, var(--color-live) 18%, var(--color-card));
+    box-shadow: 0 1px 0 var(--color-border-hover);
+  }
+}
+
+.onb-keycap__label {
+  max-inline-size: calc(var(--keycap-size) - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: max(12px, calc(var(--keycap-size) / 4.8));
+  font-weight: 700;
+}
+
+.onb-keycap__sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+[hidden] .onb-keycap,
+[hidden] .onb-demo__final,
+[data-docked] .onb-keycap[data-demo] {
+  animation: none;
+}
+
+@media (max-width: 480px) {
+  .onb-tour__slide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The global animation policy does not remove direct pressed transforms. */
+@media (prefers-reduced-motion: reduce) {
+  .onb-keycap,
+  .onb-keycap[data-pressed],
+  .onb-keycap[data-demo],
+  .onb-keycap[data-flash] {
+    transform: none;
+    animation: none;
+    transition-property: background-color, box-shadow;
+  }
+  .onb-keycap[data-demo],
+  .onb-keycap[data-flash] {
+    background: color-mix(in oklab, var(--color-live) 18%, var(--color-card));
+    box-shadow: 0 1px 0 var(--color-border-hover);
+  }
+  .onb-tour__slide,
+  .onb-stage[data-arrived] > :not(.onb-stage__ready) {
+    transform: none;
+    animation-name: onb-fade;
+    transition-property: opacity;
+  }
+}

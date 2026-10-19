@@ -25,10 +25,18 @@ import { HelloStep } from "./onboarding/HelloStep";
 import { PrivacyDefaults } from "./onboarding/PrivacyDefaults";
 import { useMicrophoneAccess } from "./onboarding/useMicrophoneAccess";
 import { useMicLevelPreview } from "./onboarding/useMicLevelPreview";
+import { MeetLoquiTour } from "./onboarding/MeetLoquiTour";
+import { TryStage, usePrefersReducedMotion } from "./onboarding/TryStage";
+import {
+  shouldAnnounceOffStep,
+  voiceFailedNotice,
+  voiceReadyNotice,
+} from "./onboarding/onboardingNotices";
+import { useOnboardingNotifier } from "./onboarding/useOnboardingNotifier";
 import "../styles/onboarding-welcome.css";
 import "../styles/onboarding-guided.css";
 import "../styles/onboarding.css";
-import { getDefaultHotkey } from "../utils/hotkeys";
+import { formatHotkeyLabel, getDefaultHotkey } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
 import { useAudioRecording } from "../hooks/useAudioRecording";
 import {
@@ -866,6 +874,13 @@ export default function OnboardingFlow({
     skip();
   };
 
+  // T14: unconditional subscription across every step; T15 replaces these shortcut bindings.
+  const reducedMotion = usePrefersReducedMotion();
+  const hotkeyLabel = formatHotkeyLabel(
+    useSettingsStore((s) => s.dictationKey) || getDefaultHotkey()
+  );
+  const activationMode = useSettingsStore((s) => s.activationMode);
+
   // [T13] Voice: detection, explicit commit, per-model download
   const profile = useSystemProfile();
   const pick = useMemo(() => (profile ? detectVoice(profile) : null), [profile]);
@@ -883,6 +898,8 @@ export default function OnboardingFlow({
   const voiceCompatible =
     selectedModel !== null && voiceSupportsAll(selectedModel, spokenLanguages);
   const voiceDownload = useVoiceDownload(selectedModel);
+  const selectedVoiceRef = useRef(selectedModel);
+  selectedVoiceRef.current = selectedModel;
   const voiceState = voiceDownload.state;
   const voiceStatus = voiceState.status;
   const voiceBusy =
@@ -927,12 +944,14 @@ export default function OnboardingFlow({
   // F04: installation is a candidate fact, never authority to admit recording.
   // Plan03's resolved route remains the readiness authority; no new renderer readiness flags.
   const dictationRoute = useResolvedRoute("dictationStt");
-  const localVoiceActive =
-    voiceStatus === "ready" &&
+  const voiceCommitted =
     voiceCompatible &&
     transcriptionMode === "local" &&
     localProvider === "nvidia" &&
-    parakeetModel === selectedModel &&
+    parakeetModel === selectedModel;
+  const localVoiceActive =
+    voiceStatus === "ready" &&
+    voiceCommitted &&
     dictationRoute.locality === "device" &&
     dictationRoute.host === null &&
     dictationRoute.state.status === "ready";
@@ -948,6 +967,69 @@ export default function OnboardingFlow({
         ? { kind: "error", reason: "download" }
         : null;
   const voiceSize = byteParts(selectedModel ? (modelDownloadBytes(selectedModel) ?? 0) : 0);
+
+  // Fence notices and announcements to an observed transfer for this model.
+  // Installed snapshots and navigation cannot create or replay a receipt.
+  const {
+    milestone: voiceMilestone,
+    transferId: voiceTransferId,
+    start: startVoiceDownload,
+  } = voiceDownload;
+  const notify = useOnboardingNotifier();
+  const transfers = useRef(
+    new Map<string, { id: number; settled: boolean; milestones: Set<number> }>()
+  );
+  const [announcement, setAnnouncement] = useState("");
+  useEffect(() => {
+    if (!selectedModel || voiceTransferId === null) return;
+    let transfer = transfers.current.get(selectedModel);
+    if (transfer?.id !== voiceTransferId) {
+      transfer = { id: voiceTransferId, settled: false, milestones: new Set() };
+      transfers.current.set(selectedModel, transfer);
+      setAnnouncement("");
+    }
+    if (transfer.settled) return;
+    if (voiceStatus === "downloading" || voiceStatus === "installing") {
+      const milestone = voiceMilestone;
+      if (milestone !== null && !transfer.milestones.has(milestone)) {
+        transfer.milestones.add(milestone);
+        setAnnouncement(t("setupFlow.download.announcePercent", { percent: milestone }));
+      }
+      return;
+    }
+    if (voiceStatus !== "ready" && voiceStatus !== "error" && voiceStatus !== "cancelled") return;
+    transfer.settled = true;
+    if (voiceStatus === "ready") {
+      setAnnouncement(t("setupFlow.download.announceReady"));
+      if (shouldAnnounceOffStep(step)) notify(voiceReadyNotice(t));
+    } else if (voiceState.status === "error" && shouldAnnounceOffStep(step)) {
+      const failedModel = selectedModel;
+      notify(
+        voiceFailedNotice(t, voiceState.message, () => {
+          const store = useSettingsStore.getState();
+          if (
+            store.transcriptionMode === "local" &&
+            store.localTranscriptionProvider === "nvidia" &&
+            store.parakeetModel === failedModel &&
+            selectedVoiceRef.current === failedModel
+          ) {
+            startVoiceDownload();
+          } else goTo("speech");
+        })
+      );
+    }
+  }, [
+    goTo,
+    notify,
+    selectedModel,
+    step,
+    t,
+    voiceMilestone,
+    voiceTransferId,
+    startVoiceDownload,
+    voiceState,
+    voiceStatus,
+  ]);
 
   const cleanupRequestRef = useRef(0);
   const closedRef = useRef(false);
@@ -1185,6 +1267,37 @@ export default function OnboardingFlow({
           />
         ),
       };
+    if (step === "try")
+      return {
+        rail: {
+          title: t("setupFlow.rail.try.title"),
+          body: t(`setupFlow.rail.try.body${device}`),
+          mode: downloadRail ?? { kind: "idle" },
+        },
+        onSkip: skip,
+        finishLaterLabel: t("setupFlow.finishLater"),
+        content: (
+          <TryStage
+            key={selectedModel}
+            download={voiceState}
+            voiceCommitted={voiceCommitted}
+            trialReady={localVoiceActive}
+            onStart={() => (voiceCommitted ? voiceDownload.start() : goTo("speech"))}
+            onCancel={() => void voiceDownload.cancel()}
+            onChooseVoice={() => goTo("speech")}
+            tour={
+              <MeetLoquiTour
+                hotkeyLabel={hotkeyLabel}
+                activationMode={activationMode}
+                platform={platform}
+                reducedMotion={reducedMotion}
+              />
+            }
+          >
+            {legacy(content)}
+          </TryStage>
+        ),
+      };
     return {
       rail: {
         title: t(`setupFlow.rail.${step}.title`),
@@ -1214,6 +1327,7 @@ export default function OnboardingFlow({
         view.finishLaterLabel ? { label: view.finishLaterLabel, onClick: finishLater } : undefined
       }
       primary={view.primary}
+      announcement={announcement}
       footerStart={
         step === "speech" || step === "try" ? undefined : (
           <DownloadChip state={voiceState} onStart={voiceDownload.start} />

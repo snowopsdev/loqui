@@ -397,3 +397,31 @@ Plan 04 notice types, Undo and Sealed contracts remain outside this task.
 ### Onboarding preview bridge (Plan 05 Task 8)
 
 The development toolbar owns scenario selection and simulated shortcut presses. Its in-memory bridge satisfies the real preload types and feeds the same download hooks as desktop: catalog-specific totals, singleton admission, monotonic progress and retained network bytes. Trial events preserve their admitted demo/take identity and deny microphone acquisition before listening. Reset/cancel settle owned work; cancellation is discarded without Undo while Plan 04 holds remain absent. The legacy Speech preview presentation remains until Task 13. No recording, provider call, credential access or workspace lifecycle authority is added.
+
+### Onboarding tour and trial stage (Plan 05 Task 14)
+
+Say something keeps the real VoiceDownloadPanel above a labelled three-slide
+carousel until the explicitly committed local Voice route is ready. An installed
+candidate never admits a trial: skipped Voice offers Choose a voice, and unknown
+Plan03 route facts remain Checking. Restart only retries the committed voice.
+The existing guarded trial remains the stage's child until Task 15 replaces it.
+
+The tour has one visible, accessible slide, previous/next buttons and labelled
+dots using the nav-marker token. Arrow keys follow reading direction. Its
+four-second timer and decorative keycap demo stop under reduced motion, while
+hovered or focused within, when the page is hidden, after Skip and on unmount.
+Focus moving between tour controls keeps it paused; leaving one pause source
+does not clear another. Skip leaves a quiet waiting line. Hidden and docked
+keycap art does not loop. Reduced pressed/demo/flash combinations retain static
+colour and shadow feedback without transforms or keyframes.
+
+The motion-preference hook is hoisted across all flow steps and releases its
+subscription on unmount. A ready stage pops in once after an observed transfer,
+never from a cold installed-status check. Model-keyed presentation attempt IDs
+extend useVoiceDownload without replacing its download, sequence, kept-byte or
+cancellation owners. The single shell announcer publishes each quarter milestone
+once per attempt, then completion. Off-step completion/failure goes through
+Task 7's sole adapter; inline Voice/Try failures create no alert. Cancellation
+pending/refused is not terminal. Failure Retry retains its original model and
+requires that model still be committed and selected, otherwise it returns to
+Voice. Existing cancellation toasts and measured footer placement remain intact.

@@ -113,7 +113,7 @@ test("production ignores the preview config global and stores its own visited st
   const stored = JSON.parse(ui.storage.getItem("loqui.onboarding.progress"));
   assert.deepEqual(stored.visited, ["welcome", "speech"]);
   assert.equal(ui.byAttr("data-platform")[0].attributes["data-platform"], "linux");
-  assert.equal(ui.byAttr("data-onb-announcer").length, 0, "T14 owns announcements");
+  assert.equal(ui.byAttr("data-onb-announcer").length, 1, "one hoisted announcer");
 });
 
 test("Hello offers Look around first instead of a dead Back", async (t) => {
@@ -501,6 +501,8 @@ for (const mode of ["self-hosted", "providers"]) {
     assert.ok(ui.text().includes("setupFlow.voice.installed"));
     await ui.click("setupFlow.skipStep");
     assert.equal(buttonWithText(ui, "Start recording"), undefined);
+    assert.equal(ui.text().includes("setupFlow.tour.readyTitle"), false);
+    assert.ok(buttonWithText(ui, "setupFlow.tour.chooseVoice"));
     assert.equal(
       ui.calls.filter(([name]) => /beginOnboardingDemo|toggleDictation|startDictation/.test(name))
         .length,
@@ -582,4 +584,432 @@ test("opening the picker and choosing a candidate write no voice settings or dow
   for (const key of ["parakeetModel", "spokenLanguages", "preferredLanguage"])
     assert.equal(ui.storage.getItem(key), null, key);
   assert.equal(ui.calls.filter(([name]) => name === "downloadParakeetModel").length, 0);
+});
+
+// Records notices whichever notifier variant (Task 7 A or B) is installed.
+const NOTIFIER_MOCK = `
+export function useOnboardingNotifier() {
+  return (notice) => (globalThis.__onbNotices ??= []).push(notice);
+}`;
+
+test("a download that finishes or fails off-step sends one §5.3 notice; on Voice and Say something it does not", async (t) => {
+  globalThis.__onbNotices = [];
+  t.after(() => delete globalThis.__onbNotices);
+  const progress = listenerBus();
+  const pending = [];
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["en-US"], {
+        onParakeetDownloadProgress: progress.subscribe,
+        downloadParakeetModel: () => new Promise((resolve) => pending.push(resolve)),
+      }),
+      mocks: {
+        "/SettingsPage": "export default function SettingsPage() { return null; }",
+        "onboarding/useOnboardingNotifier": NOTIFIER_MOCK,
+      },
+    }
+  );
+  await React.act(async () => {});
+  await ui.click(primary(ui)); // commit + download → Say something
+  const emit = (data) =>
+    React.act(async () => progress.emit({}, { model: "parakeet-unified-en-0.6b", ...data }));
+  await emit({ type: "progress", percentage: 30, downloaded_bytes: 19e7, total_bytes: 6.31e8 });
+  assert.equal(globalThis.__onbNotices.length, 0, "Say something shows the download inline");
+  await ui.click("setupFlow.skipStep"); // → Cleanup
+  await emit({ type: "error", error: "Network timeout", code: "NETWORK" });
+  await React.act(async () =>
+    pending.shift()({ success: false, downloaded: false, error: "Network timeout" })
+  );
+  assert.equal(globalThis.__onbNotices.length, 1);
+  const [failed] = globalThis.__onbNotices;
+  assert.deepEqual(
+    [failed.kind, failed.title, failed.persistent],
+    ["alert", "setupFlow.download.failedTitle", true]
+  );
+  assert.equal(failed.actions[0].label, "setupFlow.download.retry");
+});
+
+test("milestones reach one polite live region, once each", async (t) => {
+  const progress = listenerBus();
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["en-US"], { onParakeetDownloadProgress: progress.subscribe }),
+    }
+  );
+  await React.act(async () => {});
+  await ui.click(primary(ui));
+  const live = () =>
+    ui
+      .byAttr("aria-live", "polite")
+      .filter((node) => node.attributes["data-onb-announcer"] !== undefined);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const updates = [];
+  const announcer = live()[0];
+  const textContent = Object.getOwnPropertyDescriptor(announcer, "textContent");
+  const observeText = (node) => {
+    const descriptor = Object.getOwnPropertyDescriptor(node, "nodeValue");
+    Object.defineProperty(node, "nodeValue", {
+      ...descriptor,
+      set(value) {
+        if (String(value).includes("setupFlow.download.announce")) updates.push(value);
+        descriptor.set.call(node, value);
+      },
+    });
+  };
+  Object.defineProperty(announcer, "textContent", {
+    ...textContent,
+    set(value) {
+      if (String(value).includes("setupFlow.download.announce")) updates.push(value);
+      textContent.set.call(announcer, value);
+      for (const node of announcer.childNodes) if (node.nodeType === 3) observeText(node);
+    },
+  });
+  for (const percentage of [10, 26, 27, 26, 50, 75, 99]) {
+    t.mock.timers.tick(101);
+    await React.act(async () =>
+      progress.emit(
+        {},
+        {
+          type: "progress",
+          model: "parakeet-unified-en-0.6b",
+          percentage,
+          downloaded_bytes: 1,
+          total_bytes: 100,
+        }
+      )
+    );
+  }
+  assert.equal(live().length, 1);
+  assert.ok(live()[0].textContent.includes("setupFlow.download.announcePercent(percent=75)"));
+  assert.deepEqual(
+    updates,
+    [25, 50, 75].map((percent) => `setupFlow.download.announcePercent(percent=${percent})`)
+  );
+});
+
+// Real ToastProvider + real useToast/useDialogs/download hooks: do not infer visible
+// alert ownership from a notifier mock. useModelDownload's private dialog state is
+// not exposed/rendered by this flow; this boundary catches any future dialog host.
+async function realNoticeFlow(t, initialStep = "speech", extra = {}) {
+  const { createRoot } = require("react-dom/client");
+  const {
+    createRendererServer,
+    installBrowserGlobals,
+    installHookDom,
+  } = require("../lib/rendererTestHarness");
+  const { installTree } = require("../helpers/harness/fakeDomTree");
+  const { rendererOptions } = require("../helpers/harness/rendererMocks");
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  const progress = listenerBus(),
+    pending = [];
+  let installed = false;
+  const globals = installBrowserGlobals(t, {
+    initialStorage: { ...MIGRATED_STORAGE, ...extra.storage },
+    window: {
+      electronAPI: voiceApi(["en-US"], {
+        onParakeetDownloadProgress: progress.subscribe,
+        checkParakeetModelStatus: async () => ({ downloaded: installed }),
+        downloadParakeetModel: () => new Promise((resolve) => pending.push(resolve)),
+        ...extra.api,
+      }),
+      location: { search: "" },
+      innerHeight: 560,
+      matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+      dispatchEvent() {},
+      ResizeObserver: class {
+        observe() {}
+        disconnect() {}
+      },
+    },
+  });
+  installHookDom(t);
+  const ui = installTree();
+  const createElement = globalThis.document.createElement;
+  globalThis.document.createElement = (tag) => {
+    const node = createElement(tag);
+    node.getBoundingClientRect = () => ({ top: 496, height: 64, width: 640 });
+    return node;
+  };
+  const vite = await createRendererServer(
+    t,
+    rendererOptions("loqui-real-onboarding-notices-", SETTINGS_PAGE)
+  );
+  const Flow = (await vite.ssrLoadModule("/components/OnboardingFlow.tsx")).default;
+  const { ToastProvider } = await vite.ssrLoadModule("/components/ui/Toast.tsx");
+  root = createRoot(ui.container);
+  await React.act(async () =>
+    root.render(
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(Flow, { initialStep, onComplete() {} })
+      )
+    )
+  );
+  return {
+    ...ui,
+    vite,
+    storage: globals.storage,
+    pending,
+    install: () => {
+      installed = true;
+    },
+    emit: (data) =>
+      React.act(async () => progress.emit({}, { model: "parakeet-unified-en-0.6b", ...data })),
+    settle: (result) => React.act(async () => pending.shift()(result)),
+  };
+}
+
+test("real setup failure has one persistent visible alert, no legacy dialog, and its actual Retry starts the same transfer model", async (t) => {
+  const ui = await realNoticeFlow(t);
+  await ui.click(primary(ui));
+  await ui.click("setupFlow.skipStep");
+  await ui.emit({
+    type: "progress",
+    percentage: 35,
+    downloaded_bytes: 220e6,
+    total_bytes: 631e6,
+    sequence: 1,
+  });
+  await ui.emit({
+    type: "error",
+    error: "Network timeout",
+    code: "NETWORK",
+    keptBytes: 220e6,
+    sequence: 2,
+  });
+  assert.equal(
+    ui.byAttr("role", "alert").length,
+    0,
+    "owned request settles once its result arrives"
+  );
+  await ui.settle({
+    success: false,
+    downloaded: false,
+    error: "Network timeout",
+    code: "NETWORK",
+    keptBytes: 220e6,
+  });
+  const alert = ui.byAttr("role", "alert")[0];
+  assert.ok(alert.textContent.includes("setupFlow.download.failedTitle"));
+  assert.equal(ui.byAttr("role", "alert").length, 1);
+  assert.equal(ui.byAttr("role", "alertdialog").length, 0);
+  for (let i = 0; i < 2; i++)
+    await ui.emit({
+      type: "error",
+      error: "Network timeout",
+      code: "NETWORK",
+      keptBytes: 220e6,
+      sequence: 2,
+    });
+  assert.equal(ui.byAttr("role", "alert").length, 1, "terminal fan-out does not duplicate alerts");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await React.act(async () => t.mock.timers.tick(60000));
+  assert.equal(ui.byAttr("role", "alert").length, 1, "persistent failure never times out");
+  const retry = ui
+    .findAll((n) => n.tagName === "BUTTON" && n.textContent.includes("setupFlow.download.retry"))
+    .find((n) => {
+      for (let parent = n.parentNode; parent; parent = parent.parentNode)
+        if (parent === alert) return true;
+      return false;
+    });
+  assert.ok(retry, "actual toast action, not footer chip Retry");
+  await ui.click(retry);
+  assert.equal(ui.pending.length, 1, "one explicit retry request");
+  await ui.emit({
+    type: "progress",
+    percentage: 40,
+    downloaded_bytes: 250e6,
+    total_bytes: 631e6,
+    sequence: 3,
+  });
+  ui.install();
+  await ui.emit({ type: "complete", sequence: 4 });
+  await ui.settle({ success: true, downloaded: true });
+  assert.equal(
+    ui
+      .byAttr("role", "status")
+      .filter((n) => n.textContent.includes("setupFlow.download.readyTitle")).length,
+    1
+  );
+  await ui.emit({ type: "complete", sequence: 4 });
+  assert.equal(
+    ui
+      .byAttr("role", "status")
+      .filter((n) => n.textContent.includes("setupFlow.download.readyTitle")).length,
+    1
+  );
+});
+
+for (const step of ["speech", "try"])
+  test(`real ${step} failure stays inline with no visible alert or dialog`, async (t) => {
+    const ui = await realNoticeFlow(t);
+    await ui.click(primary(ui));
+    if (step === "speech") await ui.click("setupFlow.back");
+    await ui.emit({
+      type: "error",
+      error: "Network timeout",
+      code: "NETWORK",
+      keptBytes: 0,
+      sequence: 1,
+    });
+    await ui.settle({
+      success: false,
+      downloaded: false,
+      error: "Network timeout",
+      code: "NETWORK",
+    });
+    assert.equal(ui.byAttr("role", "alert").length, 0);
+    assert.equal(ui.byAttr("role", "alertdialog").length, 0);
+    assert.ok(ui.text().includes("setupFlow.download.retry"));
+  });
+
+test("reduced preference changes preserve flow hook order and clean up subscriptions across navigation", async (t) => {
+  const listeners = new Set();
+  const query = {
+    matches: false,
+    addEventListener: (_type, cb) => listeners.add(cb),
+    removeEventListener: (_type, cb) => listeners.delete(cb),
+  };
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["en-US"]),
+      windowProps: {
+        matchMedia: (q) =>
+          q.includes("reduce")
+            ? query
+            : { matches: false, addEventListener() {}, removeEventListener() {} },
+      },
+    }
+  );
+  await ui.click(primary(ui));
+  assert.equal(ui.byAttr("data-demo", "true").length, 1);
+  await React.act(async () => {
+    query.matches = true;
+    for (const cb of listeners) cb();
+  });
+  assert.equal(ui.byAttr("data-demo", "true").length, 0);
+  await ui.click("setupFlow.skipStep");
+  await ui.click("setupFlow.back");
+  await React.act(async () => {
+    query.matches = false;
+    for (const cb of listeners) cb();
+  });
+  assert.equal(ui.byAttr("data-demo", "true").length, 1);
+  assert.equal(
+    listeners.size,
+    2,
+    "one hoisted flow subscription plus the existing rail subscription"
+  );
+  await ui.unmount();
+  assert.equal(listeners.size, 0);
+});
+
+test("refused cancellation does not settle the notice identity; actual completion still announces and receipts once", async (t) => {
+  globalThis.__onbNotices = [];
+  t.after(() => delete globalThis.__onbNotices);
+  const progress = listenerBus(),
+    pending = [];
+  let installed = false;
+  let settleCancel;
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      api: voiceApi(["en-US"], {
+        onParakeetDownloadProgress: progress.subscribe,
+        cancelParakeetDownload: () =>
+          new Promise((resolve) => {
+            settleCancel = resolve;
+          }),
+        downloadParakeetModel: () => new Promise((resolve) => pending.push(resolve)),
+        checkParakeetModelStatus: async () => ({ downloaded: installed }),
+      }),
+      mocks: { ...SETTINGS_PAGE, "onboarding/useOnboardingNotifier": NOTIFIER_MOCK },
+    }
+  );
+  await ui.click(primary(ui));
+  await ui.click("setupFlow.download.cancel");
+  assert.ok(ui.text().includes("setupFlow.download.chipCancelling"));
+  await React.act(async () => settleCancel({ success: false, code: "INSTALLATION_IN_PROGRESS" }));
+  await ui.click("setupFlow.skipStep");
+  installed = true;
+  await React.act(async () =>
+    progress.emit({}, { type: "complete", model: "parakeet-unified-en-0.6b", sequence: 2 })
+  );
+  await React.act(async () => pending.shift()({ success: true, downloaded: true }));
+  assert.equal(globalThis.__onbNotices.length, 1);
+  assert.equal(globalThis.__onbNotices[0].kind, "receipt");
+  assert.equal(ui.byAttr("data-onb-announcer")[0].textContent, "setupFlow.download.announceReady");
+});
+
+test("installed snapshots and a different selected model cannot replay or retarget an old failure notice", async (t) => {
+  globalThis.__onbNotices = [];
+  t.after(() => delete globalThis.__onbNotices);
+  const progress = listenerBus(),
+    pending = [];
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech" },
+    {
+      windowProps: { dispatchEvent() {} },
+      api: voiceApi(["en-US"], {
+        onParakeetDownloadProgress: progress.subscribe,
+        checkParakeetModelStatus: async (id) => ({ downloaded: id === "orukeet-v0.1.0" }),
+        downloadParakeetModel: () => new Promise((resolve) => pending.push(resolve)),
+      }),
+      mocks: { ...SETTINGS_PAGE, "onboarding/useOnboardingNotifier": NOTIFIER_MOCK },
+    }
+  );
+  await ui.click(primary(ui));
+  await ui.click("setupFlow.skipStep");
+  await React.act(async () =>
+    progress.emit(
+      {},
+      { type: "error", model: "parakeet-unified-en-0.6b", error: "Network timeout", sequence: 1 }
+    )
+  );
+  await React.act(async () =>
+    pending.shift()({ success: false, downloaded: false, error: "Network timeout" })
+  );
+  assert.equal(globalThis.__onbNotices.length, 1);
+  const retry = globalThis.__onbNotices[0].actions[0].onClick;
+  await ui.click("setupFlow.back");
+  await ui.click("setupFlow.back");
+  await ui.click(ui.byAttr("aria-expanded", "false")[0]);
+  await ui.click(
+    ui.byAttr("role", "radio").find((n) => n.attributes["data-value"] === "orukeet-v0.1.0")
+  );
+  assert.ok(ui.text().includes("setupFlow.voice.installed"));
+  assert.equal(globalThis.__onbNotices.length, 1, "installed B is not A completing");
+  await React.act(async () => retry());
+  assert.equal(pending.length, 0, "stale Retry never downloads the current uncommitted candidate");
+  await React.act(async () =>
+    progress.emit({}, { type: "complete", model: "parakeet-unified-en-0.6b", sequence: 1 })
+  );
+  assert.equal(globalThis.__onbNotices.length, 1, "late A result never relabels installed B");
+});
+
+test("a cold installed snapshot has no download receipt or new live announcement", async (t) => {
+  globalThis.__onbNotices = [];
+  t.after(() => delete globalThis.__onbNotices);
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "cleanup" },
+    {
+      api: voiceApi(["en-US"], { checkParakeetModelStatus: async () => ({ downloaded: true }) }),
+      mocks: { ...SETTINGS_PAGE, "onboarding/useOnboardingNotifier": NOTIFIER_MOCK },
+    }
+  );
+  assert.equal(globalThis.__onbNotices.length, 0);
+  assert.equal(ui.byAttr("data-onb-announcer")[0].textContent, "");
 });

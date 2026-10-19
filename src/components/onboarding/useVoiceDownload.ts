@@ -24,6 +24,8 @@ const forModel = <T>(keyed: Keyed<T>, modelId: string | null, fallback: T): T =>
 export function useVoiceDownload(modelId: string | null): {
   state: VoiceDownloadState;
   milestone: DownloadMilestone | null;
+  /** Presentation identity, reset only by an admitted start (or the first restored transfer). */
+  transferId: number | null;
   start(): void;
   cancel(): Promise<void>;
 } {
@@ -45,6 +47,9 @@ export function useVoiceDownload(modelId: string | null): {
   const cancelPendingRef = useRef(new Set<string>());
   const [samples, setSamples] = useState<Record<string, RateSample[]>>({});
   const [milestone, setMilestone] = useState<Record<string, DownloadMilestone | null>>({});
+  const [transferIds, setTransferIds] = useState<Record<string, number>>({});
+  const observedTransfers = useRef(new Set<string>());
+  const startingTransfers = useRef(new Set<string>());
   const [keptBytes, setKeptBytes] = useState<Record<string, number | null>>({});
   const [cancelled, setCancelled] = useState<Record<string, boolean>>({});
   const lastPercentRef = useRef<Record<string, number | null>>({});
@@ -106,7 +111,17 @@ export function useVoiceDownload(modelId: string | null): {
 
   // Progress and ageing samples. Ageing turns a stall into "no estimate".
   useEffect(() => {
-    if (!active || !modelId) return;
+    if (!modelId) return;
+    if (!active) {
+      observedTransfers.current.delete(modelId);
+      startingTransfers.current.delete(modelId);
+      return;
+    }
+    if (!observedTransfers.current.has(modelId)) {
+      observedTransfers.current.add(modelId);
+      if (!startingTransfers.current.delete(modelId))
+        setTransferIds((previous) => ({ ...previous, [modelId]: (previous[modelId] ?? 0) + 1 }));
+    }
     const sample = () => {
       setSamples((previous) => ({
         ...previous,
@@ -153,6 +168,8 @@ export function useVoiceDownload(modelId: string | null): {
     setCancelled((previous) => ({ ...previous, [id]: false }));
     setMilestone((previous) => ({ ...previous, [id]: null }));
     lastPercentRef.current[id] = null;
+    startingTransfers.current.add(id);
+    setTransferIds((previous) => ({ ...previous, [id]: (previous[id] ?? 0) + 1 }));
     void downloadModel(id);
   }, [download.downloads, downloadModel]);
   const cancel = useCallback(async () => {
@@ -169,5 +186,11 @@ export function useVoiceDownload(modelId: string | null): {
     }
   }, [cancelDownload, download.downloads]);
 
-  return { state, milestone: modelId ? (milestone[modelId] ?? null) : null, start, cancel };
+  return {
+    state,
+    milestone: modelId ? (milestone[modelId] ?? null) : null,
+    transferId: modelId ? (transferIds[modelId] ?? null) : null,
+    start,
+    cancel,
+  };
 }

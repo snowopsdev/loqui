@@ -4207,7 +4207,9 @@
       "readyTitle": "Voice model ready",
       "failedTitle": "The voice model didn't download",
       "announcePercent": "Voice model download {{percent}} percent.",
-      "announceReady": "Voice model ready."
+      "announceReady": "Voice model ready.",
+      "checking": "Checking your voice…",
+      "voiceModel": "Voice model"
     },
     "brand": "Loqui setup",
     "back": "Back",
@@ -4351,6 +4353,42 @@
         }
       },
       "commitToTry": "Choose and apply a local voice before trying dictation."
+    },
+    "tour": {
+      "label": "While that downloads",
+      "title": "While that downloads, meet Loqui.",
+      "skip": "Skip tour",
+      "skipped": "We'll start the test as soon as your voice is ready.",
+      "noVoice": "Choose a voice first. It runs on this device.",
+      "chooseVoice": "Choose a voice",
+      "slideOf": "{{current}} of {{total}}",
+      "previous": "Previous tip",
+      "next": "Next tip",
+      "tip": "Tip {{number}}",
+      "shortcut": {
+        "title": "Use your shortcut",
+        "tap": "Press {{key}} to start talking, and press it again to finish.",
+        "push": "Hold {{key}} and talk. Let go to finish."
+      },
+      "privacy": {
+        "title": "Where your words go",
+        "bodyMac": "Nothing leaves this Mac unless you choose a provider.",
+        "bodyOther": "Nothing leaves this computer unless you choose a provider.",
+        "nodes": {
+          "mic": "Mic",
+          "loqui": "Loqui",
+          "model": "Speech model",
+          "notes": "Notes"
+        }
+      },
+      "demo": {
+        "title": "Say it, get text",
+        "body": "Cleanup can tidy filler words and punctuation. You choose it next.",
+        "raw": "um remind me to send the draft before lunch",
+        "final": "Remind me to send the draft before lunch."
+      },
+      "readyTitle": "Ready. Say something.",
+      "readyBody": "Your voice model is on this device."
     }
   }
 }

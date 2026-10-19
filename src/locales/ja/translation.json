@@ -2404,7 +2404,7 @@
       "transcriptEmptyDescription": "録音ボタンを押すと文字起こしが始まります。話した内容がここにリアルタイムで表示されます。",
       "startRecording": "録音を開始",
       "generateSummary": "AI要約を生成",
-      "startWriting": "書き始める..."
+      "startWriting": "入力、音声入力、または貼り付け。/ キーでブロックやアクションを表示します。"
     },
     "participants": {
       "attendee": "名の参加者",
@@ -2732,6 +2732,39 @@
     "actionsModelHint": {
       "title": "アクションには AI モデルが必要です",
       "choose": "モデルを選択"
+    },
+    "slash": {
+      "label": "ブロックを挿入",
+      "empty": "一致するブロックがありません",
+      "aiNeedsModel": "アクションにはAIモデルが必要です",
+      "setupAi": "ノートAIを設定…",
+      "ai": {
+        "needsModel": "設定でノートモデルをダウンロードしてください",
+        "needsKey": "設定でAPIキーを追加してください",
+        "needsUrl": "設定でサーバーアドレスを追加してください",
+        "off": "設定でノートAIがオフになっています",
+        "unreachable": "ノートモデルに接続できません",
+        "unknown": "ノートモデルを確認中…"
+      },
+      "manageActions": "アクションを管理…",
+      "groups": {
+        "text": "テキスト",
+        "ai": "AI",
+        "insert": "挿入"
+      },
+      "items": {
+        "h1": "見出し1",
+        "h2": "見出し2",
+        "h3": "見出し3",
+        "bullet": "箇条書き",
+        "numbered": "番号付きリスト",
+        "todo": "タスクリスト",
+        "quote": "引用",
+        "code": "コード",
+        "timestamp": "タイムスタンプ",
+        "dictation": "ここに音声入力",
+        "mention": "メンション"
+      }
     }
   },
   "dictionary": {

@@ -1,11 +1,10 @@
 import { mergeAttributes } from "@tiptap/core";
-import Mention, { type MentionNodeAttrs } from "@tiptap/extension-mention";
-import { ReactNodeViewRenderer, ReactRenderer, type NodeViewProps } from "@tiptap/react";
-import type { SuggestionOptions } from "@tiptap/suggestion";
+import Mention from "@tiptap/extension-mention";
+import { ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import { createSuggestionPopup } from "./editor/suggestionPopup";
 import MentionChip from "./MentionChip";
 import MentionSuggestions, {
   type MentionSuggestionItem,
-  type MentionSuggestionsHandle,
   type MentionSuggestionsProps,
 } from "./MentionSuggestions";
 import {
@@ -17,51 +16,13 @@ import {
 
 const SUGGESTION_WIDTH = 240;
 
-const suggestionRender: SuggestionOptions<
-  MentionSuggestionItem,
-  MentionNodeAttrs
->["render"] = () => {
-  let component: ReactRenderer<MentionSuggestionsHandle, MentionSuggestionsProps> | null = null;
-
-  const position = (clientRect?: (() => DOMRect | null) | null) => {
-    const element = component?.element as HTMLElement | undefined;
-    const rect = clientRect?.();
-    if (!element || !rect) return;
-    element.style.position = "fixed";
-    element.style.zIndex = "9999";
-    element.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - SUGGESTION_WIDTH - 8))}px`;
-    element.style.top = `${rect.bottom + 6}px`;
-  };
-
-  return {
-    onStart: (props) => {
-      component = new ReactRenderer(MentionSuggestions, {
-        props: { items: props.items, command: props.command },
-        editor: props.editor,
-      });
-      document.body.appendChild(component.element);
-      position(props.clientRect);
-    },
-    onUpdate: (props) => {
-      if (!component) return;
-      (component.element as HTMLElement).style.display = "";
-      component.updateProps({ items: props.items, command: props.command });
-      position(props.clientRect);
-    },
-    onKeyDown: (props) => {
-      if (props.event.key === "Escape") {
-        if (component) (component.element as HTMLElement).style.display = "none";
-        return true;
-      }
-      return component?.ref?.onKeyDown(props.event) ?? false;
-    },
-    onExit: () => {
-      component?.element.remove();
-      component?.destroy();
-      component = null;
-    },
-  };
-};
+const suggestionRender = createSuggestionPopup<MentionSuggestionItem, MentionSuggestionsProps>(
+  MentionSuggestions,
+  {
+    width: SUGGESTION_WIDTH,
+    toProps: (props) => ({ items: props.items, command: props.command }),
+  }
+);
 
 const toSuggestionItems = (people: MentionPerson[], query: string): MentionSuggestionItem[] => {
   const q = query.toLowerCase();

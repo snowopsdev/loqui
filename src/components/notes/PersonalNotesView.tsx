@@ -15,6 +15,8 @@ import { useActionProcessing } from "../../hooks/useActionProcessing";
 import { startRecordingForNote, useCreateNote } from "../../hooks/useCreateNote";
 import { useNoteActionsReady } from "../../hooks/useNoteActionsReady";
 import { useNotesOnboarding } from "../../hooks/useNotesOnboarding";
+import { useResolvedRoute } from "../../lib/routes";
+import { slashReadiness } from "../ui/editor/slashItems";
 import { useActions } from "../../stores/actionStore";
 import {
   lockSpeaker,
@@ -284,6 +286,7 @@ export default function PersonalNotesView({
   const userTouchedStepper = useMeetingRecordingStore((s) => s.userTouchedStepper);
 
   const actions = useActions();
+  const noteRoute = useResolvedRoute("noteFormatting");
 
   const spaces = useSpaces();
   const folders = useFolders();
@@ -520,16 +523,20 @@ export default function PersonalNotesView({
   );
   const activeNoteRawTranscript = activeNote?.transcript || "";
   const activeDraft = draft?.noteId === activeNote?.id ? draft : null;
-  const editorNote = activeNote
-    ? {
-        ...activeNote,
-        title: activeDraft ? activeDraft.title : activeNote.title,
-        content: activeDraft ? activeDraft.content : activeNote.content,
-        enhanced_content: activeDraft
-          ? activeDraft.enhancedContent
-          : (activeNote.enhanced_content ?? null),
-      }
-    : null;
+  const editorNote = useMemo(
+    () =>
+      activeNote
+        ? {
+            ...activeNote,
+            title: activeDraft ? activeDraft.title : activeNote.title,
+            content: activeDraft ? activeDraft.content : activeNote.content,
+            enhanced_content: activeDraft
+              ? activeDraft.enhancedContent
+              : (activeNote.enhanced_content ?? null),
+          }
+        : null,
+    [activeNote, activeDraft]
+  );
   const editorEnhancedContent = editorNote?.enhanced_content ?? null;
 
   const isEnhancementStale = useMemo(() => {
@@ -595,62 +602,101 @@ export default function PersonalNotesView({
   // the store — this view can be unmounted when an auto-end stop fires.
   const isActiveNoteRecording = isTranscribing && recordingNoteId === activeNote?.id;
 
-  const runNoteAction = async (action: ActionItem) => {
-    if (!editorNote) return;
-    const { recordingNoteId: liveNoteId, transcript: liveTranscript } =
-      useMeetingRecordingStore.getState();
-    const rawTranscript =
-      (liveNoteId === activeNote?.id ? liveTranscript : "") || activeNoteRawTranscript;
-    const noteContent = editorNote.content;
-    const hasNotes = !!noteContent.trim();
-    if (!hasNotes && !rawTranscript) return;
+  const runNoteAction = useCallback(
+    async (action: ActionItem) => {
+      if (!editorNote) return;
+      const { recordingNoteId: liveNoteId, transcript: liveTranscript } =
+        useMeetingRecordingStore.getState();
+      const rawTranscript =
+        (liveNoteId === activeNote?.id ? liveTranscript : "") || activeNoteRawTranscript;
+      // Slash applies its deletion synchronously, before React commits the next
+      // render. Read the existing owned draft so the command query never enters
+      // the action input; a draft for another note cannot replace this owner.
+      const ownedDraft = draftRef.current;
+      const noteContent =
+        ownedDraft?.noteId === editorNote.id ? ownedDraft.content : editorNote.content;
+      const hasNotes = !!noteContent.trim();
+      if (!hasNotes && !rawTranscript) return;
 
-    let formattedTranscript = "";
-    let meetingContext = "";
-    let isMeetingNote = false;
-    let knownPeople: MentionPerson[] = [];
-    if (rawTranscript) {
-      const segments = parseTranscriptSegments(rawTranscript);
-      if (segments.length > 0) {
-        isMeetingNote = true;
-        const mappingRows =
-          (await window.electronAPI?.getSpeakerMappings?.(editorNote.id).catch(() => [])) || [];
-        const speakerMappings: Record<string, string> = {};
-        for (const m of mappingRows) speakerMappings[m.speaker_id] = m.display_name;
+      let formattedTranscript = "";
+      let meetingContext = "";
+      let isMeetingNote = false;
+      let knownPeople: MentionPerson[] = [];
+      if (rawTranscript) {
+        const segments = parseTranscriptSegments(rawTranscript);
+        if (segments.length > 0) {
+          isMeetingNote = true;
+          const mappingRows =
+            (await window.electronAPI?.getSpeakerMappings?.(editorNote.id).catch(() => [])) || [];
+          const speakerMappings: Record<string, string> = {};
+          for (const m of mappingRows) speakerMappings[m.speaker_id] = m.display_name;
 
-        const identity: MeetingIdentity = {
-          selfName: null,
-          selfEmail: null,
-          participants: parseNoteParticipants(editorNote.participants),
-        };
-        const selfLabel = identity.selfName || t("notes.speaker.you");
-        meetingContext = buildMeetingContext(identity, selfLabel);
-        formattedTranscript = buildLlmTranscript(segments, speakerMappings, selfLabel, t);
-        knownPeople = collectKnownPeople(identity, speakerMappings, segments);
+          const identity: MeetingIdentity = {
+            selfName: null,
+            selfEmail: null,
+            participants: parseNoteParticipants(editorNote.participants),
+          };
+          const selfLabel = identity.selfName || t("notes.speaker.you");
+          meetingContext = buildMeetingContext(identity, selfLabel);
+          formattedTranscript = buildLlmTranscript(segments, speakerMappings, selfLabel, t);
+          knownPeople = collectKnownPeople(identity, speakerMappings, segments);
+        }
+        if (!formattedTranscript) {
+          formattedTranscript = rawTranscript;
+        }
       }
-      if (!formattedTranscript) {
-        formattedTranscript = rawTranscript;
-      }
-    }
 
-    const parts = [
-      hasNotes ? noteContent : "",
-      meetingContext,
-      formattedTranscript ? `## Meeting Transcript\n${formattedTranscript}` : "",
+      const parts = [
+        hasNotes ? noteContent : "",
+        meetingContext,
+        formattedTranscript ? `## Meeting Transcript\n${formattedTranscript}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      runAction(action, parts, makeContentHash(`${noteContent}\n${rawTranscript}`), {
+        modelId: effectiveModelId,
+        isMeetingNote,
+        knownPeople,
+        allowTitleGeneration: isRegenerableNoteTitle(
+          editorNote.title,
+          [t("notes.list.untitledNote"), t("notes.list.newNote"), t("notes.sidebar.newNote")],
+          calendarEventName
+        ),
+      });
+    },
+    [
+      editorNote,
+      activeNote?.id,
+      activeNoteRawTranscript,
+      t,
+      runAction,
+      effectiveModelId,
+      calendarEventName,
     ]
-      .filter(Boolean)
-      .join("\n\n");
-    runAction(action, parts, makeContentHash(`${noteContent}\n${rawTranscript}`), {
-      modelId: effectiveModelId,
-      isMeetingNote,
-      knownPeople,
-      allowTitleGeneration: isRegenerableNoteTitle(
-        editorNote.title,
-        [t("notes.list.untitledNote"), t("notes.list.newNote"), t("notes.sidebar.newNote")],
-        calendarEventName
-      ),
-    });
-  };
+  );
+
+  const slash = useMemo(
+    () => ({
+      actions,
+      ...slashReadiness(noteRoute.state, t),
+      onSetupAi: () => onOpenSettings?.(noteRoute.settingsPath),
+      onRunAction: (actionId: number) => {
+        const action = actions.find((candidate) => candidate.id === actionId);
+        if (action) void runNoteAction(action);
+      },
+      onManageActions: openActions,
+      onDictateHere: () => void window.electronAPI?.toggleDictationFromControlPanel?.(),
+    }),
+    [
+      actions,
+      noteRoute.state,
+      noteRoute.settingsPath,
+      onOpenSettings,
+      openActions,
+      runNoteAction,
+      t,
+    ]
+  );
   const generateSummary = () => {
     const action = actions.find((a) => a.translation_key === DETAILED_NOTES_KEY);
     if (action) void runNoteAction(action);
@@ -693,6 +739,7 @@ export default function PersonalNotesView({
             <NoteEditor
               key={editorNote.id}
               note={editorNote}
+              slash={slash}
               onTitleChange={handleTitleChange}
               onContentChange={handleContentChange}
               isSaving={isSaving}

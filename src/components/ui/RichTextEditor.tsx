@@ -7,9 +7,13 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
 import { cn } from "../lib/utils";
 import { createMentionExtension } from "./RichTextEditorMention";
+import { useTranslation } from "react-i18next";
+import type { ActionItem } from "../../types/electron";
+import { createSlashCommand } from "./editor/SlashCommand";
+import { slashItemsFromProp } from "./editor/slashItems";
 import type { MentionPerson } from "../../utils/mentionMarkdown";
 
-interface RichTextEditorProps {
+export interface RichTextEditorProps {
   value: string;
   onChange?: (value: string) => void;
   placeholder?: string;
@@ -18,6 +22,17 @@ interface RichTextEditorProps {
   editorRef?: MutableRefObject<Editor | null>;
   /** Enables @mention tagging with these people as suggestions. */
   mentionPeople?: MentionPerson[];
+  /** Enables / at mount; current callbacks and route readiness are read through refs. */
+  slash?: {
+    actions: ActionItem[];
+    aiAvailable: boolean;
+    aiUnavailableReason?: string;
+    aiNeedsSetup: boolean;
+    onRunAction(actionId: number): void;
+    onManageActions(): void;
+    onSetupAi(): void;
+    onDictateHere(): void;
+  };
 }
 
 export function RichTextEditor({
@@ -28,7 +43,9 @@ export function RichTextEditor({
   disabled,
   editorRef,
   mentionPeople,
+  slash,
 }: RichTextEditorProps) {
+  const { t, i18n } = useTranslation();
   const internalValueRef = useRef(value);
   const suppressUpdateRef = useRef(false);
 
@@ -40,8 +57,37 @@ export function RichTextEditor({
   }, [mentionPeople]);
   const withMentions = useRef(mentionPeople != null).current;
 
+  const slashRef = useRef(slash);
+  slashRef.current = slash;
+  const translationRef = useRef({ t, i18n });
+  translationRef.current = { t, i18n };
+  const withSlash = useRef(slash != null && !disabled).current;
+
   const editor = useEditor({
     extensions: [
+      ...(withSlash
+        ? [
+            createSlashCommand(() => {
+              const current = slashRef.current!;
+              const { t, i18n } = translationRef.current;
+              return {
+                items: slashItemsFromProp(current, t),
+                onSetupAi: () => current?.onSetupAi(),
+                onRunAction: (id) => current?.onRunAction(id),
+                onManageActions: () => current?.onManageActions(),
+                onDictateHere: () => current?.onDictateHere(),
+                formatTimestamp: (date) =>
+                  date.toLocaleString(i18n.language, {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  }),
+              };
+            }),
+          ]
+        : []),
       ...(withMentions ? [createMentionExtension(() => mentionPeopleRef.current ?? [])] : []),
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },

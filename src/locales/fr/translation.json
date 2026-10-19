@@ -2850,7 +2850,7 @@
       "transcriptEmptyDescription": "Lancez l'enregistrement pour commencer la transcription. Tout ce qui est dit s'affiche ici en direct.",
       "startRecording": "Démarrer l'enregistrement",
       "generateSummary": "Générer un résumé IA",
-      "startWriting": "Commencez à écrire...",
+      "startWriting": "Écrivez, dictez ou collez. Appuyez sur / pour les blocs et les actions.",
       "staleIndicator": "Le contenu a changé depuis l'amélioration",
       "live": "En direct",
       "transcript": "Transcription",
@@ -3155,6 +3155,39 @@
     "actionsModelHint": {
       "title": "Les actions nécessitent un modèle d'IA",
       "choose": "Choisir un modèle"
+    },
+    "slash": {
+      "label": "Insérer un bloc",
+      "empty": "Aucun bloc correspondant",
+      "aiNeedsModel": "Les actions nécessitent un modèle d’IA",
+      "setupAi": "Configurer l’IA des notes…",
+      "ai": {
+        "needsModel": "Téléchargez le modèle de notes dans les réglages",
+        "needsKey": "Ajoutez une clé API dans les réglages",
+        "needsUrl": "Ajoutez une adresse de serveur dans les réglages",
+        "off": "L’IA des notes est désactivée dans les réglages",
+        "unreachable": "Le modèle de notes est inaccessible",
+        "unknown": "Vérification du modèle de notes…"
+      },
+      "manageActions": "Gérer les actions…",
+      "groups": {
+        "text": "Texte",
+        "ai": "IA",
+        "insert": "Insérer"
+      },
+      "items": {
+        "h1": "Titre 1",
+        "h2": "Titre 2",
+        "h3": "Titre 3",
+        "bullet": "Liste à puces",
+        "numbered": "Liste numérotée",
+        "todo": "Liste de tâches",
+        "quote": "Citation",
+        "code": "Code",
+        "timestamp": "Horodatage",
+        "dictation": "Dicter ici",
+        "mention": "Mention"
+      }
     }
   },
   "dictionary": {

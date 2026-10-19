@@ -200,6 +200,12 @@ No size below 11px. Readable text floors at 12px. Hierarchy comes from size and 
 ### Note document ramp (WS-R6 B)
 Inside the note editor (`.rich-text-editor-content`) and the note title: title 32/1.15/600; h1 24/1.25/650; h2 19/1.3/600; h3 16/1.4/600; body 16/1.65 with a 68ch measure; code 14 mono. Chat answers use 15/1.6 at 68ch.
 
+### Note slash menu (WS-R6 B)
+
+In editable raw notes, `/` at the start or after a space opens Text, AI and Insert groups. URLs, dates and code keep literal slashes. Typing filters; arrows select; Enter or Tab applies; Escape closes. AI choices use the actual note actions and resolved notes route: unknown stays disabled with a checking reason and no setup prompt; confirmed unavailable states offer Settings at that route. Disabled explanations remain full-opacity `text-muted-foreground`, with 12px group headers and no extra option tab stops. Only an explicit enabled action invokes note AI. Manage actions preserves the first-run flow; Dictation here uses the control-panel toggle.
+
+Slash and mention suggestions share a caret popup that clamps horizontally, flips above near the bottom, and marks its wrapper with `data-editor-chrome`. Mention insertion and Markdown round-tripping keep their existing contract.
+
 ### Named Rules
 
 **The One-Family Rule.** Use the bundled Inter/Noto Sans system for interface text; create hierarchy through scale and weight.

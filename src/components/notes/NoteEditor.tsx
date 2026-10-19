@@ -36,7 +36,7 @@ import {
 } from "../../utils/transcriptSpeakerState";
 import { cn } from "../lib/utils";
 import EmptyStateCard from "../ui/EmptyStateCard";
-import { RichTextEditor } from "../ui/RichTextEditor";
+import { RichTextEditor, type RichTextEditorProps } from "../ui/RichTextEditor";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -166,6 +166,7 @@ interface NoteEditorProps {
   onExportTranscript?: (format: "txt" | "srt" | "json" | "md") => void;
   enhancement?: Enhancement;
   actionPicker?: React.ReactNode;
+  slash?: RichTextEditorProps["slash"];
   /** Runs the built-in Generate Notes action; enables the post-recording summary pill. */
   onGenerateSummary?: () => void;
   actionProcessingState?: ActionProcessingState;
@@ -200,6 +201,7 @@ export default function NoteEditor({
   onExportTranscript,
   enhancement,
   actionPicker,
+  slash,
   onGenerateSummary,
   actionProcessingState,
   actionName,
@@ -964,6 +966,7 @@ export default function NoteEditor({
               </EmptyStateCard>
             ) : viewMode === "enhanced" && enhancement ? (
               <RichTextEditor
+                key="enhanced"
                 value={enhancement.content}
                 onChange={handleEnhancedChange}
                 disabled={!canEditNote}
@@ -971,9 +974,11 @@ export default function NoteEditor({
               />
             ) : (
               <RichTextEditor
+                key="raw"
                 value={note.content}
                 onChange={handleContentChange}
                 editorRef={editorRef}
+                slash={slash}
                 placeholder={t("notes.editor.startWriting")}
                 disabled={!canEditNote || actionProcessingState === "processing"}
                 mentionPeople={mentionPeople}

@@ -2500,7 +2500,7 @@
       "transcriptEmptyDescription": "Toque em gravar para começar a transcrever. Tudo o que for dito aparece aqui em tempo real.",
       "startRecording": "Começar a gravar",
       "generateSummary": "Gerar resumo com IA",
-      "startWriting": "Comece a escrever...",
+      "startWriting": "Digite, dite ou cole. Pressione / para blocos e ações.",
       "staleIndicator": "O conteúdo mudou desde o aprimoramento",
       "live": "Ao vivo",
       "transcript": "Transcrição",
@@ -2805,6 +2805,39 @@
     "actionsModelHint": {
       "title": "As ações precisam de um modelo de IA",
       "choose": "Escolher um modelo"
+    },
+    "slash": {
+      "label": "Inserir bloco",
+      "empty": "Nenhum bloco corresponde",
+      "aiNeedsModel": "As ações precisam de um modelo de IA",
+      "setupAi": "Configurar a IA de notas…",
+      "ai": {
+        "needsModel": "Baixe o modelo de notas nas Configurações",
+        "needsKey": "Adicione uma chave de API nas Configurações",
+        "needsUrl": "Adicione um endereço de servidor nas Configurações",
+        "off": "A IA de notas está desativada nas Configurações",
+        "unreachable": "Não foi possível acessar o modelo de notas",
+        "unknown": "Verificando o modelo de notas…"
+      },
+      "manageActions": "Gerenciar ações…",
+      "groups": {
+        "text": "Texto",
+        "ai": "IA",
+        "insert": "Inserir"
+      },
+      "items": {
+        "h1": "Título 1",
+        "h2": "Título 2",
+        "h3": "Título 3",
+        "bullet": "Lista com marcadores",
+        "numbered": "Lista numerada",
+        "todo": "Lista de tarefas",
+        "quote": "Citação",
+        "code": "Código",
+        "timestamp": "Data e hora",
+        "dictation": "Ditar aqui",
+        "mention": "Menção"
+      }
     }
   },
   "dictionary": {

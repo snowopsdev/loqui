@@ -2849,7 +2849,7 @@
       "transcriptEmptyDescription": "Drücke auf Aufnahme, um mit der Transkription zu beginnen. Alles Gesagte erscheint hier in Echtzeit.",
       "startRecording": "Aufnahme starten",
       "generateSummary": "KI-Zusammenfassung erstellen",
-      "startWriting": "Schreibe los...",
+      "startWriting": "Tippen, diktieren oder einfügen. Drücke / für Blöcke und Aktionen.",
       "staleIndicator": "Der Inhalt hat sich seit der Verbesserung geändert",
       "live": "Live",
       "transcript": "Transkript",
@@ -3154,6 +3154,39 @@
     "actionsModelHint": {
       "title": "Aktionen benötigen ein KI-Modell",
       "choose": "Modell wählen"
+    },
+    "slash": {
+      "label": "Block einfügen",
+      "empty": "Keine passenden Blöcke",
+      "aiNeedsModel": "Aktionen benötigen ein KI-Modell",
+      "setupAi": "Notizen-KI einrichten…",
+      "ai": {
+        "needsModel": "Notizenmodell in den Einstellungen herunterladen",
+        "needsKey": "API-Schlüssel in den Einstellungen hinzufügen",
+        "needsUrl": "Serveradresse in den Einstellungen hinzufügen",
+        "off": "Notizen-KI ist in den Einstellungen deaktiviert",
+        "unreachable": "Das Notizenmodell ist nicht erreichbar",
+        "unknown": "Notizenmodell wird geprüft…"
+      },
+      "manageActions": "Aktionen verwalten…",
+      "groups": {
+        "text": "Text",
+        "ai": "KI",
+        "insert": "Einfügen"
+      },
+      "items": {
+        "h1": "Überschrift 1",
+        "h2": "Überschrift 2",
+        "h3": "Überschrift 3",
+        "bullet": "Aufzählung",
+        "numbered": "Nummerierte Liste",
+        "todo": "Aufgabenliste",
+        "quote": "Zitat",
+        "code": "Code",
+        "timestamp": "Zeitstempel",
+        "dictation": "Hier diktieren",
+        "mention": "Erwähnung"
+      }
     }
   },
   "dictionary": {

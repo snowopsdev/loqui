@@ -2849,7 +2849,7 @@
       "transcriptEmptyDescription": "Hit record to start transcribing. Everything said shows up here as it happens.",
       "startRecording": "Start recording",
       "generateSummary": "Generate AI Summary",
-      "startWriting": "Start writing...",
+      "startWriting": "Type, dictate or paste. Press / for blocks and actions.",
       "staleIndicator": "Content has changed since enhancement",
       "live": "Live",
       "transcript": "Transcript",
@@ -3154,6 +3154,39 @@
     "actionsModelHint": {
       "title": "Actions need an AI model",
       "choose": "Choose a model"
+    },
+    "slash": {
+      "label": "Insert block",
+      "empty": "No blocks match",
+      "aiNeedsModel": "Actions need an AI model",
+      "setupAi": "Set up notes AI…",
+      "ai": {
+        "needsModel": "Download the notes model in Settings",
+        "needsKey": "Add an API key in Settings",
+        "needsUrl": "Add a server address in Settings",
+        "off": "Notes AI is turned off in Settings",
+        "unreachable": "The notes model can't be reached",
+        "unknown": "Checking the notes model…"
+      },
+      "manageActions": "Manage actions…",
+      "groups": {
+        "text": "Text",
+        "ai": "AI",
+        "insert": "Insert"
+      },
+      "items": {
+        "h1": "Heading 1",
+        "h2": "Heading 2",
+        "h3": "Heading 3",
+        "bullet": "Bullet list",
+        "numbered": "Numbered list",
+        "todo": "To-do list",
+        "quote": "Quote",
+        "code": "Code",
+        "timestamp": "Time stamp",
+        "dictation": "Dictation here",
+        "mention": "Mention"
+      }
     }
   },
   "dictionary": {

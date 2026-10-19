@@ -2499,7 +2499,7 @@
       "transcriptEmptyDescription": "點擊錄製開始轉錄。所說的內容會即時顯示在這裡。",
       "startRecording": "開始錄製",
       "generateSummary": "產生 AI 摘要",
-      "startWriting": "開始撰寫...",
+      "startWriting": "輸入、聽寫或貼上。按 / 使用區塊與操作。",
       "staleIndicator": "內容在增強後已變更",
       "live": "即時",
       "transcript": "轉錄",
@@ -2804,6 +2804,39 @@
     "actionsModelHint": {
       "title": "動作需要 AI 模型",
       "choose": "選擇模型"
+    },
+    "slash": {
+      "label": "插入區塊",
+      "empty": "沒有相符的區塊",
+      "aiNeedsModel": "操作需要 AI 模型",
+      "setupAi": "設定筆記 AI…",
+      "ai": {
+        "needsModel": "請在設定中下載筆記模型",
+        "needsKey": "請在設定中新增 API 金鑰",
+        "needsUrl": "請在設定中新增伺服器位址",
+        "off": "筆記 AI 已在設定中關閉",
+        "unreachable": "無法連線至筆記模型",
+        "unknown": "正在檢查筆記模型…"
+      },
+      "manageActions": "管理操作…",
+      "groups": {
+        "text": "文字",
+        "ai": "AI",
+        "insert": "插入"
+      },
+      "items": {
+        "h1": "標題 1",
+        "h2": "標題 2",
+        "h3": "標題 3",
+        "bullet": "項目符號清單",
+        "numbered": "編號清單",
+        "todo": "待辦清單",
+        "quote": "引言",
+        "code": "程式碼",
+        "timestamp": "時間戳記",
+        "dictation": "在此聽寫",
+        "mention": "提及"
+      }
     }
   },
   "dictionary": {

@@ -4225,7 +4225,31 @@
       "mayHaveAudio": "{{provider}} 可能已收到音訊。",
       "mayHaveText": "{{provider}} 可能已收到文字。",
       "mayHaveImage": "{{provider}} 可能已收到圖片。",
-      "mayHaveSeveral": "{{provider}} 可能已收到本次聽寫的部分內容。"
+      "mayHaveSeveral": "{{provider}} 可能已收到本次聽寫的部分內容。",
+      "sealedPaused": "聽寫已暫停：隔離模式已開啟"
+    },
+    "stage": {
+      "transcribing": "正在轉寫…",
+      "cleaning": "正在潤飾",
+      "discardedUndo": "已捨棄 · 復原",
+      "paused": "已暫停",
+      "pasted_other": "已貼上 · {{count}} 字詞"
+    },
+    "locality": {
+      "sealed": "已被隔離模式封鎖",
+      "remote": "傳送至 {{provider}}"
+    },
+    "route": {
+      "speech": "語音: {{where}}",
+      "speechOff": "語音: 關閉",
+      "cleanup": "潤飾: {{where}}",
+      "cleanupOff": "潤飾: 關閉",
+      "translation": "翻譯: {{where}}",
+      "translationOff": "翻譯: 關閉",
+      "agent": "智慧助理: {{where}}",
+      "agentOff": "智慧助理: 關閉",
+      "vision": "螢幕上下文: {{where}}",
+      "visionOff": "螢幕上下文: 關閉"
     }
   }
 }

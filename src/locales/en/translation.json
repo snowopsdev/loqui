@@ -4252,7 +4252,32 @@
       "mayHaveAudio": "{{provider}} may have received audio.",
       "mayHaveText": "{{provider}} may have received text.",
       "mayHaveImage": "{{provider}} may have received an image.",
-      "mayHaveSeveral": "{{provider}} may have received part of this dictation."
+      "mayHaveSeveral": "{{provider}} may have received part of this dictation.",
+      "sealedPaused": "Dictation paused: Sealed mode is on"
+    },
+    "stage": {
+      "transcribing": "Transcribing…",
+      "cleaning": "Cleaning up",
+      "discardedUndo": "Discarded · Undo",
+      "paused": "Paused",
+      "pasted_one": "Pasted · {{count}} word",
+      "pasted_other": "Pasted · {{count}} words"
+    },
+    "locality": {
+      "sealed": "Blocked by Sealed mode",
+      "remote": "Sends to {{provider}}"
+    },
+    "route": {
+      "speech": "Speech: {{where}}",
+      "speechOff": "Speech: off",
+      "cleanup": "Cleanup: {{where}}",
+      "cleanupOff": "Cleanup: off",
+      "translation": "Translation: {{where}}",
+      "translationOff": "Translation: off",
+      "agent": "Agent: {{where}}",
+      "agentOff": "Agent: off",
+      "vision": "Screen context: {{where}}",
+      "visionOff": "Screen context: off"
     }
   }
 }

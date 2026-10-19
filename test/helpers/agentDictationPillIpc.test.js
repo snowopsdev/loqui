@@ -58,18 +58,20 @@ const electronStub = {
 Module._load = function loadWithMocks(request, parent, isMain) {
   if (request === "electron") return electronStub;
   if (parent?.filename === handlersModulePath) {
-    if (request === "./cortiTranscription") {
-      return { transcribeAudio: async () => ({ text: "corti text" }) };
-    }
-    if (request === "./tinfoilTranscription") {
+    // setupHandlers unconditionally sweeps temp artifacts. Keep every
+    // unrelated main/native/downloader/credential leaf inert through teardown.
+    if (["./onboardingInputPolicy", "./dictationLifecycle", "./rendererRequest"].includes(request))
+      return originalLoad.call(this, request, parent, isMain);
+    if (request === "./urlAudioDownloader")
       return {
-        transcribeWithTinfoil: async () => ({ text: "tinfoil text", model: "tinfoil-model" }),
-        getTinfoilChatModels: () => [],
+        sweepStaleTempArtifacts() {},
+        download() {
+          throw Error("Fixture download forbidden");
+        },
       };
-    }
-    if (request === "./windowBroadcast") {
-      return { broadcastToWindows: () => {} };
-    }
+    if (request.startsWith(".") || request === "fs") return anything();
+    if (/^(?:node:)?(?:child_process|http|https|net|tls|dgram)$/.test(request))
+      throw Error(`Forbidden fixture boundary: ${request}`);
   }
   return originalLoad.call(this, request, parent, isMain);
 };

@@ -29,7 +29,7 @@ export default class FakeAudioManager {
   flushCancelHold() { this.calls.push(["flush"]); return globalThis.__flush?.promise ?? Promise.resolve(); }
 }`;
 
-async function mount(t, electronAPI = {}) {
+async function mount(t, electronAPI = {}, hookOptions = {}) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -77,7 +77,7 @@ async function mount(t, electronAPI = {}) {
   const { useUndoCancelHotkey } = await vite.ssrLoadModule("/hooks/useUndoCancelHotkey.ts");
   const ref = {};
   function Harness() {
-    ref.api = useAudioRecording({ onDemoEvent: (e) => demo.push(e) });
+    ref.api = useAudioRecording({ ...hookOptions, onDemoEvent: (e) => demo.push(e) });
     ref.hotkey = useUndoCancelHotkey(ref.api.cancelled, ref.api.undoCancel);
     return null;
   }
@@ -316,7 +316,14 @@ test("paste outcome captures the session before await and counts words", async (
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
   useSettingsStore.setState({ autoPasteEnabled: true, keepTranscriptionInClipboard: false });
   const manager = globalThis.__am;
-  manager.activeSession = { id: "original", private: false };
+  const originalSession = Object.freeze({
+    id: "original",
+    private: false,
+    routes: Object.freeze({ marker: "original destinations" }),
+    settings: Object.freeze({ useCleanupModel: true, voiceAgentScreenContext: true }),
+    intents: Object.freeze({ voiceAgentRequested: true, translationRequested: false }),
+  });
+  manager.activeSession = originalSession;
   manager.saveTranscription = async () => true;
   let completion;
   await React.act(async () => {
@@ -331,6 +338,9 @@ test("paste outcome captures the session before await and counts words", async (
     pasted.resolve({ success: true });
     await completion;
   });
+  assert.equal(ref.api.outcomePresentation.outcome, ref.api.outcome);
+  assert.equal(ref.api.outcomePresentation.session.routes, originalSession.routes);
+  assert.equal(ref.api.outcomePresentation.session.settings.voiceAgentScreenContext, true);
   assert.deepEqual(
     { ...ref.api.outcome, at: 0 },
     { sessionId: "original", kind: "pasted", words: 3, at: 0 }
@@ -364,5 +374,80 @@ for (const success of [true, false]) {
     });
     assert.equal(ref.api.outcome.sessionId, "B");
     assert.equal(ref.api.outcome.kind, "failed");
+    assert.equal(ref.api.outcomePresentation.outcome, ref.api.outcome);
+    assert.notEqual(ref.api.outcomePresentation.session?.routes?.marker, "original destinations");
   });
 }
+
+test("the hook publishes the frozen session through processing, cancel, Undo and idle", async (t) => {
+  const { ref } = await mount(t);
+  const original = Object.freeze({
+    id: "rec-pinned",
+    routes: Object.freeze({}),
+    settings: Object.freeze({}),
+    intents: Object.freeze({ voiceAgentRequested: true, translationRequested: false }),
+  });
+  const am = globalThis.__am;
+  am.getRecordingAudioLevel = () => null; // recording mounts the hook’s level-reporting effect
+  assert.equal(ref.api.activeSession, null);
+  am.activeSession = original;
+  await fire("onStateChange", { isRecording: true, isProcessing: false });
+  assert.equal(ref.api.activeSession, original);
+  await fire("onStateChange", { isRecording: false, isProcessing: true });
+  assert.equal(ref.api.activeSession, original);
+  // The callback can precede AudioManager's final session cleanup.
+  await fire("onStateChange", { isRecording: false, isProcessing: false });
+  assert.equal(ref.api.activeSession, null);
+  am.activeSession = null;
+  // Undo advertises processing while preflight is pending, before it applies the hold.
+  await fire("onStateChange", { isRecording: false, isProcessing: true });
+  assert.equal(ref.api.activeSession, null);
+  // Task 8 emits again after applySessionIntents admits that original session.
+  am.activeSession = original;
+  await fire("onStateChange", { isRecording: false, isProcessing: true });
+  assert.equal(ref.api.activeSession, original);
+  am.activeSession = null;
+  await fire("onStateChange", { isRecording: false, isProcessing: false });
+  assert.equal(ref.api.activeSession, null);
+});
+
+test("each actual open gets a new internal hold even when same-session close/reopen is batched", async (t) => {
+  const { ref } = await mount(t);
+  await fire("onCancelledChange", STATE);
+  const first = ref.api.cancelHold;
+  await fire("onCancelledChange", { ...STATE, paused: true, remainingMs: 3100 });
+  assert.equal(
+    ref.api.cancelHold,
+    first,
+    "pause/evidence updates retain animation identity and original duration"
+  );
+  await React.act(async () => {
+    globalThis.__am.cb.onCancelledChange(null, { sessionId: STATE.sessionId, reason: "restored" });
+    globalThis.__am.cb.onCancelledChange({ ...STATE, remainingMs: 10000 });
+  });
+  assert.equal(ref.api.cancelled.sessionId, STATE.sessionId, "public identity unchanged");
+  assert.ok(ref.api.cancelHold.generation > first.generation);
+  assert.equal(ref.api.cancelHold.durationMs, 10000);
+});
+
+test("an actual hold opened while already hovered pauses the manager immediately", async (t) => {
+  let hovered = true;
+  const { ref } = await mount(t, {}, { isPillHovered: () => hovered });
+  const am = globalThis.__am;
+  am.pauseCancelHold = () => {
+    am.calls.push(["pause"]);
+    am.cb.onCancelledChange({ ...STATE, paused: true });
+  };
+  await fire("onCancelledChange", STATE);
+  assert.equal(ref.api.cancelled.paused, true);
+  assert.deepEqual(am.calls, [["pause"]]);
+  const first = ref.api.cancelHold;
+  await fire("onCancelledChange", { ...STATE, paused: true, remainingMs: 4000 });
+  assert.equal(ref.api.cancelHold, first);
+  assert.deepEqual(am.calls, [["pause"]], "not repeated on pause/evidence publications");
+  hovered = false;
+  await fire("onCancelledChange", null, { sessionId: STATE.sessionId, reason: "expired" });
+  await fire("onCancelledChange", STATE);
+  assert.equal(ref.api.cancelled.paused, false);
+  assert.deepEqual(am.calls, [["pause"]]);
+});

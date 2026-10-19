@@ -471,9 +471,9 @@ export function shouldSuppressPillForAssistantActions({
  * the pill owns live activity: ownership returns to it at close INTENT (see
  * voicePillOwnsActivity in App.jsx) and beginClose hides the companion on that
  * same tick, so suppressing here would leave a running recording with no
- * visible owner for the whole close. The panel-return mask stays unconditional
- * like the dictation-error handoff — it is bounded by the native shrink it
- * covers, not by the panel's full exit choreography.
+ * visible owner for the whole close. Stages that outrank the footer also bypass
+ * its close/return masks; explicit error/action suppression remains a hard gate.
+ * Callers without ownership retain the existing native-shrink masking policy.
  */
 export function resolvePillVisualSuppression({
   dictationErrorSuppressed,
@@ -481,8 +481,10 @@ export function resolvePillVisualSuppression({
   assistantClosing,
   panelReturnResizeActive,
   hasLiveActivity,
+  ownership = NO_OWNERSHIP,
 }) {
   if (dictationErrorSuppressed || assistantActionsSuppressed) return true;
+  if (ownership.outranksFooter) return false;
   if (panelReturnResizeActive) return true;
   return Boolean(assistantClosing) && !hasLiveActivity;
 }

@@ -32,13 +32,38 @@ const SELECTION_EDIT_DETAIL_KEY_BY_CODE = {
 const COMPANION_AUDIO_LEVEL_INTERVAL_MS = 80;
 const countWords = (text) => (text.trim() ? text.trim().split(/\s+/u).length : 0);
 
+// Presentation holds destinations and enabled intents only: never audio,
+// context, tracker, credentials or the rest of the pipeline owner.
+const pillSessionPresentation = (session) =>
+  session
+    ? Object.freeze({
+        routes: session.routes ?? null,
+        settings: Object.freeze({
+          useCleanupModel: session.settings?.useCleanupModel,
+          voiceAgentScreenContext: session.settings?.voiceAgentScreenContext,
+        }),
+        intents: Object.freeze({
+          voiceAgentRequested: session.intents?.voiceAgentRequested === true,
+          translationRequested: session.intents?.translationRequested === true,
+        }),
+      })
+    : null;
+
 let localRecoveryKey = 0;
 
 export const useAudioRecording = (options = {}) => {
   const { t } = useTranslation();
   const [cancelled, setCancelled] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
+  // Local UI identity, deliberately separate from the public CancelledState.
+  const [cancelHold, setCancelHold] = useState(null);
+  const cancelHoldGenerationRef = useRef(0);
+  const pillHoveredRef = useRef(options.isPillHovered);
+  pillHoveredRef.current = options.isPillHovered;
   const [processingStage, setProcessingStage] = useState(null);
   const [outcome, setOutcome] = useState(null);
+  const [outcomePresentation, setOutcomePresentation] = useState(null);
+  const cancelBufferIdentitiesRef = useRef(new WeakMap());
   const cancelledRef = useRef(null);
   cancelledRef.current = cancelled;
   const escHeldRef = useRef(false);
@@ -338,14 +363,19 @@ export const useAudioRecording = (options = {}) => {
         description,
         transcript = "",
         recoveryHeld = false,
-        sessionId = null,
+        sessionId = manager.activeSession?.id ?? null,
         outcomeGeneration = outcomeGenerationRef.current,
+        presentation = pillSessionPresentation(
+          manager.activeSession?.id === sessionId ? manager.activeSession : null
+        ),
       },
       extraActions = []
     ) => {
       const recoverAssistant = Boolean(audioManagerRef.current?.voiceAgentRequested);
       if (outcomeGeneration === outcomeGenerationRef.current) {
-        setOutcome({ sessionId: sessionId ?? "", kind: "failed", at: Date.now() });
+        const next = { sessionId: sessionId ?? "", kind: "failed", at: Date.now() };
+        setOutcome(next);
+        setOutcomePresentation({ outcome: next, session: presentation });
       }
       onDictationError?.({ recoverAssistant });
       const noticeId = notify(
@@ -383,14 +413,44 @@ export const useAudioRecording = (options = {}) => {
       return noticeId;
     };
 
+    let currentCancelBufferIdentity = null;
     const handleCancelledChange = (state, closed) => {
       if (managerInstallationRef.current !== installation || audioManagerRef.current !== manager)
         return;
       // An old save can close A after the manager has already opened B.
       // It owns neither B's UI nor its lifecycle report or demo publication.
       if (!state && closed && cancelledRef.current?.sessionId !== closed.sessionId) return;
+      const held = state ? manager._undo?.peek?.() : null;
+      // Weak keys identify replacement buffers without retaining their bytes.
+      let bufferIdentity = held ? cancelBufferIdentitiesRef.current.get(held) : null;
+      if (held && !bufferIdentity) {
+        bufferIdentity = {};
+        cancelBufferIdentitiesRef.current.set(held, bufferIdentity);
+      }
+      const opened =
+        state &&
+        (!cancelledRef.current ||
+          cancelledRef.current.sessionId !== state.sessionId ||
+          (bufferIdentity && currentCancelBufferIdentity !== bufferIdentity));
       cancelledRef.current = state;
       setCancelled(state);
+      if (opened) {
+        outcomeGenerationRef.current += 1;
+        setOutcome(null);
+        setOutcomePresentation(null);
+        currentCancelBufferIdentity = bufferIdentity;
+        const session =
+          held?.session?.id === state.sessionId
+            ? held.session
+            : manager.activeSession?.id === state.sessionId
+              ? manager.activeSession
+              : null;
+        setCancelHold({
+          generation: ++cancelHoldGenerationRef.current,
+          durationMs: state.remainingMs,
+          session: pillSessionPresentation(session),
+        });
+      } else if (!state) setCancelHold(null);
       const am = audioManagerRef.current;
       if (!busyRef.current && !am?.isRecording && !am?.isProcessing) {
         reportLifecycle(state ? "cancelled" : "idle");
@@ -410,13 +470,19 @@ export const useAudioRecording = (options = {}) => {
           reason: closed.reason,
         });
       }
+      // A hold can open beneath a pointer already inside the pill, without
+      // another mouseenter. The manager's paused publication remains authority.
+      if (opened && !state.paused && pillHoveredRef.current?.()) manager.pauseCancelHold?.();
     };
 
     audioManagerRef.current.setCallbacks({
       onStateChange: ({ isRecording, isProcessing, isStreaming, micCaptureStatus }) => {
         const busy = Boolean(isRecording || isProcessing);
+        setActiveSession(busy ? (audioManagerRef.current?.activeSession ?? null) : null);
         if ((isRecording && !wasRecordingRef.current) || (busy && !busyRef.current)) {
           outcomeGenerationRef.current += 1;
+          setOutcome(null);
+          setOutcomePresentation(null);
         }
         busyRef.current = busy;
         if (busy && !escHeldRef.current) {
@@ -561,6 +627,7 @@ export const useAudioRecording = (options = {}) => {
         const sessionId = session?.id ?? null;
         const sessionPrivate = session?.private === true;
         const outcomeGeneration = outcomeGenerationRef.current;
+        const presentation = pillSessionPresentation(session);
         // Capture the operation before persistence or paste can yield.
         const retryCleanup = result.cleanupFailure?.retryCleanup;
         if (result.success) {
@@ -571,6 +638,7 @@ export const useAudioRecording = (options = {}) => {
             window.electronAPI?.hideDictationPreview?.();
             showDictationError({
               outcomeGeneration,
+              presentation,
               sessionId,
               title: t("hooks.audioRecording.noAudio.title"),
               description: t("hooks.audioRecording.noAudio.description"),
@@ -718,6 +786,7 @@ export const useAudioRecording = (options = {}) => {
             window.electronAPI?.hideDictationPreview?.();
             showDictationError({
               outcomeGeneration,
+              presentation,
               sessionId,
               title: t("hooks.audioRecording.pushForceStopped.title"),
               // Never promise a clipboard that rejected the write; the transcript
@@ -751,6 +820,7 @@ export const useAudioRecording = (options = {}) => {
                   SELECTION_EDIT_DETAIL_KEY_BY_CODE[replacement?.code] || "unavailable";
                 showDictationError({
                   outcomeGeneration,
+                  presentation,
                   sessionId,
                   title: t("hooks.audioRecording.selectionEditing.notAppliedTitle"),
                   description: t(`hooks.audioRecording.selectionEditing.${detailKey}`),
@@ -782,6 +852,7 @@ export const useAudioRecording = (options = {}) => {
             if (!pasteSucceeded && !result.selectionEdit?.sessionId) {
               showDictationError({
                 outcomeGeneration,
+                presentation,
                 sessionId,
                 title: t("notices.pasteFailed"),
                 transcript: result.rawText ?? result.text,
@@ -789,12 +860,14 @@ export const useAudioRecording = (options = {}) => {
             }
             if (pasteSucceeded) {
               if (outcomeGeneration === outcomeGenerationRef.current) {
-                setOutcome({
+                const next = {
                   sessionId: sessionId ?? "",
                   kind: "pasted",
                   words: countWords(result.text),
                   at: Date.now(),
-                });
+                };
+                setOutcome(next);
+                setOutcomePresentation({ outcome: next, session: presentation });
               }
               window.electronAPI?.hideDictationPreview?.();
               if (result.cleanupFailure)
@@ -1123,6 +1196,9 @@ export const useAudioRecording = (options = {}) => {
   };
 
   return {
+    activeSession,
+    outcomePresentation,
+    cancelHold,
     cancelled,
     undoCancel,
     pauseUndo,

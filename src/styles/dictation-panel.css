@@ -163,7 +163,7 @@
    the pill's native-window footprint or redrawing the raster brand mark. */
 .voice-identity-listening,
 .voice-identity-agent {
-  transition: opacity 240ms ease-in-out;
+  transition: opacity var(--motion-base) var(--motion-ease-std);
 }
 
 .voice-identity-agent {
@@ -182,7 +182,7 @@
 @media (prefers-reduced-motion: reduce) {
   .voice-identity-listening,
   .voice-identity-agent {
-    transition: none;
+    transition: opacity var(--motion-base) var(--motion-ease-std);
   }
 }
 
@@ -249,7 +249,7 @@
 
 .voice-pill-control[data-agent-beam-active="true"] {
   box-shadow:
-    var(--shadow-card),
+    var(--shadow-card, 0 2px 8px rgb(0 0 0 / 0.12)),
     0 0 0 1px color-mix(in oklch, var(--color-agent-brand) 28%, transparent),
     0 0 10px color-mix(in oklch, var(--color-agent-brand) 18%, transparent);
 }
@@ -277,8 +277,8 @@
   fill: var(--color-surface-1);
   stroke: var(--color-border-hover);
   transition:
-    fill 220ms ease-out,
-    stroke 220ms ease-out;
+    fill var(--motion-fast) var(--motion-ease-std),
+    stroke var(--motion-fast) var(--motion-ease-std);
 }
 
 .liquid-cancel-skin[data-pill-state="hover"] path {
@@ -331,7 +331,7 @@
   border-radius: 9999px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 220ms ease-out;
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
 }
 
 /* Agent Mode keeps the identical glow in its purple identity. */
@@ -413,11 +413,12 @@
 /* Animations only run while active so the always-visible idle pill costs
    nothing; the 220ms fade covers the frozen final frame on exit. */
 .processing-signal-glow[data-active="true"]::before {
-  animation: processing-signal-breathe 1.9s ease-in-out infinite;
+  animation: processing-signal-breathe var(--motion-signal-breathe) var(--motion-ease-ambient)
+    infinite;
 }
 
 .processing-signal-glow[data-active="true"] {
-  animation: processing-signal-spin 1.6s linear infinite;
+  animation: processing-signal-spin var(--motion-signal-comet) linear infinite;
 }
 
 @keyframes processing-signal-spin {
@@ -600,7 +601,7 @@
 .assistant-tool-invocation-status {
   box-shadow:
     inset 0 1px 0 color-mix(in oklch, var(--color-foreground) 5%, transparent),
-    var(--shadow-card);
+    var(--shadow-card, 0 2px 8px rgb(0 0 0 / 0.12));
 }
 
 .assistant-tool-invocation-pulse::after {
@@ -655,7 +656,182 @@
   }
 }
 
+/* VO-R1 C stage chrome. Labels truncate inside the fixed footprints so long
+   translations never widen the pill past the 184px dock budget. */
+.pill-stage-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 12.5px/1 var(--font-family-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* VoicePill's own transitions, on the shared tokens (spec §4). The sheen and
+   the level bars only fade. The identity/chevron swap also drops 4px and
+   scales; Tailwind v4's translate-* and scale-* set the individual translate
+   and scale properties, so both are listed. Under reduced motion index.css
+   drops transform, translate and scale from transition-property, and the
+   fade stays. */
+.voice-pill-sheen,
+.voice-pill-levels {
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.voice-pill-identity-logo,
+.voice-pill-expand-chevron {
+  transition-property: opacity, transform, translate, scale;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--motion-ease-std);
+}
+.voice-pill-identity-icon {
+  transition:
+    width var(--motion-base) var(--motion-ease-std),
+    height var(--motion-base) var(--motion-ease-std);
+}
+
+.voice-pill-control[data-pill-state="pasted"] {
+  border-color: var(--color-success);
+}
+.voice-pill-control[data-pill-state="failed"] {
+  border-color: var(--color-destructive);
+  animation: pill-nudge var(--motion-nudge) var(--motion-ease-std) 1;
+}
+.voice-pill-control[data-pill-state="recording"] {
+  border-color: var(--color-ring);
+}
+
+.pill-success-check {
+  color: var(--color-success);
+  stroke-dasharray: 24;
+  animation:
+    draw-check var(--motion-base) var(--motion-ease-std) var(--motion-instant) both,
+    pill-pop var(--motion-bounce) var(--motion-spring-bounce) both;
+}
+@keyframes pill-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+@keyframes pill-nudge {
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(0);
+  }
+}
+
+/* D3 undo window: a 2px live-orange underline that shrinks over the window
+   and freezes while the pointer rests on the pill (the RAM hold pauses too). */
+.pill-countdown {
+  position: absolute;
+  inset-inline: 14px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-ring);
+  transform-origin: left center;
+  animation-name: pill-countdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+[dir="rtl"] .pill-countdown {
+  transform-origin: right center;
+}
+.pill-countdown[data-paused="true"] {
+  animation-play-state: paused;
+}
+@keyframes pill-countdown {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Transcribing is all orange; cleaning keeps Plan 01's orange→magenta tail. */
+.processing-signal-glow[data-stage="transcribing"] {
+  --signal-deep: var(--signal-core);
+}
+
+/* Words and honest copy live on their own layer above the pill (D9). */
+.pill-caption {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0; /* physical: follows the pill's screen dock, like .notice-stack[data-placement="pill"] */
+  max-width: 184px;
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
+  font: 500 12px/1.35 var(--font-family-sans);
+  animation: notice-in var(--motion-base) var(--motion-ease-enter) both;
+}
+.pill-caption[data-direction="left"] {
+  left: auto;
+  right: 0;
+}
+
+.locality-ring--blocked {
+  /* The strike carries blocking; opacity would erase the ring contrast. */
+  opacity: 1;
+}
+.locality-ring--blocked::after {
+  content: "";
+  position: absolute;
+  inset: 45% -2px auto;
+  height: 2px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
+
+.liquid-cancel-skin[data-pill-state="transcribing"] path,
+.liquid-cancel-skin[data-pill-state="cleaning"] path {
+  stroke: color-mix(in oklab, var(--color-border) 60%, transparent);
+}
+.liquid-cancel-skin[data-pill-state="recording"] path {
+  stroke: var(--color-ring);
+}
+.liquid-cancel-skin[data-pill-state="pasted"] path {
+  stroke: var(--color-success);
+}
+.liquid-cancel-skin[data-pill-state="failed"] path {
+  stroke: var(--color-destructive);
+}
+/* Stage edges yield to the current surface owner, including a lingering
+   skin during its exit. These come after the semantic state-edge rules. */
+.voice-pill-control[data-liquid-fused="true"],
+.voice-pill-control[data-integrated-with-panel="true"] {
+  border-color: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* Movement goes; the cue stays. The red edge carries a failure without the
+     nudge. The check and the caption fade in instead of popping or rising.
+     index.css crushes every animation to 0.01ms under reduced motion, so the
+     fade needs !important to keep its length. */
+  .voice-pill-control[data-pill-state="failed"] {
+    animation: none;
+  }
+  .pill-success-check,
+  .pill-caption {
+    animation: notice-fade var(--motion-fast) linear both !important;
+  }
+  /* index.css forces animation-duration: 0.01ms !important on everything under
+     reduced motion; the countdown is information, not decoration, so it keeps
+     its real length and steps in fifths instead of sliding. */
+  .pill-countdown {
+    animation-duration: var(--undo-ms) !important;
+    animation-iteration-count: 1 !important;
+    animation-timing-function: steps(5, end) !important;
+  }
   .expanding-panel-surface {
     transition-duration: 1ms;
   }
@@ -704,4 +880,29 @@
   .assistant-response-content-updating {
     filter: none;
   }
+}
+
+.voice-pill-shadow {
+  box-shadow: var(--shadow-card, 0 2px 8px rgb(0 0 0 / 0.12));
+}
+
+.voice-pill-presence-fade {
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.pill-undo-shortcut {
+  unicode-bidi: isolate;
+  font-family: inherit;
+  position: absolute;
+  inset-inline-end: 14px;
+  bottom: -8px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-muted-foreground);
+  pointer-events: none;
+}
+
+/* Preserve LevelBars' canonical fill and sampler. The live-orange boundary
+   keeps its brighter gradient endpoint legible on the light capsule. */
+.voice-pill-levels [data-level-bar] {
+  outline: 1px solid var(--color-ring);
 }

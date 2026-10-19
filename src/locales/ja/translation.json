@@ -4225,7 +4225,31 @@
       "mayHaveAudio": "{{provider}} は音声を受信した可能性があります。",
       "mayHaveText": "{{provider}} はテキストを受信した可能性があります。",
       "mayHaveImage": "{{provider}} は画像を受信した可能性があります。",
-      "mayHaveSeveral": "{{provider}} はこの音声入力の一部を受信した可能性があります。"
+      "mayHaveSeveral": "{{provider}} はこの音声入力の一部を受信した可能性があります。",
+      "sealedPaused": "音声入力を一時停止中：シールドモードが有効です"
+    },
+    "stage": {
+      "transcribing": "文字起こし中…",
+      "cleaning": "テキストを整形中",
+      "discardedUndo": "破棄済み · 元に戻す",
+      "paused": "一時停止中",
+      "pasted_other": "貼り付け済み · {{count}} 語"
+    },
+    "locality": {
+      "sealed": "シールドモードによりブロックされています",
+      "remote": "送信先：{{provider}}"
+    },
+    "route": {
+      "speech": "音声: {{where}}",
+      "speechOff": "音声: オフ",
+      "cleanup": "整形: {{where}}",
+      "cleanupOff": "整形: オフ",
+      "translation": "翻訳: {{where}}",
+      "translationOff": "翻訳: オフ",
+      "agent": "エージェント: {{where}}",
+      "agentOff": "エージェント: オフ",
+      "vision": "画面のコンテキスト: {{where}}",
+      "visionOff": "画面のコンテキスト: オフ"
     }
   }
 }

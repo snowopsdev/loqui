@@ -4252,7 +4252,32 @@
       "mayHaveAudio": "{{provider}} hat möglicherweise Audio erhalten.",
       "mayHaveText": "{{provider}} hat möglicherweise Text erhalten.",
       "mayHaveImage": "{{provider}} hat möglicherweise ein Bild erhalten.",
-      "mayHaveSeveral": "{{provider}} hat möglicherweise einen Teil dieses Diktats erhalten."
+      "mayHaveSeveral": "{{provider}} hat möglicherweise einen Teil dieses Diktats erhalten.",
+      "sealedPaused": "Diktat pausiert: Versiegelter Modus ist aktiv"
+    },
+    "stage": {
+      "transcribing": "Transkribieren…",
+      "cleaning": "Text bereinigen",
+      "discardedUndo": "Verworfen · Rückgängig",
+      "paused": "Pausiert",
+      "pasted_one": "Eingefügt · {{count}} Wort",
+      "pasted_other": "Eingefügt · {{count}} Wörter"
+    },
+    "locality": {
+      "sealed": "Durch versiegelten Modus blockiert",
+      "remote": "Sendet an {{provider}}"
+    },
+    "route": {
+      "speech": "Sprache: {{where}}",
+      "speechOff": "Sprache: aus",
+      "cleanup": "Bereinigung: {{where}}",
+      "cleanupOff": "Bereinigung: aus",
+      "translation": "Übersetzung: {{where}}",
+      "translationOff": "Übersetzung: aus",
+      "agent": "Agent: {{where}}",
+      "agentOff": "Agent: aus",
+      "vision": "Bildschirmkontext: {{where}}",
+      "visionOff": "Bildschirmkontext: aus"
     }
   }
 }

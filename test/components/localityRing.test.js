@@ -68,7 +68,7 @@ test("shape carries locality; orbit only runs while active and never under reduc
   );
   assert.match(
     css,
-    /\.locality-ring\[data-locality="remote"\]\[data-active="true"\] \.locality-ring__svg\s*\{[^}]*animation:\s*locality-orbit 6s linear infinite/
+    /\.locality-ring\[data-locality="remote"\]\[data-active="true"\] \.locality-ring__svg\s*\{[^}]*animation:\s*locality-orbit var\(--motion-locality-orbit\) linear infinite/
   );
   assert.match(
     css,

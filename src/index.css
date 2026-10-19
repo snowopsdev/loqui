@@ -182,6 +182,16 @@
     1.004,
     1
   );
+  /* Plan 04 picked beats and gated Signal cadence. */
+  --motion-nudge: 260ms;
+  --motion-bounce: 640ms;
+  --motion-condense-fly: 140ms;
+  --motion-condense-land: 220ms;
+  --motion-rewrite-underline: 600ms;
+  --motion-locality-orbit: 6000ms;
+  --motion-signal-comet: 1600ms;
+  --motion-signal-breathe: 1900ms;
+  --motion-ease-ambient: ease-in-out;
 
   /* Bundled open-source fonts work without network access. */
   --font-family-sans:
@@ -2021,7 +2031,7 @@ a:hover {
   stroke-dasharray: 6 4;
 }
 .locality-ring[data-locality="remote"][data-active="true"] .locality-ring__svg {
-  animation: locality-orbit 6s linear infinite;
+  animation: locality-orbit var(--motion-locality-orbit) linear infinite;
 }
 .locality-ring__content {
   position: relative;

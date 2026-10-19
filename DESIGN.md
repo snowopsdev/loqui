@@ -225,6 +225,17 @@ One language for every surface. **Hue is mode, shape is locality, motion is prog
 | `--motion-ease-enter`                          | cubic-bezier(0.16, 1, 0.3, 1) | things arriving                                                                                       |
 | `--motion-ease-exit`                           | cubic-bezier(0.2, 0, 0.4, 1)  | things leaving, at ~70% of enter                                                                      |
 | `--motion-spring-snap` / `-settle` / `-bounce` | CSS `linear()`                | press release and morphs / panels / success only                                                      |
+| `--motion-nudge`                               | 260ms                         | failed pill nudge                                                                                     |
+| `--motion-bounce`                              | 640ms                         | pasted check; length of the bounce spring                                                             |
+| `--motion-condense-fly`                        | 140ms                         | spark rising from the bars                                                                            |
+| `--motion-condense-land`                       | 220ms                         | condensation word landing                                                                             |
+| `--motion-rewrite-underline`                   | 600ms                         | cleanup rewrite underline                                                                             |
+| `--motion-signal-comet`                        | 1600ms                        | active Signal comet rotation                                                                          |
+| `--motion-signal-breathe`                      | 1900ms                        | active Signal halo breath                                                                             |
+| `--motion-locality-orbit`                      | 6000ms                        | active remote locality ring rotation                                                                  |
+| `--motion-ease-ambient`                        | ease-in-out                   | ambient halo breath                                                                                   |
+
+Decorative loop cadences use shared tokens too. Functional deadlines such as the real Undo window and the JS-shared footprint/listening timing remain separate.
 
 Rules:
 
@@ -282,9 +293,25 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 
 ### Voice Pill
 
-The persistent dictation control is a compact bordered capsule with a waveform and voice identity mark. Recording, transcribing, cleaning, success, cancel, and meeting stages use a shared footprint ladder inside the fixed 208×120 window, with no capsule wider than 184px. A normal press starts expansion immediately and reveals the first waveform bar at 300ms; the Agent footer handoff keeps its 420ms ownership pause. Live Transcript starts its controls and hidden content preparation during horizontal travel so the first words arrive at about 640ms. Assistant thinking can add a restrained glow. The pill expands into the assistant or live-transcript surface with 24px corners, then contracts back to the same anchor. Dictation thinking glows in the logo gradient (#FF8A5C → #FF5A1F → #D90078); Agent Mode thinking glows violet (#8787FF). Blue is not a Loqui state colour.
+The persistent dictation control uses LevelBars and a voice identity mark inside the locality ring. Every pill-only stage fits the fixed 208×120 window, with no footprint wider than 184px. A normal press starts expansion immediately and reveals the first bars at 300ms; the Agent footer handoff keeps its 420ms ownership pause. Live Transcript prepares content during horizontal travel for a nominal first stream at about 640ms. Native resize and scheduling can add latency.
 
-Undo and the meeting Stop stage keep the pill visible, interactive, and above Assistant footer suppression. Pasted, failed, and Sealed-paused outcomes hold the window for their readable beat; only Undo and meeting stages outrank footer actions.
+| Stage               | Footprint | Label / shape                 | Ring / edge                            | Timing             | Ownership (hold / input / above footer) |
+| ------------------- | --------- | ----------------------------- | -------------------------------------- | ------------------ | --------------------------------------- |
+| Idle / hover        | 40×40     | identity                      | live configured locality               | idle               | no / normal / no                        |
+| Recording           | 98×36     | five LevelBars                | frozen locality, live edge             | capture lifetime   | no / normal / no                        |
+| Transcribing        | 144×36    | Transcribing…                 | orange comet, frozen locality          | stage lifetime     | no / normal / no                        |
+| Cleaning            | 144×36    | Cleaning up                   | orange→magenta comet, frozen locality  | stage lifetime     | no / normal / no                        |
+| Agent thinking      | 40×40     | Agent mark                    | violet glow, frozen operation locality | operation lifetime | no / normal / no                        |
+| Pasted              | 164×36    | Pasted · N words, drawn check | success edge, frozen locality          | 700ms              | yes / no / no                           |
+| Failed              | 40×40     | identity, nudge               | destructive edge, frozen locality      | 700ms              | yes / no / no                           |
+| Cancelled           | 160×36    | Discarded · Undo              | held recording locality                | 5s or 10s          | yes / yes / yes                         |
+| Sealed paused       | 124×36    | Paused                        | struck-through original locality       | 4000ms             | yes / no / no                           |
+| Meeting             | 124×36    | meeting recorder (Task 17)    | recording owner                        | recording lifetime | yes / yes / yes                         |
+| Meeting interrupted | 184×36    | interruption (Task 17)        | recording owner                        | outcome lifetime   | yes / yes / yes                         |
+
+Words and honest copy sit on a caption layer above the pill, never inside it (D9). The identity sits in the locality ring: solid device, dotted network, dashed plus badge remote; struck through at full contrast when the optional Sealed reader reports blocking. The recording edge, Undo underline and pill-specific LevelBars outline use the live focus-ring token so their light-theme graphical boundary contrast stays at least 3:1. The canonical meter gradient and sampling math remain unchanged; resting bars use 60% foreground. This presentation is not a working seal or attestation. Only idle uses live Settings: active audio, held audio, outcome beats and banked Agent operations retain their original frozen destinations and enabled intents. Busy typed Agent work without an exposed admission snapshot shows unknown locality; Task 13 owns that presentation producer. Intended destinations do not establish receipts; cancellation captions use main-attested “already received” or renderer-only “may have received” evidence.
+
+The success beat is 700ms. The Undo underline is 5s, or 10s for recordings over 30s, and pauses on hover, including a hold opening beneath an already-hovered pointer. Each internal hold has a fresh animation generation even if the same session is re-held in one React batch; pause and evidence updates preserve it. The held shortcut label appears only while its main lease is held; click and keyboard Undo share the capsule. Undo and meeting Stop outrank Assistant footer actions, its pill-exit/collapse animation, close fade and panel-return resize mask. The pill derives those gates from the same ownership policy; the panel actions retain their own raw timeline. Pasted, failed and Sealed-paused outcomes hold the window for their readable beat. Stage labels truncate within their fixed footprint; reduced motion preserves fades, labels and colour, and steps the real countdown in fifths.
 
 Each dictation captures its route, prompts, hosted-search choice, privacy and requested context before the first capture await. An Agent command keeps that operation through the assistant panel’s busy completion, including its original selection and screenshot. Changing Settings never reroutes those words; a typed follow-up admits the current settings as a new request. An unverifiable selected enterprise destination blocks before the microphone opens, and a changed destination preserves the words for recovery.
 

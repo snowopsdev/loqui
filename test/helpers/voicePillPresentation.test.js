@@ -1029,3 +1029,29 @@ test("activity handed back at close intent stays visible through the content fad
     true
   );
 });
+
+test("owned capsules bypass close and return masks while explicit hard gates remain", async () => {
+  const { resolvePillVisualSuppression, resolvePillOwnership } = await load();
+  const base = {
+    dictationErrorSuppressed: false,
+    assistantActionsSuppressed: false,
+    assistantClosing: false,
+    panelReturnResizeActive: false,
+    hasLiveActivity: false,
+  };
+  for (const stage of ["cancelled", "meeting"]) {
+    const ownership = resolvePillOwnership(stage);
+    assert.equal(ownership.outranksFooter, true);
+    for (const gate of ["assistantClosing", "panelReturnResizeActive"]) {
+      assert.equal(
+        resolvePillVisualSuppression({ ...base, [gate]: true, ownership }),
+        false,
+        `${stage}: ${gate}`
+      );
+      assert.equal(resolvePillVisualSuppression({ ...base, [gate]: true }), true, `legacy ${gate}`);
+    }
+    for (const hardGate of ["dictationErrorSuppressed", "assistantActionsSuppressed"]) {
+      assert.equal(resolvePillVisualSuppression({ ...base, [hardGate]: true, ownership }), true);
+    }
+  }
+});

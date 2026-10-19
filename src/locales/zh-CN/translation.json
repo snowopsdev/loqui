@@ -4225,7 +4225,31 @@
       "mayHaveAudio": "{{provider}} 可能已收到音频。",
       "mayHaveText": "{{provider}} 可能已收到文本。",
       "mayHaveImage": "{{provider}} 可能已收到图像。",
-      "mayHaveSeveral": "{{provider}} 可能已收到本次听写的部分内容。"
+      "mayHaveSeveral": "{{provider}} 可能已收到本次听写的部分内容。",
+      "sealedPaused": "听写已暂停：隔离模式已开启"
+    },
+    "stage": {
+      "transcribing": "正在转写…",
+      "cleaning": "正在润色",
+      "discardedUndo": "已丢弃 · 撤销",
+      "paused": "已暂停",
+      "pasted_other": "已粘贴 · {{count}} 字词"
+    },
+    "locality": {
+      "sealed": "已被隔离模式阻止",
+      "remote": "发送至 {{provider}}"
+    },
+    "route": {
+      "speech": "语音: {{where}}",
+      "speechOff": "语音: 关闭",
+      "cleanup": "润色: {{where}}",
+      "cleanupOff": "润色: 关闭",
+      "translation": "翻译: {{where}}",
+      "translationOff": "翻译: 关闭",
+      "agent": "智能助手: {{where}}",
+      "agentOff": "智能助手: 关闭",
+      "vision": "屏幕上下文: {{where}}",
+      "visionOff": "屏幕上下文: 关闭"
     }
   }
 }

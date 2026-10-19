@@ -4259,7 +4259,33 @@
       "mayHaveAudio": "{{provider}} pode ter recebido áudio.",
       "mayHaveText": "{{provider}} pode ter recebido texto.",
       "mayHaveImage": "{{provider}} pode ter recebido uma imagem.",
-      "mayHaveSeveral": "{{provider}} pode ter recebido parte deste ditado."
+      "mayHaveSeveral": "{{provider}} pode ter recebido parte deste ditado.",
+      "sealedPaused": "Ditado em pausa: o modo selado está ativado"
+    },
+    "stage": {
+      "transcribing": "Transcrevendo…",
+      "cleaning": "Revisando texto",
+      "discardedUndo": "Descartado · Desfazer",
+      "paused": "Em pausa",
+      "pasted_one": "Colado · {{count}} palavra",
+      "pasted_many": "Colado · {{count}} palavras",
+      "pasted_other": "Colado · {{count}} palavras"
+    },
+    "locality": {
+      "sealed": "Bloqueado pelo modo selado",
+      "remote": "Envia para {{provider}}"
+    },
+    "route": {
+      "speech": "Voz: {{where}}",
+      "speechOff": "Voz: desativado",
+      "cleanup": "Revisão: {{where}}",
+      "cleanupOff": "Revisão: desativado",
+      "translation": "Tradução: {{where}}",
+      "translationOff": "Tradução: desativado",
+      "agent": "Agente: {{where}}",
+      "agentOff": "Agente: desativado",
+      "vision": "Contexto da tela: {{where}}",
+      "visionOff": "Contexto da tela: desativado"
     }
   }
 }

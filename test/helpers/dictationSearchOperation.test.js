@@ -14,6 +14,7 @@ const deferred = () => {
 for (const captured of [false, true])
   test(`spoken hosted-search ${captured} stays pinned through handoff/create/save; typed admission stays fresh`, async (t) => {
     const requests = [],
+      admissions = [],
       listeners = new Set();
     installBrowserGlobals(t, {
       window: {
@@ -90,7 +91,14 @@ for (const captured of [false, true])
       send = useChatMessageSender({
         conversationId: null,
         persistence,
-        streaming,
+        streaming: {
+          ...streaming,
+          captureInference(options) {
+            const snapshot = streaming.captureInference(options);
+            admissions.push(snapshot);
+            return snapshot;
+          },
+        },
         createConversation: async () => {
           createEntered.resolve();
           await createGate.promise;
@@ -102,6 +110,11 @@ for (const captured of [false, true])
     renderToStaticMarkup(React.createElement(Harness));
     const spoken = send("original spoken words", { operation });
     await createEntered.promise;
+    settings.useSettingsStore.setState({
+      dictationAgentProvider: "anthropic",
+      dictationAgentModel: "claude-haiku-4-5",
+      voiceAgentScreenContext: true,
+    });
     localStorage.setItem("personalWebSearch:dictationAgent", String(!captured));
     createGate.resolve();
     await saveEntered.promise;
@@ -110,6 +123,8 @@ for (const captured of [false, true])
     assert.equal(await spoken, true);
     assert.equal(requests[0].webSearch, captured);
     assert.equal(requests[0].dictationSessionId, session.id);
+    assert.equal(requests[0].provider, "openai");
+    assert.equal(admissions[0].settings.voiceAgentScreenContext, false);
     // Typed follow-up admits current preferences before either persistence wait.
     createGate = deferred();
     saveGate = deferred();
@@ -117,12 +132,22 @@ for (const captured of [false, true])
     saveEntered = deferred();
     const typed = send("typed follow-up");
     await createEntered.promise;
+    assert.equal(admissions[1].settings.dictationAgentProvider, "anthropic");
+    assert.equal(admissions[1].settings.voiceAgentScreenContext, true);
+    settings.useSettingsStore.setState({
+      dictationAgentProvider: "openai",
+      dictationAgentModel: "gpt-4o-mini",
+      voiceAgentScreenContext: false,
+    });
     localStorage.setItem("personalWebSearch:dictationAgent", String(captured));
     createGate.resolve();
     await saveEntered.promise;
     saveGate.resolve();
     assert.equal(await typed, true);
     assert.equal(requests[1].webSearch, !captured);
+    assert.equal(requests[1].provider, "anthropic");
+    assert.equal(requests[1].model, "claude-haiku-4-5");
+    assert.equal(admissions[1].settings.voiceAgentScreenContext, true);
     assert.equal(requests[1].dictationOperation, undefined);
     assert.equal(requests[1].correlationId, null);
   });

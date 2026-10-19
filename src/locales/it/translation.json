@@ -4259,7 +4259,33 @@
       "mayHaveAudio": "{{provider}} potrebbe aver ricevuto audio.",
       "mayHaveText": "{{provider}} potrebbe aver ricevuto testo.",
       "mayHaveImage": "{{provider}} potrebbe aver ricevuto un’immagine.",
-      "mayHaveSeveral": "{{provider}} potrebbe aver ricevuto parte di questa dettatura."
+      "mayHaveSeveral": "{{provider}} potrebbe aver ricevuto parte di questa dettatura.",
+      "sealedPaused": "Dettatura in pausa: la modalità sigillata è attiva"
+    },
+    "stage": {
+      "transcribing": "Trascrizione…",
+      "cleaning": "Revisione del testo",
+      "discardedUndo": "Scartato · Annulla",
+      "paused": "In pausa",
+      "pasted_one": "Incollato · {{count}} parola",
+      "pasted_many": "Incollato · {{count}} parole",
+      "pasted_other": "Incollato · {{count}} parole"
+    },
+    "locality": {
+      "sealed": "Bloccato dalla modalità sigillata",
+      "remote": "Invia a {{provider}}"
+    },
+    "route": {
+      "speech": "Voce: {{where}}",
+      "speechOff": "Voce: disattivato",
+      "cleanup": "Revisione: {{where}}",
+      "cleanupOff": "Revisione: disattivato",
+      "translation": "Traduzione: {{where}}",
+      "translationOff": "Traduzione: disattivato",
+      "agent": "Agente: {{where}}",
+      "agentOff": "Agente: disattivato",
+      "vision": "Contesto dello schermo: {{where}}",
+      "visionOff": "Contesto dello schermo: disattivato"
     }
   }
 }

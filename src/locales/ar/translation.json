@@ -4464,7 +4464,36 @@
       "mayHaveAudio": "ربما تلقّى {{provider}} الصوت.",
       "mayHaveText": "ربما تلقّى {{provider}} النص.",
       "mayHaveImage": "ربما تلقّى {{provider}} صورة.",
-      "mayHaveSeveral": "ربما تلقّى {{provider}} جزءًا من هذا الإملاء."
+      "mayHaveSeveral": "ربما تلقّى {{provider}} جزءًا من هذا الإملاء.",
+      "sealedPaused": "الإملاء متوقف مؤقتًا: وضع العزل مفعّل"
+    },
+    "stage": {
+      "transcribing": "جارٍ التفريغ…",
+      "cleaning": "جارٍ تنقيح النص",
+      "discardedUndo": "تم التجاهل · تراجع",
+      "paused": "متوقف مؤقتًا",
+      "pasted_zero": "تم اللصق · {{count}} كلمة",
+      "pasted_one": "تم اللصق · {{count}} كلمة",
+      "pasted_two": "تم اللصق · {{count}} كلمتان",
+      "pasted_few": "تم اللصق · {{count}} كلمات",
+      "pasted_many": "تم اللصق · {{count}} كلمة",
+      "pasted_other": "تم اللصق · {{count}} كلمة"
+    },
+    "locality": {
+      "sealed": "محظور بسبب وضع العزل",
+      "remote": "يُرسل إلى {{provider}}"
+    },
+    "route": {
+      "speech": "الكلام: {{where}}",
+      "speechOff": "الكلام: معطّل",
+      "cleanup": "التنقيح: {{where}}",
+      "cleanupOff": "التنقيح: معطّل",
+      "translation": "الترجمة: {{where}}",
+      "translationOff": "الترجمة: معطّل",
+      "agent": "الوكيل: {{where}}",
+      "agentOff": "الوكيل: معطّل",
+      "vision": "سياق الشاشة: {{where}}",
+      "visionOff": "سياق الشاشة: معطّل"
     }
   }
 }

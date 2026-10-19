@@ -4346,7 +4346,34 @@
       "mayHaveAudio": "{{provider}}, возможно, получил аудио.",
       "mayHaveText": "{{provider}}, возможно, получил текст.",
       "mayHaveImage": "{{provider}}, возможно, получил изображение.",
-      "mayHaveSeveral": "{{provider}}, возможно, получил часть этой диктовки."
+      "mayHaveSeveral": "{{provider}}, возможно, получил часть этой диктовки.",
+      "sealedPaused": "Диктовка приостановлена: включён изолированный режим"
+    },
+    "stage": {
+      "transcribing": "Расшифровка…",
+      "cleaning": "Правка текста",
+      "discardedUndo": "Удалено · Отменить",
+      "paused": "Приостановлено",
+      "pasted_one": "Вставлено · {{count}} слово",
+      "pasted_few": "Вставлено · {{count}} слова",
+      "pasted_many": "Вставлено · {{count}} слов",
+      "pasted_other": "Вставлено · {{count}} слова"
+    },
+    "locality": {
+      "sealed": "Заблокировано изолированным режимом",
+      "remote": "Отправка в {{provider}}"
+    },
+    "route": {
+      "speech": "Речь: {{where}}",
+      "speechOff": "Речь: выкл.",
+      "cleanup": "Правка: {{where}}",
+      "cleanupOff": "Правка: выкл.",
+      "translation": "Перевод: {{where}}",
+      "translationOff": "Перевод: выкл.",
+      "agent": "Агент: {{where}}",
+      "agentOff": "Агент: выкл.",
+      "vision": "Контекст экрана: {{where}}",
+      "visionOff": "Контекст экрана: выкл."
     }
   }
 }

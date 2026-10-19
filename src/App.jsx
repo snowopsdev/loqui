@@ -20,6 +20,11 @@ import { useListeningEntrancePhase } from "./hooks/useListeningEntrancePhase";
 import { useWindowResizeCompensation } from "./hooks/useWindowResizeCompensation";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useTrayQuickActions } from "./hooks/useTrayQuickActions";
+import { usePillLocality } from "./components/dictation/pillLocality";
+import { PillCaption } from "./components/dictation/PillCaption";
+import { useRecentOutcome } from "./hooks/useRecentOutcome";
+import { usePillAutoHide } from "./hooks/usePillAutoHide";
+import { disclosureCopy } from "./helpers/dictationDisclosure";
 import { VoicePill } from "./components/dictation/VoicePill";
 import { AssistantPanel } from "./components/dictation/AssistantPanel";
 import { LiveTranscriptPanel } from "./components/dictation/LiveTranscriptPanel";
@@ -29,6 +34,9 @@ import { PillCommandMenu } from "./components/dictation/PillCommandMenu";
 import { LiquidCancelButton } from "./components/dictation/LiquidCancelButton";
 import { createMainWindowResizeCoordinator } from "./utils/mainWindowResizeCoordinator";
 import {
+  resolvePillStage,
+  resolvePillOwnership,
+  PILL_SEALED_PAUSED_MS,
   ASSISTANT_FOOTER_TRANSITION_TIMING,
   LIVE_TRANSCRIPT_ENTRANCE_TIMING,
   resolveLiveTranscriptEntrancePresentation,
@@ -87,7 +95,7 @@ export default function App() {
   // Floating icon auto-hide setting (read from store, synced via IPC)
   const floatingIconAutoHide = useSettingsStore((s) => s.floatingIconAutoHide);
   const panelStartPosition = useSettingsStore((s) => s.panelStartPosition);
-  const prevAutoHideRef = useRef(floatingIconAutoHide);
+  const pillHoveredRef = useRef(false);
   const [voiceHorizontalDirection, setVoiceHorizontalDirection] = useState(() =>
     resolveVoiceHorizontalDirection(panelStartPosition)
   );
@@ -216,6 +224,9 @@ export default function App() {
     cancelRecording,
     cancelProcessing,
     getAudioLevel,
+    activeSession,
+    outcomePresentation,
+    cancelHold,
     cancelled,
     undoCancel,
     pauseUndo,
@@ -223,6 +234,7 @@ export default function App() {
     processingStage,
     outcome,
   } = useAudioRecording({
+    isPillHovered: () => pillHoveredRef.current,
     onToggle: handleDictationToggle,
     onDemoEvent: publishOnboardingDemoEvent,
     onAssistantCommand: assistant.handleCommand,
@@ -413,39 +425,6 @@ export default function App() {
     refuse,
   });
 
-  // Auto-hide the floating icon when idle (setting enabled or dictation cycle completed)
-  useEffect(() => {
-    let hideTimeout;
-
-    if (
-      floatingIconAutoHide &&
-      !isRecording &&
-      !isVisuallyProcessing &&
-      !noticesOnScreen &&
-      !wordsCardHandoffActive &&
-      !assistant.mounted &&
-      !liveTranscript.mounted
-    ) {
-      // Delay briefly so processing can start after recording stops without a flash
-      hideTimeout = setTimeout(() => {
-        window.electronAPI?.hideWindow?.();
-      }, 500);
-    } else if (!floatingIconAutoHide && prevAutoHideRef.current) {
-      window.electronAPI?.showDictationPanel?.();
-    }
-
-    prevAutoHideRef.current = floatingIconAutoHide;
-    return () => clearTimeout(hideTimeout);
-  }, [
-    isRecording,
-    isVisuallyProcessing,
-    floatingIconAutoHide,
-    noticesOnScreen,
-    wordsCardHandoffActive,
-    assistant.mounted,
-    liveTranscript.mounted,
-  ]);
-
   const handleClose = () => {
     window.electronAPI.hideWindow();
   };
@@ -528,13 +507,100 @@ export default function App() {
     isProcessing: isVisuallyProcessing,
     assistantPanelMounted: assistant.mounted,
   });
-  const assistantFooter = resolveAssistantFooterPresentation(assistant.footerPhase);
+  // Audio owns presentation while busy. A banked Agent operation keeps its
+  // original destinations and intents beyond audio idle/pending consumption.
+  const bankedOperation = assistant.activeOperation;
+  const agentPresentationBusy = assistant.busy || assistant.thinking;
+  // A new Agent owner preempts an older recording's beat, even if it settles
+  // inside that beat. Task 13 supplies the typed admission presentation.
+  const outcomeOwnerRef = useRef({ agentBusy: false, preempted: null });
+  if (agentPresentationBusy && !outcomeOwnerRef.current.agentBusy) {
+    outcomeOwnerRef.current.preempted = outcome;
+  }
+  outcomeOwnerRef.current.agentBusy = agentPresentationBusy;
+  const presentedOutcome = outcome === outcomeOwnerRef.current.preempted ? null : outcome;
+  const outcomeSession =
+    outcomePresentation?.outcome === outcome ? outcomePresentation.session : null;
+  const outcomeLocality = usePillLocality(outcomeSession, Boolean(outcome));
+  const recentOutcome = useRecentOutcome(
+    presentedOutcome,
+    outcomeLocality.blocked ? PILL_SEALED_PAUSED_MS : undefined
+  );
+  const pillSession =
+    isRecording || isProcessing
+      ? activeSession
+      : cancelled
+        ? (cancelHold?.session ?? null)
+        : bankedOperation
+          ? {
+              settings: bankedOperation.settings,
+              routes: bankedOperation.presentation?.routes ?? null,
+              intents: bankedOperation.presentation?.intents ?? {
+                voiceAgentRequested: true,
+                translationRequested: false,
+              },
+            }
+          : recentOutcome && !agentPresentationBusy
+            ? outcomeSession
+            : null;
+  const pillLocality = usePillLocality(
+    pillSession,
+    isRecording ||
+      isProcessing ||
+      Boolean(cancelled || bankedOperation || agentPresentationBusy || recentOutcome)
+  );
+  const pillStage = resolvePillStage({
+    isRecording: voicePillIsRecording,
+    micUnavailable: micState === "unavailable",
+    isProcessing: voicePillIsProcessing && isProcessing,
+    processingStage,
+    agentMode: agentModeActive,
+    cancelled,
+    recentOutcome,
+    meetingRecording: null,
+    showMeetingRecorder: true,
+    dictationSealed: pillLocality.blocked,
+  });
+  const pillOwnership = resolvePillOwnership(pillStage);
+  const stageLabel =
+    pillStage === "transcribing"
+      ? t("pill.stage.transcribing")
+      : pillStage === "cleaning"
+        ? t("pill.stage.cleaning")
+        : pillStage === "pasted" && recentOutcome?.kind === "pasted"
+          ? t("pill.stage.pasted", { count: recentOutcome.words })
+          : pillStage === "cancelled"
+            ? t("pill.stage.discardedUndo")
+            : pillStage === "sealedPaused"
+              ? t("pill.stage.paused")
+              : undefined;
+  const pillCaption =
+    pillStage === "cancelled" && cancelled.remoteAlreadySent
+      ? disclosureCopy(cancelled.remoteAlreadySent, t)
+      : pillStage === "sealedPaused"
+        ? t("pill.caption.sealedPaused")
+        : null;
+  usePillAutoHide({
+    floatingIconAutoHide,
+    isRecording,
+    isVisuallyProcessing,
+    noticesOnScreen,
+    wordsCardHandoffActive,
+    assistantMounted: assistant.mounted,
+    liveTranscriptMounted: liveTranscript.mounted,
+    ownership: pillOwnership,
+  });
+  // The capsule can own the footer independently of the panel's raw actions
+  // timeline. Keep both its inner animation and collapse on that same policy.
+  const pillFooterPhase = pillOwnership.outranksFooter ? "pill" : assistant.footerPhase;
+  const assistantFooter = resolveAssistantFooterPresentation(pillFooterPhase);
   const voicePillInteraction = resolveVoicePillInteraction({
     assistantMounted: assistant.mounted,
     liveTranscriptMounted: liveTranscript.mounted,
     isRecording,
     isProcessing,
     isHovered,
+    ownership: pillOwnership,
   });
   const pillIsInteractive = voicePillInteraction.pillInteractive;
   // The cancel button pours out of the pill as a fused liquid skin — except
@@ -547,10 +613,14 @@ export default function App() {
   // targets, not rendered sizes: the pill transitions between footprints over
   // GROW_TRANSITION, and the skin tweens its geometry to match
   // (usePillFootprintTween in LiquidCancelButton).
-  const cancelPillFootprint = isCompactPill
-    ? VOICE_PILL_FOOTPRINT.recording
-    : VOICE_PILL_FOOTPRINT.idle;
+  const cancelPillFootprint =
+    VOICE_PILL_FOOTPRINT[pillStage] ??
+    (isCompactPill ? VOICE_PILL_FOOTPRINT.recording : VOICE_PILL_FOOTPRINT.idle);
   const activateVoicePill = () => {
+    if (cancelled) {
+      if (!hasDragged) void undoCancel();
+      return;
+    }
     if (!pillIsInteractive) return;
     if (canReopenLiveTranscript) {
       liveTranscript.reopen();
@@ -590,6 +660,8 @@ export default function App() {
     micState === "unavailable"
       ? "unavailable"
       : listeningEntrance.activeState ||
+        (pillStage && pillStage !== "recording" ? pillStage : null) ||
+        (voiceActivity.isAgentThinking ? "thinking" : null) ||
         voiceActivity.activeState ||
         (assistant.open ? (isHovered ? "hover" : "idle") : micState);
   const voicePillDock = resolveVoicePillDock({
@@ -612,6 +684,7 @@ export default function App() {
     footerPillVisible: assistantFooter.pillVisible,
     assistantClosing: assistant.closing,
     hasLiveActivity: pillHasLiveActivity,
+    ownership: pillOwnership,
   });
   // assistant.closing folds the pill into the panel's own exit: it fades with
   // the closing content, stays hidden through the surface contraction, the
@@ -625,6 +698,7 @@ export default function App() {
     assistantClosing: assistant.closing,
     panelReturnResizeActive,
     hasLiveActivity: pillHasLiveActivity,
+    ownership: pillOwnership,
   });
 
   useLinuxPillInteractivity({
@@ -637,7 +711,7 @@ export default function App() {
     <div className="dictation-window">
       {/* The panel footer can hide this pill, but never unmounts it. */}
       <div
-        className={`voice-pill-position voice-pill-position-${voicePillDock} fixed z-50 transition-opacity duration-150 ease-out ${
+        className={`voice-pill-position voice-pill-position-${voicePillDock} fixed z-50 voice-pill-presence-fade ${
           pillVisuallySuppressed ? "pointer-events-none" : ""
         } ${pillVisuallySuppressed ? "opacity-0" : "opacity-100"}`}
         style={{
@@ -649,19 +723,25 @@ export default function App() {
         <div
           ref={pillPresenceRef}
           className="assistant-pill-presence relative flex items-center"
-          data-assistant-footer-phase={assistant.open ? assistant.footerPhase : undefined}
+          data-assistant-footer-phase={assistant.open ? pillFooterPhase : undefined}
           data-horizontal-direction={voiceHorizontalDirection}
           style={{
             "--assistant-pill-retreat-duration": `${ASSISTANT_FOOTER_TRANSITION_TIMING.pillRetreatMs}ms`,
             "--assistant-pill-entrance-duration": `${ASSISTANT_FOOTER_TRANSITION_TIMING.pillEntranceMs}ms`,
           }}
           onMouseEnter={() => {
+            // Track the real pointer even while a panel owns input. A hold
+            // opening under it must pause without waiting for another enter.
+            pillHoveredRef.current = true;
             if (!pillIsInteractive) return;
             setIsHovered(true);
+            if (cancelled) pauseUndo();
             setWindowInteractivity(true);
           }}
           onMouseLeave={() => {
+            pillHoveredRef.current = false;
             setIsHovered(false);
+            if (cancelled) resumeUndo();
             if (!pillIsInteractive) return;
             if (!isCommandMenuOpen && !assistant.mounted) {
               setWindowInteractivity(false);
@@ -677,6 +757,14 @@ export default function App() {
               ref={buttonRef}
               variant={anyPanelOpen ? "panel" : "floating"}
               state={commonPillState}
+              label={stageLabel}
+              aria-keyshortcuts={pillStage === "cancelled" && undoHotkey.held ? "Alt+Z" : undefined}
+              locality={pillLocality}
+              countdown={
+                pillStage === "cancelled" && cancelHold
+                  ? { ...cancelHold, paused: cancelled.paused }
+                  : null
+              }
               expanded={!anyPanelOpen && isCompactPill}
               collapseToLogo={
                 listeningEntrance.collapseToLogo || assistantFooter.collapsePillToLogo
@@ -693,13 +781,14 @@ export default function App() {
               role={pillIsInteractive ? "button" : "status"}
               tabIndex={pillIsInteractive ? 0 : undefined}
               aria-label={
-                canReopenLiveTranscript
+                stageLabel ??
+                (canReopenLiveTranscript
                   ? t("transcriptionPreview.label")
                   : assistant.mounted
                     ? t("settingsPage.agentConfig.title")
                     : liveTranscript.mounted
                       ? t("transcriptionPreview.label")
-                      : micTooltip
+                      : micTooltip)
               }
               onMouseDown={(e) => {
                 if (anyPanelMounted) {
@@ -748,6 +837,14 @@ export default function App() {
               }}
             />
           </PillTooltip>
+          {pillStage === "cancelled" && undoHotkey.held ? (
+            <kbd className="pill-undo-shortcut" dir="ltr" aria-hidden="true">
+              {getCachedPlatform() === "darwin" ? "⌥Z" : "Alt+Z"}
+            </kbd>
+          ) : null}
+          {pillCaption ? (
+            <PillCaption horizontalDirection={voiceHorizontalDirection}>{pillCaption}</PillCaption>
+          ) : null}
           <LiquidCancelButton
             visible={voicePillInteraction.cancelVisible}
             fused={cancelFused}

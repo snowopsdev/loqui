@@ -90,6 +90,18 @@ function createTextOperationAuthority({
       // credential queues, filesystem/auth-source capture and SDK imports.
       const selected = copy(snapshot(admitted));
       const meta = metadata(admitted);
+      // A setup tap discloses this exact configuration. IPC entry must not
+      // silently adopt a newer enterprise recipient or credential generation.
+      if (
+        Object.entries(admitted.expectedEnterprise || {}).some(
+          ([key, value]) => selected[key] !== value
+        ) ||
+        (admitted.expectedAuthority?.enterpriseVersion !== undefined &&
+          admitted.expectedAuthority.enterpriseVersion !== selected.version) ||
+        (admitted.expectedAuthority?.credentialGeneration !== undefined &&
+          admitted.expectedAuthority.credentialGeneration !== meta?.generation)
+      )
+        throw failure("RECIPIENT_CHANGED");
       const entry = {
         token: randomUUID(),
         sender,

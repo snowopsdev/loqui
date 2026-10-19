@@ -38,6 +38,10 @@ export function createCapturedTextBridge(
   };
   return {
     captureTextOperation: async (descriptor) => {
+      if (["codex", "tinfoil"].includes(descriptor.provider))
+        throw Object.assign(new Error("Unsupported captured authentication source."), {
+          code: "UNSUPPORTED_AUTH_SOURCE",
+        });
       const token = `preview-cleanup-${++sequence}`;
       operations.set(token, {
         descriptor: structuredClone(descriptor),

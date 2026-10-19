@@ -1,7 +1,71 @@
 import type {
   CleanupOperationIdentity,
   CleanupRetryResult,
+  TextOperationDescriptor,
 } from "../../services/ai/personalInferenceTypes";
+import { countWords, copyCleanupDescriptor } from "../../utils/onboardingCleanupPreview";
+import { applyChineseScript, resolveChineseScriptTarget } from "../../utils/chineseScript";
+
+export interface SetupCleanupOperation {
+  result: Promise<string>;
+  retire(): void;
+}
+type CleanupFactory = typeof import("../../services/capturedCleanupOperation");
+
+/** Fresh setup owner, never the overlay retry relay. Capture before the import. */
+export function createSetupCleanupOperation(
+  text: string,
+  descriptor: TextOperationDescriptor,
+  isCurrent: () => boolean,
+  load: () => Promise<Pick<CleanupFactory, "createCapturedCleanupOperation">> = () =>
+    import("../../services/capturedCleanupOperation")
+): SetupCleanupOperation {
+  const admitted = Object.freeze({
+    text,
+    wordCount: countWords(text),
+    descriptor: copyCleanupDescriptor(descriptor),
+  });
+  let retired = false;
+  let operation: ReturnType<CleanupFactory["createCapturedCleanupOperation"]> | undefined;
+  const assertCurrent = () => {
+    if (retired || !isCurrent())
+      throw Object.assign(new Error("Cleanup selection changed."), { code: "RECIPIENT_CHANGED" });
+  };
+  const result = (async () => {
+    assertCurrent();
+    const factory = await load();
+    assertCurrent();
+    const context = admitted.descriptor.cleanupContext;
+    operation = factory.createCapturedCleanupOperation(
+      undefined,
+      admitted.descriptor,
+      (output) =>
+        applyChineseScript(
+          output,
+          resolveChineseScriptTarget(context?.language, context?.chineseScriptPreference, output)
+        ),
+      () => !retired && isCurrent()
+    );
+    try {
+      // run captures the already-admitted sentence/count before its IPC wait.
+      assertCurrent();
+      const cleaned = await operation.run(admitted.text);
+      assertCurrent();
+      if (!cleaned?.trim())
+        throw Object.assign(new Error("Cleanup failed."), { code: "CLEANUP_FAILED" });
+      return cleaned;
+    } finally {
+      operation.retire();
+    }
+  })();
+  return {
+    result,
+    retire() {
+      retired = true;
+      operation?.retire();
+    },
+  };
+}
 
 export function sameCleanupOperation(
   a: CleanupOperationIdentity,

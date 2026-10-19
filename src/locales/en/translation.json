@@ -4466,6 +4466,49 @@
       "cancel": "Discard take",
       "cleanupUnsupported": "This cleanup authentication source cannot be retained. Your original words are preserved.",
       "controlUnavailable": "The recording control did not respond. Try Stop or Discard again."
+    },
+    "cleanup": {
+      "title": "See what cleanup does",
+      "label": "Cleanup",
+      "options": {
+        "none": "None",
+        "local": "Local",
+        "codex": "ChatGPT",
+        "provider": "API key"
+      },
+      "original": "Original",
+      "withCleanup": "With cleanup",
+      "nothingChanges": "Nothing changes",
+      "running": "Cleaning up your sentence…",
+      "wordsSent_other": "{{count}} words would be sent to {{provider}}",
+      "wordsSent_one": "{{count}} word would be sent to {{provider}}",
+      "sentNotice_other": "Your {{count}} words were sent to {{provider}} for this preview",
+      "sentNotice_one": "Your {{count}} word was sent to {{provider}} for this preview",
+      "tryMine_other": "Try it on my sentence · sends {{count}} words to {{provider}}",
+      "tryMine_one": "Try it on my sentence · sends {{count}} word to {{provider}}",
+      "exampleNotice": "Example text. Nothing was sent.",
+      "localExampleNotice": "Example text. Your own sentence appears here once local cleanup is ready on this device.",
+      "example": {
+        "original": "um let's send the draft to maya before lunch and uh remind me to book the room for thursday",
+        "local": "Let's send the draft to Maya before lunch and remind me to book the room for Thursday.",
+        "codex": "Let's send the draft to Maya before lunch. Remind me to book the room for Thursday.",
+        "provider": "Let's send Maya the draft before lunch, and remind me to book the room for Thursday."
+      },
+      "now": {
+        "off": "Cleanup is off. Your words stay exactly as you said them.",
+        "checking": "Checking that cleanup is available…",
+        "ready": "Cleanup is on with {{name}}.",
+        "needsKey": "Add your {{provider}} key in Settings to turn cleanup on. Until then, your words stay as you said them.",
+        "needsConnection": "Connect ChatGPT above to turn cleanup on. Until then, your words stay as you said them.",
+        "needsModel": "The local cleanup model isn't on this device yet. Download it in Settings, Language Models (1.3 GB).",
+        "unreachable": "Loqui can't reach {{provider}} right now. Your words are kept as you said them."
+      },
+      "reuse": "Also use this choice for other text features",
+      "exampleInProgress": "Example text while your request runs. Your result appears only when cleanup succeeds.",
+      "attemptNotice_other": "You allowed {{count}} words to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
+      "attemptNotice_one": "You allowed {{count}} word to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
+      "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
+      "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
     }
   }
 }

@@ -100,6 +100,13 @@ export interface TextOperationDescriptor extends Omit<
   "requestId" | "messages" | "tools" | "webSearch"
 > {
   expectedEnterprise?: Record<string, string>;
+  expectedAuthority?: { credentialGeneration?: number; enterpriseVersion?: number };
+  cleanupContext?: {
+    language: string;
+    uiLanguage: string;
+    dictionary: readonly string[];
+    chineseScriptPreference: string;
+  };
   cleanupIdentity?: CleanupOperationIdentity;
 }
 /** String transport IDs; unrelated to recording session IDs or reducer counters. */

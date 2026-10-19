@@ -668,7 +668,7 @@ test("overlay retirement settles a pending capture immediately; local admission 
       customPrompts: {},
     },
     mockModules: {
-      "/stores/settingsStore": `export const getSettings = () => globalThis.__retiredLocal; export const getEffectiveCleanupModel = () => getSettings().cleanupModel; export const selectResolvedLLMConfig = s => ({mode: s.cleanupMode, provider: s.cleanupProvider}); export const useSettingsStore = {getState: getSettings};`,
+      "/stores/settingsStore": `export const getSettings = () => globalThis.__retiredLocal; export const getEffectiveCleanupModel = () => getSettings().cleanupModel; export const selectResolvedLLMConfig = s => ({mode: s.cleanupMode, provider: s.cleanupProvider, model: s.cleanupModel}); export const useSettingsStore = {getState: getSettings};`,
     },
   });
   const local = [];
@@ -823,4 +823,292 @@ test("captured OpenCode first cleanup and retry retain the original SDK session 
   await h.invoke("text-operation-run", { token, request: input });
   assert.ok(options[0].headers["x-opencode-session"]);
   assert.equal(options[0].headers["x-opencode-session"], options[1].headers["x-opencode-session"]);
+});
+
+for (const expected of [
+  { expectedEnterprise: { azureEndpoint: "https://fixture.invalid/b" } },
+  { expectedAuthority: { credentialGeneration: 0 } },
+  { expectedAuthority: { enterpriseVersion: 2 } },
+]) {
+  test(`setup admission rejects a stale disclosed ${Object.keys(expected)[0]} before capturing B`, async (t) => {
+    const h = main(t);
+    await assert.rejects(h.invoke("text-operation-capture", { ...descriptor, ...expected }), {
+      code: "RECIPIENT_CHANGED",
+    });
+    assert.equal(h.calls.length, 0);
+  });
+}
+
+async function setupRunner(t, h) {
+  const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+  const { window } = installBrowserGlobals(t);
+  window.electronAPI.personalInference = {
+    captureTextOperation: (value) => h.invoke("text-operation-capture", value),
+    runTextOperation: (value) => h.invoke("text-operation-run", value),
+    retireTextOperation: (value) => h.invoke("text-operation-retire", value),
+  };
+  window.electronAPI.processLocalReasoning = async (text, _model, _agent, options) => ({
+    success: true,
+    text: await h.service.runCapturedLocal(
+      { sender: h.owner },
+      options.textOperationToken,
+      { messages: [{ role: "user", content: text }], wordCount: options.wordCount },
+      async (_input, selected) => {
+        h.calls.push(["local", selected.model]);
+        return "Local setup fixture.";
+      }
+    ),
+  });
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-setup-cleanup-",
+    mockModules: {
+      "/stores/settingsStore": `export const getSettings = () => ({}); export const useSettingsStore = {getState: getSettings}; export const selectResolvedLLMConfig = () => ({}); export const enterpriseRouteVersion = () => 1;`,
+      "/stores/routeFactsStore": `export const useRouteFactsStore = {getState: () => ({facts:{credentialGenerations:new Map()}})};`,
+    },
+  });
+  const runner = await vite.ssrLoadModule("/components/onboarding/cleanupRunner.ts");
+  const factory = await vite.ssrLoadModule("/services/capturedCleanupOperation.ts");
+  return { runner, factory, api: window.electronAPI };
+}
+const setupText = "um remind me to book the room";
+for (const [name, a, b, changed] of [
+  [
+    "provider",
+    { provider: "custom", baseUrl: "https://fixture.invalid/a" },
+    { provider: "azure" },
+    {},
+  ],
+  ["device to remote", { provider: "local", model: "local-a" }, { provider: "azure" }, {}],
+  [
+    "same-host path",
+    { provider: "azure", expectedEnterprise: { azureEndpoint: "https://fixture.invalid/a" } },
+    { provider: "azure", expectedEnterprise: { azureEndpoint: "https://fixture.invalid/b" } },
+    { azureEndpoint: "https://fixture.invalid/b" },
+  ],
+  [
+    "auth source",
+    { provider: "vertex", expectedEnterprise: { vertexAuthSource: "apiKey" } },
+    { provider: "vertex", expectedEnterprise: { vertexAuthSource: "adc" } },
+    { vertexAuthSource: "adc" },
+  ],
+  [
+    "project",
+    { provider: "vertex", expectedEnterprise: { vertexProject: "project-a" } },
+    { provider: "vertex", expectedEnterprise: { vertexProject: "project-b" } },
+    { vertexProject: "project-b" },
+  ],
+]) {
+  test(`setup deferred import ${name}: old consent cannot reach B; fresh B really executes main/factory`, async (t) => {
+    const gate = deferred();
+    const h = main(t, {
+      captureTextFactoryInputs: (request, selected, values) =>
+        captureTextFactoryInputs(request, { ...selected, vertexAdcFile: "/fixture/adc" }, values, {
+          readFile: async () =>
+            JSON.stringify({
+              type: "authorized_user",
+              client_id: "fixture",
+              client_secret: "fixture",
+              refresh_token: "fixture",
+            }),
+        }),
+    });
+    const { runner, factory } = await setupRunner(t, h);
+    let current = true;
+    const operation = runner.createSetupCleanupOperation(
+      setupText,
+      { ...descriptor, ...a },
+      () => current,
+      async () => {
+        await gate.promise;
+        return factory;
+      }
+    );
+    const refused = assert.rejects(operation.result, { code: "RECIPIENT_CHANGED" });
+    current = false;
+    h.change(changed);
+    gate.resolve();
+    await refused;
+    assert.equal(h.calls.length, 0);
+    const fresh = runner.createSetupCleanupOperation(
+      setupText,
+      { ...descriptor, ...b },
+      () => true,
+      async () => factory
+    );
+    assert.equal(await fresh.result, "Cleaned fixture.");
+    assert.equal(h.calls.length, 1, "only the newly consented B constructed a model");
+    assert.equal(h.calls[0][0], b.provider);
+  });
+}
+
+for (const stage of ["admission", "factory"]) {
+  test(`setup ${stage} wait refuses changed main path; fresh named B admission executes`, async (t) => {
+    const gate = deferred();
+    const entered = deferred();
+    let waiting = true;
+    const dispatches = [];
+    const h = main(t, {
+      waitForAdmission: async () => {
+        if (stage === "admission" && waiting) {
+          entered.resolve();
+          await gate.promise;
+        }
+      },
+      modelFactory: async (provider, model, _key, baseUrl, _thinking, enterprise) => {
+        if (stage === "factory" && waiting) {
+          entered.resolve();
+          await gate.promise;
+        }
+        return {
+          specificationVersion: "v3",
+          provider: "fixture",
+          modelId: model,
+          supportedUrls: {},
+          doGenerate: async () => {
+            dispatches.push([provider, baseUrl, enterprise.azureEndpoint]);
+            return {
+              content: [{ type: "text", text: "Captured setup output." }],
+              finishReason: { unified: "stop", raw: "stop" },
+              usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+              warnings: [],
+            };
+          },
+        };
+      },
+    });
+    const { runner, factory } = await setupRunner(t, h);
+    const operation = runner.createSetupCleanupOperation(
+      setupText,
+      { ...descriptor, expectedEnterprise: { azureEndpoint: "https://fixture.invalid/a" } },
+      () => true,
+      async () => factory
+    );
+    const refused = assert.rejects(operation.result, { code: "RECIPIENT_CHANGED" });
+    await entered.promise;
+    h.change({ azureEndpoint: "https://fixture.invalid/b" });
+    waiting = false;
+    gate.resolve();
+    await refused;
+    assert.deepEqual(dispatches, []);
+    const fresh = runner.createSetupCleanupOperation(
+      setupText,
+      { ...descriptor, expectedEnterprise: { azureEndpoint: "https://fixture.invalid/b" } },
+      () => true,
+      async () => factory
+    );
+    assert.equal(await fresh.result, "Captured setup output.");
+    assert.deepEqual(dispatches, [["azure", undefined, "https://fixture.invalid/b"]]);
+  });
+}
+
+test("setup snapshot captures A text and all options before deferred import; valid A executes and retirement keeps B alive", async (t) => {
+  const h = main(t);
+  const { runner, factory } = await setupRunner(t, h);
+  const gate = deferred();
+  const selected = {
+    ...descriptor,
+    systemPrompt: "prompt-a",
+    disableThinking: true,
+    expectedEnterprise: { azureEndpoint: "https://fixture.invalid/a" },
+  };
+  const a = runner.createSetupCleanupOperation(
+    setupText,
+    selected,
+    () => true,
+    async () => {
+      await gate.promise;
+      return factory;
+    }
+  );
+  selected.systemPrompt = "prompt-b";
+  selected.expectedEnterprise.azureEndpoint = "https://fixture.invalid/b";
+  gate.resolve();
+  assert.equal(await a.result, "Cleaned fixture.");
+  assert.equal(h.calls[0][5].azureEndpoint, "https://fixture.invalid/a");
+  const b = runner.createSetupCleanupOperation(
+    setupText,
+    descriptor,
+    () => true,
+    async () => factory
+  );
+  a.retire();
+  assert.equal(await b.result, "Cleaned fixture.");
+  assert.equal(h.calls.length, 2);
+});
+
+for (const boundary of ["absent", "undefined", "rejected"]) {
+  test(`setup capture IPC ${boundary} refuses safely without factory/transport`, async (t) => {
+    const h = main(t);
+    const { runner, factory, api } = await setupRunner(t, h);
+    if (boundary === "absent") delete api.personalInference.captureTextOperation;
+    if (boundary === "undefined")
+      api.personalInference.captureTextOperation = async () => undefined;
+    if (boundary === "rejected")
+      api.personalInference.captureTextOperation = async () => {
+        throw new Error("unsupported");
+      };
+    const operation = runner.createSetupCleanupOperation(
+      setupText,
+      descriptor,
+      () => true,
+      async () => factory
+    );
+    await assert.rejects(operation.result, (e) =>
+      ["CLEANUP_OPERATION_UNAVAILABLE", "CLEANUP_FAILED"].includes(e.code)
+    );
+    assert.equal(h.calls.length, 0);
+  });
+}
+
+test("new setup local capture executes its actual main local path with A model, never remote inference", async (t) => {
+  const h = main(t);
+  const { runner, factory } = await setupRunner(t, h);
+  const op = runner.createSetupCleanupOperation(
+    setupText,
+    { ...descriptor, provider: "local", model: "local-a" },
+    () => true,
+    async () => factory
+  );
+  assert.equal(await op.result, "Local setup fixture.");
+  assert.deepEqual(h.calls, [["local", "local-a"]]);
+});
+
+test("setup current-context check after capture admission prevents any text dispatch even when main recipient is unchanged", async (t) => {
+  const gate = deferred(),
+    entered = deferred();
+  const h = main(t, {
+    waitForAdmission: async () => {
+      entered.resolve();
+      await gate.promise;
+    },
+  });
+  const { runner, factory } = await setupRunner(t, h);
+  let current = true;
+  const op = runner.createSetupCleanupOperation(
+    setupText,
+    descriptor,
+    () => current,
+    async () => factory
+  );
+  const refused = assert.rejects(op.result, { code: "RECIPIENT_CHANGED" });
+  await entered.promise;
+  current = false;
+  gate.resolve();
+  await refused;
+  assert.equal(h.calls.length, 0, "a stale admission cannot dispatch even to retained A");
+});
+
+test("matching disclosed main configuration version and credential generation positively admit setup cleanup", async (t) => {
+  const h = main(t);
+  h.change({ version: 7 });
+  const token = await h.invoke("text-operation-capture", {
+    ...descriptor,
+    expectedEnterprise: { azureEndpoint: "https://fixture.invalid/a" },
+    expectedAuthority: { enterpriseVersion: 7, credentialGeneration: 1 },
+  });
+  assert.deepEqual(await h.invoke("text-operation-run", { token, request: input }), {
+    text: "Cleaned fixture.",
+  });
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0][5].version, 7);
 });

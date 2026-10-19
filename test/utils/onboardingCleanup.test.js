@@ -34,7 +34,7 @@ const catalog = {
 
 // The harness mirrors OnboardingFlow: every pick bumps a counter and a result
 // is only applied while its own pick is still the latest one.
-function createChooser({ settings, bridge, preview = false, scenario = "fresh" }) {
+function createChooser({ settings, bridge }) {
   const statuses = [];
   let latest = 0;
   return {
@@ -47,8 +47,6 @@ function createChooser({ settings, bridge, preview = false, scenario = "fresh" }
         settings,
         bridge,
         catalog,
-        preview,
-        scenario,
         setStatus: (status) => statuses.push(status),
         isCurrent: () => latest === request,
       });
@@ -150,7 +148,17 @@ test("preview scenarios activate cleanup only for the ready scenario", async () 
     ["codex-expired", false],
   ]) {
     const settings = createSettings();
-    const chooser = createChooser({ settings, preview: true, scenario });
+    const { createOnboardingScenarioBridge } =
+      await import("../../src/preview/onboardingScenarioBridge.ts");
+    const fake = createOnboardingScenarioBridge(() => ({
+      step: "cleanup",
+      scenario,
+      platform: "linux",
+    }));
+    const chooser = createChooser({
+      settings,
+      bridge: { ...fake.api, personalInference: fake.cleanupChecks },
+    });
     await chooser.choose("codex");
     assert.equal(settings.state.useCleanupModel, expected, scenario);
   }

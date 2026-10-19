@@ -167,14 +167,14 @@ function createBrowserPreviewAPI(
     describeModels: async () => {
       throw new Error("unavailable");
     },
-    codexStatus: async () => ({ available: false, error: desktopMessage, code: "BROWSER_PREVIEW" }),
+    codexStatus: setup.cleanupChecks.codexStatus,
     codexLogin: unavailable,
     codexCancelLogin: unavailable,
     codexLogout: unavailable,
-    codexModels: async () => ({ data: [], nextCursor: null }),
+    codexModels: setup.cleanupChecks.codexModels,
     codexRateLimits: async () => ({}),
     models: async () => ({ data: [] }),
-    credentialStatus: async () => ({ configured: false }),
+    credentialStatus: setup.cleanupChecks.credentialStatus,
     credentialSave: unavailable,
     textGenerate: unavailable,
     textStream: unavailable,
@@ -196,7 +196,7 @@ function createBrowserPreviewAPI(
     onChanged: unsubscribe,
   };
   const credentials: Window["electronAPI"]["credentials"] = {
-    list: async () => [],
+    list: setup.cleanupFacts.credentials,
     save: async () => ({ ok: false, error: "unsupported" }),
     remove: async () => ({ ok: false, error: "unsupported" }),
     undoRemove: async () => ({ ok: false, reason: "unknown" }),
@@ -322,7 +322,7 @@ function createBrowserPreviewAPI(
     checkWhisperInstallation: async () => ({ installed: false, working: false }),
     listWhisperModels: async () => ({ success: true, models: [], cache_dir: "Desktop app only" }),
     listParakeetModels: async () => ({ success: true, models: [], cache_dir: "Desktop app only" }),
-    modelGetAll: async () => [],
+    modelGetAll: setup.cleanupFacts.models,
     modelCheckRuntime: async () => ({ available: false, error: desktopMessage }),
     onModelDownloadProgress: unsubscribe,
     onWhisperDownloadProgress: unsubscribe,

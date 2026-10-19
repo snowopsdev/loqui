@@ -38,8 +38,6 @@ export interface ApplyCleanupChoiceOptions {
   settings: CleanupSettings;
   bridge?: CleanupBridge;
   catalog: CleanupModelCatalog;
-  preview: boolean;
-  scenario: string;
   setStatus: (status: CleanupStatus) => void;
   /** False once the user has chosen something else; the result is then discarded. */
   isCurrent: () => boolean;
@@ -50,8 +48,6 @@ export async function applyCleanupChoice({
   settings,
   bridge,
   catalog,
-  preview,
-  scenario,
   setStatus,
   isCurrent,
 }: ApplyCleanupChoiceOptions): Promise<void> {
@@ -73,7 +69,6 @@ export async function applyCleanupChoice({
     settings.setCleanupMode("local");
     settings.setCleanupProvider("local");
     settings.setCleanupModel("qwen3.5-2b-q4_k_m");
-    if (preview) return settle(scenario === "ready", "pending");
     try {
       const result = await bridge?.modelTestLoad?.("qwen3.5-2b-q4_k_m");
       settle(Boolean(result?.success), "pending");
@@ -83,10 +78,10 @@ export async function applyCleanupChoice({
   } else if (choice === "codex") {
     settings.setCleanupMode("providers");
     settings.setCleanupProvider("codex");
-    if (preview) return settle(scenario === "ready", "failed");
     try {
       const inference = bridge?.personalInference;
       const status = await inference?.codexStatus();
+      if (!isCurrent()) return;
       if (!(status?.available && status.account?.type === "chatgpt"))
         return settle(false, "failed");
       // The stored cleanup model may still be the local default. Codex lists its
@@ -108,10 +103,6 @@ export async function applyCleanupChoice({
     const model = catalog.owns("openai", settings.cleanupModel)
       ? settings.cleanupModel
       : catalog.defaultModel("openai");
-    if (preview) {
-      if (model) settings.setCleanupModel(model);
-      return settle(scenario === "ready", "failed");
-    }
     try {
       const status = await bridge?.personalInference?.credentialStatus("openai");
       if (isCurrent() && status?.configured && model) settings.setCleanupModel(model);

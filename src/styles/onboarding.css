@@ -1273,3 +1273,75 @@
     animation: none;
   }
 }
+
+/* Task16: truthful cleanup examples/results and persistent changed words. */
+.onb-panes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.onb-pane {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-inline-size: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.onb-pane p,
+.onb-cleanup-error p {
+  margin: 0;
+}
+.onb-pane--after {
+  border-color: var(--color-input-border);
+}
+.onb-pane mark {
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-foreground) 15%, transparent);
+  color: inherit;
+  animation: onb-mark var(--motion-slow) var(--motion-ease-std) both;
+}
+@keyframes onb-mark {
+  from {
+    background: color-mix(in oklab, var(--color-foreground) 28%, transparent);
+  }
+}
+.onb-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.onb-check input {
+  flex-shrink: 0;
+  accent-color: var(--color-foreground);
+}
+.onb-cleanup-consent {
+  justify-self: start;
+  white-space: normal;
+  height: auto;
+  min-block-size: 36px;
+  text-align: start;
+}
+.onb-cleanup-error {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 520px) {
+  .onb-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-pane mark {
+    animation: none;
+  }
+}

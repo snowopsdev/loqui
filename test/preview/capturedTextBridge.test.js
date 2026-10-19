@@ -69,3 +69,18 @@ test("preview local captured operation uses admitted model/options and never acc
   assert.equal(calls[0].descriptor.model, "local-a");
   assert.equal(calls[0].descriptor.systemPrompt, "captured prompt");
 });
+
+test("fake captured boundary mirrors actual unsupported Codex/Tinfoil sources before text dispatch", async () => {
+  const { createCapturedTextBridge } = await import("../../src/preview/capturedTextBridge.ts");
+  let calls = 0;
+  const api = createCapturedTextBridge(async () => {
+    calls++;
+    return "unexpected";
+  });
+  for (const provider of ["codex", "tinfoil"])
+    await assert.rejects(
+      api.captureTextOperation({ provider, model: "fixture", inferenceScope: "dictationCleanup" }),
+      { code: "UNSUPPORTED_AUTH_SOURCE" }
+    );
+  assert.equal(calls, 0);
+});

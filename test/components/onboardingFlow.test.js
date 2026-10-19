@@ -1217,3 +1217,87 @@ test("interim Finish never borrows shortcut A or microphone A proof for a new ac
   assert.ok(row("Microphone").endsWith("Pending"));
   assert.equal(h.f.manager._onboardingDemoSession, null, "Finish makes no recording admission");
 });
+
+test("choosing API key without a key names its unmet prerequisite using the real check, independent of preview scenario", async (t) => {
+  const { expectKey } = require("../helpers/harness/mountComponent");
+  const { ui } = await mountFlow(
+    t,
+    {
+      initialStep: "cleanup",
+      previewConfig: { step: "cleanup", scenario: "ready", platform: "linux" },
+    },
+    { api: { personalInference: { credentialStatus: async () => ({ configured: false }) } } }
+  );
+  await ui.click(ui.byAttr("data-value", "provider")[0]);
+  expectKey(ui, "setupFlow.cleanup.now.needsKey", { provider: "OpenAI" });
+  assert.equal(ui.text().includes("setupFlow.cleanup.now.off"), false);
+  assert.equal(
+    ui.calls.filter(([name]) =>
+      /providerTest|describeModels|textGenerate|runTextOperation/.test(name)
+    ).length,
+    0
+  );
+});
+
+test("reuse keeps its existing key/default and never enables cleanup for None or a superseded check", async (t) => {
+  const { ui } = await mountFlow(t, { initialStep: "cleanup" });
+  const settings = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  const originalChatModel = settings.getState().chatAgentModel;
+  const checkbox = ui.findAll((n) => n.tagName === "INPUT" && ui.props(n).type === "checkbox")[0];
+  assert.equal(checkbox.checked, false);
+  await React.act(async () => ui.props(checkbox).onChange({ target: { checked: true } }));
+  assert.equal(ui.storage.getItem("loqui.onboarding.preview.linux.ready.reuseCleanup"), "true");
+  await ui.click(ui.byAttr("data-value", "none")[0]);
+  await advance(ui);
+  assert.equal(settings.getState().useCleanupModel, false);
+  assert.equal(settings.getState().chatAgentModel, originalChatModel);
+});
+
+test("explicit reuse of the checked choice fills only unconfigured text scopes and preserves existing choices", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "cleanup" },
+    {
+      storage: {
+        chatAgentModel: "keep-existing",
+        translationModel: "",
+        dictationAgentModel: "",
+        noteFormattingModel: "",
+      },
+      api: { personalInference: { credentialStatus: async () => ({ configured: true }) } },
+    }
+  );
+  const settings = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  await ui.click(ui.byAttr("data-value", "provider")[0]);
+  const source = settings.getState().cleanupModel;
+  const checkbox = ui.findAll((n) => n.tagName === "INPUT" && ui.props(n).type === "checkbox")[0];
+  await React.act(async () => ui.props(checkbox).onChange({ target: { checked: true } }));
+  await advance(ui);
+  assert.equal(settings.getState().chatAgentModel, "keep-existing");
+  for (const key of ["translationModel", "dictationAgentModel", "noteFormattingModel"])
+    assert.equal(settings.getState()[key], source, key);
+  assert.equal(settings.getState().useCleanupModel, true);
+});
+
+test("cleanup keyboard choice keeps focus on the selected radio while its availability check changes context", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "cleanup" },
+    {
+      api: {
+        personalInference: {
+          codexStatus: async () => ({ available: true, account: { type: "chatgpt" } }),
+          codexModels: async () => ({ data: [{ model: "fixture", isDefault: true }] }),
+          onTextEvent: () => () => {},
+        },
+      },
+    }
+  );
+  const local = ui.byAttr("data-value", "local")[0];
+  local.focus();
+  await ui.press(local, "ArrowRight");
+  assert.ok(
+    document.activeElement === ui.byAttr("data-value", "codex")[0],
+    "focus stays on the live selected radio"
+  );
+});

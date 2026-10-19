@@ -1,13 +1,5 @@
 import { useTranslation } from "react-i18next";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   useSettingsStore,
   selectResolvedLLMConfig,
@@ -18,7 +10,6 @@ import { usePermissions } from "../hooks/usePermissions";
 import { Button } from "./ui/button";
 import { Toggle } from "./ui/toggle";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
-import CodexConnection from "./CodexConnection";
 import { micPickerModel, selectionFor, type AudioInput } from "../utils/onboardingMic";
 import { HelloStep } from "./onboarding/HelloStep";
 import { PrivacyDefaults } from "./onboarding/PrivacyDefaults";
@@ -37,7 +28,7 @@ import "../styles/onboarding-guided.css";
 import "../styles/onboarding.css";
 import { formatHotkeyLabel, getDefaultHotkey, parseHotkeyList } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
-import { CheckCircle2, CircleAlert, Cpu, Keyboard, ShieldCheck, Sparkles, Wand2 } from "./icons";
+import { CheckCircle2, CircleAlert, Keyboard, ShieldCheck } from "./icons";
 import type {
   OnboardingPreviewConfig,
   OnboardingReadiness,
@@ -91,6 +82,13 @@ import { useVoiceDownload } from "./onboarding/useVoiceDownload";
 import { VoiceStep } from "./onboarding/VoiceStep";
 import { DownloadChip } from "./onboarding/DownloadChip";
 import { useResolvedRoute } from "../lib/routes";
+import { providerDisplayLabel } from "../lib/locality";
+import { CleanupStep } from "./onboarding/CleanupStep";
+import { createSetupCleanupOperation } from "./onboarding/cleanupRunner";
+import {
+  captureSetupCleanupSelection,
+  isSetupCleanupSelectionCurrent,
+} from "../services/capturedCleanupOperation";
 
 interface StepView {
   rail: InstrumentRailProps;
@@ -112,217 +110,6 @@ const cleanupModelCatalog: CleanupModelCatalog = {
   defaultModel: (provider) =>
     pickDefaultModelId(modelRegistryData.cloudProviders.find((entry) => entry.id === provider)),
 };
-
-function ChoiceCard({
-  selected,
-  icon: Icon,
-  title,
-  description,
-  badge,
-  disabled = false,
-  onClick,
-}: {
-  selected: boolean;
-  icon: ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-  badge?: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      data-recommended={badge === "Recommended" || undefined}
-      className={`onboarding-guided-choice w-full rounded-xl border p-4 text-start transition-colors ${disabled ? "cursor-not-allowed opacity-50" : selected ? "border-primary bg-primary/8 ring-1 ring-primary/20" : "border-border bg-card hover:bg-muted/50"}`}
-      aria-pressed={selected}
-    >
-      <div className="flex items-start gap-3">
-        <span
-          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
-        >
-          <Icon className="h-4 w-4" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            {title}
-            {badge && (
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                {badge}
-              </span>
-            )}
-          </span>
-          <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-            {description}
-          </span>
-        </span>
-        <span
-          className={`mt-1 h-4 w-4 rounded-full border-2 ${selected ? "border-primary bg-primary ring-2 ring-primary/20" : "border-muted-foreground/35"}`}
-          aria-hidden="true"
-        />
-      </div>
-    </button>
-  );
-}
-
-function StatusLine({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      {ok ? (
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-      ) : (
-        <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-      )}
-      <div>
-        <p className="text-sm font-medium">{label}</p>
-        <p className="text-xs text-muted-foreground">{detail}</p>
-      </div>
-    </div>
-  );
-}
-
-function CleanupStep({
-  previewConfig,
-  onChoice,
-  cleanupStatus,
-  selectedChoice,
-}: {
-  previewConfig?: OnboardingPreviewConfig;
-  onChoice: (choice: CleanupChoice) => void;
-  cleanupStatus: CleanupStatus;
-  selectedChoice: CleanupChoice;
-}) {
-  const selected = selectedChoice;
-  const reuseStorageKey = previewConfig
-    ? `${onboardingPreviewStorageKey(previewConfig)}.reuseCleanup`
-    : "loqui.onboarding.reuseCleanup";
-  const [reuse, setReuse] = useState(() => localStorage.getItem(reuseStorageKey) === "true");
-  const codexUnavailable =
-    previewConfig?.scenario === "codex-missing" || previewConfig?.scenario === "codex-expired";
-  const providerInvalid = previewConfig?.scenario === "invalid-provider-key";
-  return (
-    <div className="onboarding-guided-work">
-      <div className="onboarding-guided-section-head">
-        <h2>How should Loqui handle cleanup?</h2>
-        <span>Optional</span>
-      </div>
-      <div className="onboarding-guided-cleanup-list">
-        <ChoiceCard
-          selected={selected === "none"}
-          icon={Wand2}
-          title="No cleanup"
-          description="Keep the raw transcript. Fastest and fully offline."
-          onClick={() => onChoice("none")}
-        />
-        <ChoiceCard
-          selected={selected === "local"}
-          icon={Cpu}
-          title="Local model"
-          description="Use Qwen3.5 2B on this device after you download it."
-          badge="Recommended"
-          onClick={() => onChoice("local")}
-        />
-        <ChoiceCard
-          selected={selected === "codex"}
-          icon={Sparkles}
-          title="ChatGPT subscription"
-          description="Use Codex for text through your ChatGPT sign-in."
-          onClick={() => onChoice("codex")}
-        />
-        <ChoiceCard
-          selected={selected === "provider"}
-          icon={Wand2}
-          title="Provider API key"
-          description="Use a direct provider key configured in Language Models."
-          onClick={() => onChoice("provider")}
-        />
-      </div>
-      {cleanupStatus !== "skipped" && (
-        <div className="onboarding-guided-panel p-4">
-          <StatusLine
-            ok={cleanupStatus === "ready"}
-            label={
-              cleanupStatus === "checking"
-                ? "Checking cleanup connection…"
-                : cleanupStatus === "ready"
-                  ? "Cleanup is ready"
-                  : cleanupStatus === "failed"
-                    ? "Cleanup needs attention"
-                    : "Cleanup is still pending"
-            }
-            detail={
-              cleanupStatus === "ready"
-                ? "Loqui will use this choice only after the connection or model check succeeds."
-                : cleanupStatus === "failed"
-                  ? "Retry the connection or choose No cleanup. Your raw transcript remains available."
-                  : "You can continue setup. Loqui will not silently activate an unavailable cleanup provider."
-            }
-          />
-        </div>
-      )}
-      {selected === "codex" && (
-        <div className="space-y-2">
-          <CodexConnection checkStatusOnMount onSignedInChange={() => onChoice("codex")} />
-          {codexUnavailable && (
-            <p role="alert" className="text-xs text-destructive">
-              Codex is unavailable in this scenario. Retry sign-in or choose another cleanup option.
-            </p>
-          )}
-        </div>
-      )}
-      {selected === "provider" && (
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-sm font-semibold">Provider keys stay separate</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            OpenAI, Anthropic, Gemini, Groq, OpenRouter, and custom compatible endpoints are
-            configured in Language Models. No key is entered during this step.
-          </p>
-          {providerInvalid && (
-            <p role="alert" className="mt-2 text-xs text-destructive">
-              The simulated provider key was rejected. The raw transcript remains available.
-            </p>
-          )}
-        </div>
-      )}
-      {selected === "local" && (
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-sm font-semibold">Local cleanup is opt-in</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            The model is not downloaded until you start its download in Language Models.
-          </p>
-        </div>
-      )}
-      {previewConfig?.scenario === "cleanup-failed" && (
-        <p role="alert" className="text-xs text-destructive">
-          The cleanup request will fail in this preview. The original transcript will remain intact.
-        </p>
-      )}
-      <label className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
-        <input
-          type="checkbox"
-          dir="ltr"
-          checked={reuse}
-          onChange={(event) => {
-            setReuse(event.target.checked);
-            localStorage.setItem(reuseStorageKey, String(event.target.checked));
-          }}
-          className="mt-0.5"
-        />
-        <span>
-          <span className="block text-sm font-semibold">
-            Also use this choice for other text features
-          </span>
-          <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-            Apply it only to unconfigured chat, translation, voice assistant, note formatting, and
-            meeting-summary tasks. Existing choices stay unchanged.
-          </span>
-        </span>
-      </label>
-    </div>
-  );
-}
 
 function ShortcutsStep({
   platform,
@@ -507,7 +294,6 @@ export default function OnboardingFlow({
   initialStep,
   previewConfig,
 }: Props) {
-  const preview = Boolean(import.meta.env.DEV && window.loquiBrowserPreview);
   const config = previewConfig;
   const progressStorageKey = config ? onboardingPreviewStorageKey(config) : undefined;
   const storedProgress = useMemo(
@@ -607,17 +393,23 @@ export default function OnboardingFlow({
   }, []);
 
   const goTo = useCallback((next: OnboardingStep) => {
+    cleanupRequestRef.current += 1;
+    setCleanupStatus((status) => (status === "checking" ? "pending" : status));
     setStep(next);
     setVisited((current) => markVisited(current, next));
   }, []);
   const finish = useCallback(
     (options?: OnboardingCompleteOptions) => {
+      closedRef.current = true;
+      cleanupRequestRef.current += 1;
       writeOnboardingProgress({ completed: true, step: "finish" }, progressStorageKey);
       onComplete(options);
     },
     [onComplete, progressStorageKey]
   );
   const finishLater = useCallback(() => {
+    closedRef.current = true;
+    cleanupRequestRef.current += 1;
     writeOnboardingProgress({ explored: true, step, visited }, progressStorageKey);
     onExplore?.();
     onComplete();
@@ -842,26 +634,21 @@ export default function OnboardingFlow({
       cleanupRequestRef.current += 1;
     };
   }, []);
-  const chooseCleanup = useCallback(
-    async (choice: CleanupChoice) => {
-      if (closedRef.current) return;
-      // Each pick supersedes the one before it: a check still in flight for an
-      // earlier option must not activate cleanup after the user moved on.
-      const request = ++cleanupRequestRef.current;
-      setCleanupChoice(choice);
-      await applyCleanupChoice({
-        choice,
-        settings: useSettingsStore.getState(),
-        bridge: window.electronAPI,
-        catalog: cleanupModelCatalog,
-        preview,
-        scenario,
-        setStatus: setCleanupStatus,
-        isCurrent: () => cleanupRequestRef.current === request,
-      });
-    },
-    [preview, scenario]
-  );
+  const chooseCleanup = useCallback(async (choice: CleanupChoice) => {
+    if (closedRef.current) return;
+    // Each pick supersedes the one before it: a check still in flight for an
+    // earlier option must not activate cleanup after the user moved on.
+    const request = ++cleanupRequestRef.current;
+    setCleanupChoice(choice);
+    await applyCleanupChoice({
+      choice,
+      settings: useSettingsStore.getState(),
+      bridge: window.electronAPI,
+      catalog: cleanupModelCatalog,
+      setStatus: setCleanupStatus,
+      isCurrent: () => !closedRef.current && cleanupRequestRef.current === request,
+    });
+  }, []);
 
   const applyCleanupToOtherTasks = useCallback(() => {
     const reuseStorageKey = config
@@ -935,16 +722,25 @@ export default function OnboardingFlow({
     mic.access,
   ]);
 
+  const reuseStorageKey = progressStorageKey
+    ? `${progressStorageKey}.reuseCleanup`
+    : "loqui.onboarding.reuseCleanup";
+  const [reuseCleanup, setReuseCleanup] = useState(
+    () => localStorage.getItem(reuseStorageKey) === "true"
+  );
+  const cleanupRoute = useResolvedRoute("dictationCleanup");
+  const choiceProviderId =
+    cleanupChoice === "codex"
+      ? "codex"
+      : cleanupChoice === "provider"
+        ? cleanupProvider || "openai"
+        : null;
+  const cleanupProviderLabel =
+    cleanupRoute.locality === "network"
+      ? (cleanupRoute.host ?? providerDisplayLabel(null, t))
+      : providerDisplayLabel(cleanupRoute.providerId ?? choiceProviderId, t);
+  const cleanupSelection = captureSetupCleanupSelection();
   let content: ReactNode = null;
-  if (step === "cleanup")
-    content = (
-      <CleanupStep
-        previewConfig={config}
-        onChoice={chooseCleanup}
-        cleanupStatus={cleanupStatus}
-        selectedChoice={cleanupChoice}
-      />
-    );
   if (step === "shortcuts")
     content = <ShortcutsStep platform={platform} permissions={permissions} />;
   if (step === "finish")
@@ -969,6 +765,36 @@ export default function OnboardingFlow({
     <div className="onboarding-welcome onboarding-guided onb-legacy">{node}</div>
   );
   const stepView = (): StepView => {
+    if (step === "cleanup")
+      return {
+        rail: {
+          title: t("setupFlow.rail.cleanup.title"),
+          body: t(`setupFlow.rail.cleanup.body${device}`),
+          mode: downloadRail ?? { kind: "idle" },
+        },
+        primary: { label: t("setupFlow.continue"), onClick: advance },
+        onSkip: skip,
+        finishLaterLabel: t("setupFlow.finishLater"),
+        content: (
+          <CleanupStep
+            choice={cleanupChoice}
+            status={cleanupStatus}
+            onChoose={chooseCleanup}
+            userText={lastTake?.rawText ?? lastTake?.text ?? null}
+            route={cleanupRoute}
+            providerLabel={cleanupProviderLabel}
+            selection={cleanupSelection}
+            isSelectionCurrent={isSetupCleanupSelectionCurrent}
+            runCleanup={createSetupCleanupOperation}
+            reuse={reuseCleanup}
+            onReuseChange={(value) => {
+              setReuseCleanup(value);
+              localStorage.setItem(reuseStorageKey, String(value));
+            }}
+          />
+        ),
+      };
+
     if (step === "welcome")
       return {
         rail: {

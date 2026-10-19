@@ -554,3 +554,57 @@ check icon, following the global icon-only colour constraint over the brief's ti
 The shared captured-text validator is an `.mjs` module so main's synchronous
 require and Vite's browser import consume the same pure validation. This narrow
 integration correction preserves the reviewed cleanup authority behavior.
+
+### Cleanup in your own words (Plan 05 Task 16)
+
+Cleanup uses one segmented None / Local / ChatGPT / API key group, with no
+recommended option. None preserves the original words. Other choices show
+labelled examples until an actual captured cleanup succeeds. A ready device
+route can try the admitted sentence once; network and remote routes require a
+fresh tap naming the recipient and exact word count. Without a trial sentence,
+only examples are shown. Changed words use a whitespace-token LCS, neutral
+highlight and the shared 360 ms slow token; reduced motion keeps the static
+highlight. Panes stack below 520 px. The native reuse checkbox remains LTR;
+labels, arrows and layout follow the reading direction.
+
+The Now sentence first reads the selected choice's own prerequisite check,
+then Plan03's actual route. Unknown stays Checking. Every destination and state
+disclosure uses the published route chips. A pending/failed choice never gets
+an Off chip beside its unmet prerequisite. Reuse retains its storage key and
+false default, applies only a current successful choice to unconfigured scopes,
+and preserves existing choices. Leaving Cleanup or completing setup supersedes
+a pending choice check. Scenario availability lives in fake bridge APIs; desktop
+and browser use the same production helper and captured-operation calls.
+
+A preview owns a new setup operation, separate from the original overlay Retry
+relay. Its typed allowlist captures provider, model, full endpoint path, scope,
+enterprise source/project/options, prompt, dictionary, language/script preferences
+and available main credential generation/configuration version. Sentence/count
+and that descriptor are fixed synchronously at admission, before imports or IPC
+waits. Main compares disclosed enterprise fields and available version/generation
+at admission, retains actual credential/SDK sources and rechecks its existing
+full authority after waits. The renderer current-context guard is additionally
+checked after capture, before sending text, and after completion; it never
+substitutes for main authority. Existing overlay operations keep their original
+API and original-owner relay.
+
+A full route/choice/sentence/descriptor fingerprint plus generation keys the
+preview context. A changed context synchronously loses send/result/running
+eligibility; commit cleanup retires the old owner without touching a new one.
+Stale completions cannot display as the new recipient. Callback identity alone
+does not repeat local execution. Each off-device attempt requires its own tap;
+no boolean consent survives a change. Network consent names the actual route host,
+including after a cloud-to-LAN change; a retained cloud label cannot name it. Failures show safe localized codes and
+the unchanged raw words, with no invented before/after result or zero-egress
+claim. An in-memory prior-attempt disclosure retains its captured provider/count
+when the context changes; it does not grant permission or persist content.
+
+Captured Codex account binding, Tinfoil bootstrap, dynamic/ambient Bedrock and
+unsupported ADC sources retain Task15's explicit unsupported-source limitation.
+Generic route readiness may be ready while this safe preview operation is
+unsupported. Ordinary API-key/custom/LAN/local and capturable enterprise paths
+remain positive production paths under fixture tests; no live provider or native
+success is asserted. Task18 consumes cleanupSituation and historical trial words
+separately from current voice/device/shortcut proof. Task22 still needs the real
+Plan04 tags/private-hold/sole-setter/session/disclosure/Undo integration; no new
+recording/cancellation owner, Sealed or zero-byte contract is introduced here.

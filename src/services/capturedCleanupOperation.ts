@@ -1,9 +1,13 @@
+import { useRouteFactsStore } from "../stores/routeFactsStore";
+import type { CredentialSlot } from "../lib/routeGraph";
+import { copyCleanupDescriptor } from "../utils/onboardingCleanupPreview";
 import i18n from "../i18n";
 import { providerDisplayLabel } from "../lib/locality";
 import {
   getSettings,
-  getEffectiveCleanupModel,
   selectResolvedLLMConfig,
+  enterpriseRouteVersion,
+  type SettingsState,
 } from "../stores/settingsStore";
 import { getCleanupSystemPrompt, wrapCleanupTranscript } from "../config/prompts";
 import { getDictionaryHintWords } from "../utils/snippets";
@@ -37,11 +41,12 @@ function operationError(code = "CLEANUP_FAILED", provider = "") {
 const unavailable = () => operationError("CLEANUP_OPERATION_UNAVAILABLE");
 
 /** Synchronous, before any import/IPC/microphone await. No secret store fields. */
-export function captureCleanupSelection(): TextOperationDescriptor | null {
-  const settings = getSettings();
-  const model = getEffectiveCleanupModel();
-  if (!settings.useCleanupModel || !model) return null;
+export function captureCleanupSelection(
+  settings: SettingsState = getSettings()
+): TextOperationDescriptor | null {
   const selected = selectResolvedLLMConfig(settings, "dictationCleanup");
+  const model = selected.model;
+  if (!settings.useCleanupModel || !model) return null;
   const provider =
     selected.mode === "local"
       ? "local"
@@ -70,6 +75,12 @@ export function captureCleanupSelection(): TextOperationDescriptor | null {
     provider,
     model,
     inferenceScope: "dictationCleanup",
+    cleanupContext: Object.freeze({
+      language: settings.preferredLanguage,
+      uiLanguage: settings.uiLanguage,
+      dictionary: Object.freeze([...getDictionaryHintWords(settings)]),
+      chineseScriptPreference: settings.chineseScriptPreference,
+    }),
     ...(provider === "lan" || provider === "custom"
       ? {
           baseUrl:
@@ -100,7 +111,8 @@ export function captureCleanupSelection(): TextOperationDescriptor | null {
 export function createCapturedCleanupOperation(
   identity?: CleanupOperationIdentity,
   descriptor = captureCleanupSelection(),
-  finalize: (text: string) => Promise<string> = async (text) => text
+  finalize: (text: string) => Promise<string> = async (text) => text,
+  isCurrent: () => boolean = () => true
 ) {
   const api = window.electronAPI?.personalInference;
   let retired = false;
@@ -134,6 +146,7 @@ export function createCapturedCleanupOperation(
   );
   const live = () => {
     if (retired) throw unavailable();
+    if (!isCurrent()) throw operationError("RECIPIENT_CHANGED", selected?.provider);
   };
   const finalizeOutput = async (text: string) => {
     live();
@@ -206,4 +219,32 @@ export function createCapturedCleanupOperation(
         .catch(() => {});
     },
   };
+}
+
+/** Network-free synchronous snapshot; main still owns execution authority. */
+export function captureSetupCleanupSelection(): TextOperationDescriptor | null {
+  const selected = captureCleanupSelection();
+  if (!selected) return null;
+  const slot =
+    selected.credentialRef ??
+    (selected.provider === "lan" || selected.provider === "custom"
+      ? "custom:dictationCleanup"
+      : selected.provider);
+  const facts = useRouteFactsStore.getState().facts;
+  return copyCleanupDescriptor({
+    ...selected,
+    expectedAuthority: {
+      credentialGeneration:
+        selected.provider === "local"
+          ? undefined
+          : facts.credentialGenerations?.get(slot as CredentialSlot),
+      enterpriseVersion: ["azure", "vertex", "bedrock"].includes(selected.provider)
+        ? enterpriseRouteVersion()
+        : undefined,
+    },
+  });
+}
+
+export function isSetupCleanupSelectionCurrent(selected: TextOperationDescriptor): boolean {
+  return JSON.stringify(selected) === JSON.stringify(captureSetupCleanupSelection());
 }

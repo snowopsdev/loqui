@@ -1,4 +1,5 @@
 import { createCapturedTextBridge } from "./capturedTextBridge";
+import modelRegistryData from "../models/modelRegistryData.json";
 import type {
   CleanupOperationIdentity,
   CleanupRetryResult,
@@ -69,7 +70,17 @@ export function createOnboardingScenarioBridge(
   getConfig: () => OnboardingPreviewConfig,
   clock: ScenarioClock = realClock
 ) {
-  const textOperations = createCapturedTextBridge(async () => PREVIEW_SENTENCE);
+  const textOperations = createCapturedTextBridge(async (descriptor, sentence) => {
+    if (["codex", "tinfoil"].includes(descriptor.provider))
+      throw Object.assign(new Error("Unsupported captured authentication source."), {
+        code: "UNSUPPORTED_AUTH_SOURCE",
+      });
+    if (getConfig().scenario === "cleanup-failed")
+      throw Object.assign(new Error("Cleanup failed."), { code: "CLEANUP_FAILED" });
+    return sentence.includes("um remind me to book the room")
+      ? "Remind me to book the room."
+      : PREVIEW_SENTENCE;
+  });
   const progressListeners = new Set<ProgressListener>();
   const demoListeners = new Set<(event: OnboardingDemoEvent) => void>();
   const hotkeyListeners = new Set<(event: DictationHotkeyEvent) => void>();
@@ -354,6 +365,7 @@ export function createOnboardingScenarioBridge(
   }
 
   const api = {
+    modelTestLoad: async (_model: string) => ({ success: scenario() === "ready" }),
     getSystemProfile: async (): Promise<SystemFacts> => ({
       locales: scenario() === "multilingual" ? ["es-ES", "en-US"] : ["en-US"],
       freeDiskBytes: scenario() === "low-disk" ? 412_000_000 : 212_000_000_000,
@@ -493,6 +505,7 @@ export function createOnboardingScenarioBridge(
   } satisfies Pick<
     API,
     | "getSystemProfile"
+    | "modelTestLoad"
     | "getTotalMemory"
     | "checkParakeetModelStatus"
     | "downloadParakeetModel"
@@ -518,5 +531,51 @@ export function createOnboardingScenarioBridge(
     | "onDictationHotkeyEvent"
   >;
 
-  return { api, simulateHotkey, reset, textOperations };
+  const cleanupChecks = {
+    codexStatus: async () => ({
+      available: scenario() !== "codex-missing",
+      account: scenario() === "ready" ? { type: "chatgpt" } : null,
+    }),
+    codexModels: async () => ({
+      data:
+        scenario() === "ready"
+          ? [
+              {
+                id: "preview-codex",
+                model: "preview-codex",
+                displayName: "ChatGPT",
+                isDefault: true,
+              },
+            ]
+          : [],
+      nextCursor: null,
+    }),
+    credentialStatus: async (_ref: string) => ({ configured: scenario() === "ready" }),
+  } satisfies Pick<API["personalInference"], "codexStatus" | "codexModels" | "credentialStatus">;
+  const cleanupFacts = {
+    credentials: async () =>
+      ["openai", "codex"].map((id) => ({
+        id: id as "openai" | "codex",
+        present: scenario() === "ready",
+        fields: {},
+        generation: 0,
+      })),
+    models: async (): ReturnType<API["modelGetAll"]> =>
+      scenario() === "ready"
+        ? modelRegistryData.localProviders.flatMap((provider) =>
+            provider.models
+              .filter((model) => model.id === "qwen3.5-2b-q4_k_m")
+              .map((model) => ({
+                ...model,
+                isDownloaded: true,
+                isDownloading: false,
+                downloadProgress: 100,
+                downloadedSize: model.sizeBytes,
+                totalSize: model.sizeBytes,
+                path: null,
+              }))
+          )
+        : [],
+  };
+  return { api, simulateHotkey, reset, textOperations, cleanupChecks, cleanupFacts };
 }

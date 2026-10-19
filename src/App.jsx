@@ -601,7 +601,11 @@ export default function App() {
     }
     return [];
   }, [liveTranscript.mounted, pillStage, liveText]);
-  const agentAnswering = useAgentAnswering(assistant.thinking, assistant.busy);
+  const agentAnswering = useAgentAnswering(
+    assistant.thinking,
+    assistant.busy,
+    assistant.responsePhase
+  );
   const agentCaption = !agentModeActive
     ? null
     : voicePillIsRecording
@@ -991,6 +995,8 @@ export default function App() {
             onCommandConsumed={assistant.handleCommandConsumed}
             onCommandDiscarded={assistant.handleCommandDiscarded}
             onCommandSettled={assistant.handleCommandSettled}
+            onCommandResponse={assistant.handleCommandResponse}
+            onCommandResponseCancelled={assistant.handleCommandResponseCancelled}
             initialConversationId={assistant.conversationId}
             onConversationIdChange={assistant.setConversationId}
             voiceState={assistantVoiceState}
@@ -1001,6 +1007,7 @@ export default function App() {
             onClose={assistant.handleClose}
             onBusyChange={assistant.setBusy}
             onAdmissionPresentation={assistant.handleTypedAdmission}
+            onAdmissionResponse={assistant.handleTypedResponse}
             onResponseReadyChange={assistant.setResponseReady}
             onResponseContent={assistant.handleResponseContent}
             onConversationReset={assistant.handleConversationReset}

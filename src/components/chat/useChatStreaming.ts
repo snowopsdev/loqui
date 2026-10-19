@@ -102,6 +102,8 @@ export interface DictationOperation {
 }
 
 export interface SendToAIOptions {
+  /** Renderer-local first response handler; never included in provider/IPC payloads. */
+  onResponseContent?: () => void;
   operation?: DictationOperation;
   /** Request ownership survives navigation and unmount; completion persists to its admitted conversation. */
   owner?: {
@@ -319,7 +321,10 @@ export function useChatStreaming({
       const announceResponse = () => {
         if (responseAnnounced) return;
         responseAnnounced = true;
-        if (isCurrent() && !options?.suppressResponseContent) onResponseContent?.();
+        if (isCurrent()) {
+          if (options?.onResponseContent) options.onResponseContent();
+          else if (!options?.suppressResponseContent) onResponseContent?.();
+        }
       };
       const snapshot = options?.inferenceSnapshot ?? captureInference(options);
       const settings = snapshot.settings;

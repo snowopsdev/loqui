@@ -69,6 +69,8 @@ interface AssistantPanelProps {
   onCommandConsumed: (id: number) => void;
   onCommandDiscarded: (id: number) => void;
   onCommandSettled: (id: number, options?: { showPanel?: boolean }) => void;
+  onCommandResponse?: (id: number, options?: { showPanel?: boolean }) => void;
+  onCommandResponseCancelled?: (id: number) => void;
   /** Conversation to resume when reopening the panel; null starts fresh on first message. */
   initialConversationId: number | null;
   onConversationIdChange: (id: number | null) => void;
@@ -82,6 +84,7 @@ interface AssistantPanelProps {
   onClose: () => void;
   onBusyChange: (busy: boolean) => void;
   onAdmissionPresentation?: (presentation: ChatAdmissionPresentation) => (() => void) | void;
+  onAdmissionResponse?: (presentation: ChatAdmissionPresentation) => void;
   onResponseReadyChange: (ready: boolean) => void;
   onResponseContent: () => void;
   onConversationReset: () => void;
@@ -96,6 +99,8 @@ export function AssistantPanel({
   onCommandConsumed,
   onCommandDiscarded,
   onCommandSettled,
+  onCommandResponse,
+  onCommandResponseCancelled,
   initialConversationId,
   onConversationIdChange,
   voiceState,
@@ -106,6 +111,7 @@ export function AssistantPanel({
   onClose,
   onBusyChange,
   onAdmissionPresentation,
+  onAdmissionResponse,
   onResponseReadyChange,
   onResponseContent,
   onConversationReset,
@@ -138,6 +144,7 @@ export function AssistantPanel({
   );
 
   const [submissionInFlight, setSubmissionInFlight] = useState(false);
+  const activeCommandIdRef = useRef<number | null>(null);
   const typedPresentationCleanupRef = useRef<(() => void) | null>(null);
   const publishAdmissionPresentation = useCallback(
     (presentation: ChatAdmissionPresentation) => {
@@ -158,8 +165,10 @@ export function AssistantPanel({
   const cancelResponse = useCallback(() => {
     // Retire display ownership at Stop intent even if transport ignores abort.
     typedPresentationCleanupRef.current?.();
+    const commandId = activeCommandIdRef.current;
+    if (commandId != null) onCommandResponseCancelled?.(commandId);
     streaming.cancelStream();
-  }, [streaming]);
+  }, [onCommandResponseCancelled, streaming]);
   const sendMessage = useChatMessageSender({
     conversationId: persistence.conversationId,
     persistence,
@@ -167,6 +176,7 @@ export function AssistantPanel({
     createConversation,
     onSendingChange: setSubmissionInFlight,
     onAdmissionPresentation: publishAdmissionPresentation,
+    onAdmissionResponse,
   });
   const latestAssistantMessage = [...messages]
     .reverse()
@@ -224,6 +234,7 @@ export function AssistantPanel({
     }
     consumedCommandIdRef.current = pendingCommand.id;
     const commandId = pendingCommand.id;
+    activeCommandIdRef.current = commandId;
     const delivery = pendingCommand.delivery;
     const targetsCapturedInput = delivery?.mode === "paste";
     let responseDelivered = false;
@@ -236,6 +247,9 @@ export function AssistantPanel({
       operation: pendingCommand.operation ?? undefined,
       selectedContext: pendingCommand.selectedContext ?? undefined,
       suppressResponseContent: targetsCapturedInput,
+      onResponseContent: onCommandResponse
+        ? () => onCommandResponse(commandId, { showPanel: !targetsCapturedInput })
+        : undefined,
       onComplete: delivery
         ? async ({ content }) => {
             const result = await deliverAssistantResponse(delivery, content);
@@ -271,7 +285,10 @@ export function AssistantPanel({
           },
         ]);
       })
-      .finally(() => onCommandSettled(commandId, { showPanel: !responseDelivered }));
+      .finally(() => {
+        if (activeCommandIdRef.current === commandId) activeCommandIdRef.current = null;
+        onCommandSettled(commandId, { showPanel: !responseDelivered });
+      });
   }, [
     historyReady,
     submissionInFlight,
@@ -279,6 +296,7 @@ export function AssistantPanel({
     onCommandConsumed,
     onCommandDiscarded,
     onCommandSettled,
+    onCommandResponse,
     onSelectionContextChange,
     confirmCopied,
     sendMessage,

@@ -227,3 +227,112 @@ test("a concurrent answering phase never wraps an owned Undo/outcome capsule", a
     assert.match(html, new RegExp(`data-pill-state="${state}"`));
   }
 });
+
+for (const terminalAt of ["before response", "during answering", "panel opened before response"])
+  test(`explicit response owner prevents a retired flourish: ${terminalAt}`, async (t) => {
+    const React = require("react");
+    const { createRoot } = require("react-dom/client");
+    const { installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
+    let root;
+    t.after(async () => {
+      if (root) await React.act(async () => root.unmount());
+    });
+    installBrowserGlobals(t);
+    const container = installHookDom(t);
+    const { useAgentAnswering } = await import("../../src/hooks/useAgentAnswering.ts");
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let answering;
+    function Harness({ thinking, response }) {
+      answering = useAgentAnswering(thinking, true, response);
+      return null;
+    }
+    root = createRoot(container);
+    const render = (thinking, response) =>
+      React.act(async () => root.render(React.createElement(Harness, { thinking, response })));
+    const a = {},
+      b = {};
+    await render(true, { owner: a, responded: false });
+    if (terminalAt === "during answering") {
+      await render(false, { owner: a, responded: true });
+      assert.equal(answering, true);
+    }
+    await render(
+      false,
+      terminalAt === "panel opened before response" ? { owner: a, responded: false } : null
+    );
+    assert.equal(
+      answering,
+      false,
+      "retirement/opening a panel is not a first response while business remains busy"
+    );
+    await render(true, { owner: b, responded: false });
+    await React.act(async () => t.mock.timers.tick(900));
+    await render(false, { owner: b, responded: true });
+    assert.equal(answering, true, "B's actual response starts a fresh phase");
+    await React.act(async () => t.mock.timers.tick(999));
+    assert.equal(answering, true, "A's old timer cannot end B's phase");
+    await React.act(async () => t.mock.timers.tick(1));
+    assert.equal(answering, false, "B owns its exact 1000ms deadline");
+  });
+
+test("production controller distinguishes opening a pending panel from its exact response and fences retired response callbacks", async (t) => {
+  const React = require("react");
+  const { createRoot } = require("react-dom/client");
+  const { installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  const container = installHookDom(t);
+  const { useAssistantPanel } = await import("../../src/hooks/useAssistantPanel.js");
+  const { useAgentAnswering } = await import("../../src/hooks/useAgentAnswering.ts");
+  let owner, answering, releaseA, releaseB;
+  function Harness() {
+    owner = useAssistantPanel({
+      requestMainWindowSize: async () => {},
+      wordsCardVisible: false,
+      recordingControlsRef: { current: null },
+    });
+    answering = useAgentAnswering(owner.thinking, owner.busy, owner.responsePhase);
+    return null;
+  }
+  root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(Harness)));
+  const a = {
+    agentOnly: true,
+    routes: null,
+    settings: {},
+    intents: { voiceAgentRequested: true, translationRequested: false },
+  };
+  const b = { ...a };
+  await React.act(async () => {
+    releaseA = owner.handleTypedAdmission(a);
+    owner.setBusy(true);
+  });
+  await React.act(async () => owner.openPanel());
+  assert.equal(owner.thinking, false, "opening the real pending panel clears thinking");
+  assert.equal(owner.responsePhase.responded, false);
+  assert.equal(answering, false, "opening alone is not a first response");
+  await React.act(async () => owner.handleTypedResponse(a));
+  assert.equal(answering, true);
+  await React.act(async () => {
+    releaseA();
+    releaseB = owner.handleTypedAdmission(b);
+  });
+  const bKey = owner.responsePhase.owner;
+  await React.act(async () => {
+    releaseA();
+    owner.handleTypedResponse(a);
+    owner.handleCommandResponse(1);
+  });
+  assert.equal(owner.responsePhase.owner, bKey);
+  assert.equal(owner.responsePhase.responded, false, "late A response never marks B as responding");
+  assert.equal(owner.thinking, true);
+  assert.equal(answering, false);
+  await React.act(async () => owner.handleTypedResponse(b));
+  assert.equal(answering, true);
+  await React.act(async () => releaseB());
+  assert.equal(owner.busy, true);
+  assert.equal(answering, false);
+});

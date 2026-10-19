@@ -253,7 +253,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
       voiceAgentScreenContext: false,
       dictationAgentProvider: "anthropic",
     });
-    globalThis.__pillAppAssistant.handleResponseContent();
+    globalThis.__pillAppAssistant.handleTypedResponse(typedPresentation);
   });
   assert.match(tree.text(), /Thinking with screen context.*Google Gemini/);
   assert.equal(

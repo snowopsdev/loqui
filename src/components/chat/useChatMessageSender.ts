@@ -23,6 +23,8 @@ interface UseChatMessageSenderOptions {
   onSendingChange?: (sending: boolean) => void;
   /** Optional display-only observer of a fresh typed admission; cleanup is owner-fenced. */
   onAdmissionPresentation?: (presentation: ChatAdmissionPresentation) => (() => void) | void;
+  /** Local response notification for that same exact admitted display snapshot. */
+  onAdmissionResponse?: (presentation: ChatAdmissionPresentation) => void;
 }
 
 interface MessageSubmissionLock {
@@ -55,6 +57,7 @@ export function useChatMessageSender({
   onMessagePersisted,
   onSendingChange,
   onAdmissionPresentation,
+  onAdmissionResponse,
 }: UseChatMessageSenderOptions): (text: string, options?: SendToAIOptions) => Promise<boolean> {
   const submissionLockRef = useRef<MessageSubmissionLock | null>(null);
   if (submissionLockRef.current === null) {
@@ -94,9 +97,14 @@ export function useChatMessageSender({
               admittedOptions.inferenceSnapshot &&
               onAdmissionPresentation
             ) {
-              const release = onAdmissionPresentation(
-                chatAdmissionPresentation(admittedOptions.inferenceSnapshot)
-              );
+              const presentation = chatAdmissionPresentation(admittedOptions.inferenceSnapshot);
+              const release = onAdmissionPresentation(presentation);
+              if (onAdmissionResponse) {
+                admittedOptions.onResponseContent = () => {
+                  onAdmissionResponse(presentation);
+                  options?.onResponseContent?.();
+                };
+              }
               let settled = false;
               finishPresentation = () => {
                 if (settled) return;
@@ -165,6 +173,7 @@ export function useChatMessageSender({
       onMessagePersisted,
       onSendingChange,
       onAdmissionPresentation,
+      onAdmissionResponse,
       persistence,
       streaming,
     ]

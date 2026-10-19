@@ -37,6 +37,7 @@ export function useAssistantPanel({
   const [activeOperation, setActiveOperation] = useState(null);
   const [typedPresentation, setTypedPresentation] = useState(null);
   const presentationOwnerRef = useRef(null);
+  const [responsePhase, setResponsePhase] = useState(null);
   const [conversationId, setConversationId] = useState(null);
 
   const openRef = useRef(open);
@@ -144,7 +145,9 @@ export function useAssistantPanel({
       // the external caret would snap that surface away mid-read.
       const delivery = openRef.current ? null : (command.delivery ?? null);
       beginThinking();
-      presentationOwnerRef.current = { kind: "spoken", id: commandIdRef.current };
+      const owner = { kind: "spoken", id: commandIdRef.current };
+      presentationOwnerRef.current = owner;
+      setResponsePhase({ owner, responded: false });
       setTypedPresentation(null);
       setActiveOperation(command.operation ?? null);
       setPendingCommand({
@@ -177,6 +180,8 @@ export function useAssistantPanel({
 
   const handleCommandDiscarded = useCallback((id) => {
     if (presentationOwnerRef.current?.kind === "spoken" && presentationOwnerRef.current.id === id) {
+      presentationOwnerRef.current.retired = true;
+      setResponsePhase(null);
       setActiveOperation(null);
     }
     setPendingCommand((current) => discardPendingAssistantCommand(current, id));
@@ -196,6 +201,7 @@ export function useAssistantPanel({
       )
         return;
       presentationOwnerRef.current = null;
+      setResponsePhase(null);
       setActiveOperation(null);
       if (!mountedRef.current || closingRef.current) return;
       setThinking(false);
@@ -215,17 +221,54 @@ export function useAssistantPanel({
   // A typed turn publishes only the effective display projection. Its unique owner
   // fences late finally/unmount cleanup against a newer spoken or typed admission.
   const handleTypedAdmission = useCallback((presentation) => {
-    const owner = { kind: "typed" };
+    const owner = { kind: "typed", presentation };
     presentationOwnerRef.current = owner;
+    setResponsePhase({ owner, responded: false });
     setActiveOperation(null);
     setTypedPresentation(presentation);
     setThinking(true);
     return () => {
       if (presentationOwnerRef.current !== owner) return;
       presentationOwnerRef.current = null;
+      setResponsePhase(null);
       setTypedPresentation(null);
       setThinking(false);
     };
+  }, []);
+
+  // Called only by the exact request's local response callback, never by a
+  // thinking flag change (opening a pending panel also clears that flag).
+  const handleTypedResponse = useCallback(
+    (presentation) => {
+      const owner = presentationOwnerRef.current;
+      if (owner?.kind !== "typed" || owner.presentation !== presentation) return;
+      setResponsePhase((current) =>
+        current?.owner === owner ? { owner, responded: true } : current
+      );
+      handleResponseContent();
+    },
+    [handleResponseContent]
+  );
+
+  const handleCommandResponse = useCallback(
+    (id, { showPanel = true } = {}) => {
+      const owner = presentationOwnerRef.current;
+      if (owner?.kind !== "spoken" || owner.id !== id || owner.retired) return;
+      setResponsePhase((current) =>
+        current?.owner === owner ? { owner, responded: true } : current
+      );
+      if (showPanel) handleResponseContent();
+      else setThinking(false);
+    },
+    [handleResponseContent]
+  );
+
+  const handleCommandResponseCancelled = useCallback((id) => {
+    const owner = presentationOwnerRef.current;
+    if (owner?.kind !== "spoken" || owner.id !== id) return;
+    owner.retired = true;
+    setResponsePhase(null);
+    setThinking(false);
   }, []);
 
   const handleSelectionContextChange = useCallback((context) => {
@@ -261,6 +304,7 @@ export function useAssistantPanel({
     setActiveOperation(null);
     setTypedPresentation(null);
     presentationOwnerRef.current = null;
+    setResponsePhase(null);
     setConversationId(closeState.conversationId);
     selectionContextRef.current = null;
     hasContentRef.current = false;
@@ -358,6 +402,10 @@ export function useAssistantPanel({
     activeOperation,
     typedPresentation,
     handleTypedAdmission,
+    handleTypedResponse,
+    handleCommandResponse,
+    handleCommandResponseCancelled,
+    responsePhase,
     conversationId,
     openRef,
     setBusy,

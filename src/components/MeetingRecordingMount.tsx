@@ -40,6 +40,28 @@ export default function MeetingRecordingMount(): null {
     (s) => s.systemAudioInterruptedNonce
   );
   const micCaptureStatus = useMeetingRecordingStore((s) => s.micCaptureStatus);
+  const recordingStartedAt = useMeetingRecordingStore((s) => s.recordingStartedAt);
+  const micQuiet = useMeetingRecordingStore((s) => s.micQuiet);
+  useEffect(() => {
+    window.electronAPI?.reportMeetingRecordingPresence?.({
+      recording: isRecording,
+      sessionId: getActiveRecordingSessionId() ?? undefined,
+      startedAt: recordingStartedAt ?? undefined,
+      interruption: systemAudioInterrupted
+        ? "systemAudio"
+        : micCaptureStatus === "unavailable"
+          ? "mic"
+          : null,
+      quiet: micQuiet,
+    });
+  }, [isRecording, recordingStartedAt, systemAudioInterrupted, micCaptureStatus, micQuiet]);
+  useEffect(
+    () =>
+      window.electronAPI?.onMeetingRecordingStopRequested?.(
+        (sessionId) => void stopRecording(sessionId)
+      ),
+    []
+  );
   const wasMicUnavailable = useRef(false);
   const wasSystemAudioSilent = useRef(false);
 

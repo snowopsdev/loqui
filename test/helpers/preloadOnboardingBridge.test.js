@@ -130,3 +130,36 @@ test("Undo and flush preload APIs strip events, reply on exact channels and unsu
   assert.equal(listeners.has("undo-cancel-request"), false);
   assert.equal(listeners.has("dictation-flush-request"), false);
 });
+
+test("meeting presence/outcome/stop/reveal preload APIs use exact channels and strip Electron events", async () => {
+  const { api, invocations, listeners, sends } = loadPreloadApi();
+  const presence = { recording: true, sessionId: "A", startedAt: 1000 };
+  const outcome = { sessionId: "A", kind: "failed", reason: "save" };
+  api.reportMeetingRecordingPresence(presence);
+  api.reportMeetingRecordingOutcome(outcome);
+  await api.getMeetingRecordingPresence();
+  await api.requestStopMeetingRecording("A");
+  assert.deepEqual(sends, [
+    ["meeting-recording-presence", presence],
+    ["meeting-recording-outcome", outcome],
+  ]);
+  assert.deepEqual(invocations, [
+    ["get-meeting-recording-presence"],
+    ["request-stop-meeting-recording", "A"],
+  ]);
+  for (const [method, channel, payload] of [
+    ["onMeetingRecordingPresenceChanged", "meeting-recording-presence-changed", presence],
+    ["onMeetingRecordingOutcome", "meeting-recording-outcome", outcome],
+    ["onMeetingRecordingStopRequested", "meeting-recording-stop-requested", "A"],
+    ["onMeetingRecorderRevealRequested", "meeting-recorder-reveal-requested", "A"],
+  ]) {
+    let received;
+    const off = api[method]((value) => {
+      received = value;
+    });
+    listeners.get(channel)({ sender: "electron-event" }, payload);
+    assert.equal(received, payload);
+    off();
+    assert.equal(listeners.has(channel), false);
+  }
+});

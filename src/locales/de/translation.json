@@ -59,6 +59,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui nimmt diese Besprechung auf",
+    "notificationBody": "Hier, über das Infobereich-Menü oder die Loqui-Kapsel stoppen.",
+    "notificationFallbackBody": "Klicken, um die Loqui-Kapsel anzuzeigen und dort zu stoppen, oder das Infobereich-Menü verwenden.",
+    "stop": "Stoppen"
+  },
   "tray": {
     "toggleDictation": {
       "show": "Diktierfeld anzeigen",
@@ -67,7 +73,12 @@
     "openControlPanel": "Kontrollzentrum öffnen",
     "hideControlPanel": "Kontrollzentrum ausblenden",
     "quit": "Loqui beenden",
-    "tooltip": "Loqui – Sprachdiktat"
+    "tooltip": "Loqui – Sprachdiktat",
+    "tooltipRecording": "Loqui — Besprechung wird aufgenommen",
+    "meetingRecording": "Besprechung wird aufgenommen · {{elapsed}}",
+    "meetingRecordingSystemLost": "Aufnahme läuft · Systemaudio ausgefallen",
+    "meetingRecordingMicLost": "Aufnahme läuft · Mikrofon ausgefallen",
+    "stopMeetingRecording": "Besprechungsaufnahme stoppen"
   },
   "menu": {
     "appLabel": "Loqui",

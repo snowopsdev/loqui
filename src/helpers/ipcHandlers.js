@@ -7979,6 +7979,35 @@ class IPCHandlers {
       },
     });
 
+    const fromControlPanel = (event) => {
+      const panel = this.windowManager.controlPanelWindow;
+      return Boolean(panel && !panel.isDestroyed() && event.sender === panel.webContents);
+    };
+    const watchedMeetingOwners = new WeakSet();
+    ipcMain.on("meeting-recording-presence", (event, payload) => {
+      if (!fromControlPanel(event)) return;
+      const contents = event.sender;
+      this.windowManager.meetingPresence.set(contents.id, payload);
+      if (watchedMeetingOwners.has(contents)) return;
+      watchedMeetingOwners.add(contents);
+      const lost = () => this.windowManager.meetingPresence.clearIfOwner(contents.id);
+      contents.once("destroyed", lost);
+      contents.on("render-process-gone", lost);
+      contents.on("did-start-navigation", (details) => {
+        if (details.isMainFrame && !details.isSameDocument) lost();
+      });
+    });
+    ipcMain.on("meeting-recording-outcome", (event, outcome) => {
+      if (!fromControlPanel(event)) return;
+      if (typeof outcome?.sessionId !== "string" || !["saved", "failed"].includes(outcome.kind))
+        return;
+      this.windowManager._onMeetingOutcome(outcome);
+    });
+    ipcMain.handle("get-meeting-recording-presence", () => this.windowManager.getMeetingPresence());
+    ipcMain.handle("request-stop-meeting-recording", (_event, sessionId) => {
+      this.windowManager.requestStopMeetingRecording(sessionId);
+    });
+
     ipcMain.handle("meeting-transcription-start", (event, options = {}) => {
       const sessionId =
         typeof options.sessionId === "string" && options.sessionId.length > 0

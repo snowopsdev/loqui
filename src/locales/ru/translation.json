@@ -59,6 +59,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui записывает эту встречу",
+    "notificationBody": "Остановите запись здесь, через меню в трее или капсулу Loqui.",
+    "notificationFallbackBody": "Нажмите, чтобы показать капсулу Loqui и остановить запись, или используйте меню в трее.",
+    "stop": "Остановить"
+  },
   "tray": {
     "toggleDictation": {
       "show": "Показать панель диктовки",
@@ -67,7 +73,12 @@
     "openControlPanel": "Открыть панель управления",
     "hideControlPanel": "Скрыть панель управления",
     "quit": "Закрыть Loqui",
-    "tooltip": "Loqui — голосовая диктовка"
+    "tooltip": "Loqui — голосовая диктовка",
+    "tooltipRecording": "Loqui — идёт запись встречи",
+    "meetingRecording": "Запись встречи · {{elapsed}}",
+    "meetingRecordingSystemLost": "Запись · системный звук потерян",
+    "meetingRecordingMicLost": "Запись · микрофон отключён",
+    "stopMeetingRecording": "Остановить запись встречи"
   },
   "menu": {
     "appLabel": "Loqui",

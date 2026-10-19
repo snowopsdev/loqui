@@ -1,4 +1,4 @@
-import type { CancelledState, UndoResult } from "./dictation";
+import type { MeetingPresence, MeetingOutcome, CancelledState, UndoResult } from "./dictation";
 /** Fresh dictation attempt identity; main binds it to one sender, generation and adapter. */
 export interface DictationStreamingOperationOptions {
   operationId?: string;
@@ -1202,7 +1202,7 @@ declare global {
           updated_by_user_id?: string | null;
           left_team?: number;
         }
-      ) => Promise<{ success: boolean; note?: NoteItem }>;
+      ) => Promise<{ success: boolean; note?: NoteItem; error?: string }>;
       deleteNote: (id: number) => Promise<{ success: boolean }>;
       exportNote: (
         noteId: number,
@@ -2353,6 +2353,20 @@ declare global {
         sessionId: string,
         available: boolean
       ) => Promise<{ success: boolean; reason?: "stale-session" }>;
+      reportMeetingRecordingPresence?: (p: {
+        recording: boolean;
+        sessionId?: string;
+        startedAt?: number;
+        interruption?: "systemAudio" | "mic" | null;
+        quiet?: boolean;
+      }) => void;
+      reportMeetingRecordingOutcome?: (o: MeetingOutcome) => void;
+      getMeetingRecordingPresence?: () => Promise<MeetingPresence | null>;
+      onMeetingRecordingPresenceChanged?: (cb: (p: MeetingPresence | null) => void) => () => void;
+      onMeetingRecordingOutcome?: (cb: (o: MeetingOutcome) => void) => () => void;
+      requestStopMeetingRecording?: (sessionId: string) => Promise<void>;
+      onMeetingRecordingStopRequested?: (cb: (sessionId: string) => void) => () => void;
+      onMeetingRecorderRevealRequested?: (cb: (sessionId: string) => void) => () => void;
       meetingTranscriptionStop?: (expectedSessionId?: string) => Promise<{
         success: boolean;
         transcript?: string;

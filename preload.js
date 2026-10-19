@@ -913,6 +913,27 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("meeting-transcription-send", buffer, source),
   meetingTranscriptionSetSystemAudioAvailable: (sessionId, available) =>
     ipcRenderer.invoke("meeting-transcription-set-system-audio-available", sessionId, available),
+  reportMeetingRecordingPresence: (p) => ipcRenderer.send("meeting-recording-presence", p),
+  reportMeetingRecordingOutcome: (o) => ipcRenderer.send("meeting-recording-outcome", o),
+  getMeetingRecordingPresence: () => ipcRenderer.invoke("get-meeting-recording-presence"),
+  requestStopMeetingRecording: (sessionId) =>
+    ipcRenderer.invoke("request-stop-meeting-recording", sessionId),
+  onMeetingRecordingPresenceChanged: registerListener(
+    "meeting-recording-presence-changed",
+    (callback) => (_event, data) => callback(data)
+  ),
+  onMeetingRecordingOutcome: registerListener(
+    "meeting-recording-outcome",
+    (callback) => (_event, data) => callback(data)
+  ),
+  onMeetingRecordingStopRequested: registerListener(
+    "meeting-recording-stop-requested",
+    (callback) => (_event, data) => callback(data)
+  ),
+  onMeetingRecorderRevealRequested: registerListener(
+    "meeting-recorder-reveal-requested",
+    (callback) => (_event, data) => callback(data)
+  ),
   meetingTranscriptionStop: (expectedSessionId) =>
     ipcRenderer.invoke("meeting-transcription-stop", expectedSessionId),
   meetingTranscriptionCancel: () => ipcRenderer.invoke("meeting-transcription-cancel"),

@@ -1,3 +1,4 @@
+const { createMeetingPresence } = require("./meetingPresence");
 const { app, screen, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
 const {
   requestFromRenderer,
@@ -79,7 +80,52 @@ class WindowManager {
     return ack === true;
   }
 
+  getMeetingPresence() {
+    return this.meetingPresence.get();
+  }
+
+  _onMeetingPresenceChanged(presence) {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("meeting-recording-presence-changed", presence);
+    }
+    this.onMeetingPresenceChanged?.(presence);
+  }
+
+  _onMeetingOutcome(outcome) {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("meeting-recording-outcome", outcome);
+    }
+    this.onMeetingOutcome?.(outcome);
+  }
+
+  // Session-bound: a Stop from a stale tray item or notification, or for a
+  // session that already ended, does nothing.
+  requestStopMeetingRecording(sessionId) {
+    if (!sessionId || this.meetingPresence.get()?.sessionId !== sessionId) return false;
+    this.sendToControlPanel("meeting-recording-stop-requested", sessionId);
+    return true;
+  }
+
+  // D2: clicking the Linux recording notification brings up the pill with
+  // Stop visible. The pill (Task 17) shows the capsule for this session even
+  // when the on-screen recorder setting is off or the pill is auto-hidden.
+  revealMeetingRecorder(sessionId) {
+    if (!sessionId || this.meetingPresence.get()?.sessionId !== sessionId) return false;
+    this.showDictationPanel();
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("meeting-recorder-reveal-requested", sessionId);
+    }
+    return true;
+  }
+
   constructor() {
+    this.meetingPresence = createMeetingPresence({
+      onChange: (p) => this._onMeetingPresenceChanged(p),
+      onOwnerLost: (sessionId) =>
+        this._onMeetingOutcome({ sessionId, kind: "failed", reason: "ownerLost" }),
+    });
+    this.onMeetingPresenceChanged = null;
+    this.onMeetingOutcome = null;
     this.mainWindow = null;
     this.lastCancelledDictation = null;
     this.controlPanelWindow = null;

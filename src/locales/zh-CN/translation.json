@@ -59,6 +59,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui 正在录制此会议",
+    "notificationBody": "可在此处、托盘菜单或 Loqui 胶囊中停止录制。",
+    "notificationFallbackBody": "点击显示 Loqui 胶囊并停止录制，或使用托盘菜单。",
+    "stop": "停止"
+  },
   "tray": {
     "toggleDictation": {
       "show": "显示听写面板",
@@ -67,7 +73,12 @@
     "openControlPanel": "打开控制面板",
     "hideControlPanel": "隐藏控制面板",
     "quit": "退出 Loqui",
-    "tooltip": "Loqui - 语音听写"
+    "tooltip": "Loqui - 语音听写",
+    "tooltipRecording": "Loqui — 正在录制会议",
+    "meetingRecording": "正在录制会议 · {{elapsed}}",
+    "meetingRecordingSystemLost": "录制中 · 系统音频已中断",
+    "meetingRecordingMicLost": "录制中 · 麦克风已断开",
+    "stopMeetingRecording": "停止录制会议"
   },
   "menu": {
     "appLabel": "Loqui",

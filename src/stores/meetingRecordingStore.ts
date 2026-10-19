@@ -1,3 +1,4 @@
+import type { MeetingOutcome } from "../types/dictation";
 import { create } from "zustand";
 import { getSettings, selectResolvedMeetingTranscription } from "./settingsStore";
 import { getMeetingStreamingTranscriptionProviders } from "../models/ModelRegistry";
@@ -113,6 +114,7 @@ interface MeetingRecordingState {
   systemAudioInterruptedNonce: number;
   systemAudioInterruptedDeliveredNonce: number;
   currentMicLevel: number;
+  micQuiet: boolean;
   micCaptureStatus: "inactive" | "active" | "reconnecting" | "unavailable";
   windowWidth: number;
 }
@@ -453,6 +455,7 @@ export const useMeetingRecordingStore = create<MeetingRecordingState>()(() => ({
   systemAudioInterruptedNonce: 0,
   systemAudioInterruptedDeliveredNonce: 0,
   currentMicLevel: 0,
+  micQuiet: false,
   micCaptureStatus: "inactive",
   windowWidth: typeof window !== "undefined" ? window.innerWidth : SIDE_PANEL_BREAKPOINT_PX,
 }));
@@ -1498,6 +1501,8 @@ export interface StopRecordingResult {
   // True only when this call ended a live recording — false for a no-op stop
   // (nothing recording, or a scoped stop for a session that is not active).
   stopped: boolean;
+  persisted: boolean;
+  stopError: boolean;
 }
 
 export async function stopRecording(expectedSessionId?: string): Promise<StopRecordingResult> {
@@ -1517,23 +1522,23 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
       currentMicLevel: 0,
       recordingStartedAt: null,
     });
-    return { diarizationSessionId: null, stopped: false };
+    return { diarizationSessionId: null, stopped: false, persisted: false, stopError: false };
   }
 
   await meetingRecordingStopBarrier.waitForPendingStop();
   if (!canStopMeetingRecordingSession(activeRecordingSessionId, expectedSessionId)) {
-    return { diarizationSessionId: null, stopped: false };
+    return { diarizationSessionId: null, stopped: false, persisted: false, stopError: false };
   }
   if (!isRecordingFlag) {
-    return { diarizationSessionId: null, stopped: false };
+    return { diarizationSessionId: null, stopped: false, persisted: false, stopError: false };
   }
 
   return meetingRecordingStopBarrier.runStop(async () => {
     if (!canStopMeetingRecordingSession(activeRecordingSessionId, expectedSessionId)) {
-      return { diarizationSessionId: null, stopped: false };
+      return { diarizationSessionId: null, stopped: false, persisted: false, stopError: false };
     }
     if (!isRecordingFlag) {
-      return { diarizationSessionId: null, stopped: false };
+      return { diarizationSessionId: null, stopped: false, persisted: false, stopError: false };
     }
 
     const sessionId = activeRecordingSessionId;
@@ -1545,11 +1550,35 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
     // Persist here, not in a notes-view effect: an auto-end stop can fire while
     // that view is unmounted, and any view-scoped saver dies with it. (Delayed
     // diarization results are persisted by the module-level listener below.)
-    const { recordingNoteId, segments: finalSegments } = useMeetingRecordingStore.getState();
+    const {
+      recordingNoteId,
+      segments: finalSegments,
+      recordingStartedAt,
+    } = useMeetingRecordingStore.getState();
+    // R1-I14: "saved" needs acknowledgements. updateNote answers
+    // { success: false } without throwing (database.js:1194, :1231, :1239), and
+    // main's stop answers { success: false, reason: "stale-session" }
+    // (meetingTranscriptionLifecycle.js:39-43). A missing API or result is no
+    // acknowledgement either.
+    let writeRequired = false; // persist() runs only when there is content
+    let writeAcknowledged = false;
+    let stopAcknowledged = false;
     const persistTranscript = async (transcript: string) => {
-      if (recordingNoteId == null) return;
+      writeRequired = true;
+      if (recordingNoteId == null) {
+        logger.error("Meeting transcript has no note to write to", {}, "meeting");
+        return;
+      }
       try {
-        await window.electronAPI?.updateNote?.(recordingNoteId, { transcript });
+        const result = await window.electronAPI?.updateNote?.(recordingNoteId, { transcript });
+        writeAcknowledged = result?.success === true;
+        if (!writeAcknowledged) {
+          logger.error(
+            "Failed to persist final meeting transcript",
+            { error: result?.error ?? "no acknowledgement", noteId: recordingNoteId },
+            "meeting"
+          );
+        }
       } catch (err) {
         logger.error(
           "Failed to persist final meeting transcript",
@@ -1558,42 +1587,67 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
         );
       }
     };
+    const persisted = () => !writeRequired || writeAcknowledged;
 
-    const diarizationSessionId = await persistFinalTranscriptAroundStop({
-      segments: finalSegments,
-      serializeSegments: serializeTranscriptSegments,
-      persist: persistTranscript,
-      fallbackTranscript: () => useMeetingRecordingStore.getState().transcript,
-      stop: async () => {
-        await cleanup();
+    let diarizationSessionId: string | null = null;
+    try {
+      diarizationSessionId = await persistFinalTranscriptAroundStop({
+        segments: finalSegments,
+        serializeSegments: serializeTranscriptSegments,
+        persist: persistTranscript,
+        fallbackTranscript: () => useMeetingRecordingStore.getState().transcript,
+        stop: async () => {
+          await cleanup();
 
-        let stoppedDiarizationSessionId: string | null = null;
-        try {
-          const result = await window.electronAPI?.meetingTranscriptionStop?.(
-            sessionId ?? undefined
-          );
-          if (result?.diarizationSessionId) {
-            stoppedDiarizationSessionId = result.diarizationSessionId;
-            useMeetingRecordingStore.setState({
-              diarizationSessionId: stoppedDiarizationSessionId,
-            });
+          let stoppedDiarizationSessionId: string | null = null;
+          try {
+            const result = await window.electronAPI?.meetingTranscriptionStop?.(
+              sessionId ?? undefined
+            );
+            stopAcknowledged = result?.success === true;
+            if (result?.diarizationSessionId) {
+              stoppedDiarizationSessionId = result.diarizationSessionId;
+              useMeetingRecordingStore.setState({
+                diarizationSessionId: stoppedDiarizationSessionId,
+              });
+            }
+            if (result?.success && result.transcript) {
+              useMeetingRecordingStore.setState({ transcript: result.transcript });
+            } else if (result?.error) {
+              reportMeetingError(result.error);
+            } else if (!stopAcknowledged) {
+              logger.error(
+                "Meeting transcription stop was not acknowledged",
+                { reason: result?.reason ?? "no result" },
+                "meeting"
+              );
+            }
+          } catch (err) {
+            reportMeetingError((err as Error).message);
+            logger.error(
+              "Meeting transcription stop failed",
+              { error: (err as Error).message },
+              "meeting"
+            );
           }
-          if (result?.success && result.transcript) {
-            useMeetingRecordingStore.setState({ transcript: result.transcript });
-          } else if (result?.error) {
-            reportMeetingError(result.error);
-          }
-        } catch (err) {
-          reportMeetingError((err as Error).message);
-          logger.error(
-            "Meeting transcription stop failed",
-            { error: (err as Error).message },
-            "meeting"
-          );
-        }
-        return stoppedDiarizationSessionId;
-      },
-    });
+          return stoppedDiarizationSessionId;
+        },
+      });
+    } finally {
+      // Once per real stop (runStop dedupes), and also when the stop threw.
+      if (sessionId) {
+        const outcome: MeetingOutcome =
+          persisted() && stopAcknowledged
+            ? {
+                sessionId,
+                kind: "saved",
+                durationMs: recordingStartedAt ? Date.now() - recordingStartedAt : 0,
+                noteId: recordingNoteId == null ? null : String(recordingNoteId),
+              }
+            : { sessionId, kind: "failed", reason: persisted() ? "stop" : "save" };
+        window.electronAPI?.reportMeetingRecordingOutcome?.(outcome);
+      }
+    }
 
     useMeetingRecordingStore.setState({
       micPartial: "",
@@ -1607,10 +1661,15 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
     });
 
     logger.info("Meeting transcription stopped", {}, "meeting");
-    // Reaching here means this call ended a live recording and its transcript
-    // was written above. A failed main-side teardown is surfaced by
-    // reportMeetingError and must not be reported as a recording that never stopped.
-    return { diarizationSessionId, stopped: true };
+    // Reaching here means this call ended a live recording. persisted and
+    // stopError say whether the write and main's stop were acknowledged; the
+    // outcome above already told main which it was.
+    return {
+      diarizationSessionId,
+      stopped: true,
+      persisted: persisted(),
+      stopError: !stopAcknowledged,
+    };
   });
 }
 
@@ -1762,4 +1821,29 @@ export function useIsMeetingMode(): boolean {
   const isRecording = useMeetingRecordingStore((s) => s.isRecording);
   const isNarrow = useIsNarrowWindow();
   return isRecording && isNarrow;
+}
+
+// Initializes a live session without capture, provider calls or native resources.
+export function __primeRecordingForTests({
+  sessionId,
+  noteId,
+  startedAt,
+  segments,
+}: {
+  sessionId: string;
+  noteId: number | null;
+  startedAt: number;
+  segments: TranscriptSegment[];
+}): void {
+  activeRecordingSessionId = sessionId;
+  isRecordingFlag = true;
+  isStartingFlag = false;
+  useMeetingRecordingStore.setState({
+    recordingNoteId: noteId,
+    segments,
+    recordingStartedAt: startedAt,
+    isRecording: true,
+    isTranscribing: false,
+    transcript: "",
+  });
 }

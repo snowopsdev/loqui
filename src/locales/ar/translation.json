@@ -3064,6 +3064,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "يسجّل Loqui هذا الاجتماع",
+    "notificationBody": "أوقف التسجيل من هنا أو من قائمة علبة النظام أو شريط Loqui العائم.",
+    "notificationFallbackBody": "انقر لإظهار شريط Loqui العائم وإيقاف التسجيل منه، أو استخدم قائمة علبة النظام.",
+    "stop": "إيقاف"
+  },
   "tray": {
     "toggleDictation": {
       "show": "إظهار لوحة الإملاء",
@@ -3072,7 +3078,12 @@
     "openControlPanel": "فتح لوحة التحكم",
     "hideControlPanel": "إخفاء لوحة التحكم",
     "quit": "إنهاء Loqui",
-    "tooltip": "Loqui - الإملاء الصوتي"
+    "tooltip": "Loqui - الإملاء الصوتي",
+    "tooltipRecording": "Loqui — جارٍ تسجيل اجتماع",
+    "meetingRecording": "جارٍ تسجيل الاجتماع · {{elapsed}}",
+    "meetingRecordingSystemLost": "جارٍ التسجيل · انقطع صوت النظام",
+    "meetingRecordingMicLost": "جارٍ التسجيل · انقطع الميكروفون",
+    "stopMeetingRecording": "إيقاف تسجيل الاجتماع"
   },
   "menu": {
     "appLabel": "Loqui",

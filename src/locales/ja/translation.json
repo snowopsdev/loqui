@@ -59,6 +59,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui がこの会議を録音しています",
+    "notificationBody": "ここ、トレイメニュー、または Loqui のピルから停止できます。",
+    "notificationFallbackBody": "クリックして Loqui のピルを表示して停止するか、トレイメニューを使用してください。",
+    "stop": "停止"
+  },
   "tray": {
     "toggleDictation": {
       "show": "ディクテーションパネルを表示",
@@ -67,7 +73,12 @@
     "openControlPanel": "コントロールパネルを開く",
     "hideControlPanel": "コントロールパネルを非表示",
     "quit": "Loqui を終了",
-    "tooltip": "Loqui - 音声ディクテーション"
+    "tooltip": "Loqui - 音声ディクテーション",
+    "tooltipRecording": "Loqui — 会議を録音中",
+    "meetingRecording": "会議を録音中 · {{elapsed}}",
+    "meetingRecordingSystemLost": "録音中 · システム音声が途切れました",
+    "meetingRecordingMicLost": "録音中 · マイクが切断されました",
+    "stopMeetingRecording": "会議の録音を停止"
   },
   "menu": {
     "appLabel": "Loqui",

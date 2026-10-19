@@ -59,6 +59,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui is recording this meeting",
+    "notificationBody": "Stop it here, from the tray, or from the Loqui pill.",
+    "notificationFallbackBody": "Click to show the Loqui pill and stop it there, or use the tray menu.",
+    "stop": "Stop"
+  },
   "tray": {
     "toggleDictation": {
       "show": "Show Dictation Panel",
@@ -67,7 +73,12 @@
     "openControlPanel": "Open Control Panel",
     "hideControlPanel": "Hide Control Panel",
     "quit": "Quit Loqui",
-    "tooltip": "Loqui - Voice Dictation"
+    "tooltip": "Loqui - Voice Dictation",
+    "tooltipRecording": "Loqui — recording a meeting",
+    "meetingRecording": "Recording meeting · {{elapsed}}",
+    "meetingRecordingSystemLost": "Recording · system audio lost",
+    "meetingRecordingMicLost": "Recording · microphone lost",
+    "stopMeetingRecording": "Stop meeting recording"
   },
   "menu": {
     "appLabel": "Loqui",

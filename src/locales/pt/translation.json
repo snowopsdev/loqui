@@ -59,6 +59,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "O Loqui está gravando esta reunião",
+    "notificationBody": "Pare a gravação aqui, pela bandeja do sistema ou pela cápsula do Loqui.",
+    "notificationFallbackBody": "Clique para mostrar a cápsula do Loqui e parar a gravação, ou use o menu da bandeja do sistema.",
+    "stop": "Parar"
+  },
   "tray": {
     "toggleDictation": {
       "show": "Mostrar painel de ditado",
@@ -67,7 +73,12 @@
     "openControlPanel": "Abrir painel de controle",
     "hideControlPanel": "Ocultar painel de controle",
     "quit": "Sair do Loqui",
-    "tooltip": "Loqui - Ditado por voz"
+    "tooltip": "Loqui - Ditado por voz",
+    "tooltipRecording": "Loqui — gravando uma reunião",
+    "meetingRecording": "Gravando reunião · {{elapsed}}",
+    "meetingRecordingSystemLost": "Gravando · áudio do sistema perdido",
+    "meetingRecordingMicLost": "Gravando · microfone desconectado",
+    "stopMeetingRecording": "Parar gravação da reunião"
   },
   "menu": {
     "appLabel": "Loqui",

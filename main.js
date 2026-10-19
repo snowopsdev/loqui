@@ -537,6 +537,7 @@ function initializeDeferredManagers() {
     clipboardManager.preWarmAccessibility();
   }
   trayManager = new TrayManager();
+  sidecarRegistry.register("meetingNotification", () => trayManager.teardownMeetingNotification());
   globeKeyManager = new GlobeKeyManager({
     // Lets the listener put the user's macOS Globe action back after a crash.
     preferenceStatePath: path.join(app.getPath("userData"), "globe-preference-state.json"),
@@ -897,6 +898,7 @@ async function startApp() {
   // The tray's listen item is a toggle, so it has to rebuild when dictation
   // starts or stops.
   windowManager.onDictationStateChanged = () => trayManager.updateTrayMenu();
+  windowManager.onMeetingPresenceChanged = (p) => trayManager.setMeetingPresence(p);
   trayManager.setCreateControlPanelCallback(() => windowManager.createControlPanelWindow());
   await trayManager.createTray();
 

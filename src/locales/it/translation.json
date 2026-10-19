@@ -59,6 +59,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui sta registrando questa riunione",
+    "notificationBody": "Interrompi qui, dalla barra delle applicazioni o dalla capsula Loqui.",
+    "notificationFallbackBody": "Fai clic per mostrare la capsula Loqui e interrompere la registrazione, oppure usa il menu nella barra delle applicazioni.",
+    "stop": "Interrompi"
+  },
   "tray": {
     "toggleDictation": {
       "show": "Mostra pannello dettatura",
@@ -67,7 +73,12 @@
     "openControlPanel": "Apri pannello di controllo",
     "hideControlPanel": "Nascondi pannello di controllo",
     "quit": "Esci da Loqui",
-    "tooltip": "Loqui - Dettatura vocale"
+    "tooltip": "Loqui - Dettatura vocale",
+    "tooltipRecording": "Loqui — registrazione di una riunione",
+    "meetingRecording": "Registrazione della riunione · {{elapsed}}",
+    "meetingRecordingSystemLost": "Registrazione · audio di sistema perso",
+    "meetingRecordingMicLost": "Registrazione · microfono scollegato",
+    "stopMeetingRecording": "Interrompi registrazione della riunione"
   },
   "menu": {
     "appLabel": "Loqui",

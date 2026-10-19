@@ -59,6 +59,12 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui enregistre cette réunion",
+    "notificationBody": "Arrêtez l’enregistrement ici, depuis la zone de notification ou depuis la capsule Loqui.",
+    "notificationFallbackBody": "Cliquez pour afficher la capsule Loqui et y arrêter l’enregistrement, ou utilisez le menu de la zone de notification.",
+    "stop": "Arrêter"
+  },
   "tray": {
     "toggleDictation": {
       "show": "Afficher le panneau de dictée",
@@ -67,7 +73,12 @@
     "openControlPanel": "Ouvrir le panneau de contrôle",
     "hideControlPanel": "Masquer le panneau de contrôle",
     "quit": "Quitter Loqui",
-    "tooltip": "Loqui - Dictée vocale"
+    "tooltip": "Loqui - Dictée vocale",
+    "tooltipRecording": "Loqui — enregistrement d’une réunion",
+    "meetingRecording": "Enregistrement de la réunion · {{elapsed}}",
+    "meetingRecordingSystemLost": "Enregistrement · audio système perdu",
+    "meetingRecordingMicLost": "Enregistrement · microphone déconnecté",
+    "stopMeetingRecording": "Arrêter l’enregistrement de la réunion"
   },
   "menu": {
     "appLabel": "Loqui",

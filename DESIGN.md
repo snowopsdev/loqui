@@ -442,3 +442,21 @@ Before a hook setup-effect reinstall disposes its manager, it retires the exact
 cancel-window state/ref and publishes its flushed demo closure; the surviving
 hook releases the old Undo lease. Retired callbacks cannot overwrite a new hold.
 Callbacks detach before disposal, while a fresh installation remains usable.
+
+Meeting recording presence is liveness only: its session, start time, source
+interruption and quiet flag never imply that a transcript was saved. An explicit
+saved outcome requires an acknowledged transcript write (or no content to write)
+and an acknowledged main-process Stop. Save failures, Stop failures and owner loss
+remain distinct failures. Quiet stays false until the shared meter detector is
+connected in Task 19.
+
+While a meeting records, the tray leads with recording status and Stop, including
+source-loss status. On Linux its icon gains a Signal orange dot and its tooltip
+identifies the recording. A separate resident freedesktop notification offers Stop
+when the server advertises actions. Without action support it still posts, asking
+for a default click that reveals the existing pill; publication or service loss
+attempts an action-free Electron fallback. Delivery and clicks depend on the
+notification service, so fallback copy also names the tray. Every Stop, reveal and
+notification lifetime belongs to its original meeting session; stale items do
+nothing. Shutdown awaits resident-notification closure through the bounded sidecar
+registry. Interruption alerts retain their separate action-free notification path.

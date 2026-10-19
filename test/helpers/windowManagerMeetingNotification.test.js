@@ -127,6 +127,7 @@ Module._load = function loadWindowManagerWithStubs(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 const WindowManager = require("../../src/helpers/windowManager");
+const TrayManager = require("../../src/helpers/tray");
 const { getNotificationTimeoutMs } = require("../../src/helpers/notificationTimer");
 Module._load = originalLoad;
 
@@ -659,4 +660,319 @@ test("the tray's Ask assistant asks the renderer without showing or focusing the
   capturing.hotkeyManager.isInListeningMode = () => true;
   capturing.sendOpenAssistantPanel();
   assert.deepEqual(capturingEvents, []);
+});
+
+// D2: Stop and the click in the Linux notification reach the real window
+// manager, bound to the session the notification was posted for.
+test("the Linux notification stops and reveals only the session it was posted for (D2)", async () => {
+  const manager = createNormalWindowManager();
+  const toPanel = [];
+  const toPill = [];
+  manager.controlPanelWindow = {
+    isDestroyed: () => false,
+    webContents: { isLoading: () => false, send: (channel, data) => toPanel.push([channel, data]) },
+  };
+  manager.mainWindow = {
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    isVisible: () => false,
+    showInactive: () => toPill.push("show"),
+    webContents: { send: (channel, data) => toPill.push([channel, data]) },
+  };
+  const bus = new EventEmitter();
+  const posted = [];
+  const client = {
+    capabilities: async () => ["actions", "body"],
+    notify: async (o) => (posted.push(o), 41 + posted.length),
+    close: async () => undefined,
+    onAction: (cb) => bus.on("action", cb),
+    onClosed: (cb) => bus.on("closed", cb),
+    onDisconnect: (cb) => bus.on("disconnect", cb),
+  };
+  const tray = new TrayManager();
+  tray.platform = "linux";
+  tray.createNotificationClient = async () => client;
+  tray.ElectronNotification = class extends EventEmitter {
+    show() {}
+    close() {}
+  };
+  tray.setWindowManager(manager);
+  manager.onMeetingPresenceChanged = (presence) => tray.setMeetingPresence(presence);
+  const stopRequests = () =>
+    toPanel.filter(([channel]) => channel === "meeting-recording-stop-requested");
+
+  manager.meetingPresence.set(7, { recording: true, sessionId: "m1", startedAt: 1000 });
+  await until(() => posted.length === 1); // id 42 for m1
+  bus.emit("action", 99, "stop"); // another app's notification
+  bus.emit("action", 42, "stop");
+  assert.deepEqual(stopRequests(), [["meeting-recording-stop-requested", "m1"]]);
+
+  bus.emit("action", 42, "default"); // the click
+  assert.deepEqual(toPill.slice(-2), ["show", ["meeting-recorder-reveal-requested", "m1"]]);
+
+  manager.meetingPresence.set(7, { recording: false });
+  manager.meetingPresence.set(7, { recording: true, sessionId: "m2", startedAt: 2000 });
+  await until(() => posted.length === 2); // id 43 for m2
+  bus.emit("action", 42, "stop"); // m1's notification is gone
+  assert.equal(stopRequests().length, 1, "a stale notification id stops nothing");
+  bus.emit("action", 43, "stop");
+  assert.deepEqual(stopRequests().at(-1), ["meeting-recording-stop-requested", "m2"]);
+
+  // The session ended before the Stop arrived: main's session check drops it.
+  manager.meetingPresence.set(7, { recording: false });
+  bus.emit("action", 43, "stop");
+  bus.emit("action", 43, "default");
+  assert.equal(stopRequests().length, 2);
+  assert.equal(
+    toPill.filter((entry) => entry[0] === "meeting-recorder-reveal-requested").length,
+    1
+  );
+});
+
+test("pending Linux client creation cannot post for an ended, replaced or shut-down meeting", async () => {
+  for (const transition of ["ended", "replaced", "shutdown"]) {
+    const clientReady = createDeferred();
+    const posted = [];
+    const tray = new TrayManager();
+    tray.platform = "linux";
+    tray.createNotificationClient = () => clientReady.promise;
+    tray.ElectronNotification = class extends EventEmitter {
+      show() {
+        posted.push("fallback");
+      }
+      close() {}
+    };
+    tray.setMeetingPresence({ sessionId: "old", startedAt: 1000 });
+    let shutdown;
+    if (transition === "shutdown") shutdown = tray.teardownMeetingNotification();
+    else {
+      tray.setMeetingPresence(null);
+      if (transition === "replaced") tray.setMeetingPresence({ sessionId: "new", startedAt: 2000 });
+    }
+    clientReady.resolve({
+      capabilities: async () => ["actions"],
+      notify: async (o) => (posted.push(o), 42),
+      close: async () => {},
+      onAction() {},
+      onClosed() {},
+      onDisconnect() {},
+    });
+    await tray._linuxNotification();
+    if (shutdown) await shutdown;
+    await settle();
+    if (transition === "replaced") {
+      assert.equal(posted.length, 1, "only the current meeting posts");
+      const n = await tray._linuxNotification();
+      assert.equal(n.current?.sessionId, "new");
+    } else assert.deepEqual(posted, [], "not even a transient stale notification is posted");
+    await tray.teardownMeetingNotification();
+  }
+});
+
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+async function until(condition) {
+  for (let i = 0; i < 100 && !condition(); i++) await settle();
+  assert.ok(condition(), "condition reached");
+}
+
+test("an old tray Stop item cannot stop the replacement meeting", () => {
+  const manager = createNormalWindowManager();
+  const sent = [];
+  manager.sendToControlPanel = (...args) => sent.push(args);
+  const tray = new TrayManager();
+  tray.platform = "win32";
+  tray.setWindowManager(manager);
+  manager.onMeetingPresenceChanged = (p) => tray.setMeetingPresence(p);
+  manager.meetingPresence.set(7, { recording: true, sessionId: "A", startedAt: 1000 });
+  const oldStop = tray.buildContextMenuTemplate()[1];
+  manager.meetingPresence.set(7, { recording: true, sessionId: "B", startedAt: 2000 });
+  oldStop.click();
+  assert.deepEqual(sent, []);
+  tray.buildContextMenuTemplate()[1].click();
+  assert.deepEqual(sent, [["meeting-recording-stop-requested", "B"]]);
+});
+
+function installMeetingIpc(t, manager) {
+  const path = require.resolve("../../src/helpers/ipcHandlers");
+  const original = Module._load;
+  const handlers = new Map();
+  const events = new Map();
+  const isolation = { sweeps: 0 };
+  const anything = () =>
+    new Proxy(function () {}, {
+      get: (_, key) =>
+        key === "then" ? undefined : key === Symbol.toPrimitive ? () => "" : anything(),
+      apply: () => anything(),
+    });
+  Module._load = function (request, parent, isMain) {
+    if (request === "electron")
+      return {
+        app: { getPath: () => "/tmp", getName: () => "test", getVersion: () => "0", on() {} },
+        ipcMain: {
+          handle: (name, fn) => handlers.set(name, fn),
+          on: (name, fn) => events.set(name, fn),
+          removeHandler() {},
+        },
+        BrowserWindow: class {
+          static getAllWindows() {
+            return [];
+          }
+        },
+        net: {
+          fetch() {
+            throw Error("fixture network forbidden");
+          },
+        },
+        screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) },
+        systemPreferences: {},
+      };
+    if (parent?.filename === path) {
+      if (
+        [
+          "./meetingTranscriptionLifecycle",
+          "./onboardingInputPolicy",
+          "./dictationLifecycle",
+          "./rendererRequest",
+        ].includes(request)
+      )
+        return original.call(this, request, parent, isMain);
+      if (request === "./urlAudioDownloader")
+        return {
+          sweepStaleTempArtifacts() {
+            isolation.sweeps++;
+          },
+          download() {
+            throw Error("fixture download forbidden");
+          },
+        };
+      if (request.startsWith(".") || request === "fs") return anything();
+      if (/^(?:node:)?(?:child_process|http|https|net|tls|dgram)$/.test(request))
+        throw Error(`Forbidden fixture leaf: ${request}`);
+    }
+    return original.call(this, request, parent, isMain);
+  };
+  t.after(() => {
+    Module._load = original;
+    delete require.cache[path];
+  });
+  delete require.cache[path];
+  const Ctor = require(path);
+  Ctor.prototype.setupHandlers.call(
+    new Proxy(
+      { windowManager: manager, sessionId: "fixture" },
+      { get: (obj, key) => (key in obj ? obj[key] : anything()) }
+    )
+  );
+  assert.equal(isolation.sweeps, 1, "only the inert downloader sweep executes");
+  return { handlers, events };
+}
+
+test("production IPC gates reports by exact control-panel sender, relays explicit outcomes and owner loss", async (t) => {
+  const manager = createNormalWindowManager();
+  const pill = [],
+    panel = [],
+    trayChanges = [],
+    outcomes = [];
+  const owner = new EventEmitter();
+  owner.id = 7;
+  owner.isLoading = () => false;
+  owner.send = (...args) => panel.push(args);
+  manager.controlPanelWindow = { isDestroyed: () => false, webContents: owner };
+  manager.mainWindow = {
+    isDestroyed: () => false,
+    webContents: { send: (...args) => pill.push(args) },
+  };
+  manager.onMeetingPresenceChanged = (p) => trayChanges.push(p);
+  manager.onMeetingOutcome = (o) => outcomes.push(o);
+  const { handlers, events } = installMeetingIpc(t, manager);
+  const presence = { recording: true, sessionId: "A", startedAt: 1000 };
+  events.get("meeting-recording-presence")({ sender: { id: 7 } }, presence);
+  events.get("meeting-recording-outcome")({ sender: {} }, { sessionId: "A", kind: "saved" });
+  assert.equal(manager.getMeetingPresence(), null);
+  assert.equal(outcomes.length, 0);
+  events.get("meeting-recording-presence")({ sender: owner }, presence);
+  events.get("meeting-recording-presence")({ sender: owner }, presence);
+  assert.equal(owner.listenerCount("destroyed"), 1);
+  assert.equal(trayChanges.length, 1);
+  assert.equal(handlers.get("get-meeting-recording-presence")().sessionId, "A");
+  await handlers.get("request-stop-meeting-recording")({}, "stale");
+  await handlers.get("request-stop-meeting-recording")({}, "A");
+  assert.deepEqual(panel, [["meeting-recording-stop-requested", "A"]]);
+  events.get("meeting-recording-presence")({ sender: owner }, { recording: false });
+  assert.equal(outcomes.length, 0, "presence ending cannot imply saved");
+  const saved = { sessionId: "A", kind: "saved", durationMs: 1000, noteId: "11" };
+  events.get("meeting-recording-outcome")({ sender: owner }, saved);
+  assert.deepEqual(outcomes, [saved]);
+  assert.deepEqual(pill.at(-1), ["meeting-recording-outcome", saved]);
+  for (const event of ["destroyed", "render-process-gone", "did-start-navigation"]) {
+    events.get("meeting-recording-presence")({ sender: owner }, { ...presence, sessionId: event });
+    owner.emit("did-start-navigation", { isMainFrame: false, isSameDocument: false });
+    owner.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+    assert.equal(manager.getMeetingPresence().sessionId, event);
+    owner.emit(event, { isMainFrame: true, isSameDocument: false });
+    assert.equal(manager.getMeetingPresence(), null);
+    assert.deepEqual(outcomes.at(-1), { sessionId: event, kind: "failed", reason: "ownerLost" });
+    const count = outcomes.length;
+    owner.emit(event, { isMainFrame: true, isSameDocument: false });
+    assert.equal(outcomes.length, count, "owner loss emits once");
+  }
+});
+
+test("main's notification registration joins actual tray closure to bounded registry shutdown before exit", async (t) => {
+  const fs = require("node:fs");
+  const vm = require("node:vm");
+  const main = fs.readFileSync(require.resolve("../../main.js"), "utf8");
+  const registration = main.match(
+    /sidecarRegistry\.register\("meetingNotification", \(\) => trayManager\.teardownMeetingNotification\(\)\);/
+  );
+  assert.ok(registration, "main registers the resident close with the awaited registry");
+  const registryPath = require.resolve("../../src/helpers/sidecarRegistry");
+  const original = Module._load;
+  Module._load = function (request, parent, isMain) {
+    if (parent?.filename === registryPath && request === "./debugLogger") return { error() {} };
+    return original.call(this, request, parent, isMain);
+  };
+  delete require.cache[registryPath];
+  const sidecarRegistry = require(registryPath);
+  Module._load = original;
+  t.after(() => delete require.cache[registryPath]);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { createQuitCoordinator } = require("../../src/helpers/quitCoordinator");
+  const closeReply = createDeferred();
+  const calls = [];
+  const trayManager = new TrayManager();
+  trayManager.platform = "linux";
+  trayManager.createNotificationClient = async () => ({
+    capabilities: async () => ["actions"],
+    notify: async () => 42,
+    close: () => {
+      calls.push("close");
+      return closeReply.promise;
+    },
+    onAction() {},
+    onClosed() {},
+    onDisconnect() {},
+  });
+  trayManager.setMeetingPresence({ sessionId: "A", startedAt: 1000 });
+  const notification = await trayManager._linuxNotification();
+  await until(() => notification.current?.id === 42);
+  vm.runInNewContext(registration[0], { sidecarRegistry, trayManager });
+  const quit = createQuitCoordinator({
+    flush: async () => {
+      calls.push("flush");
+      return true;
+    },
+    teardown: () => calls.push("teardown"),
+    shutdown: () => sidecarRegistry.shutdownAll(),
+    exit: () => calls.push("exit"),
+  });
+  quit({ preventDefault() {} });
+  await until(() => calls.includes("close"));
+  assert.equal(calls.includes("exit"), false, "actual resident CloseNotification is awaited");
+  assert.deepEqual(calls, ["flush", "teardown", "close"]);
+  closeReply.resolve();
+  await until(() => calls.includes("exit"));
+  assert.deepEqual(calls, ["flush", "teardown", "close", "exit"]);
+  trayManager.setMeetingPresence({ sessionId: "B", startedAt: 2000 });
+  assert.equal(trayManager.meetingPresence, null, "shutdown cannot restart notification ownership");
 });

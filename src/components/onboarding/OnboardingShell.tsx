@@ -6,6 +6,7 @@ import { Button } from "../ui/button";
 import { canNavigateTo, phaseProgress } from "../../utils/onboardingFlow";
 import type { OnboardingStep } from "../../utils/onboardingState";
 import { InstrumentRail, type InstrumentRailProps } from "./InstrumentRail";
+import { useToastBottomBoundary } from "../ui/useToastPlacement";
 
 export interface OnboardingShellProps {
   step: OnboardingStep;
@@ -41,6 +42,8 @@ export function OnboardingShell(props: OnboardingShellProps) {
   } = props;
   const { t } = useTranslation();
   const mainRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
+  useToastBottomBoundary(footerRef);
   const progress = phaseProgress(step);
   const stepLabel = t(`setupFlow.steps.${step}`);
 
@@ -107,7 +110,7 @@ export function OnboardingShell(props: OnboardingShellProps) {
           </div>
         </main>
       </div>
-      <footer className="onb-footer">
+      <footer ref={footerRef} className="onb-footer">
         {footerStart ? <div className="onb-footer__start">{footerStart}</div> : null}
         <div className="onb-footer__actions">
           {onBack ? (

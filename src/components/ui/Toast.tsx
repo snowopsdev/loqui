@@ -17,6 +17,7 @@ import {
 import { useCopyFeedback } from "../../hooks/useCopyFeedback";
 import { DictationErrorCard } from "../dictation/DictationErrorCard";
 import { TechnicalErrorDetails } from "./TechnicalErrorDetails";
+import { ToastPlacementContext } from "./useToastPlacement";
 
 interface ToastState extends ToastProps {
   id: string;
@@ -25,6 +26,19 @@ interface ToastState extends ToastProps {
 }
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [bottomReservations, setBottomReservations] = React.useState<ReadonlyMap<symbol, number>>(
+    () => new Map()
+  );
+  const reserveBottom = React.useCallback((owner: symbol, inset: number | null) => {
+    setBottomReservations((previous) => {
+      if (inset === null ? !previous.has(owner) : previous.get(owner) === inset) return previous;
+      const next = new Map(previous);
+      if (inset === null) next.delete(owner);
+      else next.set(owner, inset);
+      return next;
+    });
+  }, []);
+  const bottomInset = Math.max(0, ...bottomReservations.values());
   const [toasts, setToasts] = React.useState<ToastState[]>([]);
   const toastsRef = React.useRef<ToastState[]>([]);
   const timersRef = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -173,8 +187,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         dismissByPresentation,
       }}
     >
-      {children}
+      <ToastPlacementContext.Provider value={reserveBottom}>
+        {children}
+      </ToastPlacementContext.Provider>
       <ToastViewport
+        bottomInset={bottomInset}
         toasts={toasts}
         onDismiss={dismiss}
         onPauseTimer={pauseTimer}
@@ -185,11 +202,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 };
 
 const ToastViewport: React.FC<{
+  bottomInset: number;
   toasts: ToastState[];
   onDismiss: (id: string) => void;
   onPauseTimer: (id: string) => void;
   onResumeTimer: (id: string, remainingTime: number) => void;
-}> = ({ toasts, onDismiss, onPauseTimer, onResumeTimer }) => {
+}> = ({ bottomInset, toasts, onDismiss, onPauseTimer, onResumeTimer }) => {
   const isDictationPanel = React.useMemo(isDictationPanelWindow, []);
   // Keep the error viewport anchored through its exit animation so the card
   // does not jump back to the standard toast position while fading out.
@@ -199,6 +217,11 @@ const ToastViewport: React.FC<{
 
   return (
     <div
+      style={
+        !isDictationPanel && bottomInset > 0
+          ? { bottom: `calc(${bottomInset}px + 1.25rem)` }
+          : undefined
+      }
       className={cn(
         "fixed z-[100] flex flex-col gap-1.5 pointer-events-none",
         isDictationPanel

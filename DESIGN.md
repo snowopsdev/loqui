@@ -260,6 +260,7 @@ Route chips (Settings) follow the same pill shape at 24px and pair a glyph with 
 - **Announcement:** standard toasts are polite status regions (`role="status"`); destructive toasts are assertive alerts (`role="alert"`). Dictation-error cards already announce as alerts.
 - **Close:** always visible at 50% opacity, full strength on hover or keyboard focus, with a 2px `--color-ring` focus ring and a translated name.
 - **Timing:** dictation errors stay 6, 8 or 10 seconds by length; a card that holds the user's only copy of a transcript stays until the user acts. Plan 04 replaces this surface with `notify()` and keeps both rules.
+- **Setup placement:** the mounted onboarding footer reserves its measured top edge in the nearest `ToastProvider`. Standard workspace toasts keep their usual 20px gap above that edge, including when footer labels wrap or the window resizes. Each shell releases its own reservation on unmount; existing notices survive and return to the default workspace position. Dictation-panel toast and error-card anchors retain priority.
 
 ### Cards / Containers
 

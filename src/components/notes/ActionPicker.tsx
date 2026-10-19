@@ -77,7 +77,7 @@ export default function ActionPicker({
         className={cn(
           "flex items-center gap-1.5 h-7 ps-3 pe-1.5",
           "text-foreground disabled:cursor-not-allowed",
-          "transition-colors duration-(--motion-fast) ease-(--motion-ease)",
+          "transition-colors duration-(--motion-fast) ease-(--motion-ease-std)",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
           "enabled:hover:bg-muted",
           "enabled:hover:text-foreground"
@@ -98,7 +98,7 @@ export default function ActionPicker({
               "flex items-center justify-center h-7 w-6 pe-0.5",
               "border-s border-black/6 dark:border-white/10",
               "text-muted-foreground disabled:cursor-not-allowed",
-              "transition-colors duration-(--motion-fast) ease-(--motion-ease)",
+              "transition-colors duration-(--motion-fast) ease-(--motion-ease-std)",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
               "enabled:hover:bg-muted",
               "enabled:hover:text-foreground"

@@ -192,7 +192,12 @@ test("ActionPicker keeps readable full-opacity controls, opaque focus and shared
     /text-foreground disabled:cursor-not-allowed/,
     "readable picker ink on its translucent Plum surface"
   );
-  assert.match(source, /--motion-/);
+  assert.equal((source.match(/duration-\(--motion-fast\)/g) ?? []).length, 2);
+  assert.equal((source.match(/ease-\(--motion-ease-std\)/g) ?? []).length, 2);
+  assert.doesNotMatch(source, /ease-\(--motion-ease\)/);
+  const styles = fs.readFileSync(path.join(root, "src/index.css"), "utf8");
+  assert.match(styles, /--motion-fast:\s*150ms;/);
+  assert.match(styles, /--motion-ease-std:\s*cubic-bezier\(0\.2, 0, 0, 1\);/);
   assert.doesNotMatch(
     source,
     /opacity-40|text-\[11px\]|text-(?:accent|muted-foreground)\/|duration-150/

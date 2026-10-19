@@ -341,14 +341,14 @@ for (const kind of ["typed", "spoken"])
         const tree = installTree();
         globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 1);
         globalThis.cancelAnimationFrame = clearTimeout;
-        window.requestAnimationFrame = globalThis.requestAnimationFrame;
-        window.cancelAnimationFrame = clearTimeout;
-        document.querySelector = () => null;
-        window.clearInterval = () => {};
-        document.addEventListener = (name, cb) => {
+        globalThis.window.requestAnimationFrame = globalThis.requestAnimationFrame;
+        globalThis.window.cancelAnimationFrame = clearTimeout;
+        globalThis.document.querySelector = () => null;
+        globalThis.window.clearInterval = () => {};
+        globalThis.document.addEventListener = (name, cb) => {
           if (name === "keydown") keys.add(cb);
         };
-        document.removeEventListener = (name, cb) => {
+        globalThis.document.removeEventListener = (name, cb) => {
           if (name === "keydown") keys.delete(cb);
         };
         globalThis.__agentAppAudio = {
@@ -450,7 +450,7 @@ for (const kind of ["typed", "spoken"])
             for (const cb of [...keys])
               cb({
                 key: "Escape",
-                target: document.documentElement,
+                target: globalThis.document.documentElement,
                 preventDefault() {},
                 stopPropagation() {},
               });

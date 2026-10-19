@@ -624,6 +624,7 @@ export default function App() {
     recentOutcome,
     meetingRecording,
     showMeetingRecorder,
+    isPreparing: isPreparing && voicePillOwnsActivity,
     agentResponseActive: Boolean(
       assistant.typedPresentation &&
       assistant.responsePhase?.owner &&

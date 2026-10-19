@@ -189,6 +189,53 @@ test("actual App meeting Stop, outcomes, ownership gates and setting/reveal use 
   await fire(pill(), "onKeyDown", { key: " " });
   await fire(pill(), "onClick");
   assert.equal(dictationCount(), 3, "body pointer and keyboard activation still work");
+  // A pending owned microphone acquisition keeps the existing press acknowledgement.
+  globalThis.__meetingAudio.isPreparing = true;
+  await render();
+  const preparing = () => {
+    assert.equal(pill().attributes["data-pill-state"], "processing");
+    assert.equal(pill().attributes.role, "button");
+    assert.equal(pill().style.width, "40px");
+    assert.equal(Boolean(stop()), false, "the resting meeting control yields coherently");
+    assert.equal(
+      Boolean(
+        tree.find(
+          (n) =>
+            n.attributes?.class?.includes("voice-pill-identity-icon") &&
+            n.attributes.class.includes("animate-pulse")
+        )
+      ),
+      true
+    );
+    assert.match(pill().attributes["aria-label"], /Processing/);
+    assert.equal(globalThis.__meetingInput.pillInteractive, true);
+  };
+  preparing();
+  const beforePreparationBody = dictationCount();
+  await fire(pill(), "onClick");
+  await fire(pill(), "onKeyDown", { key: "Enter" });
+  await fire(pill(), "onKeyDown", { key: " " });
+  assert.equal(
+    dictationCount(),
+    beforePreparationBody,
+    "preparation body cannot admit another start"
+  );
+  globalThis.__meetingAudio.isPreparing = false;
+  globalThis.__meetingAudio.isRecording = true;
+  await render();
+  assert.equal(pill().attributes["data-pill-state"], "recording");
+  globalThis.__meetingAudio.isRecording = false;
+  await render();
+  present();
+  for (const terminal of ["cancel", "failure"]) {
+    globalThis.__meetingAudio.isPreparing = true;
+    await render();
+    preparing();
+    globalThis.__meetingAudio.isPreparing = false;
+    await render();
+    present();
+    assert.equal(Boolean(stop()), true, `${terminal} returns session-bound meeting Stop`);
+  }
   await send({ ...meeting, interruption: "mic" });
   assert.equal(pill().style.width, "184px");
   assert.match(tree.text(), /Microphone lost/);
@@ -203,6 +250,39 @@ test("actual App meeting Stop, outcomes, ownership gates and setting/reveal use 
   await send(meeting);
   assert.notEqual(pill().attributes["data-pill-state"], "meeting", "ended reveal retired");
   await act(() => useSettingsStore.setState({ showMeetingRecorderOnScreen: true }));
+  present();
+  // Plain dictation preparation belongs to the opposite-edge companion while
+  // the Agent panel is open; only preparation owned by this pill can replace it.
+  globalThis.requestAnimationFrame = (cb) => {
+    cb();
+    return 1;
+  };
+  await act(() => globalThis.__meetingAssistant.openPanel());
+  assert.equal(globalThis.__meetingAssistant.open, true);
+  globalThis.__meetingAudio.isPreparing = true;
+  await render();
+  present();
+  const beforeCompanionStop = dictationCount();
+  await fire(stop(), "onKeyDown", { key: "Enter" });
+  await fire(stop(), "onClick");
+  assert.equal(dictationCount(), beforeCompanionStop);
+  globalThis.__meetingAudio.isAssistantVoice = true;
+  await render();
+  assert.equal(pill().attributes["data-pill-state"], "processing");
+  assert.equal(pill().attributes.role, "status");
+  assert.equal(Boolean(stop()), false);
+  assert.equal(globalThis.__meetingInput.pillInteractive, false);
+  globalThis.__meetingResize = true;
+  await render();
+  assert.match(
+    outer().attributes.class,
+    /opacity-0/,
+    "preparation retains the existing resize hard gate"
+  );
+  globalThis.__meetingResize = false;
+  globalThis.__meetingAudio.isPreparing = false;
+  globalThis.__meetingAudio.isAssistantVoice = false;
+  await render();
   present();
   // Real typed ownership and exact response phase preempt the resting capsule.
   // Business busy intentionally remains true after retirement.

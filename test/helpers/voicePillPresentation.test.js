@@ -1083,3 +1083,52 @@ test("owned Agent response presentation preempts only the meeting resting stage"
     "default Agent callers retain their existing presentation path"
   );
 });
+
+test("owned preparation keeps its existing processing acknowledgement ahead of resting meeting", async () => {
+  const { resolvePillStage, resolvePillOwnership } = await load();
+  const base = {
+    meetingRecording: { sessionId: "m1", startedAt: 1, quiet: false, interruption: null },
+    showMeetingRecorder: true,
+    isPreparing: true,
+  };
+  assert.equal(resolvePillStage(base), "processing");
+  assert.equal(
+    resolvePillStage({ ...base, agentMode: true }),
+    "processing",
+    "mic warmup is not Agent thinking"
+  );
+  assert.equal(resolvePillStage({ ...base, isPreparing: false }), "meeting");
+  assert.equal(resolvePillStage({ ...base, agentResponseActive: true }), "thinking");
+  assert.equal(resolvePillStage({ ...base, isRecording: true }), "recording");
+  assert.equal(
+    resolvePillStage({ ...base, isRecording: true, micUnavailable: true }),
+    "unavailable"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, isProcessing: true, processingStage: "cleaning" }),
+    "cleaning"
+  );
+  assert.equal(resolvePillStage({ ...base, cancelled: { sessionId: "d1" } }), "cancelled");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "pasted" } }), "pasted");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "failed" } }), "failed");
+  assert.equal(
+    resolvePillStage({ ...base, recentOutcome: { kind: "failed" }, dictationSealed: true }),
+    "sealedPaused"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, meetingRecording: null }),
+    null,
+    "legacy fallback is unchanged without a visible meeting"
+  );
+  assert.equal(resolvePillStage({ ...base, showMeetingRecorder: false }), null);
+  assert.equal(
+    resolvePillStage({ meetingRecording: base.meetingRecording, showMeetingRecorder: true }),
+    "meeting",
+    "omitted preparation defaults to the original policy"
+  );
+  assert.deepEqual(
+    resolvePillOwnership("processing"),
+    { holdsWindow: false, interactive: false, outranksFooter: false },
+    "no new resting ownership is forged"
+  );
+});

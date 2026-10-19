@@ -457,8 +457,16 @@ validated result or owner loss. Crash, reload or close during a pending write or
 Stop acknowledgement reports owner loss once, even after the tray returns idle;
 late or duplicate results cannot affect a replacement session. False-presence
 reports carry their last live session so a late timer reset cannot clear a newer
-session on the same owner. Quiet stays false until the shared meter detector is
-connected in Task 19.
+session on the same owner. Meeting, transcript-tab and chat recording meters use
+shared five-bar LevelBars with direct analyser readers and the same reduced-motion
+flat phase. The meeting fallback level and quiet flag are sampled every 84ms
+(at most 12Hz), with one atomic store publication per tick when fields change.
+Quiet means four continuous seconds below 0.01; speech clears it on the next
+sample. Reconnecting/unavailable capture, missing/replaced analysers or invalid
+samples reset measured silence and smoothing, so unknown input never counts toward that hold. Stop/unmount clears
+both fields. Diarization uses eight named speaker tokens in Light and Plum Night,
+all at least 4.5:1 on background, both surfaces, card and popover. Visible speaker
+names carry identity alongside colour, with logical start borders for RTL.
 
 While a meeting records, the tray leads with recording status and Stop, including
 source-loss status. On Linux its icon gains a Signal orange dot and its tooltip

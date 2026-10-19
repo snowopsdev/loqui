@@ -3,7 +3,7 @@ import { Mic, Square, X } from "../icons";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import { SendIcon } from "../ui/SendIcon";
-import { LiveWaveform } from "../ui/LiveWaveform";
+import { LevelBars } from "../ui/LevelBars";
 import { GRADIENT_CIRCLE } from "../ui/gradientCircle";
 import { GLASS_SURFACE } from "../ui/glass";
 import { notify } from "../ui/notices";
@@ -213,11 +213,11 @@ export function ChatInput({
         )}
 
         {isVoiceRecording && (
-          <div className="flex items-center gap-2.5 w-full py-1.5 animate-[fade-in-content_0.3s_ease-out_backwards]">
-            <LiveWaveform
+          <div className="flex items-center gap-2.5 w-full py-1.5 animate-[fade-in-content_var(--motion-base)_var(--motion-ease-enter)_backwards]">
+            <LevelBars
               readLevel={voice.readLevel}
-              bars="auto"
-              className="flex-1 overflow-hidden"
+              height={16}
+              className="flex-1 justify-center overflow-hidden"
             />
             <span className="text-[13px] font-semibold tabular-nums tracking-[0.08em] text-foreground/85 shrink-0">
               {formatMmSs(voice.elapsed)}

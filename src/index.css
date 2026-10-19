@@ -26,6 +26,14 @@
      --color-border stays the quiet divider for cards and rules. */
   --color-input-border: #858585;
   --color-ring: #e84e16;
+  --color-speaker-1: #986837;
+  --color-speaker-2: #8b6e2e;
+  --color-speaker-3: #64793c;
+  --color-speaker-4: #467e53;
+  --color-speaker-5: #2b7f67;
+  --color-speaker-6: #0d7f7f;
+  --color-speaker-7: #33799e;
+  --color-speaker-8: #5372a7;
   --color-background: #ffffff;
   --color-foreground: #171717;
   --color-card: #ffffff;
@@ -252,6 +260,14 @@
 .dark {
   /* Plum Night — the brand guide's Deep Plum family (DESIGN.md "Colors").
      Hex, not oklch, so contrast tests can score every pair. */
+  --color-speaker-1: #af7e4c;
+  --color-speaker-2: #a28444;
+  --color-speaker-3: #7a9052;
+  --color-speaker-4: #5c9568;
+  --color-speaker-5: #45967d;
+  --color-speaker-6: #329696;
+  --color-speaker-7: #4b90b6;
+  --color-speaker-8: #6889bf;
   --color-background: #1c1218;
   --color-foreground: #f3e9ee;
   --color-card: #271820;
@@ -1651,17 +1667,6 @@ a:hover {
 
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
-}
-
-/* Transcript tab indicator while a meeting is being recorded. */
-@keyframes ow-wave {
-  0%,
-  100% {
-    transform: scaleY(0.4);
-  }
-  50% {
-    transform: scaleY(1);
-  }
 }
 
 ::-webkit-scrollbar-track {

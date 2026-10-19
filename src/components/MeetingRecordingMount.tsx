@@ -9,6 +9,7 @@ import {
   useMeetingRecordingStore,
 } from "../stores/meetingRecordingStore";
 import logger from "../utils/logger";
+import { createQuietDetector, MEETING_LEVEL_SAMPLE_MS } from "../utils/meetingQuiet";
 import { serializeTranscriptSegments } from "../utils/transcriptSpeakerState";
 import { notify, dismissNotice } from "./ui/notices";
 
@@ -250,35 +251,57 @@ export default function MeetingRecordingMount(): null {
   useEffect(() => {
     if (!isRecording) return;
 
-    let rafId = 0;
-    let smoothed = 0;
     let buf = new Float32Array(256);
-
-    const tick = () => {
-      const analyser = getMicAnalyser();
+    let smoothed = 0;
+    let lastWritten = -1;
+    let lastQuiet = false;
+    let previousAnalyser: AnalyserNode | null = null;
+    let isQuiet = createQuietDetector();
+    const id = setInterval(() => {
+      const analyser =
+        useMeetingRecordingStore.getState().micCaptureStatus === "active" ? getMicAnalyser() : null;
+      if (analyser !== previousAnalyser || !analyser) {
+        // Unknown/recovered input cannot inherit another analyser's silence.
+        previousAnalyser = analyser;
+        smoothed = 0;
+        isQuiet = createQuietDetector();
+      }
+      let level = 0;
+      let quiet = false;
+      let measured = false;
       if (analyser) {
-        if (buf.length !== analyser.fftSize) {
-          buf = new Float32Array(analyser.fftSize);
-        }
+        if (buf.length !== analyser.fftSize) buf = new Float32Array(analyser.fftSize);
         analyser.getFloatTimeDomainData(buf);
         let sumSquares = 0;
-        for (let i = 0; i < buf.length; i++) {
-          const v = buf[i];
-          sumSquares += v * v;
-        }
+        for (let i = 0; i < buf.length; i += 1) sumSquares += buf[i] * buf[i];
         const rms = Math.sqrt(sumSquares / buf.length);
-        smoothed = EMA_PREV * smoothed + EMA_NEXT * rms;
-        const clamped = smoothed < 0 ? 0 : smoothed > 1 ? 1 : smoothed;
-        useMeetingRecordingStore.setState({ currentMicLevel: clamped });
+        if (Number.isFinite(rms)) {
+          measured = true;
+          smoothed = EMA_PREV * smoothed + EMA_NEXT * rms;
+          level = Math.min(1, Math.max(0, smoothed));
+          quiet = isQuiet(level, performance.now());
+        } else {
+          smoothed = 0;
+          isQuiet = createQuietDetector();
+        }
       }
-      rafId = requestAnimationFrame(tick);
-    };
-
-    rafId = requestAnimationFrame(tick);
+      // Meters read the analyser directly. Publish changed fallback/quiet fields
+      // atomically so even a quiet transition costs at most one update per tick.
+      const levelChanged = measured ? Math.abs(level - lastWritten) > 0.005 : lastWritten !== 0;
+      const quietChanged = quiet !== lastQuiet;
+      if (levelChanged || quietChanged) {
+        useMeetingRecordingStore.setState({
+          ...(levelChanged ? { currentMicLevel: level } : {}),
+          ...(quietChanged ? { micQuiet: quiet } : {}),
+        });
+        if (levelChanged) lastWritten = level;
+        lastQuiet = quiet;
+      }
+    }, MEETING_LEVEL_SAMPLE_MS);
 
     return () => {
-      cancelAnimationFrame(rafId);
-      useMeetingRecordingStore.setState({ currentMicLevel: 0 });
+      clearInterval(id);
+      useMeetingRecordingStore.setState({ currentMicLevel: 0, micQuiet: false });
     };
   }, [isRecording]);
 

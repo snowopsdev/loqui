@@ -214,7 +214,7 @@ test("unchanged multiline draft is resized when the textarea returns after voice
     t,
     rendererOptions("loqui-composer-remount-", {
       ...COMPOSER_MOCKS,
-      "/ui/LiveWaveform": `export const LiveWaveform = () => null;`,
+      "/ui/LevelBars": `export const LevelBars = () => null;`,
       "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: globalThis.__composerVoiceStatus ?? "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0 });`,
     })
   );

@@ -451,6 +451,137 @@ for (const newer of [
     assert.equal(ui.state.savedNotes[0].id, 99, "A's data save still completes");
   });
 
+for (const kind of ["note", "meeting"])
+  test(`pending ${kind} event expires Ready activation before its deferred getter replies`, async (t) => {
+    const ui = await workspace(t);
+    await ui.act(() => ui.state.nav.onViewChange("chat"));
+    await ui.wait(() => composer(ui));
+    await ui.act(() => ui.state.conversations.onSelectConversation(8));
+    await typeDraft(ui, "Original unsent draft");
+    await ui.act(() => ui.notes.setActiveContext(1, 2));
+    const node = composer(ui);
+    await pendingReadyNote(ui);
+    const navigation = ui.state.navigation[kind];
+    const reply = deferred();
+    let replied = false;
+    navigation.replies.push(reply);
+    const reads = navigation.reads;
+    const selected = ui.notes.getActiveNoteIdValue();
+    const folder = ui.notes.getActiveFolderIdValue();
+    const expanded = ui.storage.getItem("notesTree.expanded");
+    const cancels = ui.state.cancels;
+    const session = ui.meeting.getActiveRecordingSessionId();
+    const recordingNote = ui.meeting.useMeetingRecordingStore.getState().recordingNoteId;
+    assert.equal(ui.meeting.useMeetingRecordingStore.getState().isRecording, false);
+    assert.equal(navigation.listeners.size, 1, "real StrictMode subscription is installed once");
+    assert.equal(ui.state.savedNotes.length, 0, "A is consumed but its save is pending");
+
+    // The only new workspace command is the actual no-argument IPC signal.
+    // No DOM capture, setup request or manual generation invalidation intervenes.
+    await ui.act(() => ui.emitNavigation(kind));
+    assert.equal(navigation.reads, reads + 1, "registered callback invoked the actual getter");
+    await ui.act(() => ui.state.noteSave.resolve());
+    await ui.wait(() => ui.state.savedNotes.length === 1);
+    assert.equal(replied, false, "B's payload is still pending when A finishes");
+    assert.deepEqual(ui.state.saves[0].slice(5), [2, 1]);
+    assert.equal(ui.state.savedNotes[0].id, 99, "A's original data save really completed");
+    assert.equal(ui.state.savedNotes[0].folder_id, 2);
+    assert.equal(ui.state.savedNotes[0].space_id, 1);
+    assert.equal(ui.notes.getActiveNoteIdValue(), selected, "A cannot select itself");
+    assert.equal(ui.notes.getActiveFolderIdValue(), folder, "A cannot change context");
+    assert.equal(ui.storage.getItem("notesTree.expanded"), expanded, "A cannot reveal itself");
+    assert.equal(ui.state.recordingStarts ?? 0, 0, "A cannot automatically start capture");
+    assert.equal(ui.meeting.getActiveRecordingSessionId(), session);
+    assert.equal(ui.meeting.useMeetingRecordingStore.getState().recordingNoteId, recordingNote);
+    assert.equal(composer(ui) === node, true, "A cannot activate Notes or unmount Chat");
+    assert.equal(ui.props(node).value, "Original unsent draft");
+    assert.equal(ui.state.conversations.activeConversationId, 8);
+    assert.equal(ui.state.requests.length, 0);
+    assert.equal(ui.state.cancels, cancels);
+
+    await ui.act(() => {
+      replied = true;
+      reply.resolve({
+        noteId: 42,
+        folderId: 2,
+        event: { summary: "Meeting B" },
+        trigger: "hotkey",
+      });
+    });
+    await ui.wait(() => ui.notes.getActiveNoteIdValue() === 42);
+    await ui.wait(() => ui.byAttr("data-document-editor").length);
+    assert.equal(ui.notes.getActiveFolderIdValue(), 2);
+    if (kind === "meeting") {
+      await ui.wait(() => ui.state.recordingStarts === 1);
+      assert.equal(ui.meeting.useMeetingRecordingStore.getState().recordingNoteId, 42);
+      assert.equal(ui.meeting.useMeetingRecordingStore.getState().isRecording, true);
+    } else {
+      assert.equal(
+        ui.state.recordingStarts ?? 0,
+        0,
+        "ordinary note navigation does not start recording"
+      );
+    }
+    await ui.unmount();
+    assert.equal(navigation.listeners.size, 0, "event subscription is disposed");
+  });
+
+for (const entry of ["initial", "return"])
+  test(`empty ${entry} navigation drains preserve a valid Ready note activation`, async (t) => {
+    const ui = await workspace(t, { firstLaunch: entry === "initial" });
+    if (entry === "return") await ui.start("finish");
+    const replies = [deferred(), deferred()];
+    for (const [index, kind] of ["note", "meeting"].entries())
+      ui.state.navigation[kind].replies.push(replies[index]);
+    const reads = [ui.state.navigation.note.reads, ui.state.navigation.meeting.reads];
+    ui.state.noteSave = deferred();
+    await ui.wait(() => ui.state.flow);
+    await ui.act(() => ui.state.flow.onComplete({ next: { kind: "dictate-note" } }));
+    await ui.wait(() => ui.state.saves.length === 1);
+    for (const [index, kind] of ["note", "meeting"].entries()) {
+      assert.ok(ui.state.navigation[kind].reads > reads[index], "actual entry getter ran");
+      assert.equal(ui.state.navigation[kind].listeners.size, 1);
+    }
+    await ui.act(() => replies.forEach((reply) => reply.resolve(null)));
+    await ui.act(() => ui.state.noteSave.resolve());
+    await ui.wait(() => ui.state.recordingStarts === 1);
+    assert.equal(ui.notes.getActiveNoteIdValue(), 99);
+    assert.equal(ui.meeting.useMeetingRecordingStore.getState().recordingNoteId, 99);
+    assert.equal(ui.state.savedNotes.length, 1);
+    assert.equal(ui.state.saves.length, 1, "StrictMode/return does not replay Ready");
+  });
+
+for (const kind of ["note", "meeting"])
+  test(`pending ${kind} payload arriving during setup stages for ordinary return`, async (t) => {
+    const ui = await workspace(t);
+    const navigation = ui.state.navigation[kind];
+    const reply = deferred();
+    navigation.replies.push(reply);
+    await ui.act(() => ui.emitNavigation(kind));
+    await ui.start("cleanup");
+    assert.equal(navigation.listeners.size, 0, "hidden workspace unsubscribes");
+    const reads = navigation.reads;
+    const selected = ui.notes.getActiveNoteIdValue();
+    await ui.act(() => reply.resolve({ noteId: 42, folderId: 2, event: { summary: "B" } }));
+    assert.equal(ui.notes.getActiveNoteIdValue(), selected, "hidden delivery only stages");
+    assert.equal(ui.state.recordingStarts ?? 0, 0);
+    await ui.return();
+    await ui.wait(() => ui.byAttr("data-document-editor").length);
+    assert.equal(ui.notes.getActiveNoteIdValue(), 42);
+    assert.equal(
+      navigation.reads,
+      reads,
+      "return consumes the retained payload without another getter"
+    );
+    assert.equal(navigation.listeners.size, 1, "return installs one listener");
+    if (kind === "meeting") {
+      await ui.wait(() => ui.state.recordingStarts === 1);
+      assert.equal(ui.meeting.useMeetingRecordingStore.getState().recordingNoteId, 42);
+    } else assert.equal(ui.state.recordingStarts ?? 0, 0);
+    await ui.unmount();
+    assert.equal(navigation.listeners.size, 0, "unmount disposes the listener");
+  });
+
 test("deferred Ready note with no newer interaction selects and starts exactly once", async (t) => {
   const ui = await workspace(t);
   await pendingReadyNote(ui);

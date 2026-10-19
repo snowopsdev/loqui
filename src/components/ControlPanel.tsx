@@ -321,7 +321,11 @@ export default function ControlPanel({
       }
     };
     drain();
-    const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(drain);
+    const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(() => {
+      // Receipt is newer workspace work even while its IPC payload is pending.
+      invalidateActivation();
+      return drain();
+    });
     return () => cleanup?.();
   }, [workspaceActive, invalidateActivation]);
 
@@ -343,7 +347,11 @@ export default function ControlPanel({
       setActiveView("personal-notes");
     };
     drain();
-    const cleanup = window.electronAPI?.onNoteNavigationPending?.(drain);
+    const cleanup = window.electronAPI?.onNoteNavigationPending?.(() => {
+      // Keep initial/return drains separate: an empty getter is not a new command.
+      invalidateActivation();
+      return drain();
+    });
     return () => cleanup?.();
   }, [workspaceActive, invalidateActivation]);
 

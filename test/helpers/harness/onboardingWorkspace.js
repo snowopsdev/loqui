@@ -102,6 +102,9 @@ async function workspace(t, { firstLaunch = false, realSettings = false } = {}) 
     saves: [],
     updates: [],
     listeners: new Map(),
+    navigation: Object.fromEntries(
+      ["note", "meeting"].map((kind) => [kind, { listeners: new Set(), replies: [], reads: 0 }])
+    ),
     note: {
       id: 42,
       title: "Original",
@@ -221,8 +224,24 @@ async function workspace(t, { firstLaunch = false, realSettings = false } = {}) 
       getSpeakerMappings: async () => [],
       getSpeakerProfiles: async () => [],
       getConversationsForNote: async () => [],
-      getPendingNoteNavigation: async () => null,
-      getPendingMeetingNoteNavigation: async () => null,
+      // Preload signals without a payload; the separate getter consumes the
+      // staged reply. Tests may defer that reply independently of the signal.
+      getPendingNoteNavigation: async () => {
+        state.navigation.note.reads++;
+        return state.navigation.note.replies.shift()?.promise ?? null;
+      },
+      getPendingMeetingNoteNavigation: async () => {
+        state.navigation.meeting.reads++;
+        return state.navigation.meeting.replies.shift()?.promise ?? null;
+      },
+      onNoteNavigationPending: (cb) => {
+        state.navigation.note.listeners.add(cb);
+        return () => state.navigation.note.listeners.delete(cb);
+      },
+      onMeetingNoteNavigationPending: (cb) => {
+        state.navigation.meeting.listeners.add(cb);
+        return () => state.navigation.meeting.listeners.delete(cb);
+      },
       onMeetingAutoEndRequested: (cb) => {
         state.autoEnd = cb;
         return () => {
@@ -272,6 +291,9 @@ async function workspace(t, { firstLaunch = false, realSettings = false } = {}) 
     notes,
     act,
     wait,
+    emitNavigation: (kind) => {
+      for (const cb of [...state.navigation[kind].listeners]) cb();
+    },
     start: (step) => act(() => start.requestStartOnboarding(step)),
     return: () => act(() => state.flow.onComplete()),
   };

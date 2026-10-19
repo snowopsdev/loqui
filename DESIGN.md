@@ -796,6 +796,13 @@ count as workspace interaction; automatic assistant/save completions and focus
 restoration do not. Explicit workspace navigation/Settings commands and new pending note/meeting
 navigation also expire it.
 
+Pending note and meeting navigation signals expire Ready activation synchronously
+at event receipt, before invoking the separate asynchronous payload getter. The
+mount/return drains remain distinct: an empty initial getter must not expire a
+valid Ready activation. Payloads still stage while inactive and deliver on return;
+the original admitted save and both post-save activation checks remain intact.
+Plan06 must preserve this event boundary as well as the delivery-time check.
+
 **Additional Plan06 contact:** carry `workspaceActivationEpoch`, the existing
 host request-counter ref, alongside `workspaceActive`/`onReturnToWorkspace`.
 AppRouter increments it synchronously at the setup request boundary;

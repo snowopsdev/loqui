@@ -4192,20 +4192,20 @@
   },
   "setupFlow": {
     "progress": {
-      "nav": "Setup progress",
-      "dictate": "Get dictating",
-      "personalize": "Make it yours",
-      "ready": "Ready",
+      "nav": "Einrichtungsfortschritt",
+      "dictate": "Mit dem Diktieren beginnen",
+      "personalize": "Nach deinen Wünschen",
+      "ready": "Bereit",
       "label": "{{phase}} · {{step}}",
-      "goTo": "Go to {{step}}"
+      "goTo": "Zu {{step}} wechseln"
     },
     "steps": {
-      "welcome": "Hello",
-      "speech": "Voice",
-      "try": "Say something",
-      "cleanup": "Cleanup",
-      "shortcuts": "Shortcut",
-      "finish": "Ready"
+      "welcome": "Hallo",
+      "speech": "Stimme",
+      "try": "Sag etwas",
+      "cleanup": "Textbereinigung",
+      "shortcuts": "Tastenkürzel",
+      "finish": "Bereit"
     },
     "units": {
       "mb": "{{value}} MB",
@@ -4213,207 +4213,207 @@
     },
     "download": {
       "eta": {
-        "seconds": "about {{count}} s",
-        "minutes": "about {{count}} min"
+        "seconds": "etwa {{count}} s",
+        "minutes": "etwa {{count}} Min."
       },
-      "chip": "Downloading {{percent}}% · {{eta}} left",
-      "chipNoEta": "Downloading {{percent}}%",
-      "chipInstalling": "Installing voice model",
-      "chipCancelling": "Stopping the download…",
-      "chipCancelled": "Download cancelled",
-      "chipReady": "Voice model ready",
-      "chipFailed": "Download failed",
-      "received": "{{done}} of {{total}}",
-      "stoppedKept": "Download stopped at {{percent}}%. Your progress is kept.",
-      "stoppedRestart": "Download stopped at {{percent}}%. Retry starts it again.",
-      "cancelledLine": "You cancelled the download. Nothing is kept.",
-      "downloadAgain": "Download again",
-      "retry": "Retry",
-      "cancel": "Cancel",
-      "readyTitle": "Voice model ready",
-      "failedTitle": "The voice model didn't download",
-      "announcePercent": "Voice model download {{percent}} percent.",
-      "announceReady": "Voice model ready.",
-      "checking": "Checking your voice…",
-      "voiceModel": "Voice model"
+      "chip": "Download {{percent}} % · noch {{eta}}",
+      "chipNoEta": "Download {{percent}} %",
+      "chipInstalling": "Sprachmodell wird installiert",
+      "chipCancelling": "Download wird gestoppt…",
+      "chipCancelled": "Download abgebrochen",
+      "chipReady": "Sprachmodell bereit",
+      "chipFailed": "Download fehlgeschlagen",
+      "received": "{{done}} von {{total}}",
+      "stoppedKept": "Download bei {{percent}} % gestoppt. Dein Fortschritt bleibt erhalten.",
+      "stoppedRestart": "Download bei {{percent}} % gestoppt. Ein neuer Versuch startet ihn von vorn.",
+      "cancelledLine": "Du hast den Download abgebrochen. Es bleibt nichts gespeichert.",
+      "downloadAgain": "Erneut herunterladen",
+      "retry": "Erneut versuchen",
+      "cancel": "Abbrechen",
+      "readyTitle": "Sprachmodell bereit",
+      "failedTitle": "Das Sprachmodell wurde nicht heruntergeladen",
+      "announcePercent": "Sprachmodell zu {{percent}} Prozent heruntergeladen.",
+      "announceReady": "Sprachmodell bereit",
+      "checking": "Deine Stimme wird geprüft…",
+      "voiceModel": "Sprachmodell"
     },
-    "brand": "Loqui setup",
-    "back": "Back",
-    "skipStep": "Skip this step",
-    "continue": "Continue",
-    "finishLater": "Finish later",
-    "lookAroundFirst": "Look around first",
+    "brand": "Loqui einrichten",
+    "back": "Zurück",
+    "skipStep": "Diesen Schritt überspringen",
+    "continue": "Weiter",
+    "finishLater": "Später abschließen",
+    "lookAroundFirst": "Erst einmal umsehen",
     "instrument": {
-      "idle": "Ready when you are",
-      "downloading": "Downloading · {{percent}}% · {{done}} of {{total}}",
-      "goodLevel": "Listening · good level",
-      "waiting": "Listening · waiting for your voice",
-      "processing": "Writing it down…",
-      "heard": "Heard you",
-      "downloadError": "Download stopped",
-      "micError": "Loqui can't hear your microphone",
-      "nothingHeard": "Nothing heard. Check your microphone.",
-      "error": "That didn't work. Try again."
+      "idle": "Bereit, wenn du es bist",
+      "downloading": "Download · {{percent}} % · {{done}} von {{total}}",
+      "goodLevel": "Hört zu · guter Pegel",
+      "waiting": "Hört zu · wartet auf deine Stimme",
+      "processing": "Wird aufgeschrieben…",
+      "heard": "Wir haben dich gehört",
+      "downloadError": "Download gestoppt",
+      "micError": "Loqui kann dein Mikrofon nicht hören",
+      "nothingHeard": "Nichts gehört. Prüfe dein Mikrofon.",
+      "error": "Das hat nicht geklappt. Versuche es noch einmal."
     },
     "rail": {
       "welcome": {
-        "title": "Talk. Loqui types.",
-        "bodyMac": "Dictate anywhere, keep notes and meetings in one place, and choose exactly what ever leaves your Mac.",
-        "bodyOther": "Dictate anywhere, keep notes and meetings in one place, and choose exactly what ever leaves your computer."
+        "title": "Du sprichst. Loqui schreibt.",
+        "bodyMac": "Diktiere überall, sammle Notizen und Besprechungen an einem Ort und entscheide genau, was deinen Mac verlassen darf.",
+        "bodyOther": "Diktiere überall, sammle Notizen und Besprechungen an einem Ort und entscheide genau, was deinen Computer verlassen darf."
       },
       "speech": {
-        "title": "Pick how Loqui listens.",
-        "bodyMac": "One recommended voice. It runs on this Mac and works offline.",
-        "bodyOther": "One recommended voice. It runs on this computer and works offline."
+        "title": "Wähle, wie Loqui zuhört.",
+        "bodyMac": "Eine empfohlene Stimme. Sie läuft auf diesem Mac und funktioniert offline.",
+        "bodyOther": "Eine empfohlene Stimme. Sie läuft auf diesem Computer und funktioniert offline."
       },
       "try": {
-        "title": "Say something.",
-        "bodyMac": "This test is not pasted into another app or saved to history.",
-        "bodyOther": "This test is not pasted into another app or saved to history."
+        "title": "Sag etwas",
+        "bodyMac": "Dieser Test wird weder in eine andere App eingefügt noch im Verlauf gespeichert.",
+        "bodyOther": "Dieser Test wird weder in eine andere App eingefügt noch im Verlauf gespeichert."
       },
       "cleanup": {
-        "title": "Make it read well.",
-        "bodyMac": "See what cleanup does to your own words, then choose.",
-        "bodyOther": "See what cleanup does to your own words, then choose."
+        "title": "Mach deinen Text gut lesbar.",
+        "bodyMac": "Sieh dir an, wie die Textbereinigung deine eigenen Worte verändert, und entscheide dann.",
+        "bodyOther": "Sieh dir an, wie die Textbereinigung deine eigenen Worte verändert, und entscheide dann."
       },
       "shortcuts": {
-        "title": "Talk from any app.",
-        "bodyMac": "Press your shortcut anywhere. Change it if it clashes with another app.",
-        "bodyOther": "Press your shortcut anywhere. Change it if it clashes with another app."
+        "title": "Sprich aus jeder App heraus.",
+        "bodyMac": "Drücke dein Tastenkürzel überall. Ändere es, wenn es mit einer anderen App kollidiert.",
+        "bodyOther": "Drücke dein Tastenkürzel überall. Ändere es, wenn es mit einer anderen App kollidiert."
       },
       "finish": {
-        "title": "Here is where you are.",
-        "bodyMac": "Everything below is true right now.",
-        "bodyOther": "Everything below is true right now."
+        "title": "So weit bist du jetzt.",
+        "bodyMac": "Alles Folgende entspricht dem aktuellen Stand.",
+        "bodyOther": "Alles Folgende entspricht dem aktuellen Stand."
       }
     },
     "hello": {
-      "start": "Get started",
-      "micTitle": "Let Loqui hear you",
-      "micBody": "Loqui listens only while you dictate. Nothing on this screen is recorded.",
-      "allowMic": "Allow microphone",
-      "micReady": "{{device}} is listening",
-      "micReadyGeneric": "Your microphone is listening",
-      "micLabel": "Microphone",
-      "systemDefault": "System default",
-      "builtIn": "Built-in microphone",
-      "unnamedMic": "Unnamed microphone",
-      "notHearing": "Not hearing you? Choose another microphone.",
-      "savedMicMissing": "Your saved microphone isn't connected, so Loqui is using the system default.",
-      "deniedTitle": "Loqui can't use your microphone",
-      "deniedBodyMac": "Allow it in System Settings, then come back. Loqui checks again when you return.",
-      "deniedBodyOther": "Allow it in your system's privacy or sound settings, then come back. Loqui checks again when you return.",
-      "openSettings": "Open System Settings",
-      "recheck": "I've turned it on",
-      "unavailableTitle": "Loqui can't open your microphone",
-      "unavailableBody": "Another app may be using it, or no input device is connected.",
-      "retryOpen": "Try again",
-      "openSound": "Open Sound settings",
-      "starting": "Opening your microphone…"
+      "start": "Loslegen",
+      "micTitle": "Lass Loqui dich hören",
+      "micBody": "Loqui hört nur zu, während du diktierst. Auf diesem Bildschirm wird nichts aufgezeichnet.",
+      "allowMic": "Mikrofon erlauben",
+      "micReady": "{{device}} hört zu",
+      "micReadyGeneric": "Dein Mikrofon hört zu",
+      "micLabel": "Mikrofon",
+      "systemDefault": "Systemstandard",
+      "builtIn": "Integriertes Mikrofon",
+      "unnamedMic": "Unbenanntes Mikrofon",
+      "notHearing": "Wir hören dich nicht? Wähle ein anderes Mikrofon.",
+      "savedMicMissing": "Dein gespeichertes Mikrofon ist nicht angeschlossen. Loqui nutzt deshalb den Systemstandard.",
+      "deniedTitle": "Loqui darf dein Mikrofon nicht verwenden",
+      "deniedBodyMac": "Erlaube den Zugriff in den Systemeinstellungen und kehre dann zurück. Loqui prüft den Zugriff bei deiner Rückkehr erneut.",
+      "deniedBodyOther": "Erlaube den Zugriff in den Datenschutz- oder Toneinstellungen deines Systems und kehre dann zurück. Loqui prüft ihn bei deiner Rückkehr erneut.",
+      "openSettings": "Systemeinstellungen öffnen",
+      "recheck": "Ich habe den Zugriff erlaubt",
+      "unavailableTitle": "Loqui kann dein Mikrofon nicht öffnen",
+      "unavailableBody": "Vielleicht verwendet eine andere App das Mikrofon, oder es ist kein Eingabegerät angeschlossen.",
+      "retryOpen": "Noch einmal versuchen",
+      "openSound": "Toneinstellungen öffnen",
+      "starting": "Mikrofon wird geöffnet…"
     },
     "privacy": {
-      "title": "Privacy defaults",
-      "historyTitle": "Keep local history",
-      "historyBodyMac": "Save transcripts on this Mac. Change anytime in Privacy & Data.",
-      "historyBodyOther": "Save transcripts on this computer. Change anytime in Privacy & Data.",
-      "updatesTitle": "Download updates automatically",
-      "updatesBody": "Check signed releases daily. You choose when to restart."
+      "title": "Datenschutz-Voreinstellungen",
+      "historyTitle": "Lokalen Verlauf behalten",
+      "historyBodyMac": "Transkripte auf diesem Mac speichern. Jederzeit unter Datenschutz & Daten änderbar.",
+      "historyBodyOther": "Transkripte auf diesem Computer speichern. Jederzeit unter Datenschutz & Daten änderbar.",
+      "updatesTitle": "Updates automatisch herunterladen",
+      "updatesBody": "Signierte Versionen täglich prüfen. Du entscheidest, wann neu gestartet wird."
     },
     "voice": {
-      "checkingMac": "Looking at this Mac…",
-      "checkingOther": "Looking at this computer…",
-      "title": "We picked a voice for you.",
-      "unsupportedTitle": "Choose the voice that fits you best.",
+      "checkingMac": "Dieser Mac wird geprüft…",
+      "checkingOther": "Dieser Computer wird geprüft…",
+      "title": "Wir haben eine Stimme für dich ausgewählt.",
+      "unsupportedTitle": "Wähle die Stimme, die am besten zu dir passt.",
       "why": {
-        "englishMac": "We picked English because your Mac is set to English.",
-        "englishOther": "We picked English because your computer is set to English.",
-        "languageMac": "We picked {{voice}} because your Mac is set to {{language}}.",
-        "languageOther": "We picked {{voice}} because your computer is set to {{language}}.",
-        "multilingualMac": "We picked {{voice}} because your Mac uses {{languages}}.",
-        "multilingualOther": "We picked {{voice}} because your computer uses {{languages}}.",
-        "unsupported": "Loqui's on-device voices don't hear {{language}} yet. Choose the closest one, or add a cloud voice later in Settings."
+        "englishMac": "Wir haben Englisch gewählt, weil dein Mac auf Englisch eingestellt ist.",
+        "englishOther": "Wir haben Englisch gewählt, weil dein Computer auf Englisch eingestellt ist.",
+        "languageMac": "Wir haben {{voice}} gewählt, weil dein Mac auf {{language}} eingestellt ist.",
+        "languageOther": "Wir haben {{voice}} gewählt, weil dein Computer auf {{language}} eingestellt ist.",
+        "multilingualMac": "Wir haben {{voice}} gewählt, weil dein Mac {{languages}} verwendet.",
+        "multilingualOther": "Wir haben {{voice}} gewählt, weil dein Computer {{languages}} verwendet.",
+        "unsupported": "Loquis lokale Stimmen verstehen {{language}} noch nicht. Wähle die passendste oder füge später in den Einstellungen eine Cloud-Stimme hinzu."
       },
-      "noticed": "What we noticed",
+      "noticed": "Das haben wir erkannt",
       "signals": {
-        "systemLanguage": "System language",
-        "memory": "Memory",
-        "freeSpace": "Free space",
-        "graphics": "Graphics"
+        "systemLanguage": "Systemsprache",
+        "memory": "Arbeitsspeicher",
+        "freeSpace": "Freier Speicherplatz",
+        "graphics": "Grafik"
       },
       "gpu": {
-        "appleSilicon": "Apple silicon",
-        "nvidia": "NVIDIA graphics",
-        "unknown": "Not detected"
+        "appleSilicon": "Apple-Chip",
+        "nvidia": "NVIDIA-Grafik",
+        "unknown": "Nicht erkannt"
       },
-      "unknown": "Unknown",
-      "diskShort": "This voice needs about {{needed}} free while it installs. {{free}} is free.",
-      "recommended": "Recommended for you",
-      "installed": "Installed on this device",
-      "notRight": "Not right? Choose yourself",
-      "pickerLabel": "Voices",
-      "lockedWhileDownloading": "Cancel the download to choose another voice.",
-      "languageLocked": "Cancel the download to change the language.",
-      "cantHear": "Doesn't hear {{language}}",
+      "unknown": "Unbekannt",
+      "diskShort": "Diese Stimme benötigt bei der Installation etwa {{needed}} freien Speicherplatz. Frei sind {{free}}.",
+      "recommended": "Für dich empfohlen",
+      "installed": "Auf diesem Gerät installiert",
+      "notRight": "Passt nicht? Wähle selbst",
+      "pickerLabel": "Stimmen",
+      "lockedWhileDownloading": "Brich den Download ab, um eine andere Stimme zu wählen.",
+      "languageLocked": "Brich den Download ab, um die Sprache zu ändern.",
+      "cantHear": "Versteht {{language}} nicht",
       "blocked": {
-        "mismatch": "This voice doesn't hear {{language}}. Choose one below.",
-        "none": "No on-device voice hears {{language}} yet. Choose a language it supports, or add a cloud voice later in Settings."
+        "mismatch": "Diese Stimme versteht {{language}} nicht. Wähle unten eine andere.",
+        "none": "Noch versteht keine lokale Stimme {{language}}. Wähle eine unterstützte Sprache oder füge später in den Einstellungen eine Cloud-Stimme hinzu."
       },
-      "download": "Download ({{size}})",
+      "download": "Herunterladen ({{size}})",
       "outcomes": {
         "fastEnglish": {
-          "name": "Fast and English",
-          "description": "Quick and accurate for English. Words appear about a second after you stop."
+          "name": "Schnell und auf Englisch",
+          "description": "Schnell und präzise für Englisch. Etwa eine Sekunde nach dem Sprechen erscheint der Text."
         },
         "manyLanguages": {
-          "name": "Many languages",
-          "description": "Hears and auto-detects 25 languages, so you can switch mid-day."
+          "name": "Viele Sprachen",
+          "description": "Versteht und erkennt automatisch 25 Sprachen. So kannst du im Laufe des Tages wechseln."
         },
         "liveCaptions": {
-          "name": "Live captions",
-          "description": "Words appear as you speak. Best for meetings and long dictation."
+          "name": "Live-Untertitel",
+          "description": "Der Text erscheint beim Sprechen. Ideal für Besprechungen und längere Diktate."
         },
         "liveMultilingual": {
-          "name": "Live, more languages",
-          "description": "Words appear as you speak, in 15 languages including Japanese, Arabic and Hindi."
+          "name": "Live, mit mehr Sprachen",
+          "description": "Der Text erscheint beim Sprechen, in 15 Sprachen, darunter Japanisch, Arabisch und Hindi."
         }
       },
-      "commitToTry": "Choose and apply a local voice before trying dictation."
+      "commitToTry": "Wähle eine lokale Stimme aus und wende sie an, bevor du das Diktieren ausprobierst."
     },
     "tour": {
-      "label": "While that downloads",
-      "title": "While that downloads, meet Loqui.",
-      "skip": "Skip tour",
-      "skipped": "We'll start the test as soon as your voice is ready.",
-      "noVoice": "Choose a voice first. It runs on this device.",
-      "chooseVoice": "Choose a voice",
-      "slideOf": "{{current}} of {{total}}",
-      "previous": "Previous tip",
-      "next": "Next tip",
-      "tip": "Tip {{number}}",
+      "label": "Während des Downloads",
+      "title": "Lerne Loqui während des Downloads kennen.",
+      "skip": "Tour überspringen",
+      "skipped": "Der Test beginnt, sobald deine Stimme bereit ist.",
+      "noVoice": "Wähle zuerst eine Stimme. Sie läuft auf diesem Gerät.",
+      "chooseVoice": "Stimme wählen",
+      "slideOf": "{{current}} von {{total}}",
+      "previous": "Vorheriger Tipp",
+      "next": "Nächster Tipp",
+      "tip": "Tipp {{number}}",
       "shortcut": {
-        "title": "Use your shortcut",
-        "tap": "Press {{key}} to start talking, and press it again to finish.",
-        "push": "Hold {{key}} and talk. Let go to finish."
+        "title": "Nutze dein Tastenkürzel",
+        "tap": "Drücke {{key}}, um zu sprechen, und zum Beenden noch einmal.",
+        "push": "Halte {{key}} gedrückt und sprich. Lass zum Beenden los."
       },
       "privacy": {
-        "title": "Where your words go",
-        "bodyMac": "Nothing leaves this Mac unless you choose a provider.",
-        "bodyOther": "Nothing leaves this computer unless you choose a provider.",
+        "title": "Wohin deine Worte gehen",
+        "bodyMac": "Nichts verlässt diesen Mac, solange du keinen Anbieter auswählst.",
+        "bodyOther": "Nichts verlässt diesen Computer, solange du keinen Anbieter auswählst.",
         "nodes": {
-          "mic": "Mic",
+          "mic": "Mikro",
           "loqui": "Loqui",
-          "model": "Speech model",
-          "notes": "Notes"
+          "model": "Sprachmodell",
+          "notes": "Notizen"
         }
       },
       "demo": {
-        "title": "Say it, get text",
-        "body": "Cleanup can tidy filler words and punctuation. You choose it next.",
-        "raw": "um remind me to send the draft before lunch",
-        "final": "Remind me to send the draft before lunch."
+        "title": "Sprich und erhalte Text",
+        "body": "Die Textbereinigung entfernt Füllwörter und korrigiert Satzzeichen. Du wählst sie als Nächstes.",
+        "raw": "äh erinnere mich den Entwurf vor dem Mittagessen zu schicken",
+        "final": "Erinnere mich, den Entwurf vor dem Mittagessen zu schicken."
       },
-      "readyTitle": "Ready. Say something.",
-      "readyBody": "Your voice model is on this device."
+      "readyTitle": "Bereit. Sag etwas.",
+      "readyBody": "Dein Sprachmodell ist auf diesem Gerät."
     },
     "cleanupAuthority": {
       "unavailable": "Die ursprüngliche Textbereinigung ist nicht mehr verfügbar. Deine ursprünglichen Worte bleiben erhalten.",
@@ -4424,91 +4424,91 @@
     },
     "try": {
       "idle": {
-        "tap": "Press {{key}} and say something. Press it again to finish.",
-        "push": "Hold {{key}} and say something. Let go to finish."
+        "tap": "Drücke {{key}} und sag etwas. Drücke zum Beenden noch einmal.",
+        "push": "Halte {{key}} gedrückt und sag etwas. Lass zum Beenden los."
       },
       "keycap": {
-        "tap": "press to talk",
-        "push": "hold to talk"
+        "tap": "drücken zum Sprechen",
+        "push": "halten zum Sprechen"
       },
-      "listening": "Listening",
-      "processing": "Writing it down…",
-      "shortcutWorks": "Shortcut works",
-      "heardYou": "Loqui heard you",
-      "discarded": "Discarded.",
-      "undo": "Undo",
-      "silent": "We're not hearing anything. Wrong microphone?",
-      "noAudioTitle": "We didn't hear anything",
-      "noAudioBody": "Check that the right microphone is selected and not muted, then try again.",
-      "memoryTitle": "This voice needs more memory than is free",
-      "memoryBody": "Close some apps, or choose a smaller voice.",
-      "chooseSmaller": "Choose another voice",
-      "changeMic": "Change microphone",
-      "otherTitle": "That take didn't work",
-      "otherBody": "Try again. Your setup is unchanged.",
-      "again": "Try again",
-      "cleanupFailed": "Cleanup didn't run. This is your original text.",
-      "retryFailed": "Cleanup still didn't run. This is your original text.",
-      "retryCleanup": "Retry cleanup",
-      "cleanupOff": "Turn cleanup off",
-      "wordsSafe": "Your words are safe either way.",
-      "accessibilityTitle": "The shortcut needs Accessibility access",
-      "accessibilityBody": "macOS only lets Loqui hear a global shortcut after you allow it. Dictating inside Loqui works without it.",
-      "grantAccess": "Grant access",
-      "useButton": "Use a button instead",
-      "start": "Start recording",
-      "stop": "Stop",
-      "privacyLine": "Not pasted anywhere, not saved.",
-      "bandTitle": "That was you. Loqui heard it on your device.",
-      "makeItYours": "Make it yours",
-      "startUsing": "Start using Loqui",
-      "cancel": "Discard take",
-      "cleanupUnsupported": "This cleanup authentication source cannot be retained. Your original words are preserved.",
-      "controlUnavailable": "The recording control did not respond. Try Stop or Discard again."
+      "listening": "Hört zu",
+      "processing": "Wird aufgeschrieben…",
+      "shortcutWorks": "Tastenkürzel funktioniert",
+      "heardYou": "Loqui hat dich gehört",
+      "discarded": "Verworfen.",
+      "undo": "Rückgängig",
+      "silent": "Wir hören nichts. Ist das falsche Mikrofon gewählt?",
+      "noAudioTitle": "Wir haben nichts gehört",
+      "noAudioBody": "Prüfe, ob das richtige Mikrofon gewählt und nicht stummgeschaltet ist, und versuche es erneut.",
+      "memoryTitle": "Diese Stimme benötigt mehr freien Arbeitsspeicher",
+      "memoryBody": "Schließe einige Apps oder wähle eine kleinere Stimme.",
+      "chooseSmaller": "Andere Stimme wählen",
+      "changeMic": "Mikrofon wechseln",
+      "otherTitle": "Diese Aufnahme hat nicht geklappt",
+      "otherBody": "Versuche es erneut. Deine Einrichtung bleibt unverändert.",
+      "again": "Noch einmal versuchen",
+      "cleanupFailed": "Die Textbereinigung wurde nicht ausgeführt. Dies ist dein Originaltext.",
+      "retryFailed": "Die Textbereinigung wurde erneut nicht ausgeführt. Dies ist dein Originaltext.",
+      "retryCleanup": "Textbereinigung erneut versuchen",
+      "cleanupOff": "Textbereinigung ausschalten",
+      "wordsSafe": "Deine Worte bleiben in jedem Fall erhalten.",
+      "accessibilityTitle": "Das Tastenkürzel benötigt Zugriff auf die Bedienungshilfen",
+      "accessibilityBody": "Erst nach deiner Zustimmung erlaubt macOS Loqui, ein globales Tastenkürzel zu erkennen. Innerhalb von Loqui kannst du auch ohne diese Erlaubnis diktieren.",
+      "grantAccess": "Zugriff erlauben",
+      "useButton": "Stattdessen eine Schaltfläche nutzen",
+      "start": "Aufnahme starten",
+      "stop": "Stopp",
+      "privacyLine": "Nirgendwo eingefügt, nicht gespeichert.",
+      "bandTitle": "Das warst du. Loqui hat dich auf deinem Gerät gehört.",
+      "makeItYours": "Nach deinen Wünschen",
+      "startUsing": "Loqui verwenden",
+      "cancel": "Aufnahme verwerfen",
+      "cleanupUnsupported": "Diese Authentifizierungsquelle kann nicht für die Textbereinigung beibehalten werden. Deine ursprünglichen Worte bleiben erhalten.",
+      "controlUnavailable": "Die Aufnahmesteuerung hat nicht geantwortet. Versuche erneut, zu stoppen oder zu verwerfen."
     },
     "cleanup": {
-      "title": "See what cleanup does",
-      "label": "Cleanup",
+      "title": "Sieh dir die Textbereinigung an",
+      "label": "Textbereinigung",
       "options": {
-        "none": "None",
-        "local": "Local",
+        "none": "Keine",
+        "local": "Lokal auf dem Gerät",
         "codex": "ChatGPT",
-        "provider": "API key"
+        "provider": "API-Schlüssel"
       },
-      "original": "Original",
-      "withCleanup": "With cleanup",
-      "nothingChanges": "Nothing changes",
-      "running": "Cleaning up your sentence…",
-      "wordsSent_other": "{{count}} words would be sent to {{provider}}",
-      "wordsSent_one": "{{count}} word would be sent to {{provider}}",
-      "sentNotice_other": "Your {{count}} words were sent to {{provider}} for this preview",
-      "sentNotice_one": "Your {{count}} word was sent to {{provider}} for this preview",
-      "tryMine_other": "Try it on my sentence · sends {{count}} words to {{provider}}",
-      "tryMine_one": "Try it on my sentence · sends {{count}} word to {{provider}}",
-      "exampleNotice": "Example text. Nothing was sent.",
-      "localExampleNotice": "Example text. Your own sentence appears here once local cleanup is ready on this device.",
+      "original": "Originaltext",
+      "withCleanup": "Mit Textbereinigung",
+      "nothingChanges": "Es ändert sich nichts",
+      "running": "Dein Satz wird bereinigt…",
+      "wordsSent_other": "{{count}} Wörter würden an {{provider}} gesendet",
+      "wordsSent_one": "{{count}} Wort würde an {{provider}} gesendet",
+      "sentNotice_other": "Deine {{count}} Wörter wurden für diese Vorschau an {{provider}} gesendet",
+      "sentNotice_one": "Dein {{count}} Wort wurde für diese Vorschau an {{provider}} gesendet",
+      "tryMine_other": "Mit meinem Satz ausprobieren · sendet {{count}} Wörter an {{provider}}",
+      "tryMine_one": "Mit meinem Satz ausprobieren · sendet {{count}} Wort an {{provider}}",
+      "exampleNotice": "Beispieltext. Es wurde nichts gesendet.",
+      "localExampleNotice": "Beispieltext. Dein eigener Satz erscheint hier, sobald die lokale Textbereinigung auf diesem Gerät bereit ist.",
       "example": {
-        "original": "um let's send the draft to maya before lunch and uh remind me to book the room for thursday",
-        "local": "Let's send the draft to Maya before lunch and remind me to book the room for Thursday.",
-        "codex": "Let's send the draft to Maya before lunch. Remind me to book the room for Thursday.",
-        "provider": "Let's send Maya the draft before lunch, and remind me to book the room for Thursday."
+        "original": "äh lass uns den Entwurf vor dem Mittagessen an Maya schicken und äh erinnere mich den Raum für Donnerstag zu buchen",
+        "local": "Lass uns den Entwurf vor dem Mittagessen an Maya schicken und erinnere mich, den Raum für Donnerstag zu buchen.",
+        "codex": "Lass uns den Entwurf vor dem Mittagessen an Maya schicken. Erinnere mich, den Raum für Donnerstag zu buchen.",
+        "provider": "Lass uns Maya vor dem Mittagessen den Entwurf schicken, und erinnere mich daran, den Raum für Donnerstag zu buchen."
       },
       "now": {
-        "off": "Cleanup is off. Your words stay exactly as you said them.",
-        "checking": "Checking that cleanup is available…",
-        "ready": "Cleanup is on with {{name}}.",
+        "off": "Die Textbereinigung ist aus. Deine Worte bleiben genau so, wie du sie gesagt hast.",
+        "checking": "Verfügbarkeit der Textbereinigung wird geprüft…",
+        "ready": "Die Textbereinigung ist mit {{name}} aktiviert.",
         "readyNetwork": "Die Textbereinigung ist mit {{name}} auf {{provider}} aktiviert.",
-        "needsKey": "Add your {{provider}} key in Settings to turn cleanup on. Until then, your words stay as you said them.",
-        "needsConnection": "Connect ChatGPT above to turn cleanup on. Until then, your words stay as you said them.",
-        "needsModel": "The local cleanup model isn't on this device yet. Download it in Settings, Language Models (1.3 GB).",
-        "unreachable": "Loqui can't reach {{provider}} right now. Your words are kept as you said them."
+        "needsKey": "Füge deinen Schlüssel für {{provider}} in den Einstellungen hinzu, um die Textbereinigung einzuschalten. Bis dahin bleiben deine Worte unverändert.",
+        "needsConnection": "Verbinde oben ChatGPT, um die Textbereinigung einzuschalten. Bis dahin bleiben deine Worte unverändert.",
+        "needsModel": "Das lokale Modell zur Textbereinigung ist noch nicht auf diesem Gerät. Lade es in Einstellungen → Sprachmodelle herunter (1,3 GB).",
+        "unreachable": "Loqui kann {{provider}} gerade nicht erreichen. Deine Worte bleiben unverändert."
       },
-      "reuse": "Also use this choice for other text features",
-      "exampleInProgress": "Example text while your request runs. Your result appears only when cleanup succeeds.",
-      "attemptNotice_other": "You allowed {{count}} words to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
-      "attemptNotice_one": "You allowed {{count}} word to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
-      "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
-      "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+      "reuse": "Diese Wahl auch für andere Textfunktionen verwenden",
+      "exampleInProgress": "Beispieltext während deiner Anfrage. Dein Ergebnis erscheint erst nach erfolgreicher Textbereinigung.",
+      "attemptNotice_other": "Du hast erlaubt, {{count}} Wörter an {{provider}} zu senden. Der Versuch ist fehlgeschlagen; die Übermittlung könnte bereits erfolgt sein. Deine ursprünglichen Worte sind unverändert.",
+      "attemptNotice_one": "Du hast erlaubt, {{count}} Wort an {{provider}} zu senden. Der Versuch ist fehlgeschlagen; die Übermittlung könnte bereits erfolgt sein. Deine ursprünglichen Worte sind unverändert.",
+      "previousAttemptNotice_other": "Du hast zuvor erlaubt, {{count}} Wörter an {{provider}} zu senden. Änderungen an dieser Vorschau rufen die Anfrage nicht zurück. Deine ursprünglichen Worte bleiben erhalten.",
+      "previousAttemptNotice_one": "Du hast zuvor erlaubt, {{count}} Wort an {{provider}} zu senden. Änderungen an dieser Vorschau rufen die Anfrage nicht zurück. Deine ursprünglichen Worte bleiben erhalten."
     },
     "shortcut": {
       "title": "Probiere dein Tastenkürzel aus.",
@@ -4608,7 +4608,7 @@
       "body": "Dein Arbeitsbereich ist bereit. Mach jederzeit dort weiter, wo du aufgehört hast.",
       "items": {
         "finishDictating": "Bringe dein erstes Diktat zum Laufen",
-        "cleanup": "Textüberarbeitung auswählen",
+        "cleanup": "Textbereinigung auswählen",
         "shortcut": "Tastenkürzel ausprobieren"
       },
       "resume": "Einrichtung fortsetzen",

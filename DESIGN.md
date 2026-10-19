@@ -829,3 +829,21 @@ are read from the current platform/scenario namespace, including while the Panel
 is retained. All eight new resume leaves (including its accessible region name)
 are authored in all eleven locales without changing existing leaves. Native
 speaker verification and the phase-wide manual gates remain outstanding.
+
+Task 20 completes `setupFlow` copy in Arabic, German, Spanish, French, Italian,
+Japanese, European Portuguese, Russian, Simplified Chinese and Traditional Chinese.
+The wording follows existing dictation, shortcut, text-cleanup and Apple permission
+terms. Portuguese uses the informal singular register throughout, including the
+resume checklist. Spoken examples include local fillers and retain a coherent
+meaning across the distinct cleaned versions. Consent still names the recipient
+and count; failed attempts disclose possible delivery and preserve the raw text.
+Mac and ordinary-computer copy remain distinct, and Arabic uses direction-neutral
+instructions. English and everything outside `setupFlow` remain unchanged.
+
+The locale guard checks missing keys, nonstring values, CLDR categories,
+interpolation and normalized English placeholders. Its only shared identity
+exceptions are the two product-only labels and the exact MB/GB unit templates;
+standard unit symbols are not untranslated prose. Local resource checks do not
+certify native fluency. Native-speaker spot-checks for Arabic, Japanese and
+Traditional Chinese remain required before a PR, alongside Task 21's rendered
+locale and accessibility matrix. No human language review is claimed here.

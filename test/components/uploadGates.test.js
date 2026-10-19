@@ -149,8 +149,202 @@ async function mount(t, routeOverride = null) {
     useSettingsStore,
     useRouteFactsStore,
     sealedStore,
+    unmount: async () => {
+      await React.act(async () => root.unmount());
+      root = null;
+    },
   };
 }
+
+async function startAdmittedFile(h) {
+  await h.facts(new Set(["base"]));
+  await h.act(() =>
+    h.batch.addFiles([{ name: "admitted.wav", path: "/memory/admitted.wav", sizeBytes: 100 }])
+  );
+  const first = deferred();
+  globalThis.__uploadResult = first.promise;
+  await h.act(() => h.tree.props(h.button("notes.upload.transcribe")).onClick());
+  assert.deepEqual(h.calls, ["transcribe"]);
+  assert.equal(h.batch.useBatchQueueStore.getState().isProcessing, true);
+  return first;
+}
+
+for (const boundary of ["chooser", "size"]) {
+  for (const names of [["returned.wav"], ["returned.wav", "second.wav"]]) {
+    test(`pending chooser active drain: readiness lost during ${boundary}, ${names.length} files retained until explicit admission`, async (t) => {
+      const h = await mount(t),
+        p = (n) => h.tree.props(n);
+      const first = await startAdmittedFile(h);
+      await h.act(() =>
+        p(h.url()).onChange({ target: { value: "https://example.invalid/draft" } })
+      );
+      const sizes = names.map(() => deferred());
+      let sizeCalls = 0;
+      if (boundary === "size")
+        globalThis.window.electronAPI.getFileSize = () => sizes[sizeCalls++].promise;
+      const browsing = p(h.zone()).onClick();
+      if (boundary === "chooser") await h.facts(null);
+      await h.act(() =>
+        h.chooser.resolve({ canceled: false, filePaths: names.map((n) => "/memory/" + n) })
+      );
+      if (boundary === "size") {
+        assert.equal(sizeCalls, 1, "chooser returned and size read is actually pending");
+        await h.facts(null);
+        for (const size of sizes) await h.act(() => size.resolve(100));
+      }
+      await browsing;
+      await h.act(() => first.resolve({ success: false, error: "Memory failure" }));
+      assert.equal(h.calls.filter((c) => c === "transcribe").length, 1);
+      assert.equal(p(h.url()).value, "https://example.invalid/draft");
+      assert.equal(
+        h.batch.useBatchQueueStore.getState().queue.length,
+        1,
+        "pending files never enter the active queue"
+      );
+      for (const name of names)
+        assert.ok(
+          h.find((p) => p.children === name),
+          name
+        );
+      const add = h.button("notes.upload.addToQueue");
+      assert.ok(add);
+      assert.equal(p(add).disabled, true);
+      const heldAdd = p(add).onClick;
+      await h.act(heldAdd);
+      assert.equal(h.batch.useBatchQueueStore.getState().queue.length, 1);
+      await h.facts(new Set(["base"]));
+      assert.equal(
+        h.batch.useBatchQueueStore.getState().queue.length,
+        1,
+        "ready restoration alone is inert"
+      );
+      assert.equal(h.calls.filter((c) => c === "transcribe").length, 1);
+      await h.act(() => {
+        heldAdd();
+        heldAdd();
+      });
+      assert.deepEqual(
+        h.batch.useBatchQueueStore.getState().queue.map((i) => i.name),
+        ["admitted.wav", ...names]
+      );
+      assert.equal(h.button("notes.upload.addToQueue"), null);
+      await h.act(heldAdd);
+      assert.equal(
+        h.batch.useBatchQueueStore.getState().queue.length,
+        1 + names.length,
+        "old callback cannot duplicate admission"
+      );
+      await h.act(() => p(h.button("notes.upload.transcribe")).onClick());
+      assert.equal(h.calls.filter((c) => c === "transcribe").length, 1 + names.length);
+    });
+  }
+}
+
+test("pending chooser concurrent completions accumulate and held add consumes only current pending files", async (t) => {
+  const h = await mount(t),
+    p = (n) => h.tree.props(n);
+  const first = await startAdmittedFile(h);
+  const choices = [deferred(), deferred(), deferred()];
+  let next = 0;
+  globalThis.window.electronAPI.selectAudioFile = () => choices[next++].promise;
+  const browse = p(h.zone()).onClick;
+  const completions = [browse(), browse()];
+  await h.facts(null);
+  await h.act(() =>
+    choices[1].resolve({ canceled: false, filePaths: ["/memory/b.wav", "/memory/c.wav"] })
+  );
+  await completions[1];
+  assert.ok(h.button("notes.upload.addToQueue"), "returned files need an inert pending action");
+  const heldAdd = p(h.button("notes.upload.addToQueue")).onClick;
+  await h.act(() => choices[0].resolve({ canceled: false, filePaths: ["/memory/a.wav"] }));
+  await completions[0];
+  for (const name of ["a.wav", "b.wav", "c.wav"]) assert.ok(h.find((p) => p.children === name));
+  await h.facts(new Set(["base"]));
+  await h.act(() => {
+    heldAdd();
+    heldAdd();
+  });
+  assert.deepEqual(
+    h.batch.useBatchQueueStore.getState().queue.map((i) => i.name),
+    ["admitted.wav", "b.wav", "c.wav", "a.wav"]
+  );
+  const third = browse();
+  await h.facts(null);
+  await h.act(() => choices[2].resolve({ canceled: false, filePaths: ["/memory/d.wav"] }));
+  await third;
+  await h.act(heldAdd);
+  assert.equal(h.batch.useBatchQueueStore.getState().queue.length, 4);
+  await h.facts(new Set(["base"]));
+  await h.act(heldAdd);
+  assert.deepEqual(
+    h.batch.useBatchQueueStore.getState().queue.map((i) => i.name),
+    ["admitted.wav", "b.wav", "c.wav", "a.wav", "d.wav"]
+  );
+  await h.act(() => first.resolve({ success: false, error: "Memory failure" }));
+  assert.equal(h.calls.filter((c) => c === "transcribe").length, 5);
+});
+
+for (const boundary of ["chooser", "size"]) {
+  test(`pending chooser unmount during ${boundary} cannot feed the admitted drain`, async (t) => {
+    const h = await mount(t),
+      p = (n) => h.tree.props(n);
+    const first = await startAdmittedFile(h);
+    const size = deferred();
+    if (boundary === "size") globalThis.window.electronAPI.getFileSize = () => size.promise;
+    const browsing = p(h.zone()).onClick();
+    if (boundary === "chooser") await h.unmount();
+    await h.act(() => h.chooser.resolve({ canceled: false, filePaths: ["/memory/late.wav"] }));
+    if (boundary === "size") {
+      await h.unmount();
+      await h.act(() => size.resolve(100));
+    }
+    await browsing;
+    await h.act(() => first.resolve({ success: false, error: "Memory failure" }));
+    assert.equal(h.batch.useBatchQueueStore.getState().queue.length, 1);
+    assert.equal(h.calls.filter((c) => c === "transcribe").length, 1);
+  });
+}
+
+test("pending chooser selection survives original batch cancellation without admitting late files", async (t) => {
+  const h = await mount(t),
+    p = (n) => h.tree.props(n);
+  globalThis.window.electronAPI.saveNote = async () => {
+    h.calls.push("save");
+    return { success: false, error: "Unexpected save" };
+  };
+  globalThis.window.electronAPI.cancelUploadTranscription = () => h.calls.push("cancelTranscribe");
+  const first = await startAdmittedFile(h);
+  const browsing = p(h.zone()).onClick();
+  await h.facts(null);
+  await h.act(() => h.chooser.resolve({ canceled: false, filePaths: ["/memory/retained.wav"] }));
+  await browsing;
+  await h.act(() => p(h.button("notes.upload.cancelAll")).onClick());
+  await h.act(() => first.resolve({ success: true, text: "Late result must not save" }));
+  assert.equal(h.batch.useBatchQueueStore.getState().isProcessing, false);
+  assert.equal(h.calls.filter((c) => c === "transcribe").length, 1);
+  assert.ok(h.calls.includes("cancelTranscribe"));
+  assert.equal(h.calls.includes("save"), false, "canceled A cannot save its late success");
+  assert.ok(h.find((p) => p.children === "retained.wav"));
+  assert.ok(h.button("notes.upload.addToQueue"));
+  assert.equal(p(h.button("notes.upload.addToQueue")).disabled, true);
+});
+
+test("pending chooser held add cannot admit a retained selection after unmount", async (t) => {
+  const h = await mount(t),
+    p = (n) => h.tree.props(n);
+  const first = await startAdmittedFile(h);
+  const browsing = p(h.zone()).onClick();
+  await h.facts(null);
+  await h.act(() => h.chooser.resolve({ canceled: false, filePaths: ["/memory/retained.wav"] }));
+  await browsing;
+  const heldAdd = p(h.button("notes.upload.addToQueue")).onClick;
+  await h.facts(new Set(["base"]));
+  await h.unmount();
+  await h.act(heldAdd);
+  await h.act(() => first.resolve({ success: false, error: "Memory failure" }));
+  assert.equal(h.batch.useBatchQueueStore.getState().queue.length, 1);
+  assert.equal(h.calls.filter((c) => c === "transcribe").length, 1);
+});
 
 test("real view keeps unknown visible/inert, actual facts alone enable it, stale handlers fail closed", async (t) => {
   const h = await mount(t),

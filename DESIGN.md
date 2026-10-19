@@ -454,6 +454,13 @@ queue, and do not cancel an operation already admitted. Speaker controls appear
 only while the route is ready; their neutral track and thumb remain distinguishable
 in both themes. Changed selection and retry controls enter without fading copy.
 
+Chooser files returned after readiness is lost stay outside the running queue.
+Their filenames remain in an opaque, readable local selection with an Add to
+queue action, disabled until readiness is confirmed. Readiness restoration alone
+does not add them; a fresh explicit action admits the current selection once.
+Concurrent chooser returns accumulate, and unmount cannot append late files.
+Previously admitted work keeps its existing run and cancellation ownership.
+
 Disabled copy stays opaque at the readable text floor, with the full muted token;
 aria-disabled and the cursor convey availability. Changed native controls have
 full opaque two-pixel focus rings. Drag feedback uses neutral ink and an opaque

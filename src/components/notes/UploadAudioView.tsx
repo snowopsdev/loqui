@@ -57,6 +57,7 @@ import { UploadDropZone } from "./UploadDropZone";
 import { UploadCompleteWarnings, UploadModelSettingsButton } from "./UploadAudioFeedback";
 
 type UploadState = "idle" | "selected" | "downloading" | "transcribing" | "complete" | "error";
+type PendingUploadFile = { name: string; path: string; sizeBytes: number };
 
 const CLOUD_FREE_MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB — free plan cloud limit
 const CLOUD_PRO_MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB — pro plan cloud limit
@@ -164,6 +165,10 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   const singleDownloadIdRef = useRef<string | null>(null);
 
   const batch = useBatchQueue();
+  const [pendingFiles, setPendingFiles] = useState<PendingUploadFile[]>([]);
+  // Event-owned selection: held callbacks read and consume the current files
+  // synchronously, including concurrent chooser completions before a render.
+  const pendingFilesRef = useRef<PendingUploadFile[]>([]);
 
   const [diarizationEnabled, setDiarizationEnabled] = useState(
     () => localStorage.getItem("uploadDiarizationEnabled") === "true"
@@ -386,7 +391,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   const handleBrowse = async () => {
     if (!canAdmitUpload()) return;
     const res = await window.electronAPI.selectAudioFile({ multiple: true });
-    if (res.canceled) return;
+    if (!mountedRef.current || res.canceled) return;
 
     const filePaths: string[] = res.filePaths || (res.filePath ? [res.filePath] : []);
     if (filePaths.length === 0) return;
@@ -396,6 +401,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
       const fp = filePaths[0];
       const name = fp.split(/[/\\]/).pop() || "audio";
       const sizeBytes = (await window.electronAPI.getFileSize?.(fp)) ?? 0;
+      if (!mountedRef.current) return;
       setFile({ name, path: fp, size: sizeBytes ? formatFileSize(sizeBytes) : "", sizeBytes });
       setState("selected");
       setError(null);
@@ -408,7 +414,24 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
       const sizeBytes = (await window.electronAPI.getFileSize?.(fp)) ?? 0;
       items.push({ name, path: fp, sizeBytes });
     }
+    if (!mountedRef.current) return;
+    // An active drain consumes additions immediately. A chooser's old ready
+    // render cannot authorize that admission after its asynchronous reads.
+    if (!canAdmitUpload()) {
+      pendingFilesRef.current = [...pendingFilesRef.current, ...items];
+      setPendingFiles(pendingFilesRef.current);
+      return;
+    }
     batch.addFiles(items);
+  };
+
+  const handleAddPendingFiles = () => {
+    if (!canAdmitUpload()) return;
+    const items = pendingFilesRef.current;
+    if (items.length === 0) return;
+    batch.addFiles(items);
+    pendingFilesRef.current = pendingFilesRef.current.filter((item) => !items.includes(item));
+    setPendingFiles(pendingFilesRef.current);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -937,6 +960,29 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
 
         {skippedNotice && (
           <p className="text-[10px] text-amber-500/60 mt-2 text-center">{skippedNotice}</p>
+        )}
+
+        {pendingFiles.length > 0 && (
+          <div className="mt-3 rounded-lg border border-border bg-background p-3">
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {pendingFiles.map((item, index) => (
+                <li key={index} dir="auto" className="break-words [overflow-wrap:anywhere]">
+                  {item.name}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 flex justify-end">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleAddPendingFiles}
+                disabled={!providerReady}
+                className="h-8 text-xs focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-100"
+              >
+                {t("notes.upload.addToQueue")}
+              </Button>
+            </div>
+          </div>
         )}
 
         {batch.hasQueue && (

@@ -3545,15 +3545,47 @@
     "sections": {
       "notes": "Notas",
       "transcripts": "Transcripciones",
-      "jumpTo": "Ir a"
+      "suggested": "Sugeridos",
+      "recent": "Recientes",
+      "commands": "Comandos",
+      "meetings": "Reuniones",
+      "chats": "Chats",
+      "folders": "Carpetas"
     },
     "noResults": "Sin resultados",
     "emptyState": "Escribe para buscar",
     "footer": {
       "navigate": "Navegar",
       "open": "Abrir",
-      "dismiss": "Cerrar"
-    }
+      "dismiss": "Cerrar",
+      "scope": "Ámbito",
+      "close": "Cerrar"
+    },
+    "placeholderAll": "Busca notas, reuniones o ejecuta un comando…",
+    "commands": {
+      "newNote": "Nueva nota",
+      "startDictation": "Iniciar dictado",
+      "askAssistant": "Preguntar al asistente",
+      "goNotes": "Ir a Notas",
+      "goHome": "Ir a Inicio",
+      "goChat": "Ir a Chat",
+      "recordMeeting": "Grabar reunión",
+      "uploadAudio": "Subir audio…",
+      "newChat": "Nuevo chat",
+      "openSettings": "Abrir ajustes",
+      "switchSpeechModel": "Cambiar modelo de voz…",
+      "toggleTheme": "Alternar tema oscuro"
+    },
+    "askAssistant": "Preguntar al asistente: «{{query}}»",
+    "nothingMatches": "No hay coincidencias para «{{query}}».",
+    "meta": {
+      "meeting": "Reunión",
+      "chat": "Chat"
+    },
+    "clear": "Borrar búsqueda",
+    "seeAllTranscripts_one": "Ver {{count}} coincidencia en el historial",
+    "seeAllTranscripts_many": "Ver las {{count}} coincidencias en el historial",
+    "seeAllTranscripts_other": "Ver las {{count}} coincidencias en el historial"
   },
   "emojiPicker": {
     "search": "Buscar emoji…",

@@ -3620,15 +3620,46 @@
     "sections": {
       "notes": "Notes",
       "transcripts": "Transcripts",
-      "jumpTo": "Jump to"
+      "suggested": "Suggested",
+      "recent": "Recent",
+      "commands": "Commands",
+      "meetings": "Meetings",
+      "chats": "Chats",
+      "folders": "Folders"
     },
     "noResults": "No results",
     "emptyState": "Start typing to search",
     "footer": {
       "navigate": "Navigate",
       "open": "Open",
-      "dismiss": "Dismiss"
-    }
+      "dismiss": "Dismiss",
+      "scope": "Scope",
+      "close": "Close"
+    },
+    "placeholderAll": "Search notes, meetings, or run a command…",
+    "commands": {
+      "newNote": "New note",
+      "startDictation": "Start dictation",
+      "askAssistant": "Ask the assistant",
+      "goNotes": "Go to Notes",
+      "goHome": "Go to Home",
+      "goChat": "Go to Chat",
+      "recordMeeting": "Record meeting",
+      "uploadAudio": "Upload audio…",
+      "newChat": "New chat",
+      "openSettings": "Open settings",
+      "switchSpeechModel": "Switch speech model…",
+      "toggleTheme": "Toggle dark theme"
+    },
+    "askAssistant": "Ask the assistant: “{{query}}”",
+    "nothingMatches": "Nothing matches “{{query}}”.",
+    "meta": {
+      "meeting": "Meeting",
+      "chat": "Chat"
+    },
+    "clear": "Clear search",
+    "seeAllTranscripts_one": "See {{count}} match in History",
+    "seeAllTranscripts_other": "See all {{count}} in History"
   },
   "emojiPicker": {
     "search": "Search emoji…",

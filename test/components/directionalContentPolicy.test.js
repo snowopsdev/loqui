@@ -17,7 +17,7 @@ test("dynamic prose and identity values keep their own direction", () => {
     ],
     ["src/components/ui/TranscriptionItem.tsx", /<p\s+dir="auto"[\s\S]*?\{item\.text\}/],
     ["src/components/ui/TranscriptionItem.tsx", /<p\s+dir="auto"[^>]*>\s*\{rawText\}/],
-    ["src/components/CommandSearch.tsx", /<p\s+dir="auto"[^>]*>\s*\{transcript\.text\}/],
+    ["src/components/CommandSearch.tsx", /<Highlighted text=\{title\} ranges=\{/],
     ["src/components/DictionaryView.tsx", /<span\s+dir="auto"[^>]*>\s*\{word\}/],
     ["src/components/SnippetsView.tsx", /<span\s+dir="auto"[^>]*>\s*\{snippet\.trigger\}/],
     ["src/components/SnippetsView.tsx", /<span\s+dir="auto"[^>]*>\s*\{snippet\.replacement\}/],
@@ -107,7 +107,10 @@ test("user-authored names and previews detect direction at their display boundar
       "src/components/CommandSearch.tsx",
       /<p\s+dir="auto"[^>]*>\s*\{conv\.last_message\.slice\(0, 90\)\}/,
     ],
-    ["src/components/CommandSearch.tsx", /<p\s+dir="auto"[^>]*>\s*\{target\.label\}/],
+    [
+      "src/components/CommandSearch.tsx",
+      /<span dir="auto" className="block truncate">\s*\{highlightSegments\(text, ranges\)/,
+    ],
     ["src/components/chat/ConversationItem.tsx", /<p\s+dir="auto"[^>]*>\s*\{conversation\.title\}/],
     [
       "src/components/chat/ConversationItem.tsx",

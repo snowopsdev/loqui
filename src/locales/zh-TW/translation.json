@@ -3491,15 +3491,45 @@
     "sections": {
       "notes": "筆記",
       "transcripts": "轉錄",
-      "jumpTo": "跳至"
+      "suggested": "推薦",
+      "recent": "最近",
+      "commands": "命令",
+      "meetings": "會議",
+      "chats": "聊天",
+      "folders": "資料夾"
     },
     "noResults": "無結果",
     "emptyState": "輸入內容開始搜尋",
     "footer": {
       "navigate": "導覽",
       "open": "開啟",
-      "dismiss": "關閉"
-    }
+      "dismiss": "關閉",
+      "scope": "範圍",
+      "close": "關閉"
+    },
+    "placeholderAll": "搜尋筆記、會議或執行命令…",
+    "commands": {
+      "newNote": "新增筆記",
+      "startDictation": "開始聽寫",
+      "askAssistant": "詢問助理",
+      "goNotes": "前往筆記",
+      "goHome": "前往首頁",
+      "goChat": "前往聊天",
+      "recordMeeting": "錄製會議",
+      "uploadAudio": "上傳音訊…",
+      "newChat": "新增聊天",
+      "openSettings": "開啟設定",
+      "switchSpeechModel": "切換語音模型…",
+      "toggleTheme": "切換深色主題"
+    },
+    "askAssistant": "詢問助理：「{{query}}」",
+    "nothingMatches": "沒有符合「{{query}}」的結果。",
+    "meta": {
+      "meeting": "會議",
+      "chat": "聊天"
+    },
+    "clear": "清除搜尋",
+    "seeAllTranscripts_other": "在歷史紀錄中查看全部 {{count}} 筆結果"
   },
   "emojiPicker": {
     "search": "搜尋表情符號…",

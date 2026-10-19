@@ -3491,15 +3491,45 @@
     "sections": {
       "notes": "ノート",
       "transcripts": "文字起こし",
-      "jumpTo": "移動"
+      "suggested": "おすすめ",
+      "recent": "最近の項目",
+      "commands": "コマンド",
+      "meetings": "会議",
+      "chats": "チャット",
+      "folders": "フォルダー"
     },
     "noResults": "結果なし",
     "emptyState": "入力して検索",
     "footer": {
       "navigate": "移動",
       "open": "開く",
-      "dismiss": "閉じる"
-    }
+      "dismiss": "閉じる",
+      "scope": "検索範囲",
+      "close": "閉じる"
+    },
+    "placeholderAll": "ノートや会議を検索、またはコマンドを実行…",
+    "commands": {
+      "newNote": "新規ノート",
+      "startDictation": "音声入力を開始",
+      "askAssistant": "アシスタントに質問",
+      "goNotes": "ノートへ移動",
+      "goHome": "ホームへ移動",
+      "goChat": "チャットへ移動",
+      "recordMeeting": "会議を録音",
+      "uploadAudio": "音声をアップロード…",
+      "newChat": "新規チャット",
+      "openSettings": "設定を開く",
+      "switchSpeechModel": "音声モデルを切り替え…",
+      "toggleTheme": "ダークテーマを切り替え"
+    },
+    "askAssistant": "アシスタントに質問：「{{query}}」",
+    "nothingMatches": "「{{query}}」に一致する項目はありません。",
+    "meta": {
+      "meeting": "会議",
+      "chat": "チャット"
+    },
+    "clear": "検索をクリア",
+    "seeAllTranscripts_other": "履歴で全{{count}}件を表示"
   },
   "emojiPicker": {
     "search": "絵文字を検索…",

@@ -3621,15 +3621,47 @@
     "sections": {
       "notes": "Notes",
       "transcripts": "Transcriptions",
-      "jumpTo": "Aller à"
+      "suggested": "Suggestions",
+      "recent": "Récents",
+      "commands": "Commandes",
+      "meetings": "Réunions",
+      "chats": "Discussions",
+      "folders": "Dossiers"
     },
     "noResults": "Aucun résultat",
     "emptyState": "Commencez à taper pour rechercher",
     "footer": {
       "navigate": "Naviguer",
       "open": "Ouvrir",
-      "dismiss": "Fermer"
-    }
+      "dismiss": "Fermer",
+      "scope": "Périmètre",
+      "close": "Fermer"
+    },
+    "placeholderAll": "Rechercher des notes, des réunions ou exécuter une commande…",
+    "commands": {
+      "newNote": "Nouvelle note",
+      "startDictation": "Démarrer la dictée",
+      "askAssistant": "Demander à l’assistant",
+      "goNotes": "Aller aux notes",
+      "goHome": "Aller à l’accueil",
+      "goChat": "Aller aux discussions",
+      "recordMeeting": "Enregistrer une réunion",
+      "uploadAudio": "Importer un fichier audio…",
+      "newChat": "Nouvelle discussion",
+      "openSettings": "Ouvrir les paramètres",
+      "switchSpeechModel": "Changer de modèle vocal…",
+      "toggleTheme": "Basculer le thème sombre"
+    },
+    "askAssistant": "Demander à l’assistant : « {{query}} »",
+    "nothingMatches": "Aucun résultat pour « {{query}} ».",
+    "meta": {
+      "meeting": "Réunion",
+      "chat": "Discussion"
+    },
+    "clear": "Effacer la recherche",
+    "seeAllTranscripts_one": "Voir {{count}} résultat dans l’historique",
+    "seeAllTranscripts_many": "Voir les {{count}} résultats dans l’historique",
+    "seeAllTranscripts_other": "Voir les {{count}} résultats dans l’historique"
   },
   "emojiPicker": {
     "search": "Rechercher un emoji…",

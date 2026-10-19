@@ -3620,15 +3620,46 @@
     "sections": {
       "notes": "Notizen",
       "transcripts": "Transkripte",
-      "jumpTo": "Gehe zu"
+      "suggested": "Vorgeschlagen",
+      "recent": "Zuletzt",
+      "commands": "Befehle",
+      "meetings": "Besprechungen",
+      "chats": "Chats",
+      "folders": "Ordner"
     },
     "noResults": "Keine Ergebnisse",
     "emptyState": "Tippen, um zu suchen",
     "footer": {
       "navigate": "Navigieren",
       "open": "Öffnen",
-      "dismiss": "Schließen"
-    }
+      "dismiss": "Schließen",
+      "scope": "Bereich",
+      "close": "Schließen"
+    },
+    "placeholderAll": "Notizen und Besprechungen suchen oder einen Befehl ausführen…",
+    "commands": {
+      "newNote": "Neue Notiz",
+      "startDictation": "Diktat starten",
+      "askAssistant": "Assistenten fragen",
+      "goNotes": "Zu Notizen",
+      "goHome": "Zur Startseite",
+      "goChat": "Zum Chat",
+      "recordMeeting": "Besprechung aufnehmen",
+      "uploadAudio": "Audio hochladen…",
+      "newChat": "Neuer Chat",
+      "openSettings": "Einstellungen öffnen",
+      "switchSpeechModel": "Sprachmodell wechseln…",
+      "toggleTheme": "Dunkles Design umschalten"
+    },
+    "askAssistant": "Assistenten fragen: „{{query}}“",
+    "nothingMatches": "Keine Treffer für „{{query}}“.",
+    "meta": {
+      "meeting": "Besprechung",
+      "chat": "Chat"
+    },
+    "clear": "Suche löschen",
+    "seeAllTranscripts_one": "{{count}} Treffer im Verlauf anzeigen",
+    "seeAllTranscripts_other": "Alle {{count}} im Verlauf anzeigen"
   },
   "emojiPicker": {
     "search": "Emoji suchen…",

@@ -3492,15 +3492,47 @@
     "sections": {
       "notes": "Notas",
       "transcripts": "Transcrições",
-      "jumpTo": "Ir para"
+      "suggested": "Sugestões",
+      "recent": "Recentes",
+      "commands": "Comandos",
+      "meetings": "Reuniões",
+      "chats": "Conversas",
+      "folders": "Pastas"
     },
     "noResults": "Sem resultados",
     "emptyState": "Comece a digitar para pesquisar",
     "footer": {
       "navigate": "Navegar",
       "open": "Abrir",
-      "dismiss": "Fechar"
-    }
+      "dismiss": "Fechar",
+      "scope": "Escopo",
+      "close": "Fechar"
+    },
+    "placeholderAll": "Pesquise notas, reuniões ou execute um comando…",
+    "commands": {
+      "newNote": "Nova nota",
+      "startDictation": "Iniciar ditado",
+      "askAssistant": "Perguntar ao assistente",
+      "goNotes": "Ir para Notas",
+      "goHome": "Ir para Início",
+      "goChat": "Ir para Conversas",
+      "recordMeeting": "Gravar reunião",
+      "uploadAudio": "Enviar áudio…",
+      "newChat": "Nova conversa",
+      "openSettings": "Abrir configurações",
+      "switchSpeechModel": "Trocar modelo de voz…",
+      "toggleTheme": "Alternar tema escuro"
+    },
+    "askAssistant": "Perguntar ao assistente: “{{query}}”",
+    "nothingMatches": "Nenhum resultado para “{{query}}”.",
+    "meta": {
+      "meeting": "Reunião",
+      "chat": "Conversa"
+    },
+    "clear": "Limpar pesquisa",
+    "seeAllTranscripts_one": "Ver {{count}} resultado no histórico",
+    "seeAllTranscripts_many": "Ver todos os {{count}} resultados no histórico",
+    "seeAllTranscripts_other": "Ver todos os {{count}} resultados no histórico"
   },
   "emojiPicker": {
     "search": "Pesquisar emoji…",

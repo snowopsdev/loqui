@@ -3529,15 +3529,48 @@
     "sections": {
       "notes": "Заметки",
       "transcripts": "Транскрипции",
-      "jumpTo": "Перейти к"
+      "suggested": "Рекомендуемые",
+      "recent": "Недавние",
+      "commands": "Команды",
+      "meetings": "Встречи",
+      "chats": "Чаты",
+      "folders": "Папки"
     },
     "noResults": "Нет результатов",
     "emptyState": "Начните ввод для поиска",
     "footer": {
       "navigate": "Навигация",
       "open": "Открыть",
-      "dismiss": "Закрыть"
-    }
+      "dismiss": "Закрыть",
+      "scope": "Область",
+      "close": "Закрыть"
+    },
+    "placeholderAll": "Поиск заметок и встреч или выполнение команды…",
+    "commands": {
+      "newNote": "Новая заметка",
+      "startDictation": "Начать диктовку",
+      "askAssistant": "Спросить ассистента",
+      "goNotes": "Перейти к заметкам",
+      "goHome": "На главную",
+      "goChat": "Перейти в чат",
+      "recordMeeting": "Записать встречу",
+      "uploadAudio": "Загрузить аудио…",
+      "newChat": "Новый чат",
+      "openSettings": "Открыть настройки",
+      "switchSpeechModel": "Сменить речевую модель…",
+      "toggleTheme": "Переключить тёмную тему"
+    },
+    "askAssistant": "Спросить ассистента: «{{query}}»",
+    "nothingMatches": "По запросу «{{query}}» ничего не найдено.",
+    "meta": {
+      "meeting": "Встреча",
+      "chat": "Чат"
+    },
+    "clear": "Очистить поиск",
+    "seeAllTranscripts_one": "Показать {{count}} результат в истории",
+    "seeAllTranscripts_few": "Показать все {{count}} результата в истории",
+    "seeAllTranscripts_many": "Показать все {{count}} результатов в истории",
+    "seeAllTranscripts_other": "Показать все {{count}} результата в истории"
   },
   "emojiPicker": {
     "search": "Поиск эмодзи…",

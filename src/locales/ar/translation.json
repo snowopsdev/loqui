@@ -3724,15 +3724,50 @@
     "sections": {
       "notes": "الملاحظات",
       "transcripts": "النصوص المفرَّغة",
-      "jumpTo": "الانتقال إلى"
+      "suggested": "مقترح",
+      "recent": "الأخيرة",
+      "commands": "الأوامر",
+      "meetings": "الاجتماعات",
+      "chats": "المحادثات",
+      "folders": "المجلدات"
     },
     "noResults": "لا توجد نتائج",
     "emptyState": "ابدأ الكتابة للبحث",
     "footer": {
       "navigate": "تنقل",
       "open": "فتح",
-      "dismiss": "تجاهل"
-    }
+      "dismiss": "تجاهل",
+      "scope": "النطاق",
+      "close": "إغلاق"
+    },
+    "placeholderAll": "ابحث في الملاحظات والاجتماعات أو شغّل أمرًا…",
+    "commands": {
+      "newNote": "ملاحظة جديدة",
+      "startDictation": "بدء الإملاء",
+      "askAssistant": "اسأل المساعد",
+      "goNotes": "الانتقال إلى الملاحظات",
+      "goHome": "الانتقال إلى الرئيسية",
+      "goChat": "الانتقال إلى المحادثة",
+      "recordMeeting": "تسجيل اجتماع",
+      "uploadAudio": "رفع ملف صوتي…",
+      "newChat": "محادثة جديدة",
+      "openSettings": "فتح الإعدادات",
+      "switchSpeechModel": "تغيير نموذج الكلام…",
+      "toggleTheme": "تبديل المظهر الداكن"
+    },
+    "askAssistant": "اسأل المساعد: «{{query}}»",
+    "nothingMatches": "لا توجد نتائج تطابق «{{query}}».",
+    "meta": {
+      "meeting": "اجتماع",
+      "chat": "محادثة"
+    },
+    "clear": "مسح البحث",
+    "seeAllTranscripts_zero": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_one": "عرض نتيجة واحدة ({{count}}) في السجل",
+    "seeAllTranscripts_two": "عرض النتيجتين ({{count}}) في السجل",
+    "seeAllTranscripts_few": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_many": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_other": "عرض كل النتائج وعددها {{count}} في السجل"
   },
   "emojiPicker": {
     "search": "ابحث عن رمز تعبيري…",

@@ -825,7 +825,112 @@
   border-color: transparent;
 }
 
+/* Word rows have their own clipped track; let only their decorative spark
+   travel through the gap. Disclosure captions keep their bounded scroll box. */
+.pill-caption:has(.condense-track) {
+  overflow: visible;
+}
+
+/* Condensation (VO-R1 C): words land in the caption layer, newest at the end;
+   older words fade out under a 24px mask on the leading edge. */
+.condense-track {
+  display: flex;
+  max-width: 100%;
+  padding-block-end: 3px; /* keep the rewrite underline inside the clipped track */
+  justify-content: flex-end;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(90deg, transparent, #000 24px);
+}
+[dir="rtl"] .condense-track {
+  mask-image: linear-gradient(270deg, transparent, #000 24px);
+}
+/* The picked beat: the spark flies --motion-condense-fly (140ms) and the word
+   lands over --motion-condense-land (220ms), starting one --motion-instant
+   after the spark leaves, so it settles as the spark fades. */
+.condense-word {
+  position: relative;
+  flex: none;
+  font: 500 13px/1.3 var(--font-family-sans);
+  animation: condense-in var(--motion-condense-land) var(--motion-ease-enter) var(--motion-instant)
+    both;
+}
+.condense-word.is-partial {
+  opacity: 0.7;
+  font-style: italic;
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+@keyframes condense-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(6px);
+  }
+}
+.condense-word.is-changed::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-ring);
+  animation: condense-underline var(--motion-rewrite-underline) var(--motion-ease-std) both;
+}
+@keyframes condense-underline {
+  to {
+    opacity: 0;
+  }
+}
+/* The spark: a 2px mark that rises from the pill's top-edge height (the caption sits
+   8px above the pill) to the newest word at the row's trailing end, then
+   fades. A wide row may place it beside a narrow pill, at the trailing word
+   slot. The rise and the fade are two animations, so each runs on a token
+   and the rise is exactly --motion-condense-fly. It is positioned on
+   .pill-caption, outside the masked track, and never overlaps the pill's
+   bars (D9). */
+.condense-spark {
+  position: absolute;
+  inset-inline-end: 18px;
+  bottom: -8px;
+  width: 2px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--color-ring);
+  animation:
+    condense-spark-rise var(--motion-condense-fly) var(--motion-ease-std) both,
+    condense-spark-fade var(--motion-fast) var(--motion-ease-exit) var(--motion-condense-fly) both;
+  pointer-events: none;
+}
+@keyframes condense-spark-rise {
+  from {
+    transform: translateY(0) scaleY(1);
+  }
+  to {
+    transform: translateY(-14px) scaleY(0.3);
+  }
+}
+@keyframes condense-spark-fade {
+  to {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* No flight. The words still fade in, and the rewrite underline is colour,
+     not movement, so it keeps its full length. index.css crushes every
+     animation to 0.01ms here, hence !important. */
+  .condense-spark {
+    display: none;
+  }
+  .condense-word {
+    animation: notice-fade var(--motion-fast) linear both !important;
+  }
+  .condense-word.is-changed::after {
+    animation-duration: var(--motion-rewrite-underline) !important;
+  }
+
   /* Movement goes; the cue stays. The red edge carries a failure without the
      nudge. The check and the caption fade in instead of popping or rising.
      index.css crushes every animation to 0.01ms under reduced motion, so the

@@ -49,15 +49,16 @@ const pipeline = (state) => ({
   processingStage: null,
   outcome: null,
   activeSession: null,
+  liveText: { committed: "", partial: "", cleaned: null },
   ...state,
 });
 
-async function renderApp(t, state = {}) {
+async function renderApp(t, state = {}, extraMocks = {}) {
   // "Auto-hide when idle" is on; the real settings store reads it at load.
   installBrowserGlobals(t, { initialStorage: { floatingIconAutoHide: "true" } });
   const vite = await createRendererServer(t, {
     cachePrefix: "loqui-app-pill-",
-    mockModules: MOCKS,
+    mockModules: { ...MOCKS, ...extraMocks },
   });
   globalThis.__appPillAudio = pipeline(state);
   globalThis.__appPillAutoHide = [];
@@ -162,3 +163,37 @@ for (const [name, target, alsoSentTo] of [
     } else assert.ok(html.includes("speech.department.company.example"));
   });
 }
+
+test("live words render in the caption layer, after the pill and outside it (D9)", async (t) => {
+  const { html } = await renderApp(t, {
+    isRecording: true,
+    liveText: { committed: "hey maya can", partial: "you", cleaned: null },
+  });
+  const caption = html.indexOf('class="pill-caption"');
+  assert.ok(caption > html.indexOf("voice-pill-glow-anchor"), "the caption follows the pill");
+  assert.doesNotMatch(html.slice(0, caption), /condense-word/);
+  assert.equal((html.slice(caption).match(/class="condense-word/g) || []).length, 4);
+});
+
+for (const stage of ["transcribing", "cleaning"]) {
+  test(`live words stay outside the pill during ${stage}`, async (t) => {
+    const { html } = await renderApp(t, {
+      isProcessing: true,
+      processingStage: stage,
+      liveText: { committed: "raw committed", partial: "tail", cleaned: null },
+    });
+    assert.match(html, /class="condense-word is-partial"[^>]*>tail</);
+    assert.doesNotMatch(html.slice(0, html.indexOf('class="pill-caption"')), /condense-word/);
+  });
+}
+
+test("the mounted full transcript panel takes precedence over condensed words", async (t) => {
+  const { html } = await renderApp(
+    t,
+    { isRecording: true, liveText: { committed: "raw words", partial: "tail", cleaned: null } },
+    {
+      "/hooks/useLiveTranscriptPanel": `export const useLiveTranscriptPanel = () => ({ mounted: true, open: false, openRef: { current: false }, entrancePhase: "content", phase: "listening", text: "full transcript", measurementText: "full transcript", close(){}, reopen(){}, requestHeight(){}, holdFinal(){} });`,
+    }
+  );
+  assert.doesNotMatch(html, /condense-word|condense-track/);
+});

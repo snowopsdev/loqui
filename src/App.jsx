@@ -3,7 +3,7 @@ import { notify, getNotices, runNoticeAction, wordsCardNotice } from "./componen
 import { useUndoCancelHotkey } from "./hooks/useUndoCancelHotkey";
 import { usePillHotkey } from "./hooks/usePillHotkey";
 import { getCachedPlatform } from "./utils/platform";
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import "./index.css";
 import { useHotkey } from "./hooks/useHotkey";
@@ -21,6 +21,8 @@ import { useWindowResizeCompensation } from "./hooks/useWindowResizeCompensation
 import { useSettingsStore } from "./stores/settingsStore";
 import { useTrayQuickActions } from "./hooks/useTrayQuickActions";
 import { usePillLocality } from "./components/dictation/pillLocality";
+import { CondensationWords } from "./components/dictation/CondensationWords";
+import { condenseWords, diffWords } from "./components/dictation/condensation";
 import { PillCaption } from "./components/dictation/PillCaption";
 import { useRecentOutcome } from "./hooks/useRecentOutcome";
 import { usePillAutoHide } from "./hooks/usePillAutoHide";
@@ -229,6 +231,7 @@ export default function App() {
     getAudioLevel,
     activeSession,
     outcomePresentation,
+    liveText,
     cancelHold,
     cancelled,
     undoCancel,
@@ -584,7 +587,18 @@ export default function App() {
       : pillStage === "sealedPaused"
         ? t("pill.caption.sealedPaused")
         : null;
-  const readingSurfaceActive = Boolean(cancelled || pillCaption);
+  const condensed = useMemo(() => {
+    if (liveTranscript.mounted) return [];
+    if (pillStage === "pasted" && liveText.cleaned) {
+      const raw = `${liveText.committed} ${liveText.partial}`.trim();
+      return diffWords(raw, liveText.cleaned);
+    }
+    if (pillStage === "recording" || pillStage === "transcribing" || pillStage === "cleaning") {
+      return condenseWords(liveText.committed, liveText.partial);
+    }
+    return [];
+  }, [liveTranscript.mounted, pillStage, liveText]);
+  const readingSurfaceActive = Boolean(cancelled || pillCaption || condensed.length);
   useEffect(() => {
     if (!readingSurfaceActive) {
       pillFocusedRef.current = false;
@@ -780,7 +794,7 @@ export default function App() {
         >
           <PillTooltip
             content={canReopenLiveTranscript ? t("transcriptionPreview.label") : micTooltip}
-            disabled={anyPanelMounted}
+            disabled={anyPanelMounted || condensed.length > 0}
             align={panelStartPosition === "center" ? "center" : voiceHorizontalDirection}
           >
             <VoicePill
@@ -875,6 +889,10 @@ export default function App() {
           {pillCaption ? (
             <PillCaption elementRef={pillCaptionRef} horizontalDirection={voiceHorizontalDirection}>
               {pillCaption}
+            </PillCaption>
+          ) : condensed.length > 0 ? (
+            <PillCaption elementRef={pillCaptionRef} horizontalDirection={voiceHorizontalDirection}>
+              <CondensationWords words={condensed} />
             </PillCaption>
           ) : null}
           <LiquidCancelButton

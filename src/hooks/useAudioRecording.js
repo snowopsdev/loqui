@@ -30,6 +30,7 @@ const SELECTION_EDIT_DETAIL_KEY_BY_CODE = {
   paste_failed: "pasteFailed",
 };
 const COMPANION_AUDIO_LEVEL_INTERVAL_MS = 80;
+const emptyLiveText = () => ({ committed: "", partial: "", cleaned: null });
 const countWords = (text) => (text.trim() ? text.trim().split(/\s+/u).length : 0);
 
 // Presentation holds destinations and enabled intents only: never audio,
@@ -79,6 +80,8 @@ export const useAudioRecording = (options = {}) => {
   const [micCaptureStatus, setMicCaptureStatus] = useState("inactive");
   const [transcript, setTranscript] = useState("");
   const [partialTranscript, setPartialTranscript] = useState("");
+  const [liveText, setLiveText] = useState(emptyLiveText);
+  const liveTextSessionRef = useRef(null);
   const audioManagerRef = useRef(null);
   const startLockRef = useRef(false);
   const stopRequestedDuringStartRef = useRef(false);
@@ -340,6 +343,10 @@ export const useAudioRecording = (options = {}) => {
     const installation = ++managerInstallationRef.current;
     const manager = new AudioManager();
     audioManagerRef.current = manager;
+    liveTextSessionRef.current = null;
+    setLiveText(emptyLiveText());
+    const ownsInstallation = () =>
+      managerInstallationRef.current === installation && audioManagerRef.current === manager;
 
     // Resolve and pin the input device now, not on the first hotkey press, which
     // would otherwise wait on the device lookup before the mic can open.
@@ -477,9 +484,29 @@ export const useAudioRecording = (options = {}) => {
 
     audioManagerRef.current.setCallbacks({
       onStateChange: ({ isRecording, isProcessing, isStreaming, micCaptureStatus }) => {
+        if (!ownsInstallation()) return;
+        const session = manager.activeSession ?? null;
+        const newRecording =
+          isRecording &&
+          (!wasRecordingRef.current ||
+            !busyRef.current ||
+            (session?.id ?? null) !== liveTextSessionRef.current);
+        if (newRecording) {
+          liveTextSessionRef.current = session?.id ?? null;
+          setLiveText(emptyLiveText());
+        } else if (isProcessing && session && session.id !== liveTextSessionRef.current) {
+          liveTextSessionRef.current = session?.id ?? null;
+          setLiveText(emptyLiveText());
+        } else if (isProcessing && !busyRef.current) {
+          // Undo may resume the same session without entering recording again.
+          setLiveText((prev) => ({ ...prev, cleaned: null }));
+        }
+        // AudioManager settles idle before the asynchronous completion/paste
+        // callback finishes. Keep its words through that owning outcome; the
+        // next admitted recording/installation resets them. App hides idle text.
         const busy = Boolean(isRecording || isProcessing);
         setActiveSession(busy ? (audioManagerRef.current?.activeSession ?? null) : null);
-        if ((isRecording && !wasRecordingRef.current) || (busy && !busyRef.current)) {
+        if (newRecording || (busy && !busyRef.current)) {
           outcomeGenerationRef.current += 1;
           setOutcome(null);
           setOutcomePresentation(null);
@@ -551,7 +578,9 @@ export const useAudioRecording = (options = {}) => {
         }
       },
       onCancelledChange: handleCancelledChange,
-      onProcessingStage: (stage) => setProcessingStage(stage),
+      onProcessingStage: (stage) => {
+        if (ownsInstallation()) setProcessingStage(stage);
+      },
       onError: (error) => {
         const sessionId = audioManagerRef.current?.activeSession?.id ?? null;
         setIsPreparing(false);
@@ -599,7 +628,13 @@ export const useAudioRecording = (options = {}) => {
           description: t("hooks.audioRecording.noAudio.description"),
         });
       },
+      onStreamingCommit: () => {
+        if (!ownsInstallation()) return;
+        setLiveText({ committed: manager.streamingFinalText ?? "", partial: "", cleaned: null });
+      },
       onPartialTranscript: (text) => {
+        if (!ownsInstallation()) return;
+        setLiveText({ committed: manager.streamingFinalText ?? "", partial: text, cleaned: null });
         onDemoEventRef.current?.({ kind: demoKindRef.current, status: "partial", text });
         setPartialTranscript(text);
         const settings = getSettings();
@@ -623,6 +658,7 @@ export const useAudioRecording = (options = {}) => {
         }
       },
       onTranscriptionComplete: async (result) => {
+        if (!ownsInstallation()) return;
         const session = audioManagerRef.current?.activeSession ?? null;
         const sessionId = session?.id ?? null;
         const sessionPrivate = session?.private === true;
@@ -653,6 +689,12 @@ export const useAudioRecording = (options = {}) => {
             result.text = expandSnippets(result.text, getSettings().snippets);
           }
 
+          setLiveText((prev) => ({
+            committed:
+              result.rawText ?? (prev.committed || prev.partial ? prev.committed : result.text),
+            partial: result.rawText != null ? "" : prev.partial,
+            cleaned: result.text,
+          }));
           setTranscript(result.text);
           if (result.assistantConversation) {
             window.electronAPI?.hideDictationPreview?.();
@@ -1214,6 +1256,7 @@ export const useAudioRecording = (options = {}) => {
     micCaptureStatus,
     transcript,
     partialTranscript,
+    liveText,
     startRecording: performStartRecording,
     stopRecording: performStopRecording,
     cancelRecording,

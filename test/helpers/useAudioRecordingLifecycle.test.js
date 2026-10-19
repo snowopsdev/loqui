@@ -451,3 +451,104 @@ test("an actual hold opened while already hovered pauses the manager immediately
   assert.equal(ref.api.cancelled.paused, false);
   assert.deepEqual(am.calls, [["pause"]]);
 });
+
+test("live words survive recording, commits, cleanup, idle during paste and the owning pasted beat", async (t) => {
+  const pasted = deferred();
+  const { ref, vite } = await mount(t, { replaceSelectedText: () => pasted.promise });
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  useSettingsStore.setState({ autoPasteEnabled: true, keepTranscriptionInClipboard: false });
+  const am = globalThis.__am;
+  am.activeSession = { id: "live-A" };
+  am.saveTranscription = async () => true;
+  await fire("onStateChange", { isRecording: true, isProcessing: false });
+  assert.deepEqual(ref.api.liveText, { committed: "", partial: "", cleaned: null });
+  am.streamingFinalText = "move the review";
+  await fire("onPartialTranscript", "to thursday at two");
+  assert.deepEqual(ref.api.liveText, {
+    committed: "move the review",
+    partial: "to thursday at two",
+    cleaned: null,
+  });
+  am.streamingFinalText = "move the review to thursday at two";
+  await fire("onStreamingCommit", " to thursday at two");
+  assert.deepEqual(ref.api.liveText, {
+    committed: am.streamingFinalText,
+    partial: "",
+    cleaned: null,
+  });
+  await fire("onStateChange", { isRecording: false, isProcessing: true });
+  await fire("onProcessingStage", "cleaning");
+  let completion;
+  await React.act(async () => {
+    completion = am.cb.onTranscriptionComplete({
+      success: true,
+      text: "move the review to Thursday at 2.",
+      selectionEdit: { sessionId: "edit" },
+    });
+  });
+  const owned = ref.api.liveText;
+  assert.equal(owned.cleaned, "move the review to Thursday at 2.");
+  await fire("onStateChange", { isRecording: false, isProcessing: false });
+  am.activeSession = null;
+  assert.deepEqual(ref.api.liveText, owned, "idle precedes paste settlement in the real pipeline");
+  await React.act(async () => {
+    pasted.resolve({ success: true });
+    await completion;
+  });
+  assert.equal(ref.api.outcome.kind, "pasted");
+  assert.deepEqual(ref.api.liveText, owned);
+  am.activeSession = { id: "live-B" };
+  await fire("onStateChange", { isRecording: true, isProcessing: false });
+  assert.deepEqual(ref.api.liveText, { committed: "", partial: "", cleaned: null });
+});
+
+test("a pending old paste never reclaims replacement words; batch completion captures full raw text", async (t) => {
+  const pasted = deferred();
+  const { ref, vite } = await mount(t, { replaceSelectedText: () => pasted.promise });
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  useSettingsStore.setState({ autoPasteEnabled: true, keepTranscriptionInClipboard: false });
+  const am = globalThis.__am;
+  am.saveTranscription = async () => true;
+  am.activeSession = { id: "A" };
+  await fire("onStateChange", { isRecording: true, isProcessing: false });
+  let completion;
+  await React.act(async () => {
+    completion = am.cb.onTranscriptionComplete({
+      success: true,
+      rawText: "all original batch words",
+      text: "All original batch words.",
+      selectionEdit: { sessionId: "edit" },
+    });
+  });
+  assert.deepEqual(ref.api.liveText, {
+    committed: "all original batch words",
+    partial: "",
+    cleaned: "All original batch words.",
+  });
+  // Replacement identity must reset words even if a producer coalesces the idle edge.
+  am.activeSession = { id: "B" };
+  await fire("onStateChange", { isRecording: true, isProcessing: false });
+  am.streamingFinalText = "new";
+  await fire("onPartialTranscript", "words");
+  const newer = ref.api.liveText;
+  await React.act(async () => {
+    pasted.resolve({ success: true });
+    await completion;
+  });
+  assert.deepEqual(ref.api.liveText, newer);
+  assert.equal(ref.api.outcome, null);
+});
+
+test("same-session Undo retains raw words but clears the previous cleaned result", async (t) => {
+  const { ref } = await mount(t);
+  const am = globalThis.__am;
+  am.activeSession = { id: STATE.sessionId };
+  await fire("onStateChange", { isRecording: true, isProcessing: false });
+  am.streamingFinalText = "retained";
+  await fire("onPartialTranscript", "words");
+  await fire("onCancelledChange", STATE);
+  await fire("onStateChange", { isRecording: false, isProcessing: false });
+  await fire("onCancelledChange", null, { sessionId: STATE.sessionId, reason: "restored" });
+  await fire("onStateChange", { isRecording: false, isProcessing: true });
+  assert.deepEqual(ref.api.liveText, { committed: "retained", partial: "words", cleaned: null });
+});

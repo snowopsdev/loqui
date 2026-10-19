@@ -58,6 +58,19 @@ test("pill labels and semantic edges retain contrast in light and Plum Night, in
       contrastRatio(t["--color-ring"], t["--color-popover"]) >= 3,
       `${theme} caption focus/scroll affordance`
     );
+    const partialOpacity = Number(
+      pill.match(/\.condense-word\.is-partial\s*\{[^}]*opacity:\s*([\d.]+)/)?.[1]
+    );
+    const partial = composite(
+      t["--color-popover-foreground"],
+      t["--color-popover"],
+      partialOpacity
+    );
+    assert.ok(contrastRatio(partial, t["--color-popover"]) >= 4.5, `${theme} partial word text`);
+    assert.ok(
+      contrastRatio(t["--color-ring"], t["--color-popover"]) >= 3,
+      `${theme} rewrite underline and spark`
+    );
     const rest = composite(t["--color-foreground"], t["--color-surface-1"], 0.6);
     assert.ok(contrastRatio(rest, t["--color-surface-1"]) >= 3, `${theme} resting bar composite`);
     for (const role of ["--color-locality-network", "--color-locality-remote"]) {
@@ -80,5 +93,10 @@ test("pill labels and semantic edges retain contrast in light and Plum Night, in
     pill,
     /\.voice-pill-control\[data-pill-state="recording"\]\s*\{[^}]*border-color:\s*var\(--color-ring\)/
   );
+  assert.match(
+    pill,
+    /\.condense-word\.is-changed::after\s*\{[^}]*background:\s*var\(--color-ring\)/
+  );
+  assert.match(pill, /\.condense-spark\s*\{[^}]*background:\s*var\(--color-ring\)/);
   assert.match(pill, /\.pill-countdown\s*\{[^}]*background:\s*var\(--color-ring\)/);
 });

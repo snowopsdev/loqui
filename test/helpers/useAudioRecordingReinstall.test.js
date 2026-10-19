@@ -101,6 +101,9 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
     const heldA = oldManager._undo.peek();
     const stateA = ref.api.cancelled;
     const staleCancelledCallback = oldManager.onCancelledChange;
+    const stalePartial = oldManager.onPartialTranscript;
+    const staleCommit = oldManager.onStreamingCommit;
+    const staleCompletion = oldManager.onTranscriptionComplete;
     const leaseA = leaseId;
     assert.equal(stateA.sessionId, heldA.session.id);
     assert.equal(ref.hotkey.held, true);
@@ -135,6 +138,7 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
       `${dependency}: a new installation cannot expose erased audio`
     );
     assert.equal(ref.hotkey.held, false);
+    assert.deepEqual(ref.api.liveText, { committed: "", partial: "", cleaned: null });
     assert.equal(liveLeases.has(leaseA), false);
     assert.equal(log.filter(([kind, id]) => kind === "release" && id === leaseA).length, 1);
     assert.equal(bridge.windowManager.lastCancelledDictation, null);
@@ -163,6 +167,9 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
     assert.equal(ref.hotkey.held, true);
     const beforeStale = { demo: demo.length, log: log.length };
     await React.act(async () => {
+      stalePartial("retired partial");
+      staleCommit("retired commit");
+      await staleCompletion({ success: true, text: "retired cleaned" });
       staleCancelledCallback(stateA);
       staleCancelledCallback(null, { sessionId: heldA.session.id, reason: "expired" });
       recorder.ondataavailable({ data: blob(9) });
@@ -170,6 +177,11 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
       await advance(0);
     });
     assert.equal(ref.api.cancelled.sessionId, heldB.session.id);
+    assert.deepEqual(
+      ref.api.liveText,
+      { committed: "", partial: "", cleaned: null },
+      "retired installation cannot publish words"
+    );
     assert.equal(replacement._undo.peek(), heldB);
     assert.equal(heldB.context.released, false);
     assert.equal(ref.hotkey.held, true);

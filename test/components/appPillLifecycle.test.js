@@ -128,6 +128,7 @@ test("App retains original destinations through audio, banked consumption/busy, 
     processingStage: null,
     outcome: null,
     activeSession: null,
+    liveText: { committed: "", partial: "", cleaned: null },
     cancelHold: null,
     outcomePresentation: null,
   };
@@ -306,13 +307,28 @@ test("App retains original destinations through audio, banked consumption/busy, 
     activeSession: null,
     outcome,
     outcomePresentation: { outcome, session },
+    liveText: {
+      committed: "review on thursday at two",
+      partial: "",
+      cleaned: "review on Thursday at 2.",
+    },
   });
   assert.equal(pill().attributes["data-pill-state"], "pasted");
   assert.match(ring().attributes["aria-label"], /Anthropic/);
   assert.match(tree.text(), /19 words/);
+  assert.match(tree.text(), /Thursday/);
+  assert.ok(
+    tree.find((n) => n.attributes?.class === "condense-word is-changed"),
+    "App derives cleanup rewrites for the actual pasted outcome"
+  );
   await React.act(async () => new Promise((r) => setTimeout(r, 740)));
   assert.equal(pill().attributes["data-pill-state"], "idle");
   assert.equal(ring().attributes["data-locality"], "device");
+  assert.equal(
+    tree.find((n) => n.attributes?.class === "condense-track"),
+    null,
+    "word row ends with the actual outcome beat"
+  );
   const preempted = { kind: "pasted", words: 2, at: Date.now() };
   await render({ outcome: preempted, outcomePresentation: { outcome: preempted, session } });
   assert.equal(pill().attributes["data-pill-state"], "pasted");

@@ -45,6 +45,7 @@ const SCOPED =
 const MOTION_SOURCES = [
   "src/components/dictation/VoicePill.tsx",
   "src/components/dictation/PillCaption.tsx",
+  "src/components/dictation/CondensationWords.tsx",
 ];
 
 const DURATION = /(?<![\w.])\d*\.?\d+m?s(?![\w-])/g;

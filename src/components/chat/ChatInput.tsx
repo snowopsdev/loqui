@@ -1,3 +1,4 @@
+import { useWorkspaceActive } from "../../hooks/useWorkspaceActive";
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useId } from "react";
 import { Mic, Square, X } from "../icons";
 import { useTranslation } from "react-i18next";
@@ -67,6 +68,7 @@ export function ChatInput({
   className,
   voiceDraft = false,
 }: ChatInputProps) {
+  const workspaceActive = useWorkspaceActive();
   const { t } = useTranslation();
   const { toast } = useToast();
   const [inputText, setInputText] = useState("");
@@ -167,17 +169,17 @@ export function ChatInput({
     }
   }, [queuedFor, queueKey]);
   useEffect(() => {
-    if (isIdle && queuedFor !== null && queuedFor === queueKey) {
+    if (workspaceActive && isIdle && queuedFor !== null && queuedFor === queueKey) {
       setQueuedFor(null);
       void handleSubmit();
     }
-  }, [isIdle, queuedFor, queueKey, handleSubmit]);
+  }, [workspaceActive, isIdle, queuedFor, queueKey, handleSubmit]);
 
   useEffect(() => {
-    if (isIdle) {
+    if (workspaceActive && isIdle) {
       requestAnimationFrame(() => inputRef.current?.focus());
     }
-  }, [isIdle]);
+  }, [isIdle, workspaceActive]);
 
   return (
     <div className={cn("shrink-0", className ?? "px-3 pb-3 pt-1")}>

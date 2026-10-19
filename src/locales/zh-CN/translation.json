@@ -4571,6 +4571,18 @@
       },
       "fixNote": "修复此项",
       "noteNetwork": "笔记已设为向 {{provider}} 发送音频。"
+    },
+    "resume": {
+      "title": "完成设置",
+      "body": "工作区已就绪。你可以随时从上次的位置继续设置。",
+      "items": {
+        "finishDictating": "试试第一次语音输入",
+        "cleanup": "选择文本润色方式",
+        "shortcut": "试试快捷键"
+      },
+      "resume": "继续设置",
+      "dismiss": "关闭设置清单",
+      "label": "设置清单"
     }
   }
 }

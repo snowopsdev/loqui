@@ -4609,6 +4609,18 @@
       "fixNote": "Solucionar",
       "noteNetwork": "Las notas están configuradas para enviar audio a {{provider}}.",
       "titlePending_many": "Casi listo: quedan {{count}} cosas."
+    },
+    "resume": {
+      "title": "Termina la configuración",
+      "body": "Tu espacio de trabajo está listo. Retoma la configuración cuando quieras.",
+      "items": {
+        "finishDictating": "Haz tu primer dictado",
+        "cleanup": "Elige cómo mejorar el texto",
+        "shortcut": "Prueba tu atajo"
+      },
+      "resume": "Reanudar configuración",
+      "dismiss": "Ocultar lista de configuración",
+      "label": "Lista de configuración"
     }
   }
 }

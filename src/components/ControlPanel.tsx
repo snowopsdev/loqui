@@ -1,4 +1,5 @@
-import React, { Suspense, useCallback, useEffect, useState } from "react";
+import WorkspacePresentation from "./WorkspacePresentation";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -81,11 +82,20 @@ const ChatView = React.lazy(() => import("./chat/ChatView"));
 const CommandSearch = React.lazy(() => import("./CommandSearch"));
 
 interface ControlPanelProps {
+  /** Retain admitted owners during setup, but gate new workspace interaction. Plan06 carries both props. */
+  workspaceActive?: boolean;
+  onReturnToWorkspace?: () => void;
   /** Open the settings modal at this section on mount (e.g. after onboarding). */
   initialSettingsSection?: string;
 }
 
-export default function ControlPanel({ initialSettingsSection }: ControlPanelProps = {}) {
+export default function ControlPanel({
+  initialSettingsSection,
+  workspaceActive = true,
+  onReturnToWorkspace,
+}: ControlPanelProps = {}) {
+  const activeRef = useRef(workspaceActive);
+  activeRef.current = workspaceActive;
   const { t } = useTranslation();
   const history = useTranscriptions();
   const [isLoading, setIsLoading] = useState(true);
@@ -144,7 +154,9 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
   // Plan06 must carry this Ready hand-off beside handleNewNote. The existing
   // useCreateNote/meeting recorder owns creation and recording, including live capture.
+  // Run on each actual workspace return, never while the retained workspace is hidden.
   useEffect(() => {
+    if (!workspaceActive) return;
     const intent = takeAfterSetupIntent();
     if (!intent) return;
     if (intent.kind === "dictate-note") {
@@ -153,7 +165,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       setSettingsSection(intent.path);
       setShowSettings(true);
     }
-  }, [handleNewNote]);
+  }, [handleNewNote, workspaceActive]);
 
   const policyMinAppVersion = null;
 
@@ -241,6 +253,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!activeRef.current) return;
       const mod = platform === "darwin" ? e.metaKey : e.ctrlKey;
       if (mod && e.key === "k") {
         e.preventDefault();
@@ -254,9 +267,17 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const pendingMeetingNavigation = useRef(null);
+  const pendingNoteNavigation = useRef(null);
   useEffect(() => {
+    if (!workspaceActive) return;
     const drain = async () => {
-      const data = await window.electronAPI?.getPendingMeetingNoteNavigation?.();
+      const data =
+        pendingMeetingNavigation.current ??
+        (await window.electronAPI?.getPendingMeetingNoteNavigation?.());
+      pendingMeetingNavigation.current = data;
+      if (!activeRef.current) return;
+      pendingMeetingNavigation.current = null;
       if (!data) return;
       setActiveFolderId(data.folderId);
       setActiveNoteId(data.noteId);
@@ -277,11 +298,16 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     drain();
     const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(drain);
     return () => cleanup?.();
-  }, []);
+  }, [workspaceActive]);
 
   useEffect(() => {
+    if (!workspaceActive) return;
     const drain = async () => {
-      const data = await window.electronAPI?.getPendingNoteNavigation?.();
+      const data =
+        pendingNoteNavigation.current ?? (await window.electronAPI?.getPendingNoteNavigation?.());
+      pendingNoteNavigation.current = data;
+      if (!activeRef.current) return;
+      pendingNoteNavigation.current = null;
       if (!data) return;
       if (data.folderId) {
         setActiveFolderId(data.folderId);
@@ -293,10 +319,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     drain();
     const cleanup = window.electronAPI?.onNoteNavigationPending?.(drain);
     return () => cleanup?.();
-  }, []);
+  }, [workspaceActive]);
 
   useEffect(() => {
     const cleanup = window.electronAPI?.onShowSettings?.(() => {
+      if (!activeRef.current) return;
       setShowSettings(true);
     });
     return () => cleanup?.();
@@ -305,7 +332,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   // When accessibility is missing on macOS, open the permissions settings page
   useEffect(() => {
     const cleanup = window.electronAPI?.onAccessibilityMissing?.(async () => {
-      if (isAccessibilitySkipped()) return;
+      if (!activeRef.current || isAccessibilitySkipped()) return;
       setSettingsSection("privacyData");
       setShowSettings(true);
       toast({
@@ -644,12 +671,20 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   }, [loadTranscriptions, showDiscarded]);
 
   return (
-    <div className="h-screen bg-surface-window flex flex-col">
+    <WorkspacePresentation
+      active={workspaceActive}
+      className="h-screen bg-surface-window flex flex-col"
+    >
       <MeetingRecordingMount />
       <MeetingRecordingPill
+        workspaceActive={workspaceActive}
         activeView={activeView}
         activeNoteId={activeNoteId}
         onReturnToNote={() => {
+          if (!activeRef.current) {
+            onReturnToWorkspace?.();
+            return;
+          }
           setActiveView("personal-notes");
           setActiveFolderId(recordingFolderId);
           setActiveNoteId(recordingNoteId);
@@ -874,6 +909,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
         </main>
       </div>
       <BackgroundActionToastListener />
-    </div>
+    </WorkspacePresentation>
   );
 }

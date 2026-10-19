@@ -4609,6 +4609,18 @@
       "fixNote": "Corriger",
       "noteNetwork": "Les notes sont configurées pour envoyer l’audio à {{provider}}.",
       "titlePending_many": "Presque prêt : encore {{count}} points."
+    },
+    "resume": {
+      "title": "Terminer la configuration",
+      "body": "Votre espace de travail est prêt. Reprenez là où vous en étiez quand vous le souhaitez.",
+      "items": {
+        "finishDictating": "Faites votre première dictée",
+        "cleanup": "Choisir la correction du texte",
+        "shortcut": "Essayer votre raccourci"
+      },
+      "resume": "Reprendre la configuration",
+      "dismiss": "Masquer la liste de configuration",
+      "label": "Liste de configuration"
     }
   }
 }

@@ -13,3 +13,8 @@ export function takeAfterSetupIntent(): AfterSetupIntent | null {
   pending = null;
   return intent;
 }
+
+/** A new setup request supersedes a completion that has not reached the workspace. */
+export function clearAfterSetupIntent(): void {
+  pending = null;
+}

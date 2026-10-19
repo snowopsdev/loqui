@@ -747,3 +747,46 @@ retirement checks every supplied original operation identity field. Plan 04's
 sole audio setter, private hold, session and Undo composition remain Task 22
 second-merger work. This foundation supplies no resume card, restart listener,
 Router preservation remedy or whole-Task19 completion.
+
+### In-app setup resume and workspace return (Plan05 Task19)
+
+Setup requests carry only a validated optional onboarding step on
+`loqui:start-onboarding`. Non-step click arguments and invalid event details mean
+resume. Desktop clears only `onboardingCompleted`; preview completion and desktop
+progress stay untouched. Every request creates a fresh Flow key, including the
+same step. Preview resets its fake bridge and advances an independent lifetime
+nonce; old completion callbacks cannot return a newer Flow or reuse its demo.
+
+The first launch does not mount ControlPanel. After the workspace has been
+entered, AppRouter and BrowserPreview retain that same Panel under
+`WorkspacePresentation` while setup is shown, with separate Suspense boundaries.
+The hidden/inert workspace keeps its actual note draft, editor, chat selection,
+admitted streams, recorder and persistence effects. Focus returns to the prior
+connected workspace control, or to the workspace host. Original portalled meeting
+Stop/return controls remain available, including when the recording note was the
+active view. Return exits setup before changing workspace selection; Stop still
+uses the original recording store. No recording/session/cancellation owner is
+introduced.
+
+`workspaceActive` defaults to true outside this host. Hidden workspace keyboard
+commands, pending navigation delivery and new queued chat sends pause until
+return. Existing answers and saves continue under their captured owners. Dialog,
+Settings, search, menu and popover portals cannot expose hidden commands or trap
+setup focus. Transient modal contents close during setup; the editor/chat and
+recording owners remain mounted. `onReturnToWorkspace` restores the retained
+workspace from its live recording control.
+
+**Plan06 contact:** carry `workspaceActive` and `onReturnToWorkspace`, the retained
+presentation/interaction gates, and the RAM-only `takeAfterSetupIntent` effect
+immediately beside `handleNewNote`. Consume a new Ready intent only on actual
+workspace return, once; ordinary returns do not replay it. New setup requests
+clear superseded undelivered intents, and duplicate/old completions are inert.
+Creation and live-recording exclusion remain in the original `useCreateNote`.
+
+The neutral translated setup checklist resumes the actual saved phase-1 step and
+always links Cleanup and Shortcut. It uses unfinished circles, ordinary ink
+buttons, logical layout and wrapping controls. Preview progress and dismissal
+are read from the current platform/scenario namespace, including while the Panel
+is retained. All eight new resume leaves (including its accessible region name)
+are authored in all eleven locales without changing existing leaves. Native
+speaker verification and the phase-wide manual gates remain outstanding.

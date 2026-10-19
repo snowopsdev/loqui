@@ -1,4 +1,6 @@
-import { Suspense, lazy, useMemo, useState } from "react";
+import { useStartOnboardingListener } from "../hooks/useStartOnboarding";
+import { clearAfterSetupIntent, setAfterSetupIntent } from "../utils/afterSetupIntent";
+import { Suspense, lazy, useMemo, useRef, useState } from "react";
 import { useTheme } from "../hooks/useTheme";
 import {
   clearOnboardingPreviewState,
@@ -26,6 +28,12 @@ export default function BrowserPreview() {
   const [setup, setSetup] = useState(
     () => new URLSearchParams(window.location.search).get("preview") === "onboarding"
   );
+  const [workspaceMounted, setWorkspaceMounted] = useState(() => !setup);
+  const [lifetime, setLifetime] = useState(0);
+  const lifetimeRef = useRef(0);
+  const completedLifetime = useRef(-1);
+  const configRef = useRef(config);
+  configRef.current = config;
   const [designMode] = useState(
     () => new URLSearchParams(window.location.search).get("preview") === "welcome-designs"
   );
@@ -43,8 +51,12 @@ export default function BrowserPreview() {
   const { theme, setTheme } = useTheme();
   const scenarios = ONBOARDING_SCENARIOS;
   const updateConfig = (patch: Partial<OnboardingPreviewConfig>) => {
+    clearAfterSetupIntent();
     window.loquiPreviewBridge?.reset();
-    const next = { ...config, ...patch };
+    const next = { ...configRef.current, ...patch };
+    configRef.current = next;
+    lifetimeRef.current += 1;
+    setLifetime(lifetimeRef.current);
     setConfig(next);
     window.loquiBrowserPreviewConfig = next;
     const url = new URL(window.location.href);
@@ -54,6 +66,19 @@ export default function BrowserPreview() {
     url.searchParams.set("platform", next.platform);
     window.history.replaceState(null, "", url);
     setSetup(true);
+  };
+  useStartOnboardingListener((step) => updateConfig({ step: step ?? "welcome" }));
+  const completeSetup = (options?: import("../utils/onboardingFlow").OnboardingCompleteOptions) => {
+    if (lifetimeRef.current !== lifetime || completedLifetime.current === lifetime) return;
+    completedLifetime.current = lifetime;
+    if (options?.next) setAfterSetupIntent(options.next);
+    setWorkspaceMounted(true);
+    setSetup(false);
+  };
+  const showWorkspace = () => {
+    completedLifetime.current = lifetimeRef.current;
+    setWorkspaceMounted(true);
+    setSetup(false);
   };
   const restart = () => {
     const fresh = { ...config, step: "welcome" as const, scenario: "fresh" as const };
@@ -214,7 +239,7 @@ export default function BrowserPreview() {
               <button
                 type="button"
                 className="browser-preview-button"
-                onClick={() => setSetup(!setup)}
+                onClick={() => (setup ? showWorkspace() : updateConfig({}))}
               >
                 {setup ? "Show workspace" : "Show setup"}
               </button>
@@ -315,15 +340,24 @@ export default function BrowserPreview() {
             />
           ) : designMode ? (
             <WelcomeVariations variation={design} />
-          ) : setup ? (
-            <OnboardingFlow
-              key={`${config.step}-${config.scenario}-${config.platform}`}
-              previewConfig={config}
-              initialStep={config.step}
-              onComplete={() => setSetup(false)}
-            />
           ) : (
-            <ControlPanel />
+            <>
+              {workspaceMounted && (
+                <Suspense fallback={null}>
+                  <ControlPanel workspaceActive={!setup} onReturnToWorkspace={showWorkspace} />
+                </Suspense>
+              )}
+              {setup && (
+                <Suspense fallback={<div className="p-6">Loading…</div>}>
+                  <OnboardingFlow
+                    key={`${config.step}-${config.scenario}-${config.platform}-${lifetime}`}
+                    previewConfig={config}
+                    initialStep={config.step}
+                    onComplete={completeSetup}
+                  />
+                </Suspense>
+              )}
+            </>
           )}
         </Suspense>
       </div>

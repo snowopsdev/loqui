@@ -1,3 +1,4 @@
+import { useWorkspaceActive } from "../../hooks/useWorkspaceActive";
 import { useChatRouteKey } from "../chat/chatRouteKey";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
@@ -217,6 +218,7 @@ export default function NoteEditor({
   onCreateFolderAndMove,
   onCancelPendingSaves,
 }: NoteEditorProps) {
+  const workspaceActive = useWorkspaceActive();
   const { t } = useTranslation();
   const locale = useUiLocale();
   const defaultViewMode: MeetingViewMode = enhancement ? "enhanced" : "raw";
@@ -539,13 +541,13 @@ export default function NoteEditor({
   }, []);
 
   useEffect(() => {
-    if (selectedSegmentIds.size === 0) return;
+    if (!workspaceActive || selectedSegmentIds.size === 0) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleClearSelection();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedSegmentIds.size, handleClearSelection]);
+  }, [selectedSegmentIds.size, handleClearSelection, workspaceActive]);
 
   const handleBulkAssignName = useCallback(
     async (displayName: string, _email?: string | null, profileId?: number) => {

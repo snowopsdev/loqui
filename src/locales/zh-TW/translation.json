@@ -4571,6 +4571,18 @@
       },
       "fixNote": "修正此項",
       "noteNetwork": "筆記已設為向 {{provider}} 傳送音訊。"
+    },
+    "resume": {
+      "title": "完成設定",
+      "body": "工作區已就緒。你可以隨時從上次的位置繼續設定。",
+      "items": {
+        "finishDictating": "試試第一次語音輸入",
+        "cleanup": "選擇文字潤飾方式",
+        "shortcut": "試試快捷鍵"
+      },
+      "resume": "繼續設定",
+      "dismiss": "關閉設定清單",
+      "label": "設定清單"
     }
   }
 }

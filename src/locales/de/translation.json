@@ -4602,6 +4602,18 @@
       },
       "fixNote": "Beheben",
       "noteNetwork": "Notizen sind zum Senden von Audio an {{provider}} eingerichtet."
+    },
+    "resume": {
+      "title": "Einrichtung abschließen",
+      "body": "Dein Arbeitsbereich ist bereit. Mach jederzeit dort weiter, wo du aufgehört hast.",
+      "items": {
+        "finishDictating": "Bringe dein erstes Diktat zum Laufen",
+        "cleanup": "Textüberarbeitung auswählen",
+        "shortcut": "Tastenkürzel ausprobieren"
+      },
+      "resume": "Einrichtung fortsetzen",
+      "dismiss": "Einrichtungscheckliste ausblenden",
+      "label": "Einrichtungscheckliste"
     }
   }
 }

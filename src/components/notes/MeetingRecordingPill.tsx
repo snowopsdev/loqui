@@ -7,6 +7,7 @@ import { cn } from "../lib/utils";
 import { isControlPanelWindow } from "../../utils/windowContext";
 
 interface MeetingRecordingPillProps {
+  workspaceActive?: boolean;
   activeView: string;
   activeNoteId: number | null;
   onReturnToNote: () => void;
@@ -28,6 +29,7 @@ const computeBarHeight = (level: number, index: number) => {
 };
 
 export default function MeetingRecordingPill({
+  workspaceActive = true,
   activeView,
   activeNoteId,
   onReturnToNote,
@@ -42,7 +44,7 @@ export default function MeetingRecordingPill({
   const [isStopping, setIsStopping] = useState(false);
 
   const isViewingRecordingNote =
-    activeView === "personal-notes" && activeNoteId === recordingNoteId;
+    workspaceActive && activeView === "personal-notes" && activeNoteId === recordingNoteId;
 
   if (!isRecording || isViewingRecordingNote || !isControlPanelWindow()) {
     return null;

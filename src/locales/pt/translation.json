@@ -4609,6 +4609,18 @@
       "fixNote": "Resolver",
       "noteNetwork": "As notas estão configuradas para enviar áudio para {{provider}}.",
       "titlePending_many": "Quase pronto: faltam {{count}} passos."
+    },
+    "resume": {
+      "title": "Concluir a configuração",
+      "body": "Seu espaço de trabalho está pronto. Continue de onde parou quando quiser.",
+      "items": {
+        "finishDictating": "Faça seu primeiro ditado",
+        "cleanup": "Escolha a revisão do texto",
+        "shortcut": "Teste seu atalho"
+      },
+      "resume": "Retomar configuração",
+      "dismiss": "Ocultar lista de configuração",
+      "label": "Lista de configuração"
     }
   }
 }

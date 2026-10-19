@@ -180,3 +180,56 @@ for (const kind of ["dictate-note", "open-settings"]) {
     });
   }
 }
+
+test("actual desktop Router resumes stored progress and remounts actual Flow on every same-step request", async (t) => {
+  const events = new EventTarget();
+  globalThis.__handoff = { live: false, noteIds: [], recordings: [], saves: [] };
+  const ui = await mountComponent(t, "/Task18Host", {
+    mocks,
+    windowProps: {
+      location: { search: "?panel=true" },
+      addEventListener: events.addEventListener.bind(events),
+      removeEventListener: events.removeEventListener.bind(events),
+      dispatchEvent: events.dispatchEvent.bind(events),
+    },
+    storage: {
+      ...MIGRATED_STORAGE,
+      onboardingCompleted: "true",
+      semanticReindexVersion: "2",
+      "loqui.onboarding.progress": JSON.stringify({
+        version: 2,
+        step: "cleanup",
+        visited: ["welcome", "cleanup"],
+      }),
+    },
+  });
+  const wait = async (predicate) => {
+    for (let i = 0; i < 200 && !predicate(); i++)
+      await React.act(async () => new Promise((r) => setTimeout(r, 10)));
+    assert.equal(Boolean(predicate()), true, "actual lazy Flow ready");
+  };
+  t.after(() => {
+    delete globalThis.__handoff;
+    delete globalThis.__remountWorkspace;
+  });
+  await wait(() => ui.byAttr("data-original-recorder").length);
+  const { requestStartOnboarding } = await ui.vite.ssrLoadModule("/hooks/useStartOnboarding.ts");
+  await React.act(async () => requestStartOnboarding());
+  await wait(() => ui.text().includes("setupFlow.rail.cleanup.title"));
+  const header = () =>
+    ui
+      .findAll((n) => n.tagName === "H1")
+      .find((n) => n.textContent.includes("setupFlow.rail.cleanup.title"));
+  const first = header();
+  assert.ok(first, "unspecified desktop request resumes actual saved Cleanup");
+  for (let i = 0; i < 2; i++) {
+    const previous = header();
+    await React.act(async () => requestStartOnboarding("cleanup"));
+    await wait(() => header() && header() !== previous);
+  }
+  assert.equal(
+    ui.byAttr("data-original-recorder").length,
+    1,
+    "existing Panel subtree stays mounted"
+  );
+});

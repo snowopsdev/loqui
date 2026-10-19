@@ -208,6 +208,8 @@ Changes to slash readiness, actions or locale dismiss an open menu immediately, 
 
 Slash and mention suggestions share a caret popup that clamps horizontally, flips above near the bottom, and marks its wrapper with `data-editor-chrome`. Mention insertion and Markdown round-tripping keep their existing contract.
 
+Mention links keep people on the `mention:` scheme and store note, meeting, dictation and folder references as readable `[@Label](kind:id)` Markdown links. Labels escape Markdown display characters while entity identifiers and existing person fallback identities remain unchanged.
+
 ### Note selection toolbar (WS-R6 B)
 
 A nonempty editable selection outside code blocks offers Bold, Italic, Link and Ask AI. Formatting survives the Markdown save cycle; no Highlight mark is offered. Newly entered links accept web or email addresses and bare domains; an empty address removes the link. Existing relative, anchor, phone and FTP links retain the default Link load policy. Clicking links edits rather than opening them. The URL field stays LTR and keeps its caret when clicked. Bubble and suggestion chrome never pull focus back into the document.

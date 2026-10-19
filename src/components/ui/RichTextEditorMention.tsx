@@ -1,4 +1,3 @@
-import { mergeAttributes } from "@tiptap/core";
 import Mention from "@tiptap/extension-mention";
 import { ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { createSuggestionPopup } from "./editor/suggestionPopup";
@@ -8,9 +7,9 @@ import MentionSuggestions, {
   type MentionSuggestionsProps,
 } from "./MentionSuggestions";
 import {
-  MENTION_HREF_PREFIX,
-  buildMentionMarkdown,
-  parseMentionEmail,
+  buildEntityMentionMarkdown,
+  mentionHref,
+  parseMentionHref,
   type MentionPerson,
 } from "../../utils/mentionMarkdown";
 
@@ -44,30 +43,31 @@ export function createMentionExtension(getPeople: () => MentionPerson[]) {
       return {
         label: { default: "" },
         email: { default: null },
+        kind: { default: "person" },
+        entityId: { default: null },
       };
     },
     parseHTML() {
-      return [
-        {
-          tag: `a[href^="${MENTION_HREF_PREFIX}"]`,
-          priority: 100,
-          getAttrs: (element) => {
-            const label = (element.textContent || "").replace(/^@/, "").trim();
-            if (!label) return false;
-            return { label, email: parseMentionEmail(element.getAttribute("href")) };
-          },
+      return ["mention:", "note:", "meeting:", "dictation:", "folder:"].map((prefix) => ({
+        tag: `a[href^="${prefix}"]`,
+        priority: 100,
+        getAttrs: (element: HTMLElement) => {
+          const parsed = parseMentionHref(element.getAttribute("href"));
+          if (!parsed) return false;
+          const label = (element.textContent ?? "").replace(/^@/, "");
+          return { label, email: parsed.email, kind: parsed.kind, entityId: parsed.entityId };
         },
-      ];
+      }));
     },
-    renderHTML({ node, HTMLAttributes }) {
-      const label = node.attrs.label as string;
-      const email = node.attrs.email as string | null;
+    renderHTML({ node }) {
+      const { label, email, kind, entityId } = node.attrs;
       return [
         "a",
-        mergeAttributes(HTMLAttributes, {
-          href: `${MENTION_HREF_PREFIX}${encodeURIComponent(email || label)}`,
+        {
+          href: mentionHref({ kind, label, email, entityId }),
           "data-mention": "",
-        }),
+          "data-mention-kind": kind,
+        },
         `@${label}`,
       ];
     },
@@ -82,9 +82,11 @@ export function createMentionExtension(getPeople: () => MentionPerson[]) {
         markdown: {
           serialize(state: { write: (content: string) => void }, node: NodeViewProps["node"]) {
             state.write(
-              buildMentionMarkdown({
-                name: node.attrs.label as string,
-                email: node.attrs.email as string | null,
+              buildEntityMentionMarkdown({
+                kind: node.attrs.kind,
+                label: node.attrs.label,
+                entityId: node.attrs.entityId,
+                email: node.attrs.email,
               })
             );
           },

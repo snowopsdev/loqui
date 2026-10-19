@@ -18,9 +18,14 @@ const encodeMentionId = (id: string) =>
 /** A mention serializes as a plain markdown link, so exports and other markdown
  * consumers degrade to a readable `@Name` link instead of losing the tag. */
 export function buildMentionMarkdown(person: MentionPerson): string {
-  const label = sanitizeLabel(person.name);
-  return `[@${label}](${MENTION_HREF_PREFIX}${encodeMentionId(person.email || label)})`;
+  const identityLabel = sanitizeLabel(person.name);
+  const label = markdownLabel(person.name);
+  return `[@${label}](${MENTION_HREF_PREFIX}${encodeMentionId(person.email || identityLabel)})`;
 }
+
+// Backslashes and inline formatting markers are escaped for display only. The
+// sanitized, unescaped label remains the stable fallback identity for people.
+const markdownLabel = (name: string) => sanitizeLabel(name).replace(/[\\*_`~]/g, "\\$&");
 
 export function parseMentionEmail(href: string | null): string | null {
   if (!href?.startsWith(MENTION_HREF_PREFIX)) return null;
@@ -30,6 +35,50 @@ export function parseMentionEmail(href: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+// WS-R7 B: notes, meetings, dictations and folders are mentionable too.
+// Stored as ordinary Markdown links so exports remain readable; people keep
+// their existing mention:<email|name> identity scheme.
+export type MentionKind = "person" | "note" | "meeting" | "dictation" | "folder";
+export const ENTITY_MENTION_KINDS = ["note", "meeting", "dictation", "folder"] as const;
+
+export interface MentionEntity {
+  kind: MentionKind;
+  label: string;
+  entityId: string | null;
+  email: string | null;
+}
+
+const POSITIVE_INT = /^[1-9]\d*$/;
+
+export function parseMentionHref(
+  href: string | null | undefined
+): Omit<MentionEntity, "label"> | null {
+  if (!href) return null;
+  if (href.startsWith(MENTION_HREF_PREFIX)) {
+    return { kind: "person", entityId: null, email: parseMentionEmail(href) };
+  }
+  const colon = href.indexOf(":");
+  const kind = href.slice(0, colon) as (typeof ENTITY_MENTION_KINDS)[number];
+  const id = href.slice(colon + 1);
+  if (colon < 1 || !ENTITY_MENTION_KINDS.includes(kind) || !POSITIVE_INT.test(id)) return null;
+  return { kind, entityId: id, email: null };
+}
+
+export function mentionHref(entity: Omit<MentionEntity, "label"> & { label: string }): string {
+  if (entity.kind === "person") {
+    return `${MENTION_HREF_PREFIX}${encodeMentionId(entity.email || sanitizeLabel(entity.label))}`;
+  }
+  return `${entity.kind}:${entity.entityId}`;
+}
+
+export function buildEntityMentionMarkdown(entity: MentionEntity): string {
+  if (entity.kind === "person")
+    return buildMentionMarkdown({ name: entity.label, email: entity.email });
+  const label = markdownLabel(entity.label);
+  if (!entity.entityId || !POSITIVE_INT.test(entity.entityId)) return `@${label}`;
+  return `[@${label}](${entity.kind}:${entity.entityId})`;
 }
 
 const TASK_OWNER_LINE = /^(\s*[-*]\s*\[[ xX]\]\s+\S.*?)(\s+[—–-]\s+)(\S.*?)\s*$/;

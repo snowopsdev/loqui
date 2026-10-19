@@ -2540,8 +2540,6 @@
       "transcriptionFailed": "文字起こしに失敗しました",
       "errorOccurred": "エラーが発生しました",
       "noSpeechDetected": "この音声から発話を検出できませんでした。",
-      "noProviderTitle": "文字起こしプロバイダーが設定されていません",
-      "noProviderDescription": "API キーを追加するか、ローカルモデルをダウンロードして文字起こしを開始してください。",
       "noProviderAction": "文字起こし設定を開く",
       "fileTooLarge": "このファイルは 500 MB の制限を超えています。",
       "largeFileNote": "大容量ファイルは分割され、並列で文字起こしされます。",
@@ -2591,7 +2589,9 @@
       "urlFileTooLarge": "ファイルが大きすぎてダウンロードできません。最大サイズは500 MBです。",
       "urlYoutubeBlocked": "YouTubeがお使いのネットワークからのダウンロードを一時的にブロックしています。しばらくしてからもう一度お試しください。",
       "customEndpointInvalid": "カスタム文字起こしエンドポイントが未設定か無効です。設定から更新してください。",
-      "streamingOnlyProvider": "このプロバイダーはライブ文字起こしのみに対応しています。ファイルのアップロードや再実行には別のプロバイダーを選択してください。"
+      "streamingOnlyProvider": "このプロバイダーはライブ文字起こしのみに対応しています。ファイルのアップロードや再実行には別のプロバイダーを選択してください。",
+      "needsModel": "アップロードには文字起こしモデルが必要です。",
+      "chooseModel": "文字起こしモデルを選択"
     },
     "meeting": {
       "title": "議事録",

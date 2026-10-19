@@ -2548,8 +2548,6 @@
       "transcriptionFailed": "Trascrizione non riuscita",
       "errorOccurred": "Si è verificato un errore",
       "noSpeechDetected": "Nessun parlato rilevato in questo audio.",
-      "noProviderTitle": "Nessun provider di trascrizione configurato",
-      "noProviderDescription": "Aggiungi una chiave API o scarica un modello locale per iniziare a trascrivere.",
       "noProviderAction": "Apri impostazioni di trascrizione",
       "fileTooLarge": "Questo file supera il limite di 500 MB.",
       "largeFileNote": "I file di grandi dimensioni vengono suddivisi e trascritti in parallelo.",
@@ -2599,7 +2597,9 @@
       "urlFileTooLarge": "Il file è troppo grande per essere scaricato. La dimensione massima è 500 MB.",
       "urlYoutubeBlocked": "YouTube sta bloccando temporaneamente i download dalla tua rete. Riprova tra poco.",
       "customEndpointInvalid": "L'endpoint di trascrizione personalizzato non è configurato o non è valido. Aggiornalo nelle Impostazioni.",
-      "streamingOnlyProvider": "Questo provider supporta solo la trascrizione dal vivo. Scegli un altro provider per i caricamenti di file e i nuovi tentativi."
+      "streamingOnlyProvider": "Questo provider supporta solo la trascrizione dal vivo. Scegli un altro provider per i caricamenti di file e i nuovi tentativi.",
+      "needsModel": "I caricamenti richiedono un modello di trascrizione.",
+      "chooseModel": "Scegli un modello di trascrizione"
     },
     "meeting": {
       "title": "Note delle riunioni",

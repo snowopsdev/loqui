@@ -2547,8 +2547,6 @@
       "transcriptionFailed": "轉錄失敗",
       "errorOccurred": "發生錯誤",
       "noSpeechDetected": "未在此音訊中偵測到語音。",
-      "noProviderTitle": "尚未設定轉錄服務供應商",
-      "noProviderDescription": "新增 API Key 或下載本機模型以開始轉錄。",
       "noProviderAction": "開啟轉錄設定",
       "fileTooLarge": "此檔案超過 500 MB 的大小限制。",
       "largeFileNote": "大型檔案將被分割並平行轉錄。",
@@ -2598,7 +2596,9 @@
       "urlFileTooLarge": "檔案過大，無法下載。大小上限為 500 MB。",
       "urlYoutubeBlocked": "YouTube 暫時封鎖了來自您網路的下載。請稍後再試。",
       "customEndpointInvalid": "自訂轉錄端點未設定或無效。請在設定中更新。",
-      "streamingOnlyProvider": "此服務商僅支援即時轉錄。請為檔案上傳與重試選擇其他服務商。"
+      "streamingOnlyProvider": "此服務商僅支援即時轉錄。請為檔案上傳與重試選擇其他服務商。",
+      "needsModel": "上傳檔案需要轉錄模型。",
+      "chooseModel": "選擇轉錄模型"
     },
     "meeting": {
       "title": "會議筆記",

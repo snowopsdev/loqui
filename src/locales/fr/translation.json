@@ -2921,8 +2921,6 @@
       "transcriptionFailed": "Échec de la transcription",
       "errorOccurred": "Une erreur est survenue",
       "noSpeechDetected": "Aucune parole détectée dans cet audio.",
-      "noProviderTitle": "Aucun fournisseur de transcription configuré",
-      "noProviderDescription": "Ajoutez une clé API ou téléchargez un modèle local pour commencer à transcrire.",
       "noProviderAction": "Ouvrir les paramètres de transcription",
       "fileTooLarge": "Ce fichier dépasse la limite de 500 MB.",
       "paidPlanRequired": "La transcription cloud pour les fichiers de plus de 25 Mo nécessite un abonnement payant. Les fichiers volumineux sont traités avec Loqui Cloud pour des résultats fiables et de haute qualité.",
@@ -2972,7 +2970,9 @@
       "urlFileTooLarge": "Le fichier est trop volumineux pour être téléchargé. La taille maximale est de 500 Mo.",
       "urlYoutubeBlocked": "YouTube bloque temporairement les téléchargements depuis votre réseau. Réessayez dans un moment.",
       "customEndpointInvalid": "Le point de terminaison de transcription personnalisé n'est pas configuré ou est invalide. Mettez-le à jour dans les réglages.",
-      "streamingOnlyProvider": "Ce fournisseur ne prend en charge que la transcription en direct. Choisissez un autre fournisseur pour les imports de fichiers et les nouvelles tentatives."
+      "streamingOnlyProvider": "Ce fournisseur ne prend en charge que la transcription en direct. Choisissez un autre fournisseur pour les imports de fichiers et les nouvelles tentatives.",
+      "needsModel": "Les fichiers importés nécessitent un modèle de transcription.",
+      "chooseModel": "Choisir un modèle de transcription"
     },
     "meeting": {
       "title": "Notes de réunion",

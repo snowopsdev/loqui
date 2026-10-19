@@ -2920,8 +2920,6 @@
       "transcriptionFailed": "Transkription fehlgeschlagen",
       "errorOccurred": "Ein Fehler ist aufgetreten",
       "noSpeechDetected": "In dieser Audiodatei wurde keine Sprache erkannt.",
-      "noProviderTitle": "Kein Transkriptionsanbieter eingerichtet",
-      "noProviderDescription": "Fügen Sie einen API-Schlüssel hinzu oder laden Sie ein lokales Modell herunter, um mit der Transkription zu beginnen.",
       "noProviderAction": "Transkriptionseinstellungen öffnen",
       "fileTooLarge": "Diese Datei überschreitet das Limit von 500 MB.",
       "paidPlanRequired": "Cloud-Transkription für Dateien über 25 MB erfordert einen kostenpflichtigen Plan. Große Dateien werden mit Loqui Cloud für zuverlässige, hochwertige Ergebnisse verarbeitet.",
@@ -2971,7 +2969,9 @@
       "urlFileTooLarge": "Die Datei ist zu groß zum Herunterladen. Die maximale Größe beträgt 500 MB.",
       "urlYoutubeBlocked": "YouTube blockiert Downloads aus Ihrem Netzwerk vorübergehend. Versuchen Sie es später erneut.",
       "customEndpointInvalid": "Benutzerdefinierter Transkriptionsendpunkt ist nicht konfiguriert oder ungültig. Aktualisieren Sie ihn in den Einstellungen.",
-      "streamingOnlyProvider": "Dieser Anbieter unterstützt nur Live-Transkription. Wähle für Datei-Uploads und Wiederholungen einen anderen Anbieter."
+      "streamingOnlyProvider": "Dieser Anbieter unterstützt nur Live-Transkription. Wähle für Datei-Uploads und Wiederholungen einen anderen Anbieter.",
+      "needsModel": "Uploads benötigen ein Transkriptionsmodell.",
+      "chooseModel": "Transkriptionsmodell auswählen"
     },
     "meeting": {
       "title": "Besprechungsnotizen",

@@ -441,3 +441,21 @@ Insights tiles use a two-column grid below 720px of available content and four c
 Each destination tile’s accessible name references its visible localized metric label and displayed value through stable per-card IDs. Its accessible description references the visible detail and a screen-reader-only hint using the existing localized destination string. Words and WPM therefore retain distinct metric names and values even though both open History. A card without a selection action remains a noninteractive div.
 
 The activity chart sizes fixed week tracks from its own container with `clamp(10px, calc((100cqi - 3rem - (weeks - 1) * 2px) / weeks), 18px)` and 2px gaps. Graphics may reach 10px; all month, weekday and legend text stays at least 12px with full muted ink. Month labels span until the next month’s track so readable text fits. The weekday track and gap reserve 3rem. At the cell floor, horizontal overflow remains inside the keyboard-focusable chart, keeping today reachable without widening the document. Activity uses five neutral levels including zero, a meaningful muted boundary and a neutral outer marker for today; orange remains live voice or the approved focus accent. The larger labels and neutral palette deliberately replace the older faded 10px labels and orange ramp. Analytics remains local-only with its existing loading, retry, retention and newest-request behavior.
+
+### Workspace · Upload
+
+The upload drop zone, its formats and the URL field stay visible while the upload
+route is unavailable. Only Plan 03's confirmed `ready` state admits browse, drop,
+URL submissions, transcription, retry or queue start. Unknown shows the shared
+neutral Checking chip; other unavailable states show their actual shared route
+reason. A missing model adds the transcription-model hint and an upload-scoped
+Settings action. Readiness changes preserve draft URLs, selected files and the
+queue, and do not cancel an operation already admitted. Speaker controls appear
+only while the route is ready; their neutral track and thumb remain distinguishable
+in both themes. Changed selection and retry controls enter without fading copy.
+
+Disabled copy stays opaque at the readable text floor, with the full muted token;
+aria-disabled and the cursor convey availability. Changed native controls have
+full opaque two-pixel focus rings. Drag feedback uses neutral ink and an opaque
+border pulse only during an enabled active drag, timed by shared motion tokens.
+Reduced motion keeps a static border and colour, with no transform or loop.

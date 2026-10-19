@@ -2601,8 +2601,6 @@
       "transcriptionFailed": "Error en la transcripción",
       "errorOccurred": "Se produjo un error",
       "noSpeechDetected": "No se detectó voz en este audio.",
-      "noProviderTitle": "No se ha configurado un proveedor de transcripción",
-      "noProviderDescription": "Agrega una clave API o descarga un modelo local para comenzar a transcribir.",
       "noProviderAction": "Abrir configuración de transcripción",
       "fileTooLarge": "Este archivo supera el límite de 500 MB.",
       "largeFileNote": "Los archivos grandes se dividen y transcriben en paralelo.",
@@ -2652,7 +2650,9 @@
       "urlFileTooLarge": "El archivo es demasiado grande para descargar. El tamaño máximo es 500 MB.",
       "urlYoutubeBlocked": "YouTube está bloqueando temporalmente las descargas desde tu red. Inténtalo de nuevo más tarde.",
       "customEndpointInvalid": "El endpoint de transcripción personalizado no está configurado o no es válido. Actualízalo en Ajustes.",
-      "streamingOnlyProvider": "Este proveedor solo admite transcripción en directo. Elige otro proveedor para subir archivos y reintentos."
+      "streamingOnlyProvider": "Este proveedor solo admite transcripción en directo. Elige otro proveedor para subir archivos y reintentos.",
+      "needsModel": "Las cargas necesitan un modelo de transcripción.",
+      "chooseModel": "Elegir un modelo de transcripción"
     },
     "meeting": {
       "title": "Notas de reunión",

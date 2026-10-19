@@ -2920,8 +2920,6 @@
       "transcriptionFailed": "Transcription failed",
       "errorOccurred": "An error occurred",
       "noSpeechDetected": "No speech detected in this audio.",
-      "noProviderTitle": "No transcription provider set up",
-      "noProviderDescription": "Add an API key or download a local model to start transcribing.",
       "noProviderAction": "Open Transcription Settings",
       "fileTooLarge": "This file exceeds the 500 MB limit.",
       "paidPlanRequired": "Cloud transcription for files over 25 MB requires a paid plan. Large files are processed with Loqui Cloud for reliable, high-quality results.",
@@ -2971,7 +2969,9 @@
       "urlFileTooLarge": "File is too large to download. The maximum size is 500 MB.",
       "urlYoutubeBlocked": "YouTube is temporarily blocking downloads from your network. Try again in a little while.",
       "customEndpointInvalid": "Custom transcription endpoint is not configured or invalid. Update it in Settings.",
-      "streamingOnlyProvider": "This provider only supports live transcription. Choose another provider for file uploads and retries."
+      "streamingOnlyProvider": "This provider only supports live transcription. Choose another provider for file uploads and retries.",
+      "needsModel": "Uploads need a transcription model.",
+      "chooseModel": "Choose a transcription model"
     },
     "meeting": {
       "title": "Meeting Notes",

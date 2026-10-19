@@ -122,7 +122,7 @@ test("PersonalNotesView takes readiness from the route", () => {
   );
   assert.match(
     editor,
-    /items: slashItemsFromProp\(current, t\)/,
+    /items: current \? slashItemsFromProp\(current, t\) : \[\]/,
     "the editor forwards the prop whole"
   );
   assert.doesNotMatch(editor, /buildSlashItems\(/, "and never rebuilds the argument list by hand");

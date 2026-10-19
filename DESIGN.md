@@ -204,6 +204,8 @@ Inside the note editor (`.rich-text-editor-content`) and the note title: title 3
 
 In editable raw notes, `/` at the start or after a space opens Text, AI and Insert groups. URLs, dates and code keep literal slashes. Typing filters; arrows select; Enter or Tab applies; Escape closes. AI choices use the actual note actions and resolved notes route: unknown stays disabled with a checking reason and no setup prompt; confirmed unavailable states offer Settings at that route. Disabled explanations remain full-opacity `text-muted-foreground`, with 12px group headers and no extra option tab stops. Only an explicit enabled action invokes note AI. Manage actions preserves the first-run flow; Dictation here uses the control-panel toggle.
 
+Changes to slash readiness, actions or locale dismiss an open menu immediately, preserving the editor, draft and selection. Reinvoking it resolves the current context; unrelated saves and renders keep it open. Command admission independently checks current readiness before deleting the query or invoking work. The shared mention popup contract is unchanged.
+
 Slash and mention suggestions share a caret popup that clamps horizontally, flips above near the bottom, and marks its wrapper with `data-editor-chrome`. Mention insertion and Markdown round-tripping keep their existing contract.
 
 ### Named Rules

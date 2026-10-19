@@ -9,7 +9,8 @@ import { cn } from "../lib/utils";
 import { createMentionExtension } from "./RichTextEditorMention";
 import { useTranslation } from "react-i18next";
 import type { ActionItem } from "../../types/electron";
-import { createSlashCommand } from "./editor/SlashCommand";
+import { exitSuggestion } from "@tiptap/suggestion";
+import { createSlashCommand, SLASH_PLUGIN_KEY } from "./editor/SlashCommand";
 import { slashItemsFromProp } from "./editor/slashItems";
 import type { MentionPerson } from "../../utils/mentionMarkdown";
 
@@ -62,16 +63,23 @@ export function RichTextEditor({
   const translationRef = useRef({ t, i18n });
   translationRef.current = { t, i18n };
   const withSlash = useRef(slash != null && !disabled).current;
+  // Compare values, not callback/array identities: saves and unrelated renders
+  // must not dismiss the menu. Include action edits and translated item labels.
+  const slashContextKey = JSON.stringify([
+    slash,
+    slash ? slashItemsFromProp(slash, t) : null,
+    i18n.language,
+  ]);
 
   const editor = useEditor({
     extensions: [
       ...(withSlash
         ? [
             createSlashCommand(() => {
-              const current = slashRef.current!;
+              const current = slashRef.current;
               const { t, i18n } = translationRef.current;
               return {
-                items: slashItemsFromProp(current, t),
+                items: current ? slashItemsFromProp(current, t) : [],
                 onSetupAi: () => current?.onSetupAi(),
                 onRunAction: (id) => current?.onRunAction(id),
                 onManageActions: () => current?.onManageActions(),
@@ -122,6 +130,15 @@ export function RichTextEditor({
       },
     },
   });
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !withSlash) return;
+    // Suggestion skips unchanged queries. Explicit exit cancels pending items
+    // and runs popup cleanup while retaining the document, selection and owner.
+    if (SLASH_PLUGIN_KEY.getState(editor.state)?.active) {
+      exitSuggestion(editor.view, SLASH_PLUGIN_KEY);
+    }
+  }, [editor, withSlash, slashContextKey]);
 
   useEffect(() => {
     if (editorRef) editorRef.current = editor;

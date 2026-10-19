@@ -360,8 +360,12 @@ Cancellation moves the exact session, press-time selection and screenshot,
 privacy and disclosure tracker into a RAM-only hold. Its owned audio is overwritten
 at expiry (including late byte copies); source Blob references are released.
 No merge or temporary file is created by a hold unless existing discarded-audio
-retention permits saving at close. A merge or local decode already running before
-cancel retains its normal temporary-file cleanup lifetime.
+retention permits saving at close. Renderer segment conversions recheck their captured
+owner before admitting a merge IPC and erase abandoned byte copies, including late
+results. The merge exception begins only when main admitted the IPC before cancel;
+that merge, or a local decode already running, retains its normal temporary-file
+cleanup lifetime. Replay rechecks its restore, attempt and capture ownership after
+Start and pacing waits and independently before finalization.
 
 Undo lasts 5 seconds, or 10 seconds for recordings over 30 seconds. Hover pauses
 the remaining time and freezes the published deadline; resume advances it. Undo

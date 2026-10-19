@@ -926,7 +926,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     else this._openCancelled(buffer);
   }
 
-  async _restoreBatch(buffer) {
+  async _restoreBatch(buffer, generation) {
     const { session } = buffer;
     const isPrivate = buffer.private === true;
     const blobs = buffer
@@ -947,9 +947,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       ...metadata,
     };
     const pipeline = this._startProcessingPipeline(); // Esc bumps its generation (cancelProcessing)
+    const wasCancelled = () =>
+      generation !== this._restoreGeneration || this._shouldAbandonProcessingPipeline(pipeline);
     let audio;
     try {
-      audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
+      audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs, wasCancelled);
       if (!audio)
         throw Object.assign(new Error("Undo could not combine the recording"), {
           code: "MERGE_FAILED",
@@ -1108,7 +1110,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const owns = () =>
       this._activeStreamingSessionId === sessionId && this._streamingOperation === operation;
     // Keep a copy for an Esc mid-replay (Step 4.7) before the buffer is zeroed.
-    this._sessionAudio = {
+    const replayAudio = (this._sessionAudio = {
       session,
       kind: "streaming",
       frames: buffer.frames().map((f) => f.slice()),
@@ -1117,9 +1119,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       mimeType: "audio/webm",
       durationSeconds: buffer.durationSeconds,
       analyticsOccurredAt: buffer.analyticsOccurredAt,
-    };
+    });
     this._streamingFallbackSegments = this._sessionAudio.fallbackSegments;
-    const frames = this._sessionAudio.frames;
+    const frames = replayAudio.frames;
+    const wasCancelled = () =>
+      generation !== this._restoreGeneration ||
+      !owns() ||
+      this._activeSession !== session ||
+      this._sessionAudio !== replayAudio;
+    const assertReplayOwner = () => {
+      if (wasCancelled())
+        throw Object.assign(new Error("Undo cancelled"), { code: "TRANSCRIPTION_CANCELLED" });
+    };
     buffer.zero(); // replay owns the only mutable copy, even while Start is pending
     let started = false;
     try {
@@ -1137,25 +1148,33 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         }),
         ...operation,
       });
+      started = res?.success === true;
+      assertReplayOwner(); // Start may settle after Esc moved all frames into a hold
       if (!res?.success)
         throw Object.assign(new Error(res?.error || "Streaming start failed"), { code: res?.code });
-      started = true;
       // No evidence here (R1-I5): a connection is not a dispatch. Main sends the correlated
       // dictation-dispatch when the first replayed frame actually leaves (Task 7), and the
       // restored tracker is still subscribed to session.id.
       for (let i = 0; i < frames.length; i += REPLAY_BATCH_FRAMES) {
-        if (generation !== this._restoreGeneration)
-          throw Object.assign(new Error("Undo cancelled"), { code: "TRANSCRIPTION_CANCELLED" });
-        for (const frame of frames.slice(i, i + REPLAY_BATCH_FRAMES))
+        assertReplayOwner();
+        for (const frame of frames.slice(i, i + REPLAY_BATCH_FRAMES)) {
+          assertReplayOwner();
           provider.send(
             frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength),
             operation
           );
+        }
         await new Promise((resolve) => setTimeout(resolve, REPLAY_PACE_MS));
+        assertReplayOwner(); // the shared frames array can be empty after the wait
       }
+      assertReplayOwner(); // independent admission guard, including an empty/final batch
       buffer.zero();
-      this._streamingStopPromise = this._finalizeStreamingRecording(sessionId, { replay: true });
+      this._streamingStopPromise = this._finalizeStreamingRecording(sessionId, {
+        replay: true,
+        shouldAbandon: wasCancelled,
+      });
       const finalized = await this._streamingStopPromise;
+      assertReplayOwner();
       if (finalized === false) throw new Error("Streaming finalization failed");
       // Only a successful replay releases its PCM copy. Failed finalization must
       // leave it available to the catch below, even if finalization returned false.
@@ -1242,20 +1261,78 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
   }
 
-  async mergeRecordedSegments(segments) {
+  _cancelAbandonedSegmentMerges() {
+    for (const merge of this._segmentMergeCopies ?? []) {
+      if (merge.wasCancelled()) merge.abandon();
+    }
+  }
+
+  async mergeRecordedSegments(segments, wasCancelled = neverCancelled) {
+    if (wasCancelled()) return null;
     // Header-only segments carry no audio frames and crash FFmpeg's concat (#871).
     const usable = segments.filter((segment) => segment && !isEmptyRecording(segment.size));
     if (usable.length === 0) return null;
     if (usable.length === 1) return usable[0];
-    const payload = await Promise.all(
-      usable.map(async (segment) => ({
-        buffer: await segment.arrayBuffer(),
-        mimeType: segment.type || "audio/webm",
-      }))
-    );
-    const result = await window.electronAPI.mergeAudioSegments(payload);
-    if (!result?.success) throw new Error(result?.error || "Failed to merge audio segments");
-    return new Blob([result.buffer], { type: result.mimeType });
+    const payload = [];
+    const zero = (buffer) => {
+      if (buffer) {
+        const bytes = ArrayBuffer.isView(buffer)
+          ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+          : new Uint8Array(buffer);
+        bytes.fill(0);
+      }
+    };
+    let closed = false,
+      resolveCancelled;
+    const cancelled = new Promise((resolve) => {
+      resolveCancelled = resolve;
+    });
+    const pending = (this._segmentMergeCopies ??= new Set());
+    const entry = {
+      wasCancelled,
+      abandon: () => {
+        closed = true;
+        for (const part of payload) zero(part?.buffer);
+        payload.length = 0;
+        pending.delete(entry);
+        resolveCancelled(null);
+      },
+    };
+    pending.add(entry);
+    const abandoned = () => closed || wasCancelled();
+    // Invoke conversions without retaining source Blobs in their continuations.
+    const conversions = usable.map((segment, index) => {
+      const mimeType = segment.type || "audio/webm";
+      let copy;
+      try {
+        copy = segment.arrayBuffer();
+      } catch (error) {
+        copy = Promise.reject(error);
+      }
+      return Promise.resolve(copy).then((buffer) => {
+        if (abandoned()) zero(buffer);
+        else payload[index] = { buffer, mimeType };
+      });
+    });
+    usable.length = 0;
+    const merge = async () => {
+      await Promise.all(conversions);
+      if (abandoned()) return null;
+      // Only this IPC admission begins the already-running-main exception.
+      const result = await window.electronAPI.mergeAudioSegments(payload);
+      try {
+        if (abandoned()) return null;
+        if (!result?.success) throw new Error(result?.error || "Failed to merge audio segments");
+        return new Blob([result.buffer], { type: result.mimeType });
+      } finally {
+        zero(result?.buffer); // a late main reply is still our mutable renderer copy
+      }
+    };
+    try {
+      return await Promise.race([merge(), cancelled]);
+    } finally {
+      entry.abandon(); // failures and pending remainders use the same erasure path
+    }
   }
 
   getLargestRecordedSegment(segments) {
@@ -2206,7 +2283,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     let audioBlob = null;
     let salvagedRecording = false;
     try {
-      audioBlob = await this.mergeRecordedSegments(segments);
+      audioBlob = await this.mergeRecordedSegments(segments, wasCancelled);
     } catch (error) {
       if (wasCancelled()) {
         this._settleProcessingPipeline(processingPipeline);
@@ -2378,6 +2455,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   cancelRecording() {
     this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
+    this._cancelAbandonedSegmentMerges();
     this.micRecovery.stop();
     if (this._rotatingBatchRecorder) {
       this._cancelRequestedDuringMicRecovery = true;
@@ -2475,6 +2553,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       cancellationGeneration: this._processingCancellationGeneration ?? 0,
     };
     this._activeProcessingPipeline = pipeline;
+    this._cancelAbandonedSegmentMerges();
     return pipeline;
   }
 
@@ -4708,6 +4787,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   _requestStreamingCancellation() {
     this._streamingCancellationGeneration += 1;
+    this._cancelAbandonedSegmentMerges();
     ReasoningService.cancelAllRequests();
     this._activeTranscriptionAbortController?.abort();
     this._activeTranscriptionAbortController = null;
@@ -4796,7 +4876,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
   }
 
-  async _finalizeStreamingRecording(sessionId, { replay = false } = {}) {
+  async _finalizeStreamingRecording(
+    sessionId,
+    { replay = false, shouldAbandon = neverCancelled } = {}
+  ) {
     const operation = this._streamingOperation;
     const provider = this.getStreamingProvider();
     if (
@@ -4811,7 +4894,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const owns = () =>
       this._streamingOperation === operation && this._activeStreamingSessionId === sessionId;
     const wasCancelled = () =>
-      cancellationGeneration !== this._streamingCancellationGeneration || !owns();
+      shouldAbandon() ||
+      cancellationGeneration !== this._streamingCancellationGeneration ||
+      !owns();
+    if (wasCancelled()) return false;
     const abandonFinalization = async () => {
       if (owns()) {
         this.cleanupStreamingAudio();
@@ -4846,6 +4932,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // finalization and reasoning interval.
     // Supersede cancelled batch work that may still be settling in the background.
     this._activeProcessingPipeline = null;
+    this._cancelAbandonedSegmentMerges();
     this.isRecording = false;
     this.isProcessing = true;
     this.onProcessingStage?.("transcribing");
@@ -4888,7 +4975,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (!replay) await this.finishStreamingFallbackSegment();
     if (wasCancelled()) return abandonFinalization();
     try {
-      fallbackBlob = await this.mergeRecordedSegments(this._streamingFallbackSegments);
+      fallbackBlob = await this.mergeRecordedSegments(
+        this._streamingFallbackSegments,
+        wasCancelled
+      );
     } catch (error) {
       logger.warn(
         "Failed to merge streaming fallback audio",

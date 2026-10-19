@@ -1604,3 +1604,295 @@ test("cancel while replay Start waits erases its original and lets a new capture
   assert.equal(manager.activeSession, current);
   assert.equal(manager.isRecording, true);
 });
+
+for (const stage of ["control", "Start", "pacing"]) {
+  test(`Esc during replay ${stage} cannot finalize a held recording and a second Undo retains its operation`, async (t) => {
+    const { manager, advance, window: win } = await setup(t);
+    streamingManager(manager);
+    manager.isRecording = true;
+    await manager.cancelStreamingRecording();
+    await advance(0);
+    const original = manager._undo.peek();
+    const session = original.session,
+      context = original.context,
+      tracker = original.tracker;
+    const expected = original.frames().map((frame) => [...frame]);
+    const starting = deferred(),
+      sent = deferred();
+    const starts = [],
+      frames = [],
+      completions = [],
+      states = [],
+      effects = [];
+    let finalizes = 0,
+      banks = 0;
+    const finalize = manager._finalizeStreamingRecording;
+    manager._finalizeStreamingRecording = function (...args) {
+      finalizes++;
+      return finalize.apply(this, args);
+    };
+    const bank = manager._bankAssistantDirective;
+    manager._bankAssistantDirective = function (...args) {
+      banks++;
+      return bank.apply(this, args);
+    };
+    win.electronAPI.dictationRealtimeStart = async (operation) => {
+      starts.push(operation);
+      if (stage === "Start" && starts.length === 1) await starting.promise;
+      return { success: true };
+    };
+    win.electronAPI.dictationRealtimeSend = (bytes, operation) => {
+      frames.push({ bytes: [...new Int16Array(bytes)], operation });
+      sent.resolve();
+    };
+    win.electronAPI.dictationRealtimeCancel = () => {};
+    win.electronAPI.dictationRealtimeStop = async () => ({ text: "Retained words" });
+    for (const name of [
+      "onDictationRealtimePartial",
+      "onDictationRealtimeFinal",
+      "onDictationRealtimeError",
+      "onDictationRealtimeSessionEnd",
+    ])
+      win.electronAPI[name] = () => () => {};
+    win.electronAPI.pasteText = async () => {
+      effects.push("paste");
+      return { pasted: true };
+    };
+    win.electronAPI.recordAnalyticsEvent = async () => effects.push("analytics");
+    win.electronAPI.saveTranscription = async () => {
+      effects.push("row");
+      return { id: 1 };
+    };
+    win.electronAPI.saveTranscriptionAudio = async () => {
+      effects.push("audio");
+      return { success: true };
+    };
+    manager.onStateChange = (state) => states.push(state);
+    manager.shouldUseStreaming = () => false;
+    manager.processTranscription = async (text) => {
+      manager._bankAssistantDirective(text, {});
+      return text;
+    };
+    const saved = [];
+    manager.onTranscriptionComplete = (result) => {
+      completions.push(result);
+      saved.push(manager.safePaste(result.text));
+      saved.push(
+        manager.saveTranscription(result.text, result.text, {
+          sessionId: session.id,
+          private: session.private,
+        })
+      );
+    };
+    assert.equal((await manager.restoreCancelled()).restored, true);
+    const oldRun = manager._restoreRun;
+    if (stage !== "control") {
+      if (stage === "pacing") await sent.promise;
+      assert.equal(manager.cancelProcessing(), true); // Esc, without any replacement
+      const held = manager._undo.peek();
+      await held.ready();
+      const notifications = states.length;
+      starting.resolve();
+      await oldRun;
+      assert.equal(finalizes, 0, "abandoned replay never enters real finalization");
+      assert.deepEqual(completions, []);
+      assert.deepEqual(effects, [], "no paste, row, audio or analytics after Esc");
+      assert.equal(banks, 0);
+      assert.equal(manager.pendingAssistantConversation ?? null, null);
+      assert.equal(
+        states.length,
+        notifications,
+        "abandoned replay publishes no processing or idle"
+      );
+      assert.equal(manager._undo.peek(), held);
+      assert.equal(held.session, session);
+      assert.equal(held.context, context);
+      assert.equal(held.tracker, tracker);
+      assert.equal(context.released, false);
+      assert.deepEqual(
+        held.frames().map((frame) => [...frame]),
+        expected
+      );
+      frames.length = 0;
+      assert.equal((await manager.restoreCancelled(session.id)).restored, true);
+      await manager._restoreRun;
+      assert.notEqual(starts[0].operationId, starts[1].operationId);
+    } else await oldRun;
+    await Promise.all(saved);
+    assert.equal(finalizes, 1);
+    assert.equal(completions.length, 1);
+    assert.deepEqual(
+      frames.map((frame) => frame.bytes),
+      expected
+    );
+    assert.equal(starts.at(-1).dictationSessionId, session.id);
+    assert.ok(effects.includes("paste"));
+    assert.equal(manager._undo.peek(), null);
+    assert.equal(context.released, true);
+  });
+}
+
+for (const owner of ["batch", "restored batch", "streaming fallback"]) {
+  test(`${owner} conversion cannot admit a disk merge after cancel and erases early and late copies`, async (t) => {
+    const { manager, advance, io } = await setup(t);
+    const conversions = [],
+      aliases = [];
+    const merge = manager.mergeRecordedSegments;
+    manager.mergeRecordedSegments = function (segments, ...options) {
+      for (const [index, segment] of segments.entries()) {
+        const original = segment.arrayBuffer.bind(segment);
+        const gate = deferred();
+        const alias = new Uint8Array(300).fill(index + 1);
+        aliases.push(alias);
+        conversions.push(gate);
+        let calls = 0;
+        segment.arrayBuffer = () => (calls++ === 0 ? gate.promise : original());
+      }
+      return merge.call(this, segments, ...options); // real helper, only Blob conversion is deferred
+    };
+    let running;
+    if (owner === "streaming fallback") {
+      streamingManager(manager);
+      manager._sessionAudio.fallbackSegments.push(blob(1), blob(2));
+      manager._streamingFallbackSegments = manager._sessionAudio.fallbackSegments;
+      manager.finishStreamingFallbackSegment = async () => null;
+      manager._activeStreamingSessionId = 1;
+      manager._streamingOperation = {
+        operationId: "fallback",
+        correlationId: manager.activeSession.id,
+        dictationSessionId: manager.activeSession.id,
+      };
+      running = manager.stopStreamingRecording();
+    } else {
+      startBatch(manager, [1, 2], 3);
+      if (owner === "restored batch") {
+        manager.cancelRecording();
+        await advance(0);
+        await manager._undo.peek().ready();
+        await manager.restoreCancelled();
+        running = manager._restoreRun;
+      } else running = manager.finalizeBatchRecording(null);
+    }
+    for (let i = 0; i < 12 && conversions.length < 2; i++)
+      await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(conversions.length >= 2);
+    conversions[0].resolve(aliases[0].buffer);
+    await advance(0);
+    assert.equal(io.merges, 0);
+    assert.equal(manager.cancelProcessing(), true);
+    const held = manager._undo.peek(),
+      context = held.context,
+      tracker = held.tracker;
+    const earlyErased = allZero(aliases[0]);
+    for (let i = 1; i < conversions.length; i++) conversions[i].resolve(aliases[i].buffer);
+    await running;
+    await advance(0);
+    await held.ready();
+    assert.equal(io.merges, 0, "renderer conversion entry is not main merge admission");
+    assert.equal(earlyErased, true, "cancel immediately erases already-converted mutable copies");
+    assert.ok(aliases.every(allZero), "late converted aliases are erased on arrival");
+    assert.equal(manager._undo.peek(), held);
+    assert.equal(held.context, context);
+    assert.equal(held.tracker, tracker);
+    assert.equal(context.released, false);
+    const role = owner === "streaming fallback" ? "fallback" : "segment";
+    assert.deepEqual(held.bytes(role).map(firstByte).slice(0, 2), [1, 2]);
+    await manager.flushCancelHold();
+  });
+}
+
+test("an admitted main merge may finish cleanup after cancel, with renderer inputs and late result erased", async (t) => {
+  const { manager, advance, window: win } = await setup(t);
+  const main = deferred(),
+    entered = deferred();
+  let cleanups = 0;
+  let inputs;
+  win.electronAPI.mergeAudioSegments = async (payload) => {
+    inputs = payload.map((part) => new Uint8Array(part.buffer));
+    entered.resolve();
+    try {
+      return await main.promise;
+    } finally {
+      cleanups++;
+    }
+  };
+  startBatch(manager, [1, 2], 3);
+  const running = manager.finalizeBatchRecording(null);
+  await entered.promise; // IPC admitted before cancellation: the documented exception
+  assert.equal(manager.cancelProcessing(), true);
+  const held = manager._undo.peek();
+  const result = new Uint8Array(300).fill(8);
+  main.resolve({ success: true, buffer: result.buffer, mimeType: "audio/webm" });
+  await running;
+  await advance(0);
+  await held.ready();
+  assert.equal(cleanups, 1);
+  assert.ok(inputs.every(allZero));
+  assert.ok(allZero(result), "late main reply is still owned mutable renderer audio");
+  assert.deepEqual(held.bytes("segment").map(firstByte), [1, 2]);
+  assert.equal(manager.lastAudioBlob ?? null, null);
+  await manager.flushCancelHold();
+});
+
+test("merge conversion failure erases ready copies and later remainders without admitting IPC", async (t) => {
+  const { manager, io } = await setup(t);
+  const first = deferred(),
+    rejected = deferred(),
+    late = deferred();
+  const a = new Uint8Array(300).fill(1),
+    b = new Uint8Array(300).fill(2);
+  const segment = (gate) => ({ size: 300, type: "audio/webm", arrayBuffer: () => gate.promise });
+  const running = manager.mergeRecordedSegments([segment(first), segment(rejected), segment(late)]);
+  first.resolve(a.buffer);
+  await Promise.resolve();
+  rejected.reject(Error("synthetic conversion failure"));
+  await assert.rejects(running, /synthetic conversion/);
+  late.resolve(b.buffer);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(io.merges, 0);
+  assert.ok(allZero(a));
+  assert.ok(allZero(b));
+});
+
+test("uncancelled merge preserves audio order while erasing owned view spans and reply copies", async (t) => {
+  const { manager, window: win } = await setup(t);
+  const storage = new Uint8Array(302).fill(9);
+  const view = storage.subarray(1, 301);
+  const second = new Uint8Array(300).fill(2);
+  const reply = new Uint8Array([7, 8]);
+  win.electronAPI.mergeAudioSegments = async (payload) => {
+    assert.deepEqual(
+      payload.map((part) => new Uint8Array(part.buffer)[0]),
+      [9, 2]
+    );
+    return { success: true, buffer: reply.buffer, mimeType: "audio/webm" };
+  };
+  const segment = (bytes) => ({ size: 300, type: "audio/webm", arrayBuffer: async () => bytes });
+  const result = await manager.mergeRecordedSegments([segment(view), segment(second.buffer)]);
+  assert.deepEqual([...new Uint8Array(await result.arrayBuffer())], [7, 8]);
+  assert.equal(storage[0], 9);
+  assert.equal(storage.at(-1), 9);
+  assert.ok(view.every((value) => value === 0));
+  assert.ok(allZero(second));
+  assert.ok(allZero(reply));
+  assert.equal(manager._segmentMergeCopies.size, 0);
+});
+
+test("cancel settles renderer merge without waiting for a never-finishing conversion", async (t) => {
+  const { manager, advance, io } = await setup(t);
+  startBatch(manager, [1, 2], 3);
+  const first = new Uint8Array(300).fill(1);
+  const original = manager._batchSegments[1].arrayBuffer.bind(manager._batchSegments[1]);
+  manager._batchSegments[0].arrayBuffer = async () => first.buffer.slice(0);
+  let calls = 0;
+  manager._batchSegments[1].arrayBuffer = () =>
+    calls++ === 0 ? new Promise(() => {}) : original();
+  const running = manager.finalizeBatchRecording(null);
+  await advance(0);
+  assert.equal(manager.cancelProcessing(), true);
+  await running; // cancellation owns settlement; a hung browser copy cannot keep processing alive
+  assert.equal(io.merges, 0);
+  assert.equal(manager._segmentMergeCopies.size, 0);
+  await manager._undo.peek().ready();
+  await manager.flushCancelHold();
+});

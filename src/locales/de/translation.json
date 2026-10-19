@@ -2588,6 +2588,17 @@
     },
     "model": {
       "changeHint": "In den Einstellungen ändern"
+    },
+    "rail": {
+      "label": "Kontext",
+      "toggle": "Kontext",
+      "inScope": "Im Kontext",
+      "found": "Automatisch gefunden",
+      "emptyScope": "Tippe @, um eine Notiz, ein Meeting oder einen Ordner hinzuzufügen. Der Assistent durchsucht deine Notizen auch selbstständig.",
+      "unpin": "{{label}} aus dem Kontext entfernen",
+      "activity": "Aktivität",
+      "noActivity": "Noch nichts",
+      "addContext": "Kontext hinzufügen"
     }
   },
   "referral": {

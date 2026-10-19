@@ -82,7 +82,7 @@ const MentionSuggestions = forwardRef<MentionSuggestionsHandle, MentionSuggestio
         ref={listRef}
         role="listbox"
         aria-label={t("mention.pickerLabel")}
-        className="w-[262px] max-h-[236px] overflow-y-auto rounded-md border border-border bg-popover p-1 text-foreground shadow-lg"
+        className="w-[262px] max-w-[calc(100vw-16px)] max-h-[236px] overflow-y-auto rounded-md border border-border bg-popover p-1 text-foreground shadow-lg"
       >
         {!items.length && (
           <p className="px-2 py-2 text-caption text-muted-foreground">{t("mention.empty")}</p>

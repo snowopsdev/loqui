@@ -1,3 +1,4 @@
+import { useMentionSources } from "../../hooks/useMentionSources";
 import { useEffect, useRef, useCallback, type MutableRefObject } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -14,12 +15,6 @@ import { createSlashCommand, SLASH_PLUGIN_KEY } from "./editor/SlashCommand";
 import { slashItemsFromProp } from "./editor/slashItems";
 import { BubbleToolbar } from "./editor/BubbleToolbar";
 import { isEditorChromeTarget } from "./editor/editorChrome";
-import { useTranscriptions } from "../../stores/transcriptionStore";
-import { useFolders } from "../../stores/noteStore";
-import { useRecentNotes } from "../../hooks/useRecentNotes";
-import { formatRelativeTime } from "../../utils/dateFormatting";
-import { formatMmSs } from "../../utils/formatDuration";
-import type { MentionSources } from "../../lib/mentionSearch";
 import type { MentionPerson } from "../../utils/mentionMarkdown";
 
 export interface RichTextEditorProps {
@@ -60,39 +55,8 @@ export function RichTextEditor({
   const internalValueRef = useRef(value);
   const suppressUpdateRef = useRef(false);
 
-  // The extension reads current sources lazily without rebuilding the editor.
-  const transcriptions = useTranscriptions();
-  const folders = useFolders();
-  const recentNotes = useRecentNotes(6);
   const withMentions = useRef(mentionPeople != null).current;
-  const sourcesRef = useRef<MentionSources | null>(null);
-  sourcesRef.current = {
-    people: mentionPeople ?? [],
-    searchContacts: async (query) =>
-      (await window.electronAPI.searchContacts(query))?.contacts ?? [],
-    searchNotes: (query, limit) => window.electronAPI.searchNotes(query, limit),
-    recentNotes,
-    transcriptions,
-    folders,
-    describe: {
-      note: (note) =>
-        [
-          folders.find((f) => f.id === note.folder_id)?.name,
-          formatRelativeTime(note.updated_at, t, i18n.language),
-        ]
-          .filter(Boolean)
-          .join(" · "),
-      meeting: (note) => formatRelativeTime(note.created_at, t, i18n.language),
-      dictation: (item) =>
-        [
-          formatRelativeTime(item.created_at, t, i18n.language),
-          item.audio_duration_ms != null ? formatMmSs(item.audio_duration_ms / 1000) : null,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-      folder: () => t("mention.folderMeta"),
-    },
-  };
+  const sourcesRef = useMentionSources(mentionPeople ?? []);
 
   const slashRef = useRef(slash);
   slashRef.current = slash;

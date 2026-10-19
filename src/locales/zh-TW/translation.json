@@ -3091,6 +3091,17 @@
     },
     "model": {
       "changeHint": "在設定中變更"
+    },
+    "rail": {
+      "label": "上下文",
+      "toggle": "上下文",
+      "inScope": "範圍內",
+      "found": "自動找到",
+      "emptyScope": "輸入 @ 新增筆記、會議或資料夾。助理也會自行搜尋你的筆記。",
+      "unpin": "從上下文中移除{{label}}",
+      "activity": "活動",
+      "noActivity": "暫無活動",
+      "addContext": "新增上下文"
     }
   },
   "support": {

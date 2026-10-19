@@ -544,3 +544,123 @@ for (const target of ["chat", "agent", "vision", "dropped-vision"]) {
     assert.equal(listeners.size, 0);
   });
 }
+
+function deferredPins() {
+  let resolve;
+  const promise = new Promise((r) => (resolve = r));
+  let started = false;
+  return {
+    promise,
+    resolve,
+    get started() {
+      return started;
+    },
+    getPinnedContext() {
+      started = true;
+      return promise;
+    },
+  };
+}
+const PINNED22 = {
+  text: '<note id="17" title="Pinned">\nbody\n</note>',
+  notes: [{ id: 17, title: "Pinned", type: "personal", date: null, quote: "body" }],
+};
+for (const action of ["Stop", "unmount", "newer send"]) {
+  test(`${action} while admitted pins load prevents the old typed IPC and assistant`, async (t) => {
+    const pinned = deferredPins();
+    const calls = [];
+    const listeners = new Set();
+    const bridge = {
+      onTextEvent(fn) {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+      async textCancel() {},
+      async textStream(request) {
+        calls.push(request);
+        for (const fn of listeners) {
+          fn({
+            requestId: request.requestId,
+            type: "chunk",
+            chunk: { type: "content", text: "ok" },
+          });
+          fn({ requestId: request.requestId, type: "end" });
+        }
+      },
+    };
+    let first = true;
+    const { captured, getMessages, unmount } = await renderChatStreaming(t, {
+      live: action === "unmount",
+      electronAPI: { personalInference: bridge },
+      hookOptions: {
+        getPinnedContext: () =>
+          first ? ((first = false), pinned.getPinnedContext()) : Promise.resolve(PINNED22),
+      },
+    });
+    let send;
+    if (action === "unmount")
+      await React.act(async () => {
+        send = captured.sendToAI("first", []);
+      });
+    else send = captured.sendToAI("first", []);
+    for (let i = 0; i < 50 && !pinned.started; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(pinned.started, true);
+    if (action === "Stop") captured.cancelStream();
+    else if (action === "unmount") await unmount();
+    else await captured.sendToAI("newer", []);
+    pinned.resolve(PINNED22);
+    await send;
+    assert.equal(calls.length, action === "newer send" ? 1 : 0);
+    assert.equal(
+      getMessages().filter((m) => m.role === "assistant").length,
+      action === "newer send" ? 1 : 0
+    );
+  });
+}
+test("captureInference starts pins synchronously and legacy explicit snapshot never reads live pins", async (t) => {
+  const pinned = deferredPins();
+  const listeners = new Set();
+  const calls = [];
+  const bridge = {
+    onTextEvent(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    async textCancel() {},
+    async textStream(request) {
+      calls.push(request);
+      for (const fn of listeners) {
+        fn({ requestId: request.requestId, type: "end" });
+      }
+    },
+  };
+  const { captured, getMessages } = await renderChatStreaming(t, {
+    electronAPI: { personalInference: bridge },
+    hookOptions: { getPinnedContext: pinned.getPinnedContext },
+  });
+  const snapshot = captured.captureInference();
+  assert.equal(pinned.started, true);
+  pinned.resolve(PINNED22);
+  await captured.sendToAI("pinned", [], { inferenceSnapshot: snapshot });
+  assert.deepEqual(getMessages().at(-1).context.pinnedNotes, PINNED22.notes);
+  const { pinnedContext: _pinnedContext, ...legacy } = snapshot;
+  await captured.sendToAI("legacy", [], { inferenceSnapshot: legacy });
+  assert.equal(getMessages().at(-1).context.pinnedNotes, undefined);
+  assert.equal(calls.length, 2);
+});
+
+for (const failure of ["reject", "throw"]) {
+  test(`abandoned admitted pin lookup handles ${failure} before sender consumption`, async (t) => {
+    const { captured } = await renderChatStreaming(t, {
+      hookOptions: {
+        getPinnedContext: () => {
+          if (failure === "throw") throw new Error("synthetic local failure");
+          return Promise.reject(new Error("synthetic local failure"));
+        },
+      },
+    });
+    const snapshot = captured.captureInference();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(await snapshot.pinnedContext, { text: "", notes: [] });
+  });
+}

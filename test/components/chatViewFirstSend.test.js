@@ -76,7 +76,9 @@ async function mountChatView(t, electronAPI, initialProps = {}) {
     delete globalThis.__chatViewNavigation;
     delete globalThis.__chatViewAgentState;
   });
-  installBrowserGlobals(t, { window: { electronAPI } });
+  installBrowserGlobals(t, {
+    window: { electronAPI: { getNotes: async () => [], ...electronAPI } },
+  });
   installHookDom(t);
   const tree = installTree();
   const vite = await createRendererServer(

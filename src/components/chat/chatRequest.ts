@@ -14,6 +14,7 @@ export type ChatViewRequest =
  *    or a focus request. The queue and the draft's ownership stay. */
 export interface ComposerSeed {
   nonce: number;
+  caret?: number; // local edit selection; omitted seeds retain the native caret
   text?: string; // replaces the draft when present
   resetQueue: boolean;
 }

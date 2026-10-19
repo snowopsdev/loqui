@@ -14,6 +14,8 @@ import type { AgentState } from "./types";
 import type { ComposerSeed } from "./chatRequest";
 
 interface ChatInputProps {
+  onDraftChange?: (text: string, caret: number) => void;
+  interceptKeyDown?: (event: React.KeyboardEvent) => boolean;
   agentState: AgentState;
   /** A retained hidden host must never focus, record or consume its queue. */
   active?: boolean;
@@ -63,6 +65,8 @@ function ProcessingIndicator() {
 
 export function ChatInput({
   agentState,
+  onDraftChange,
+  interceptKeyDown,
   active = true,
   partialTranscript,
   onTextSubmit,
@@ -115,24 +119,43 @@ export function ChatInput({
     }
     if (seed.text !== undefined) setInputText(seed.text);
   }
-  useEffect(() => {
-    if (active && appliedSeed != null) inputRef.current?.focus();
+  useLayoutEffect(() => {
+    if (active && appliedSeed != null) {
+      inputRef.current?.focus();
+      if (seed?.caret != null) inputRef.current?.setSelectionRange?.(seed.caret, seed.caret);
+    }
+    // A seed is consumed by nonce; a changed prop object is not a new edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, appliedSeed]);
   const queuedHintId = useId();
   const inputTextRef = useRef(inputText);
-  const writeDraft = useCallback((value: string) => {
-    inputTextRef.current = value;
-    setInputText(value);
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
+  const mirroredRef = useRef<{ text: string; caret: number } | null>(null);
+  const mirrorDraft = useCallback((text: string, caret: number) => {
+    if (mirroredRef.current?.text === text && mirroredRef.current.caret === caret) return;
+    mirroredRef.current = { text, caret };
+    onDraftChangeRef.current?.(text, caret);
   }, []);
+  const writeDraft = useCallback(
+    (value: string, caret = value.length) => {
+      inputTextRef.current = value;
+      setInputText(value);
+      mirrorDraft(value, caret);
+    },
+    [mirrorDraft]
+  );
   useLayoutEffect(() => {
     inputTextRef.current = inputText;
-  }, [inputText]);
+    mirrorDraft(inputText, inputRef.current?.selectionStart ?? inputText.length);
+  }, [inputText, appliedSeed, mirrorDraft]);
 
   const voice = useVoiceDraft({
     active,
     onTranscript: (text) => {
       if (!activeRef.current) return;
-      setInputText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+      const prev = inputTextRef.current;
+      writeDraft(prev.trim() ? `${prev.trim()} ${text}` : text);
       requestAnimationFrame(() => {
         if (activeRef.current) inputRef.current?.focus();
       });
@@ -180,7 +203,11 @@ export function ChatInput({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!activeRef.current) return;
+      if (!activeRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+      if (interceptKeyDown?.(e)) {
+        e.preventDefault();
+        return;
+      }
       const action = resolveComposerKey({
         key: e.key,
         shiftKey: e.shiftKey,
@@ -199,7 +226,7 @@ export function ChatInput({
         setQueueDropped(false);
       } else setQueuedFor(null);
     },
-    [handleSubmit, inputText, isBusy, queued, queueKey]
+    [handleSubmit, inputText, isBusy, queued, queueKey, interceptKeyDown]
   );
 
   // Grow with the text up to the cap, then scroll inside the box.
@@ -326,9 +353,13 @@ export function ChatInput({
               value={inputText}
               onChange={(e) => {
                 if (!activeRef.current) return;
-                writeDraft(e.target.value);
+                writeDraft(e.target.value, e.target.selectionStart ?? e.target.value.length);
                 setQueueDropped(false);
                 if (!e.target.value.trim()) setQueuedFor(null);
+              }}
+              onSelect={(e) => {
+                if (activeRef.current)
+                  mirrorDraft(e.currentTarget.value, e.currentTarget.selectionStart);
               }}
               aria-describedby={queued ? queuedHintId : undefined}
               onKeyDown={handleKeyDown}
@@ -441,7 +472,13 @@ export function ChatInput({
           </button>
           <button
             type="button"
-            onClick={() => setUnsent(null)}
+            onClick={() => {
+              setUnsent(null);
+              mirrorDraft(
+                inputTextRef.current,
+                inputRef.current?.selectionStart ?? inputTextRef.current.length
+              );
+            }}
             className="rounded-sm underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("agentMode.input.discardUnsent")}

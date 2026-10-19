@@ -453,7 +453,7 @@ test("ChatView turns a request into a seed during render, not in its request eff
   );
   assert.match(
     view,
-    /if \(request && request\.nonce !== seededNonce\) \{\s*setSeededNonce\(request\.nonce\);\s*setComposerSeed\(seedForRequest\(request\)\);/
+    /if \(request && request\.nonce !== seededNonce\) \{\s*setSeededNonce\(request\.nonce\);\s*setComposerSeed\(\{ \.\.\.seedForRequest\(request\), nonce: \+\+seedSequenceRef\.current \}\);/
   );
   const effect = view.slice(view.indexOf("if (!request) return;"));
   assert.doesNotMatch(

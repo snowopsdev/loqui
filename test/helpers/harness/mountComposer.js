@@ -11,13 +11,14 @@ const { installTree } = require("./fakeDomTree");
 
 const MOCKS = {
   "/ui/useToast": TOAST_MOCK,
-  "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
+  "/useVoiceDraft": `export const useVoiceDraft = props => (globalThis.__composerVoiceTranscript = props.onTranscript, { status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
 };
 
 async function mountComposer(t, onTextSubmit, extraProps = {}) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
+    delete globalThis.__composerVoiceTranscript;
   });
   installBrowserGlobals(t);
   installHookDom(t);
@@ -56,7 +57,16 @@ async function mountComposer(t, onTextSubmit, extraProps = {}) {
       });
       await new Promise((r) => setTimeout(r, 0));
     });
-  return { render, type, press, value: () => tree.props(textarea()).value };
+  const select = (caret) =>
+    React.act(async () =>
+      tree
+        .props(textarea())
+        .onSelect({ currentTarget: { value: tree.props(textarea()).value, selectionStart: caret } })
+    );
+  const voice = async (text) => {
+    await React.act(async () => globalThis.__composerVoiceTranscript(text));
+  };
+  return { render, type, press, select, voice, value: () => tree.props(textarea()).value };
 }
 
 module.exports = { mountComposer };

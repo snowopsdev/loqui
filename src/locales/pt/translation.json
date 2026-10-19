@@ -3092,6 +3092,17 @@
     },
     "model": {
       "changeHint": "Alterar nas definições"
+    },
+    "rail": {
+      "label": "Contexto",
+      "toggle": "Contexto",
+      "inScope": "No contexto",
+      "found": "Encontrado automaticamente",
+      "emptyScope": "Digite @ para adicionar uma nota, reunião ou pasta. O assistente também pesquisa suas notas por conta própria.",
+      "unpin": "Remover {{label}} do contexto",
+      "activity": "Atividade",
+      "noActivity": "Nada ainda",
+      "addContext": "Adicionar contexto"
     }
   },
   "support": {

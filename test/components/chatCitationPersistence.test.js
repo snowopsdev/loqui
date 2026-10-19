@@ -36,7 +36,10 @@ const row = (content) => ({
 
 // Mounted production sender + streaming + reasoning + persistence. Only typed
 // preload IPC is synthetic: no provider, profile, credentials, or network.
-async function harness(t, { firstSend = false, citations = true, fallback = false } = {}) {
+async function harness(
+  t,
+  { firstSend = false, citations = true, fallback = false, pins = false } = {}
+) {
   let root;
   let service;
   t.mock.method(console, "log", (message) =>
@@ -129,6 +132,10 @@ async function harness(t, { firstSend = false, citations = true, fallback = fals
     chatAgentCloudBaseUrl: "https://a.invalid/v1",
     chatAgentDisableThinking: true,
   });
+  let pinnedItems = [{ kind: "note", id: 27, label: "P pinned" }];
+  const pinnedRead = deferred();
+  const pinReads = [];
+  const { buildPinnedContext } = await vite.ssrLoadModule("/components/chat/contextRail.ts");
   let external = "A external context",
     scope = { spaceId: 3, folderId: 4 };
   const h = {
@@ -146,6 +153,11 @@ async function harness(t, { firstSend = false, citations = true, fallback = fals
     vite,
     assistantWrite,
     listeners,
+    pinnedRead,
+    pinReads,
+    changePins: () => {
+      pinnedItems = [{ kind: "note", id: 28, label: "Q pinned" }];
+    },
   };
   function Harness() {
     const persistence = useChatPersistence({ conversationId: firstSend ? null : 7 });
@@ -156,6 +168,24 @@ async function harness(t, { firstSend = false, citations = true, fallback = fals
       noteContext: external,
       searchScope: scope,
       citations,
+      ...(pins
+        ? {
+            getPinnedContext: () =>
+              buildPinnedContext(
+                pinnedItems.map((item) => ({ ...item })),
+                {
+                  getNote: (id) => {
+                    pinReads.push(id);
+                    return id === 27
+                      ? pinnedRead.promise
+                      : Promise.resolve({ id: 28, title: "Q pinned", content: "Q body" });
+                  },
+                  getNotes: async () => [],
+                  getTranscriptionById: async () => null,
+                }
+              ),
+          }
+        : {}),
       onStreamComplete: fallback
         ? (_id, content, calls, context) =>
             persistence.saveAssistantMessage(content, calls, undefined, context)
@@ -442,3 +472,73 @@ for (const citations of [false, true]) {
     await act(() => pending);
   });
 }
+
+for (const firstSend of [false, true])
+  test(`pins captured before creation/user-save persist only A through B (${firstSend})`, async (t) => {
+    const h = await harness(t, { firstSend, pins: true });
+    let pending;
+    await act(() => {
+      pending = h.send("pin question");
+    });
+    assert.deepEqual(
+      h.pinReads,
+      [27],
+      "local content read begins before user-save/create finishes"
+    );
+    h.changePins();
+    await act(() => h.persistence.loadConversation(8));
+    await h.context("B live context", { spaceId: 8 });
+    h.useSettingsStore.setState({
+      chatAgentModel: "model-b",
+      chatAgentCloudBaseUrl: "https://b.invalid/v1",
+    });
+    if (firstSend) await act(() => h.creation.resolve({ id: 7 }));
+    await act(() => h.userWrite.resolve());
+    await act(() => h.search.resolve([]));
+    assert.equal(h.requests.length, 0, "pins are still pending after user-save and RAG");
+    await act(() =>
+      h.pinnedRead.resolve({ id: 27, title: "P pinned", content: "P original body" })
+    );
+    assert.equal(h.requests.length, 1);
+    const request = h.requests[0];
+    assert.equal(request.model, "model-a");
+    assert.equal(request.baseUrl, "https://a.invalid/v1");
+    assert.match(request.systemPrompt, /A external context/);
+    assert.match(request.systemPrompt, /P original body/);
+    assert.doesNotMatch(request.systemPrompt, /Q body|B live context/);
+    assert.match(request.systemPrompt, /\[note:ID\]/);
+    const visibleB = h.persistence.messages;
+    await act(() => {
+      h.emit({ type: "chunk", chunk: { type: "content", text: "Pinned answer [note:27]" } });
+      h.emit({ type: "end" });
+    });
+    await act(() => pending);
+    assert.deepEqual(h.persistence.messages, visibleB);
+    assert.deepEqual(h.histories.get(8), [{ role: "user", content: "B history" }]);
+    assert.deepEqual(
+      h.writes.map((w) => [w.id, w.role]),
+      [
+        [7, "user"],
+        [7, "assistant"],
+      ]
+    );
+    assert.deepEqual(
+      h.writes[1].metadata.context.pinnedNotes.map((n) => n.id),
+      [27]
+    );
+    await act(() => h.persistence.loadConversation(7));
+    assert.equal(h.persistence.messages[1].context.pinnedNotes[0].title, "P pinned");
+    assert.deepEqual(h.persistence.messages[1].context.route, {
+      model: "model-a",
+      providerId: "custom",
+      locality: "remote",
+    });
+    await act(() => {
+      pending = h.send("next current");
+    });
+    assert.deepEqual(h.pinReads, [27, 28]);
+    assert.match(h.requests[1].systemPrompt, /Q body/);
+    assert.doesNotMatch(h.requests[1].systemPrompt, /P original body/);
+    await act(() => h.emit({ type: "end" }));
+    await act(() => pending);
+  });

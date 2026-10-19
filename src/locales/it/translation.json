@@ -3092,6 +3092,17 @@
     },
     "model": {
       "changeHint": "Modifica nelle impostazioni"
+    },
+    "rail": {
+      "label": "Contesto",
+      "toggle": "Contesto",
+      "inScope": "Nel contesto",
+      "found": "Trovato automaticamente",
+      "emptyScope": "Digita @ per aggiungere una nota, una riunione o una cartella. L’assistente cerca anche nelle tue note in autonomia.",
+      "unpin": "Rimuovi {{label}} dal contesto",
+      "activity": "Attività",
+      "noActivity": "Ancora nulla",
+      "addContext": "Aggiungi contesto"
     }
   },
   "support": {

@@ -3145,6 +3145,17 @@
     },
     "model": {
       "changeHint": "Cambiar en Ajustes"
+    },
+    "rail": {
+      "label": "Contexto",
+      "toggle": "Contexto",
+      "inScope": "En el contexto",
+      "found": "Encontrado automáticamente",
+      "emptyScope": "Escribe @ para añadir una nota, reunión o carpeta. El asistente también busca en tus notas por su cuenta.",
+      "unpin": "Quitar {{label}} del contexto",
+      "activity": "Actividad",
+      "noActivity": "Nada todavía",
+      "addContext": "Añadir contexto"
     }
   },
   "support": {

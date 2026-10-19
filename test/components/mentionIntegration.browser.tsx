@@ -133,7 +133,9 @@ export async function runMentionRegression() {
       .find((b) => b.textContent === "Insert quote")!
       .click();
     await wait();
-    const md = ed.storage.markdown.getMarkdown();
+    const md = (
+      ed.storage as unknown as { markdown: { getMarkdown(): string } }
+    ).markdown.getMarkdown();
     check(
       md.includes("Prefix [@B](meeting:38) suffix.") && md.includes("> Thursday, not Monday."),
       "quote inserts local block preserving paragraph prefix and suffix"

@@ -25,6 +25,8 @@ import type { AgentState, ChatImageAttachment, Message, MessageRoute, ToolCallIn
 import { buildRagContext } from "./ragContext";
 import { resolveRoute, routeSnapshotFromSettings } from "../../lib/routes";
 import { toMessageRoute } from "./messageRoute";
+import type { RagNoteRef } from "./citations";
+type PinnedContext = { text: string; notes: RagNoteRef[] };
 const STREAM_FLUSH_INTERVAL_MS = 32;
 
 const LOCAL_TOOL_MIN_PARAMS_B = 4;
@@ -43,6 +45,7 @@ function estimateModelSizeB(modelId: string): number {
 type ChatStreamingScope = "chatIntelligence" | "dictationAgent";
 
 interface UseChatStreamingOptions {
+  getPinnedContext?: () => Promise<PinnedContext>;
   /** Display owner; changing threads clears activity without redirecting an admitted request. */
   conversationId?: number | null;
   messages: Message[];
@@ -93,6 +96,7 @@ export interface SendToAIOptions {
 }
 
 export interface ChatInferenceSnapshot {
+  pinnedContext?: Promise<PinnedContext>;
   settings: ReturnType<typeof getSettings>;
   inference: ReturnType<typeof resolveChatStreamingInference>;
   sentRoute: MessageRoute;
@@ -128,6 +132,7 @@ function transformLastUserMessage(
 
 export function useChatStreaming({
   conversationId,
+  getPinnedContext,
   setMessages,
   inferenceScope = "chatIntelligence",
   noteContext: externalNoteContext,
@@ -230,6 +235,8 @@ export function useChatStreaming({
     };
   }, [cancelStream]);
 
+  const pinnedGetterRef = useRef(getPinnedContext);
+  pinnedGetterRef.current = getPinnedContext;
   const captureInference = useCallback(
     (options?: SendToAIOptions): ChatInferenceSnapshot => {
       const settings = getSettings();
@@ -248,7 +255,16 @@ export function useChatStreaming({
             ? "voiceAssistant"
             : "chat";
       const sentRoute = toMessageRoute(resolveRoute(routeSnapshotFromSettings(settings), routeId));
+      // Invoke now, not after any sender/RAG await; a rejected abandoned lookup
+      // is handled immediately even if creation or user persistence fails.
+      let pinnedContext: Promise<PinnedContext> | undefined;
+      try {
+        pinnedContext = pinnedGetterRef.current?.().catch(() => ({ text: "", notes: [] }));
+      } catch {
+        pinnedContext = Promise.resolve({ text: "", notes: [] });
+      }
       return {
+        ...(pinnedContext ? { pinnedContext } : {}),
         settings,
         sentRoute,
         noteContext: noteContextRef.current,
@@ -350,7 +366,12 @@ export function useChatStreaming({
       const rag = await buildRagContext(window.electronAPI, userText, scope);
       const ragContext = rag.text;
       if (cancelled() || !mountedRef.current) return;
-      const combinedContext = [snapshot.noteContext, ragContext].filter(Boolean).join("\n\n");
+      const pinned = await snapshot.pinnedContext;
+      if (cancelled() || !mountedRef.current) return;
+      const pinnedContext = pinned?.text ?? "";
+      const combinedContext = [snapshot.noteContext, pinnedContext, ragContext]
+        .filter(Boolean)
+        .join("\n\n");
       // The user's dictionary rides on every conversation so replies use their
       // jargon — same suffix the dictation prompts carry.
       let systemPrompt = appendDictionarySuffix(
@@ -363,7 +384,8 @@ export function useChatStreaming({
       );
 
       // Only ChatView opts in; bubble-only chat surfaces keep their existing prompt.
-      const hasSources = (registry?.getAll().length ?? 0) > 0 || ragContext.length > 0;
+      const hasSources =
+        (registry?.getAll().length ?? 0) > 0 || ragContext.length > 0 || pinnedContext.length > 0;
       if (citations && hasSources) systemPrompt = appendCitationSuffix(systemPrompt);
 
       const history: HistoryMessage[] = allMessages
@@ -410,7 +432,11 @@ export function useChatStreaming({
           role: "assistant",
           content: "",
           isStreaming: true,
-          context: { ragNotes: rag.notes, route: snapshot.sentRoute },
+          context: {
+            ragNotes: rag.notes,
+            ...(pinned ? { pinnedNotes: pinned.notes } : {}),
+            route: snapshot.sentRoute,
+          },
         },
       ]);
       updateAgentState("streaming");

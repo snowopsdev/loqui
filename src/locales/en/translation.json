@@ -2588,6 +2588,17 @@
     },
     "model": {
       "changeHint": "Change in Settings"
+    },
+    "rail": {
+      "label": "Context",
+      "toggle": "Context",
+      "inScope": "In scope",
+      "found": "Found automatically",
+      "emptyScope": "Type @ to add a note, meeting or folder. The assistant also searches your notes on its own.",
+      "unpin": "Remove {{label}} from context",
+      "activity": "Activity",
+      "noActivity": "Nothing yet",
+      "addContext": "Add context"
     }
   },
   "referral": {

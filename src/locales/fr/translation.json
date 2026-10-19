@@ -2589,6 +2589,17 @@
     },
     "model": {
       "changeHint": "Modifier dans les paramètres"
+    },
+    "rail": {
+      "label": "Contexte",
+      "toggle": "Contexte",
+      "inScope": "Dans le contexte",
+      "found": "Trouvé automatiquement",
+      "emptyScope": "Saisissez @ pour ajouter une note, une réunion ou un dossier. L’assistant recherche aussi de lui-même dans vos notes.",
+      "unpin": "Retirer {{label}} du contexte",
+      "activity": "Activité",
+      "noActivity": "Rien pour le moment",
+      "addContext": "Ajouter du contexte"
     }
   },
   "referral": {

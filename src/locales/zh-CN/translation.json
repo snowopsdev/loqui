@@ -3091,6 +3091,17 @@
     },
     "model": {
       "changeHint": "在设置中更改"
+    },
+    "rail": {
+      "label": "上下文",
+      "toggle": "上下文",
+      "inScope": "范围内",
+      "found": "自动找到",
+      "emptyScope": "输入 @ 添加笔记、会议或文件夹。助手也会自行搜索你的笔记。",
+      "unpin": "从上下文中移除{{label}}",
+      "activity": "活动",
+      "noActivity": "暂无活动",
+      "addContext": "添加上下文"
     }
   },
   "support": {

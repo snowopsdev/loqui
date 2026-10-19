@@ -1268,6 +1268,8 @@ class IPCHandlers {
         !session ||
         typeof session.id !== "string" ||
         session.id.length > 128 ||
+        (session.context !== undefined &&
+          (typeof session.context !== "string" || session.context.length > 4096)) ||
         !ONBOARDING_DEMO_KINDS.has(session.kind)
       ) {
         return false;
@@ -1277,6 +1279,9 @@ class IPCHandlers {
         id: session.id,
         kind: session.kind,
         startedAt: Date.now(),
+        ...(typeof session.context === "string" && session.context.length <= 4096
+          ? { context: session.context }
+          : {}),
       };
       return this.windowManager.beginOnboardingDemo(session.kind, this._onboardingDemoSession);
     });
@@ -1323,6 +1328,7 @@ class IPCHandlers {
     });
 
     ipcMain.handle("onboarding-demo-publish", (_event, event) => {
+      if (_event.sender !== this.windowManager.mainWindow?.webContents) return false;
       const payload = publishDemoEvent(event, this._onboardingDemoSession, this.windowManager);
       if (!payload) return false;
       const selector = this.onboardingCleanup.selector(_event.sender, {
@@ -4625,6 +4631,8 @@ class IPCHandlers {
     ipcMain.handle("save-dictation-key", async (event, key) => {
       return this.environmentManager.saveDictationKey(key);
     });
+
+    ipcMain.handle("get-dictation-binding", () => this.windowManager.getDictationBinding());
 
     ipcMain.handle("get-active-dictation-key", async () => {
       const hotkeys = this.windowManager?.hotkeyManager?.getSlotHotkeys?.("dictation") ?? [];

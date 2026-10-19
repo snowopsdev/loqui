@@ -686,7 +686,7 @@ function registerPersonalInferenceIPC({
       onTextOperationIssued(event.sender, request, token)
     );
   });
-  const { validateCapturedTextInput } = require("./capturedTextInput");
+  const { validateCapturedTextInput } = require("./capturedTextInput.mjs");
   operationHandle("text-operation-run", (event, { token, request }) =>
     textOperations.execute(
       event.sender,

@@ -68,3 +68,37 @@ test("re-registering a slot replaces its previous accelerators", async () => {
   assert.equal(registered.has("F6"), true);
   assert.equal(registered.has("F5"), true);
 });
+
+test("onboarding acknowledgement reads the real registered slot and failed rebind cannot acknowledge B", async () => {
+  const { bridgeFixture } = require("./harness/onboardingBridgeFixture");
+  const f = bridgeFixture();
+  const mgr = new HotkeyManager();
+  f.manager.hotkeyManager = mgr;
+  f.manager._cachedActivationMode = "tap";
+  assert.equal(f.manager.getDictationBinding(), null, "constructor preference is not registration");
+  const callback = f.manager.createHotkeyCallback();
+  assert.equal(
+    (await mgr.registerSlot("dictation", "F7", callback, { atomic: true })).success,
+    true
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(f.manager.getDictationBinding())), {
+    hotkey: "F7",
+    activationMode: "tap",
+  });
+  assert.equal(
+    (await mgr.registerSlot("dictation", "Control+BAD", callback, { atomic: true })).success,
+    false
+  );
+  assert.equal(f.manager.getDictationBinding().hotkey, "F7");
+  await f.setupApi.beginOnboardingDemo({ id: "ack", kind: "dictation" });
+  await callback("F7");
+  const take = f.manager._onboardingDemoSession;
+  assert.equal(take.origin, "hotkey");
+  assert.equal(take.binding.hotkey, "F7");
+  await f.setupApi.toggleOnboardingDemo("ack");
+  assert.equal(
+    f.manager._onboardingDemoSession.origin,
+    "button",
+    "a UI toggle never borrows a preceding press"
+  );
+});

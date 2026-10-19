@@ -5,6 +5,7 @@ import type {
 } from "../services/ai/personalInferenceTypes";
 import type {
   DictationHotkeyEvent,
+  DictationBinding,
   OnboardingDemoEvent,
   OnboardingDemoKind,
   SystemFacts,
@@ -50,11 +51,14 @@ interface Transfer {
   resolve(result: DownloadResult): void;
 }
 interface Demo {
+  context?: string;
   id: string;
   kind: OnboardingDemoKind;
 }
 interface Take {
   demo: Demo;
+  origin: "button" | "hotkey";
+  binding: DictationBinding | null;
   id: string;
   scenario: OnboardingPreviewConfig["scenario"];
   state: "recording" | "processing";
@@ -114,6 +118,9 @@ export function createOnboardingScenarioBridge(
       demoId: owner.demo.id,
       takeId: owner.id,
       kind: owner.demo.kind,
+      ...(owner.demo.context ? { context: owner.demo.context } : {}),
+      origin: owner.origin,
+      ...(owner.binding ? { binding: owner.binding } : {}),
       ...event,
     };
     for (const listener of [...demoListeners]) listener(payload);
@@ -212,17 +219,27 @@ export function createOnboardingScenarioBridge(
     });
   }
 
-  function startTrial() {
+  const currentBinding = (): DictationBinding => ({
+    hotkey:
+      globalThis.localStorage?.getItem("activeDictationKey") ||
+      globalThis.localStorage?.getItem("dictationKey") ||
+      (isMac() ? "GLOBE" : "Control+Super"),
+    activationMode: globalThis.localStorage?.getItem("activationMode") === "push" ? "push" : "tap",
+  });
+  function startTrial(origin: "button" | "hotkey" = "button") {
     if (!session || session.kind !== "dictation" || take) return;
     retireCleanup();
     const owner: Take = {
       demo: session,
+      origin,
+      binding: origin === "hotkey" ? currentBinding() : null,
       id: String(++takeSequence),
       scenario: scenario(),
       state: "recording",
       timers: new Set(),
     };
     take = owner;
+    emitDemo(owner, { status: "preparing" });
     // F01: acquisition failure belongs to this admitted take, before listening.
     if (owner.scenario === "microphone-denied") {
       emitDemo(owner, { status: "error", code: "NotAllowedError", message: "Permission denied" });
@@ -297,15 +314,16 @@ export function createOnboardingScenarioBridge(
     const demo = session;
     if (!demo || (demo.kind !== "dictation" && demo.kind !== "shortcut") || accessibilityMissing())
       return;
-    for (const listener of [...hotkeyListeners]) listener({ phase, at: clock.now() });
+    for (const listener of [...hotkeyListeners])
+      listener({ phase, at: clock.now(), binding: currentBinding() });
     if (session !== demo || demo.kind !== "dictation") return;
     const push = globalThis.localStorage?.getItem("activationMode") === "push";
     if (push) {
-      if (phase === "down") startTrial();
+      if (phase === "down") startTrial("hotkey");
       else stopTrial();
     } else if (phase === "down") {
       if (take?.state === "recording") stopTrial();
-      else startTrial();
+      else startTrial("hotkey");
     }
   }
   function settleActive(error: string) {
@@ -401,9 +419,18 @@ export function createOnboardingScenarioBridge(
     checkAccessibilityPermission: async () => !accessibilityMissing(),
     openAccessibilitySettings: async () => ({ success: true }),
     markMacAccessibilityFeaturesReady: () => {},
-    beginOnboardingDemo: async ({ id, kind }: { id: string; kind: OnboardingDemoKind }) => {
+    getDictationBinding: async () => (accessibilityMissing() ? null : currentBinding()),
+    beginOnboardingDemo: async ({
+      id,
+      kind,
+      context,
+    }: {
+      id: string;
+      kind: OnboardingDemoKind;
+      context?: string;
+    }) => {
       endSession();
-      session = { id, kind };
+      session = { id, kind, context };
       return true;
     },
     endOnboardingDemo: async (id: string) => {
@@ -479,6 +506,7 @@ export function createOnboardingScenarioBridge(
     | "checkAccessibilityPermission"
     | "openAccessibilitySettings"
     | "markMacAccessibilityFeaturesReady"
+    | "getDictationBinding"
     | "beginOnboardingDemo"
     | "endOnboardingDemo"
     | "stopOnboardingDemo"

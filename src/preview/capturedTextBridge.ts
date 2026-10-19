@@ -1,4 +1,4 @@
-import { validateCapturedTextInput } from "../helpers/capturedTextInput";
+import { validateCapturedTextInput } from "../helpers/capturedTextInput.mjs";
 import type {
   PersonalInferenceAPI,
   TextOperationDescriptor,

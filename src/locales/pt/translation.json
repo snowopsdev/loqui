@@ -4428,6 +4428,50 @@
       "unsupported": "Não é possível manter a origem de autenticação selecionada para {{provider}} para a limpeza. As suas palavras originais são preservadas.",
       "failed": "A limpeza falhou. As suas palavras originais são preservadas.",
       "busy": "A limpeza já está em curso."
+    },
+    "try": {
+      "idle": {
+        "tap": "Press {{key}} and say something. Press it again to finish.",
+        "push": "Hold {{key}} and say something. Let go to finish."
+      },
+      "keycap": {
+        "tap": "press to talk",
+        "push": "hold to talk"
+      },
+      "listening": "Listening",
+      "processing": "Writing it down…",
+      "shortcutWorks": "Shortcut works",
+      "heardYou": "Loqui heard you",
+      "discarded": "Discarded.",
+      "undo": "Undo",
+      "silent": "We're not hearing anything. Wrong microphone?",
+      "noAudioTitle": "We didn't hear anything",
+      "noAudioBody": "Check that the right microphone is selected and not muted, then try again.",
+      "memoryTitle": "This voice needs more memory than is free",
+      "memoryBody": "Close some apps, or choose a smaller voice.",
+      "chooseSmaller": "Choose another voice",
+      "changeMic": "Change microphone",
+      "otherTitle": "That take didn't work",
+      "otherBody": "Try again. Your setup is unchanged.",
+      "again": "Try again",
+      "cleanupFailed": "Cleanup didn't run. This is your original text.",
+      "retryFailed": "Cleanup still didn't run. This is your original text.",
+      "retryCleanup": "Retry cleanup",
+      "cleanupOff": "Turn cleanup off",
+      "wordsSafe": "Your words are safe either way.",
+      "accessibilityTitle": "The shortcut needs Accessibility access",
+      "accessibilityBody": "macOS only lets Loqui hear a global shortcut after you allow it. Dictating inside Loqui works without it.",
+      "grantAccess": "Grant access",
+      "useButton": "Use a button instead",
+      "start": "Start recording",
+      "stop": "Stop",
+      "privacyLine": "Not pasted anywhere, not saved.",
+      "bandTitle": "That was you. Loqui heard it on your device.",
+      "makeItYours": "Make it yours",
+      "startUsing": "Start using Loqui",
+      "cancel": "Discard take",
+      "cleanupUnsupported": "This cleanup authentication source cannot be retained. Your original words are preserved.",
+      "controlUnavailable": "The recording control did not respond. Try Stop or Discard again."
     }
   }
 }

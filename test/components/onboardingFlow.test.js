@@ -537,17 +537,13 @@ test("installed and matching local settings still wait for Plan03 route facts", 
   assert.equal(ui.calls.filter(([name]) => name === "beginOnboardingDemo").length, 0);
 });
 
-test("an installed matching voice admits the legacy trial only with actual ready route facts", async (t) => {
+test("an installed matching voice admits the overlay trial only with actual ready route facts", async (t) => {
   const { ui } = await mountFlow(
     t,
     { initialStep: "speech", previewConfig: undefined },
     {
-      mocks: {
-        ...SETTINGS_PAGE,
-        "/hooks/useAudioRecording":
-          "export function useAudioRecording() { return { isRecording: false, isProcessing: false }; }",
-      },
       api: voiceApi(["en-US"], {
+        beginOnboardingDemo: async () => true,
         checkParakeetModelStatus: async () => ({ downloaded: true }),
         checkParakeetInstallation: async () => ({ supported: true }),
         listParakeetModels: async () => ({
@@ -559,7 +555,7 @@ test("an installed matching voice admits the legacy trial only with actual ready
     }
   );
   await ui.click(primary(ui));
-  assert.ok(buttonWithText(ui, "Start recording"));
+  assert.ok(buttonWithText(ui, "setupFlow.try.useButton"));
   assert.equal(ui.calls.filter(([name]) => name === "beginOnboardingDemo").length, 1);
 });
 
@@ -1075,4 +1071,149 @@ test("a same-model observed restart clears old live progress and publishes every
     },
     "old 75 must neither publish early nor poison B's milestone set; duplicates/regressions stay quiet"
   );
+});
+
+async function realTrialFlow(t, options = {}) {
+  const { bridgeFixture } = require("../helpers/harness/onboardingBridgeFixture");
+  const f = bridgeFixture();
+  f.manager.hotkeyManager.slots = new Map([["dictation", { hotkeys: ["F7"], callback() {} }]]);
+  f.manager._cachedActivationMode = "tap";
+  const names = [
+    "beginOnboardingDemo",
+    "endOnboardingDemo",
+    "toggleOnboardingDemo",
+    "cancelOnboardingDemo",
+    "onOnboardingDemoEvent",
+    "onDictationHotkeyEvent",
+    "getDictationBinding",
+    "retryOnboardingCleanup",
+  ];
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "speech", previewConfig: undefined },
+    {
+      ...options,
+      windowProps: {
+        setInterval: (cb, ms) => setInterval(cb, ms),
+        clearInterval: (id) => clearInterval(id),
+        ...options.windowProps,
+      },
+      storage: { dictationKey: "F7", activeDictationKey: "F7", ...options.storage },
+      api: voiceApi(["en-US"], {
+        getPlatform: () => "linux",
+        checkParakeetModelStatus: async () => ({ downloaded: true }),
+        checkParakeetInstallation: async () => ({ supported: true }),
+        listParakeetModels: async () => ({
+          success: true,
+          models: [{ model: "parakeet-unified-en-0.6b", downloaded: true }],
+        }),
+        ...Object.fromEntries(names.map((name) => [name, f.setupApi[name]])),
+      }),
+    }
+  );
+  await ui.click(primary(ui)); // The explicit Voice commit, never status alone.
+  const take = () => f.sent.findLast(([name]) => name === "prepare-dictation")?.[1]?.onboardingTake;
+  const publish = (event) =>
+    React.act(async () => {
+      await f.overlayApi.publishOnboardingDemoEvent({
+        ...take(),
+        context: f.manager._onboardingDemoSession.context,
+        kind: "dictation",
+        ...event,
+      });
+    });
+  return { ui, f, take, publish };
+}
+
+test("the actual admitted trial retains one meter through processing/settle, draws, docks once and stays docked on Cleanup", async (t) => {
+  const h = await realTrialFlow(t);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await React.act(async () => h.f.manager.createHotkeyCallback()("F7"));
+  await h.publish({ status: "listening" });
+  const meter = h.ui.byAttr("data-level-bar");
+  assert.equal(meter.length, 5);
+  await h.publish({ status: "partial", text: "Remind me" });
+  assert.ok(h.ui.text().includes("Remind me"));
+  await h.publish({ status: "processing" });
+  assert.equal(h.ui.byAttr("data-level-bar")[0], meter[0]);
+  await h.publish({
+    status: "success",
+    text: "Remind me.",
+    rawText: "um remind me",
+    cleanup: "skipped",
+  });
+  assert.equal(h.ui.byAttr("data-level-bar")[0], meter[0]);
+  assert.ok(h.ui.text().includes("setupFlow.try.shortcutWorks"));
+  const shell = () =>
+    h.ui.findAll((n) => (n.attributes.class ?? "").split(" ").includes("onb-shell"))[0];
+  const instrument = () => h.ui.findAll((n) => n.attributes.class === "onb-instrument")[0];
+  assert.equal(instrument().attributes["data-stage"], "settle");
+  assert.equal(shell().attributes["data-docked"], undefined);
+  await React.act(async () => t.mock.timers.tick(520));
+  assert.equal(h.ui.byAttr("data-bubble").length, 1);
+  assert.equal(shell().attributes["data-docked"], undefined);
+  await React.act(async () => t.mock.timers.tick(360));
+  assert.equal(shell().attributes["data-docked"], "true");
+  await h.ui.click("setupFlow.try.makeItYours");
+  assert.equal(shell().attributes["data-docked"], "true");
+  assert.equal(h.f.manager._onboardingDemoSession, null);
+});
+
+test("a button take makes no shortcut claim and reduced motion docks immediately", async (t) => {
+  const h = await realTrialFlow(t, { reducedMotion: true });
+  await h.ui.click("setupFlow.try.useButton");
+  await h.ui.click("setupFlow.try.start");
+  assert.equal(h.ui.text().includes("setupFlow.try.listening"), false);
+  await h.publish({ status: "listening" });
+  await h.publish({ status: "processing" });
+  await h.publish({ status: "success", text: "Words.", cleanup: "skipped" });
+  assert.ok(h.ui.text().includes("setupFlow.try.heardYou"));
+  assert.equal(h.ui.text().includes("setupFlow.try.shortcutWorks"), false);
+  assert.equal(h.ui.byAttr("data-docked", "true").length, 1);
+  assert.equal(h.ui.byAttr("data-level-bar").length, 0);
+});
+
+test("Choose voice from an uncommitted trial uses the established progress navigation label (F09b)", async (t) => {
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "try" },
+    { api: voiceApi(["en-US"], { checkParakeetModelStatus: async () => ({ downloaded: false }) }) }
+  );
+  assert.ok(ui.text().includes("setupFlow.tour.title"));
+  await ui.click("setupFlow.tour.chooseVoice");
+  assert.equal(currentStep(ui), "setupFlow.progress.goTo(step=setupFlow.steps.speech)");
+});
+
+test("interim Finish never borrows shortcut A or microphone A proof for a new acknowledged/current choice", async (t) => {
+  const h = await realTrialFlow(t, { storage: { autoPasteEnabled: "true" } });
+  await React.act(async () => h.f.manager.createHotkeyCallback()("F7"));
+  await h.publish({ status: "listening" });
+  await h.publish({ status: "success", text: "A", rawText: "um A" });
+  await h.ui.click("setupFlow.try.startUsing");
+  const row = (label) =>
+    h.ui.findAll(
+      (n) =>
+        n.tagName === "BUTTON" &&
+        (n.attributes.class ?? "").includes("onboarding-guided-readiness-row") &&
+        n.textContent.includes(label)
+    )[0].textContent;
+  assert.ok(row("Shortcut and paste").endsWith("Ready"));
+  assert.ok(row("Microphone").endsWith("Ready"));
+  const store = (await h.ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  h.f.manager.hotkeyManager.slots.get("dictation").hotkeys = ["F8"];
+  await React.act(async () => store.setState({ dictationKey: "F8", activeDictationKey: "F8" }));
+  assert.ok(
+    row("Shortcut and paste").endsWith("Pending"),
+    "acknowledged B is configured but unproven"
+  );
+  await React.act(async () => store.setState({ dictationKey: "F9", activeDictationKey: "F9" }));
+  assert.ok(
+    row("Shortcut and paste").endsWith("Pending"),
+    "failed C acknowledgement is also unproven"
+  );
+  await React.act(async () =>
+    store.setState({ microphoneSelectionMode: "specific", selectedMicDeviceId: "device-B" })
+  );
+  assert.ok(row("Microphone").endsWith("Pending"));
+  assert.equal(h.f.manager._onboardingDemoSession, null, "Finish makes no recording admission");
 });

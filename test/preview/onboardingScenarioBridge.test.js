@@ -114,7 +114,14 @@ test("the trial streams listening, levels, words and a result", async () => {
   await api.toggleOnboardingDemo("demo-1");
   time.advance(400);
   const statuses = [...new Set(events.map((event) => event.status))];
-  assert.deepEqual(statuses, ["listening", "level", "partial", "processing", "success"]);
+  assert.deepEqual(statuses, [
+    "preparing",
+    "listening",
+    "level",
+    "partial",
+    "processing",
+    "success",
+  ]);
   assert.equal(events.at(-1).text, "Remind me to send the draft before lunch.");
   assert.ok(events.every((event) => event.demoId === "demo-1" && event.kind === "dictation"));
 });
@@ -124,7 +131,10 @@ test("failure scenarios fail where the real app would", async () => {
   await denied.api.toggleOnboardingDemo("demo-1");
   assert.deepEqual(
     denied.events.map((event) => [event.status, event.code]),
-    [["error", "NotAllowedError"]]
+    [
+      ["preparing", undefined],
+      ["error", "NotAllowedError"],
+    ]
   );
 
   const quiet = await trial("nothing-heard");
@@ -252,6 +262,7 @@ test("leaving mid-processing and coming back never delivers the old result to th
     demoId: "demo-2",
     takeId: "2",
     kind: "dictation",
+    origin: "button",
     status: "listening",
   });
 });
@@ -265,6 +276,7 @@ test("a cancel is discarded with no Undo, like desktop before Plan 04 (§5.2 fal
     demoId: "demo-1",
     takeId: "1",
     kind: "dictation",
+    origin: "button",
     status: "cancelled",
   });
   assert.equal(await api.undoOnboardingDemoCancel("demo-1"), false);
@@ -382,10 +394,12 @@ test("denial is correlated before listening and each admitted take has a fresh s
   const { api, events, config } = await trial("microphone-denied");
   await api.toggleOnboardingDemo("demo-1");
   assert.deepEqual(events, [
+    { demoId: "demo-1", takeId: "1", kind: "dictation", origin: "button", status: "preparing" },
     {
       demoId: "demo-1",
       takeId: "1",
       kind: "dictation",
+      origin: "button",
       status: "error",
       code: "NotAllowedError",
       message: "Permission denied",
@@ -397,6 +411,7 @@ test("denial is correlated before listening and each admitted take has a fresh s
     demoId: "demo-1",
     takeId: "2",
     kind: "dictation",
+    origin: "button",
     status: "listening",
   });
 });
@@ -479,6 +494,7 @@ test("insufficient-memory and clean/raw success values stay exact", async () => 
       demoId: "demo-1",
       takeId: "1",
       kind: "dictation",
+      origin: "button",
       ...expected,
     });
   }
@@ -546,7 +562,7 @@ test("push activation records only while held and reset does not rewind take ide
   bridge.simulateHotkey("down");
   assert.equal(events.at(-1).status, "listening");
   bridge.simulateHotkey("down");
-  assert.equal(events.length, 1, "a repeated down cannot admit another take");
+  assert.equal(events.length, 2, "a repeated down cannot admit another take");
   bridge.simulateHotkey("up");
   time.advance(400);
   assert.equal(events.at(-1).status, "success");

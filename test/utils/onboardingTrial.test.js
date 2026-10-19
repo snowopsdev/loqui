@@ -174,3 +174,35 @@ test("out-of-phase and unknown events change nothing", async () => {
   const recording = await play([{ status: "listening", atMs: 0 }]);
   assert.equal(reduceTrial(recording, { status: "level", level: Number.NaN, atMs: 1 }), recording);
 });
+
+test("cleanup results require a running keyed retry and duplicate retry admission is inert", async () => {
+  const { reduceTrial } = await load();
+  const take = await play([
+    { status: "listening", atMs: 0 },
+    { status: "success", text: "raw", rawText: "raw", cleanup: "failed", atMs: 1 },
+  ]);
+  assert.equal(
+    reduceTrial(take, {
+      status: "cleanupResult",
+      takeId: take.takeId,
+      text: "unrequested",
+      atMs: 2,
+    }),
+    take
+  );
+  const running = reduceTrial(take, { status: "cleanupRetry", takeId: take.takeId, atMs: 3 });
+  assert.equal(
+    reduceTrial(running, { status: "cleanupRetry", takeId: take.takeId, atMs: 4 }),
+    running
+  );
+  const done = reduceTrial(running, {
+    status: "cleanupResult",
+    takeId: take.takeId,
+    text: "clean",
+    atMs: 5,
+  });
+  assert.equal(
+    reduceTrial(done, { status: "cleanupResult", takeId: take.takeId, text: "duplicate", atMs: 6 }),
+    done
+  );
+});

@@ -124,6 +124,7 @@ function bridgeFixture({ localReasoning } = {}) {
           invoke: async (name, ...args) =>
             name.startsWith("onboarding-") ||
             name.startsWith("personal-inference:") ||
+            name === "get-dictation-binding" ||
             name === "process-local-reasoning"
               ? handlers.get(name)?.({ sender }, ...args)
               : undefined,

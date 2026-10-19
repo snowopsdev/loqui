@@ -51,6 +51,8 @@ export const INITIAL_TRIAL_STATE: TrialState = {
 };
 
 const MICROPHONE_CODES = new Set([
+  "TRIAL_MICROPHONE_CHANGED",
+  "MicUnusableError",
   "NotAllowedError",
   "PermissionDeniedError",
   "SecurityError",
@@ -83,10 +85,21 @@ export function reduceTrial(state: TrialState, input: TrialInput): TrialState {
         takeId: state.takeId + 1,
       };
     case "cleanupRetry":
-      if (input.takeId !== state.takeId || state.phase !== "success") return state;
+      if (
+        input.takeId !== state.takeId ||
+        state.phase !== "success" ||
+        state.cleanup !== "failed" ||
+        state.cleanupRetry === "running"
+      )
+        return state;
       return { ...state, cleanupRetry: "running" };
     case "cleanupResult":
-      if (input.takeId !== state.takeId || state.phase !== "success") return state;
+      if (
+        input.takeId !== state.takeId ||
+        state.phase !== "success" ||
+        state.cleanupRetry !== "running"
+      )
+        return state;
       return input.text
         ? { ...state, text: input.text, cleanup: "applied", cleanupRetry: "idle" }
         : { ...state, cleanupRetry: "failed" };

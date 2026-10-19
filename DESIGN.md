@@ -493,3 +493,64 @@ relay, and gate late results to that identity. Task 16 must capture a fresh
 setup-owned operation after new named-provider/count consent. Task 22 composes
 retirement with real Plan 04 tags/owners after integration; no Plan 04 session,
 Undo, Sealed or attestation contract is asserted here.
+
+### Onboarding trial observation and current proof (Task 15)
+
+Say something observes the existing private overlay recorder through typed preload
+IPC. Each effect activation, including StrictMode replay, creates a fresh demo ID.
+Main announces its admitted string take ID as `preparing`; that announcement never
+renders a recording state. Main rejects setup-originated publish attempts; only the matching overlay's `listening` event starts
+the meter. Current acquisition failures are actionable before listening. Duplicate,
+out-of-order, retired-demo and previously admitted old-take events cannot count another success.
+Optional IPC absence, false acknowledgement and rejection leave a safe recovery
+state. A refused control keeps an already observed recording/processing state
+and its Stop/Discard actions until a genuine event settles it; late control
+responses cannot replace a newer take. Leaving ends the exact demo through the existing cancellation owner.
+
+A trial requires the selected voice's committed, ready Plan03 device route, with
+no host and the matching model. The original overlay records nonsecret STT/model,
+language/script and microphone choices before any await. Setup passes its admission
+fingerprint to detect cross-window drift. Dispatch checks refuse changed choices
+after waits; a pinned microphone delivered by another device fails before
+listening. New setup trials refuse automatic default-device retry. Existing
+private recorder fallback and snapshot savers retain their prior ownership. This
+metadata is proof, not credentials, readiness authority, a recording session, or
+an audio/cancellation manager. Completed proof belongs to its original context;
+changing a route/device leaves current setup unproven while historical words stay
+available for the later Cleanup step. The interim Finish microphone row requires
+that current matching trial, never a historical success count. Its shortcut row
+also requires a matching successful hotkey take and a current main binding
+query; permissions alone cannot prove a new binding. Task18 replaces these
+interim rows with the final configured/proven summary.
+
+`getDictationBinding` reads the registered main hotkey slot and acknowledged
+activation mode, excluding a constructor preference with no registered callback.
+Real hotkey events and admitted takes carry this binding and main-owned origin.
+A button take never proves a shortcut; another binding/mode needs another test.
+Keycap down/up/tap feedback deduplicates repeats and a synthetic tap while held.
+Accessibility grants require actual `true`, a current observation and active
+mounted lifetime. Unknown, absent and rejected checks cannot mark macOS ready.
+
+The trial retains `{demoId, string takeId, operationId}` from main's validated
+cleanup event. Retry requests that original overlay through the reviewed relay;
+no settings or text are reconstructed. The reducer's numeric retry counter stays
+separate. Running duplicates and late/wrong-operation replies cannot replace a
+new take. Missing, retired, unsupported and changed capabilities show localized
+safe recovery with original words retained. Codex account binding, Tinfoil
+bootstrap, dynamic Bedrock and unsupported ADC remain explicit source-specific
+limitations. Task16 still needs fresh named-provider/count consent and a newly
+setup-owned operation; no future Cleanup UI is introduced here.
+
+The same LevelBars nodes persist through listening, processing and the first
+success's 520 ms settle, followed by the shared 360 ms bubble draw and one
+persistent dock. Reduced motion swaps immediately and retains static keycap
+feedback. SuccessBand offers Make it yours and Start using Loqui; its device claim
+requires matching current local proof. Cancel says Discarded with no Undo; the
+hidden Undo translation key is reserved for Task20/22. Real Plan04 session,
+disclosure, hold, Undo and the existing six-item Task22 handoff remain pending.
+Trial surfaces use neutral card and border tokens; success colour remains on the
+check icon, following the global icon-only colour constraint over the brief's tint.
+
+The shared captured-text validator is an `.mjs` module so main's synchronous
+require and Vite's browser import consume the same pure validation. This narrow
+integration correction preserves the reviewed cleanup authority behavior.

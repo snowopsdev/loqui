@@ -1,5 +1,5 @@
 // Shared production/preview payload validation. No authority, settings or I/O.
-function validateCapturedTextInput(input) {
+export function validateCapturedTextInput(input) {
   if (
     !input ||
     Object.keys(input).some((key) => !["messages", "wordCount"].includes(key)) ||
@@ -14,4 +14,3 @@ function validateCapturedTextInput(input) {
     throw new Error("Invalid captured cleanup input.");
   return input;
 }
-module.exports = { validateCapturedTextInput };

@@ -686,6 +686,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Dictation key persistence (file-based for reliable startup)
   getDictationKey: () => ipcRenderer.invoke("get-dictation-key"),
+  getDictationBinding: () => ipcRenderer.invoke("get-dictation-binding"),
   getActiveDictationKey: () => ipcRenderer.invoke("get-active-dictation-key"),
   getEffectiveDefaultHotkey: () => ipcRenderer.invoke("get-effective-default-hotkey"),
   saveDictationKey: (key) => ipcRenderer.invoke("save-dictation-key", key),

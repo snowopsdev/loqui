@@ -287,3 +287,62 @@ test("fallback cancellation cannot manufacture Plan04 tracking fields", async ()
   assert.equal("cancelled" in f.broadcasts.at(-1)[1], false);
   assert.equal(await f.setupApi.undoOnboardingDemoCancel("demo-A"), false);
 });
+
+test("setup cannot forge an overlay listening/success proof through publish", async () => {
+  const f = bridgeFixture();
+  await begin(f);
+  await f.setupApi.toggleOnboardingDemo("demo-A");
+  const take = prepared(f);
+  assert.equal(
+    await f.setupApi.publishOnboardingDemoEvent({
+      ...take,
+      kind: "dictation",
+      status: "listening",
+    }),
+    false
+  );
+  assert.equal(
+    await f.setupApi.publishOnboardingDemoEvent({
+      ...take,
+      kind: "dictation",
+      status: "success",
+      text: "forged",
+    }),
+    false
+  );
+  assert.equal(f.broadcasts.length, 0);
+  assert.equal(
+    await f.overlayApi.publishOnboardingDemoEvent({
+      ...take,
+      kind: "dictation",
+      status: "listening",
+    }),
+    true
+  );
+});
+
+test("a global synthetic tap while the native key is held cannot toggle a second take (ONB-16)", async () => {
+  const f = bridgeFixture();
+  await begin(f);
+  f.manager.reportDictationHotkey("down");
+  const take = f.manager.sendPrepareDictation();
+  const callback = f.manager.createHotkeyCallback();
+  await callback("F7");
+  assert.equal(prepared(f).takeId, take.takeId);
+  assert.equal(f.sent.filter(([name]) => name === "toggle-dictation").length, 0);
+  f.manager.reportDictationHotkey("up");
+  await callback("F7");
+  assert.equal(f.sent.filter(([name]) => name === "toggle-dictation").length, 1);
+});
+
+test("native secondary shortcuts carry the key that actually fired, never the primary binding", async () => {
+  const f = bridgeFixture();
+  await begin(f);
+  f.manager.hotkeyManager.slots = new Map([
+    ["dictation", { hotkeys: ["F7", "RightOption"], callback() {} }],
+  ]);
+  f.manager._cachedActivationMode = "tap";
+  const callbacks = nativeCallbacks(f);
+  await callbacks["right-modifier-down"]("RightOption");
+  assert.equal(f.manager._onboardingDemoSession.binding.hotkey, "RightOption");
+});

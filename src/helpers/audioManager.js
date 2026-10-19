@@ -1,3 +1,4 @@
+import { trialContext } from "../utils/onboardingTrialContext";
 import { createCapturedCleanupOperation } from "../services/capturedCleanupOperation";
 import ReasoningService from "../services/ReasoningService";
 import logger from "../utils/logger";
@@ -117,6 +118,7 @@ const MIN_UNIQUE_WORD_GAIN = 2;
 
 const cleanupFailureFromError = (error) => ({
   message: error?.message || String(error),
+  ...(error?.code ? { code: error.code } : {}),
   ...(error?.messageKey ? { messageKey: error.messageKey } : {}),
   ...(error?.messageParams ? { messageParams: error.messageParams } : {}),
   ...(error?.action ? { action: error.action } : {}),
@@ -632,7 +634,23 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // own privacy through acquisition, retries, completion and delayed callbacks.
   // Extends the original recorder admission. This is cleanup ownership only;
   // recording privacy/cancellation and future Plan04 audio/session owners stay put.
+  assertTrialContext(recording) {
+    if (!recording?.trialContext) return;
+    if (
+      trialContext(getSettings()) !== recording.trialContext ||
+      (recording.expectedTrialContext && recording.expectedTrialContext !== recording.trialContext)
+    )
+      throw Object.assign(new Error("The recording choices changed. Try a new take."), {
+        code: "TRIAL_CONTEXT_CHANGED",
+      });
+  }
+
   admitCleanupOperation(take, recording, enabled = true) {
+    if (take?.demoId && typeof take.takeId === "string" && enabled && !recording.trialContext) {
+      recording.trialContext = trialContext(getSettings());
+      recording.expectedTrialContext = take.expectedContext;
+      take.context = recording.trialContext;
+    }
     if (!take?.demoId || typeof take.takeId !== "string" || !enabled || recording.cleanupOperation)
       return;
     this.retireCapturedCleanup();
@@ -886,7 +904,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     return name;
   }
 
-  async getAudioConstraints(forceDefaultMic = false, refreshSystemDefault = false) {
+  async getAudioConstraints(forceDefaultMic = false, refreshSystemDefault = false, recording) {
+    this.assertTrialContext(recording);
     const settings = getSettings();
 
     // All browser audio processing disabled to avoid OS-level side-effects.
@@ -917,6 +936,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         forceSystemDefault: forceDefaultMic,
         refreshSystemDefault: forceDefaultMic || refreshSystemDefault,
       });
+      this.assertTrialContext(recording);
       const deviceId = resolution.device?.deviceId;
 
       if (deviceId && deviceId !== this.rejectedMicDeviceId) {
@@ -941,6 +961,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         "audio"
       );
     } catch (error) {
+      if (error.code === "TRIAL_CONTEXT_CHANGED") throw error;
       logger.debug(
         "Failed to resolve microphone selection; using browser fallback",
         { error: error.message },
@@ -974,7 +995,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // recorder already captured — to the real recording. Replaces the one-shot
   // warmupMicDriver (#845): a raced warm-up never resolved before the
   // recording's own open, so it only ever added a concurrent double open.
-  async prepareMicCapture() {
+  async prepareMicCapture(recording) {
     // Preparing opens the device, so it answers to the same policy as the
     // recording it anticipates — otherwise a blocked user's key-down would
     // still light the mic and buffer pre-roll.
@@ -998,8 +1019,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         // pre-roll recorder starts; a tap attached later misses the first frames.
         const pcmTap = this._startPcmTap();
         try {
-          const constraints = await this.getAudioConstraints();
-          const stream = await this._acquireCaptureStream(constraints);
+          this.assertTrialContext(recording);
+          const constraints = await this.getAudioConstraints(false, false, recording);
+          this.assertTrialContext(recording);
+          const stream = await this._acquireCaptureStream(constraints, recording);
+          try {
+            this.assertTrialContext(recording);
+          } catch (error) {
+            stream.getTracks().forEach((track) => track.stop());
+            throw error;
+          }
           const value = {
             stream,
             constraints,
@@ -1104,7 +1133,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.micStreamHold.touch();
   }
 
-  async _acquireCaptureStream(constraints) {
+  async _acquireCaptureStream(constraints, recording) {
+    this.assertTrialContext(recording);
     const key = this._constraintsKey(constraints);
     const held = this.micStreamHold.acquireClone(key);
     if (held) {
@@ -1113,7 +1143,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
     const stream = await this.acquireHealthyMicStream(
       await navigator.mediaDevices.getUserMedia(constraints),
-      constraints
+      constraints,
+      recording
     );
     this._stampMicWarm();
     return this.micStreamHold.adoptAndClone(stream, key);
@@ -1162,7 +1193,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // Recovers a dead/muted capture: retries the same device, then hops to the OS default,
   // remembering a silent pinned device for the session. Throws MicUnusableError when no
   // input delivers audio. See #1152.
-  async acquireHealthyMicStream(rawStream, constraints) {
+  async acquireHealthyMicStream(rawStream, constraints, recording) {
+    try {
+      this.assertTrialContext(recording);
+    } catch (error) {
+      rawStream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
     const pinnedMicDeviceId = constraints.audio?.deviceId?.exact ?? null;
     let fallbackMicUnusable = false;
     // Keep verifying after a rejection too, otherwise a muted default records silence unnoticed.
@@ -1171,12 +1208,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       rawStream,
       () => {
         this.cachedMicDeviceId = null;
-        return this.getAudioConstraints();
+        return this.getAudioConstraints(false, false, recording);
       },
       logger,
       verifyMic
         ? {
-            getConstraints: () => this.getAudioConstraints(true),
+            getConstraints: () => {
+              if (recording?.expectedTrialContext)
+                throw Object.assign(new Error("The selected microphone is unavailable."), {
+                  code: "TRIAL_MICROPHONE_CHANGED",
+                });
+              return this.getAudioConstraints(true, false, recording);
+            },
             onDeviceRejected: () => {
               if (pinnedMicDeviceId) this.rejectedMicDeviceId = pinnedMicDeviceId;
             },
@@ -1217,16 +1260,42 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         return false;
       }
 
+      this.assertTrialContext(recording);
       const startRequestedAt = performance.now();
       prepared = forceDefaultMic ? null : await this.preparedMicCapture.take();
       const constraints =
-        prepared?.constraints ?? (await this.getAudioConstraints(forceDefaultMic));
+        prepared?.constraints ??
+        (await this.getAudioConstraints(forceDefaultMic, false, recording));
+      this.assertTrialContext(recording);
       // Without a prepared capture the tap starts here, before the mic opens.
       freshTap = prepared ? null : this._startPcmTap();
-      const micStream = prepared?.stream ?? (await this._acquireCaptureStream(constraints));
+      const micStream =
+        prepared?.stream ?? (await this._acquireCaptureStream(constraints, recording));
+      try {
+        this.assertTrialContext(recording);
+      } catch (error) {
+        micStream.getTracks().forEach((track) => track.stop());
+        throw error;
+      }
       const micReadyAt = performance.now();
 
       const audioTrack = micStream.getAudioTracks()[0];
+      if (recording.trialContext && !forceDefaultMic) {
+        const selected = getSettings();
+        const actualId = audioTrack?.getSettings?.().deviceId;
+        if (
+          selected.microphoneSelectionMode === "specific" &&
+          selected.selectedMicDeviceId &&
+          actualId &&
+          actualId !== selected.selectedMicDeviceId
+        ) {
+          micStream.getTracks().forEach((track) => track.stop());
+          throw Object.assign(new Error("The selected microphone is unavailable."), {
+            code: "TRIAL_MICROPHONE_CHANGED",
+          });
+        }
+      }
+      if (forceDefaultMic && onboardingTake) onboardingTake.context = undefined;
 
       if (audioTrack) {
         const settings = audioTrack.getSettings();
@@ -1351,7 +1420,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
               this._previewFlushResolve?.();
               return;
             }
-            window.electronAPI?.sendDictationPreviewAudio?.(event.data);
+            if (!recording.trialContext || trialContext(getSettings()) === recording.trialContext)
+              window.electronAPI?.sendDictationPreviewAudio?.(event.data);
           };
           this._previewSource.connect(this._previewProcessor);
 
@@ -1361,6 +1431,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
               ? cohereModel
               : whisperModel;
           const language = getBaseLanguageCode(getSettings().preferredLanguage);
+          this.assertTrialContext(recording);
           window.electronAPI?.startDictationPreview?.({
             provider: localTranscriptionProvider,
             model,
@@ -1384,7 +1455,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // (and possibly a pre-roll recorder); release it before any retry.
       freshTap?.close();
       if (prepared && !preparedAdopted) this._disposePrepared(prepared);
-      if (isStaleDeviceError(error) && !forceDefaultMic) {
+      if (isStaleDeviceError(error) && !forceDefaultMic && !recording.expectedTrialContext) {
         // Pinned mic is gone (Chromium rotates IDs / device unplugged). Retry once on the default mic. See #900.
         logger.warn("Pinned microphone unavailable, retrying on default mic", {}, "audio");
         this.cachedMicDeviceId = null;
@@ -1915,6 +1986,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
 
     try {
+      this.assertTrialContext(recording);
+      metadata = {
+        ...metadata,
+        ...(recording.trialContext
+          ? { assertTrialContext: () => this.assertTrialContext(recording) }
+          : {}),
+      };
       const useLocalWhisper = settings.useLocalWhisper;
       const localProvider = settings.localTranscriptionProvider;
       const whisperModel = settings.whisperModel;
@@ -2091,6 +2169,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       );
 
       const transcriptionStart = performance.now();
+      metadata.assertTrialContext?.();
       let result = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, options);
       timings.transcriptionProcessingDurationMs = Math.round(
         performance.now() - transcriptionStart
@@ -2127,6 +2206,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           const retryStart = performance.now();
           let retry = null;
           try {
+            metadata.assertTrialContext?.();
             retry = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, {
               model: options.model,
               ...(options.language ? { language: options.language } : {}),
@@ -2260,6 +2340,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         );
 
         const transcriptionStart = performance.now();
+        metadata.assertTrialContext?.();
         result = await window.electronAPI.transcribeLocalParakeet(arrayBuffer, {
           model,
           language: getBaseLanguageCode(this.getEffectiveSttLanguage(getSettings())),
@@ -3617,12 +3698,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       discardPreRoll(prepared);
       usedPreparedCapture = !!prepared;
       const constraints =
-        prepared?.constraints ?? (await this.getAudioConstraints(forceDefaultMic));
+        prepared?.constraints ??
+        (await this.getAudioConstraints(forceDefaultMic, false, recording));
       const tConstraints = performance.now();
 
       // 1. Get mic stream (can take 10-15s on a cold driver — unless a prepared
       //    capture or a held master stream already opened the device).
-      const stream = prepared?.stream ?? (await this._acquireCaptureStream(constraints));
+      const stream = prepared?.stream ?? (await this._acquireCaptureStream(constraints, recording));
       acquiredStream = stream;
       const tMedia = performance.now();
 

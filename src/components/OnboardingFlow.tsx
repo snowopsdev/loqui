@@ -15,7 +15,6 @@ import {
   reasoningModelBelongsToProvider,
 } from "../stores/settingsStore";
 import { usePermissions } from "../hooks/usePermissions";
-import { useToast } from "./ui/useToast";
 import { Button } from "./ui/button";
 import { Toggle } from "./ui/toggle";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
@@ -36,23 +35,12 @@ import { useOnboardingNotifier } from "./onboarding/useOnboardingNotifier";
 import "../styles/onboarding-welcome.css";
 import "../styles/onboarding-guided.css";
 import "../styles/onboarding.css";
-import { formatHotkeyLabel, getDefaultHotkey } from "../utils/hotkeys";
+import { formatHotkeyLabel, getDefaultHotkey, parseHotkeyList } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
-import { useAudioRecording } from "../hooks/useAudioRecording";
-import {
-  Mic,
-  CheckCircle2,
-  CircleAlert,
-  Cpu,
-  Keyboard,
-  ShieldCheck,
-  Sparkles,
-  Wand2,
-} from "./icons";
+import { CheckCircle2, CircleAlert, Cpu, Keyboard, ShieldCheck, Sparkles, Wand2 } from "./icons";
 import type {
   OnboardingPreviewConfig,
   OnboardingReadiness,
-  OnboardingScenario,
   OnboardingStep,
 } from "../utils/onboardingState";
 import {
@@ -78,7 +66,16 @@ import {
 import { OnboardingShell, type OnboardingShellProps } from "./onboarding/OnboardingShell";
 import type { InstrumentRailProps } from "./onboarding/InstrumentRail";
 
-import type { InstrumentMode } from "./onboarding/instrumentMath";
+import { SETTLE_MS, DRAW_MS, dockMark, type InstrumentMode } from "./onboarding/instrumentMath";
+import { keycapLabel } from "../utils/onboardingShortcut";
+import { trialContext } from "../utils/onboardingTrialContext";
+import { getParakeetModelInfo } from "../models/ModelRegistry";
+import { useTrialSession } from "./onboarding/useTrialSession";
+import { useDictationHotkey, bindingMatches } from "./onboarding/useDictationHotkey";
+import { useAccessibilityGate } from "./onboarding/useAccessibilityGate";
+import { useTicker } from "./onboarding/useTicker";
+import { HotkeyTrial } from "./onboarding/HotkeyTrial";
+import { SuccessBand } from "./onboarding/SuccessBand";
 import {
   detectVoice,
   isOnboardingVoice,
@@ -115,8 +112,6 @@ const cleanupModelCatalog: CleanupModelCatalog = {
   defaultModel: (provider) =>
     pickDefaultModelId(modelRegistryData.cloudProviders.find((entry) => entry.id === provider)),
 };
-
-const SAMPLE_TRANSCRIPT = "Let's make the next step obvious and keep the work moving.";
 
 function ChoiceCard({
   selected,
@@ -329,238 +324,6 @@ function CleanupStep({
   );
 }
 
-function BrowserTrial({
-  scenario,
-  ready,
-  onFinished,
-}: {
-  scenario: OnboardingScenario;
-  ready: boolean;
-  onFinished: (text: string, cleaned: boolean) => void;
-}) {
-  const [state, setState] = useState<"idle" | "recording" | "processing" | "success" | "error">(
-    "idle"
-  );
-  const [text, setText] = useState("");
-  const error =
-    scenario === "microphone-denied"
-      ? "Microphone permission was denied. You can continue later and grant it from Settings."
-      : scenario === "insufficient-memory"
-        ? "The selected model could not start because there is not enough memory. Choose a smaller model in Settings."
-        : "This preview requires the desktop app to access your microphone.";
-  const start = () => {
-    if (!ready) return;
-    setState("recording");
-    window.setTimeout(() => {
-      if (scenario === "microphone-denied" || scenario === "insufficient-memory") {
-        setState("error");
-        return;
-      }
-      setState("processing");
-      window.setTimeout(() => {
-        const cleaned = scenario !== "cleanup-failed";
-        const finalText = cleaned
-          ? SAMPLE_TRANSCRIPT
-          : "um let's make the next step obvious and keep the work moving";
-        setText(finalText);
-        setState("success");
-        onFinished(finalText, cleaned);
-      }, 350);
-    }, 550);
-  };
-  return (
-    <div className="space-y-4">
-      <div className="onboarding-guided-record rounded-xl border border-border bg-card p-5">
-        <div className="onboarding-guided-record-intro flex items-start gap-3">
-          <span
-            className={`onboarding-guided-record-icon flex h-10 w-10 items-center justify-center rounded-xl ${state === "recording" ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
-          >
-            <Mic className="h-5 w-5" />
-          </span>
-          <div className="onboarding-guided-record-copy flex-1">
-            <p className="text-sm font-semibold">
-              {state === "recording"
-                ? "Listening…"
-                : state === "processing"
-                  ? "Preparing your transcript…"
-                  : state === "success"
-                    ? "Your first dictation"
-                    : "Try a short dictation"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {state === "error"
-                ? error
-                : scenario === "microphone-denied" && state === "idle"
-                  ? "Microphone permission was denied in this scenario. Start to review the recovery state."
-                  : scenario === "insufficient-memory" && state === "idle"
-                    ? "Insufficient memory is simulated for this model. Start to review the recovery state."
-                    : !ready
-                      ? "Download a speech model on the previous step before testing dictation."
-                      : state === "idle"
-                        ? "Say a sentence about what you want to work on today."
-                        : state === "recording"
-                          ? "Speak naturally, then press Stop."
-                          : state === "processing"
-                            ? "The result stays inside Loqui during setup."
-                            : "This trial was not pasted or saved to history."}
-            </p>
-          </div>
-        </div>
-        {state === "recording" && (
-          <div className="mt-5 flex h-10 items-end gap-1" aria-label="Microphone input level">
-            {Array.from({ length: 22 }, (_, index) => (
-              <span
-                key={index}
-                className="w-1.5 animate-pulse rounded-full bg-primary"
-                style={{
-                  height: `${10 + ((index * 17) % 28)}px`,
-                  animationDelay: `${index * 35}ms`,
-                }}
-              />
-            ))}
-          </div>
-        )}
-        {state === "success" && (
-          <div className="mt-4 rounded-lg bg-muted/50 p-3 text-sm leading-relaxed">{text}</div>
-        )}
-        {state === "error" && (
-          <p
-            role="alert"
-            className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-xs text-destructive"
-          >
-            {error}
-          </p>
-        )}
-        <div className="onboarding-guided-record-actions mt-5 flex items-center gap-3">
-          <Button
-            onClick={start}
-            disabled={!ready || state === "recording" || state === "processing"}
-          >
-            {state === "success"
-              ? "Try again"
-              : state === "recording"
-                ? "Listening…"
-                : "Start recording"}
-          </Button>
-          {state === "recording" && (
-            <Button variant="outline" onClick={() => setState("processing")}>
-              Stop
-            </Button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DesktopTrial({
-  ready,
-  onFinished,
-}: {
-  ready: boolean;
-  onFinished: (text: string, cleaned: boolean) => void;
-}) {
-  const { toast } = useToast();
-  const [demoId] = useState(() => `onboarding-${Date.now().toString(36)}`);
-  const [partial, setPartial] = useState("");
-  const [result, setResult] = useState("");
-  const [error, setError] = useState("");
-  const onDemoEvent = useCallback((event: { status: string; text?: string; message?: string }) => {
-    if (event.status === "partial" || event.status === "processing") setPartial(event.text ?? "");
-    if (event.status === "success") setResult(event.text ?? "");
-    if (event.status === "error") setError(event.message ?? "Recording failed.");
-  }, []);
-  const recording = useAudioRecording(toast, { trialMode: true, onDemoEvent });
-  useEffect(() => {
-    void window.electronAPI?.beginOnboardingDemo?.({ id: demoId, kind: "dictation" });
-    return () => {
-      void window.electronAPI?.endOnboardingDemo?.(demoId);
-    };
-  }, [demoId]);
-  useEffect(() => {
-    if (recording.transcript) {
-      setResult(recording.transcript);
-      onFinished(recording.transcript, false);
-    }
-  }, [onFinished, recording.transcript]);
-  const start = async () => {
-    if (!ready) return;
-    setError("");
-    await recording.toggleListening();
-  };
-  return (
-    <div className="space-y-4">
-      <div className="onboarding-guided-record rounded-xl border border-border bg-card p-5">
-        <div className="onboarding-guided-record-intro flex items-start gap-3">
-          <span
-            className={`onboarding-guided-record-icon flex h-10 w-10 items-center justify-center rounded-xl ${recording.isRecording ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
-          >
-            <Mic className="h-5 w-5" />
-          </span>
-          <div className="onboarding-guided-record-copy">
-            <p className="text-sm font-semibold">
-              {recording.isRecording
-                ? "Listening…"
-                : recording.isProcessing
-                  ? "Preparing your transcript…"
-                  : result
-                    ? "Your first dictation"
-                    : "Try a short dictation"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {!ready
-                ? "Download a speech model on the previous step before testing dictation."
-                : recording.isRecording
-                  ? "Speak naturally, then use Stop when you are done."
-                  : result
-                    ? "This trial stays inside Loqui and is not saved to history."
-                    : "Request microphone access only when you start."}
-            </p>
-          </div>
-        </div>
-        {recording.isRecording && (
-          <div className="mt-5 flex h-10 items-end gap-1" aria-label="Microphone input level">
-            {Array.from({ length: 22 }, (_, index) => (
-              <span
-                key={index}
-                className="w-1.5 animate-pulse rounded-full bg-primary"
-                style={{
-                  height: `${10 + ((index * 17) % 28)}px`,
-                  animationDelay: `${index * 35}ms`,
-                }}
-              />
-            ))}
-          </div>
-        )}
-        {(partial || result) && (
-          <div className="mt-4 rounded-lg bg-muted/50 p-3 text-sm leading-relaxed">
-            {result || partial}
-          </div>
-        )}
-        {error && (
-          <p role="alert" className="mt-4 text-xs text-destructive">
-            {error}
-          </p>
-        )}
-        <div className="onboarding-guided-record-actions mt-5 flex items-center gap-3">
-          <Button
-            variant="live"
-            onClick={start}
-            disabled={!ready || recording.isRecording || recording.isProcessing}
-          >
-            {result ? "Try again" : "Start recording"}
-          </Button>
-          {recording.isRecording && (
-            <Button variant="outline" onClick={() => void recording.stopRecording()}>
-              Stop
-            </Button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ShortcutsStep({
   platform,
   permissions,
@@ -760,7 +523,6 @@ export default function OnboardingFlow({
     writeOnboardingProgress({ step, visited }, progressStorageKey);
   }, [progressStorageKey, step, visited]);
   const { t } = useTranslation();
-  const [trialResult, setTrialResult] = useState("");
   const [updatesEnabled, setUpdatesEnabled] = useState(true);
   const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);
   const cleanupMode = useSettingsStore((s) => s.cleanupMode);
@@ -876,9 +638,10 @@ export default function OnboardingFlow({
 
   // T14: unconditional subscription across every step; T15 replaces these shortcut bindings.
   const reducedMotion = usePrefersReducedMotion();
-  const hotkeyLabel = formatHotkeyLabel(
-    useSettingsStore((s) => s.dictationKey) || getDefaultHotkey()
-  );
+  const settingsHotkey =
+    parseHotkeyList(useSettingsStore((s) => s.activeDictationKey || s.dictationKey))[0] ||
+    getDefaultHotkey();
+  const hotkeyLabel = keycapLabel(settingsHotkey, platform);
   const activationMode = useSettingsStore((s) => s.activationMode);
 
   // [T13] Voice: detection, explicit commit, per-model download
@@ -949,12 +712,50 @@ export default function OnboardingFlow({
     transcriptionMode === "local" &&
     localProvider === "nvidia" &&
     parakeetModel === selectedModel;
+  const useLocalSpeech = useSettingsStore((s) => s.useLocalWhisper);
   const localVoiceActive =
+    useLocalSpeech &&
+    dictationRoute.model === (selectedModel ? getParakeetModelInfo(selectedModel)?.name : null) &&
     voiceStatus === "ready" &&
     voiceCommitted &&
     dictationRoute.locality === "device" &&
     dictationRoute.host === null &&
     dictationRoute.state.status === "ready";
+  // T15: current Plan03 route admits the overlay demo; setup never captures audio.
+  const context = useSettingsStore(trialContext);
+  const expectedBinding = { hotkey: settingsHotkey, activationMode };
+  const trialSession = useTrialSession(
+    step === "try" && localVoiceActive,
+    context,
+    expectedBinding
+  );
+  const trial = trialSession.state;
+  const lastTake = trialSession.lastTake;
+  const trialProofCurrent = localVoiceActive && lastTake?.context === context;
+  const keycap = useDictationHotkey(
+    step === "try" || step === "shortcuts" || step === "finish",
+    expectedBinding
+  );
+  const shortcutProofCurrent =
+    trialProofCurrent &&
+    lastTake?.usedHotkey === true &&
+    bindingMatches(lastTake.binding, expectedBinding) &&
+    bindingMatches(keycap.binding, expectedBinding);
+  const accessibility = useAccessibilityGate(platform, step === "try" || step === "shortcuts");
+  const nowMs = useTicker(trial.phase === "recording");
+  const [docked, setDocked] = useState(false);
+  useEffect(() => {
+    if (trial.successes < 1 || docked) return;
+    if (reducedMotion) {
+      setDocked(true);
+      return;
+    }
+    const timer = setTimeout(
+      () => dockMark(() => setDocked(true), { reducedMotion, doc: document }),
+      SETTLE_MS + DRAW_MS
+    );
+    return () => clearTimeout(timer);
+  }, [docked, reducedMotion, trial.successes]);
   const downloadRail: InstrumentMode | null =
     voiceState.status === "downloading"
       ? {
@@ -1093,14 +894,6 @@ export default function OnboardingFlow({
     });
   }, [cleanupChoice, cleanupStatus, config]);
 
-  const onTrialFinished = useCallback((text: string) => {
-    setTrialResult(text);
-  }, []);
-
-  const disableCleanupForTrial = useCallback(() => {
-    void chooseCleanup("none");
-  }, [chooseCleanup]);
-
   const readiness = useMemo<OnboardingReadiness>(() => {
     const cleanupFailed =
       scenario === "cleanup-failed" ||
@@ -1108,7 +901,7 @@ export default function OnboardingFlow({
         (scenario === "codex-missing" || scenario === "codex-expired")) ||
       (cleanupChoice === "provider" && scenario === "invalid-provider-key");
     return {
-      microphone: trialResult ? "ready" : scenario === "microphone-denied" ? "failed" : "pending",
+      microphone: trialProofCurrent ? "ready" : mic.access === "denied" ? "failed" : "pending",
       speech: localVoiceActive ? "ready" : voiceStatus === "error" ? "failed" : "pending",
       cleanup:
         cleanupChoice === "none"
@@ -1122,11 +915,11 @@ export default function OnboardingFlow({
                 : "pending",
       shortcut: !autoPasteEnabled
         ? "skipped"
-        : platform === "darwin"
-          ? permissions.accessibilityPermissionGranted
+        : platform === "darwin" && !permissions.accessibilityPermissionGranted
+          ? "pending"
+          : shortcutProofCurrent
             ? "ready"
-            : "pending"
-          : "ready",
+            : "pending",
     };
   }, [
     voiceStatus,
@@ -1137,18 +930,10 @@ export default function OnboardingFlow({
     cleanupChoice,
     cleanupStatus,
     localVoiceActive,
-    trialResult,
+    trialProofCurrent,
+    shortcutProofCurrent,
+    mic.access,
   ]);
-
-  const trial = !localVoiceActive ? (
-    <p role="status" className="onb-muted">
-      {t("setupFlow.voice.commitToTry")}
-    </p>
-  ) : preview ? (
-    <BrowserTrial scenario={scenario} ready={localVoiceActive} onFinished={onTrialFinished} />
-  ) : (
-    <DesktopTrial ready={localVoiceActive} onFinished={onTrialFinished} />
-  );
 
   let content: ReactNode = null;
   if (step === "cleanup")
@@ -1159,25 +944,6 @@ export default function OnboardingFlow({
         cleanupStatus={cleanupStatus}
         selectedChoice={cleanupChoice}
       />
-    );
-  if (step === "try")
-    content = (
-      <div className="onboarding-guided-work">
-        <div className="onboarding-guided-section-head">
-          <h2>Record inside Loqui</h2>
-          <span>Practice</span>
-        </div>
-        {trial}
-        <div className="onboarding-guided-panel p-4 text-xs leading-relaxed text-muted-foreground">
-          No automatic paste. Trial audio and text are not saved to history. Microphone access is
-          requested only when you start.
-        </div>
-        {cleanupChoice !== "none" && (
-          <Button variant="ghost" onClick={disableCleanupForTrial}>
-            Try without cleanup
-          </Button>
-        )}
-      </div>
     );
   if (step === "shortcuts")
     content = <ShortcutsStep platform={platform} permissions={permissions} />;
@@ -1272,7 +1038,26 @@ export default function OnboardingFlow({
         rail: {
           title: t("setupFlow.rail.try.title"),
           body: t(`setupFlow.rail.try.body${device}`),
-          mode: downloadRail ?? { kind: "idle" },
+          mode: !localVoiceActive
+            ? (downloadRail ?? { kind: "idle" })
+            : trial.phase === "recording"
+              ? { kind: "listening", heardVoice: trial.heardVoice }
+              : trial.phase === "processing"
+                ? { kind: "processing" }
+                : trial.phase === "success"
+                  ? { kind: "success" }
+                  : trial.phase === "error"
+                    ? {
+                        kind: "error",
+                        reason:
+                          trial.errorKind === "microphone"
+                            ? "microphone"
+                            : trial.errorKind === "noAudio"
+                              ? "noAudio"
+                              : "other",
+                      }
+                    : { kind: "idle" },
+          readLevel: trialSession.readLevel,
         },
         onSkip: skip,
         finishLaterLabel: t("setupFlow.finishLater"),
@@ -1294,7 +1079,39 @@ export default function OnboardingFlow({
               />
             }
           >
-            {legacy(content)}
+            <div
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Escape" &&
+                  (trial.phase === "recording" || trial.phase === "processing")
+                )
+                  void trialSession.cancel();
+              }}
+            >
+              <HotkeyTrial
+                platform={platform}
+                trial={trial}
+                nowMs={nowMs}
+                hotkeyLabel={hotkeyLabel}
+                activationMode={activationMode}
+                keycap={keycap}
+                usedHotkey={trialSession.usedHotkey}
+                accessibilityMissing={accessibility.granted !== true}
+                cleanupCode={trialSession.cleanupCode}
+                available={trialSession.available}
+                controlError={trialSession.controlError}
+                onToggle={() => void trialSession.toggle()}
+                onCancel={() => void trialSession.cancel()}
+                onGrantAccessibility={accessibility.request}
+                onRetryCleanup={() => void trialSession.retryCleanup()}
+                onTurnCleanupOff={() => void chooseCleanup("none")}
+                onBackToVoice={() => goTo("speech")}
+                onChangeMicrophone={() => goTo("welcome")}
+              />
+            </div>
+            {trialProofCurrent ? (
+              <SuccessBand onPersonalize={() => goTo("cleanup")} onFinish={() => goTo("finish")} />
+            ) : null}
           </TryStage>
         ),
       };
@@ -1320,6 +1137,7 @@ export default function OnboardingFlow({
       visited={visited}
       platform={platform}
       rail={view.rail}
+      docked={docked}
       onNavigate={goTo}
       onBack={step === "welcome" ? undefined : back}
       onSkip={view.onSkip}

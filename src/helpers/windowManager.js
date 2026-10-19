@@ -589,9 +589,22 @@ class WindowManager {
     // use down/up phases and resolve their primary hotkey from the active slot.
     return async (triggeredHotkey, phase) => {
       if (this.hotkeyManager.isInListeningMode()) {
+        this._onboardingNativePressed = false;
+        this._onboardingPressBinding = null;
         return;
       }
-      this.reportDictationHotkey(phase === "down" || phase === "up" ? phase : "tap");
+      // A global tap accompanying an already-held native press is the same action.
+      if (
+        this._onboardingActive &&
+        this._onboardingNativePressed &&
+        phase !== "down" &&
+        phase !== "up"
+      )
+        return;
+      this.reportDictationHotkey(
+        phase === "down" || phase === "up" ? phase : "tap",
+        triggeredHotkey
+      );
       if (this.isDictationProcessing()) {
         return;
       }
@@ -1622,6 +1635,7 @@ class WindowManager {
   beginOnboardingDemo(kind, session = null) {
     if (!ONBOARDING_DEMO_KINDS.has(kind)) return false;
     this._onboardingActive = true;
+    this._onboardingNativePressed = false;
     this._onboardingDemoKind = kind;
     this._onboardingDemoSession = session;
     // A prior recording must not leak into a new correlated demo session.
@@ -1650,12 +1664,31 @@ class WindowManager {
     session.sawListening = false;
     session.takeClosed = false;
     session.cancelRequested = false;
+    session.binding = this._onboardingPressBinding ?? null;
+    session.origin = session.binding ? "hotkey" : "button";
+    this._onboardingPressBinding = null;
+    const target = this.controlPanelWindow;
+    if (target && !target.isDestroyed())
+      target.webContents.send("onboarding-demo-event", {
+        demoId: session.id,
+        takeId: session.takeId,
+        kind: session.kind,
+        status: "preparing",
+        origin: session.origin,
+        ...(session.binding ? { binding: session.binding } : {}),
+      });
   }
 
   _onboardingTakePayload() {
     const session = this._onboardingDemoSession;
     return session?.takeId
-      ? { onboardingTake: { demoId: session.id, takeId: session.takeId } }
+      ? {
+          onboardingTake: {
+            demoId: session.id,
+            takeId: session.takeId,
+            ...(session.context ? { expectedContext: session.context } : {}),
+          },
+        }
       : undefined;
   }
 
@@ -1670,19 +1703,51 @@ class WindowManager {
   }
 
   /** Setup observes actual shortcut presses, never shortcut-capture keystrokes. */
-  reportDictationHotkey(phase) {
-    if (this.hotkeyManager.isInListeningMode()) return false;
+  getDictationBinding(hotkey) {
+    const slot = this.hotkeyManager.slots?.get("dictation");
+    const key = hotkey || slot?.hotkeys?.[0];
+    const mode = this.getActivationMode();
+    if (
+      !slot ||
+      typeof slot.callback !== "function" ||
+      !slot.hotkeys?.includes(key) ||
+      !["tap", "push"].includes(mode)
+    )
+      return null;
+    return { hotkey: key, activationMode: mode };
+  }
+
+  reportDictationHotkey(phase, hotkey) {
+    if (this.hotkeyManager.isInListeningMode()) {
+      this._onboardingNativePressed = false;
+      this._onboardingPressBinding = null;
+      return false;
+    }
     if (!shouldReportDictationHotkey(this._onboardingActive, this._onboardingDemoKind))
       return false;
     if (!["down", "up", "tap"].includes(phase)) return false;
     const target = this.controlPanelWindow;
     if (!target || target.isDestroyed()) return false;
-    target.webContents.send("dictation-hotkey-event", { phase, at: Date.now() });
+    if (phase === "down") this._onboardingNativePressed = true;
+    if (phase === "up") this._onboardingNativePressed = false;
+    const binding = this.getDictationBinding(hotkey);
+    if (phase !== "up") {
+      this._onboardingPressBinding = binding;
+      Promise.resolve().then(() => {
+        if (this._onboardingPressBinding === binding) this._onboardingPressBinding = null;
+      });
+    }
+    target.webContents.send("dictation-hotkey-event", {
+      phase,
+      at: Date.now(),
+      ...(binding ? { binding } : {}),
+    });
     return true;
   }
 
   toggleOnboardingDemoRecording() {
     if (this._onboardingDemoKind !== "dictation") return false;
+    this._onboardingPressBinding = null;
     this.sendToggleDictation();
     return true;
   }
@@ -1717,6 +1782,8 @@ class WindowManager {
     // overlay owns AudioManager, so route cleanup must be delivered there.
     this._cancelOnboardingTake();
     this.hideDictationPanel();
+    this._onboardingNativePressed = false;
+    this._onboardingPressBinding = null;
     this._onboardingDemoKind = null;
     this._onboardingDemoSession = null;
     return true;

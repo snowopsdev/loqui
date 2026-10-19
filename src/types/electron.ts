@@ -768,14 +768,21 @@ export type SystemFacts = Omit<SystemProfile, "totalMemoryBytes">;
 
 export type OnboardingDemoKind = "dictation" | "assistant" | "shortcut";
 /** Main-admitted preparation/start identity; separate from Plan04's recording session. */
+export interface DictationBinding {
+  hotkey: string;
+  activationMode: "tap" | "push";
+}
 export interface OnboardingDemoTake {
   demoId: string;
   takeId: string;
+  context?: string;
+  expectedContext?: string;
 }
 export interface DictationStartOptions {
   onboardingTake?: OnboardingDemoTake;
 }
 export interface DictationHotkeyEvent {
+  binding?: DictationBinding;
   phase: "down" | "up" | "tap";
   at: number;
 }
@@ -785,6 +792,7 @@ export interface DictationHotkeyEvent {
  * microphone level while listening.
  */
 type OnboardingDemoStatus =
+  | "preparing"
   | "listening"
   | "level"
   | "processing"
@@ -798,6 +806,10 @@ export interface OnboardingDemoEvent {
   demoId: string;
   takeId?: string;
   cleanupOperationId?: string;
+  cleanupCode?: string;
+  context?: string;
+  origin?: "button" | "hotkey";
+  binding?: DictationBinding;
   kind: OnboardingDemoKind;
   status: OnboardingDemoStatus;
   rawText?: string;
@@ -935,7 +947,11 @@ declare global {
       onOnboardingCleanupRetired?: (
         callback: (identity: CleanupOperationIdentity) => void
       ) => () => void;
-      beginOnboardingDemo?: (session: { id: string; kind: OnboardingDemoKind }) => Promise<boolean>;
+      beginOnboardingDemo?: (session: {
+        id: string;
+        kind: OnboardingDemoKind;
+        context?: string;
+      }) => Promise<boolean>;
       endOnboardingDemo?: (id: string) => Promise<boolean>;
       stopOnboardingDemo?: (id: string) => Promise<boolean>;
       publishOnboardingDemoEvent?: (
@@ -1903,6 +1919,7 @@ declare global {
 
       // Dictation key persistence (file-based for reliable startup)
       getDictationKey?: () => Promise<string | null>;
+      getDictationBinding?: () => Promise<DictationBinding | null>;
       getActiveDictationKey?: () => Promise<string>;
       getEffectiveDefaultHotkey?: () => Promise<string>;
       saveDictationKey?: (key: string) => Promise<void>;

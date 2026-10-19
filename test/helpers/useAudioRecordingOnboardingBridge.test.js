@@ -14,7 +14,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-async function mount(t) {
+async function mount(t, observe = false) {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -31,7 +31,18 @@ async function mount(t) {
     settings,
   });
   const f = bridgeFixture();
-  window.electronAPI = f.overlayApi;
+  window.electronAPI = {
+    ...f.overlayApi,
+    ...Object.fromEntries(
+      [
+        "beginOnboardingDemo",
+        "endOnboardingDemo",
+        "toggleOnboardingDemo",
+        "cancelOnboardingDemo",
+        "onOnboardingDemoEvent",
+      ].map((key) => [key, f.setupApi[key]])
+    ),
+  };
   let acquisition = deferred();
   let acquireCalls = 0;
   const manager = Object.assign(Object.create(AudioManager.prototype), {
@@ -76,15 +87,18 @@ async function mount(t) {
     },
   });
   const { useAudioRecording } = await vite.ssrLoadModule("/hooks/useAudioRecording.js");
+  const { useTrialSession } = await vite.ssrLoadModule("/components/onboarding/useTrialSession.ts");
+  const { trialContext } = await vite.ssrLoadModule("/utils/onboardingTrialContext.ts");
   const container = installHookDom(t);
   globalThis.requestAnimationFrame = (fn) => {
     fn();
     return 1;
   };
-  let controls;
+  let controls, session;
   const options = { onDemoEvent: (event) => f.overlayApi.publishOnboardingDemoEvent(event) };
   const toast = () => {};
-  function Harness() {
+  function Harness({ active = observe }) {
+    session = useTrialSession(active, trialContext(globalThis.__onboardingBridgeSettings));
     controls = useAudioRecording(toast, options);
     return null;
   }
@@ -99,6 +113,9 @@ async function mount(t) {
     f,
     manager,
     controls: () => controls,
+    session: () => session,
+    render: (active) =>
+      React.act(async () => root.render(React.createElement(Harness, { active }))),
     acquisition: () => acquisition,
     reset: () => {
       acquisition = deferred();
@@ -226,4 +243,32 @@ test("real streaming start denial carries its own identity before any listening"
     await new Promise((r) => setTimeout(r, 0));
   });
   assert.equal(h.f.broadcasts.length, 1, "old streaming failure stays rejected after reentry");
+});
+
+test("real setup hook observes actual overlay acquisition denial and ignores a stale denied preparation after reentry", async (t) => {
+  const h = await mount(t, true);
+  assert.equal(h.session().state.phase, "idle");
+  await React.act(async () => {
+    await h.session().toggle();
+    await h.waitForAcquisition(1);
+    assert.equal(h.session().state.phase, "idle");
+    h.acquisition().reject(new DOMException("fixture denied", "NotAllowedError"));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(h.session().state.errorKind, "microphone");
+  h.reset();
+  await React.act(async () => {
+    await h.session().toggle();
+    await h.waitForAcquisition(2);
+  });
+  const old = h.f.manager._onboardingDemoSession.id;
+  await h.render(false);
+  await h.render(true);
+  assert.notEqual(h.f.manager._onboardingDemoSession.id, old);
+  await React.act(async () => {
+    h.acquisition().reject(new DOMException("old denied", "NotAllowedError"));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(h.session().state.phase, "idle");
+  assert.equal(h.session().state.successes, 0);
 });

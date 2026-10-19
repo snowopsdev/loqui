@@ -50,7 +50,7 @@ export function buildDemoSuccessEvent(
   result: {
     text: string;
     rawText?: string | null;
-    cleanupFailure?: unknown;
+    cleanupFailure?: { code?: string };
     cleanupOperationId?: string;
   }
 ) {
@@ -60,6 +60,7 @@ export function buildDemoSuccessEvent(
     text: result.text,
     rawText: typeof result.rawText === "string" ? result.rawText : undefined,
     cleanup: demoCleanupOutcome(result),
+    ...(result.cleanupFailure?.code ? { cleanupCode: result.cleanupFailure.code } : {}),
     ...(result.cleanupOperationId ? { cleanupOperationId: result.cleanupOperationId } : {}),
   };
 }

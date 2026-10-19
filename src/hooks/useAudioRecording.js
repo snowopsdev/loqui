@@ -170,7 +170,7 @@ export const useAudioRecording = (toast, options = {}) => {
         // Start acquisition only after the compact thinking frame has reached
         // the compositor. startRecording() joins this prepared capture, so the
         // device still opens exactly once.
-        void manager.prepareMicCapture?.();
+        void manager.prepareMicCapture?.(recording);
 
         // The floating dictation panel is non-focusable, so the foreground app is
         // still the user's actual editing target here. Refresh it for recordings
@@ -216,6 +216,12 @@ export const useAudioRecording = (toast, options = {}) => {
         // OpenWhispr-cloud streaming); for local STT or a signed-out session the
         // fetch stalls on auth resolution and would delay the mic open (#1673).
 
+        try {
+          manager.assertTrialContext?.(recording);
+        } catch (error) {
+          manager.onError?.(error, onboardingTake, recording);
+          return false;
+        }
         const didStart = manager.shouldUseStreaming()
           ? await manager.startStreamingRecording(false, onboardingTake, recording)
           : await manager.startRecording(false, onboardingTake, recording);
@@ -865,7 +871,7 @@ export const useAudioRecording = (toast, options = {}) => {
       reportLifecycle("preparing", options?.inputKind);
       await waitForVisualFrames();
       if (generation !== preparationGenerationRef.current || startLockRef.current) return;
-      void manager.prepareMicCapture?.();
+      void manager.prepareMicCapture?.(preparedRecordingRef.current?.recording);
     });
 
     const disposeCancelPreparation = window.electronAPI.onCancelDictationPreparation?.(() => {

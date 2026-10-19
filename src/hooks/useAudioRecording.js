@@ -312,8 +312,9 @@ export const useAudioRecording = (options = {}) => {
   }, []);
 
   useEffect(() => {
-    managerInstallationRef.current += 1;
-    audioManagerRef.current = new AudioManager();
+    const installation = ++managerInstallationRef.current;
+    const manager = new AudioManager();
+    audioManagerRef.current = manager;
 
     // Resolve and pin the input device now, not on the first hotkey press, which
     // would otherwise wait on the device lookup before the mic can open.
@@ -380,6 +381,35 @@ export const useAudioRecording = (options = {}) => {
       if (noticeId !== DICTATION_STATUS_NOTICE_ID)
         dismissNotice(DICTATION_STATUS_NOTICE_ID, "replaced");
       return noticeId;
+    };
+
+    const handleCancelledChange = (state, closed) => {
+      if (managerInstallationRef.current !== installation || audioManagerRef.current !== manager)
+        return;
+      // An old save can close A after the manager has already opened B.
+      // It owns neither B's UI nor its lifecycle report or demo publication.
+      if (!state && closed && cancelledRef.current?.sessionId !== closed.sessionId) return;
+      cancelledRef.current = state;
+      setCancelled(state);
+      const am = audioManagerRef.current;
+      if (!busyRef.current && !am?.isRecording && !am?.isProcessing) {
+        reportLifecycle(state ? "cancelled" : "idle");
+      }
+      if (state) {
+        onDemoEventRef.current?.({
+          kind: demoKindRef.current,
+          status: "cancelled",
+          sessionId: state.sessionId,
+          cancelled: state,
+        });
+      } else if (closed) {
+        onDemoEventRef.current?.({
+          kind: demoKindRef.current,
+          status: "cancelClosed",
+          sessionId: closed.sessionId,
+          reason: closed.reason,
+        });
+      }
     };
 
     audioManagerRef.current.setCallbacks({
@@ -454,32 +484,7 @@ export const useAudioRecording = (options = {}) => {
           setPartialTranscript("");
         }
       },
-      onCancelledChange: (state, closed) => {
-        // An old save can close A after the manager has already opened B.
-        // It owns neither B's UI nor its lifecycle report or demo publication.
-        if (!state && closed && cancelledRef.current?.sessionId !== closed.sessionId) return;
-        cancelledRef.current = state;
-        setCancelled(state);
-        const am = audioManagerRef.current;
-        if (!busyRef.current && !am?.isRecording && !am?.isProcessing) {
-          reportLifecycle(state ? "cancelled" : "idle");
-        }
-        if (state) {
-          onDemoEventRef.current?.({
-            kind: demoKindRef.current,
-            status: "cancelled",
-            sessionId: state.sessionId,
-            cancelled: state,
-          });
-        } else if (closed) {
-          onDemoEventRef.current?.({
-            kind: demoKindRef.current,
-            status: "cancelClosed",
-            sessionId: closed.sessionId,
-            reason: closed.reason,
-          });
-        }
-      },
+      onCancelledChange: handleCancelledChange,
       onProcessingStage: (stage) => setProcessingStage(stage),
       onError: (error) => {
         const sessionId = audioManagerRef.current?.activeSession?.id ?? null;
@@ -966,6 +971,10 @@ export const useAudioRecording = (options = {}) => {
 
     // Cleanup
     return () => {
+      // The hook and its hotkey consumer survive a setup-effect reinstall.
+      // Retire the exact open window before cleanup detaches the close callback.
+      const closing = cancelledRef.current;
+      if (closing) handleCancelledChange(null, { sessionId: closing.sessionId, reason: "flushed" });
       managerInstallationRef.current += 1;
       reportLifecycle("idle");
       // Never leave a global Esc capture behind a reload or a route change.
@@ -982,9 +991,7 @@ export const useAudioRecording = (options = {}) => {
       disposeCancelPreparation?.();
       disposeStop?.();
       disposeForceStopped?.();
-      if (audioManagerRef.current) {
-        audioManagerRef.current.cleanup();
-      }
+      manager.cleanup();
     };
   }, [
     onToggle,

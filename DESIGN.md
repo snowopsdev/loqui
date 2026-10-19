@@ -396,4 +396,7 @@ shutdown and exit; repeated quit events remain held during that coordination.
 Hook teardown also revokes a restore that has claimed its recording but is still
 waiting for final audio. That exact buffer closes through the existing retention
 policy; late bytes are erased and cannot reopen Undo or start the old pipeline.
+Before a hook setup-effect reinstall disposes its manager, it retires the exact
+cancel-window state/ref and publishes its flushed demo closure; the surviving
+hook releases the old Undo lease. Retired callbacks cannot overwrite a new hold.
 Callbacks detach before disposal, while a fresh installation remains usable.

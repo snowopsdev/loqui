@@ -168,7 +168,14 @@ export default function ChatView({
       draftRef.current = { text, caret };
       const match = detectMentionQuery(text, caret);
       const current = intentRef.current;
-      if (current?.source === "button") return;
+      // Focus/seed notifications for the same draft keep a button pick intact.
+      // Any real edit or caret move retires its rows before the next command.
+      if (
+        current?.text === text &&
+        current.caret === caret &&
+        current.selection === selectionRef.current
+      )
+        return;
       if (match)
         changeIntent({ ...match, text, caret, source: "typed", selection: selectionRef.current });
       else changeIntent(null);
@@ -364,14 +371,20 @@ export default function ChatView({
       intent.selection !== selectionRef.current
     )
       return;
-    const draft = draftRef.current;
+    // Selection can change before React delivers onSelect. Commands must check
+    // the textarea itself as well as the intent/result ownership above.
+    const textarea = composerAreaRef.current?.querySelector("textarea");
+    if (!textarea) return;
+    const draft = { text: textarea.value, caret: textarea.selectionStart };
     if (
-      intent.source === "typed" &&
-      (draft.text !== intent.text ||
-        draft.caret !== intent.caret ||
+      draft.text !== intent.text ||
+      draft.caret !== intent.caret ||
+      (intent.source === "typed" &&
         detectMentionQuery(draft.text, draft.caret)?.start !== intent.start)
-    )
+    ) {
+      onDraftChange(draft.text, draft.caret);
       return;
+    }
     const next = pinnedFromMention(item);
     if (!next) return;
     if (!pinnedRef.current.some((p) => p.kind === next.kind && p.id === next.id)) {

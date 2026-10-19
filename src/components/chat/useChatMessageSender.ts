@@ -108,8 +108,8 @@ export function useChatMessageSender({
               owner: {
                 conversationId: convId,
                 isCurrent,
-                onStreamComplete: (_id, content, toolCalls) =>
-                  persistence.saveAssistantMessage?.(content, toolCalls, convId),
+                onStreamComplete: (_id, content, toolCalls, context) =>
+                  persistence.saveAssistantMessage?.(content, toolCalls, convId, context),
               },
             });
           } finally {

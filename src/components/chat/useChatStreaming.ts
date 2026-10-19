@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   appendDictionarySuffix,
+  appendCitationSuffix,
   appendScreenContextSuffix,
   getAgentSystemPrompt,
 } from "../../config/prompts";
@@ -21,9 +22,7 @@ import {
 import logger from "../../utils/logger";
 import { getDictionaryHintWords } from "../../utils/snippets";
 import type { AgentState, ChatImageAttachment, Message, ToolCallInfo } from "./types";
-
-const RAG_NOTE_LIMIT = 5;
-const RAG_NOTE_SNIPPET_LENGTH = 500;
+import { buildRagContext } from "./ragContext";
 const STREAM_FLUSH_INTERVAL_MS = 32;
 
 const LOCAL_TOOL_MIN_PARAMS_B = 4;
@@ -31,32 +30,6 @@ const LOCAL_TOOL_MIN_PARAMS_B = 4;
 function estimateModelSizeB(modelId: string): number {
   const match = modelId.match(/-([\d.]+)[bB]/);
   return match ? parseFloat(match[1]) : 0;
-}
-
-async function buildRAGContext(userText: string, scope?: ContainerScope): Promise<string> {
-  if (!window.electronAPI?.semanticSearchNotes) return "";
-  try {
-    const results = await window.electronAPI.semanticSearchNotes(
-      userText,
-      RAG_NOTE_LIMIT,
-      scope?.spaceId ?? null,
-      scope?.folderId ?? null
-    );
-    if (!results || results.length === 0) return "";
-
-    const snippets = await Promise.all(
-      results.map(async (r: { id: number; title: string; score?: number }) => {
-        const note = await window.electronAPI.getNote(r.id);
-        if (!note) return null;
-        const content = (note.content || "").slice(0, RAG_NOTE_SNIPPET_LENGTH);
-        return `<note id="${note.id}" title="${note.title}">\n${content}\n</note>`;
-      })
-    );
-
-    return snippets.filter(Boolean).join("\n\n");
-  } catch {
-    return "";
-  }
 }
 
 /**
@@ -78,7 +51,13 @@ interface UseChatStreamingOptions {
   noteContext?: string;
   /** Optional container scope applied to RAG and the search_notes tool (container overview chat). */
   searchScope?: ContainerScope;
-  onStreamComplete?: (assistantId: string, content: string, toolCalls?: ToolCallInfo[]) => void;
+  onStreamComplete?: (
+    assistantId: string,
+    content: string,
+    toolCalls?: ToolCallInfo[],
+    context?: Message["context"]
+  ) => void | Promise<void>;
+  citations?: boolean;
   /** Fires exactly once when displayable assistant content or tool activity becomes available. */
   onResponseContent?: () => void;
 }
@@ -91,7 +70,8 @@ export interface SendToAIOptions {
     onStreamComplete: (
       assistantId: string,
       content: string,
-      toolCalls?: ToolCallInfo[]
+      toolCalls?: ToolCallInfo[],
+      context?: Message["context"]
     ) => void | Promise<void>;
   };
   /** Effective inference target captured synchronously when the sender admits a message. */
@@ -150,6 +130,7 @@ export function useChatStreaming({
   noteContext: externalNoteContext,
   searchScope,
   onStreamComplete,
+  citations = false,
   onResponseContent,
 }: UseChatStreamingOptions): ChatStreaming {
   const { t } = useTranslation();
@@ -353,7 +334,8 @@ export function useChatStreaming({
         }
       }
 
-      const ragContext = await buildRAGContext(userText, scope);
+      const rag = await buildRagContext(window.electronAPI, userText, scope);
+      const ragContext = rag.text;
       if (cancelled() || !mountedRef.current) return;
       const combinedContext = [snapshot.noteContext, ragContext].filter(Boolean).join("\n\n");
       // The user's dictionary rides on every conversation so replies use their
@@ -366,6 +348,10 @@ export function useChatStreaming({
         getDictionaryHintWords(settings),
         settings.uiLanguage
       );
+
+      // Only ChatView opts in; bubble-only chat surfaces keep their existing prompt.
+      const hasSources = (registry?.getAll().length ?? 0) > 0 || ragContext.length > 0;
+      if (citations && hasSources) systemPrompt = appendCitationSuffix(systemPrompt);
 
       const history: HistoryMessage[] = allMessages
         .slice(-20)
@@ -406,7 +392,13 @@ export function useChatStreaming({
       const assistantId = crypto.randomUUID();
       updateMessages((prev) => [
         ...prev,
-        { id: assistantId, role: "assistant", content: "", isStreaming: true },
+        {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          isStreaming: true,
+          context: { ragNotes: rag.notes, route: null },
+        },
       ]);
       updateAgentState("streaming");
 
@@ -538,7 +530,12 @@ export function useChatStreaming({
           const explicitlyCancelled = explicitCancelGenerationRef.current > sendGeneration;
           if (!explicitlyCancelled && fullContent.trim().length > 0) {
             const finalMsg = requestMessages.find((m) => m.id === assistantId);
-            await completeRequest?.(assistantId, fullContent, finalMsg?.toolCalls);
+            await completeRequest?.(
+              assistantId,
+              fullContent,
+              finalMsg?.toolCalls,
+              finalMsg?.context
+            );
           }
           return;
         }
@@ -562,7 +559,7 @@ export function useChatStreaming({
         );
 
         const finalMsg = requestMessages.find((m) => m.id === assistantId);
-        await completeRequest?.(assistantId, fullContent, finalMsg?.toolCalls);
+        await completeRequest?.(assistantId, fullContent, finalMsg?.toolCalls, finalMsg?.context);
         // Persistence may yield while Stop or unmount cancels this request.
         // Its saved reply stays in history, but cancelled work must never deliver.
         if (hasDeliverableContent && !cancelled() && mountedRef.current) {
@@ -617,6 +614,7 @@ export function useChatStreaming({
       t,
       setMessages,
       onStreamComplete,
+      citations,
       onResponseContent,
       clearToolActivity,
       beginToolActivity,

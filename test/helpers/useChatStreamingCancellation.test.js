@@ -54,7 +54,9 @@ async function renderChatStreaming(
   t,
   { electronAPI = {}, settings = {}, onStreamComplete, live = false } = {}
 ) {
-  installBrowserGlobals(t, { window: { electronAPI: { personalInference: personalInferenceFixture(), ...electronAPI } } });
+  installBrowserGlobals(t, {
+    window: { electronAPI: { personalInference: personalInferenceFixture(), ...electronAPI } },
+  });
   const container = live ? installHookDom(t) : null;
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-chat-streaming-cancellation-test-",
@@ -218,6 +220,7 @@ test("cancelling during RAG setup does not start an assistant reply", async (t) 
   });
   const { captured, getMessages } = await renderChatStreaming(t, {
     electronAPI: {
+      getNote: async () => null,
       semanticSearchNotes: () => {
         searchStarted = true;
         return searchResults;
@@ -343,11 +346,7 @@ test("an unmount mid-stream persists the partial reply without delivering it", a
         completionCalls += 1;
       },
     });
-    for (
-      let i = 0;
-      i < 50 && !getMessages().some((m) => m.content === "Partial reply");
-      i++
-    ) {
+    for (let i = 0; i < 50 && !getMessages().some((m) => m.content === "Partial reply"); i++) {
       await waitForFlush();
     }
   });
@@ -417,8 +416,14 @@ test("direct provider screen context crosses IPC without exposing credentials", 
   let request;
   const electronAPI = {
     personalInference: {
-      onTextEvent(callback) { listener = callback; return () => {}; },
-      async textStream(input) { request = input; listener({ type: "end", requestId: input.requestId }); },
+      onTextEvent(callback) {
+        listener = callback;
+        return () => {};
+      },
+      async textStream(input) {
+        request = input;
+        listener({ type: "end", requestId: input.requestId });
+      },
       async textCancel() {},
     },
   };

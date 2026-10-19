@@ -58,6 +58,7 @@ export default function ChatView({
   });
 
   const streaming = useChatStreaming({
+    citations: true,
     conversationId: persistence.conversationId,
     messages: persistence.messages,
     setMessages: persistence.setMessages,

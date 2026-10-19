@@ -198,7 +198,7 @@ Tailwind utilities from `@theme` in `src/index.css`. Chrome, lists, menus and di
 No size below 11px. Readable text floors at 12px. Hierarchy comes from size and weight, never opacity: metadata is full `text-muted-foreground`.
 
 ### Note document ramp (WS-R6 B)
-Inside the note editor (`.rich-text-editor-content`) and the note title: title 32/1.15/600; h1 24/1.25/650; h2 19/1.3/600; h3 16/1.4/600; body 16/1.65 with a 68ch measure; code 14 mono. Chat answers use 15/1.6 at 68ch.
+Inside the note editor (`.rich-text-editor-content`) and the note title: title 32/1.15/600; h1 24/1.25/650; h2 19/1.3/600; h3 16/1.4/600; body 16/1.65 with a 68ch measure; code 14 mono. Chat answers use 15/1.6 at 68ch. Answer source metadata persists with its admitted conversation: compact tool hits and retrieved note references retain titles and excerpts of up to 240 characters. Citation numbering follows eligible Markdown and GFM text, excluding code and links; an answer without eligible citations retains up to five unnumbered sources. The document citation renderer and Sources row are added separately.
 
 ### Note slash menu (WS-R6 B)
 

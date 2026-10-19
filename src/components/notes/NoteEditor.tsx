@@ -678,7 +678,7 @@ export default function NoteEditor({
             onKeyDown={handleTitleKeyDown}
             onPaste={handleTitlePaste}
             data-placeholder={t("notes.editor.untitled")}
-            className="text-3xl font-medium leading-tight text-foreground bg-transparent outline-none tracking-[-0.01em] empty:before:content-[attr(data-placeholder)] empty:before:text-foreground/45 empty:before:pointer-events-none"
+            className="text-display font-semibold text-foreground bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground empty:before:pointer-events-none"
             role="textbox"
             aria-label={t("notes.editor.noteTitle")}
           />

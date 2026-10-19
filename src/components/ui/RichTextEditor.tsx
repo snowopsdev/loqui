@@ -71,7 +71,7 @@ export function RichTextEditor({
     },
     editorProps: {
       attributes: {
-        class: "rich-text-editor-content",
+        class: "rich-text-editor-content focus-visible:ring-2 focus-visible:ring-ring",
         dir: "auto",
       },
     },

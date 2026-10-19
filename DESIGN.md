@@ -568,7 +568,9 @@ highlight. Panes stack below 520 px. The native reuse checkbox remains LTR;
 labels, arrows and layout follow the reading direction.
 
 The Now sentence first reads the selected choice's own prerequisite check,
-then Plan03's actual route. Unknown stays Checking. Every destination and state
+then Plan03's actual route. A ready network route names both its model and actual
+host, using translated copy rather than dropping the host when a model exists.
+Unknown stays Checking. Every destination and state
 disclosure uses the published route chips. A pending/failed choice never gets
 an Off chip beside its unmet prerequisite. Reuse retains its storage key and
 false default, applies only a current successful choice to unconfigured scopes,
@@ -596,8 +598,15 @@ does not repeat local execution. Each off-device attempt requires its own tap;
 no boolean consent survives a change. Network consent names the actual route host,
 including after a cloud-to-LAN change; a retained cloud label cannot name it. Failures show safe localized codes and
 the unchanged raw words, with no invented before/after result or zero-egress
-claim. An in-memory prior-attempt disclosure retains its captured provider/count
-when the context changes; it does not grant permission or persist content.
+claim. The setup-session Flow owner retains only the latest off-device attempt's
+captured recipient label and word count in memory. That historical disclosure
+survives context changes and Cleanup → Shortcuts/other steps → Back, even when
+an admitted request failed, succeeded or was still pending on departure. Returning
+to Cleanup shows no blanket “Nothing was sent” claim. Consent, running state,
+errors, results and operation capabilities stay in the mounted preview context
+and are discarded/retired on departure; Back never reissues or renews an operation.
+A fresh named/count tap is required on every off-device re-entry. Historical
+metadata is neither stored nor permission to send or retry.
 
 Captured Codex account binding, Tinfoil bootstrap, dynamic/ambient Bedrock and
 unsupported ADC sources retain Task15's explicit unsupported-source limitation.

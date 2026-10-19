@@ -46,6 +46,8 @@ async function cleanup(t, props = {}) {
       userText: SENTENCE,
       route: route(),
       providerLabel: "OpenAI",
+      lastRemoteAttempt: null,
+      onRemoteAttempt() {},
       selection: {
         provider: "openai",
         model: "fixture-a",
@@ -432,6 +434,8 @@ test("rendered published chips use the actual destination and ready state", asyn
       userText: null,
       route: remoteReady,
       providerLabel: "OpenAI",
+      lastRemoteAttempt: null,
+      onRemoteAttempt() {},
       selection: selected(),
       isSelectionCurrent: () => true,
       runCleanup: () => assert.fail("no sentence"),
@@ -446,7 +450,11 @@ test("rendered published chips use the actual destination and ready state", asyn
 });
 
 test("changing recipient after an admitted failed request never restores a blanket Nothing was sent claim", async (t) => {
+  let history;
   const { ui } = await cleanup(t, {
+    onRemoteAttempt: (attempt) => {
+      history = attempt;
+    },
     choice: "provider",
     status: "ready",
     route: remoteReady,
@@ -457,6 +465,7 @@ test("changing recipient after an admitted failed request never restores a blank
   });
   await ui.click("setupFlow.cleanup.tryMine");
   await ui.rerender({
+    lastRemoteAttempt: history,
     route: { ...remoteReady, providerId: "anthropic" },
     providerLabel: "Anthropic",
     selection: selected({ provider: "anthropic" }),
@@ -483,3 +492,55 @@ test("network consent names its actual host instead of a retained cloud-provider
   await ui.click("setupFlow.cleanup.tryMine");
   expectKey(ui, "setupFlow.cleanup.sentNotice", { count: 7, provider: "10.0.0.5:9000" });
 });
+
+for (const locale of ["ar", "de", "en", "es", "fr", "it", "ja", "pt", "ru", "zh-CN", "zh-TW"]) {
+  test(`ready network Now renders the actual host and model using ${locale} resources`, async (t) => {
+    const i18n = require("i18next").createInstance();
+    const resources = require(`../../src/locales/${locale}/translation.json`);
+    await i18n.init({
+      lng: locale,
+      resources: { [locale]: { translation: resources } },
+      interpolation: { escapeValue: false },
+    });
+    globalThis.__cleanupTranslation = i18n;
+    t.after(() => delete globalThis.__cleanupTranslation);
+    const ui = await mountComponent(t, "/components/onboarding/CleanupStep.tsx", {
+      exportName: "CleanupStep",
+      props: {
+        choice: "provider",
+        status: "ready",
+        onChoose() {},
+        userText: null,
+        route: route({
+          locality: "network",
+          host: "10.0.0.5:9000",
+          model: "server-a",
+          state: { status: "ready" },
+        }),
+        providerLabel: "OpenAI",
+        lastRemoteAttempt: null,
+        onRemoteAttempt() {},
+        selection: selected({ provider: "lan" }),
+        isSelectionCurrent: () => true,
+        runCleanup: () => assert.fail("no sentence"),
+        reuse: false,
+        onReuseChange() {},
+      },
+      mocks: {
+        "react-i18next": `
+          export const useTranslation = () => ({ t: globalThis.__cleanupTranslation.t.bind(globalThis.__cleanupTranslation), i18n: globalThis.__cleanupTranslation });
+          export const initReactI18next = { type: "3rdParty", init() {} };
+          export const Trans = () => null;
+          export const I18nextProvider = ({ children }) => children;
+        `,
+        "/CodexConnection": "export default function CodexConnection(){return null;}",
+      },
+    });
+    const now = ui.byAttr("role", "status").find((node) => node.tagName === "P").textContent;
+    assert.ok(now.includes("10.0.0.5:9000"), `${locale} Now names its actual host: ${now}`);
+    assert.ok(now.includes("server-a"), `${locale} Now retains the model`);
+    assert.equal(now.includes("OpenAI"), false);
+    assert.equal(now.includes("{{"), false, "all interpolation is resolved");
+    if (locale === "en") assert.ok(now.includes("Cleanup is on with server-a at 10.0.0.5:9000."));
+  });
+}

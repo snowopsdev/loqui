@@ -1108,6 +1108,7 @@ async function realTrialFlow(t, options = {}) {
           models: [{ model: "parakeet-unified-en-0.6b", downloaded: true }],
         }),
         ...Object.fromEntries(names.map((name) => [name, f.setupApi[name]])),
+        ...options.api,
       }),
     }
   );
@@ -1301,3 +1302,156 @@ test("cleanup keyboard choice keeps focus on the selected radio while its availa
     "focus stays on the live selected radio"
   );
 });
+
+for (const outcome of ["failed", "pending", "successful"]) {
+  test(`Cleanup retains only delivery history across leave/Back after an admitted ${outcome} remote request`, async (t) => {
+    const { expectKey } = require("../helpers/harness/mountComponent");
+    const SENTENCE = "um remind me to book the room";
+    const RESULT = "Remind me to book the room.";
+    const NEXT_RESULT = "Freshly admitted cleanup result.";
+    let bridge;
+    let settle;
+    const pending = new Promise((resolve, reject) => {
+      settle = { resolve, reject };
+    });
+    const requests = [];
+    const h = await realTrialFlow(t, {
+      reducedMotion: true,
+      api: {
+        credentials: {
+          list: async () => [{ id: "openai", present: true, generation: 1 }],
+          onChanged: () => () => {},
+        },
+        personalInference: {
+          credentialStatus: async () => ({ configured: true }),
+          captureTextOperation: (...args) => bridge.captureTextOperation(...args),
+          runTextOperation: (...args) => bridge.runTextOperation(...args),
+          retireTextOperation: (...args) => bridge.retireTextOperation(...args),
+        },
+      },
+    });
+    const { ui } = h;
+    const writes = [];
+    const setItem = ui.storage.setItem;
+    ui.storage.setItem = (key, value) => {
+      writes.push([key, value]);
+      return setItem(key, value);
+    };
+    await ui.vite.ssrLoadModule("/services/capturedCleanupOperation.ts");
+    const { createCapturedTextBridge } = await ui.vite.ssrLoadModule(
+      "/preview/capturedTextBridge.ts"
+    );
+    bridge = createCapturedTextBridge(async (descriptor, sentence) => {
+      requests.push({ provider: descriptor.provider, sentence });
+      return requests.length === 1 ? pending : NEXT_RESULT;
+    });
+    await React.act(async () => h.f.manager.createHotkeyCallback()("F7"));
+    await h.publish({ status: "listening" });
+    await h.publish({ status: "success", text: SENTENCE, rawText: SENTENCE, cleanup: "skipped" });
+    await ui.click("setupFlow.try.makeItYours");
+    await ui.click(ui.byAttr("data-value", "provider")[0]);
+    expectKey(ui, "setupFlow.cleanup.tryMine", { count: 7, provider: "OpenAI" });
+    assert.equal(requests.length, 0);
+    await ui.click("setupFlow.cleanup.tryMine");
+    // Exercise the real setup runner/captured operation and production in-memory IPC fixture.
+    assert.equal(requests.length, 1, "the first request really reached execution");
+    assert.equal(requests[0].provider, "openai");
+    assert.ok(requests[0].sentence.includes(SENTENCE));
+    const firstInput = ui.calls.find(([name]) => name === "personalInference.runTextOperation")[1];
+    assert.equal(firstInput.request.wordCount, 7);
+    if (outcome === "failed")
+      await React.act(async () =>
+        settle.reject(Object.assign(new Error("fixture failure"), { code: "CLEANUP_FAILED" }))
+      );
+    if (outcome === "successful") await React.act(async () => settle.resolve(RESULT));
+    if (outcome === "successful") assert.ok(ui.text().includes(RESULT));
+    if (outcome === "failed") assert.equal(ui.byAttr("role", "alert").length, 1);
+    if (outcome === "pending") expectKey(ui, "setupFlow.cleanup.running");
+    await advance(ui);
+    assert.equal(currentStep(ui), "setupFlow.progress.goTo(step=setupFlow.steps.shortcuts)");
+    const retirements = ui.calls.filter(
+      ([name]) => name === "personalInference.retireTextOperation"
+    );
+    assert.ok(retirements.length >= 1, "departure retires the admitted capability");
+    if (outcome === "successful") {
+      await advance(ui); // History also survives another step, not only Shortcuts.
+      await ui.click("setupFlow.back");
+    }
+    await ui.click("setupFlow.back");
+    expectKey(ui, "setupFlow.cleanup.previousAttemptNotice", { count: 7, provider: "OpenAI" });
+    expectKey(ui, "setupFlow.cleanup.tryMine", { count: 7, provider: "OpenAI" });
+    assert.equal(ui.text().includes("setupFlow.cleanup.exampleNotice"), false);
+    assert.equal(ui.text().includes(RESULT), false);
+    assert.equal(ui.text().includes("setupFlow.cleanup.running"), false);
+    assert.equal(requests.length, 1, "unchanged-route re-entry requires fresh consent too");
+    const nextSentence = outcome === "successful" ? "uh another sentence" : SENTENCE;
+    const nextCount = outcome === "successful" ? 3 : 7;
+    if (outcome === "successful") {
+      // A newer admitted take changes the current words, never the historical count.
+      await ui.click("setupFlow.back");
+      await React.act(async () => h.f.manager.createHotkeyCallback()("F7"));
+      await h.publish({ status: "listening" });
+      await h.publish({
+        status: "success",
+        text: nextSentence,
+        rawText: nextSentence,
+        cleanup: "skipped",
+      });
+      await ui.click("setupFlow.try.makeItYours");
+      expectKey(ui, "setupFlow.cleanup.previousAttemptNotice", { count: 7, provider: "OpenAI" });
+      expectKey(ui, "setupFlow.cleanup.tryMine", { count: nextCount, provider: "OpenAI" });
+      assert.equal(requests.length, 1);
+    }
+    await advance(ui);
+    // Change the current recipient while Cleanup is unmounted. History must still name A.
+    const settings = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+    await React.act(async () =>
+      settings.setState({
+        cleanupMode: "self-hosted",
+        cleanupRemoteUrl: "http://10.0.0.8:9000/v1",
+        cleanupModel: "server-b",
+      })
+    );
+    await ui.click("setupFlow.back");
+    expectKey(ui, "setupFlow.cleanup.previousAttemptNotice", { count: 7, provider: "OpenAI" });
+    assert.equal(ui.text().includes("setupFlow.cleanup.exampleNotice"), false);
+    assert.equal(ui.text().includes(RESULT), false, "results do not survive departure");
+    assert.equal(ui.text().includes("setupFlow.cleanup.running"), false);
+    assert.equal(ui.byAttr("role", "alert").length, 0, "errors are not session history");
+    assert.equal(requests.length, 1, "Back never reissues the old request");
+    if (outcome === "pending") {
+      await React.act(async () => settle.resolve("Stale A result."));
+      assert.equal(ui.text().includes("Stale A result."), false);
+      assert.equal(requests.length, 1);
+    }
+    expectKey(ui, "setupFlow.cleanup.previousAttemptNotice", { count: 7, provider: "OpenAI" });
+    expectKey(ui, "setupFlow.cleanup.tryMine", { count: nextCount, provider: "10.0.0.8:9000" });
+    assert.equal(requests.length, 1);
+    await ui.click("setupFlow.cleanup.tryMine");
+    assert.equal(requests.length, 2, "fresh named consent positively executes a new operation");
+    assert.equal(requests[1].provider, "lan");
+    assert.ok(requests[1].sentence.includes(nextSentence));
+    assert.ok(ui.text().includes(NEXT_RESULT));
+    assert.equal(ui.text().includes(RESULT), false);
+    const captures = ui.calls.filter(([name]) => name === "personalInference.captureTextOperation");
+    assert.equal(captures.length, 2, "no automatic capture/renewal on re-entry");
+    const inputs = ui.calls.filter(([name]) => name === "personalInference.runTextOperation");
+    assert.equal(
+      inputs[0][1].token === inputs[1][1].token,
+      false,
+      "new operation, no reused capability"
+    );
+    assert.equal(inputs[1][1].request.wordCount, nextCount);
+    for (const content of [SENTENCE, nextSentence, RESULT, NEXT_RESULT, "preview-cleanup-"])
+      assert.equal(
+        JSON.stringify(writes).includes(content),
+        false,
+        "no content or capability is persisted"
+      );
+    assert.equal(
+      writes.some(([key]) => /attempt/i.test(key)),
+      false,
+      "history has no storage key"
+    );
+  });
+}

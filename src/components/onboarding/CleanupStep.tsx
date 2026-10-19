@@ -16,6 +16,12 @@ import {
 import { cleanupErrorKey, type SetupCleanupOperation } from "./cleanupRunner";
 import { RadioCardGroup } from "./RadioCardGroup";
 
+/** Historical disclosure only. This grants no permission to send or retry. */
+export interface CleanupRemoteAttempt {
+  readonly count: number;
+  readonly provider: string;
+}
+
 export interface CleanupStepProps {
   choice: CleanupChoice;
   status: CleanupStatus;
@@ -23,6 +29,8 @@ export interface CleanupStepProps {
   userText: string | null;
   route: ResolvedRoute;
   providerLabel: string;
+  lastRemoteAttempt: CleanupRemoteAttempt | null;
+  onRemoteAttempt(attempt: CleanupRemoteAttempt): void;
   selection: TextOperationDescriptor | null;
   isSelectionCurrent(selection: TextOperationDescriptor): boolean;
   runCleanup(
@@ -61,19 +69,19 @@ export function CleanupStep(props: CleanupStepProps) {
   if (context.current.fingerprint !== fingerprint)
     context.current = { fingerprint, generation: context.current.generation + 1 };
   const identity = context.current;
-  const [lastRemoteAttempt, setLastRemoteAttempt] = useState<{
-    generation: number;
-    count: number;
-    provider: string;
-  } | null>(null);
   const { t } = useTranslation();
   const situation = cleanupSituation(props.choice, props.status, route);
   const now =
     situation === "ready"
-      ? t("setupFlow.cleanup.now.ready", {
-          name: route.model ?? providerLabel,
-          provider: providerLabel,
-        })
+      ? t(
+          route.locality === "network"
+            ? "setupFlow.cleanup.now.readyNetwork"
+            : "setupFlow.cleanup.now.ready",
+          {
+            name: route.model ?? providerLabel,
+            provider: providerLabel,
+          }
+        )
       : t(`setupFlow.cleanup.now.${situation}`, { provider: providerLabel });
   const showRouteState =
     props.choice !== "none" && props.status === "ready" && route.state.status !== "off";
@@ -100,11 +108,6 @@ export function CleanupStep(props: CleanupStepProps) {
           providerLabel={providerLabel}
           selection={selection}
           isContextCurrent={() => context.current === identity}
-          lastRemoteAttempt={lastRemoteAttempt}
-          generation={identity.generation}
-          onRemoteAttempt={(count, provider) =>
-            setLastRemoteAttempt({ generation: identity.generation, count, provider })
-          }
         />
       </section>
       {props.choice === "codex" ? (
@@ -129,9 +132,6 @@ export function CleanupStep(props: CleanupStepProps) {
 function CleanupContext(
   props: CleanupStepProps & {
     isContextCurrent(): boolean;
-    generation: number;
-    lastRemoteAttempt: { generation: number; count: number; provider: string } | null;
-    onRemoteAttempt(count: number, provider: string): void;
   }
 ) {
   const { choice, status, userText, route, providerLabel, selection, runCleanup } = props;
@@ -152,7 +152,7 @@ function CleanupContext(
     props.isSelectionCurrent(selection);
   const admit = () => {
     if (!mayAdmit || owner.current || !current()) return;
-    if (!onDevice) props.onRemoteAttempt(countWords(sentence), providerLabel);
+    if (!onDevice) props.onRemoteAttempt({ count: countWords(sentence), provider: providerLabel });
     setRun(null);
     setAttempt({ running: true, error: null });
     let operation: SetupCleanupOperation;
@@ -278,7 +278,7 @@ function CleanupContext(
           {t(onDevice ? "setupFlow.cleanup.localExampleNotice" : "setupFlow.cleanup.exampleNotice")}
         </p>
       ) : null}
-      {props.lastRemoteAttempt && props.lastRemoteAttempt.generation !== props.generation ? (
+      {props.lastRemoteAttempt && !attempt ? (
         <p className="onb-muted">
           {t("setupFlow.cleanup.previousAttemptNotice", {
             count: props.lastRemoteAttempt.count,

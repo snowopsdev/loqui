@@ -4504,6 +4504,7 @@
         "off": "Cleanup is off. Your words stay exactly as you said them.",
         "checking": "Checking that cleanup is available…",
         "ready": "Cleanup is on with {{name}}.",
+        "readyNetwork": "A limpeza de texto está ativada com {{name}} em {{provider}}.",
         "needsKey": "Add your {{provider}} key in Settings to turn cleanup on. Until then, your words stay as you said them.",
         "needsConnection": "Connect ChatGPT above to turn cleanup on. Until then, your words stay as you said them.",
         "needsModel": "The local cleanup model isn't on this device yet. Download it in Settings, Language Models (1.3 GB).",

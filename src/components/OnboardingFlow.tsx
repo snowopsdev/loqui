@@ -83,7 +83,7 @@ import { VoiceStep } from "./onboarding/VoiceStep";
 import { DownloadChip } from "./onboarding/DownloadChip";
 import { useResolvedRoute } from "../lib/routes";
 import { providerDisplayLabel } from "../lib/locality";
-import { CleanupStep } from "./onboarding/CleanupStep";
+import { CleanupStep, type CleanupRemoteAttempt } from "./onboarding/CleanupStep";
 import { createSetupCleanupOperation } from "./onboarding/cleanupRunner";
 import {
   captureSetupCleanupSelection,
@@ -728,6 +728,10 @@ export default function OnboardingFlow({
   const [reuseCleanup, setReuseCleanup] = useState(
     () => localStorage.getItem(reuseStorageKey) === "true"
   );
+  // Setup-session disclosure survives step unmounts. No content, result,
+  // running state, consent or operation authority is retained here.
+  const [lastCleanupRemoteAttempt, setLastCleanupRemoteAttempt] =
+    useState<CleanupRemoteAttempt | null>(null);
   const cleanupRoute = useResolvedRoute("dictationCleanup");
   const choiceProviderId =
     cleanupChoice === "codex"
@@ -783,6 +787,8 @@ export default function OnboardingFlow({
             userText={lastTake?.rawText ?? lastTake?.text ?? null}
             route={cleanupRoute}
             providerLabel={cleanupProviderLabel}
+            lastRemoteAttempt={lastCleanupRemoteAttempt}
+            onRemoteAttempt={setLastCleanupRemoteAttempt}
             selection={cleanupSelection}
             isSelectionCurrent={isSetupCleanupSelectionCurrent}
             runCleanup={createSetupCleanupOperation}

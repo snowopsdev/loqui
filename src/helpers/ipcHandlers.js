@@ -8061,10 +8061,6 @@ class IPCHandlers {
       },
     });
 
-    const fromControlPanel = (event) => {
-      const panel = this.windowManager.controlPanelWindow;
-      return Boolean(panel && !panel.isDestroyed() && event.sender === panel.webContents);
-    };
     const watchedMeetingOwners = new WeakSet();
     ipcMain.on("meeting-recording-presence", (event, payload) => {
       if (!fromControlPanel(event)) return;

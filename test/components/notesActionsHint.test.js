@@ -34,7 +34,12 @@ const route = (over = {}) => makeRoute({ id: "noteFormatting", ...over });
 
 async function viewHarness(t) {
   installBrowserGlobals(t);
-  const vite = await createRendererServer(t, { resolveAlias: { "@": path.join(root, "src") } });
+  const vite = await createRendererServer(t, {
+    resolveAlias: { "@": path.join(root, "src") },
+    mockModules: {
+      "/ui/notices": "export const notify = () => { throw Error('unexpected notice'); };",
+    },
+  });
   const i18n = (await vite.ssrLoadModule("/i18n.ts")).default;
   await i18n.changeLanguage("en");
   const { NotesActionsHint } = await vite.ssrLoadModule("/components/notes/NotesActionsHint.tsx");
@@ -275,7 +280,12 @@ async function notesHarness(t) {
   });
   const container = installHookDom(t);
   container.style = {};
-  const vite = await createRendererServer(t, { resolveAlias: { "@": path.join(root, "src") } });
+  const vite = await createRendererServer(t, {
+    resolveAlias: { "@": path.join(root, "src") },
+    mockModules: {
+      "/ui/notices": "export const notify = () => { throw Error('unexpected notice'); };",
+    },
+  });
   const i18n = (await vite.ssrLoadModule("/i18n.ts")).default;
   await i18n.changeLanguage("en");
   const Component = (await vite.ssrLoadModule("/components/notes/PersonalNotesView.tsx")).default;
@@ -291,16 +301,6 @@ async function notesHarness(t) {
     noteFormattingCloudMode: "byok",
   });
   await actions.initializeActions();
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
-  const toast = {
-    toast() {
-      throw Error("unexpected toast");
-    },
-    dismiss() {},
-    dismissByPresentation() {},
-    toastCount: 0,
-    dictationErrorActionCount: 0,
-  };
   let tree,
     opened = [];
   function Harness() {
@@ -310,9 +310,7 @@ async function notesHarness(t) {
   host = createRoot(container);
   const mount = () =>
     React.act(async () => {
-      host.render(
-        React.createElement(ToastContext.Provider, { value: toast }, React.createElement(Harness))
-      );
+      host.render(React.createElement(Harness));
       await new Promise((r) => setTimeout(r, 0));
     });
   await mount();

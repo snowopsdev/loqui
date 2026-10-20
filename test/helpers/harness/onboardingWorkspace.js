@@ -33,14 +33,15 @@ export default function Host() {
   "/hooks/useHotkey": "export function useHotkey() { return {hotkey:'F7'}; }",
   "/hooks/useGpuBannerAvailability": "export function useGpuBannerAvailability() { return {}; }",
   "/hooks/useCollapsibleSidebar":
-    "export function useCollapsibleSidebar() { return {collapsed:false}; }",
-  "/controlPanelNav": "export function useControlPanelNavItems() { return []; }",
+    "export function useCollapsibleSidebar() { return {mode:'expanded',toggle(){}}; }",
+  "/controlPanelNav":
+    "export function useControlPanelNavItems() { return []; } export const viewTitleKey = view => view;",
   "/ControlPanelSidebar": `export default function Sidebar(props) { globalThis.__workspace.nav=props; return null; }`,
   "/ControlPanelTopBar": `import React from 'react'; export default function Bar({actions}) {return React.createElement('div',null,actions);}`,
   "/SettingsModal": `import React from 'react'; export default function Settings({initialSection}) {return React.createElement('div',{'data-settings-path':initialSection},'Settings');}`,
   "/HistoryView": NULL,
   "/notes/BackgroundActionNoticeListener": NULL,
-  "/notes/NewNoteMenu": NULL,
+  "/CaptureControl": NULL,
   "/CommandSearch": NULL,
   "/ConversationList": `export default function List(props) {globalThis.__workspace.conversations=props;return null;}`,
   "/ChatEmptyIllustration": "export function ChatEmptyIllustration() {return null;}",
@@ -126,6 +127,11 @@ async function workspace(t, { firstLaunch = false, realSettings = false } = {}) 
   });
   const listeners = new Map();
   const ui = await mountComponent(t, "/Task19Host", {
+    // Real NoteEditor imports the toolbar helper; ProseMirror inspects the DOM
+    // before rendering even though the document editor itself is a fixture leaf.
+    beforeImport: () => {
+      globalThis.document.documentElement.style = {};
+    },
     mocks: realSettings
       ? Object.fromEntries(
           Object.entries({

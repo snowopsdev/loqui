@@ -222,12 +222,12 @@ Mention links keep people on the `mention:` scheme and store note, meeting, dict
 A nonempty editable selection outside code blocks offers Bold, Italic, Link and Ask AI. Formatting survives the Markdown save cycle; no Highlight mark is offered. Newly entered links accept web or email addresses and bare domains; an empty address removes the link. Existing relative, anchor, phone and FTP links retain the default Link load policy. Clicking links edits rather than opening them. The URL field stays LTR and keeps its caret when clicked. Bubble and suggestion chrome never pull focus back into the document.
 
 Ask AI places a quote of at most 280 characters in the visible note chat and never sends. A hidden chat opens floating; a sidebar stays docked. One lazily mounted composer persists across dock, undock, hide and reopen, retaining newer words and Restore/Discard text without replaying a seed. Hiding disarms its existing queue before idle effects, stops voice drafts and prevents hidden focus or submission; it does not cancel an admitted chat response. The note owner key still ends that composer's lifetime. Bubble controls use full opaque focus rings, AI text uses `text-ai-text`, and the entry fade uses only shared instant/enter opacity motion, including reduced motion. Light uses the existing glass shadow; Plum uses the elevated shadow.
+
 ### Brand and setup headings
 
 - **Display** (700, 40px, 1.15 line-height, -0.025em tracking): Global h1 scale where a page title is genuinely the display heading.
 - **Headline** (600, 1.15 line-height, -0.025em tracking): h2 through h6; size is assigned by the specific screen.
 - **Onboarding title** (650, 36px, 1.1 line-height, -0.025em tracking): The setup rail heading; 22px in windows under 760px.
-
 
 ### Named Rules
 
@@ -1168,6 +1168,7 @@ can still reach the current owner; retired/lost owners cannot publish. Legacy
 unlabeled controls can address only a same-sender unlabeled record and never fall
 back against a labeled attempt. This boundary is connection ownership, without
 adding Plan04 recording, hold, Undo or Task22 integration authority.
+
 ### Workspace · Next-message model and recorded answers
 
 Chat and the note editor’s visible Ask AI composer disclose the next message’s destination and model with Plan 03’s `RouteDestinationChip`. Non-ready routes add `RouteStateChip`; unknown stays neutral “Checking…”, and blocked network and remote routes show the existing Sealed state. The whole read-only chip opens that route’s Settings path. Model text may truncate; state words wrap and stay visible. Text uses the shared 12px caption floor, and keyboard focus uses a full opaque 2px ring.

@@ -91,8 +91,7 @@ async function mount(
       "const noop = () => {}; const dialog = { open: false }; const value = { confirmDialog: dialog, alertDialog: dialog, showConfirmDialog: noop, showAlertDialog: noop, hideConfirmDialog: noop, hideAlertDialog: noop }; export const useDialogs = () => value;",
     "/hooks/useCreateNote":
       "export let creates = 0; const createNote = async () => { creates++; }; export const useCreateNote = () => ({ createNote });",
-    "/ui/useToast":
-      "export const toasts = []; const toast = (value) => toasts.push(value); const value = { toast }; export const useToast = () => value;",
+    "/ui/notices": "export const toasts = []; export const notify = (value) => toasts.push(value);",
   };
   for (const name of [
     "ControlPanelSidebar",
@@ -108,7 +107,7 @@ async function mount(
     "notes/PersonalNotesView",
     "notes/MeetingRecordingPill",
     "CaptureControl",
-    "notes/BackgroundActionToastListener",
+    "notes/BackgroundActionNoticeListener",
     "notes/UploadAudioView",
     "chat/ChatView",
   ]) {
@@ -210,7 +209,7 @@ async function mount(
     chat: () => find(tree, (node) => typeof node.props?.onRequestHandled === "function")?.props,
     palette: () => find(tree, (node) => !!node.props?.onConversationSelect).props,
     view: () => find(tree, (node) => !!node.props?.onViewChange).props.activeView,
-    toasts: (await vite.ssrLoadModule("/components/ui/useToast")).toasts,
+    toasts: (await vite.ssrLoadModule("/components/ui/notices")).toasts,
   };
 }
 
@@ -343,7 +342,7 @@ test("final EmbeddedChat tool cards use the real shell/store authority and calle
   assert.equal(h.notes.getNoteNavigationGeneration(), generation);
   const before = reads;
   await React.act(async () =>
-    h.toasts.find((value) => value.title === "workspace.noteLoadError").action.props.onClick()
+    h.toasts.find((value) => value.title === "workspace.noteLoadError").actions[0].onClick()
   );
   assert.equal(reads, before, "old caller Retry cannot read again");
 });
@@ -389,8 +388,8 @@ test("final restore failure keeps saved target and offers a truthful localized R
   assert.equal(h.notes.getActiveNoteIdValue(), null);
   assert.equal(h.toasts.length, 1);
   assert.equal(h.toasts[0].title, "workspace.noteLoadError");
-  assert.equal(h.toasts[0].action.props.children, "common.retry");
-  await React.act(async () => h.toasts[0].action.props.onClick());
+  assert.equal(h.toasts[0].actions[0].label, "common.retry");
+  await React.act(async () => h.toasts[0].actions[0].onClick());
   assert.equal(h.notes.getActiveNoteIdValue(), 999);
   assert.equal(h.storage.getItem("workspace.lastNoteId"), "999");
 });
@@ -456,7 +455,7 @@ test("palette transcript focus resets Home filters and missing notes show the lo
   assert.equal(h.home.useHomeViewStore.getState().filter, "all");
   assert.equal(h.home.useHomeViewStore.getState().query, "");
   await React.act(async () => h.palette().onNoteSelect(404));
-  assert.deepEqual(h.toasts, [{ title: "workspace.noteMissing" }]);
+  assert.deepEqual(h.toasts, [{ kind: "notice", title: "workspace.noteMissing" }]);
 });
 
 test("chat request seed types preserve queue reset versus focus semantics without sending", async () => {
@@ -648,11 +647,11 @@ for (const folder of [2, null]) {
       );
       assert.equal(h.storage.getItem("workspace.lastNoteId"), null);
       assert.equal(h.toasts.at(-1).title, "workspace.noteLoadError");
-      assert.equal(h.toasts.at(-1).action.props.children, "common.retry");
-      await React.act(async () => h.toasts.at(-1).action.props.onClick());
+      assert.equal(h.toasts.at(-1).actions[0].label, "common.retry");
+      await React.act(async () => h.toasts.at(-1).actions[0].onClick());
       assert.equal(h.notes.getActiveNoteIdValue(), null, "Retry rejection preserves overview");
       assert.ok(h.selectionWrites.every((value) => value === null));
-      await React.act(async () => h.toasts.at(-1).action.props.onClick());
+      await React.act(async () => h.toasts.at(-1).actions[0].onClick());
       assert.equal(h.notes.getActiveNoteIdValue(), 500);
       assert.equal(h.storage.getItem("workspace.lastNoteId"), "500");
       assert.equal(reads, 3);

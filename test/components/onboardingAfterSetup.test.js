@@ -27,10 +27,11 @@ export default function Host() {
   "/settings/UpdateSettings": NULL,
   "/preview/BrowserPreview": NULL,
   "/hooks/useSettings": "export function useSettings() { return {useCleanupModel: false}; }",
+  "/hooks/useCaptureStatus": "export const useCaptureStatus = () => ({kind: 'ready'});",
   "/hooks/useHotkey": "export function useHotkey() { return {hotkey: 'F7'}; }",
   "/hooks/useGpuBannerAvailability": "export function useGpuBannerAvailability() { return {}; }",
   "/hooks/useCollapsibleSidebar":
-    "export function useCollapsibleSidebar() { return {collapsed:false}; }",
+    "export function useCollapsibleSidebar() { return {mode:'expanded',toggle(){}}; }",
   "/hooks/useDialogs": `const dialog = {open:false}; export function useDialogs() {
 return {confirmDialog:dialog, alertDialog:dialog}; }`,
   "/stores/transcriptionStore": `export const useTranscriptions = () => [];
@@ -41,20 +42,22 @@ export function updateTranscription() {} export function clearTranscriptions() {
 export const useActiveContext = () => ({spaceId:1, folderId:2});
 export function initializeNotes() {} export function navigateToContainer() {}
 export function setActiveFolderId() {} export function setActiveNoteId(id) { globalThis.__handoff.noteIds.push(id); }
-export function setActiveContext() {} export function revealContainer() {}`,
+export function setActiveContext() {} export function revealContainer() {}
+export const useActiveNote = () => null; export const useActiveFolderId = () => null; const folders = []; export const useFolders = () => folders; export const initializeNotesTree = async () => {}; export const invalidatePendingNoteNavigation = () => {}; export const openNoteById = async () => {}; export const restoreLaunchNote = async () => {};`,
   "/stores/meetingRecordingStore": `const state = {isRecording:false, recordingNoteId:42, recordingFolderId:2};
 export const useMeetingRecordingStore = s => s({...state, isRecording:globalThis.__handoff.live});
+useMeetingRecordingStore.getState = () => ({...state, isRecording:globalThis.__handoff.live});
 export const useIsMeetingMode = () => false; export const useIsNarrowWindow = () => false;
 export async function startRecording(options) { globalThis.__handoff.recordings.push(options); return true; }`,
   "/SettingsModal": `import React from "react"; export default function Settings({initialSection}) {
 return React.createElement('div', {'data-settings-path': initialSection}, 'Settings'); }`,
-  "/controlPanelNav": `export function useControlPanelNavItems() { return []; }`,
+  "/controlPanelNav": `export function useControlPanelNavItems() { return []; } export const viewTitleKey = view => view;`,
   "/ControlPanelSidebar": NULL,
   "/ControlPanelTopBar": NULL,
   "/MeetingRecordingMount": `import React from 'react'; export default function Recorder() {
 return React.createElement('div', {'data-original-recorder': '42'}, 'Original live recording'); }`,
   "/notes/MeetingRecordingPill": NULL,
-  "/notes/NewNoteMenu": NULL,
+  "/CaptureControl": NULL,
   "/HistoryView": NULL,
   "/FinishDictationSetupCard": NULL,
   "/notes/BackgroundActionNoticeListener": NULL,

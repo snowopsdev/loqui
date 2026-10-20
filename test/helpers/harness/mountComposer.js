@@ -6,11 +6,10 @@ const {
   installBrowserGlobals,
   installHookDom,
 } = require("../../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("./rendererMocks");
+const { rendererOptions } = require("./rendererMocks");
 const { installTree } = require("./fakeDomTree");
 
 const MOCKS = {
-  "/ui/useToast": TOAST_MOCK,
   "/useVoiceDraft": `export const useVoiceDraft = props => (globalThis.__composerVoiceTranscript = props.onTranscript, { status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
 };
 

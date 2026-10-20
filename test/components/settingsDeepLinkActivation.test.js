@@ -94,21 +94,24 @@ async function mount(t, { acknowledge = async () => true } = {}) {
       "/settings/SettingsSearchField":
         "import {forwardRef} from 'react'; export const SettingsSearchField = forwardRef(function F(){return null});",
       "/hooks/useDialogs": `const noop=()=>{}; const dialogs={confirmDialog:{open:false},alertDialog:{open:false},showConfirmDialog:noop,showAlertDialog:noop,hideConfirmDialog:noop,hideAlertDialog:noop}; export const useDialogs=()=>dialogs;`,
+      "/hooks/useCaptureStatus": "export const useCaptureStatus = () => ({kind: 'ready'});",
       "/hooks/useHotkey": "export const useHotkey=()=>({hotkey:'fixture'});",
 
       "/hooks/useSettings": "export const useSettings=()=>({useCleanupModel:false});",
-      "/hooks/useCollapsibleSidebar": "export const useCollapsibleSidebar=()=>({collapsed:false});",
+      "/hooks/useCollapsibleSidebar":
+        "export const useCollapsibleSidebar=()=>({mode:'expanded',toggle(){}});",
       "/stores/settingsStore":
         "const settings={}; export const getSettings=()=>settings; export const useSettingsStore=Object.assign(selector=>selector(settings),{getState:()=>settings,subscribe:()=>()=>{}});",
       "/stores/transcriptionStore":
         "export const useTranscriptions=()=>[];export const useShowDiscarded=()=>false;export const initializeTranscriptions=async()=>{};export const clearTranscriptions=()=>{};export const removeTranscription=()=>{};export const updateTranscription=()=>{};",
       "/stores/meetingRecordingStore":
         "export const useIsMeetingMode=()=>false;export const useIsNarrowWindow=()=>false;export const useMeetingRecordingStore=selector=>selector({recordingNoteId:null,recordingFolderId:null});",
-      "/controlPanelNav": "export const useControlPanelNavItems=()=>[];",
+      "/controlPanelNav":
+        "export const useControlPanelNavItems=()=>[]; export const viewTitleKey = view => view;",
       "/hooks/useCreateNote": "export const useCreateNote=()=>({createNote:async()=>{}});",
       "/hooks/useGpuBannerAvailability": "export const useGpuBannerAvailability=()=>false;",
       "/stores/noteStore":
-        "export const initializeNotes=()=>{};export const navigateToContainer=()=>{};export const setActiveFolderId=()=>{};export const setActiveNoteId=()=>{};export const useActiveNoteId=()=>null;",
+        "export const initializeNotes=()=>{};export const navigateToContainer=()=>{};export const setActiveFolderId=()=>{};export const setActiveNoteId=()=>{};export const useActiveNoteId=()=>null;export const useActiveNote = () => null; export const useActiveFolderId = () => null; const folders = []; export const useFolders = () => folders; export const initializeNotesTree = async () => {}; export const invalidatePendingNoteNavigation = () => {}; export const openNoteById = async () => {}; export const restoreLaunchNote = async () => {};",
       "/utils/platform": "export const getCachedPlatform=()=> 'linux';",
       "/helpers/translationChain":
         "export const executeTranslationChain=()=>{};export const hasTextContent=()=>false;export const shouldRunTranslateStep=()=>false;",
@@ -117,7 +120,7 @@ async function mount(t, { acknowledge = async () => true } = {}) {
       "/ControlPanelTopBar": "export default function TopBar(){return null}",
       "/MeetingRecordingMount": "export default function MeetingRecordingMount(){return null}",
       "/notes/MeetingRecordingPill": "export default function Pill(){return null}",
-      "/notes/NewNoteMenu": "export default function Menu(){return null}",
+      "/CaptureControl": "export default function Menu(){return null}",
       "/notes/BackgroundActionNoticeListener": "export default function Listener(){return null}",
       "/FinishDictationSetupCard": "export default function Finish(){return null}",
     },

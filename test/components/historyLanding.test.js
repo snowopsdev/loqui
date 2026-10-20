@@ -112,7 +112,6 @@ async function mountHistory(t) {
   const container = new Node("div");
   document.body.appendChild(container);
   const scrolls = [],
-    notices = [],
     requests = [],
     copies = [],
     pending = new Map(),
@@ -141,11 +140,16 @@ async function mountHistory(t) {
       resources: { en: { translation: require("../../src/locales/en/translation.json") } },
       interpolation: { escapeValue: false },
     });
-  const vite = await createRendererServer(t);
+  const vite = await createRendererServer(t, {
+    mockModules: {
+      "/ui/notices":
+        "export const notices = []; export const notify = value => notices.push(value);",
+    },
+  });
   const { default: HistoryView } = await vite.ssrLoadModule("/components/HistoryView.tsx");
   const home = await vite.ssrLoadModule("/stores/homeViewStore.ts");
   const store = await vite.ssrLoadModule("/stores/transcriptionStore.ts");
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
+  const { notices } = await vite.ssrLoadModule("/components/ui/notices");
   home.useHomeViewStore.setState({
     query: "",
     filter: "all",
@@ -161,29 +165,25 @@ async function mountHistory(t) {
   root = createRoot(container);
   function Host() {
     const history = store.useTranscriptions();
-    return React.createElement(
-      ToastContext.Provider,
-      { value: { toast: (notice) => notices.push(notice) } },
-      React.createElement(HistoryView, {
-        key,
-        history,
-        capture: { kind: "ready" },
-        isLoading: loading,
-        hotkey: "Ctrl+Space",
-        aiCTADismissed: true,
-        useCleanupModel: false,
-        showDiscarded: false,
-        setAiCTADismissed() {},
-        copyToClipboard: (text) => copies.push(text),
-        deleteTranscription() {},
-        clearAllTranscriptions() {},
-        onOpenSettings() {},
-        onOpenIntegrations() {},
-        onShowAudioInFolder() {},
-        onRetryTranscription: async () => {},
-        onToggleDiscarded() {},
-      })
-    );
+    return React.createElement(HistoryView, {
+      key,
+      history,
+      capture: { kind: "ready" },
+      isLoading: loading,
+      hotkey: "Ctrl+Space",
+      aiCTADismissed: true,
+      useCleanupModel: false,
+      showDiscarded: false,
+      setAiCTADismissed() {},
+      copyToClipboard: (text) => copies.push(text),
+      deleteTranscription() {},
+      clearAllTranscriptions() {},
+      onOpenSettings() {},
+      onOpenIntegrations() {},
+      onShowAudioInFolder() {},
+      onRetryTranscription: async () => {},
+      onToggleDiscarded() {},
+    });
   }
   const render = () => React.act(async () => root.render(React.createElement(Host)));
   await render();

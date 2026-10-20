@@ -7,7 +7,7 @@ const {
   installBrowserGlobals,
   installHookDom,
 } = require("../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
 const { installTree } = require("../helpers/harness/fakeDomTree");
 
 const OLD = { id: 9, title: "Synthetic typography note", note_type: "personal" };
@@ -85,7 +85,6 @@ async function mount(t) {
   const vite = await createRendererServer(
     t,
     rendererOptions("loqui-context-intent-", {
-      "/ui/useToast": TOAST_MOCK,
       "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0 });`,
       "/useMentionSources": `import { useRef } from "react"; export const useMentionSources = () => useRef(globalThis.__contextIntentFixture.sources);`,
       "/ConversationList": `export default function ConversationList() { return null; }`,

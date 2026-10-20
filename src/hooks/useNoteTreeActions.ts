@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useToast } from "../components/ui/useToast";
+import { notify } from "../components/ui/notices";
 import {
   createFolder,
   getNoteFromStore,
@@ -16,7 +16,6 @@ import type { NoteMoveTarget } from "./useNoteDragAndDrop";
 
 export function useNoteTreeActions() {
   const { t } = useTranslation();
-  const { toast } = useToast();
   const folders = useFolders();
   const spaces = useSpaces();
   const privateSpaceId = useMemo(
@@ -71,21 +70,21 @@ export function useNoteTreeActions() {
             generation
           );
         } else {
-          toast({
+          notify({
+            kind: "alert",
             title: t("notes.folders.couldNotCreate"),
-            description: result.error || t("common.error"),
-            variant: "destructive",
+            body: result.error || t("common.error"),
           });
         }
       } catch (error) {
-        toast({
+        notify({
+          kind: "alert",
           title: t("notes.folders.couldNotCreate"),
-          description: String(error),
-          variant: "destructive",
+          body: String(error),
         });
       }
     },
-    [privateSpaceId, onMoveNote, toast, t]
+    [privateSpaceId, onMoveNote, t]
   );
 
   return { onDeleteNote, onMoveNote, onMoveToFolder, onCreateFolderAndMove };

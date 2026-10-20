@@ -81,6 +81,11 @@ test("mounted menu wraps arrows, resets filtering, consumes disabled choices and
   installBrowserGlobals(t);
   installHookDom(t);
   const tree = installTree();
+  // The integrated tree resolves real rows on the first passive effect too.
+  // Supply only the DOM scrolling leaf before mount; keep the later visibility assertion.
+  const createElement = globalThis.document.createElement;
+  globalThis.document.createElement = (...args) =>
+    Object.assign(createElement(...args), { scrollIntoView() {} });
   const { SlashMenu } = await load();
   const ref = React.createRef();
   const picked = [];

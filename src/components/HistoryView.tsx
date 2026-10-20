@@ -33,7 +33,7 @@ import {
   useHomeViewStore,
 } from "../stores/homeViewStore";
 import { retainTranscriptionForLanding } from "../stores/transcriptionStore";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
 
 // Behavioural window shared with --motion-dwell-ring.
 const HISTORY_RING_MS = 1200;
@@ -89,7 +89,6 @@ export default function HistoryView({
   const next = useMemo(() => nextUpcomingEvent(events, now), [events, now]);
 
   const { filter, query, focusTranscriptId, focusNonce } = useHomeViewStore();
-  const { toast } = useToast();
   const recentNotes = useRecentNotes(50);
   const feed = useMemo(
     () => buildHomeFeed({ transcriptions: history, notes: recentNotes, filter, query }),
@@ -218,7 +217,7 @@ export default function HistoryView({
         if (!ownsRequest()) return;
         if (!fetched || fetched.deleted_at) {
           if (!ownsRequest()) return;
-          toast({ title: t("home.history.olderMissing") });
+          notify({ kind: "notice", title: t("home.history.olderMissing") });
           return;
         }
         if (!ownsRequest()) return;

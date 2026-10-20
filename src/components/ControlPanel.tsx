@@ -185,11 +185,16 @@ export default function ControlPanel({
           kind: "alert",
           title: t("workspace.noteLoadError"),
           persistent: true,
-          actions: [{ label: t("common.retry"), keepOpen: true, onClick: async () => {
+          actions: [
+            {
+              label: t("common.retry"),
+              onClick: async () => {
                 const result = await retry();
                 if (lifetime.current && result !== "error" && result !== "superseded")
                   setRestoring(false);
-              } }],
+              },
+            },
+          ],
         }),
     });
     let mounted = true;
@@ -769,11 +774,16 @@ export default function ControlPanel({
         onLoadError: (retry) =>
           notify({
             kind: "alert",
-          title: t("workspace.noteLoadError"),
+            title: t("workspace.noteLoadError"),
             persistent: true,
-            actions: [{ label: t("common.retry"), keepOpen: true, onClick: async () => {
+            actions: [
+              {
+                label: t("common.retry"),
+                onClick: async () => {
                   await retry();
-                } }],
+                },
+              },
+            ],
           }),
       });
     },
@@ -870,34 +880,34 @@ export default function ControlPanel({
 
   return (
     <WorkspaceNavigationProvider value={navigation}>
-    <WorkspacePresentation
-      active={workspaceActive}
-      onInteraction={invalidateActivation}
-      className="h-screen bg-surface-window flex flex-col"
-    >
-      <MeetingRecordingMount />
-      <MeetingRecordingPill
-        workspaceActive={workspaceActive}
-        activeView={activeView}
-        activeNoteId={activeNoteId}
-        onReturnToNote={() => {
-          if (!activeRef.current) {
-            onReturnToWorkspace?.();
-            return;
-          }
-          setActiveView("personal-notes");
-          setActiveFolderId(recordingFolderId);
-          setActiveNoteId(recordingNoteId);
-        }}
-      />
-      <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={hideConfirmDialog}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
-        variant={confirmDialog.variant}
-      />
+      <WorkspacePresentation
+        active={workspaceActive}
+        onInteraction={invalidateActivation}
+        className="h-screen bg-surface-window flex flex-col"
+      >
+        <MeetingRecordingMount />
+        <MeetingRecordingPill
+          workspaceActive={workspaceActive}
+          activeView={activeView}
+          activeNoteId={activeNoteId}
+          onReturnToNote={() => {
+            if (!activeRef.current) {
+              onReturnToWorkspace?.();
+              return;
+            }
+            setActiveView("personal-notes");
+            setActiveFolderId(recordingFolderId);
+            setActiveNoteId(recordingNoteId);
+          }}
+        />
+        <ConfirmDialog
+          open={confirmDialog.open}
+          onOpenChange={hideConfirmDialog}
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          onConfirm={confirmDialog.onConfirm}
+          variant={confirmDialog.variant}
+        />
 
         <AlertDialog
           open={alertDialog.open}
@@ -947,7 +957,10 @@ export default function ControlPanel({
               mode={sidebarMode}
               capture={capture}
               activeView={activeView}
-              onViewChange={(view) => { invalidateActivation(); setActiveView(view); }}
+              onViewChange={(view) => {
+                invalidateActivation();
+                setActiveView(view);
+              }}
               onOpenSettings={navigation.openSettings}
             />
           </div>
@@ -1098,7 +1111,7 @@ export default function ControlPanel({
           </main>
         </div>
         <BackgroundActionNoticeListener />
-    </WorkspacePresentation>
+      </WorkspacePresentation>
     </WorkspaceNavigationProvider>
   );
 }

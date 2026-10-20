@@ -128,6 +128,30 @@ test("recording state is read after save rather than from a stale render", async
   assert.equal(h.meeting.starts.length, 0);
 });
 
+test("expired workspace activation preserves the saved note and releases recording admission", async (t) => {
+  const save = deferred();
+  const h = await mount(t, () => save.promise);
+  let active = true;
+  const pending = h.hook().createNote({ canActivate: () => active });
+  const duplicate = h.hook().createNote();
+  assert.equal(h.saves.length, 1);
+  active = false;
+  save.resolve({ success: true, note });
+  await Promise.all([pending, duplicate]);
+  assert.equal(h.saves.length, 1, "the admitted save completes without another save");
+  assert.deepEqual(h.notes.selections, [], "hidden completion cannot change navigation");
+  assert.equal(h.meeting.starts.length, 0, "hidden completion cannot start capture");
+  active = true;
+  await h.hook().createNote({ canActivate: () => active });
+  assert.equal(h.saves.length, 2, "the expired request releases admission for a new intent");
+  assert.equal(h.meeting.starts.length, 1);
+  assert.deepEqual(h.notes.selections, [
+    ["context", 1, 2],
+    ["reveal", 1, 2],
+    ["note", 9],
+  ]);
+});
+
 test("createNoteIn also defaults to recording and a rejected save releases admission", async (t) => {
   let fail = true;
   const h = await mount(t, async () => {

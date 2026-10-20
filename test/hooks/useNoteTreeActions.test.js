@@ -23,7 +23,6 @@ async function mount(t, overrides = {}) {
   });
   const updates = [];
   const events = [];
-  const toasts = [];
   installBrowserGlobals(t, {
     window: {
       electronAPI: {
@@ -48,6 +47,7 @@ async function mount(t, overrides = {}) {
   const vite = await createRendererServer(t, {
     noExternal: ["react-i18next"],
     mockModules: {
+      "/ui/notices": "export const toasts = []; export const notify = value => toasts.push(value);",
       "react-i18next": "const t = key => key; export const useTranslation = () => ({ t });",
     },
   });
@@ -55,7 +55,7 @@ async function mount(t, overrides = {}) {
   await notes.initializeNotesTree();
   notes.setActiveContext(1, 2);
   notes.setActiveNoteId(9);
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
+  const { toasts } = await vite.ssrLoadModule("/components/ui/notices");
   const { useNoteTreeActions } = await vite.ssrLoadModule("/hooks/useNoteTreeActions.ts");
   const guard = await vite.ssrLoadModule("/stores/noteDeleteGuard.ts");
   let hook;
@@ -64,15 +64,7 @@ async function mount(t, overrides = {}) {
     return null;
   }
   root = createRoot(container);
-  await React.act(async () =>
-    root.render(
-      React.createElement(
-        ToastContext.Provider,
-        { value: { toast: (v) => toasts.push(v) } },
-        React.createElement(Probe)
-      )
-    )
-  );
+  await React.act(async () => root.render(React.createElement(Probe)));
   return { hook: () => hook, notes, updates, toasts, events, guard };
 }
 
@@ -104,8 +96,8 @@ test("failed deferred create visibly reports error and leaves note and selection
   assert.deepEqual(h.toasts, [
     {
       title: "notes.folders.couldNotCreate",
-      description: "Fixture disk full",
-      variant: "destructive",
+      body: "Fixture disk full",
+      kind: "alert",
     },
   ]);
   assert.equal(h.updates.length, 0);
@@ -178,10 +170,10 @@ test("failed create without error copy and rejected create still report visibly 
   rejected = true;
   await h.hook().onCreateFolderAndMove(9, "New");
   assert.deepEqual(
-    h.toasts.map((v) => [v.variant, v.description]),
+    h.toasts.map((v) => [v.kind, v.body]),
     [
-      ["destructive", "common.error"],
-      ["destructive", "Error: Fixture failure"],
+      ["alert", "common.error"],
+      ["alert", "Error: Fixture failure"],
     ]
   );
   assert.equal(h.updates.length, 0);

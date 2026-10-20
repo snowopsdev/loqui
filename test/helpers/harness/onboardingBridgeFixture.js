@@ -76,6 +76,7 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
     webContents: Object.assign(new EventEmitter(), {
       id: 1,
       isDestroyed: () => false,
+      isLoading: () => false,
       send: (name, payload) => {
         sent.push([name, payload]);
         if (name === "onboarding-demo-admission")
@@ -89,6 +90,7 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
     webContents: Object.assign(new EventEmitter(), {
       id: 2,
       isDestroyed: () => false,
+      isLoading: () => false,
       send: (name, payload) => setupListeners.get(name)?.({}, payload),
     }),
   };

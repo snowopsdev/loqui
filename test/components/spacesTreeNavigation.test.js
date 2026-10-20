@@ -45,7 +45,6 @@ test("real tree always notifies intentional container activation without redunda
   const notes = await vite.ssrLoadModule("/stores/noteStore.ts");
   await notes.initializeNotesTree();
   notes.navigateToContainer(1, null);
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
   const { default: SpacesTree } = await vite.ssrLoadModule("/components/notes/SpacesTree.tsx");
   const seen = [];
   const props = {
@@ -61,15 +60,7 @@ test("real tree always notifies intentional container activation without redunda
     return null;
   }
   root = createRoot(container);
-  await React.act(async () =>
-    root.render(
-      React.createElement(
-        ToastContext.Provider,
-        { value: { toast() {} } },
-        React.createElement(Probe)
-      )
-    )
-  );
+  await React.act(async () => root.render(React.createElement(Probe)));
   const click = async (predicate) =>
     React.act(async () => {
       const button = find(tree, (n) => n.type === "button" && predicate(n));
@@ -140,7 +131,6 @@ test("sidebar activation delegates an already selected note to workspace navigat
   notes.setActiveContext(1, 2);
   notes.setActiveNoteId(9);
   notes.revealContainer(1, 2);
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
   const { default: SpacesTree } = await vite.ssrLoadModule("/components/notes/SpacesTree.tsx");
   let view = "home";
   const activated = [];
@@ -162,15 +152,7 @@ test("sidebar activation delegates an already selected note to workspace navigat
     return null;
   }
   root = createRoot(container);
-  await React.act(async () =>
-    root.render(
-      React.createElement(
-        ToastContext.Provider,
-        { value: { toast() {} } },
-        React.createElement(Probe)
-      )
-    )
-  );
+  await React.act(async () => root.render(React.createElement(Probe)));
   await React.act(async () => {
     const button = find(tree, (node) => node.type === "button" && text(node) === "Note 9");
     assert.ok(button);

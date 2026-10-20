@@ -388,7 +388,9 @@ export function tableReducer(state: TableState, action: TableAction): TableState
   }
 }
 
-export function cardsFor(state: TableState): TableCardModel[] {
+export function cardsFor(
+  state: Pick<TableState, "board" | "measured" | "overrides" | "sizes">
+): TableCardModel[] {
   if (!state.board) return [];
   return buildCards(state.board.cards, state.measured).map((card) => {
     const o = state.overrides[card.key];

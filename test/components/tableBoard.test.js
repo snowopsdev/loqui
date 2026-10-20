@@ -576,3 +576,18 @@ test("resize ownership: partial ACK settles only submitted keys, newer preview a
   await c.render(2);
   assert.deepEqual(c.h.state.sizes, {});
 });
+
+test("Task10: chrome state keeps card and edge projections stable while geometry still updates", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() });
+  const cards = f.h.cards;
+  const edges = f.h.edges;
+  await act(() => f.h.setViewport({ x: 24, y: 32, scale: 1.2 }, false));
+  await act(() => f.h.dispatch({ type: "select", keys: ["note:1"] }));
+  await act(() => f.h.dispatch({ type: "focus", key: "note:1" }));
+  assert.equal(f.h.cards, cards);
+  assert.equal(f.h.edges, edges);
+  await act(() => f.h.dispatch({ type: "moved", positions: { "note:1": { x: 80, y: 88 } } }));
+  assert.notEqual(f.h.cards, cards);
+  assert.equal(f.h.cards[0].rect.x, 80);
+  assert.equal(f.h.cards[0].rect.y, 88);
+});

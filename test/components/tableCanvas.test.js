@@ -1002,3 +1002,28 @@ test("fix1 clipping cue: fitting/natural cards and resize/cancel/content reflow 
   await m.unmount();
   assert.ok(m.observers.every((o) => o.disconnected));
 });
+
+test("Task10: pan and unrelated card geometry do not rerender unchanged card content", async (t) => {
+  const original = i18n.t;
+  let translations = 0;
+  i18n.t = function (key, ...args) {
+    if (key === "table.kind.note") translations++;
+    return original.call(this, key, ...args);
+  };
+  t.after(() => (i18n.t = original));
+  const f = await mount(t);
+  const initial = translations;
+  const cards = f.current().cards.map((c) => ({ ...c, rect: { ...c.rect } }));
+  await f.render({ cards, viewport: { x: 8, y: 8, scale: 1 } });
+  assert.equal(translations, initial, "unchanged card text should not be regenerated on pan");
+  const changed = cards.map((c, i) =>
+    i === 0
+      ? { ...c, entity: { ...c.entity, title: "Updated source" }, rect: { ...c.rect, w: 320 } }
+      : c
+  );
+  await f.render({ cards: changed, selection: [changed[0].key] });
+  assert.match(f.cardEl(changed[0].key).textContent, /Updated source/);
+  assert.equal(f.cardEl(changed[0].key).style.width, "320px");
+  assert.equal(f.cardEl(changed[0].key).attributes["aria-selected"], "true");
+  assert.ok(translations > initial, "changed source must still render");
+});

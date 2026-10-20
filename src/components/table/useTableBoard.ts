@@ -263,7 +263,13 @@ export function useTableBoard(spaceId: number) {
     },
     [reload, spaceId, dispatch]
   );
-  const cards = useMemo(() => cardsFor(state), [state]);
+  // Chrome-only changes do not change card content or geometry. Preserve the
+  // projection so viewport frames can reuse memoized card subtrees.
+  const { board, measured, overrides, sizes } = state;
+  const cards = useMemo(
+    () => cardsFor({ board, measured, overrides, sizes }),
+    [board, measured, overrides, sizes]
+  );
   const edges = useMemo(
     () => deriveEdges(cards, state.board?.links ?? [], parseEntityHref),
     [cards, state.board?.links]

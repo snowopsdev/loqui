@@ -2,12 +2,30 @@
 // at 100%; the viewport maps them to the screen: screen = world * scale + (x, y).
 // The canvas is spatial like a map, so arrows and coordinates do not mirror in RTL.
 
-export interface Point { x: number; y: number }
-export interface Rect { x: number; y: number; w: number; h: number }
-export interface Viewport { x: number; y: number; scale: number }
-export interface Size { width: number; height: number }
+export interface Point {
+  x: number;
+  y: number;
+}
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export interface Viewport {
+  x: number;
+  y: number;
+  scale: number;
+}
+export interface Size {
+  width: number;
+  height: number;
+}
 export type Direction = "left" | "right" | "up" | "down";
-export interface Placed { id: string; rect: Rect }
+export interface Placed {
+  id: string;
+  rect: Rect;
+}
 
 export const MIN_SCALE = 0.25;
 export const MAX_SCALE = 2;
@@ -42,7 +60,12 @@ export function snapToGrid(n: number, grid: number = GRID): number {
 }
 
 export function normalizeRect(a: Point, b: Point): Rect {
-  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    w: Math.abs(b.x - a.x),
+    h: Math.abs(b.y - a.y),
+  };
 }
 
 export function rectsIntersect(a: Rect, b: Rect): boolean {
@@ -101,7 +124,12 @@ export function ensureVisible(rect: Rect, v: Viewport, size: Size, pad = 24): Vi
   return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
 }
 
-const DIRS: Record<Direction, [number, number]> = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+const DIRS: Record<Direction, [number, number]> = {
+  left: [-1, 0],
+  right: [1, 0],
+  up: [0, -1],
+  down: [0, 1],
+};
 
 export function nearestInDirection(fromId: string, items: Placed[], dir: Direction): string | null {
   const from = items.find((item) => item.id === fromId);
@@ -170,7 +198,9 @@ export function fitViewport(rects: Rect[], size: Size, pad = 48): Viewport {
   const maxY = Math.max(...rects.map((r) => r.y + r.h));
   const bw = Math.max(1, maxX - minX);
   const bh = Math.max(1, maxY - minY);
-  const scale = round3(clampScale(Math.min((size.width - pad * 2) / bw, (size.height - pad * 2) / bh, 1)));
+  const scale = round3(
+    clampScale(Math.min((size.width - pad * 2) / bw, (size.height - pad * 2) / bh, 1))
+  );
   return {
     scale,
     x: round1((size.width - bw * scale) / 2 - minX * scale),

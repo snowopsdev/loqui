@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CalendarDays, MessageSquare, Mic, NotebookPen } from "../icons";
 import { formatMmSs } from "../../utils/formatDuration";
@@ -34,7 +34,7 @@ export interface TableCardProps {
 // Cards are DOM, not canvas pixels, so text stays selectable by assistive tech
 // and inherits theme, zoom and font settings. The dictation glyph is neutral:
 // orange is reserved for live voice (D1).
-export function TableCard({
+function TableCardContent({
   card,
   selected,
   focusable,
@@ -101,7 +101,10 @@ export function TableCard({
       data-dragging={dragging ? "true" : undefined}
       data-snapping={snapping ? "true" : undefined}
       data-sized={card.fixedH != null ? "true" : undefined}
-      aria-label={t("table.card.label", { kind: kindLabel, title: title || excerpt.slice(0, 60) })}
+      aria-label={t("table.card.label", {
+        kind: kindLabel,
+        title: title || excerpt.slice(0, 60),
+      })}
       className="table-card"
       style={{
         left: card.rect.x,
@@ -145,3 +148,25 @@ export function TableCard({
     </div>
   );
 }
+
+// Reuse the text/metadata subtree while another card or the viewport moves.
+export const TableCard = memo(TableCardContent, (previous, next) => {
+  const a = previous.card;
+  const b = next.card;
+  return (
+    a.key === b.key &&
+    a.entity === b.entity &&
+    a.z === b.z &&
+    a.fixedH === b.fixedH &&
+    a.rect.x === b.rect.x &&
+    a.rect.y === b.rect.y &&
+    a.rect.w === b.rect.w &&
+    a.rect.h === b.rect.h &&
+    previous.selected === next.selected &&
+    previous.focusable === next.focusable &&
+    previous.dragging === next.dragging &&
+    previous.snapping === next.snapping &&
+    previous.expanded === next.expanded &&
+    previous.onMeasure === next.onMeasure
+  );
+});

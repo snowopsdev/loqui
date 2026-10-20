@@ -10,6 +10,7 @@ const {
 
 const FAKE_AUDIO_MANAGER_SOURCE = `
 export default class FakeAudioManager {
+  _ownedAudioSnapshot() { return { blob: this.lastAudioBlob ?? null, private: false, sessionId: this.activeSession?.id ?? null }; }
   constructor() {
     this.voiceAgentRequested = false;
     this.translationRequested = false;

@@ -4,12 +4,13 @@ import { useTranslation } from "react-i18next";
 import { useChatStreaming } from "../components/chat/useChatStreaming";
 import { buildAssistantDemoRequest } from "../utils/onboardingDemo";
 import type { ChatImageAttachment, Message } from "../components/chat/types";
-import type { OnboardingDemoEvent } from "../types/electron";
+import type { OnboardingDemoEvent, OnboardingDemoTake } from "../types/electron";
 
 export interface OnboardingAssistantCommand {
   operation?: DictationOperation | null;
   text: string;
   attachment: ChatImageAttachment | null;
+  onboardingTake?: OnboardingDemoTake;
 }
 
 type DemoEventInput = Omit<OnboardingDemoEvent, "demoId" | "kind">;
@@ -24,6 +25,7 @@ export function useOnboardingAssistantDemo(publish: (event: DemoEventInput) => v
   const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
   const repliedRef = useRef(false);
+  const takeByUserId = useRef(new Map<string, OnboardingDemoTake | undefined>());
   const { agentState, activeToolName, sendToAI } = useChatStreaming({
     messages,
     setMessages,
@@ -35,12 +37,20 @@ export function useOnboardingAssistantDemo(publish: (event: DemoEventInput) => v
 
   useEffect(() => {
     if (!reply) return;
+    const userId = messages.find((message) => message.role === "user")?.id;
+    if (!userId || !takeByUserId.current.has(userId)) return;
+    const onboardingTake = takeByUserId.current.get(userId);
     if (!settled) {
-      publish({ status: "replying", text: reply.content, tool: activeToolName || undefined });
+      publish({
+        ...onboardingTake,
+        status: "replying",
+        text: reply.content,
+        tool: activeToolName || undefined,
+      });
     } else if (!repliedRef.current) {
-      publish({ status: "error", message: reply.content });
+      publish({ ...onboardingTake, status: "error", message: reply.content });
     }
-  }, [activeToolName, publish, reply, settled]);
+  }, [activeToolName, messages, publish, reply, settled]);
 
   return useCallback(
     (command: OnboardingAssistantCommand) => {
@@ -56,6 +66,9 @@ export function useOnboardingAssistantDemo(publish: (event: DemoEventInput) => v
         content: request,
         isStreaming: false,
       };
+      const onboardingTake = command.onboardingTake;
+      takeByUserId.current.clear();
+      takeByUserId.current.set(userMessage.id, onboardingTake);
       setMessages([userMessage]);
       void sendToAI(request, [userMessage], {
         attachment: command.attachment ?? undefined,
@@ -63,7 +76,7 @@ export function useOnboardingAssistantDemo(publish: (event: DemoEventInput) => v
         suppressResponseContent: true,
         onComplete: ({ content }) => {
           repliedRef.current = true;
-          publish({ status: "success", text: content });
+          publish({ ...onboardingTake, status: "success", text: content });
         },
       });
     },

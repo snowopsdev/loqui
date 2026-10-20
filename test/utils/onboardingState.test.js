@@ -64,3 +64,77 @@ test("clearing preview state without browser storage does nothing", async () => 
     clearOnboardingPreviewState({ step: "welcome", scenario: "fresh", platform: "linux" })
   );
 });
+
+function stubStorage(t, initial = {}) {
+  const values = new Map(Object.entries(initial));
+  const storage = {
+    getItem: (key) => (values.has(key) ? values.get(key) : null),
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+    key: (index) => [...values.keys()][index] ?? null,
+    get length() {
+      return values.size;
+    },
+  };
+  const previous = globalThis.localStorage;
+  globalThis.localStorage = storage;
+  t.after(() => {
+    globalThis.localStorage = previous;
+  });
+  return values;
+}
+
+test("progress remembers visited steps and drops unknown ones", async (t) => {
+  stubStorage(t, {
+    "loqui.onboarding.progress": JSON.stringify({
+      version: 2,
+      step: "try",
+      explored: false,
+      completed: false,
+      visited: ["welcome", "speech", "bogus", 7],
+    }),
+  });
+  const { readOnboardingProgress, writeOnboardingProgress } =
+    await import("../../src/utils/onboardingState.ts");
+  assert.deepEqual(readOnboardingProgress().visited, ["welcome", "speech"]);
+  assert.deepEqual(writeOnboardingProgress({ visited: ["welcome", "speech", "try"] }).visited, [
+    "welcome",
+    "speech",
+    "try",
+  ]);
+});
+
+test("records written before visited existed still load", async (t) => {
+  stubStorage(t, {
+    "loqui.onboarding.progress": JSON.stringify({
+      version: 2,
+      step: "cleanup",
+      explored: true,
+      completed: false,
+    }),
+  });
+  const { readOnboardingProgress } = await import("../../src/utils/onboardingState.ts");
+  assert.deepEqual(readOnboardingProgress(), {
+    version: 2,
+    step: "cleanup",
+    explored: true,
+    completed: false,
+    visited: [],
+  });
+});
+
+test("every preview scenario round-trips through the URL", async () => {
+  const { ONBOARDING_SCENARIOS, parseOnboardingPreviewConfig } =
+    await import("../../src/utils/onboardingState.ts");
+  for (const scenario of [
+    "accessibility-missing",
+    "nothing-heard",
+    "low-disk",
+    "multilingual",
+    "fresh",
+  ]) {
+    assert.ok(ONBOARDING_SCENARIOS.includes(scenario));
+    assert.equal(parseOnboardingPreviewConfig(`?scenario=${scenario}`).scenario, scenario);
+  }
+  assert.equal(parseOnboardingPreviewConfig("?scenario=nope").scenario, "fresh");
+});

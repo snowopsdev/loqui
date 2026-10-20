@@ -1,3 +1,4 @@
+import { useWorkspaceActive } from "../../hooks/useWorkspaceActive";
 import type { ChatSelection } from "./useChatPersistence";
 import { useChatRouteKey } from "./chatRouteKey";
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
@@ -32,6 +33,7 @@ function NewChatEmptyState() {
 }
 
 export default function ChatView() {
+  const workspaceActive = useWorkspaceActive();
   const { t } = useTranslation();
   const routeKey = useChatRouteKey("chatIntelligence");
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
@@ -117,6 +119,7 @@ export default function ChatView() {
   );
 
   useEffect(() => {
+    if (!workspaceActive) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const mod = platform === "darwin" ? e.metaKey : e.ctrlKey;
       if (mod && e.key === "n") {
@@ -126,7 +129,7 @@ export default function ChatView() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewChat]);
+  }, [handleNewChat, workspaceActive]);
 
   const hasActiveChat =
     activeConversationId !== null || persistence.messages.length > 0 || isNewChat;

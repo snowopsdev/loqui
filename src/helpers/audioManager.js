@@ -16,6 +16,8 @@ import {
   sessionSettings,
   hasUnknownSelectedEnterpriseRecipient,
 } from "./dictationSession";
+import { trialContext } from "../utils/onboardingTrialContext";
+import { createCapturedCleanupOperation } from "../services/capturedCleanupOperation";
 import ReasoningService from "../services/ReasoningService";
 import logger from "../utils/logger";
 
@@ -129,6 +131,7 @@ const MIN_UNIQUE_WORD_GAIN = 2;
 
 const cleanupFailureFromError = (error) => ({
   message: error?.message || String(error),
+  ...(error?.code ? { code: error.code } : {}),
   ...(error?.messageKey ? { messageKey: error.messageKey } : {}),
   ...(error?.messageParams ? { messageParams: error.messageParams } : {}),
   ...(error?.action ? { action: error.action } : {}),
@@ -692,11 +695,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   _emitCancelled(buffer) {
     const state = this._undo?.state();
     if (!state || this._undo.peek() !== buffer) return;
-    this.onCancelledChange?.({
-      sessionId: buffer.session.id,
-      ...state,
-      remoteAlreadySent: buffer.tracker?.get() ?? null,
-    });
+    this.onCancelledChange?.(
+      {
+        sessionId: buffer.session.id,
+        ...state,
+        remoteAlreadySent: buffer.tracker?.get() ?? null,
+      },
+      undefined,
+      buffer.onboardingTake
+    );
   }
 
   _openCancelled(buffer) {
@@ -708,39 +715,48 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async _closeCancelled(buffer, reason, { wait } = {}) {
-    if (reason !== "abandoned")
-      this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason });
-    buffer.tracker?.dispose();
-    buffer.context?.release(); // the press-time reads end with the hold (Task 6)
-    if (reason === "replaced" && this._undo?.peek()) this._emitCancelled(this._undo.peek());
-    // Nothing will be saved: zero now, at the deadline. Copies still in flight are zeroed
-    // when they land (R1-I1). An expired or flushed private hold is never persisted (§5.2).
-    if (buffer.private || !shouldSaveDiscardedRecording(getSettings(), buffer.durationSeconds)) {
-      buffer.zero();
-      return;
-    }
-    // Retention on: wait a bounded time for the final chunk and copies, then save what arrived.
-    await buffer.ready({ until: wait?.(CLOSE_SAVE_WAIT_MS) });
-    const role = buffer.kind === "streaming" ? "fallback" : "segment";
-    const blobs = buffer.bytes(role).map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
-    buffer.zero(); // the Blobs hold their own copies
-    if (blobs.length === 0) return;
-    try {
-      // Disk is allowed here only because retention already saves discarded audio.
-      const merged = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
-      if (merged)
-        await this.saveDiscardedTranscription(
-          merged,
-          buffer.durationSeconds,
-          buffer.analyticsOccurredAt,
-          {
-            private: buffer.private,
-            translationRequested: buffer.session.intents.translationRequested,
-          }
+    return this._trackRecordingWork(async () => {
+      if (reason !== "abandoned")
+        this.onCancelledChange?.(
+          null,
+          { sessionId: buffer.session.id, reason },
+          buffer.onboardingTake
         );
-    } catch (error) {
-      logger.warn("Failed to save discarded recording", { error: error.message }, "audio");
-    }
+      buffer.tracker?.dispose();
+      buffer.context?.release(); // the press-time reads end with the hold (Task 6)
+      if (reason === "replaced" && this._undo?.peek()) this._emitCancelled(this._undo.peek());
+      // Nothing will be saved: zero now, at the deadline. Copies still in flight are zeroed
+      // when they land (R1-I1). An expired or flushed private hold is never persisted (§5.2).
+      if (buffer.private || !shouldSaveDiscardedRecording(getSettings(), buffer.durationSeconds)) {
+        buffer.zero();
+        return;
+      }
+      // Retention on: wait a bounded time for the final chunk and copies, then save what arrived.
+      await buffer.ready({ until: wait?.(CLOSE_SAVE_WAIT_MS) });
+      const role = buffer.kind === "streaming" ? "fallback" : "segment";
+      const blobs = buffer.bytes(role).map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
+      buffer.zero(); // the Blobs hold their own copies
+      if (blobs.length === 0) return;
+      try {
+        // Disk is allowed here only because retention already saves discarded audio.
+        const merged =
+          blobs.length === 1
+            ? blobs[0]
+            : await this.mergeRecordedSegments(blobs, neverCancelled, { private: buffer.private });
+        if (merged)
+          await this.saveDiscardedTranscription(
+            merged,
+            buffer.durationSeconds,
+            buffer.analyticsOccurredAt,
+            {
+              private: buffer.private,
+              translationRequested: buffer.session.intents.translationRequested,
+            }
+          );
+      } catch (error) {
+        logger.warn("Failed to save discarded recording", { error: error.message }, "audio");
+      }
+    });
   }
 
   /** Move the active session, its tracker and its audio into a new buffer; release every other reference. */
@@ -758,6 +774,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     });
     // Privacy was frozen on this session at the recording start; the buffer keeps it through Undo.
     buffer.private = session?.private === true;
+    buffer.recording = this._recordingContext;
+    buffer.onboardingTake = this._onboardingTake;
     this._disclosure = null; // the buffer owns the tracker now
     if (session && this._lastAudioSessionId === session.id) this._setOwnedAudio(null);
     if (this._sessionAudio?.session === session) this._sessionAudio = null;
@@ -853,7 +871,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     (this._restorePreflights ??= new Set()).add(preflight);
     const finishPreflight = () => this._restorePreflights.delete(preflight);
     // §5.2 order: the window closes ("restored"), then processing starts (R1-I6).
-    this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason: "restored" });
+    this.onCancelledChange?.(
+      null,
+      { sessionId: buffer.session.id, reason: "restored" },
+      buffer.onboardingTake
+    );
     this.isProcessing = true;
     this.onStateChange?.({ isRecording: false, isProcessing: true });
 
@@ -913,13 +935,25 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     if (deadline !== null && this._now() >= deadline) return refuse("unavailable", { keep: true }); // main already answered
 
+    let restoredRecording = buffer.recording;
+    try {
+      if (buffer.recording?.restoreOnboardingOwner)
+        restoredRecording = {
+          ...buffer.recording,
+          assertOnboardingOwner: buffer.recording.restoreOnboardingOwner(buffer.session.id),
+        };
+    } catch {
+      return refuse("unavailable", { keep: false });
+    }
     finishPreflight();
     // Task 7 keeps the evidence; Task 6 hands back the press-time selection and screenshot (R1-C2).
     this.applySessionIntents(buffer.session, { tracker: buffer.tracker, context: buffer.context });
     // Preflight claimed busy before a session was attached. Publish again now
     // so useAudioRecording exposes the restored frozen routes to the pill (Task 11).
-    this.onStateChange?.({ isRecording: false, isProcessing: true });
+    this.onStateChange?.({ isRecording: false, isProcessing: true }, buffer.onboardingTake);
     this._recordingPrivate = buffer.private === true; // §5.2: re-applied before processing
+    this._recordingContext = restoredRecording;
+    this._onboardingTake = buffer.onboardingTake;
     this._restoreRun = (
       buffer.kind === "streaming"
         ? this._replayStreamingSession(buffer, generation)
@@ -972,7 +1006,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       generation !== this._restoreGeneration || this._shouldAbandonProcessingPipeline(pipeline);
     let audio;
     try {
-      audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs, wasCancelled);
+      audio =
+        blobs.length === 1
+          ? blobs[0]
+          : await this.mergeRecordedSegments(blobs, wasCancelled, { private: isPrivate });
       if (!audio)
         throw Object.assign(new Error("Undo could not combine the recording"), {
           code: "MERGE_FAILED",
@@ -992,6 +1029,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // R2-C2 / R3-C1: the same recovery ownership as a normal dictation, privacy included, set
     // before any provider or save work. The failure path and Plan 07's _noteSealedFailure read it.
     this._setOwnedAudio(audio, { sessionId: session.id, private: isPrivate });
+    pipeline.recording.ownedAudio = this._ownedAudioSnapshot({
+      sessionId: session.id,
+      private: isPrivate,
+    });
     await this.processAudio(audio, metadata, pipeline);
   }
 
@@ -1123,12 +1164,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       (this._activeStreamingSessionId =
       this._streamingSessionGeneration =
         (this._streamingSessionGeneration ?? 0) + 1);
-    const operation = {
+    const operation = Object.freeze({
       correlationId: session.id,
       dictationSessionId: session.id,
       operationId: crypto.randomUUID(),
-    };
+    });
     this._streamingOperation = operation;
+    const transport = {
+      adapter: provider,
+      operation,
+      name: providerName,
+      closed: false,
+      stopPromise: null,
+    };
+    this._streamingTransport = transport;
     const owns = () =>
       this._activeStreamingSessionId === sessionId && this._streamingOperation === operation;
     // Keep a copy for an Esc mid-replay (Step 4.7) before the buffer is zeroed.
@@ -1159,17 +1208,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this.isStreaming = true;
       this._attachStreamingListeners(sessionId, provider);
       const settings = this.settings();
-      const res = await provider.start({
-        ...buildStreamingSessionOptions({
-          providerName,
-          settings,
-          language: this.getEffectiveSttLanguage(settings),
-          keyterms: this.getKeyterms(),
-          voiceAgentRequested: session.intents.voiceAgentRequested,
-          correlationId: session.id,
-        }),
-        ...operation,
-      });
+      transport.startPromise = Promise.resolve().then(() =>
+        provider.start({
+          ...buildStreamingSessionOptions({
+            providerName,
+            settings,
+            language: this.getEffectiveSttLanguage(settings),
+            keyterms: this.getKeyterms(),
+            voiceAgentRequested: session.intents.voiceAgentRequested,
+            correlationId: session.id,
+          }),
+          ...operation,
+        })
+      );
+      const res = await transport.startPromise;
       started = res?.success === true;
       assertReplayOwner(); // Start may settle after Esc moved all frames into a hold
       if (!res?.success)
@@ -1208,7 +1260,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       provider?.cancel?.(operation);
       if (owns()) this._holdStreamingSession();
       buffer.zero(); // the fresh hold owns the copy; a slow stop must not retain the original
-      if (started) await provider?.stop?.(operation).catch(() => {});
+      if (started) await this._stopStreamingTransport(transport).catch(() => {});
       if (error?.code !== "TRANSCRIPTION_CANCELLED") throw error;
     } finally {
       const owned = owns();
@@ -1223,6 +1275,118 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
       }
       if (owned && this._activeSession === session) this._endDictationSession(session);
+    }
+  }
+
+  // Policy applies only to future admissions. The recorder/pipeline carries its
+  // own privacy through acquisition, retries, completion and delayed callbacks.
+  // Extends the original recorder admission. This is cleanup ownership only;
+  // recording privacy/cancellation and future Plan04 audio/session owners stay put.
+  assertTrialContext(recording) {
+    recording?.assertOnboardingOwner?.();
+    if (!recording?.trialContext) return;
+    if (
+      trialContext(getSettings()) !== recording.trialContext ||
+      (recording.expectedTrialContext && recording.expectedTrialContext !== recording.trialContext)
+    )
+      throw Object.assign(new Error("The recording choices changed. Try a new take."), {
+        code: "TRIAL_CONTEXT_CHANGED",
+      });
+  }
+
+  admitCleanupOperation(take, recording, enabled = true) {
+    if (take?.demoId && typeof take.takeId === "string" && enabled && !recording.trialContext) {
+      recording.trialContext = trialContext(getSettings());
+      recording.expectedTrialContext = take.expectedContext;
+      take.context = recording.trialContext;
+    }
+    if (!take?.demoId || typeof take.takeId !== "string" || !enabled || recording.cleanupOperation)
+      return;
+    this.retireCapturedCleanup();
+    const identity = { demoId: take.demoId, takeId: take.takeId, operationId: crypto.randomUUID() };
+    const settings = getSettings();
+    const language = settings.preferredLanguage;
+    const scriptPreference = settings.chineseScriptPreference;
+    const operation = createCapturedCleanupOperation(identity, undefined, (text) =>
+      applyChineseScript(text, resolveChineseScriptTarget(language, scriptPreference, text))
+    );
+    recording.cleanupOperation = operation;
+    this._retainedCleanupOperation = operation;
+  }
+
+  retireCapturedCleanup(identity) {
+    const operation = this._retainedCleanupOperation;
+    if (
+      !operation ||
+      (identity &&
+        (!["demoId", "takeId", "operationId"].some((key) => typeof identity[key] === "string") ||
+          !["demoId", "takeId", "operationId"].every(
+            (key) => identity[key] === undefined || identity[key] === operation.identity[key]
+          )))
+    )
+      return;
+    this._retainedCleanupOperation = null;
+    operation.retire();
+  }
+
+  async retryCapturedCleanup(request) {
+    const operation = this._retainedCleanupOperation;
+    if (
+      !operation ||
+      !["demoId", "takeId", "operationId"].every((key) => operation.identity[key] === request[key])
+    )
+      return { ...request, code: "CLEANUP_OPERATION_UNAVAILABLE" };
+    try {
+      const text = await operation.retry();
+      return text ? { ...request, text } : { ...request, code: "CLEANUP_FAILED" };
+    } catch (error) {
+      return { ...request, code: error.code || "CLEANUP_FAILED" };
+    }
+  }
+
+  setPrivateSession(enabled) {
+    this._privateSession = enabled === true;
+  }
+
+  _captureRecordingPrivacy(recording = { private: this._privateSession === true }) {
+    this._recordingPrivate = recording.private === true;
+    this._recordingContext = recording;
+    return recording;
+  }
+
+  // Release only the captured owner token, including when sessions reuse a Blob.
+  releasePrivateAudio(owned) {
+    if (owned?.private) this._releaseOwnedAudio(owned);
+  }
+
+  hasPendingRecordingWork() {
+    const state = this.getState();
+    return !!(
+      state.isRecording ||
+      state.isProcessing ||
+      state.isStreaming ||
+      state.isStreamingStartInProgress ||
+      this._startInProgress ||
+      this._streamingStopPromise ||
+      this._activeProcessingPipeline ||
+      this._pendingRecordingWork ||
+      this._retainedCleanupOperation?.isRunning
+    );
+  }
+
+  _trackRecordingWork(run) {
+    this._pendingRecordingWork = (this._pendingRecordingWork ?? 0) + 1;
+    const done = () => {
+      this._pendingRecordingWork -= 1;
+    };
+    try {
+      const result = run();
+      if (result && typeof result.then === "function") return Promise.resolve(result).finally(done);
+      done();
+      return result;
+    } catch (error) {
+      done();
+      throw error;
     }
   }
 
@@ -1243,7 +1407,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.onProcessingStage = onProcessingStage;
     this.onCancelledChange = onCancelledChange;
     this.onNoAudio = onNoAudio;
-    this.onTranscriptionComplete = onTranscriptionComplete;
+    this.onTranscriptionComplete = (...args) =>
+      this._trackRecordingWork(() => onTranscriptionComplete?.(...args));
     this.onPartialTranscript = onPartialTranscript;
     this.onStreamingCommit = onStreamingCommit;
     this.onTranslationFallback = onTranslationFallback;
@@ -1289,8 +1454,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
   }
 
-  async mergeRecordedSegments(segments, wasCancelled = neverCancelled) {
+  async mergeRecordedSegments(
+    segments,
+    wasCancelled = neverCancelled,
+    recording = { private: this._recordingPrivate === true }
+  ) {
     if (wasCancelled()) return null;
+    const privateAudio = recording.private === true;
+    // Retain every original segment on its admitted owner even if conversion
+    // fails, cancellation lands, or a newer owner replaces manager fields.
+    if (privateAudio) recording.originalSegments = Object.freeze([...segments]);
     // Header-only segments carry no audio frames and crash FFmpeg's concat (#871).
     const usable = segments.filter((segment) => segment && !isEmptyRecording(segment.size));
     if (usable.length === 0) return null;
@@ -1341,7 +1514,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       await Promise.all(conversions);
       if (abandoned()) return null;
       // Only this IPC admission begins the already-running-main exception.
-      const result = await window.electronAPI.mergeAudioSegments(payload);
+      const result = await window.electronAPI.mergeAudioSegments(payload, {
+        private: privateAudio,
+      });
       try {
         if (abandoned()) return null;
         if (!result?.success) throw new Error(result?.error || "Failed to merge audio segments");
@@ -1503,7 +1678,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     });
   }
 
-  getOrCreatePressCandidate(intents = {}, { newPress = false } = {}) {
+  getOrCreatePressCandidate(intents = {}, { newPress = false, recording } = {}) {
     const key = JSON.stringify({
       voiceAgentRequested: Boolean(intents.voiceAgentRequested),
       translationRequested: Boolean(intents.translationRequested),
@@ -1516,7 +1691,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // candidate; an older visual-frame continuation cannot start it.
     if (!newPress && prior?.key === key) return prior.session;
     if (prior) this.cancelPreparedMicCapture(prior.session);
-    this._captureRecordingPrivacy?.(); // capture once, in the immutable session
+    this._captureRecordingPrivacy?.(recording); // capture once, in the immutable session
     const session = this.createDictationSession(intents);
     const generation = (this._pressCandidateGeneration ?? 0) + 1;
     this._pressCandidateGeneration = generation;
@@ -1641,7 +1816,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     return name;
   }
 
-  async getAudioConstraints(forceDefaultMic = false, refreshSystemDefault = false) {
+  async getAudioConstraints(forceDefaultMic = false, refreshSystemDefault = false, recording) {
+    this.assertTrialContext(recording);
     const settings = getSettings();
 
     // All browser audio processing disabled to avoid OS-level side-effects.
@@ -1672,6 +1848,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         forceSystemDefault: forceDefaultMic,
         refreshSystemDefault: forceDefaultMic || refreshSystemDefault,
       });
+      this.assertTrialContext(recording);
       const deviceId = resolution.device?.deviceId;
 
       if (deviceId && deviceId !== this.rejectedMicDeviceId) {
@@ -1696,6 +1873,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         "audio"
       );
     } catch (error) {
+      if (error.code === "TRIAL_CONTEXT_CHANGED") throw error;
       logger.debug(
         "Failed to resolve microphone selection; using browser fallback",
         { error: error.message },
@@ -1729,7 +1907,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // recorder already captured — to the real recording. Replaces the one-shot
   // warmupMicDriver (#845): a raced warm-up never resolved before the
   // recording's own open, so it only ever added a concurrent double open.
-  async prepareMicCapture({ candidate = null } = {}) {
+  async prepareMicCapture({ candidate = null, recording } = {}) {
     // Preparing opens the device, so it answers to the same policy as the
     // recording it anticipates — otherwise a blocked user's key-down would
     // still light the mic and buffer pre-roll.
@@ -1762,8 +1940,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         // pre-roll recorder starts; a tap attached later misses the first frames.
         const pcmTap = this._startPcmTap(candidate.settings);
         try {
-          const constraints = await this.getAudioConstraints();
-          const stream = await this._acquireCaptureStream(constraints);
+          this.assertTrialContext(recording);
+          const constraints = await this.getAudioConstraints(false, false, recording);
+          this.assertTrialContext(recording);
+          const stream = await this._acquireCaptureStream(constraints, recording);
+          try {
+            this.assertTrialContext(recording);
+          } catch (error) {
+            stream.getTracks().forEach((track) => track.stop());
+            throw error;
+          }
           const value = {
             candidate,
             stream,
@@ -1883,7 +2069,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.micStreamHold.touch();
   }
 
-  async _acquireCaptureStream(constraints) {
+  async _acquireCaptureStream(constraints, recording) {
+    this.assertTrialContext(recording);
     const key = this._constraintsKey(constraints);
     const held = this.micStreamHold.acquireClone(key);
     if (held) {
@@ -1892,7 +2079,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
     const stream = await this.acquireHealthyMicStream(
       await navigator.mediaDevices.getUserMedia(constraints),
-      constraints
+      constraints,
+      recording
     );
     this._stampMicWarm();
     return this.micStreamHold.adoptAndClone(stream, key);
@@ -1941,7 +2129,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // Recovers a dead/muted capture: retries the same device, then hops to the OS default,
   // remembering a silent pinned device for the session. Throws MicUnusableError when no
   // input delivers audio. See #1152.
-  async acquireHealthyMicStream(rawStream, constraints) {
+  async acquireHealthyMicStream(rawStream, constraints, recording) {
+    try {
+      this.assertTrialContext(recording);
+    } catch (error) {
+      rawStream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
     const pinnedMicDeviceId = constraints.audio?.deviceId?.exact ?? null;
     let fallbackMicUnusable = false;
     // Keep verifying after a rejection too, otherwise a muted default records silence unnoticed.
@@ -1950,12 +2144,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       rawStream,
       () => {
         this.cachedMicDeviceId = null;
-        return this.getAudioConstraints();
+        return this.getAudioConstraints(false, false, recording);
       },
       logger,
       verifyMic
         ? {
-            getConstraints: () => this.getAudioConstraints(true),
+            getConstraints: () => {
+              if (recording?.expectedTrialContext)
+                throw Object.assign(new Error("The selected microphone is unavailable."), {
+                  code: "TRIAL_MICROPHONE_CHANGED",
+                });
+              return this.getAudioConstraints(true, false, recording);
+            },
             onDeviceRejected: () => {
               if (pinnedMicDeviceId) this.rejectedMicDeviceId = pinnedMicDeviceId;
             },
@@ -1976,7 +2176,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     return stream;
   }
 
-  async startRecording(forceDefaultMic = false, candidate = null) {
+  async startRecording(
+    forceDefaultMic = false,
+    candidate = null,
+    onboardingTake = undefined,
+    recording = { private: candidate?.private ?? this._privateSession === true }
+  ) {
     if (
       this.isRecording ||
       this.isProcessing ||
@@ -1995,6 +2200,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (this._undo?.peek()) void this._undo.expireNow();
     let prepared = null;
     let preparedAdopted = false;
+    recording.sessionId = candidate.id;
+    recording.private = candidate.private;
+    this._onboardingTake = onboardingTake;
+    this._recordingContext = recording;
     let freshTap = null;
     this._startInProgress = true;
     try {
@@ -2008,13 +2217,23 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         return false;
       }
 
+      this.assertTrialContext(recording);
       const startRequestedAt = performance.now();
       prepared = forceDefaultMic ? null : await this.preparedMicCapture.take();
       const constraints =
-        prepared?.constraints ?? (await this.getAudioConstraints(forceDefaultMic));
+        prepared?.constraints ??
+        (await this.getAudioConstraints(forceDefaultMic, false, recording));
+      this.assertTrialContext(recording);
       // Without a prepared capture the tap starts here, before the mic opens.
       freshTap = prepared ? null : this._startPcmTap(candidate.settings);
-      const micStream = prepared?.stream ?? (await this._acquireCaptureStream(constraints));
+      const micStream =
+        prepared?.stream ?? (await this._acquireCaptureStream(constraints, recording));
+      try {
+        this.assertTrialContext(recording);
+      } catch (error) {
+        micStream.getTracks().forEach((track) => track.stop());
+        throw error;
+      }
       const micReadyAt = performance.now();
       if (this._pressCandidate?.session !== candidate) {
         micStream.getTracks().forEach((track) => track.stop());
@@ -2024,6 +2243,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       }
 
       const audioTrack = micStream.getAudioTracks()[0];
+      if (recording.trialContext && !forceDefaultMic) {
+        const selected = getSettings();
+        const actualId = audioTrack?.getSettings?.().deviceId;
+        if (
+          selected.microphoneSelectionMode === "specific" &&
+          selected.selectedMicDeviceId &&
+          actualId &&
+          actualId !== selected.selectedMicDeviceId
+        ) {
+          micStream.getTracks().forEach((track) => track.stop());
+          throw Object.assign(new Error("The selected microphone is unavailable."), {
+            code: "TRIAL_MICROPHONE_CHANGED",
+          });
+        }
+      }
+      if (forceDefaultMic && onboardingTake) onboardingTake.context = undefined;
 
       if (audioTrack) {
         const settings = audioTrack.getSettings();
@@ -2095,16 +2330,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // or the one built before the mic opened. A tap started now would miss
       // the opening, so an unusable pre-roll leaves the WebM path in charge.
       this._batchPcmTap = preRoll ? prepared.pcmTap : freshTap;
-      this.createBatchRecorder(micStream, preRoll);
+      this._onboardingTake = onboardingTake;
+      this.createBatchRecorder(micStream, preRoll, onboardingTake, recording);
       freshTap?.attach(micStream);
       preparedAdopted = true;
       this.beginDictationSession({}, candidate);
+      this._captureRecordingPrivacy(recording);
       this.isRecording = true;
-      this.onStateChange?.({
-        isRecording: true,
-        isProcessing: false,
-        micCaptureStatus: "active",
-      });
+      this.onStateChange?.(
+        {
+          isRecording: true,
+          isProcessing: false,
+          micCaptureStatus: "active",
+        },
+        onboardingTake,
+        recording
+      );
       logger.info(
         "Recording start timing",
         {
@@ -2143,7 +2384,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
               this._previewFlushResolve?.();
               return;
             }
-            window.electronAPI?.sendDictationPreviewAudio?.(event.data);
+            if (!recording.trialContext || trialContext(getSettings()) === recording.trialContext)
+              window.electronAPI?.sendDictationPreviewAudio?.(event.data);
           };
           this._previewSource.connect(this._previewProcessor);
 
@@ -2153,6 +2395,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
               ? cohereModel
               : whisperModel;
           const language = getBaseLanguageCode(this.settings().preferredLanguage);
+          this.assertTrialContext(recording);
           window.electronAPI?.startDictationPreview?.({
             provider: localTranscriptionProvider,
             model,
@@ -2176,12 +2419,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // (and possibly a pre-roll recorder); release it before any retry.
       freshTap?.close();
       if (prepared && !preparedAdopted) this._disposePrepared(prepared);
-      if (isStaleDeviceError(error) && !forceDefaultMic) {
+      if (isStaleDeviceError(error) && !forceDefaultMic && !recording.expectedTrialContext) {
         // Pinned mic is gone (Chromium rotates IDs / device unplugged). Retry once on the default mic. See #900.
         logger.warn("Pinned microphone unavailable, retrying on default mic", {}, "audio");
         this.cachedMicDeviceId = null;
         this._startInProgress = false;
-        return this.startRecording(true, candidate);
+        return this.startRecording(true, candidate, onboardingTake, recording);
       }
 
       let errorTitle = "Recording Error";
@@ -2204,10 +2447,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           "Your microphones stayed muted and produced no audio. Please check your sound input settings and try again.";
       }
 
-      this.onError?.({
-        title: errorTitle,
-        description: errorDescription,
-      });
+      this.onError?.(
+        {
+          title: errorTitle,
+          description: errorDescription,
+          code: typeof error.code === "string" ? error.code : undefined,
+          name: error.name,
+        },
+        onboardingTake,
+        recording
+      );
       return false;
     } finally {
       this._startInProgress = false;
@@ -2215,7 +2464,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
   }
 
-  createBatchRecorder(micStream, adoption = null) {
+  createBatchRecorder(
+    micStream,
+    adoption = null,
+    onboardingTake = this._onboardingTake,
+    recording = this._recordingContext ?? { private: this._recordingPrivate === true }
+  ) {
     // Adopting the pre-roll recorder keeps every chunk captured since key-down:
     // rebinding the handlers below transfers ownership with no gap and no
     // re-encode, and the seeded chunks become the recording's opening.
@@ -2262,15 +2516,21 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       micStream.getTracks().forEach((track) => track.stop());
       this._markCaptureStreamReleased();
-      await this.finalizeBatchRecording(segment);
+      await this.finalizeBatchRecording(segment, onboardingTake, recording);
     };
 
     if (!adoption) recorder.start(RECORDING_TIMESLICE_MS);
     return recorder;
   }
 
-  async finalizeBatchRecording(finalSegment) {
+  async finalizeBatchRecording(
+    finalSegment,
+    onboardingTake = this._onboardingTake,
+    recording = this._recordingContext ?? { private: this._recordingPrivate === true }
+  ) {
     const processingPipeline = this._startProcessingPipeline();
+    processingPipeline.onboardingTake = onboardingTake;
+    processingPipeline.recording = { ...recording };
     const wasCancelled = () => this._shouldAbandonProcessingPipeline(processingPipeline);
     this.micRecovery.stop();
     this.teardownSpeechGate();
@@ -2281,11 +2541,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this._batchPcmTap = null;
     this.isRecording = false;
     this.isProcessing = true;
-    this.onStateChange?.({
-      isRecording: false,
-      isProcessing: true,
-      micCaptureStatus: "inactive",
-    });
+    this.onStateChange?.(
+      {
+        isRecording: false,
+        isProcessing: true,
+        micCaptureStatus: "inactive",
+      },
+      onboardingTake
+    );
 
     const segments = finalSegment ? [...this._batchSegments, finalSegment] : this._batchSegments;
     this._batchSegments = [];
@@ -2297,7 +2560,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this._sessionAudio = {
       session: this._activeSession,
       kind: "batch",
-      segments,
+      segments: [...segments],
       mimeType: this.recordingMimeType,
       durationSeconds,
       analyticsOccurredAt,
@@ -2305,14 +2568,43 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     let audioBlob = null;
     let salvagedRecording = false;
     try {
-      audioBlob = await this.mergeRecordedSegments(segments, wasCancelled);
+      audioBlob = await this.mergeRecordedSegments(segments, wasCancelled, recording);
     } catch (error) {
       if (wasCancelled()) {
         this._settleProcessingPipeline(processingPipeline);
         return;
       }
       logger.error("Failed to assemble recovered recording", { error: error.message }, "audio");
-      // Salvage the largest segment rather than dropping the whole recording.
+      if (recording.private) {
+        // A concatenated container is retained for recovery only, never claimed
+        // as a successful merge or silently transcribed as its largest segment.
+        const original = new Blob(segments, { type: this.recordingMimeType || "audio/webm" });
+        recording.audioBlob = original;
+        processingPipeline.recording.originalSegments = recording.originalSegments;
+        processingPipeline.recording.audioBlob = original;
+        this._setOwnedAudio(original, {
+          sessionId: recording.sessionId,
+          private: recording.private,
+        });
+        recording.ownedAudio = this._ownedAudioSnapshot({
+          sessionId: recording.sessionId,
+          private: recording.private,
+        });
+        processingPipeline.recording.ownedAudio = recording.ownedAudio;
+
+        this._settleProcessingPipeline(processingPipeline);
+        this.onError?.(
+          {
+            title: "Transcription Error",
+            description: error.message,
+            code: "AUDIO_CONVERSION_FAILED",
+          },
+          onboardingTake,
+          recording
+        );
+        return;
+      }
+      // Ordinary public recovery retains its existing best-effort salvage.
       audioBlob = this.getLargestRecordedSegment(segments);
       salvagedRecording = !!audioBlob;
     }
@@ -2321,7 +2613,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return;
     }
     audioBlob = audioBlob || new Blob([], { type: this.recordingMimeType || "audio/webm" });
-    this._setOwnedAudio(audioBlob);
+    this._setOwnedAudio(audioBlob, { sessionId: recording.sessionId, private: recording.private });
+    processingPipeline.recording.ownedAudio = this._ownedAudioSnapshot({
+      sessionId: recording.sessionId,
+      private: recording.private,
+    });
 
     logger.info(
       "Recording stopped",
@@ -2350,7 +2646,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       );
       if (!this._settleProcessingPipeline(processingPipeline)) return;
       this._localSpeechGateState = null;
-      this.onTranscriptionComplete?.({ success: true, text: "" });
+      this.onTranscriptionComplete?.(
+        { success: true, text: "" },
+        onboardingTake,
+        processingPipeline.recording
+      );
+      if (recording.private) this.releasePrivateAudio(processingPipeline.recording.ownedAudio);
       return;
     }
     // Non-commit sessions stop concurrently with the decode below.
@@ -2478,6 +2779,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   cancelRecording() {
     this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
     this._cancelAbandonedSegmentMerges();
+    this.retireCapturedCleanup();
     this.micRecovery.stop();
     if (this._rotatingBatchRecorder) {
       this._cancelRequestedDuringMicRecovery = true;
@@ -2492,6 +2794,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // R2-C1: the open segment arrives with the recorder's final dataavailable, after this
       // method returns. Register it before the window opens, so Undo waits for it.
       const finalChunk = buffer.expect("segment");
+      let settleFinal;
+      const finalEvent = new Promise((resolve) => {
+        settleFinal = resolve;
+      });
+      void this._trackRecordingWork(() => finalEvent);
       buffer.releaseSources = () => {
         snapshot.chunks.length = 0;
       };
@@ -2501,16 +2808,19 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const deliverFinal = () => {
         finalChunk.deliver(new Blob(snapshot.chunks, { type: snapshot.mimeType }));
         snapshot.chunks.length = 0; // drop every reference to the Blob chunks
+        settleFinal();
       };
       this.mediaRecorder.onstop = () => {
         recorder.stream?.getTracks().forEach((track) => track.stop());
         deliverFinal();
       };
-      this.resetDiscardedBatchRecordingState();
       try {
+        this.resetDiscardedBatchRecordingState();
         recorder.stop();
-      } catch {
-        deliverFinal(); // already inactive: no onstop will come
+      } catch (error) {
+        deliverFinal(); // a failed primitive cannot retain its event obligation
+        this._openCancelled(buffer);
+        throw error;
       }
       if (recorder.stream) {
         recorder.stream.getTracks().forEach((track) => track.stop());
@@ -2524,6 +2834,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // The mic died mid-recovery, so no live recorder exists; discard what was
       // captured instead of leaving the recording uncancelable.
       this.discardBatchRecording();
+      return true;
+    }
+    if (this._startInProgress) {
+      this.onCancelledChange?.(null, undefined, this._onboardingTake);
       return true;
     }
     return false;
@@ -2543,6 +2857,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   takeDiscardedBatchSnapshot() {
     return {
+      private: this._recordingPrivate === true,
       durationSeconds: this.recordingStartTime
         ? (Date.now() - this.recordingStartTime) / 1000
         : null,
@@ -2573,6 +2888,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const pipeline = {
       session: this._activeSession,
       cancellationGeneration: this._processingCancellationGeneration ?? 0,
+      onboardingTake: this._onboardingTake,
+      recording: {
+        ...(this._recordingContext ?? { private: this._recordingPrivate === true }),
+        ownedAudio: this._ownedAudioSnapshot({
+          sessionId: this._activeSession?.id,
+          private: this._activeSession?.private ?? this._recordingPrivate,
+        }),
+        audioBlob: this.lastAudioBlob,
+      },
     };
     this._activeProcessingPipeline = pipeline;
     this._cancelAbandonedSegmentMerges();
@@ -2600,6 +2924,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   cancelProcessing() {
     this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
+    this.retireCapturedCleanup();
     if (this.isProcessing) {
       this._processingCancellationGeneration = (this._processingCancellationGeneration ?? 0) + 1;
       this._requestStreamingCancellation();
@@ -2640,192 +2965,212 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async processAudio(audioBlob, metadata = {}, processingPipeline = null) {
-    const pipeline = processingPipeline ?? this._startProcessingPipeline();
-    if (processingPipeline && this._activeProcessingPipeline !== processingPipeline) return;
-    const wasCancelled = () => this._shouldAbandonProcessingPipeline(pipeline);
-    if (!wasCancelled()) this.onProcessingStage?.("transcribing");
-    const pipelineStart = performance.now();
-    const settings = this.settings();
-    let noAudioDetected = false;
-    let retryHold = null;
-    const speechGateDecision = getLocalSpeechGateDecision(this._localSpeechGateState);
-    this._localSpeechGateState = null;
+    return this._trackRecordingWork(async () => {
+      const pipeline = processingPipeline ?? this._startProcessingPipeline();
+      if (processingPipeline && this._activeProcessingPipeline !== processingPipeline) return;
+      const onboardingTake = pipeline.onboardingTake;
+      const recording = pipeline.recording;
+      const wasCancelled = () => this._shouldAbandonProcessingPipeline(pipeline);
+      if (!wasCancelled()) this.onProcessingStage?.("transcribing");
+      const pipelineStart = performance.now();
+      const settings = this.settings();
+      let noAudioDetected = false;
+      let retryHold = null;
+      const speechGateDecision = getLocalSpeechGateDecision(this._localSpeechGateState);
+      this._localSpeechGateState = null;
 
-    const shouldUseStrongLocalWhisperGate =
-      settings.useLocalWhisper && settings.localTranscriptionProvider === "whisper";
-    if (
-      speechGateDecision.skip &&
-      (speechGateDecision.reason === "silence" || shouldUseStrongLocalWhisperGate)
-    ) {
-      logger.info(
-        "Speech gate skipped transcription",
-        {
-          reason: speechGateDecision.reason,
-          useLocalWhisper: settings.useLocalWhisper,
-          localProvider: settings.localTranscriptionProvider,
-          peakRms: speechGateDecision.peakRms?.toFixed(4),
-          peakAmplitude: speechGateDecision.peakAmplitude?.toFixed(4),
-          speechWindowCount: speechGateDecision.speechWindowCount,
-          maxConsecutiveSpeechWindows: speechGateDecision.maxConsecutiveSpeechWindows,
-        },
-        "audio"
-      );
-      if (!this._settleProcessingPipeline(pipeline)) return;
-      this.onTranscriptionComplete?.({ success: true, text: "" });
-      return;
-    }
+      const shouldUseStrongLocalWhisperGate =
+        settings.useLocalWhisper && settings.localTranscriptionProvider === "whisper";
+      if (
+        speechGateDecision.skip &&
+        (speechGateDecision.reason === "silence" || shouldUseStrongLocalWhisperGate)
+      ) {
+        logger.info(
+          "Speech gate skipped transcription",
+          {
+            reason: speechGateDecision.reason,
+            useLocalWhisper: settings.useLocalWhisper,
+            localProvider: settings.localTranscriptionProvider,
+            peakRms: speechGateDecision.peakRms?.toFixed(4),
+            peakAmplitude: speechGateDecision.peakAmplitude?.toFixed(4),
+            speechWindowCount: speechGateDecision.speechWindowCount,
+            maxConsecutiveSpeechWindows: speechGateDecision.maxConsecutiveSpeechWindows,
+          },
+          "audio"
+        );
+        if (!this._settleProcessingPipeline(pipeline)) return;
+        this.onTranscriptionComplete?.({ success: true, text: "" }, onboardingTake, recording);
+        if (recording.private) this.releasePrivateAudio(recording.ownedAudio);
+        return;
+      }
 
-    try {
-      const useLocalWhisper = settings.useLocalWhisper;
-      const localProvider = settings.localTranscriptionProvider;
-      const whisperModel = settings.whisperModel;
-      const parakeetModel = settings.parakeetModel || "parakeet-tdt-0.6b-v3";
+      try {
+        this.assertTrialContext(recording);
+        metadata = {
+          ...metadata,
+          private: recording.private === true,
+          ...(recording.trialContext
+            ? { assertTrialContext: () => this.assertTrialContext(recording) }
+            : {}),
+        };
+        const useLocalWhisper = settings.useLocalWhisper;
+        const localProvider = settings.localTranscriptionProvider;
+        const whisperModel = settings.whisperModel;
+        const parakeetModel = settings.parakeetModel || "parakeet-tdt-0.6b-v3";
 
-      let result;
-      let activeModel;
-      if (useLocalWhisper) {
-        if (isSherpaLocalProvider(localProvider)) {
-          activeModel = localProvider === "cohere" ? settings.cohereModel : parakeetModel;
-          result = await this.processWithLocalParakeet(
-            audioBlob,
-            activeModel,
-            metadata,
-            wasCancelled
-          );
+        let result;
+        let activeModel;
+        if (useLocalWhisper) {
+          if (isSherpaLocalProvider(localProvider)) {
+            activeModel = localProvider === "cohere" ? settings.cohereModel : parakeetModel;
+            result = await this.processWithLocalParakeet(
+              audioBlob,
+              activeModel,
+              metadata,
+              wasCancelled
+            );
+          } else {
+            activeModel = whisperModel;
+            result = await this.processWithLocalWhisper(
+              audioBlob,
+              whisperModel,
+              metadata,
+              wasCancelled
+            );
+          }
         } else {
-          activeModel = whisperModel;
-          result = await this.processWithLocalWhisper(
-            audioBlob,
-            whisperModel,
-            metadata,
-            wasCancelled
-          );
+          activeModel = this.getTranscriptionModel();
+          result = await this.processWithOpenAIAPI(audioBlob, metadata, wasCancelled);
         }
-      } else {
-        activeModel = this.getTranscriptionModel();
-        result = await this.processWithOpenAIAPI(audioBlob, metadata, wasCancelled);
-      }
 
-      if (wasCancelled() || !this.isProcessing) {
-        return;
-      }
+        if (wasCancelled() || !this.isProcessing) {
+          return;
+        }
 
-      this.lastAudioMetadata = {
-        durationMs: metadata?.durationSeconds
-          ? Math.round(metadata.durationSeconds * 1000)
-          : Math.round(performance.now() - pipelineStart),
-        provider: result?.source || (useLocalWhisper ? localProvider : "cloud"),
-        model: activeModel || null,
-      };
+        this.lastAudioMetadata = {
+          durationMs: metadata?.durationSeconds
+            ? Math.round(metadata.durationSeconds * 1000)
+            : Math.round(performance.now() - pipelineStart),
+          provider: result?.source || (useLocalWhisper ? localProvider : "cloud"),
+          model: activeModel || null,
+        };
 
-      // A salvaged WebM only matters to whoever decoded it; the tap's WAV spans
-      // the whole recording.
-      result = withSalvageWarning(result, metadata.salvagedRecording && !result?.decodedRawWav);
+        recording.audioMetadata = this.lastAudioMetadata;
 
-      result = {
-        ...result,
-        ...(metadata.analyticsOccurredAt
-          ? { analyticsOccurredAt: metadata.analyticsOccurredAt }
-          : {}),
-        ...this._takePendingResultExtras(),
-      };
-      this.onTranscriptionComplete?.(result);
+        // A salvaged WebM only matters to whoever decoded it; the tap's WAV spans
+        // the whole recording.
+        result = withSalvageWarning(result, metadata.salvagedRecording && !result?.decodedRawWav);
 
-      const roundTripDurationMs = Math.round(performance.now() - pipelineStart);
+        result = {
+          ...result,
+          ...(metadata.analyticsOccurredAt
+            ? { analyticsOccurredAt: metadata.analyticsOccurredAt }
+            : {}),
+          ...this._takePendingResultExtras(),
+        };
+        this.onTranscriptionComplete?.(result, onboardingTake, recording);
 
-      const timingData = {
-        mode: useLocalWhisper ? `local-${localProvider}` : "cloud",
-        model: activeModel,
-        audioDurationMs: metadata.durationSeconds
-          ? Math.round(metadata.durationSeconds * 1000)
-          : null,
-        reasoningProcessingDurationMs: result?.timings?.reasoningProcessingDurationMs ?? null,
-        roundTripDurationMs,
-        audioSizeBytes: audioBlob.size,
-        audioFormat: audioBlob.type,
-        outputTextLength: result?.text?.length,
-      };
+        const roundTripDurationMs = Math.round(performance.now() - pipelineStart);
 
-      if (useLocalWhisper) {
-        timingData.audioConversionDurationMs = result?.timings?.audioConversionDurationMs ?? null;
-      }
-      timingData.transcriptionProcessingDurationMs =
-        result?.timings?.transcriptionProcessingDurationMs ?? null;
+        const timingData = {
+          mode: useLocalWhisper ? `local-${localProvider}` : "cloud",
+          model: activeModel,
+          audioDurationMs: metadata.durationSeconds
+            ? Math.round(metadata.durationSeconds * 1000)
+            : null,
+          reasoningProcessingDurationMs: result?.timings?.reasoningProcessingDurationMs ?? null,
+          roundTripDurationMs,
+          audioSizeBytes: audioBlob.size,
+          audioFormat: audioBlob.type,
+          outputTextLength: result?.text?.length,
+        };
 
-      logger.info("Pipeline timing", timingData, "performance");
-    } catch (error) {
-      const errorAtMs = Math.round(performance.now() - pipelineStart);
+        if (useLocalWhisper) {
+          timingData.audioConversionDurationMs = result?.timings?.audioConversionDurationMs ?? null;
+        }
+        timingData.transcriptionProcessingDurationMs =
+          result?.timings?.transcriptionProcessingDurationMs ?? null;
 
-      if (wasCancelled()) {
-        // The user cancelled mid-pipeline; the aborted request's rejection is
-        // the expected outcome, not a failure to report or persist.
-        logger.info("Transcription cancelled by user", { errorAtMs }, "performance");
-        return;
-      }
+        logger.info("Pipeline timing", timingData, "performance");
+      } catch (error) {
+        const errorAtMs = Math.round(performance.now() - pipelineStart);
 
-      const owned = this._ownedAudioSnapshot({
-        sessionId: pipeline.session?.id,
-        private: pipeline.session?.private,
-      });
-      logger.error(
-        "Pipeline failed",
-        {
-          errorAtMs,
-          error: error.message,
-        },
-        "performance"
-      );
+        if (wasCancelled()) {
+          // The user cancelled mid-pipeline; the aborted request's rejection is
+          // the expected outcome, not a failure to report or persist.
+          logger.info("Transcription cancelled by user", { errorAtMs }, "performance");
+          return;
+        }
 
-      if (error.code === DICTIONARY_ECHO_CODE) {
-        // The transcript was discarded as an echo of the dictionary prompt.
-        // Surface the shared soft no-audio outcome and keep the recording for
-        // a manual retry — otherwise the whole utterance disappears with no
-        // feedback (#1547).
-        noAudioDetected = true;
-        if (metadata.restoredFromCancel === true)
-          retryHold = await this._recoverRestoredFailure(
-            error,
-            audioBlob,
-            metadata,
-            owned,
-            wasCancelled
-          );
-        else if (owned.blob)
-          this.saveFailedTranscription(error.message, error.code, metadata, owned);
-      } else if (error.message === "No audio detected") {
-        noAudioDetected = true;
-      } else {
-        this.onError?.({
-          title: error.selectionEditFatal ? "Selection Edit Failed" : "Transcription Error",
-          description: error.selectionEditFatal
-            ? error.message
-            : `Transcription failed: ${error.message}`,
-          code: error.code,
-          messageKey: error.messageKey,
+        const owned = this._ownedAudioSnapshot({
+          sessionId: pipeline.session?.id,
+          private: pipeline.session?.private,
         });
+        logger.error(
+          "Pipeline failed",
+          {
+            errorAtMs,
+            error: error.message,
+          },
+          "performance"
+        );
 
-        // Save failed transcription with audio so the user can retry later
-        if (metadata.restoredFromCancel === true)
-          retryHold = await this._recoverRestoredFailure(
-            error,
-            audioBlob,
-            metadata,
-            owned,
-            wasCancelled
+        if (error.code === DICTIONARY_ECHO_CODE) {
+          // The transcript was discarded as an echo of the dictionary prompt.
+          // Surface the shared soft no-audio outcome and keep the recording for
+          // a manual retry — otherwise the whole utterance disappears with no
+          // feedback (#1547).
+          noAudioDetected = true;
+          if (metadata.restoredFromCancel === true)
+            retryHold = await this._recoverRestoredFailure(
+              error,
+              audioBlob,
+              metadata,
+              owned,
+              wasCancelled
+            );
+          else if (owned.blob)
+            this.saveFailedTranscription(error.message, error.code, metadata, owned);
+        } else if (error.message === "No audio detected") {
+          noAudioDetected = true;
+        } else {
+          this.onError?.(
+            {
+              title: error.selectionEditFatal ? "Selection Edit Failed" : "Transcription Error",
+              description: error.selectionEditFatal
+                ? error.message
+                : `Transcription failed: ${error.message}`,
+              code: error.code,
+              messageKey: error.messageKey,
+            },
+            onboardingTake,
+            recording
           );
-        else if (owned.blob)
-          this.saveFailedTranscription(error.message, error.code || null, metadata, owned);
+
+          // Save failed transcription with audio so the user can retry later
+          if (metadata.restoredFromCancel === true)
+            retryHold = await this._recoverRestoredFailure(
+              error,
+              audioBlob,
+              metadata,
+              owned,
+              wasCancelled
+            );
+          else if (owned.blob)
+            this.saveFailedTranscription(error.message, error.code || null, metadata, owned);
+        }
+      } finally {
+        const shouldNotifyNoAudio =
+          !wasCancelled() && noAudioDetected && this._activeProcessingPipeline === pipeline;
+        this._settleProcessingPipeline(pipeline);
+        if (retryHold) this._rehold(retryHold);
+        // Every provider reports genuine silence through this one post-processing
+        // outcome. The pill can now leave thinking before the error surface takes
+        // ownership, instead of receiving an IPC event mid-pipeline.
+        if (shouldNotifyNoAudio) this.onNoAudio?.(onboardingTake, recording);
+        if (recording.private) this.releasePrivateAudio(recording.ownedAudio);
       }
-    } finally {
-      const shouldNotifyNoAudio =
-        !wasCancelled() && noAudioDetected && this._activeProcessingPipeline === pipeline;
-      this._settleProcessingPipeline(pipeline);
-      if (retryHold) this._rehold(retryHold);
-      // Every provider reports genuine silence through this one post-processing
-      // outcome. The pill can now leave thinking before the error surface takes
-      // ownership, instead of receiving an IPC event mid-pipeline.
-      if (shouldNotifyNoAudio) this.onNoAudio?.();
-    }
+    });
   }
 
   async processWithLocalWhisper(
@@ -2864,6 +3209,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       );
 
       const transcriptionStart = performance.now();
+      metadata.assertTrialContext?.();
       let result = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, options);
       timings.transcriptionProcessingDurationMs = Math.round(
         performance.now() - transcriptionStart
@@ -2900,6 +3246,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           const retryStart = performance.now();
           let retry = null;
           try {
+            metadata.assertTrialContext?.();
             retry = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, {
               model: options.model,
               ...(options.language ? { language: options.language } : {}),
@@ -3033,9 +3380,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         );
 
         const transcriptionStart = performance.now();
+        metadata.assertTrialContext?.();
         result = await window.electronAPI.transcribeLocalParakeet(arrayBuffer, {
           model,
           language: getBaseLanguageCode(this.getEffectiveSttLanguage(this.settings())),
+          private: metadata.private === true,
         });
         timings.transcriptionProcessingDurationMs = Math.round(
           performance.now() - transcriptionStart
@@ -3200,6 +3549,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // transcription result — batch or streaming — carries them.
   _takePendingResultExtras() {
     const extras = {
+      ...(this._retainedCleanupOperation
+        ? { cleanupOperationId: this._retainedCleanupOperation.identity.operationId }
+        : {}),
       ...(this.pendingAssistantConversation
         ? { assistantConversation: this.pendingAssistantConversation }
         : {}),
@@ -3494,13 +3846,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async processTranscription(text, source, wasCancelled = neverCancelled, detectedLanguage) {
+    const capturedCleanup =
+      this._activeProcessingPipeline?.recording?.cleanupOperation ||
+      this._recordingContext?.cleanupOperation;
     const result = await this.processTranscriptionCore(
       text,
       source,
       wasCancelled,
       detectedLanguage
     );
-    if (wasCancelled()) return result;
+    if (wasCancelled() || capturedCleanup) return result;
     return this.finalizeChineseScript(result);
   }
 
@@ -3515,6 +3870,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return normalizedText;
     }
     if (wasCancelled()) return normalizedText;
+
+    const cleanupOperation =
+      this._activeProcessingPipeline?.recording?.cleanupOperation ||
+      this._recordingContext?.cleanupOperation;
+    if (cleanupOperation) {
+      try {
+        const result = await cleanupOperation.run(normalizedText);
+        if (wasCancelled()) return normalizedText;
+        return result || (await cleanupOperation.finalizeOutput(normalizedText));
+      } catch (error) {
+        if (!wasCancelled()) this.pendingCleanupFailure = cleanupFailureFromError(error);
+        return normalizedText;
+      }
+    }
 
     logger.logReasoning("TRANSCRIPTION_RECEIVED", {
       source,
@@ -3993,68 +4362,89 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   async saveTranscription(
     text,
     rawText = null,
-    { clientTranscriptionId, analyticsOccurredAt, sessionId, private: sessionPrivate } = {}
+    {
+      clientTranscriptionId,
+      analyticsOccurredAt,
+      sessionId,
+      private: sessionPrivate,
+      recording,
+    } = {}
   ) {
-    const owned = this._ownedAudioSnapshot({ sessionId, private: sessionPrivate });
-    if (owned.private) {
-      this._releaseOwnedAudio(owned);
-      return true;
-    }
-    const translationRequested = this.translationRequested;
-    const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
-    if (!dataRetentionEnabled) {
-      logger.debug("Skipping transcription save — data retention disabled", {}, "audio");
-      this._releaseOwnedAudio(owned);
-      return true;
-    }
-
-    const eventId = clientTranscriptionId || crypto.randomUUID();
-    const occurredAt = analyticsOccurredAt ? new Date(analyticsOccurredAt) : new Date();
-    const metadata = owned.metadata || {};
-    try {
-      await window.electronAPI.recordAnalyticsEvent({
-        eventId,
-        wordCount: countSpokenWords(rawText || text),
-        occurredAt: occurredAt.toISOString(),
-        localDate: localDateKey(occurredAt),
-        spokenDurationMs: metadata.durationMs || null,
-        mode: resolveAnalyticsMode(getSettings(), metadata.provider),
-        provider: metadata.provider || null,
-        model: metadata.model || null,
-      });
-    } catch (analyticsError) {
-      logger.warn(
-        "Failed to record local analytics event",
-        { error: analyticsError.message },
-        "analytics"
-      );
-    }
-
-    try {
-      const result = await window.electronAPI.saveTranscription(text, rawText, {
-        clientTranscriptionId: eventId,
-        routeKind: translationRequested ? "translation" : null,
-        analyticsOccurredAt: occurredAt.toISOString(),
-      });
-
-      // Save audio if we have a captured blob and the transcription was saved successfully
-      if (result?.id && owned.blob) {
-        if (audioRetentionDays > 0) {
-          try {
-            const arrayBuffer = await owned.blob.arrayBuffer();
-            await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, owned.metadata);
-          } catch (audioErr) {
-            // Non-blocking: transcription is saved even if audio save fails
-            logger.warn("Failed to save transcription audio", { error: audioErr.message }, "audio");
-          }
-        }
+    return this._trackRecordingWork(async () => {
+      const owned =
+        recording?.ownedAudio ??
+        this._ownedAudioSnapshot({
+          sessionId: sessionId ?? recording?.sessionId,
+          private: sessionPrivate ?? recording?.private,
+        });
+      if (owned.private) {
         this._releaseOwnedAudio(owned);
+        return true;
+      }
+      const translationRequested = this.translationRequested;
+      const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
+      if (!dataRetentionEnabled) {
+        logger.debug("Skipping transcription save — data retention disabled", {}, "audio");
+        this._releaseOwnedAudio(owned);
+        return true;
       }
 
-      return true;
-    } catch (error) {
-      return false;
-    }
+      const eventId = clientTranscriptionId || crypto.randomUUID();
+      const occurredAt = analyticsOccurredAt ? new Date(analyticsOccurredAt) : new Date();
+      const metadata = owned.metadata || {};
+      try {
+        await window.electronAPI.recordAnalyticsEvent({
+          eventId,
+          wordCount: countSpokenWords(rawText || text),
+          occurredAt: occurredAt.toISOString(),
+          localDate: localDateKey(occurredAt),
+          spokenDurationMs: metadata.durationMs || null,
+          mode: resolveAnalyticsMode(getSettings(), metadata.provider),
+          provider: metadata.provider || null,
+          model: metadata.model || null,
+        });
+      } catch (analyticsError) {
+        logger.warn(
+          "Failed to record local analytics event",
+          { error: analyticsError.message },
+          "analytics"
+        );
+      }
+
+      try {
+        const result = await window.electronAPI.saveTranscription(text, rawText, {
+          clientTranscriptionId: eventId,
+          routeKind: translationRequested ? "translation" : null,
+          analyticsOccurredAt: occurredAt.toISOString(),
+        });
+
+        // Save audio if we have a captured blob and the transcription was saved successfully
+        if (result?.id && owned.blob) {
+          if (audioRetentionDays > 0) {
+            try {
+              const arrayBuffer = await owned.blob.arrayBuffer();
+              await window.electronAPI.saveTranscriptionAudio(
+                result.id,
+                arrayBuffer,
+                owned.metadata
+              );
+            } catch (audioErr) {
+              // Non-blocking: transcription is saved even if audio save fails
+              logger.warn(
+                "Failed to save transcription audio",
+                { error: audioErr.message },
+                "audio"
+              );
+            }
+          }
+          this._releaseOwnedAudio(owned);
+        }
+
+        return true;
+      } catch (error) {
+        return false;
+      }
+    });
   }
 
   async saveFailedTranscription(
@@ -4063,65 +4453,71 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     metadata = {},
     owned = this._ownedAudioSnapshot()
   ) {
-    if (owned.private) {
-      this._releaseOwnedAudio(owned);
-      return { audioKept: false };
-    }
-    let audioKept = false;
-    const translationRequested = this.translationRequested;
-    const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
-    if (!dataRetentionEnabled) {
-      logger.debug("Skipping failed transcription save — data retention disabled", {}, "audio");
-      this._releaseOwnedAudio(owned);
-      return { audioKept: false };
-    }
-
-    try {
-      const result = await window.electronAPI.saveTranscription("", null, {
-        status: "failed",
-        errorMessage,
-        errorCode,
-        routeKind: translationRequested ? "translation" : null,
-        ...(metadata?.analyticsOccurredAt
-          ? { analyticsOccurredAt: metadata.analyticsOccurredAt }
-          : {}),
-      });
-
-      if (result?.id && owned.blob) {
-        if (audioRetentionDays > 0) {
-          try {
-            const durationMs = metadata?.durationSeconds
-              ? Math.round(metadata.durationSeconds * 1000)
-              : null;
-            const arrayBuffer = await owned.blob.arrayBuffer();
-            const saved = await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, {
-              durationMs,
-              provider: null,
-              model: null,
-            });
-            audioKept = saved?.success === true;
-          } catch (audioErr) {
-            logger.warn(
-              "Failed to save audio for failed transcription",
-              {
-                error: audioErr.message,
-              },
-              "audio"
-            );
-          }
-        }
+    return this._trackRecordingWork(async () => {
+      if (owned.private) {
         this._releaseOwnedAudio(owned);
+        return { audioKept: false };
       }
-    } catch (error) {
-      logger.error(
-        "Failed to save failed transcription record",
-        {
-          error: error.message,
-        },
-        "audio"
-      );
-    }
-    return { audioKept };
+      let audioKept = false;
+      const translationRequested = this.translationRequested;
+      const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
+      if (!dataRetentionEnabled) {
+        logger.debug("Skipping failed transcription save — data retention disabled", {}, "audio");
+        this._releaseOwnedAudio(owned);
+        return { audioKept: false };
+      }
+
+      try {
+        const result = await window.electronAPI.saveTranscription("", null, {
+          status: "failed",
+          errorMessage,
+          errorCode,
+          routeKind: translationRequested ? "translation" : null,
+          ...(metadata?.analyticsOccurredAt
+            ? { analyticsOccurredAt: metadata.analyticsOccurredAt }
+            : {}),
+        });
+
+        if (result?.id && owned.blob) {
+          if (audioRetentionDays > 0) {
+            try {
+              const durationMs = metadata?.durationSeconds
+                ? Math.round(metadata.durationSeconds * 1000)
+                : null;
+              const arrayBuffer = await owned.blob.arrayBuffer();
+              const saved = await window.electronAPI.saveTranscriptionAudio(
+                result.id,
+                arrayBuffer,
+                {
+                  durationMs,
+                  provider: null,
+                  model: null,
+                }
+              );
+              audioKept = saved?.success === true;
+            } catch (audioErr) {
+              logger.warn(
+                "Failed to save audio for failed transcription",
+                {
+                  error: audioErr.message,
+                },
+                "audio"
+              );
+            }
+          }
+          this._releaseOwnedAudio(owned);
+        }
+      } catch (error) {
+        logger.error(
+          "Failed to save failed transcription record",
+          {
+            error: error.message,
+          },
+          "audio"
+        );
+      }
+      return { audioKept };
+    });
   }
 
   async saveDiscardedTranscription(
@@ -4130,46 +4526,48 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     analyticsOccurredAt = null,
     { private: isPrivate = false, translationRequested = this.translationRequested } = {}
   ) {
-    if (isPrivate) return;
-    let savedId = null;
-    try {
-      const result = await window.electronAPI.saveTranscription("", null, {
-        status: "discarded",
-        routeKind: translationRequested ? "translation" : null,
-        ...(analyticsOccurredAt ? { analyticsOccurredAt } : {}),
-      });
-      if (!result?.id) return;
-      savedId = result.id;
-
-      if (blob) {
-        const durationMs = durationSeconds ? Math.round(durationSeconds * 1000) : null;
-        const arrayBuffer = await blob.arrayBuffer();
-        await window.electronAPI.saveTranscriptionAudio(savedId, arrayBuffer, {
-          durationMs,
-          provider: null,
-          model: null,
+    return this._trackRecordingWork(async () => {
+      if (isPrivate) return;
+      let savedId = null;
+      try {
+        const result = await window.electronAPI.saveTranscription("", null, {
+          status: "discarded",
+          routeKind: translationRequested ? "translation" : null,
+          ...(analyticsOccurredAt ? { analyticsOccurredAt } : {}),
         });
-      }
-    } catch (error) {
-      logger.error(
-        "Failed to save discarded transcription record",
-        { error: error.message },
-        "audio"
-      );
-      // A discarded row is only recoverable through its audio; if the audio save
-      // failed, drop the dead row instead of leaving an empty unrecoverable entry. See #907.
-      if (savedId != null) {
-        try {
-          await window.electronAPI.deleteTranscription(savedId);
-        } catch (cleanupError) {
-          logger.warn(
-            "Failed to clean up discarded row after audio save failure",
-            { error: cleanupError.message },
-            "audio"
-          );
+        if (!result?.id) return;
+        savedId = result.id;
+
+        if (blob) {
+          const durationMs = durationSeconds ? Math.round(durationSeconds * 1000) : null;
+          const arrayBuffer = await blob.arrayBuffer();
+          await window.electronAPI.saveTranscriptionAudio(savedId, arrayBuffer, {
+            durationMs,
+            provider: null,
+            model: null,
+          });
+        }
+      } catch (error) {
+        logger.error(
+          "Failed to save discarded transcription record",
+          { error: error.message },
+          "audio"
+        );
+        // A discarded row is only recoverable through its audio; if the audio save
+        // failed, drop the dead row instead of leaving an empty unrecoverable entry. See #907.
+        if (savedId != null) {
+          try {
+            await window.electronAPI.deleteTranscription(savedId);
+          } catch (cleanupError) {
+            logger.warn(
+              "Failed to clean up discarded row after audio save failure",
+              { error: cleanupError.message },
+              "audio"
+            );
+          }
         }
       }
-    }
+    });
   }
 
   getState() {
@@ -4213,12 +4611,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this.cacheMicrophoneDeviceId(),
         (async () => {
           const settings = getSettings();
+          const usesKeywords =
+            settings.cloudTranscriptionProvider === "openai" &&
+            usesTranscriptionKeywords(settings.cloudTranscriptionModel);
+          const dictionary = this.getCustomDictionaryPrompt();
           const res = await provider.warmup(
             buildStreamingSessionOptions({
               providerName,
               settings,
               language: settings.preferredLanguage,
-              keyterms: this.getKeyterms(),
+              keyterms: usesKeywords ? dictionaryKeywords(dictionary) : this.getKeyterms(),
               voiceAgentRequested: this.voiceAgentRequested,
             })
           );
@@ -4389,7 +4791,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     for (const resolve of this._streamingStartSettlementWaiters.splice(0)) resolve();
   }
 
-  async startStreamingRecording(forceDefaultMic = false, candidate = null) {
+  async startStreamingRecording(
+    forceDefaultMic = false,
+    candidate = null,
+    onboardingTake = undefined,
+    recording = { private: candidate?.private ?? this._privateSession === true },
+    admittedTransport = null
+  ) {
     if (
       this.streamingStartInProgress ||
       this.isRecording ||
@@ -4411,6 +4819,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
     if (this._pressCandidate?.session !== candidate) return false;
     if (this._undo?.peek()) void this._undo.expireNow();
+    recording.sessionId = candidate.id;
+    recording.private = candidate.private;
     let acquiredStream = null;
     let usedPreparedCapture = false;
     let sessionId = null;
@@ -4431,16 +4841,48 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       sessionId = (this._streamingSessionGeneration || 0) + 1;
       this._streamingSessionGeneration = sessionId;
       this._activeStreamingSessionId = sessionId;
+      this._onboardingTake = onboardingTake;
       const ownsSession = () => this._activeStreamingSessionId === sessionId;
-      const operation = {
+      const operation = Object.freeze({
         correlationId: candidate.id,
         dictationSessionId: candidate.id,
         operationId: crypto.randomUUID(),
-      };
+      });
       this._streamingOperation = operation;
       const cancellationGeneration = this._streamingCancellationGeneration;
       startWasCancelled = () => cancellationGeneration !== this._streamingCancellationGeneration;
 
+      // Capture adapter, identity and options before the first await. Settings
+      // changes cannot retarget acquisition, buffered audio or teardown.
+      if (!admittedTransport) {
+        const streamingSettings = candidate.settings;
+        const name = providerName;
+        const adapter = this.getStreamingProvider();
+        const usesKeywords =
+          streamingSettings.cloudTranscriptionProvider === "openai" &&
+          usesTranscriptionKeywords(streamingSettings.cloudTranscriptionModel);
+        const dictionary = this.getCustomDictionaryPrompt();
+        const options = buildStreamingSessionOptions({
+          providerName: name,
+          settings: streamingSettings,
+          language: this.getEffectiveSttLanguage(streamingSettings),
+          keyterms: usesKeywords ? dictionaryKeywords(dictionary) : this.getKeyterms(),
+          voiceAgentRequested: this.voiceAgentRequested,
+        });
+        if (Array.isArray(options.keyterms)) Object.freeze(options.keyterms);
+        admittedTransport = {
+          operation,
+          name,
+          adapter,
+          closed: false,
+          stopPromise: null,
+          options: Object.freeze({ ...options, ...operation }),
+        };
+      }
+      admittedTransport.operation = operation;
+      admittedTransport.options = Object.freeze({ ...admittedTransport.options, ...operation });
+      this._streamingTransport = admittedTransport;
+      const provider = admittedTransport.adapter;
       const t0 = performance.now();
       const prepared = forceDefaultMic ? null : await this.preparedMicCapture.take();
       // Prepared while batch mode was expected; keep the stream, drop the pre-roll
@@ -4448,12 +4890,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       discardPreRoll(prepared);
       usedPreparedCapture = !!prepared;
       const constraints =
-        prepared?.constraints ?? (await this.getAudioConstraints(forceDefaultMic));
+        prepared?.constraints ??
+        (await this.getAudioConstraints(forceDefaultMic, false, recording));
       const tConstraints = performance.now();
 
       // 1. Get mic stream (can take 10-15s on a cold driver — unless a prepared
       //    capture or a held master stream already opened the device).
-      const stream = prepared?.stream ?? (await this._acquireCaptureStream(constraints));
+      const stream = prepared?.stream ?? (await this._acquireCaptureStream(constraints, recording));
       acquiredStream = stream;
       const tMedia = performance.now();
       if (this._pressCandidate?.session !== candidate || startWasCancelled()) {
@@ -4515,13 +4958,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       }
 
       this.streamingProcessor = new AudioWorkletNode(audioContext, "pcm-streaming-processor");
-      const provider = this.getStreamingProvider();
-
       this.streamingProcessor.port.onmessage = (event) => {
         // The worklet posts its remaining PCM followed by a "flushed" sentinel
         // on stop; the sentinel must not be sent as audio (realtime backends
         // reject the odd-length non-PCM bytes with "Invalid audio data").
-        if (!ownsSession() || !this.isStreaming || event.data === "flushed") return;
+        if (
+          !ownsSession() ||
+          admittedTransport.closed ||
+          startWasCancelled() ||
+          !this.isStreaming ||
+          event.data === "flushed"
+        )
+          return;
         provider.send(event.data, operation);
         if (this._sessionAudio?.session === candidate)
           this._sessionAudio.frames.push(new Int16Array(event.data));
@@ -4537,34 +4985,35 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         // cancelStreamingRecording may already be awaiting this start's
         // settlement before it can disconnect the provider.
         this._settleStreamingStart();
-        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+        this.onStateChange?.(
+          { isRecording: false, isProcessing: false, isStreaming: false },
+          onboardingTake
+        );
         return false;
       }
       // 4. Order main admission before the first worklet frame. Audio flows
       // while its connection awaits, into this attempt's admitted adapter.
       const result = await (async () => {
-        const streamingSettings = this.settings();
-        const starting = provider
-          .start({
-            ...buildStreamingSessionOptions({
-              providerName: this.getStreamingProviderName(),
-              settings: streamingSettings,
-              correlationId: candidate.id,
-              language: this.getEffectiveSttLanguage(streamingSettings),
-              keyterms: this.getKeyterms(),
-              voiceAgentRequested: this.voiceAgentRequested,
-            }),
-            ...operation,
-          })
-          .then(
-            (value) => ({ value }),
-            (error) => ({ error })
-          );
+        if (admittedTransport.closed || startWasCancelled() || !ownsSession())
+          return { success: false };
+        admittedTransport.startPromise = Promise.resolve().then(() => {
+          if (admittedTransport.closed) return { success: false };
+          return provider.start(admittedTransport.options);
+        });
+        const starting = admittedTransport.startPromise.then(
+          (value) => ({ value }),
+          (error) => ({ error })
+        );
         this.isStreaming = true;
         this.streamingSource.connect(this.streamingProcessor);
+        this._captureRecordingPrivacy(recording);
         this.isRecording = true;
         this.recordingStartTime = Date.now();
-        this.onStateChange?.({ isRecording: true, isProcessing: false, isStreaming: true });
+        this.onStateChange?.(
+          { isRecording: true, isProcessing: false, isStreaming: true },
+          onboardingTake,
+          recording
+        );
         await this.beginMicRecovery(stream);
 
         const settled = await starting;
@@ -4636,12 +5085,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
         this._endDictationSession(candidate);
         this._pressCandidate = { session: candidate };
-        return this.startStreamingRecording(true, candidate);
+        return this.startStreamingRecording(
+          true,
+          candidate,
+          onboardingTake,
+          recording,
+          admittedTransport
+        );
       }
 
       logger.error(
         "Failed to start streaming recording",
-        { provider: this.getStreamingProviderName(), error: error.message, code: error.code },
+        { provider: admittedTransport?.name || "unknown", error: error.message, code: error.code },
         "streaming"
       );
 
@@ -4661,20 +5116,30 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           "Your microphones stayed muted and produced no audio. Please check your sound input settings and try again.";
       }
 
-      this.onError?.({
-        code: error.code,
-        messageKey: error.messageKey,
-        title: errorTitle,
-        description: errorDescription,
-      });
+      this.onError?.(
+        {
+          messageKey: error.messageKey,
+          title: errorTitle,
+          description: errorDescription,
+          code: typeof error.code === "string" ? error.code : undefined,
+          name: error.name,
+        },
+        onboardingTake,
+        recording
+      );
 
       await this.cleanupStreaming();
+      await this._stopStreamingTransport(admittedTransport).catch(() => {});
       if (this._activeStreamingSessionId === sessionId) {
         this._activeStreamingSessionId = null;
       }
       this.isRecording = false;
       this.recordingStartTime = null;
-      this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+      this.onStateChange?.(
+        { isRecording: false, isProcessing: false, isStreaming: false },
+        onboardingTake,
+        recording
+      );
       return false;
     } finally {
       this._startInProgress = false;
@@ -4777,12 +5242,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const session = this._activeSession;
     const sessionId = this._activeStreamingSessionId;
     const operation = this._streamingOperation;
+    const transport = this._streamingTransport;
     const stopPromise = this._finalizeStreamingRecording(sessionId);
     this._streamingStopPromise = stopPromise;
     this._streamingStopMode = "finalize";
     try {
       return await stopPromise;
     } finally {
+      await this._stopStreamingTransport(transport).catch(() => {});
       if (this._streamingStopPromise === stopPromise) {
         this._streamingStopPromise = null;
         this._streamingStopMode = null;
@@ -4808,6 +5275,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   _requestStreamingCancellation() {
+    this.retireCapturedCleanup();
     this._streamingCancellationGeneration += 1;
     this._cancelAbandonedSegmentMerges();
     ReasoningService.cancelAllRequests();
@@ -4821,12 +5289,26 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.selectionCapturePromise = null;
   }
 
+  _stopStreamingTransport(owner) {
+    if (!owner) return Promise.resolve();
+    if (owner.stopPromise) return owner.stopPromise;
+    owner.closed = true;
+    // Install before calling an adapter: a synchronous throw/reentrant cancel
+    // must still count as this owner's sole teardown attempt. closed fences
+    // any not-yet-dispatched start; an already dispatched start can still open
+    // main's connection after its token await, so stop only after that settles.
+    owner.stopPromise = Promise.resolve()
+      .then(() => owner.startPromise?.catch(() => {}))
+      .then(() => owner.adapter.stop?.(owner.operation));
+    return owner.stopPromise;
+  }
+
   async cancelStreamingRecording() {
     this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
     if (this._streamingStopPromise) {
       if (this._streamingStopMode === "finalize") {
         this._requestStreamingCancellation();
-        const provider = this.getStreamingProvider();
+        const provider = this._streamingTransport?.adapter;
         const operation = this._streamingOperation;
         provider?.cancel?.(operation);
         this._holdStreamingSession();
@@ -4840,11 +5322,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const session = this._activeSession;
     const sessionId = this._activeStreamingSessionId;
     const operation = this._streamingOperation;
-    const provider = this.getStreamingProvider();
+    const transport = this._streamingTransport;
+    const provider = transport?.adapter;
     const cancelPromise = (async () => {
       this._requestStreamingCancellation();
       provider?.cancel?.(operation);
-      this._holdStreamingSession();
+      if (!this._holdStreamingSession())
+        this.onCancelledChange?.(null, undefined, this._onboardingTake);
       this.stopRequestedDuringStreamingStart = false;
       this.recordingStartTime = null;
       this.isRecording = false;
@@ -4858,7 +5342,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       // Retire main's pending Start now. Waiting for renderer startup first
       // would wait on the same handshake that Stop must cancel.
-      const providerStop = Promise.resolve(provider.stop?.(operation)).catch((error) => {
+      const providerStop = this._stopStreamingTransport(transport).catch((error) => {
         logger.debug(
           "Streaming disconnect after cancellation failed",
           { error: error.message },
@@ -4903,7 +5387,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     { replay = false, shouldAbandon = neverCancelled } = {}
   ) {
     const operation = this._streamingOperation;
-    const provider = this.getStreamingProvider();
+    const transport = this._streamingTransport;
+    const provider = transport?.adapter;
+    const onboardingTake = this._onboardingTake;
+    const recording = this._recordingContext ?? { private: this._recordingPrivate === true };
     if (
       sessionId !== null &&
       sessionId !== undefined &&
@@ -4927,7 +5414,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this._streamingFallbackSegments = [];
       }
       try {
-        await provider.stop?.(operation);
+        await this._stopStreamingTransport(transport);
       } catch (error) {
         logger.debug(
           "Streaming disconnect after cancellation failed",
@@ -4959,7 +5446,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.isProcessing = true;
     this.onProcessingStage?.("transcribing");
     this.recordingStartTime = null;
-    this.onStateChange?.({ isRecording: false, isProcessing: true, isStreaming: false });
+    this.onStateChange?.(
+      { isRecording: false, isProcessing: true, isStreaming: false },
+      onboardingTake
+    );
 
     this.micRecovery.stop();
     // Let an in-flight mic swap settle so its fallback segment isn't lost and
@@ -4999,19 +5489,60 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     try {
       fallbackBlob = await this.mergeRecordedSegments(
         this._streamingFallbackSegments,
-        wasCancelled
+        wasCancelled,
+        recording
       );
     } catch (error) {
+      if (wasCancelled()) return abandonFinalization();
       logger.warn(
         "Failed to merge streaming fallback audio",
         { error: error.message },
         "streaming"
       );
+      if (recording.private) {
+        recording.audioBlob = new Blob(
+          recording.originalSegments || this._streamingFallbackSegments,
+          { type: "audio/webm" }
+        );
+        this._setOwnedAudio(recording.audioBlob, {
+          sessionId: recording.sessionId,
+          private: recording.private,
+        });
+        recording.ownedAudio = this._ownedAudioSnapshot({
+          sessionId: recording.sessionId,
+          private: recording.private,
+        });
+
+        await abandonFinalization();
+        this.isProcessing = false;
+        this.onStateChange?.(
+          { isRecording: false, isProcessing: false, isStreaming: false },
+          onboardingTake,
+          recording
+        );
+        this.onError?.(
+          {
+            title: "Transcription Error",
+            description: error.message,
+            code: "AUDIO_CONVERSION_FAILED",
+          },
+          onboardingTake,
+          recording
+        );
+        return false;
+      }
       fallbackBlob = this.getLargestRecordedSegment(this._streamingFallbackSegments);
     }
     if (wasCancelled()) return abandonFinalization();
     if (fallbackBlob) {
-      this._setOwnedAudio(fallbackBlob);
+      this._setOwnedAudio(fallbackBlob, {
+        sessionId: recording.sessionId,
+        private: recording.private,
+      });
+      recording.ownedAudio = this._ownedAudioSnapshot({
+        sessionId: recording.sessionId,
+        private: recording.private,
+      });
     }
     this.streamingFallbackRecorder = null;
     this.streamingFallbackChunks = [];
@@ -5042,7 +5573,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (wasCancelled()) return abandonFinalization();
     const tForceEndpoint = performance.now();
 
-    const stopResult = await provider.stop(operation).catch((e) => {
+    const stopResult = await this._stopStreamingTransport(transport).catch((e) => {
       logger.debug("Streaming disconnect error", { error: e.message }, "streaming");
       return { success: false };
     });
@@ -5086,22 +5617,27 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const rawStreamingText = finalText;
     if (finalText) {
       try {
-        finalText = await this.processTranscription(
-          finalText,
-          this.getStreamingProviderName(),
-          wasCancelled
-        );
+        finalText = await this.processTranscription(finalText, transport.name, wasCancelled);
       } catch (error) {
         if (wasCancelled()) return true;
         this.pendingSelectionEdit = null;
         this.isProcessing = false;
-        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
-        this.onError?.({
-          title: "Text Processing Failed",
-          description: error.message,
-          code: error.code,
-          messageKey: error.messageKey,
-        });
+        this.onStateChange?.(
+          { isRecording: false, isProcessing: false, isStreaming: false },
+          onboardingTake,
+          recording
+        );
+        this.onError?.(
+          {
+            title: "Text Processing Failed",
+            description: error.message,
+            code: error.code,
+            messageKey: error.messageKey,
+          },
+          onboardingTake,
+          recording
+        );
+        if (recording.private) this.releasePrivateAudio(recording.ownedAudio);
         return false;
       }
       if (wasCancelled()) return true;
@@ -5115,19 +5651,24 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         durationMs: durationSeconds
           ? Math.round(durationSeconds * 1000)
           : Math.round(tBeforePaste - t0),
-        provider: `${this.getStreamingProviderName()}-streaming`,
+        provider: `${transport.name}-streaming`,
         model: streamingSttModel || null,
       };
+      recording.audioMetadata = this.lastAudioMetadata;
       if (wasCancelled()) return true;
-      this.onTranscriptionComplete?.({
-        success: true,
-        text: finalText,
-        rawText: rawStreamingText || finalText,
-        source: `${this.getStreamingProviderName()}-streaming`,
-        clientTranscriptionId,
-        analyticsOccurredAt: resultAnalyticsOccurredAt,
-        ...this._takePendingResultExtras(),
-      });
+      this.onTranscriptionComplete?.(
+        {
+          success: true,
+          text: finalText,
+          rawText: rawStreamingText || finalText,
+          source: `${transport.name}-streaming`,
+          clientTranscriptionId,
+          analyticsOccurredAt: resultAnalyticsOccurredAt,
+          ...this._takePendingResultExtras(),
+        },
+        onboardingTake,
+        recording
+      );
 
       logger.info(
         "Streaming total processing",
@@ -5140,17 +5681,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
 
     this.isProcessing = false;
-    this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+    this.onStateChange?.(
+      { isRecording: false, isProcessing: false, isStreaming: false },
+      onboardingTake
+    );
 
     if (wasCancelled()) return true;
 
     if (!finalText) {
       // Match the batch pipeline: settle processing first, then publish the
       // empty outcome so the warning cannot interrupt the thinking transition.
-      this.onTranscriptionComplete?.({ success: true, text: "" });
+      this.onTranscriptionComplete?.({ success: true, text: "" }, onboardingTake, recording);
     }
 
-    if (this.shouldUseStreaming()) {
+    if (recording.private) this.releasePrivateAudio(recording.ownedAudio);
+
+    if (!recording.private && this.shouldUseStreaming()) {
       this.warmupStreamingConnection().catch((e) => {
         logger.debug("Background re-warm failed", { error: e.message }, "streaming");
       });
@@ -5307,6 +5853,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // This also joins preflight disposal and earlier closes still saving.
     void this.flushCancelHold().catch(() => {});
     this.isProcessing = false;
+    this.retireCapturedCleanup();
     this.micRecovery.stop();
     this._unsubscribeSettings?.();
     this.cancelPreparedMicCapture();
@@ -5330,7 +5877,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this.workletBlobUrl = null;
     }
     try {
-      this.getStreamingProvider().stop?.(this._streamingOperation);
+      void this._stopStreamingTransport(this._streamingTransport).catch(() => {});
     } catch (e) {
       // Ignore errors during cleanup (page may be unloading)
     }

@@ -50,6 +50,7 @@ async function mount(t) {
     mockModules: {
       "/utils/dictationCues": cueModule,
       "/helpers/audioManager": `export default class {
+  _ownedAudioSnapshot() { return { blob: this.lastAudioBlob ?? null, private: false, sessionId: this.activeSession?.id ?? null }; }
       constructor(){ globalThis.__cueManager=this; this.allowed=true; this.cancelled=false; }
       getState(){ return { isRecording:this.recording===true, isProcessing:this.processing===true, isStreaming:this.streaming===true }; }
       setCallbacks(cb){this.cb=cb;} cleanup(){} getRecordingAudioLevel(){return null;}
@@ -133,7 +134,7 @@ test("only successful owning paste sounds success; stale paste and stale errors 
   });
   assert.deepEqual(log, []);
   const old = am;
-  await render({ trialMode: true });
+  await render({ trialMode: true, onToggle: () => {} });
   await fire(old, "onError", { message: "retired" });
   await fire(old, "onNoAudio");
   await fire(old, "onStateChange", { micCaptureStatus: "unavailable" });
@@ -163,7 +164,7 @@ test("actual cancellation sounds once while no-op, refused and retired async can
   await React.act(async () => {
     pending = ref.api.cancelRecording();
   });
-  await render({ trialMode: true });
+  await render({ trialMode: true, onToggle: () => {} });
   await React.act(async () => {
     wait.resolve(true);
     await pending;
@@ -267,7 +268,7 @@ test("Undo processing of the same session earns a fresh cancellation cue", async
 test("a replacement manager's active microphone is not a restoration of its retired predecessor", async (t) => {
   const { manager, render, log } = await mount(t);
   await fire(manager(), "onStateChange", { micCaptureStatus: "unavailable" });
-  await render({ trialMode: true });
+  await render({ trialMode: true, onToggle: () => {} });
   await fire(manager(), "onStateChange", { micCaptureStatus: "active" });
   assert.deepEqual(log, []);
 });

@@ -99,11 +99,17 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
   const render = () => React.act(async () => root.render(React.createElement(Harness, props)));
   await render();
 
-  for (const dependency of ["trialMode", "t", "onToggle", "onDictationError"]) {
+  for (const dependency of ["t", "onToggle", "onDictationError", "onToggle"]) {
     const oldManager = installations.at(-1);
     let recorder;
     await React.act(async () => {
       recorder = startBatch(oldManager, [1], 2, { manualStop: true });
+      bridge.target._onboardingDemoSession = {
+        id: "demo-1",
+        kind: "dictation",
+        takeId: oldManager.activeSession.id,
+        sawListening: true,
+      };
       oldManager.onStateChange(oldManager.getState());
       const before = cueLog.length;
       assert.equal(await ref.api.cancelRecording(), true);
@@ -134,8 +140,19 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
     assert.equal(ref.hotkey.held, true);
     assert.equal(liveLeases.has(leaseA), true);
 
-    if (dependency === "trialMode") props.trialMode = true;
-    else if (dependency === "t") globalThis.__task9ReinstallTranslate = (key) => `${key}:new`;
+    props.trialMode = !props.trialMode;
+    await render();
+    assert.equal(
+      installations.at(-1),
+      oldManager,
+      "privacy preference changes retain the active manager"
+    );
+    assert.equal(
+      oldManager._undo.peek(),
+      heldA,
+      "original privacy and hold survive setup transitions"
+    );
+    if (dependency === "t") globalThis.__task9ReinstallTranslate = (key) => `${key}:new`;
     else props[dependency] = () => {};
     await render();
     const replacement = installations.at(-1);
@@ -174,6 +191,12 @@ test("actual hook reinstall retires disposed holds, refs, leases and demo cache 
 
     await React.act(async () => {
       startBatch(replacement, [], 3);
+      bridge.target._onboardingDemoSession = {
+        id: "demo-1",
+        kind: "dictation",
+        takeId: replacement.activeSession.id,
+        sawListening: true,
+      };
       replacement.onStateChange(replacement.getState());
       const before = cueLog.length;
       assert.equal(await ref.api.cancelRecording(), true);

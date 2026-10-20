@@ -64,6 +64,9 @@ export interface ModelDiscoveryDescription {
   generation: number;
 }
 export interface PersonalInferenceAPI {
+  captureTextOperation(descriptor: TextOperationDescriptor): Promise<string>;
+  runTextOperation(input: { token: string; request: CapturedTextInput }): Promise<{ text: string }>;
+  retireTextOperation(token: string): Promise<void>;
   describeModels(input: ModelDiscoveryInput): Promise<ModelDiscoveryDescription>;
   codexStatus(): Promise<{
     available: boolean;
@@ -76,6 +79,11 @@ export interface PersonalInferenceAPI {
   codexCancelLogin(loginId: string): Promise<unknown>;
   codexLogout(): Promise<unknown>;
   codexModels(): Promise<{ data: CodexModel[]; nextCursor: string | null }>;
+  /** Passive main-RAM snapshot from explicit discovery in this account/session. */
+  codexModelCatalog(): Promise<{
+    connected: boolean;
+    data: Array<{ model: string; isDefault: boolean }>;
+  }>;
   codexRateLimits(): Promise<{
     rateLimits?: { primary?: { usedPercent: number }; secondary?: { usedPercent: number } };
     rateLimitsByLimitId?: Record<string, unknown>;
@@ -95,4 +103,41 @@ export interface PersonalInferenceAPI {
     error?: string;
   }): Promise<void>;
   onTextEvent(callback: (event: InferenceEvent) => void): () => void;
+}
+
+/** Nonsecret configuration fixed at user admission. Main captures credentials. */
+export interface TextOperationDescriptor extends Omit<
+  TextRequest,
+  "requestId" | "messages" | "tools" | "webSearch"
+> {
+  /** Renderer admission revision; never substitutes for main authority. */
+  selectionRevision?: number;
+  expectedEnterprise?: Record<string, string>;
+  expectedAuthority?: { credentialGeneration?: number; enterpriseVersion?: number };
+  cleanupContext?: {
+    language: string;
+    uiLanguage: string;
+    dictionary: readonly string[];
+    chineseScriptPreference: string;
+  };
+  cleanupIdentity?: CleanupOperationIdentity;
+}
+/** String transport IDs; unrelated to recording session IDs or reducer counters. */
+export interface CleanupOperationIdentity {
+  demoId: string;
+  takeId: string;
+  operationId: string;
+}
+export interface CapturedTextInput {
+  messages: TextRequest["messages"];
+  wordCount: number;
+}
+export type CleanupRetryResult = CleanupOperationIdentity &
+  ({ ok: true; text: string } | { ok: false; code: string });
+export interface CleanupRetryRequest extends CleanupOperationIdentity {
+  requestId: string;
+}
+export interface CleanupRetryReply extends CleanupRetryRequest {
+  text?: string;
+  code?: string;
 }

@@ -62,6 +62,15 @@ const registerListener = (channel, handlerFactory) => {
   };
 };
 
+const invokeTextOperation = async (channel, input) => {
+  const result = await ipcRenderer.invoke(channel, input);
+  if (!result?.ok)
+    throw Object.assign(new Error(result?.code || "CLEANUP_FAILED"), {
+      code: result?.code || "CLEANUP_FAILED",
+    });
+  return result.value;
+};
+
 contextBridge.exposeInMainWorld("electronAPI", {
   getSearchModelStatus: () => ipcRenderer.invoke("get-search-model-status"),
   downloadSearchModel: () => ipcRenderer.invoke("download-search-model"),
@@ -76,6 +85,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     prepared: (nonce, error) => ipcRenderer.send("loqui-update:prepared", nonce, !!error),
   },
   personalInference: {
+    captureTextOperation: (descriptor) =>
+      invokeTextOperation("personal-inference:text-operation-capture", descriptor),
+    runTextOperation: (input) =>
+      invokeTextOperation("personal-inference:text-operation-run", input),
+    retireTextOperation: (token) =>
+      invokeTextOperation("personal-inference:text-operation-retire", token),
     describeModels: (input) => ipcRenderer.invoke("personal-inference:describe-models", input),
     codexStatus: () => ipcRenderer.invoke("personal-inference:codex-status"),
     codexLogin: () => ipcRenderer.invoke("personal-inference:codex-login"),
@@ -83,6 +98,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("personal-inference:codex-cancel-login", loginId),
     codexLogout: () => ipcRenderer.invoke("personal-inference:codex-logout"),
     codexModels: () => ipcRenderer.invoke("personal-inference:codex-models"),
+    codexModelCatalog: () => ipcRenderer.invoke("personal-inference:codex-model-catalog"),
     codexRateLimits: () => ipcRenderer.invoke("personal-inference:codex-rate-limits"),
     credentialStatus: (ref) => ipcRenderer.invoke("personal-inference:credential-status", ref),
     credentialSave: (ref, value) =>
@@ -134,12 +150,54 @@ contextBridge.exposeInMainWorld("electronAPI", {
     expectedAccountScope
       ? ipcRenderer.send("mac-accessibility-features-ready", expectedAccountScope)
       : ipcRenderer.send("mac-accessibility-features-ready"),
+  replyOnboardingDemoAdmission: (reply) =>
+    ipcRenderer.invoke("onboarding-demo-admission-reply", reply),
+  invalidateOnboardingDemoAdmission: (identity) =>
+    ipcRenderer.invoke("onboarding-demo-admission-invalidated", identity),
+  onOnboardingDemoAdmission: registerListener(
+    "onboarding-demo-admission",
+    (callback) => (_event, request) => callback(request)
+  ),
+  onOnboardingDemoReservation: registerListener(
+    "onboarding-demo-reservation",
+    (callback) => (_event, command) => callback(command)
+  ),
   beginOnboardingDemo: (session) => ipcRenderer.invoke("onboarding-demo-begin", session),
   endOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-end", id),
-  stopOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-stop", id),
+  stopOnboardingDemo: (id, takeId) =>
+    takeId === undefined
+      ? ipcRenderer.invoke("onboarding-demo-stop", id)
+      : ipcRenderer.invoke("onboarding-demo-stop", id, takeId),
   publishOnboardingDemoEvent: (event) => ipcRenderer.invoke("onboarding-demo-publish", event),
   onOnboardingDemoEvent: registerListener(
     "onboarding-demo-event",
+    (callback) => (_event, payload) => callback(payload)
+  ),
+  retryOnboardingCleanup: (identity) => ipcRenderer.invoke("onboarding-cleanup-retry", identity),
+  replyOnboardingCleanup: (reply) => ipcRenderer.invoke("onboarding-cleanup-reply", reply),
+  onOnboardingCleanupRetry: registerListener(
+    "onboarding-cleanup-retry",
+    (callback) => (_event, request) => callback(request)
+  ),
+  onOnboardingCleanupRetired: registerListener(
+    "onboarding-cleanup-retired",
+    (callback) => (_event, identity) => callback(identity)
+  ),
+  getSystemProfile: () => ipcRenderer.invoke("get-system-profile"),
+  toggleOnboardingDemo: (id, takeId) =>
+    takeId === undefined
+      ? ipcRenderer.invoke("onboarding-demo-toggle", id)
+      : ipcRenderer.invoke("onboarding-demo-toggle", id, takeId),
+  cancelOnboardingDemo: (id, takeId) =>
+    takeId === undefined
+      ? ipcRenderer.invoke("onboarding-demo-cancel", id)
+      : ipcRenderer.invoke("onboarding-demo-cancel", id, takeId),
+  undoOnboardingDemoCancel: (id, takeId, sessionId) =>
+    takeId === undefined && sessionId === undefined
+      ? ipcRenderer.invoke("onboarding-demo-undo-cancel", id)
+      : ipcRenderer.invoke("onboarding-demo-undo-cancel", id, takeId, sessionId),
+  onDictationHotkeyEvent: registerListener(
+    "dictation-hotkey-event",
     (callback) => (_event, payload) => callback(payload)
   ),
   probeSelfHosted: (baseUrl) => ipcRenderer.invoke("probe-self-hosted", baseUrl),
@@ -153,21 +211,36 @@ contextBridge.exposeInMainWorld("electronAPI", {
   hideWindow: () => ipcRenderer.invoke("hide-window"),
   showDictationPanel: () => ipcRenderer.invoke("show-dictation-panel"),
   captureDictationTarget: () => ipcRenderer.invoke("capture-dictation-target"),
-  onToggleDictation: registerListener("toggle-dictation", (callback) => () => callback()),
-  onToggleVoiceAgent: registerListener("toggle-voice-agent", (callback) => () => callback()),
+  onToggleDictation: registerListener(
+    "toggle-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
+  onToggleVoiceAgent: registerListener(
+    "toggle-voice-agent",
+    (callback) => (_event, options) => callback(options)
+  ),
   onToggleTranslation: registerListener("toggle-translation", (callback) => () => callback()),
   onOpenAssistantPanel: registerListener("open-assistant-panel", (callback) => () => callback()),
-  onStartDictation: registerListener("start-dictation", (callback) => () => callback()),
-  onStopDictation: registerListener("stop-dictation", (callback) => () => callback()),
+  onStartDictation: registerListener(
+    "start-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
+  onStopDictation: registerListener(
+    "stop-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
   onPrepareDictation: registerListener(
     "prepare-dictation",
     (callback) => (_event, options) => callback(options)
   ),
   onCancelDictationPreparation: registerListener(
     "cancel-dictation-preparation",
-    (callback) => () => callback()
+    (callback) => (_event, options) => callback(options)
   ),
-  onCancelDictation: registerListener("cancel-dictation", (callback) => () => callback()),
+  onCancelDictation: registerListener(
+    "cancel-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
   onDictationForceStopped: registerListener(
     "dictation-force-stopped",
     (callback) => (_event, payload) => callback(payload)
@@ -218,7 +291,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Audio storage functions
   saveTranscriptionAudio: (id, audioBuffer, metadata) =>
     ipcRenderer.invoke("save-transcription-audio", id, audioBuffer, metadata),
-  mergeAudioSegments: (segments) => ipcRenderer.invoke("merge-audio-segments", segments),
+  mergeAudioSegments: (segments, options) =>
+    ipcRenderer.invoke("merge-audio-segments", segments, options),
   getAudioPath: (id) => ipcRenderer.invoke("get-audio-path", id),
   showAudioInFolder: (id) => ipcRenderer.invoke("show-audio-in-folder", id),
   getAudioBuffer: (id) => ipcRenderer.invoke("get-audio-buffer", id),
@@ -669,6 +743,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Dictation key persistence (file-based for reliable startup)
   getDictationKey: () => ipcRenderer.invoke("get-dictation-key"),
+  getDictationBinding: () => ipcRenderer.invoke("get-dictation-binding"),
   getActiveDictationKey: () => ipcRenderer.invoke("get-active-dictation-key"),
   getEffectiveDefaultHotkey: () => ipcRenderer.invoke("get-effective-default-hotkey"),
   saveDictationKey: (key) => ipcRenderer.invoke("save-dictation-key", key),

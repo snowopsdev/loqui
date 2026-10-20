@@ -12,10 +12,13 @@ import {
 type Status = Awaited<ReturnType<PersonalInferenceAPI["codexStatus"]>>;
 export default function CodexConnection({
   onSignedInChange,
+  onStatusChecked,
   checkStatusOnMount = false,
 }: {
   /** Called when a later status refresh finds the ChatGPT account signed in or out. */
   onSignedInChange?: (signedIn: boolean) => void;
+  /** Setup may re-read the passive model catalog after an explicit status check. */
+  onStatusChecked?: () => void;
   /**
    * Read status when mounted. Only onboarding opts in (OnboardingFlow.tsx; Plan 05
    * owns that step). Settings never does: codexStatus starts the Codex app server
@@ -36,6 +39,8 @@ export default function CodexConnection({
   const signedInRef = useRef<boolean | null>(null);
   const onSignedInChangeRef = useRef(onSignedInChange);
   onSignedInChangeRef.current = onSignedInChange;
+  const onStatusCheckedRef = useRef(onStatusChecked);
+  onStatusCheckedRef.current = onStatusChecked;
   const mountedRef = useRef(false);
   const refreshSeqRef = useRef(0);
   useEffect(() => {
@@ -55,6 +60,7 @@ export default function CodexConnection({
     // it must not update state or tell the owner about an account change.
     if (!mountedRef.current || seq !== refreshSeqRef.current) return;
     setStatus(next);
+    onStatusCheckedRef.current?.();
     const signedIn = next.account?.type === "chatgpt";
     // The first read only establishes the baseline; later changes are reported.
     if (signedInRef.current !== null && signedInRef.current !== signedIn)

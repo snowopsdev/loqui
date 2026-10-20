@@ -39,7 +39,7 @@ function withContextSize(args, contextSize) {
   return copy;
 }
 
-function buildResponseError(statusCode, body) {
+function buildResponseError(statusCode, body, privateText = false) {
   if (statusCode === 400) {
     try {
       const parsed = JSON.parse(body)?.error;
@@ -65,7 +65,11 @@ function buildResponseError(statusCode, body) {
     }
   }
 
-  return new Error(`llama-server returned status ${statusCode}: ${body}`);
+  return new Error(
+    privateText
+      ? `llama-server returned status ${statusCode}`
+      : `llama-server returned status ${statusCode}: ${body}`
+  );
 }
 
 class LlamaServerManager {
@@ -646,7 +650,8 @@ class LlamaServerManager {
    * make a decision more precise, so a broken one must degrade to the estimate
    * and never fail the user's request.
    */
-  _requestJson(path, body = null, timeoutMs = PREFLIGHT_TIMEOUT_MS) {
+  _requestJson(path, body = null, timeoutMs = PREFLIGHT_TIMEOUT_MS, execution) {
+    execution?.assertLive();
     return new Promise((resolve) => {
       const payload = body === null ? null : JSON.stringify(body);
       const req = http.request(
@@ -662,6 +667,7 @@ class LlamaServerManager {
               }
             : {},
           timeout: timeoutMs,
+          ...(execution ? { signal: execution.signal } : {}),
         },
         (res) => {
           let data = "";
@@ -694,9 +700,9 @@ class LlamaServerManager {
    * for: a concurrent caller can join an in-flight start that used a smaller
    * size. Returns null when it cannot be read.
    */
-  async usableContextSize() {
+  async usableContextSize(execution) {
     if (!this.ready || !this.process) return null;
-    const props = await this._requestJson("/props");
+    const props = await this._requestJson("/props", null, PREFLIGHT_TIMEOUT_MS, execution);
     const contextSize = props?.default_generation_settings?.n_ctx;
     return Number.isFinite(contextSize) && contextSize > 0 ? contextSize : null;
   }
@@ -716,14 +722,26 @@ class LlamaServerManager {
       payload.chat_template_kwargs = { enable_thinking: false };
     }
 
-    const templated = await this._requestJson("/apply-template", payload);
+    const templated = await this._requestJson(
+      "/apply-template",
+      payload,
+      PREFLIGHT_TIMEOUT_MS,
+      options.execution
+    );
     if (typeof templated?.prompt !== "string") return null;
 
-    const tokenized = await this._requestJson("/tokenize", { content: templated.prompt });
+    options.execution?.assertLive();
+    const tokenized = await this._requestJson(
+      "/tokenize",
+      { content: templated.prompt },
+      PREFLIGHT_TIMEOUT_MS,
+      options.execution
+    );
     return Array.isArray(tokenized?.tokens) ? tokenized.tokens.length : null;
   }
 
   async inference(messages, options = {}) {
+    options.signal?.throwIfAborted();
     if (!this.ready || !this.process) {
       throw new Error("llama-server is not running");
     }
@@ -760,6 +778,7 @@ class LlamaServerManager {
             "Content-Length": Buffer.byteLength(body),
           },
           timeout: 300000,
+          ...(options.signal ? { signal: options.signal } : {}),
         },
         (res) => {
           let data = "";
@@ -773,7 +792,7 @@ class LlamaServerManager {
             });
 
             if (res.statusCode !== 200) {
-              reject(buildResponseError(res.statusCode, data));
+              reject(buildResponseError(res.statusCode, data, options.privateText));
               return;
             }
 
@@ -799,7 +818,13 @@ class LlamaServerManager {
                 message?.content || (suppressThinking && message?.reasoning_content) || "";
               resolve(text.trim());
             } catch (e) {
-              reject(new Error(`Failed to parse llama-server response: ${e.message}`));
+              reject(
+                new Error(
+                  options.privateText
+                    ? "Failed to parse llama-server response."
+                    : `Failed to parse llama-server response: ${e.message}`
+                )
+              );
             }
           });
         }

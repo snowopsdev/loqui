@@ -1,4 +1,6 @@
-.browser-preview-content > .h-screen {
+/* Window-sized surfaces fill the space left by the preview toolbar. */
+.browser-preview-content > .h-screen,
+.browser-preview-content > .onb-shell {
   height: 100%;
 }
 

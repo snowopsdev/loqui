@@ -1,3 +1,4 @@
+import { useWorkspaceActive } from "../../hooks/useWorkspaceActive";
 import { useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { X, PanelRight, PanelRightClose } from "../icons";
@@ -53,6 +54,7 @@ export default function EmbeddedChat({
   onNewChat,
   floatingPanelRef,
 }: EmbeddedChatProps) {
+  const workspaceActive = useWorkspaceActive();
   const { t } = useTranslation();
 
   const handleOpenNote = useCallback(async (noteId: number) => {
@@ -71,9 +73,10 @@ export default function EmbeddedChat({
   );
 
   useEffect(() => {
+    if (!workspaceActive) return;
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
+  }, [handleKeyDown, workspaceActive]);
 
   if (mode === "hidden") return null;
 

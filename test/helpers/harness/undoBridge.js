@@ -59,7 +59,15 @@ function undoBridge(t) {
     mainWindow: { webContents: overlay },
     lastCancelledDictation: null,
   });
-  const target = { windowManager, _onboardingDemoSession: { id: "demo-1", kind: "dictation" } };
+  const target = {
+    windowManager,
+    _onboardingDemoSession: {
+      id: "demo-1",
+      kind: "dictation",
+      takeId: "take-A",
+      sawListening: true,
+    },
+  };
   IPCHandlers.prototype.setupHandlers.call(
     new Proxy(target, { get: (obj, key) => (key in obj ? obj[key] : anything()) })
   );
@@ -70,7 +78,17 @@ function undoBridge(t) {
     ipcMain,
     broadcasts,
     target,
-    invoke: (name, event, sender = overlay) => handlers.get(name)({ sender }, event),
+    invoke: (name, event, sender = overlay) =>
+      handlers.get(name)(
+        { sender },
+        name === "onboarding-demo-publish"
+          ? {
+              demoId: target._onboardingDemoSession?.id,
+              takeId: target._onboardingDemoSession?.takeId,
+              ...event,
+            }
+          : event
+      ),
   };
 }
 module.exports = { undoBridge };

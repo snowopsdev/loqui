@@ -7,8 +7,6 @@ interface ActivationModeSelectorProps {
   value: ActivationMode;
   onChange: (mode: ActivationMode) => void;
   pushDisabledReason?: string;
-  /** "onboarding" draws the control in the setup flow's pill grammar and tokens. */
-  variant?: "default" | "onboarding";
 }
 
 const OPTIONS = [
@@ -25,25 +23,15 @@ const STYLES = {
     selected: "text-foreground",
     unselected: "text-muted-foreground hover:text-foreground",
   },
-  onboarding: {
-    track: "rounded-full p-1 bg-[var(--onboarding-surface-tertiary)]",
-    indicator: "rounded-full bg-[var(--onboarding-surface)] shadow-sm",
-    button: "h-8 gap-1.5 rounded-full px-4 text-sm",
-    icon: "size-4",
-    selected: "text-[var(--onboarding-text-primary)]",
-    unselected:
-      "text-[var(--onboarding-text-secondary)] hover:text-[var(--onboarding-text-primary)]",
-  },
 } as const;
 
 export function ActivationModeSelector({
   value,
   onChange,
   pushDisabledReason,
-  variant = "default",
 }: ActivationModeSelectorProps) {
   const { t } = useTranslation();
-  const styles = STYLES[variant];
+  const styles = STYLES.default;
 
   return (
     // Two equal columns, so the half-width indicator covers exactly one option
@@ -53,7 +41,7 @@ export function ActivationModeSelector({
         className={`absolute inset-y-[var(--inset)] start-[var(--inset)] w-[calc(50%-var(--inset))] transition-transform duration-200 ease-out ${styles.indicator} ${
           value === "push" ? "translate-x-full rtl:-translate-x-full" : "translate-x-0"
         }`}
-        style={{ "--inset": variant === "onboarding" ? "4px" : "2px" } as React.CSSProperties}
+        style={{ "--inset": "2px" } as React.CSSProperties}
       />
 
       {OPTIONS.map(({ mode, Icon, labelKey }) => {

@@ -232,7 +232,9 @@ test("[source guard, baseline] enterprise readers use the atomic current/version
         const name = node.name.text;
         if (
           legacy.has(name) ||
-          (name === "getEnterpriseRouteState" && rel !== "src/stores/routeFactsStore.ts")
+          (name === "getEnterpriseRouteState" &&
+            // Reviewed main capture revalidates the atomic authority at admission/dispatch.
+            !["src/stores/routeFactsStore.ts", "src/helpers/textOperationCapture.js"].includes(rel))
         )
           offenders.push(`${rel}: ${name}`);
       }

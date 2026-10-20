@@ -23,6 +23,12 @@ function installBrowserGlobals(t, { initialStorage = {}, window: windowProps = {
     setInterval() {
       return 1;
     },
+    clearInterval() {},
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
     electronAPI: {},
     ...windowProps,
   };
@@ -168,6 +174,12 @@ function installMicCaptureGlobals(t) {
     gain: { value: 0 },
     fftSize: 0,
     smoothingTimeConstant: 0,
+    getFloatTimeDomainData(data) {
+      data.fill(0);
+    },
+    getByteTimeDomainData(data) {
+      data.fill(128);
+    },
   });
   class FakeAudioContext {
     constructor() {

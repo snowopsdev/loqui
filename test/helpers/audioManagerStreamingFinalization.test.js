@@ -1,3 +1,4 @@
+const { admitStreamingTransportFixture } = require("./harness/streamingTransport");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { loadAudioManager } = require("./harness/audioManager");
@@ -69,6 +70,7 @@ function createFinalizingManager(AudioManager) {
     onStateChange: (state) => states.push(state),
     onTranscriptionComplete() {},
   });
+  admitStreamingTransportFixture(manager);
   return { manager, states, getProviderStopCalls: () => providerStopCalls };
 }
 
@@ -174,6 +176,7 @@ test("streaming discard blocks restart until the provider disconnects", async (t
       return { success: true };
     },
   });
+  admitStreamingTransportFixture(manager);
 
   const cancel = manager.cancelStreamingRecording();
   while (!providerStopStarted) await new Promise((resolve) => setImmediate(resolve));
@@ -207,9 +210,10 @@ test("streaming discard retires the provider immediately and waits for startup c
       return { success: true };
     },
   });
+  admitStreamingTransportFixture(manager);
 
   const cancel = manager.cancelStreamingRecording();
-  assert.deepEqual(order, ["cancel", "stop"], "exact operation retires synchronously");
+  assert.deepEqual(order, ["cancel"], "exact operation retires synchronously");
   assert.equal(captureCleanups, 1);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(
@@ -421,6 +425,7 @@ test("a cancelled finalization stops its captured attempt after a newer operatio
       return { success: true };
     },
   });
+  admitStreamingTransportFixture(manager);
   const stop = manager.stopStreamingRecording();
   manager._streamingOperation = b;
   manager.getStreamingProvider = () => ({

@@ -19,8 +19,10 @@ export function NoticeStack({
   placement,
   horizontalDirection = "right",
   primaryHotkeyLabel = null,
+  bottomInset = 0,
 }: {
   placement: "pill" | "panel";
+  bottomInset?: number;
   horizontalDirection?: "left" | "right";
   /** Shown on the card's primary only while the global hotkey is actually held. */
   primaryHotkeyLabel?: string | null;
@@ -42,7 +44,12 @@ export function NoticeStack({
   );
   if (!card && chips.length === 0) return null;
   return (
-    <div className="notice-stack" data-placement={placement} data-direction={horizontalDirection}>
+    <div
+      style={placement === "panel" && bottomInset ? { bottom: bottomInset + 12 } : undefined}
+      className="notice-stack"
+      data-placement={placement}
+      data-direction={horizontalDirection}
+    >
       {card ? (
         <WordsFirstCard
           key={card.id}

@@ -1,3 +1,4 @@
+import { useWorkspaceActive } from "../hooks/useWorkspaceActive";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useUiLocale } from "../hooks/useUiLocale";
@@ -77,6 +78,8 @@ export default function CommandSearch({
   onTranscriptSelect,
   onConversationSelect,
 }: CommandSearchProps) {
+  const workspaceActive = useWorkspaceActive();
+  open = open && workspaceActive;
   const { t } = useTranslation();
   const locale = useUiLocale();
   const [query, setQuery] = useState("");

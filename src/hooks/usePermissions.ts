@@ -279,9 +279,19 @@ export const usePermissions = (
   // localStorage values (e.g. after TCC reset or app update).
   useEffect(() => {
     if (getPlatform() !== "darwin") return;
-    window.electronAPI?.checkMicrophoneAccess?.().then((result) => {
-      if (result) setMicPermissionGranted(result.granted);
-    });
+    let active = true;
+    void (async () => {
+      try {
+        const result = await window.electronAPI?.checkMicrophoneAccess?.();
+        if (active && result) setMicPermissionGranted(result.granted === true);
+      } catch {
+        // Hello observes permission independently; unavailable IPC is no grant.
+        if (active) setMicPermissionGranted(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [setMicPermissionGranted]);
 
   // On macOS, re-validate accessibility permission once this screen is allowed

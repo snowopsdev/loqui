@@ -1,0 +1,15 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "var(--motion-spring-snap)",
+        "files": ["src/styles/onboarding.css"],
+        "createdAt": "2026-10-19T14:15:30.273Z",
+        "reason": "Approved Task14 brief and Plan05 composition prescribe onb-popin with the shared motion-spring-snap token; preserve that intentional arrival easing."
+      }
+    ]
+  }
+}

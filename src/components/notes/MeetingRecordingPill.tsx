@@ -9,6 +9,7 @@ import { cn } from "../lib/utils";
 import { isControlPanelWindow } from "../../utils/windowContext";
 
 interface MeetingRecordingPillProps {
+  workspaceActive?: boolean;
   activeView: string;
   activeNoteId: number | null;
   onReturnToNote: () => void;
@@ -18,6 +19,7 @@ const truncateTitle = (title: string) =>
   title.length > 20 ? `${title.slice(0, 19).trimEnd()}…` : title;
 
 export default function MeetingRecordingPill({
+  workspaceActive = true,
   activeView,
   activeNoteId,
   onReturnToNote,
@@ -31,7 +33,7 @@ export default function MeetingRecordingPill({
   const [isStopping, setIsStopping] = useState(false);
 
   const isViewingRecordingNote =
-    activeView === "personal-notes" && activeNoteId === recordingNoteId;
+    workspaceActive && activeView === "personal-notes" && activeNoteId === recordingNoteId;
 
   if (!isRecording || isViewingRecordingNote || !isControlPanelWindow()) {
     return null;
@@ -48,7 +50,9 @@ export default function MeetingRecordingPill({
   };
 
   const title = truncateTitle(recordingNoteTitle ?? "");
-  const returnLabel = t("notes.meetingPill.returnToNote");
+  const returnLabel = t(
+    workspaceActive ? "notes.meetingPill.returnToNote" : "setupFlow.ready.openWorkspace"
+  );
   const stopLabel = t("notes.editor.stop");
 
   return createPortal(

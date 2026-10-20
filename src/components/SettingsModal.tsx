@@ -1,6 +1,7 @@
-import { withDraftDiscard } from "../stores/routeDraftStore";
+import { useWorkspaceActive } from "../hooks/useWorkspaceActive";
+import { endSettingsSession, withDraftDiscard } from "../stores/routeDraftStore";
 import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Brain, Keyboard, Mic, Shield, Sliders, Waypoints, Wrench } from "./icons";
 import SettingsPage, { SettingsSectionType } from "./SettingsPage";
@@ -17,16 +18,18 @@ interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialSection?: string;
-  /** Every acknowledged link reactivates navigation, even when its path is unchanged. */
+  /** A new destination activation, including another request for an identical path. */
   activationId?: string;
 }
 
 export default function SettingsModal({
-  open,
+  open: requestedOpen,
   onOpenChange,
   initialSection,
   activationId,
 }: SettingsModalProps) {
+  const workspaceActive = useWorkspaceActive();
+  const open = requestedOpen && workspaceActive;
   const { t } = useTranslation();
 
   const sidebarItems: SidebarItem<SettingsSectionType>[] = useMemo(() => {
@@ -95,22 +98,25 @@ export default function SettingsModal({
     subTab: initialSubTab,
     activationId: appliedActivationId,
   } = navigation;
-  const [prevOpen, setPrevOpen] = useState(open);
-
-  if (open && !prevOpen && initialSection) {
-    setPrevOpen(open);
-    setNavigation({ ...parseSettingsPath(initialSection), activationId });
-  } else if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (!open) setNavigation((current) => ({ ...current, subTab: undefined }));
-  }
-
-  // A new request also navigates a modal that is already open; undefined clears a stale path.
+  // Hiding the retained workspace is not a new Settings activation. Consume a
+  // destination only on a requested open or a new explicit request, once active.
+  const appliedRequest = useRef({ open: false, initialSection, activationId });
   useEffect(() => {
-    if (open) {
-      setNavigation({ ...parseSettingsPath(initialSection), activationId });
+    if (!requestedOpen) {
+      appliedRequest.current.open = false;
+      return;
     }
-  }, [open, initialSection, activationId]);
+    if (!workspaceActive) return;
+    const previous = appliedRequest.current;
+    if (
+      !previous.open ||
+      previous.initialSection !== initialSection ||
+      previous.activationId !== activationId
+    ) {
+      setNavigation({ ...parseSettingsPath(initialSection), activationId });
+      appliedRequest.current = { open: true, initialSection, activationId };
+    }
+  }, [requestedOpen, workspaceActive, initialSection, activationId]);
 
   const handleNavigateToPath = useCallback((path: string) => {
     setNavigation((current) => ({
@@ -132,19 +138,48 @@ export default function SettingsModal({
   }, [searchPath, open, handleNavigateToPath]);
 
   const search = useSettingsSearch({ open, navigateToPath: navigateFromSearch });
+  const clearSearch = search.clear;
+  const consumedActivation = useRef<string | undefined>(undefined);
+  const consumedPath = useRef(initialSection);
+  useEffect(() => {
+    const changed =
+      activationId === undefined
+        ? consumedPath.current !== initialSection
+        : consumedActivation.current !== activationId;
+    if (!open || !changed) return;
+    consumedActivation.current = activationId;
+    consumedPath.current = initialSection;
+    clearSearch();
+    // Pass through an unset sub-tab so the retained useSubTab owner consumes
+    // even an identical path after the user has manually moved elsewhere.
+    setNavigation((current) => ({ ...current, subTab: undefined }));
+    setSearchPath(initialSection ?? "general");
+  }, [activationId, initialSection, open, clearSearch]);
+
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    // The destination was consumed by the active page. A remount on ordinary
+    // return must read the user's saved tab rather than replay that request.
+    if (!open && wasOpen.current) setNavigation((current) => ({ ...current, subTab: undefined }));
+    wasOpen.current = open;
+  }, [open]);
+
   const handleSectionChange = (section: SettingsSectionType) => {
     search.clear();
     setSearchPath(null);
     setNavigation((current) => ({ ...current, section, subTab: undefined }));
   };
 
+  // The retained modal owns the planner session. Radix content may unmount
+  // while setup is displayed without closing this owner.
+  useEffect(() => () => endSettingsSession(), []);
   const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);
 
   return (
     <SidebarModal<SettingsSectionType>
       open={open}
       onOpenChange={handleOpenChange}
-      footer={<StagedRouteBar />}
+      footer={<StagedRouteBar discardOnUnmount={false} />}
       title={t("settingsModal.title")}
       contentTitle={search.query ? t("settingsSearch.title") : undefined}
       search={

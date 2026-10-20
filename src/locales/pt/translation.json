@@ -4341,5 +4341,442 @@
       "transcribe": "Transcrever gravações",
       "discard": "Descartar gravações"
     }
+  },
+  "setupFlow": {
+    "progress": {
+      "nav": "Progresso da configuração",
+      "dictate": "Começa a ditar",
+      "personalize": "À tua maneira",
+      "ready": "Pronto",
+      "label": "{{phase}} · {{step}}",
+      "goTo": "Ir para {{step}}"
+    },
+    "steps": {
+      "welcome": "Olá",
+      "speech": "Voz",
+      "try": "Diz algo",
+      "cleanup": "Limpeza de texto",
+      "shortcuts": "Atalho",
+      "finish": "Pronto"
+    },
+    "units": {
+      "mb": "{{value}} MB",
+      "gb": "{{value}} GB"
+    },
+    "download": {
+      "eta": {
+        "seconds": "cerca de {{count}} s",
+        "minutes": "cerca de {{count}} min"
+      },
+      "chip": "A transferir {{percent}}% · faltam {{eta}}",
+      "chipNoEta": "A transferir {{percent}}%",
+      "chipInstalling": "A instalar o modelo de voz",
+      "chipCancelling": "A parar a transferência…",
+      "chipCancelled": "Transferência cancelada",
+      "chipReady": "Modelo de voz pronto",
+      "chipFailed": "A transferência falhou",
+      "received": "{{done}} de {{total}}",
+      "stoppedKept": "Transferência parada nos {{percent}}%. O teu progresso foi mantido.",
+      "stoppedRestart": "Transferência parada nos {{percent}}%. Ao tentar de novo, começa do início.",
+      "cancelledLine": "Cancelaste a transferência. Não foi mantido nada.",
+      "downloadAgain": "Transferir novamente",
+      "retry": "Tentar de novo",
+      "cancel": "Cancelar",
+      "readyTitle": "Modelo de voz pronto",
+      "failedTitle": "O modelo de voz não foi transferido",
+      "announcePercent": "Transferência do modelo de voz a {{percent}} por cento.",
+      "announceReady": "Modelo de voz pronto",
+      "checking": "A verificar a tua voz…",
+      "voiceModel": "Modelo de voz",
+      "stoppedUnknown": "Parou nos {{percent}}%. Não foi possível verificar o tamanho dos dados de transferência restantes.",
+      "cleanupFailed": "A transferência parou, mas não foi possível remover alguns ficheiros transferidos."
+    },
+    "brand": "Configuração do Loqui",
+    "back": "Voltar",
+    "skipStep": "Saltar este passo",
+    "continue": "Continuar",
+    "finishLater": "Concluir mais tarde",
+    "lookAroundFirst": "Explorar primeiro",
+    "instrument": {
+      "idle": "Pronto quando quiseres",
+      "downloading": "A transferir · {{percent}}% · {{done}} de {{total}}",
+      "goodLevel": "A ouvir · bom nível",
+      "waiting": "A ouvir · à espera da tua voz",
+      "processing": "A escrever…",
+      "heard": "Ouvimos-te",
+      "downloadError": "Transferência parada",
+      "micError": "O Loqui não consegue ouvir o teu microfone",
+      "nothingHeard": "Não ouvimos nada. Verifica o teu microfone.",
+      "error": "Não funcionou. Tenta de novo."
+    },
+    "rail": {
+      "welcome": {
+        "title": "Tu falas. O Loqui escreve.",
+        "bodyMac": "Dita em qualquer aplicação, reúne notas e reuniões num só lugar e escolhe exatamente o que pode sair do teu Mac.",
+        "bodyOther": "Dita em qualquer aplicação, reúne notas e reuniões num só lugar e escolhe exatamente o que pode sair do teu computador."
+      },
+      "speech": {
+        "title": "Escolhe como o Loqui te ouve.",
+        "bodyMac": "Uma voz recomendada. Funciona neste Mac, mesmo sem ligação à Internet.",
+        "bodyOther": "Uma voz recomendada. Funciona neste computador, mesmo sem ligação à Internet."
+      },
+      "try": {
+        "title": "Diz algo",
+        "bodyMac": "Este teste não é colado noutra aplicação nem guardado no histórico.",
+        "bodyOther": "Este teste não é colado noutra aplicação nem guardado no histórico."
+      },
+      "cleanup": {
+        "title": "Torna o texto mais fácil de ler.",
+        "bodyMac": "Vê o que a limpeza de texto faz às tuas palavras e depois escolhe.",
+        "bodyOther": "Vê o que a limpeza de texto faz às tuas palavras e depois escolhe."
+      },
+      "shortcuts": {
+        "title": "Fala a partir de qualquer aplicação.",
+        "bodyMac": "Prime o teu atalho em qualquer aplicação. Altera-o se entrar em conflito com outra aplicação.",
+        "bodyOther": "Prime o teu atalho em qualquer aplicação. Altera-o se entrar em conflito com outra aplicação."
+      },
+      "finish": {
+        "title": "É aqui que estás.",
+        "bodyMac": "Tudo o que se segue reflete o estado atual.",
+        "bodyOther": "Tudo o que se segue reflete o estado atual."
+      }
+    },
+    "hello": {
+      "start": "Começar",
+      "micTitle": "Deixa o Loqui ouvir-te",
+      "micBody": "O Loqui só ouve enquanto ditas. Nada neste ecrã é gravado.",
+      "allowMic": "Permitir microfone",
+      "micReady": "{{device}} está a ouvir",
+      "micReadyGeneric": "O teu microfone está a ouvir",
+      "micLabel": "Microfone",
+      "systemDefault": "Predefinição do sistema",
+      "builtIn": "Microfone integrado",
+      "unnamedMic": "Microfone sem nome",
+      "notHearing": "Não te ouvimos? Escolhe outro microfone.",
+      "savedMicMissing": "O microfone que guardaste não está ligado, por isso o Loqui usa a predefinição do sistema.",
+      "deniedTitle": "O Loqui não pode usar o teu microfone",
+      "deniedBodyMac": "Permite o acesso nas Definições do Sistema e volta. O Loqui verifica novamente quando regressares.",
+      "deniedBodyOther": "Permite o acesso nas definições de privacidade ou som do sistema e volta. O Loqui verifica novamente quando regressares.",
+      "openSettings": "Abrir Definições do Sistema",
+      "recheck": "Já ativei o acesso",
+      "unavailableTitle": "O Loqui não consegue abrir o teu microfone",
+      "unavailableBody": "Outra aplicação pode estar a usá-lo, ou não há nenhum dispositivo de entrada ligado.",
+      "retryOpen": "Experimentar novamente",
+      "openSound": "Abrir definições de som",
+      "starting": "A abrir o teu microfone…"
+    },
+    "privacy": {
+      "title": "Predefinições de privacidade",
+      "historyTitle": "Manter histórico local",
+      "historyBodyMac": "Guarda as transcrições neste Mac. Podes alterar a opção em Privacidade e dados quando quiseres.",
+      "historyBodyOther": "Guarda as transcrições neste computador. Podes alterar a opção em Privacidade e dados quando quiseres.",
+      "updatesTitle": "Transferir atualizações automaticamente",
+      "updatesBody": "Verifica versões assinadas todos os dias. Tu escolhes quando reiniciar."
+    },
+    "voice": {
+      "checkingMac": "A analisar este Mac…",
+      "checkingOther": "A analisar este computador…",
+      "title": "Escolhemos uma voz para ti.",
+      "unsupportedTitle": "Escolhe a voz mais adequada para ti.",
+      "why": {
+        "englishMac": "Escolhemos inglês porque o teu Mac está definido para inglês.",
+        "englishOther": "Escolhemos inglês porque o teu computador está definido para inglês.",
+        "languageMac": "Escolhemos {{voice}} porque o teu Mac está definido para {{language}}.",
+        "languageOther": "Escolhemos {{voice}} porque o teu computador está definido para {{language}}.",
+        "multilingualMac": "Escolhemos {{voice}} porque o teu Mac usa {{languages}}.",
+        "multilingualOther": "Escolhemos {{voice}} porque o teu computador usa {{languages}}.",
+        "unsupported": "As vozes locais do Loqui ainda não reconhecem {{language}}. Escolhe a mais próxima ou adiciona uma voz na nuvem mais tarde nas Definições."
+      },
+      "noticed": "O que detetámos",
+      "signals": {
+        "systemLanguage": "Idioma do sistema",
+        "memory": "Memória",
+        "freeSpace": "Espaço livre",
+        "graphics": "Gráficos"
+      },
+      "gpu": {
+        "appleSilicon": "Processador Apple",
+        "nvidia": "Gráficos NVIDIA",
+        "unknown": "Não detetado"
+      },
+      "unknown": "Desconhecido",
+      "diskShort": "Esta voz precisa de cerca de {{needed}} livres durante a instalação. Tens {{free}} disponíveis.",
+      "recommended": "Recomendada para ti",
+      "installed": "Instalada neste dispositivo",
+      "notRight": "Não é a ideal? Escolhe tu",
+      "pickerLabel": "Vozes",
+      "lockedWhileDownloading": "Cancela a transferência para escolheres outra voz.",
+      "languageLocked": "Cancela a transferência para mudares o idioma.",
+      "cantHear": "Não reconhece {{language}}",
+      "blocked": {
+        "mismatch": "Esta voz não reconhece {{language}}. Escolhe outra abaixo.",
+        "none": "Ainda não há uma voz local que reconheça {{language}}. Escolhe um idioma suportado ou adiciona uma voz na nuvem mais tarde nas Definições."
+      },
+      "download": "Transferir ({{size}})",
+      "outcomes": {
+        "fastEnglish": {
+          "name": "Rápida, em inglês",
+          "description": "Rápida e precisa em inglês. As palavras aparecem cerca de um segundo depois de parares de falar."
+        },
+        "manyLanguages": {
+          "name": "Muitos idiomas",
+          "description": "Reconhece e deteta automaticamente 25 idiomas, para poderes mudar ao longo do dia."
+        },
+        "liveCaptions": {
+          "name": "Legendas em direto",
+          "description": "As palavras aparecem enquanto falas. Ideal para reuniões e ditados longos."
+        },
+        "liveMultilingual": {
+          "name": "Em direto, em mais idiomas",
+          "description": "As palavras aparecem enquanto falas, em 15 idiomas, incluindo japonês, árabe e hindi."
+        }
+      },
+      "commitToTry": "Escolhe e aplica uma voz local antes de experimentares o ditado."
+    },
+    "tour": {
+      "label": "Enquanto a transferência decorre",
+      "title": "Conhece o Loqui enquanto a transferência decorre.",
+      "skip": "Saltar apresentação",
+      "skipped": "Começamos o teste assim que a tua voz estiver pronta.",
+      "noVoice": "Escolhe primeiro uma voz. Funciona neste dispositivo.",
+      "chooseVoice": "Escolher uma voz",
+      "slideOf": "{{current}} de {{total}}",
+      "previous": "Dica anterior",
+      "next": "Dica seguinte",
+      "tip": "Dica {{number}}",
+      "shortcut": {
+        "title": "Usa o teu atalho",
+        "tap": "Prime {{key}} para começares a falar e prime novamente para terminares.",
+        "push": "Mantém {{key}} premido e fala. Solta para terminares."
+      },
+      "privacy": {
+        "title": "Para onde vão as tuas palavras",
+        "bodyMac": "Nada sai deste Mac a menos que escolhas um fornecedor.",
+        "bodyOther": "Nada sai deste computador a menos que escolhas um fornecedor.",
+        "nodes": {
+          "mic": "Micro",
+          "loqui": "Loqui",
+          "model": "Modelo de voz",
+          "notes": "Notas"
+        }
+      },
+      "demo": {
+        "title": "Fala e obtém texto",
+        "body": "A limpeza de texto pode remover hesitações e corrigir a pontuação. Vais escolhê-la no próximo passo.",
+        "raw": "hum lembra-me de enviar o rascunho antes do almoço",
+        "final": "Lembra-me de enviar o rascunho antes do almoço."
+      },
+      "readyTitle": "Pronto. Diz algo.",
+      "readyBody": "O teu modelo de voz está neste dispositivo.",
+      "carouselRole": "carrossel",
+      "slideRole": "diapositivo"
+    },
+    "cleanupAuthority": {
+      "unavailable": "A limpeza original já não está disponível. As tuas palavras originais são preservadas.",
+      "changed": "O destino ou as credenciais da limpeza mudaram. As tuas palavras originais são preservadas.",
+      "unsupported": "Não é possível manter a origem de autenticação selecionada para {{provider}} para a limpeza. As tuas palavras originais são preservadas.",
+      "failed": "A limpeza falhou. As tuas palavras originais são preservadas.",
+      "busy": "A limpeza já está em curso."
+    },
+    "try": {
+      "idle": {
+        "tap": "Prime {{key}} e diz algo. Prime novamente para terminares.",
+        "push": "Mantém {{key}} premido e diz algo. Solta para terminares."
+      },
+      "keycap": {
+        "tap": "prime para falar",
+        "push": "mantém premido para falar"
+      },
+      "listening": "A ouvir",
+      "processing": "A escrever…",
+      "shortcutWorks": "O atalho funciona",
+      "heardYou": "O Loqui ouviu-te",
+      "discarded": "Descartado.",
+      "undo": "Desfazer",
+      "silent": "Não estamos a ouvir nada. Será o microfone errado?",
+      "noAudioTitle": "Não ouvimos nada",
+      "noAudioBody": "Verifica se está selecionado o microfone certo e se não está silenciado, depois tenta de novo.",
+      "memoryTitle": "Esta voz precisa de mais memória do que a disponível",
+      "memoryBody": "Fecha algumas aplicações ou escolhe uma voz mais pequena.",
+      "chooseSmaller": "Escolher outra voz",
+      "changeMic": "Mudar microfone",
+      "otherTitle": "Esta gravação não funcionou",
+      "otherBody": "Tenta de novo. A tua configuração não mudou.",
+      "again": "Experimentar novamente",
+      "cleanupFailed": "A limpeza não foi executada. Este é o teu texto original.",
+      "retryFailed": "A limpeza continua sem ser executada. Este é o teu texto original.",
+      "retryCleanup": "Tentar a limpeza de novo",
+      "cleanupOff": "Desativar a limpeza",
+      "wordsSafe": "As tuas palavras são preservadas em qualquer caso.",
+      "accessibilityTitle": "O atalho precisa de acesso de Acessibilidade",
+      "accessibilityBody": "O macOS só permite que o Loqui detete um atalho global depois de autorizares. Podes ditar dentro do Loqui sem essa autorização.",
+      "grantAccess": "Conceder acesso",
+      "useButton": "Usar um botão em vez disso",
+      "start": "Iniciar gravação",
+      "stop": "Parar",
+      "privacyLine": "Não é colado em lado nenhum nem guardado.",
+      "bandTitle": "Foste tu. O Loqui ouviu-te no teu dispositivo.",
+      "makeItYours": "À tua maneira",
+      "startUsing": "Começar a usar o Loqui",
+      "cancel": "Descartar gravação",
+      "cleanupUnsupported": "Não é possível manter esta origem de autenticação para a limpeza. As tuas palavras originais são preservadas.",
+      "controlUnavailable": "O controlo de gravação não respondeu. Tenta parar ou descartar novamente."
+    },
+    "cleanup": {
+      "title": "Vê o que a limpeza faz",
+      "label": "Limpeza de texto",
+      "options": {
+        "none": "Nenhuma",
+        "local": "No dispositivo",
+        "codex": "ChatGPT",
+        "provider": "Chave de API"
+      },
+      "original": "Texto original",
+      "withCleanup": "Com limpeza",
+      "nothingChanges": "Nada muda",
+      "running": "A limpar a tua frase…",
+      "wordsSent_one": "Seria enviada {{count}} palavra para {{provider}}",
+      "wordsSent_other": "Seriam enviadas {{count}} palavras para {{provider}}",
+      "sentNotice_one": "A tua {{count}} palavra foi enviada para {{provider}} nesta pré-visualização",
+      "sentNotice_other": "As tuas {{count}} palavras foram enviadas para {{provider}} nesta pré-visualização",
+      "tryMine_one": "Experimentar na minha frase · envia {{count}} palavra para {{provider}}",
+      "tryMine_other": "Experimentar na minha frase · envia {{count}} palavras para {{provider}}",
+      "exampleNotice": "Texto de exemplo. Não foi enviado nada.",
+      "localExampleNotice": "Texto de exemplo. A tua frase aparece aqui quando a limpeza local estiver pronta neste dispositivo.",
+      "example": {
+        "original": "hum vamos enviar o rascunho à Maya antes do almoço e pronto lembra-me de reservar a sala para quinta-feira",
+        "local": "Vamos enviar o rascunho à Maya antes do almoço e lembra-me de reservar a sala para quinta-feira.",
+        "codex": "Vamos enviar o rascunho à Maya antes do almoço. Lembra-me de reservar a sala para quinta-feira.",
+        "provider": "Enviemos à Maya o rascunho antes do almoço, e lembra-me de reservar a sala para quinta-feira."
+      },
+      "listModels": "Listar modelos do ChatGPT",
+      "modelListFailed": "Não foi possível listar os modelos do ChatGPT. Tente novamente.",
+      "now": {
+        "off": "A limpeza está desativada. As tuas palavras ficam exatamente como as disseste.",
+        "checking": "A verificar se a limpeza está disponível…",
+        "ready": "A limpeza está ativa com {{name}}.",
+        "readyNetwork": "A limpeza está ativa com {{name}} em {{provider}}.",
+        "needsKey": "Adiciona a tua chave {{provider}} nas Definições para ativares a limpeza. Até lá, as tuas palavras ficam como as disseste.",
+        "needsConnection": "Liga o ChatGPT acima para ativares a limpeza. Até lá, as tuas palavras ficam como as disseste.",
+        "needsModel": "O modelo de limpeza local ainda não está neste dispositivo. Transfere-o nas Definições → Modelos de linguagem (1,3 GB).",
+        "unreachable": "O Loqui não consegue contactar {{provider}} neste momento. As tuas palavras ficam como as disseste.",
+        "modelSetup": "O ChatGPT está ligado. Liste os modelos para escolher um para a revisão do texto.",
+        "review": "Revê esta alteração e escolhe «Aplicar»."
+      },
+      "reuse": "Usar esta escolha também para outras funções de texto",
+      "exampleInProgress": "Texto de exemplo enquanto o pedido decorre. O teu resultado só aparece se a limpeza for bem-sucedida.",
+      "attemptNotice_one": "Autorizaste o envio de {{count}} palavra para {{provider}}. A tentativa falhou; a entrega pode ter ocorrido. As tuas palavras originais não mudaram.",
+      "attemptNotice_other": "Autorizaste o envio de {{count}} palavras para {{provider}}. A tentativa falhou; a entrega pode ter ocorrido. As tuas palavras originais não mudaram.",
+      "previousAttemptNotice_one": "Anteriormente, autorizaste o envio de {{count}} palavra para {{provider}}. Alterar esta pré-visualização não retira esse pedido. As tuas palavras originais são mantidas.",
+      "previousAttemptNotice_other": "Anteriormente, autorizaste o envio de {{count}} palavras para {{provider}}. Alterar esta pré-visualização não retira esse pedido. As tuas palavras originais são mantidas."
+    },
+    "shortcut": {
+      "title": "Experimenta o teu atalho.",
+      "testerLabel": "Teste do atalho. Prime {{key}}.",
+      "hint": "Prime {{key}}. Um toque rápido inicia e para; manter premido permite falar enquanto manténs a tecla premida.",
+      "fills": "Olá, funciona.",
+      "works": "O atalho funciona",
+      "detected": {
+        "tap": "Detetado: tocar para iniciar e parar",
+        "hold": "Detetado: manter premido para falar"
+      },
+      "suggest": {
+        "push": "Mantiveste a tecla premida. Mudar para manter premido para falar?",
+        "tap": "Tocaste na tecla. Mudar para tocar para iniciar e parar?"
+      },
+      "switch": "Mudar",
+      "change": "Alterar atalho",
+      "changeHelp": "Usa este atalho em qualquer aplicação para falar. Altera-o se entrar em conflito com outra aplicação.",
+      "autoPaste": "Colagem automática",
+      "autoPasteBodyMac": "Cola as tuas palavras onde estiver o cursor. Requer acesso de Acessibilidade no macOS.",
+      "autoPasteBodyOther": "Cola as tuas palavras onde estiver o cursor.",
+      "accessibilityBody": "O macOS só permite que o Loqui detete o atalho e cole após a tua autorização. Podes concedê-la agora ou mais tarde nas Definições."
+    },
+    "ready": {
+      "titleProven": "Já estás a ditar.",
+      "titleConfigured": "Está tudo configurado. Experimenta uma vez para confirmar.",
+      "titlePending_one": "Quase pronto: falta {{count}} passo.",
+      "titlePending_other": "Quase pronto: faltam {{count}} passos.",
+      "subAllLocalMac": "O teu primeiro ditado funcionou. Tudo é executado neste Mac.",
+      "subAllLocalOther": "O teu primeiro ditado funcionou. Tudo é executado neste computador.",
+      "subProven": "O teu primeiro ditado funcionou.",
+      "subConfigured": "Experimenta ditar para confirmar esta configuração.",
+      "subPending": "Conclui estes pontos. Cada um abre o local onde o resolver.",
+      "rows": {
+        "speech": "Voz",
+        "microphone": "Microfone",
+        "shortcut": "Atalho",
+        "cleanup": "Limpeza de texto"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}, reconheceu o teu primeiro ditado",
+          "checking": "A verificar…",
+          "configured": "{{voice}}, ainda por experimentar",
+          "downloading": "A transferência continua",
+          "needsModel": "Transfere uma voz",
+          "unavailable": "Conclui a configuração nas Definições"
+        },
+        "microphone": {
+          "heard": "A funcionar",
+          "allowed": "Permitido, ainda sem ouvir voz",
+          "denied": "Permitir nas Definições do Sistema",
+          "untested": "Diz algo para testar"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}, prime para iniciar e parar",
+            "push": "{{key}}, mantém premido para falar"
+          },
+          "configured": {
+            "tap": "{{key}}, ainda por experimentar",
+            "push": "{{key}}, ainda por experimentar"
+          },
+          "needsAccessibility": "Permitir Acessibilidade",
+          "checkAccessibility": "Verificar o acesso de Acessibilidade"
+        },
+        "cleanup": {
+          "off": "Desativada. Adiciona mais tarde",
+          "checking": "Ainda a verificar",
+          "needsConnection": "Ligar o ChatGPT",
+          "needsKey": "Adiciona a tua chave {{provider}} nas Definições",
+          "needsModel": "Transfere o modelo local nas Definições",
+          "unreachable": "Não é possível contactar {{provider}}",
+          "configured": "Configurada com {{name}}",
+          "configuredNetwork": "Configurada em {{provider}} com {{name}}",
+          "modelSetup": "Listar modelos do ChatGPT para a revisão",
+          "review": "Revê esta alteração e escolhe «Aplicar»."
+        }
+      },
+      "dictateNote": "Ditar numa nota",
+      "openWorkspace": "Abrir o espaço de trabalho",
+      "noteLocal": "As notas são transcritas neste dispositivo.",
+      "noteSends": "As notas enviam áudio para {{provider}}.",
+      "noteChecking": "A verificar como as notas são transcritas…",
+      "noteBlocked": {
+        "microphone": "As notas precisam do microfone.",
+        "unsupported": "A gravação de notas usa um serviço que as notas ainda não suportam, como um servidor próprio.",
+        "sealed": "O modo selado está ativo e a gravação de notas não consegue contactar {{provider}}.",
+        "needsModel": "A gravação de notas precisa de um modelo de voz neste dispositivo.",
+        "needsKey": "A gravação de notas precisa da tua chave {{provider}}.",
+        "needsUrl": "A gravação de notas precisa de um endereço de servidor.",
+        "unreachable": "O Loqui não consegue contactar {{provider}} para gravar notas."
+      },
+      "fixNote": "Resolver",
+      "noteNetwork": "As notas estão configuradas para enviar áudio para {{provider}}.",
+      "titlePending_many": "Quase pronto: faltam {{count}} passos."
+    },
+    "resume": {
+      "title": "Conclui a configuração",
+      "body": "O teu espaço de trabalho está pronto. Retoma de onde ficaste quando quiseres.",
+      "items": {
+        "finishDictating": "Põe o teu primeiro ditado a funcionar",
+        "cleanup": "Escolhe a limpeza de texto",
+        "shortcut": "Experimenta o teu atalho"
+      },
+      "resume": "Retomar a configuração",
+      "dismiss": "Ocultar a lista de configuração",
+      "label": "Lista de verificação da configuração"
+    }
   }
 }

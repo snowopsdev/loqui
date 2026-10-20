@@ -13,6 +13,7 @@ const english = require("../../src/locales/en/translation.json");
 
 const FAKE = `
 export default class FakeAudioManager {
+  _ownedAudioSnapshot() { return { blob: this.lastAudioBlob ?? null, private: false, sessionId: this.activeSession?.id ?? null }; }
   constructor() { this.voiceAgentRequested = false; this.translationRequested = false; this.sttConfig = { success: true }; globalThis.__am = this; this.calls = []; }
   getRecordingAudioLevel() { return null; }
   getState() { return { isRecording: this.recording === true, isProcessing: this.processing === true }; }

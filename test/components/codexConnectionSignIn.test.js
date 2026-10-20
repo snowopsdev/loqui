@@ -24,6 +24,7 @@ async function mount(t, onSignedInChange, readStatus) {
   let status = signedOut;
   const listeners = [];
   installBrowserGlobals(t, {
+    initialStorage: require("../lib/routeStateFixture").MIGRATED_STORAGE,
     window: {
       electronAPI: {
         personalInference: {

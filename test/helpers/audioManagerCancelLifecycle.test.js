@@ -1,3 +1,4 @@
+const { admitStreamingTransportFixture } = require("./harness/streamingTransport");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { loadAudioManager } = require("./harness/audioManager");
@@ -422,6 +423,7 @@ function createStreamingLeakManager(AudioManager) {
     onStateChange: () => {},
     onTranscriptionComplete: (result) => completions.push(result),
   });
+  admitStreamingTransportFixture(manager);
   return { manager, completions };
 }
 

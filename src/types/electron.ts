@@ -10,6 +10,12 @@ import type { SettingsLink } from "../utils/settingsDeepLink";
 type SettingsLinkResult =
   { delivered: true } | { delivered: false; reason: "timeout" | "replaced" };
 import type { PillHotkeySlot } from "../hooks/usePillHotkey";
+import type {
+  CleanupOperationIdentity,
+  CleanupRetryRequest,
+  CleanupRetryReply,
+  CleanupRetryResult,
+} from "../services/ai/personalInferenceTypes";
 export type VertexAuthSource = "adc" | "apiKey";
 export interface EnterpriseRouteSettings {
   bedrockRegion: string;
@@ -599,6 +605,8 @@ export interface ParakeetCheckResult {
 }
 
 interface ParakeetModelResult {
+  keptBytes?: number | null;
+  cleanupFailed?: boolean;
   success: boolean;
   model: string;
   downloaded: boolean;
@@ -630,6 +638,8 @@ interface ParakeetModelsListResult {
 }
 
 interface ParakeetDownloadProgressData {
+  keptBytes?: number | null;
+  cleanupFailed?: boolean;
   type: "progress" | "installing" | "complete" | "error";
   model: string;
   percentage?: number;
@@ -763,13 +773,59 @@ interface ConversationPreview {
   last_message_role?: "user" | "assistant" | "system" | null;
 }
 
-export type OnboardingDemoKind = "dictation" | "assistant";
+export interface SystemProfile {
+  locales: string[]; // OS preferred languages, deduped, max 8
+  totalMemoryBytes: number | null; // Composed from Plan 03's getTotalMemory in the renderer
+  freeDiskBytes: number | null; // Advisory free space where models are stored
+  gpu: { kind: "apple-silicon" | "nvidia" | "unknown"; name: string | null };
+}
+
+export type SystemFacts = Omit<SystemProfile, "totalMemoryBytes">;
+
+export type OnboardingDemoKind = "dictation" | "assistant" | "shortcut";
+/** Main-admitted preparation/start identity; separate from Plan04's recording session. */
+export interface DictationBinding {
+  hotkey: string;
+  activationMode: "tap" | "push";
+}
+/** Transport identity only; never a provider capability or Plan04 session. */
+export interface OnboardingDemoAdmissionIdentity {
+  demoId: string;
+  requestId: string;
+}
+export interface OnboardingDemoAdmissionRequest extends OnboardingDemoAdmissionIdentity {
+  kind: OnboardingDemoKind;
+  deadlineAt: number;
+}
+export interface OnboardingDemoAdmissionReply extends OnboardingDemoAdmissionIdentity {
+  accepted: boolean;
+}
+export interface OnboardingDemoReservation extends OnboardingDemoAdmissionIdentity {
+  takeId?: string;
+  action: "commit" | "release";
+}
+export interface OnboardingDemoTake {
+  reservationId: string;
+  demoId: string;
+  takeId: string;
+  context?: string;
+  expectedContext?: string;
+}
+export interface DictationStartOptions {
+  onboardingTake?: OnboardingDemoTake;
+}
+export interface DictationHotkeyEvent {
+  binding?: DictationBinding;
+  phase: "down" | "up" | "tap";
+  at: number;
+}
 /**
  * "partial" streams the transcript, "processing" carries the final transcript,
  * "replying" streams the assistant demo's reply, and "level" mirrors the
  * microphone level while listening.
  */
 type OnboardingDemoStatus =
+  | "preparing"
   | "listening"
   | "level"
   | "processing"
@@ -781,11 +837,20 @@ type OnboardingDemoStatus =
   | "cancelClosed";
 export interface OnboardingDemoEvent {
   demoId: string;
+  takeId?: string;
+  cleanupOperationId?: string;
+  cleanupCode?: string;
+  context?: string;
+  origin?: "button" | "hotkey";
+  binding?: DictationBinding;
   kind: OnboardingDemoKind;
   status: OnboardingDemoStatus;
   sessionId?: string;
   cancelled?: CancelledState;
   reason?: "expired" | "restored" | "replaced" | "flushed";
+  rawText?: string;
+  code?: string;
+  cleanup?: "applied" | "skipped" | "failed";
   text?: string;
   message?: string;
   /** Tool the assistant is running while it replies (a tool registry name). */
@@ -912,11 +977,42 @@ declare global {
       // Basic window operations
       setOnboardingWindowMode?: (mode: "compact" | "expanded" | "restore") => Promise<boolean>;
       setOnboardingActive?: (active: boolean) => Promise<boolean>;
-      beginOnboardingDemo?: (session: { id: string; kind: OnboardingDemoKind }) => Promise<boolean>;
+      retryOnboardingCleanup?: (identity: CleanupOperationIdentity) => Promise<CleanupRetryResult>;
+      replyOnboardingCleanup?: (reply: CleanupRetryReply) => Promise<boolean>;
+      onOnboardingCleanupRetry?: (callback: (request: CleanupRetryRequest) => void) => () => void;
+      onOnboardingCleanupRetired?: (
+        callback: (identity: CleanupOperationIdentity) => void
+      ) => () => void;
+      replyOnboardingDemoAdmission?: (reply: OnboardingDemoAdmissionReply) => Promise<boolean>;
+      invalidateOnboardingDemoAdmission?: (
+        identity: OnboardingDemoAdmissionIdentity
+      ) => Promise<boolean>;
+      onOnboardingDemoAdmission?: (
+        callback: (request: OnboardingDemoAdmissionRequest) => void
+      ) => () => void;
+      onOnboardingDemoReservation?: (
+        callback: (command: OnboardingDemoReservation) => void
+      ) => () => void;
+      beginOnboardingDemo?: (session: {
+        id: string;
+        kind: OnboardingDemoKind;
+        context?: string;
+      }) => Promise<boolean>;
       endOnboardingDemo?: (id: string) => Promise<boolean>;
-      stopOnboardingDemo?: (id: string) => Promise<boolean>;
-      publishOnboardingDemoEvent?: (event: Omit<OnboardingDemoEvent, "demoId">) => Promise<boolean>;
+      stopOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
+      publishOnboardingDemoEvent?: (
+        event: Omit<OnboardingDemoEvent, "demoId"> & Partial<OnboardingDemoTake>
+      ) => Promise<boolean>;
       onOnboardingDemoEvent?: (callback: (event: OnboardingDemoEvent) => void) => () => void;
+      getSystemProfile?: () => Promise<SystemFacts>;
+      toggleOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
+      cancelOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
+      undoOnboardingDemoCancel?: (
+        id: string,
+        takeId?: string | null,
+        sessionId?: string
+      ) => Promise<boolean>;
+      onDictationHotkeyEvent?: (callback: (event: DictationHotkeyEvent) => void) => () => void;
       probeSelfHosted?: (baseUrl: string) => Promise<
         | { ok: true; count: number }
         | {
@@ -995,17 +1091,23 @@ declare global {
       hideWindow: () => Promise<void>;
       showDictationPanel: () => Promise<void>;
       captureDictationTarget?: () => Promise<{ success: boolean; pid: number | null }>;
-      onToggleDictation: (callback: () => void) => () => void;
-      onToggleVoiceAgent?: (callback: () => void) => () => void;
+      onToggleDictation: (callback: (options?: DictationStartOptions) => void) => () => void;
+      onToggleVoiceAgent?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onToggleTranslation?: (callback: () => void) => () => void;
       onOpenAssistantPanel?: (callback: () => void) => () => void;
-      onStartDictation?: (callback: () => void) => () => void;
-      onStopDictation?: (callback: () => void) => () => void;
+      onStartDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
+      onStopDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onPrepareDictation?: (
-        callback: (options?: { inputKind?: "dictation" | "assistant" | "translation" }) => void
+        callback: (
+          options?: DictationStartOptions & {
+            inputKind?: "dictation" | "assistant" | "translation";
+          }
+        ) => void
       ) => () => void;
-      onCancelDictationPreparation?: (callback: () => void) => () => void;
-      onCancelDictation?: (callback: () => void) => () => void;
+      onCancelDictationPreparation?: (
+        callback: (options?: DictationStartOptions) => void
+      ) => () => void;
+      onCancelDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onDictationForceStopped?: (
         callback: (payload?: { reason?: "timeout" | "reset" | "manual" }) => void
       ) => () => void;
@@ -1077,9 +1179,10 @@ declare global {
         metadata?: { durationMs?: number; provider?: string; model?: string }
       ) => Promise<{ success: boolean; path?: string }>;
       mergeAudioSegments: (
-        segments: Array<{ buffer: ArrayBuffer; mimeType: string }>
+        segments: Array<{ buffer: ArrayBuffer; mimeType: string }>,
+        options?: { private?: boolean }
       ) => Promise<
-        | { success: true; buffer: ArrayBuffer; mimeType: "audio/webm" }
+        | { success: true; buffer: ArrayBuffer; mimeType: "audio/webm" | "audio/wav" }
         | { success: false; error: string }
       >;
       getAudioPath: (id: number) => Promise<string | null>;
@@ -1480,7 +1583,7 @@ declare global {
       // Parakeet operations (NVIDIA via sherpa-onnx)
       transcribeLocalParakeet: (
         audioBlob: ArrayBuffer,
-        options?: { model?: string; language?: string }
+        options?: { model?: string; language?: string; private?: boolean }
       ) => Promise<ParakeetTranscriptionResult>;
       checkParakeetInstallation: () => Promise<ParakeetCheckResult>;
       downloadParakeetModel: (modelName: string) => Promise<ParakeetModelResult>;
@@ -1888,6 +1991,7 @@ declare global {
 
       // Dictation key persistence (file-based for reliable startup)
       getDictationKey?: () => Promise<string | null>;
+      getDictationBinding?: () => Promise<DictationBinding | null>;
       getActiveDictationKey?: () => Promise<string>;
       getEffectiveDefaultHotkey?: () => Promise<string>;
       saveDictationKey?: (key: string) => Promise<void>;
@@ -2532,7 +2636,7 @@ declare global {
       ) => Promise<{ success: boolean; reason?: string }>;
       dictationRealtimeStop?: (
         operation?: DictationStreamingOperationOptions
-      ) => Promise<{ success: boolean; text: string }>;
+      ) => Promise<{ success: boolean; text?: string; error?: string; reason?: "stale-session" }>;
       onDictationRealtimePartial?: (callback: (text: string) => void) => () => void;
       onDictationRealtimeFinal?: (callback: (text: string) => void) => () => void;
       onDictationRealtimeError?: (callback: (error: string) => void) => () => void;

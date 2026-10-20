@@ -1,20 +1,26 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useStartOnboarding } from "../hooks/useStartOnboarding";
-import { CircleAlert, CheckCircle2, X } from "./icons";
+import { Circle, CircleAlert, X } from "./icons";
 import { Button } from "./ui/button";
 import { cn } from "./lib/utils";
-import { onboardingPreviewStorageKey, readOnboardingProgress } from "../utils/onboardingState";
+import { phaseOf } from "../utils/onboardingFlow";
+import {
+  onboardingPreviewStorageKey,
+  readOnboardingProgress,
+  type OnboardingStep,
+} from "../utils/onboardingState";
 
-/** Compact workspace reminder for users who explored before finishing setup. */
+/** Workspace reminder for people who left setup early (ONB-Q10): every row is a link. */
 export default function FinishDictationSetupCard() {
+  const { t } = useTranslation();
   const previewConfig = window.loquiBrowserPreview ? window.loquiBrowserPreviewConfig : undefined;
   const progressStorageKey = previewConfig ? onboardingPreviewStorageKey(previewConfig) : undefined;
   const dismissedStorageKey = progressStorageKey
     ? `${progressStorageKey}.checklistDismissed`
     : "loqui.onboarding.checklistDismissed";
-  const [dismissed, setDismissed] = useState(
-    () => localStorage.getItem(dismissedStorageKey) === "true"
-  );
+  const [, refreshDismissal] = useState(0);
+  const dismissed = localStorage.getItem(dismissedStorageKey) === "true";
   const progress = readOnboardingProgress(progressStorageKey);
   const startOnboarding = useStartOnboarding();
 
@@ -22,57 +28,71 @@ export default function FinishDictationSetupCard() {
     dismissed ||
     progress.completed ||
     !localStorage.getItem(progressStorageKey ?? "loqui.onboarding.progress")
-  )
+  ) {
     return null;
+  }
 
-  const items = [
-    [
-      progress.step === "speech" ? "Choose a local speech model" : "Try a short dictation",
-      progress.step === "speech" ? "speech" : "try",
-    ],
-    ["Choose optional text cleanup", "cleanup"],
-    ["Set up shortcut and automatic paste", "shortcuts"],
-  ] as const;
+  const items: Array<[string, OnboardingStep]> = [
+    ...(phaseOf(progress.step) === "dictate"
+      ? [["finishDictating", progress.step] as [string, OnboardingStep]]
+      : []),
+    ["cleanup", "cleanup"],
+    ["shortcut", "shortcuts"],
+  ];
 
   return (
     <div
+      role="region"
+      aria-label={t("setupFlow.resume.label")}
       className={cn(
-        "mx-auto mb-3 w-full max-w-3xl rounded-xl border border-primary/25 bg-primary/5 p-4",
-        "px-6"
+        "mx-auto mb-3 w-full max-w-3xl rounded-xl border border-border bg-card p-4",
+        "sm:px-6"
       )}
     >
-      <div className="flex items-start gap-3">
-        <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">Finish dictation setup</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Your workspace is available. Complete these optional steps whenever you are ready.
-              </p>
+              <p className="text-sm font-semibold">{t("setupFlow.resume.title")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t("setupFlow.resume.body")}</p>
             </div>
             <button
               type="button"
-              aria-label="Dismiss setup checklist"
-              className="rounded p-1 text-muted-foreground hover:bg-muted"
+              aria-label={t("setupFlow.resume.dismiss")}
+              className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
               onClick={() => {
                 localStorage.setItem(dismissedStorageKey, "true");
-                setDismissed(true);
+                refreshDismissal((value) => value + 1);
               }}
             >
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="mt-3 space-y-1.5">
-            {items.map(([label]) => (
-              <div key={label} className="flex items-center gap-2 text-xs text-muted-foreground">
-                <CheckCircle2 className="h-3.5 w-3.5 text-primary/70" />
-                {label}
-              </div>
+          <ul className="mt-3 space-y-1">
+            {items.map(([key, step]) => (
+              <li key={key}>
+                <button
+                  type="button"
+                  data-row-step={step}
+                  className="flex w-full items-center gap-2 rounded text-start px-1 py-0.5 text-xs text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+                  onClick={() => startOnboarding(step)}
+                >
+                  <Circle
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  />
+                  <span className="min-w-0">{t(`setupFlow.resume.items.${key}`)}</span>
+                </button>
+              </li>
             ))}
-          </div>
-          <Button size="sm" className="mt-4" onClick={startOnboarding}>
-            Resume setup
+          </ul>
+          <Button
+            size="sm"
+            className="mt-4 h-auto min-h-8 max-w-full whitespace-normal"
+            onClick={() => startOnboarding(progress.step)}
+          >
+            {t("setupFlow.resume.resume")}
           </Button>
         </div>
       </div>

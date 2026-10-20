@@ -126,10 +126,11 @@ class CortiStreaming {
         reject(new Error("Corti WebSocket connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      this.ws = new WebSocket(url);
-      this.ws.on("open", () => {
+      const socket = (this.ws = new WebSocket(url));
+      socket.on("open", () => {
+        if (this.ws !== socket || !this._lifecycleOpen()) return;
         debugLogger.debug("Corti WebSocket connected, sending config");
-        this.ws.send(JSON.stringify({ type: "config", configuration }));
+        socket.send(JSON.stringify({ type: "config", configuration }));
       });
       this.attachSocketHandlers(this.ws);
     });

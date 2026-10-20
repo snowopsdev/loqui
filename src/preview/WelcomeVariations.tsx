@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowRight, Check, LockKeyhole, Mic, ShieldCheck } from "lucide-react";
 import { Toggle } from "../components/ui/toggle";
-import WelcomeScreen from "../components/onboarding/WelcomeScreen";
+import OnboardingFlow from "../components/OnboardingFlow";
 import { LoquiBrand } from "../components/LoquiBrand";
 import "./welcome-variations.css";
 
@@ -194,13 +194,11 @@ export default function WelcomeVariations({ variation }: { variation: WelcomeVar
       window.location.assign(url);
     };
     return (
-      <WelcomeScreen
-        dataRetentionEnabled={history}
-        onDataRetentionChange={setHistory}
-        updatesEnabled={updates}
-        onUpdatesChange={setUpdates}
+      <OnboardingFlow
+        initialStep="welcome"
+        previewConfig={{ step: "welcome", scenario: "fresh", platform: "macos" }}
         onExplore={() => goTo("workspace")}
-        onContinue={() => goTo("onboarding", "speech")}
+        onComplete={() => goTo("workspace")}
       />
     );
   }

@@ -13,6 +13,7 @@ import { useLinuxPillInteractivity } from "./hooks/useLinuxPillInteractivity";
 import { MeetingCapsule } from "./components/dictation/MeetingCapsule";
 import { useMeetingRecorderRevealed } from "./hooks/useMeetingRecordingPresence";
 import { formatMmSs } from "./utils/formatDuration";
+import { useSetupIncomplete } from "./hooks/useSetupIncomplete";
 import { useAudioRecording } from "./hooks/useAudioRecording";
 import { useAssistantPanel } from "./hooks/useAssistantPanel";
 import { useOnboardingAssistantDemo } from "./hooks/useOnboardingAssistantDemo";
@@ -228,6 +229,7 @@ export default function App() {
     }
   }, [assistantOpenRef, setWindowInteractivity]);
 
+  const setupIncomplete = useSetupIncomplete();
   const {
     isRecording,
     isProcessing,
@@ -238,6 +240,7 @@ export default function App() {
     toggleListening,
     cancelRecording,
     cancelProcessing,
+    cancelOnboardingTake,
     getAudioLevel,
     activeSession,
     outcomePresentation,
@@ -252,6 +255,7 @@ export default function App() {
     meetingRecording,
   } = useAudioRecording({
     isPillHovered: () => pillHoveredRef.current || (pillFocusedRef.current && hasPillFocus()),
+    trialMode: setupIncomplete,
     onToggle: handleDictationToggle,
     onDemoEvent: publishOnboardingDemoEvent,
     onAssistantCommand: assistant.handleCommand,
@@ -454,12 +458,20 @@ export default function App() {
   // The Agent companion pill's cancel button routes here: only this renderer
   // owns the recording, so it decides what "cancel" means at arrival time.
   useEffect(() => {
-    const unsubscribe = window.electronAPI?.onCancelDictation?.(() => {
+    const unsubscribe = window.electronAPI?.onCancelDictation?.((options) => {
+      if (options?.onboardingTake) return cancelOnboardingTake(options.onboardingTake);
       if (isRecording || isPreparing) cancelRecording();
       else if (isProcessing) cancelProcessing();
     });
     return () => unsubscribe?.();
-  }, [isRecording, isPreparing, isProcessing, cancelRecording, cancelProcessing]);
+  }, [
+    isRecording,
+    isPreparing,
+    isProcessing,
+    cancelRecording,
+    cancelProcessing,
+    cancelOnboardingTake,
+  ]);
 
   // Every tray refusal surfaces the pill first, so the message is visible even
   // when the pill was hidden. useTrayQuickActions decides when one is needed.

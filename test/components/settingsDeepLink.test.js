@@ -31,11 +31,14 @@ test("ControlPanel subscribes through the acknowledged deep-link subscriber", ()
   const panel = read("src/components/ControlPanel.tsx");
   assert.match(
     panel,
-    /subscribeSettingsDeepLinks\(window\.electronAPI, \(section, activationId\) => \{\s*setSettingsSection\(section\);\s*setSettingsActivationId\(activationId\);\s*setShowSettings\(true\);/
+    /subscribeSettingsDeepLinks\(window\.electronAPI, \(section, activationId\) => \{\s*if \(!activeRef.current\) return;\s*invalidateActivation\(\);\s*setSettingsSection\(section\);\s*setSettingsActivationId\(activationId\);\s*setShowSettings\(true\);/
   );
   assert.doesNotMatch(panel, /onShowSettings\?\.\(\(\) =>/);
   // An already-open modal must move to the new section too.
-  assert.match(read("src/components/SettingsModal.tsx"), /useEffect\(\(\) => \{\s*if \(open\)/);
+  assert.match(
+    read("src/components/SettingsModal.tsx"),
+    /previous\.activationId !== activationId[\s\S]*setNavigation\(\{ \.+parseSettingsPath\(initialSection\), activationId \}\)/
+  );
 });
 
 test("deep links use the production section parser and known route sub-tab names", async () => {

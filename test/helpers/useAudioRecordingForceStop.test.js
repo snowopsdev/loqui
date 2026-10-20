@@ -10,6 +10,7 @@ const {
 
 const FAKE_AUDIO_MANAGER_SOURCE = `
 export default class FakeAudioManager {
+  _ownedAudioSnapshot() { return { blob: this.lastAudioBlob ?? null, private: false, sessionId: this.activeSession?.id ?? null }; }
   isPressCandidateAllowed() { return true; }
   getOrCreatePressCandidate(intents) { return { intents, settings: {}, routes: { dictationStt: { providerId: null }, voiceAssistant: { providerId: null }, translation: { providerId: null } } }; }
 

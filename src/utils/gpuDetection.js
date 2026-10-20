@@ -37,7 +37,7 @@ function runNvidiaSmi(smiPath, fields, execFileImpl) {
 // some ship it only in System32, some only inside the DriverStore, and nothing
 // a user runs day-to-day (games, CUDA apps) ever needs it, so only detection
 // notices. Climb the ladder once and cache the answer. See #1606.
-async function resolveNvidiaSmiPath({ execFileImpl = execFile, fsImpl = fs } = {}) {
+async function resolveNvidiaSmiPath({ execFileImpl = execFile, fsImpl = fs, quiet = false } = {}) {
   if (cachedSmiPath !== undefined) return cachedSmiPath;
 
   // A probe error other than ENOENT (timeout, driver refusing the query)
@@ -49,7 +49,9 @@ async function resolveNvidiaSmiPath({ execFileImpl = execFile, fsImpl = fs } = {
   }
 
   if (process.platform === "win32") {
-    debugLogger.debug("nvidia-smi not on PATH, trying System32", { error: probe.error.message });
+    if (!quiet) {
+      debugLogger.debug("nvidia-smi not on PATH, trying System32", { error: probe.error.message });
+    }
     const system32 = path.join(process.env.SystemRoot || "C:\\Windows", "System32");
     const system32Smi = path.join(system32, "nvidia-smi.exe");
     if (fsImpl.existsSync(system32Smi)) {
@@ -72,7 +74,9 @@ async function resolveNvidiaSmiPath({ execFileImpl = execFile, fsImpl = fs } = {
         return cachedSmiPath;
       }
     } catch (error) {
-      debugLogger.debug("DriverStore scan for nvidia-smi failed", { error: error.message });
+      if (!quiet) {
+        debugLogger.debug("DriverStore scan for nvidia-smi failed", { error: error.message });
+      }
     }
   }
 
@@ -137,6 +141,9 @@ function queryWmiVideoControllers(execFileImpl) {
   });
 }
 
+// quiet suppresses diagnostics for this call, including path resolution, so
+// setup facts cannot reach persistent debug logs. Results and caches are shared
+// as before; other callers keep their normal diagnostics and logger state.
 async function detectNvidiaGpu(deps = {}) {
   if (cachedGpuInfo) return cachedGpuInfo;
 
@@ -164,17 +171,21 @@ async function detectNvidiaGpu(deps = {}) {
     }
     if (!error && stdout) {
       cachedGpuInfo = parseNvidiaSmiGpuInfo(stdout);
-      debugLogger.info("NVIDIA GPU detection via nvidia-smi", {
-        source: resolved.source,
-        hasNvidiaGpu: cachedGpuInfo.hasNvidiaGpu,
-        cudaSupported: cachedGpuInfo.cudaSupported,
-      });
+      if (!deps.quiet) {
+        debugLogger.info("NVIDIA GPU detection via nvidia-smi", {
+          source: resolved.source,
+          hasNvidiaGpu: cachedGpuInfo.hasNvidiaGpu,
+          cudaSupported: cachedGpuInfo.cudaSupported,
+        });
+      }
       return cachedGpuInfo;
     }
-    debugLogger.warn("nvidia-smi found but its queries failed", {
-      source: resolved.source,
-      error: error ? error.message : "empty output",
-    });
+    if (!deps.quiet) {
+      debugLogger.warn("nvidia-smi found but its queries failed", {
+        source: resolved.source,
+        error: error ? error.message : "empty output",
+      });
+    }
   }
 
   if (process.platform === "win32") {
@@ -187,10 +198,12 @@ async function detectNvidiaGpu(deps = {}) {
         cudaSupported: isCudaCapableGpuName(gpuName),
         detectionSource: "wmi",
       };
-      debugLogger.info("NVIDIA GPU detected via WMI (no nvidia-smi available)", cachedGpuInfo);
+      if (!deps.quiet) {
+        debugLogger.info("NVIDIA GPU detected via WMI (no nvidia-smi available)", cachedGpuInfo);
+      }
       return cachedGpuInfo;
     }
-    if (wmi.error) {
+    if (wmi.error && !deps.quiet) {
       debugLogger.warn("WMI video controller query failed", { error: wmi.error.message });
     }
   }

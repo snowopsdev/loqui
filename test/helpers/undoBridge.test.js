@@ -161,6 +161,8 @@ test("actual onboarding handler broadcasts sanitised events and stale close A ca
   assert.equal(f.invoke("onboarding-demo-publish", open("forged"), {}), false);
   assert.equal(f.windowManager.lastCancelledDictation, null);
   assert.equal(f.invoke("onboarding-demo-publish", open("A")), true);
+  f.target._onboardingDemoSession.takeId = "take-B";
+  f.target._onboardingDemoSession.cancelSession = null;
   assert.equal(f.invoke("onboarding-demo-publish", open("B")), true);
   assert.equal(
     f.invoke("onboarding-demo-publish", {
@@ -169,7 +171,7 @@ test("actual onboarding handler broadcasts sanitised events and stale close A ca
       sessionId: "A",
       reason: "expired",
     }),
-    true
+    false
   );
   assert.deepEqual(f.windowManager.lastCancelledDictation, { sessionId: "B" });
   assert.deepEqual(f.broadcasts[1][1].cancelled.remoteAlreadySent.alsoSentTo, ["anthropic"]);

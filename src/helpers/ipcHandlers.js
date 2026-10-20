@@ -1,9 +1,3 @@
-const {
-  firstFrameHandOff,
-  armFirstFrame,
-  disarmFirstFrame,
-  zeroAudio,
-} = require("./streamingHandOff");
 const { registerSettingsLinkIpc } = require("./settingsLinks");
 const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
 const {
@@ -77,11 +71,7 @@ const { GeminiLiveStreaming, GEMINI_LIVE_MODEL } = require("./geminiLiveStreamin
 const CortiStreaming = require("./cortiStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const { getCortiToken } = require("./cortiAuth");
-const {
-  ONBOARDING_DEMO_KINDS,
-  ONBOARDING_DEMO_STATUSES,
-  buildOnboardingDemoBroadcast,
-} = require("./onboardingInputPolicy");
+const { publishDemoEvent } = require("./onboardingInputPolicy");
 const { focusWindowsHotkeyCaptureWindow } = require("./hotkeyCaptureFocus");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
@@ -1244,78 +1234,120 @@ class IPCHandlers {
     return result.ok === true ? { success: true } : { success: false, error: result.error };
   }
 
+  dispose() {
+    this.onboardingAdmission?.dispose();
+    this.onboardingCleanup?.dispose();
+    void this.dictationStreamingOperations?.dispose();
+  }
+
   setupHandlers() {
+    this.onboardingCleanup = require("./onboardingCleanupRelay").createOnboardingCleanupRelay({
+      getSession: () => this.windowManager._onboardingDemoSession,
+      getSetup: () => this.windowManager.controlPanelWindow?.webContents,
+      getOverlay: () => this.windowManager.mainWindow?.webContents,
+      retire: (sender, token) => this.getPersonalInference?.()?.retireTextOperation(sender, token),
+    });
+    this.windowManager.onOnboardingCleanupRetire = () => this.onboardingCleanup.retire();
+    ipcMain.handle("onboarding-cleanup-retry", (event, identity) =>
+      this.onboardingCleanup.retry(event.sender, identity)
+    );
+    ipcMain.handle("onboarding-cleanup-reply", (event, reply) =>
+      this.onboardingCleanup.reply(event.sender, reply)
+    );
     ipcMain.handle("onboarding-set-window-mode", (_event, mode) =>
       this.windowManager.setOnboardingWindowMode(mode)
     );
 
-    // WindowManager owns every teardown path for a demo (id-matched end,
-    // onboarding-set-active(false), control panel closed); without this hook a
-    // renderer crash mid-demo would leave the session set and broadcast every
-    // later dictation's transcripts on onboarding-demo-event forever.
-    this.windowManager.onOnboardingDemoTeardown = () => {
+    this.onboardingAdmission = require("./onboardingDemoAdmission").createOnboardingDemoAdmission({
+      getSetup: () => this.windowManager.controlPanelWindow?.webContents,
+      getOverlay: () => this.windowManager.mainWindow?.webContents,
+      install: (session) => {
+        this._onboardingDemoSession = session;
+        return this.windowManager.beginOnboardingDemo(session.kind, session);
+      },
+      end: (identity) => {
+        const session = this.windowManager._onboardingDemoSession;
+        if (session?.id === identity.demoId && session.requestId === identity.requestId)
+          this.windowManager.endOnboardingDemo();
+      },
+    });
+    this.windowManager.onOnboardingDemoTeardown = (session) => {
       this._onboardingDemoSession = null;
       this.windowManager.lastCancelledDictation = null;
+      this.onboardingAdmission.cancelPending();
+      this.onboardingAdmission.retire(
+        session && { demoId: session.id, requestId: session.requestId, takeId: session.takeId }
+      );
+      this.onboardingCleanup.retire();
     };
-
-    ipcMain.handle("onboarding-set-active", (_event, active) => {
-      if (typeof active !== "boolean") return false;
+    const isSetup = (event) => event.sender === this.windowManager.controlPanelWindow?.webContents;
+    ipcMain.handle("onboarding-set-active", (event, active) => {
+      if (!isSetup(event) || typeof active !== "boolean") return false;
       return this.windowManager.setOnboardingActive(active);
     });
-
-    ipcMain.handle("onboarding-demo-begin", (_event, session) => {
-      if (
-        !session ||
-        typeof session.id !== "string" ||
-        session.id.length > 128 ||
-        !ONBOARDING_DEMO_KINDS.has(session.kind)
-      ) {
-        return false;
-      }
-      this._onboardingDemoSession = {
-        id: session.id,
-        kind: session.kind,
-        startedAt: Date.now(),
-      };
-      return this.windowManager.beginOnboardingDemo(session.kind);
-    });
-
-    ipcMain.handle("onboarding-demo-end", (_event, id) => {
-      if (this._onboardingDemoSession?.id === id) {
-        // Session cleanup rides on the teardown hook above.
-        this.windowManager.endOnboardingDemo();
-      }
+    ipcMain.handle("onboarding-demo-begin", (event, session) =>
+      this.onboardingAdmission.begin(event.sender, session)
+    );
+    ipcMain.handle("onboarding-demo-admission-reply", (event, reply) =>
+      this.onboardingAdmission.reply(event.sender, reply)
+    );
+    ipcMain.handle("onboarding-demo-admission-invalidated", (event, identity) =>
+      this.onboardingAdmission.invalidate(event.sender, identity)
+    );
+    ipcMain.handle("onboarding-demo-end", (event, id) => {
+      if (!isSetup(event)) return false;
+      this.onboardingAdmission.endPending(event.sender, id);
+      if (this._onboardingDemoSession?.id === id) this.windowManager.endOnboardingDemo();
       return true;
     });
+    const isCurrentDemo = (event, id) => isSetup(event) && this._onboardingDemoSession?.id === id;
+    const isCurrentTake = (event, id, takeId) =>
+      isCurrentDemo(event, id) &&
+      (this._onboardingDemoSession.takeId
+        ? typeof takeId === "string" && takeId === this._onboardingDemoSession.takeId
+        : takeId == null);
+    ipcMain.handle("onboarding-demo-stop", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.stopOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-toggle", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.toggleOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-cancel", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.cancelOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-undo-cancel", (event, id, takeId, sessionId) =>
+      isCurrentTake(event, id, takeId)
+        ? this.windowManager.undoOnboardingDemoCancel(sessionId)
+        : false
+    );
 
-    ipcMain.handle("onboarding-demo-stop", (_event, id) => {
-      if (this._onboardingDemoSession?.id !== id) return false;
-      return this.windowManager.stopOnboardingDemoRecording();
+    // Cache advisory setup facts for this launch; the NVIDIA probe spawns a
+    // process. Main still checks current disk space when admitting downloads.
+    ipcMain.handle("get-system-profile", () => {
+      if (!this._systemProfilePromise) {
+        const { getSystemProfile } = require("./systemProfile");
+        const { getCacheRoot } = require("./modelDirUtils");
+        const { detectNvidiaGpu } = require("../utils/gpuDetection");
+        this._systemProfilePromise = getSystemProfile({
+          app,
+          cacheRoot: getCacheRoot(),
+          // Setup facts must not enter persistent GPU diagnostics, even at trace level.
+          detectGpu: () => detectNvidiaGpu({ quiet: true }),
+        });
+      }
+      return this._systemProfilePromise;
     });
 
     ipcMain.handle("onboarding-demo-publish", (_event, event) => {
-      const session = this._onboardingDemoSession;
-      if (!session || !event || event.kind !== session.kind) return false;
-      if (!ONBOARDING_DEMO_STATUSES.has(event.status)) return false;
-      // Only the overlay owns the held recording; another window cannot
-      // advertise or clear its cross-window Undo target.
-      if (
-        (event.status === "cancelled" || event.status === "cancelClosed") &&
-        _event.sender !== this.windowManager.mainWindow?.webContents
-      )
-        return false;
-      const broadcast = buildOnboardingDemoBroadcast(session, event);
-      if (event.status === "cancelled" && broadcast.cancelled) {
-        this.windowManager.lastCancelledDictation = { sessionId: broadcast.cancelled.sessionId };
-      }
-      if (
-        event.status === "cancelClosed" &&
-        broadcast.reason &&
-        this.windowManager.lastCancelledDictation?.sessionId === broadcast.sessionId
-      ) {
-        this.windowManager.lastCancelledDictation = null;
-      }
-      broadcastToWindows("onboarding-demo-event", broadcast);
+      if (_event.sender !== this.windowManager.mainWindow?.webContents) return false;
+      const payload = publishDemoEvent(event, this._onboardingDemoSession, this.windowManager);
+      if (!payload) return false;
+      const selector = this.onboardingCleanup.selector(_event.sender, {
+        ...event,
+        operationId: event.cleanupOperationId,
+      });
+      if (selector) payload.cleanupOperationId = selector.operationId;
+      broadcastToWindows("onboarding-demo-event", payload);
       return true;
     });
 
@@ -1558,7 +1590,7 @@ class IPCHandlers {
       return result;
     });
 
-    ipcMain.handle("merge-audio-segments", async (_event, segments) => {
+    ipcMain.handle("merge-audio-segments", async (_event, segments, options = {}) => {
       try {
         if (!Array.isArray(segments) || segments.length < 2 || segments.length > 100) {
           throw new Error("Invalid audio segment count");
@@ -1570,13 +1602,14 @@ class IPCHandlers {
           return { buffer: Buffer.from(segment.buffer), mimeType: segment.mimeType };
         });
         const { mergeAudioSegments } = require("./ffmpegUtils");
-        const buffer = await mergeAudioSegments(normalized);
+        const privateAudio = options.private === true;
+        const buffer = await mergeAudioSegments(normalized, { private: privateAudio });
         // Slice to a real ArrayBuffer: Buffers sent over IPC arrive as Uint8Array,
         // and pooled Buffers share a larger underlying allocation.
         return {
           success: true,
           buffer: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-          mimeType: "audio/webm",
+          mimeType: privateAudio ? "audio/wav" : "audio/webm",
         };
       } catch (error) {
         debugLogger.error("Failed to merge recovered audio segments", { error: error.message });
@@ -3093,6 +3126,8 @@ class IPCHandlers {
             model: modelName,
             error: error.message,
             code: error.code || "DOWNLOAD_FAILED",
+            keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : null,
+            cleanupFailed: error.cleanupFailed === true,
             sequence: status?.sequence,
           });
         }
@@ -3100,6 +3135,8 @@ class IPCHandlers {
           success: false,
           error: error.message,
           code: error.code || "DOWNLOAD_FAILED",
+          keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : null,
+          cleanupFailed: error.cleanupFailed === true,
         };
       }
     });
@@ -4702,6 +4739,8 @@ class IPCHandlers {
       return this.environmentManager.saveDictationKey(key);
     });
 
+    ipcMain.handle("get-dictation-binding", () => this.windowManager.getDictationBinding());
+
     ipcMain.handle("get-active-dictation-key", async () => {
       const hotkeys = this.windowManager?.hotkeyManager?.getSlotHotkeys?.("dictation") ?? [];
       return hotkeys.length > 0 ? hotkeys.join(",") : null;
@@ -4818,10 +4857,34 @@ class IPCHandlers {
 
     ipcMain.handle("process-local-reasoning", async (event, text, modelId, _agentName, config) => {
       try {
-        const LocalReasoningService = require("../services/localReasoningBridge").default;
-        const result = await LocalReasoningService.processText(text, modelId, config);
+        const localReasoning = () => require("../services/localReasoningBridge").default;
+        const result = config?.textOperationToken
+          ? await this.getPersonalInference().runCapturedLocal(
+              event,
+              config.textOperationToken,
+              { messages: [{ role: "user", content: text }], wordCount: config.wordCount },
+              (original, descriptor, execution) =>
+                localReasoning().processText(original.messages[0].content, descriptor.model, {
+                  ...descriptor,
+                  execution,
+                })
+            )
+          : await localReasoning().processText(text, modelId, config);
         return { success: true, text: result };
       } catch (error) {
+        if (config?.textOperationToken)
+          return {
+            success: false,
+            error: "Cleanup failed. Your original words are preserved.",
+            code: [
+              "RECIPIENT_CHANGED",
+              "CLEANUP_OPERATION_UNAVAILABLE",
+              "CLEANUP_OPERATION_BUSY",
+              "CLEANUP_REQUEST_CHANGED",
+            ].includes(error.code)
+              ? error.code
+              : "CLEANUP_FAILED",
+          };
         // code/details carry the machine-readable failure across to the
         // renderer, which owns the translation keys. Flattening to a bare
         // string is how llama.cpp JSON used to reach users (#2142).
@@ -8037,8 +8100,6 @@ class IPCHandlers {
       }
     );
 
-    const streamingOperationError = (message) =>
-      Object.assign(new Error(message), { messageKey: "voiceOverlay.errors.streamingUnavailable" });
     const streamingStartFailure = (err) => {
       const result = toPolicyFailure(err);
       if (err.messageKey) result.messageKey = err.messageKey;
@@ -8046,526 +8107,20 @@ class IPCHandlers {
       return result;
     };
 
-    // All dictation streaming channels use one admission policy. Each record
-    // owns its exact adapter, webContents and attempt across every await. The
-    // separate meeting transport family never enters this registry.
-    const dictationOperations = new Map();
-    const dictationWarm = new Map();
-    const usedStreamingAttempts = new WeakMap();
-    let dictationGeneration = 0;
-    const rows = [
-      {
-        id: "realtime",
-        prefix: "dictation-realtime",
-        slot: "_dictationStreaming",
-        Ctor: OpenAIRealtimeStreaming,
-      },
-      {
-        id: "assemblyai",
-        prefix: "assemblyai-streaming",
-        slot: "assemblyAiStreaming",
-        Ctor: AssemblyAiStreaming,
-      },
-      {
-        id: "deepgram",
-        prefix: "deepgram-streaming",
-        slot: "deepgramStreaming",
-        Ctor: DeepgramStreaming,
-      },
-      {
-        id: "gemini",
-        prefix: "gemini-streaming",
-        slot: "geminiStreaming",
-        Ctor: GeminiLiveStreaming,
-      },
-      { id: "corti", prefix: "corti-streaming", slot: "cortiStreaming", Ctor: CortiStreaming },
-    ];
-    const normalizeStreaming = (row, input) => {
-      const provider = row.id === "realtime" ? input.provider || "openai-realtime" : row.id;
-      if (row.id === "realtime" && !["openai-realtime", "tinfoil-realtime"].includes(provider))
-        throw streamingOperationError("Unsupported realtime provider");
-      const model =
-        row.id === "realtime"
-          ? input.model ||
-            (provider === "tinfoil-realtime" ? TINFOIL_REALTIME_MODEL : "gpt-4o-mini-transcribe")
-          : row.id === "gemini"
-            ? input.model || GEMINI_LIVE_MODEL
-            : row.id === "deepgram"
-              ? input.model || "nova-3"
-              : row.id === "corti"
-                ? "corti-transcribe"
-                : input.model || "universal-streaming-multilingual";
-      const options = structuredClone({
-        ...input,
-        provider,
-        model,
-        mode: input.mode || "byok",
-        sampleRate: input.sampleRate || 16000,
+    // One captured dictation streaming authority for all provider families.
+    this.dictationStreamingOperations =
+      require("./dictationStreamingOperations").createDictationStreamingOperations(ipcMain, this, {
+        OpenAIRealtimeStreaming,
+        AssemblyAiStreaming,
+        DeepgramStreaming,
+        GeminiLiveStreaming,
+        CortiStreaming,
+        TINFOIL_REALTIME_MODEL,
+        GEMINI_LIVE_MODEL,
+        createTinfoilRealtimeSocket,
+        fetchRealtimeToken,
+        streamingStartFailure,
       });
-      if (Array.isArray(options.keyterms)) Object.freeze(options.keyterms);
-      return Object.freeze(options);
-    };
-    const streamingAuthority = (options) => {
-      const getters = {
-        "openai-realtime": ["getOpenAIKey"],
-        "tinfoil-realtime": ["getTinfoilKey"],
-        deepgram: ["getDeepgramKey"],
-        assemblyai: ["getAssemblyAIKey"],
-        gemini: ["getGeminiKey"],
-        corti: ["getCortiClientId", "getCortiClientSecret"],
-      };
-      const credentials = getters[options.provider].map((name) => this.environmentManager[name]());
-      if (credentials.some((value) => typeof value !== "string" || !value))
-        throw Object.assign(new Error("Configure the selected speech provider in Settings."), {
-          code: "NO_API",
-        });
-      // This hash never leaves main. Unlike enterprise recipient tags it also
-      // binds the current secret material, so rotation invalidates warm reuse.
-      const config = { ...options };
-      for (const key of [
-        "correlationId",
-        "dictationSessionId",
-        "operationId",
-        "forceNew",
-        "preview",
-      ])
-        delete config[key];
-      return crypto
-        .createHash("sha256")
-        .update(
-          JSON.stringify([
-            Object.entries(config).sort(([a], [b]) => a.localeCompare(b)),
-            credentials,
-          ])
-        )
-        .digest("hex");
-    };
-    const alive = (record) => !record.cancelled && !record.sender.isDestroyed?.();
-    const owns = (row, record) =>
-      alive(record) &&
-      dictationOperations.get(row.id) === record &&
-      this[row.slot] === record.adapter;
-    const contentAuthorized = (row, record) => {
-      if (!owns(row, record)) return false;
-      try {
-        if (streamingAuthority(record.options) === record.authority) return true;
-      } catch {
-        // Removed/unreadable authority is a refusal, never a warm fallback.
-      }
-      record.cancelled = true;
-      record.adapter.discardPendingAudio();
-      return false;
-    };
-    const warmTransportReady = (row, record) => {
-      const adapter = record.adapter;
-      const socket = record.transport;
-      if (this[row.slot] !== adapter || !socket || socket.readyState !== 1) return false;
-      return ["realtime", "gemini"].includes(row.id)
-        ? adapter.isConnected && adapter.ws === socket
-        : adapter.warmConnection === socket && adapter.hasWarmConnection();
-    };
-    const identityMatches = (record, event, identity) =>
-      record &&
-      record.sender === event.sender &&
-      (record.operationId
-        ? identity?.operationId === record.operationId &&
-          identity?.dictationSessionId === record.correlationId &&
-          identity?.correlationId === record.correlationId
-        : !identity?.operationId && !identity?.correlationId && !identity?.dictationSessionId);
-    const releaseAdapter = (adapter) => {
-      if (!adapter) return;
-      adapter.setEgressGate(() => false);
-      adapter.setLifecycleGate(() => false);
-      adapter.discardPendingAudio();
-      disarmFirstFrame(adapter);
-      adapter.cleanupAll?.();
-      adapter.cleanupWarmConnection?.();
-      adapter.cleanup();
-    };
-    const watchStreamingOwner = (row, record, registry) => {
-      const lost = () => {
-        if (registry.get(row.id) !== record) return;
-        record.cancelled = true;
-        record.detachOwner?.();
-        clearTimeout(record.idleTimer);
-        releaseAdapter(record.adapter);
-        registry.delete(row.id);
-        if (this[row.slot] === record.adapter) this[row.slot] = null;
-      };
-      record.sender.once?.("destroyed", lost);
-      record.sender.once?.("did-start-navigation", lost);
-      record.detachOwner = () => {
-        record.sender.removeListener?.("destroyed", lost);
-        record.sender.removeListener?.("did-start-navigation", lost);
-      };
-    };
-    const bindCallbacks = (row, record) => {
-      const emit = (suffix, data) => {
-        if (!owns(row, record)) return;
-        const channel =
-          row.id === "realtime"
-            ? `dictation-realtime-${suffix}`
-            : `${row.id}-${suffix === "partial" ? "partial-transcript" : suffix === "final" ? "final-transcript" : suffix}`;
-        record.sender.send(channel, data);
-        if (row.id === "realtime" && record.options.preview) {
-          if (suffix === "partial" && data) this.windowManager.showTranscriptionPreview(data);
-          if (suffix === "error" || suffix === "session-end")
-            this.windowManager.hideTranscriptionPreview();
-        }
-      };
-      record.adapter.onPartialTranscript = (text) => emit("partial", text);
-      record.adapter.onFinalTranscript = (text) => emit("final", text);
-      record.adapter.onError = (error) => emit("error", error.message);
-      record.adapter.onSessionEnd = (data) => emit("session-end", data || {});
-    };
-    const acquireStreamingToken = async (row, event, options) => {
-      if (row.id === "corti") return this._mintStoredCortiToken(options);
-      const provider = row.id === "realtime" ? options.provider : `${row.id}-realtime`;
-      return { token: await fetchRealtimeToken(event, { ...options, provider }) };
-    };
-    const connectOwnedStreaming = async (row, record, material, warm = false) => {
-      const adapter = record.adapter;
-      const options = record.options;
-      if (row.id === "realtime") {
-        if (options.provider === "tinfoil-realtime")
-          await adapter.connect({
-            apiKey: material.token,
-            model: options.model,
-            inputRate: 16000,
-            createSocket: () =>
-              createTinfoilRealtimeSocket({ model: options.model, apiKey: material.token }),
-          });
-        else
-          await adapter.connect({
-            apiKey: material.token,
-            model: options.model,
-            captureRate: 16000,
-            preconfigured: false,
-          });
-      } else if (row.id === "gemini") {
-        await adapter.connect({
-          ...options,
-          token: material.token,
-          refreshToken: async () => {
-            if (!owns(row, record) || streamingAuthority(options) !== record.authority)
-              throw streamingOperationError("Streaming operation ended");
-            const next = await acquireStreamingToken(row, { sender: record.sender }, options);
-            if (!owns(row, record) || streamingAuthority(options) !== record.authority)
-              throw streamingOperationError("Streaming operation ended");
-            return next.token;
-          },
-        });
-      } else {
-        const args = { ...options, ...material };
-        if (warm) await adapter.warmup(args);
-        else await adapter.connect(args);
-      }
-    };
-    for (const row of rows) {
-      ipcMain.handle(`${row.prefix}-warmup`, async (event, input = {}) => {
-        if (dictationOperations.has(row.id))
-          return { success: false, error: "Operation in progress" };
-        let record;
-        try {
-          const options = normalizeStreaming(row, input);
-          const authority = streamingAuthority(options);
-          const prior = dictationWarm.get(row.id);
-          if (
-            prior &&
-            prior.sender === event.sender &&
-            prior.authority === authority &&
-            alive(prior)
-          ) {
-            await prior.promise;
-            if (
-              dictationWarm.get(row.id) !== prior ||
-              dictationOperations.has(row.id) ||
-              !alive(prior) ||
-              streamingAuthority(options) !== authority
-            )
-              throw streamingOperationError("Streaming warmup superseded");
-            if (warmTransportReady(row, prior)) return { success: true, alreadyWarm: true };
-          }
-          if (prior) {
-            prior.cancelled = true;
-            clearTimeout(prior.idleTimer);
-            prior.detachOwner?.();
-            releaseAdapter(prior.adapter);
-          }
-          const adapter = new row.Ctor();
-          adapter.setEgressGate(() => false);
-          record = {
-            generation: ++dictationGeneration,
-            sender: event.sender,
-            options,
-            authority,
-            adapter,
-            cancelled: false,
-          };
-          dictationWarm.set(row.id, record);
-          watchStreamingOwner(row, record, dictationWarm);
-          adapter.setLifecycleGate(() => {
-            try {
-              return (
-                alive(record) &&
-                (dictationWarm.get(row.id) === record ||
-                  dictationOperations.get(row.id)?.adapter === adapter) &&
-                streamingAuthority(options) === authority
-              );
-            } catch {
-              return false;
-            }
-          });
-          this[row.slot] = adapter;
-          record.promise = (async () => {
-            const material = await acquireStreamingToken(row, event, options);
-            if (
-              dictationWarm.get(row.id) !== record ||
-              !alive(record) ||
-              streamingAuthority(options) !== authority
-            )
-              throw streamingOperationError("Streaming warmup superseded");
-            await connectOwnedStreaming(row, record, material, true);
-            record.transport = ["realtime", "gemini"].includes(row.id)
-              ? adapter.ws
-              : adapter.warmConnection;
-            if (
-              dictationWarm.get(row.id) !== record ||
-              !alive(record) ||
-              streamingAuthority(options) !== authority ||
-              !warmTransportReady(row, record)
-            )
-              throw streamingOperationError("Streaming warmup superseded");
-          })();
-          await record.promise;
-          record.idleTimer = setTimeout(
-            () => {
-              if (dictationWarm.get(row.id) !== record) return;
-              record.cancelled = true;
-              record.detachOwner?.();
-              releaseAdapter(record.adapter);
-              dictationWarm.delete(row.id);
-              if (this[row.slot] === record.adapter) this[row.slot] = null;
-            },
-            5 * 60 * 1000
-          );
-          record.idleTimer.unref?.();
-          return { success: true };
-        } catch (error) {
-          if (record && dictationWarm.get(row.id) === record) {
-            dictationWarm.delete(row.id);
-            record.detachOwner?.();
-            releaseAdapter(record.adapter);
-            if (this[row.slot] === record.adapter) this[row.slot] = null;
-          }
-          return streamingStartFailure(error);
-        }
-      });
-      ipcMain.handle(`${row.prefix}-start`, async (event, input = {}) => {
-        if (dictationOperations.has(row.id))
-          return { success: false, error: "Operation in progress" };
-        let record;
-        try {
-          const options = normalizeStreaming(row, input);
-          const labeled =
-            options.correlationId != null ||
-            options.dictationSessionId != null ||
-            options.operationId != null;
-          if (
-            labeled &&
-            (typeof options.correlationId !== "string" ||
-              !options.correlationId ||
-              options.correlationId.length > 100 ||
-              options.dictationSessionId !== options.correlationId ||
-              typeof options.operationId !== "string" ||
-              !options.operationId ||
-              options.operationId.length > 100)
-          )
-            throw streamingOperationError("Invalid streaming operation identity");
-          const authority = streamingAuthority(options);
-          record = {
-            generation: ++dictationGeneration,
-            sender: event.sender,
-            options,
-            authority,
-            correlationId: options.correlationId,
-            operationId: options.operationId,
-            adapter: null,
-            cancelled: false,
-            pending: true,
-          };
-          // Stop can retire a pending attempt before its credential/socket
-          // await settles. Its public Start must settle independently of that
-          // old transport, without letting a late continuation reclaim a replay.
-          record.ended = new Promise((_, reject) => {
-            record.endPending = () => reject(streamingOperationError("Streaming operation ended"));
-          });
-          record.ended.catch(() => {});
-          const pending = (promise) => Promise.race([promise, record.ended]);
-          if (labeled) {
-            const attempts = usedStreamingAttempts.get(event.sender) ?? new Set();
-            if (attempts.has(options.operationId))
-              throw streamingOperationError("Streaming attempt already ended");
-            attempts.add(options.operationId);
-            usedStreamingAttempts.set(event.sender, attempts);
-          }
-          dictationOperations.set(row.id, record);
-          watchStreamingOwner(row, record, dictationOperations);
-          const warm = dictationWarm.get(row.id);
-          if (warm) await pending(warm.promise.catch(() => {}));
-          if (
-            !alive(record) ||
-            dictationOperations.get(row.id) !== record ||
-            streamingAuthority(options) !== authority
-          )
-            throw streamingOperationError("Streaming operation ended");
-          const useWarm =
-            warm &&
-            dictationWarm.get(row.id) === warm &&
-            alive(warm) &&
-            warm.sender === event.sender &&
-            warm.authority === authority &&
-            warmTransportReady(row, warm) &&
-            !options.forceNew;
-          if (warm) {
-            clearTimeout(warm.idleTimer);
-            warm.detachOwner?.();
-            dictationWarm.delete(row.id);
-            if (!useWarm) {
-              warm.cancelled = true;
-              releaseAdapter(warm.adapter);
-            }
-          }
-          const adapter = useWarm ? warm.adapter : new row.Ctor();
-          record.adapter = adapter;
-          this[row.slot] = adapter;
-          adapter.setLifecycleGate(() => contentAuthorized(row, record));
-          adapter.setEgressGate(() => contentAuthorized(row, record));
-          armFirstFrame(
-            adapter,
-            firstFrameHandOff(event.sender, record.correlationId, () =>
-              contentAuthorized(row, record)
-            )
-          );
-          bindCallbacks(row, record);
-          if (row.id === "deepgram")
-            adapter.setTokenRefreshFn(async () => {
-              if (!owns(row, record) || streamingAuthority(options) !== authority)
-                throw streamingOperationError("Streaming operation ended");
-              const result = await acquireStreamingToken(row, event, options);
-              if (!owns(row, record) || streamingAuthority(options) !== authority)
-                throw streamingOperationError("Streaming operation ended");
-              return result.token;
-            });
-          const connectedWarm = useWarm && ["realtime", "gemini"].includes(row.id);
-          if (!connectedWarm) {
-            adapter.beginConnecting?.();
-            const material = await pending(acquireStreamingToken(row, event, options));
-            if (!owns(row, record) || streamingAuthority(options) !== authority)
-              throw streamingOperationError("Streaming operation ended");
-            await pending(connectOwnedStreaming(row, record, material));
-          }
-          if (
-            !contentAuthorized(row, record) ||
-            !adapter.isConnected ||
-            adapter.ws?.readyState !== 1
-          )
-            throw streamingOperationError("Streaming operation ended");
-          record.pending = false;
-          return { success: true, usedWarmConnection: !!useWarm };
-        } catch (error) {
-          if (record && dictationOperations.get(row.id) === record) {
-            record.cancelled = true;
-            record.detachOwner?.();
-            releaseAdapter(record.adapter);
-            dictationOperations.delete(row.id);
-            if (this[row.slot] === record.adapter) this[row.slot] = null;
-          }
-          return streamingStartFailure(error);
-        }
-      });
-      ipcMain.on(`${row.prefix}-send`, (event, data, identity) => {
-        const record = dictationOperations.get(row.id);
-        if (!identityMatches(record, event, identity) || !contentAuthorized(row, record)) return;
-        if (
-          !(data instanceof ArrayBuffer || ArrayBuffer.isView(data)) ||
-          !data.byteLength ||
-          data.byteLength % 2
-        )
-          return;
-        const frame = Buffer.from(
-          new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength)
-        );
-        try {
-          record.adapter.sendAudio(frame);
-        } catch (error) {
-          record.adapter.onError?.(error);
-        } finally {
-          zeroAudio(frame);
-        }
-      });
-      const finalizeChannel = row.id === "assemblyai" ? "force-endpoint" : "finalize";
-      if (row.id !== "realtime")
-        ipcMain.on(`${row.prefix}-${finalizeChannel}`, (event, identity) => {
-          const record = dictationOperations.get(row.id);
-          if (identityMatches(record, event, identity) && owns(row, record))
-            row.id === "assemblyai" ? record.adapter.forceEndpoint() : record.adapter.finalize();
-        });
-      ipcMain.handle(`${row.prefix}-cancel`, (event, identity) => {
-        const record = dictationOperations.get(row.id);
-        if (!identityMatches(record, event, identity))
-          return { success: false, reason: "stale-session" };
-        record.cancelled = true;
-        record.adapter?.discardPendingAudio();
-        disarmFirstFrame(record.adapter);
-        return { success: true };
-      });
-      ipcMain.handle(`${row.prefix}-stop`, async (event, identity) => {
-        const record = dictationOperations.get(row.id);
-        if (!record) return { success: true, text: "" };
-        if (!identityMatches(record, event, identity))
-          return { success: false, reason: "stale-session" };
-        if (record.pending) {
-          record.cancelled = true;
-          record.detachOwner?.();
-          // Retire only this exact attempt. A fresh Undo may reuse the frozen
-          // session id immediately, but always has a new operationId/adapter.
-          if (dictationOperations.get(row.id) === record) dictationOperations.delete(row.id);
-          if (this[row.slot] === record.adapter) this[row.slot] = null;
-          try {
-            releaseAdapter(record.adapter);
-          } finally {
-            record.endPending?.();
-          }
-          return { success: true, text: "" };
-        }
-        const adapter = record.adapter;
-        try {
-          const model = adapter.currentModel || record.options.model;
-          const audioBytesSent = adapter.audioBytesSent || 0;
-          const result = await adapter.disconnect(
-            row.id === "realtime" ? { commit: !record.cancelled } : !record.cancelled
-          );
-          return { success: true, text: result?.text || "", model, audioBytesSent };
-        } catch (error) {
-          return { success: false, error: error.message };
-        } finally {
-          const stillOwner = dictationOperations.get(row.id) === record;
-          record.cancelled = true;
-          record.detachOwner?.();
-          releaseAdapter(adapter);
-          if (dictationOperations.get(row.id) === record) dictationOperations.delete(row.id);
-          if (this[row.slot] === adapter) this[row.slot] = null;
-          if (stillOwner && row.id === "realtime" && record.options.preview)
-            this.windowManager.hideTranscriptionPreview();
-        }
-      });
-      if (row.id !== "realtime")
-        ipcMain.handle(
-          `${row.prefix}-status`,
-          () => this[row.slot]?.getStatus() || { isConnected: false, sessionId: null }
-        );
-    }
 
     ipcMain.handle(
       "start-dictation-preview",
@@ -9838,7 +9393,7 @@ class IPCHandlers {
         const filePaths = [...result.filePaths].sort();
         const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
         const { createGranolaNoteKeyAllocator, parseGranolaCsv } =
-          await import("./granolaImport.js");
+          await import("./granolaImport.mjs");
         const allocateNoteKey = createGranolaNoteKeyAllocator();
         const notes = [];
         const seenIds = new Set();

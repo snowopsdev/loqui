@@ -306,13 +306,18 @@ function streamingManager(manager, streamingProviderName = "openai-realtime") {
     fallbackSegments: [],
     mimeType: "audio/webm",
     durationSeconds: null,
-    analyticsOccurredAt: "x",
+    analyticsOccurredAt: "2026-10-20T12:00:00.000Z",
   };
   manager.isStreaming = true;
   manager.recordingStartTime = Date.now() - 40_000;
   manager.cleanupStreamingAudio = () => {};
   manager.cleanupStreamingListeners = () => {};
   manager.getStreamingProvider = () => ({ stop: async () => ({}) });
+  manager._streamingTransport = {
+    adapter: manager.getStreamingProvider(),
+    operation: manager._streamingOperation,
+    closed: false,
+  };
 }
 
 // §5.2 "Cancel stops further egress": each buffering provider's IPC names (preload, Task 7).
@@ -337,6 +342,11 @@ test("a streaming cancel tells the provider to drop its buffer at once, and Undo
     }
     streamingManager(manager, providerName);
     delete manager.getStreamingProvider; // the real provider map, so the real cancel runs
+    manager._streamingTransport = {
+      adapter: manager.getStreamingProvider(),
+      operation: manager._streamingOperation,
+      closed: false,
+    };
     manager.isRecording = true;
     const cancelling = manager.cancelStreamingRecording();
     assert.equal(
@@ -1035,14 +1045,17 @@ test("a private take cancelled before finalization stays private through Undo (R
       if (fail) throw new Error("provider 500");
       return { success: true, text: "hi", source: "local-parakeet" };
     };
-    await restoring;
-    await manager._restoreRun;
-    // A successful dictation is saved by the hook's completion handler (useAudioRecording.js:537).
-    if (!fail)
-      await manager.saveTranscription("hi", "hi", {
+    let completionSave;
+    manager.onTranscriptionComplete = (result, take, recording) => {
+      completionSave = manager.saveTranscription(result.text, result.text, {
         sessionId: session.id,
         private: session.private,
+        recording,
       });
+    };
+    await restoring;
+    await manager._restoreRun;
+    await completionSave;
     await advance(0);
     return { seen, writes, manager };
   }
@@ -1395,7 +1408,12 @@ test("cancel during actual streaming Start retires transport before awaiting sta
   const starting = deferred();
   provider.start = () => starting.promise;
   const order = [];
-  provider.cancel = () => order.push("cancel");
+  provider.cancel = () => {
+    order.push("cancel");
+    // Actual main Cancel retires the pending attempt and settles its public
+    // Start immediately; a later core connection remains fenced in main.
+    starting.resolve({ success: false });
+  };
   provider.stop = async () => {
     order.push("stop");
     starting.resolve({ success: false });
@@ -1449,7 +1467,7 @@ test("cancel while replay Start waits erases its original and lets a new capture
   const original = manager._undo.peek();
   const starting = deferred();
   win.electronAPI.dictationRealtimeStart = () => starting.promise;
-  win.electronAPI.dictationRealtimeCancel = () => {};
+  win.electronAPI.dictationRealtimeCancel = () => starting.resolve({ success: false });
   win.electronAPI.dictationRealtimeStop = async () => ({});
   manager._attachStreamingListeners = () => {};
   await manager.restoreCancelled();
@@ -1486,14 +1504,20 @@ for (const stage of ["control", "Start", "pacing"]) {
     const starts = [],
       frames = [],
       completions = [],
+      errors = [],
       states = [],
       effects = [];
     let finalizes = 0,
       banks = 0;
     const finalize = manager._finalizeStreamingRecording;
-    manager._finalizeStreamingRecording = function (...args) {
+    manager._finalizeStreamingRecording = async function (...args) {
       finalizes++;
-      return finalize.apply(this, args);
+      try {
+        return await finalize.apply(this, args);
+      } catch (error) {
+        errors.push({ message: error.message, stack: error.stack });
+        throw error;
+      }
     };
     const bank = manager._bankAssistantDirective;
     manager._bankAssistantDirective = function (...args) {
@@ -1532,6 +1556,7 @@ for (const stage of ["control", "Start", "pacing"]) {
       return { success: true };
     };
     manager.onStateChange = (state) => states.push(state);
+    manager.onError = (error) => errors.push(error);
     manager.shouldUseStreaming = () => false;
     manager.processTranscription = async (text) => {
       manager._bankAssistantDirective(text, {});
@@ -1584,7 +1609,7 @@ for (const stage of ["control", "Start", "pacing"]) {
     } else await oldRun;
     await Promise.all(saved);
     assert.equal(finalizes, 1);
-    assert.equal(completions.length, 1);
+    assert.equal(completions.length, 1, JSON.stringify(errors));
     assert.deepEqual(
       frames.map((frame) => frame.bytes),
       expected

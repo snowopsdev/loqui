@@ -151,6 +151,7 @@ Module._load = function loadWithFakes(request, parent, isMain) {
       "./geminiLiveStreaming",
       "./cortiStreaming",
       "./streamingHandOff",
+      "./dictationStreamingOperations",
       "./debugLogger",
       "./policyResponseError",
     ]);
@@ -226,6 +227,7 @@ test.beforeEach(() => {
 // start would wait on it. Settle both, then let no keep-alive, liveness or refresh
 // timer outlive its test.
 test.afterEach(async () => {
+  self.dictationStreamingOperations?.dispose();
   for (const gate of gates.splice(0)) gate.reject(new Error("The test ended."));
   for (const socket of sockets) {
     if (socket.readyState === FakeSocket.CLOSED) continue;
@@ -1034,6 +1036,11 @@ test("actual cancel buffer and same-session replay isolate a late Gemini handsha
     operationId: "actual-original",
   };
   manager._streamingOperation = attempt;
+  manager._streamingTransport = {
+    adapter: manager.getStreamingProvider(),
+    operation: attempt,
+    closed: false,
+  };
   const frame = new Int16Array(1600).fill(9);
   manager._sessionAudio = {
     session,

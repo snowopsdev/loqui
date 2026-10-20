@@ -4305,5 +4305,436 @@
       "transcribe": "録音を文字起こし",
       "discard": "録音を破棄"
     }
+  },
+  "setupFlow": {
+    "progress": {
+      "nav": "設定の進行状況",
+      "dictate": "音声入力を始める",
+      "personalize": "自分好みにする",
+      "ready": "準備完了",
+      "label": "{{phase}} · {{step}}",
+      "goTo": "{{step}}へ移動"
+    },
+    "steps": {
+      "welcome": "こんにちは",
+      "speech": "音声",
+      "try": "何か話してみましょう",
+      "cleanup": "テキスト補正",
+      "shortcuts": "ショートカット",
+      "finish": "準備完了"
+    },
+    "units": {
+      "mb": "{{value}} MB",
+      "gb": "{{value}} GB"
+    },
+    "download": {
+      "eta": {
+        "seconds": "約{{count}}秒",
+        "minutes": "約{{count}}分"
+      },
+      "chip": "ダウンロード中 {{percent}}% · 残り{{eta}}",
+      "chipNoEta": "ダウンロード中 {{percent}}%",
+      "chipInstalling": "音声モデルをインストール中",
+      "chipCancelling": "ダウンロードを停止中…",
+      "chipCancelled": "ダウンロードをキャンセルしました",
+      "chipReady": "音声モデルの準備完了",
+      "chipFailed": "ダウンロードに失敗しました",
+      "received": "{{total}}中{{done}}",
+      "stoppedKept": "{{percent}}%でダウンロードが停止しました。進行状況は保持されています。",
+      "stoppedRestart": "{{percent}}%でダウンロードが停止しました。再試行すると最初からダウンロードします。",
+      "cancelledLine": "ダウンロードをキャンセルしました。ダウンロード済みのデータは保持されません。",
+      "downloadAgain": "もう一度ダウンロード",
+      "retry": "再試行",
+      "cancel": "キャンセル",
+      "readyTitle": "音声モデルの準備完了",
+      "failedTitle": "音声モデルをダウンロードできませんでした",
+      "announcePercent": "音声モデルのダウンロードは{{percent}}パーセント完了しています。",
+      "announceReady": "音声モデルの準備完了",
+      "checking": "音声モデルを確認中…",
+      "voiceModel": "音声モデル",
+      "stoppedUnknown": "{{percent}}%で停止しました。残っているダウンロードデータのサイズを確認できませんでした。",
+      "cleanupFailed": "ダウンロードは停止しましたが、一部のダウンロードファイルを削除できませんでした。"
+    },
+    "brand": "Loquiの設定",
+    "back": "戻る",
+    "skipStep": "この手順をスキップ",
+    "continue": "続ける",
+    "finishLater": "後で完了する",
+    "lookAroundFirst": "先に見てみる",
+    "instrument": {
+      "idle": "いつでも始められます",
+      "downloading": "ダウンロード中 · {{percent}}% · {{total}}中{{done}}",
+      "goodLevel": "聞き取り中 · 音量は適切です",
+      "waiting": "聞き取り中 · 声を待っています",
+      "processing": "文字にしています…",
+      "heard": "声が聞こえました",
+      "downloadError": "ダウンロードが停止しました",
+      "micError": "Loquiにマイクの音声が届きません",
+      "nothingHeard": "音声が聞こえません。マイクを確認してください。",
+      "error": "うまくいきませんでした。もう一度お試しください。"
+    },
+    "rail": {
+      "welcome": {
+        "title": "話すだけで、Loquiが入力。",
+        "bodyMac": "どこでも音声入力でき、ノートや会議を一か所にまとめられます。Macの外へ送る内容は自分で選べます。",
+        "bodyOther": "どこでも音声入力でき、ノートや会議を一か所にまとめられます。コンピュータの外へ送る内容は自分で選べます。"
+      },
+      "speech": {
+        "title": "Loquiの聞き取り方を選びましょう。",
+        "bodyMac": "おすすめの音声モデルです。このMacで動作し、オフラインでも使えます。",
+        "bodyOther": "おすすめの音声モデルです。このコンピュータで動作し、オフラインでも使えます。"
+      },
+      "try": {
+        "title": "何か話してみましょう",
+        "bodyMac": "このテストの内容は、ほかのアプリに貼り付けられず、履歴にも保存されません。",
+        "bodyOther": "このテストの内容は、ほかのアプリに貼り付けられず、履歴にも保存されません。"
+      },
+      "cleanup": {
+        "title": "読みやすい文章に。",
+        "bodyMac": "テキスト補正で自分の言葉がどう変わるか見てから選びましょう。",
+        "bodyOther": "テキスト補正で自分の言葉がどう変わるか見てから選びましょう。"
+      },
+      "shortcuts": {
+        "title": "どのアプリからでも話せます。",
+        "bodyMac": "どこでもショートカットを押して使えます。ほかのアプリと競合する場合は変更してください。",
+        "bodyOther": "どこでもショートカットを押して使えます。ほかのアプリと競合する場合は変更してください。"
+      },
+      "finish": {
+        "title": "現在の設定状況です。",
+        "bodyMac": "以下はすべて現在の状態を表しています。",
+        "bodyOther": "以下はすべて現在の状態を表しています。"
+      }
+    },
+    "hello": {
+      "start": "始める",
+      "micTitle": "Loquiに声を届けましょう",
+      "micBody": "Loquiが聞くのは音声入力中だけです。この画面では録音されません。",
+      "allowMic": "マイクを許可",
+      "micReady": "{{device}}で聞き取り中",
+      "micReadyGeneric": "マイクで聞き取り中",
+      "micLabel": "マイク",
+      "systemDefault": "システムのデフォルト",
+      "builtIn": "内蔵マイク",
+      "unnamedMic": "名前のないマイク",
+      "notHearing": "声が届きませんか？別のマイクを選んでください。",
+      "savedMicMissing": "保存したマイクが接続されていないため、Loquiはシステムのデフォルトを使っています。",
+      "deniedTitle": "Loquiはマイクを使用できません",
+      "deniedBodyMac": "システム設定で許可してから戻ってください。戻るとLoquiが再確認します。",
+      "deniedBodyOther": "システムのプライバシーまたはサウンド設定で許可してから戻ってください。戻るとLoquiが再確認します。",
+      "openSettings": "システム設定を開く",
+      "recheck": "許可しました",
+      "unavailableTitle": "Loquiはマイクを開けません",
+      "unavailableBody": "ほかのアプリが使用しているか、入力デバイスが接続されていない可能性があります。",
+      "retryOpen": "もう一度試す",
+      "openSound": "サウンド設定を開く",
+      "starting": "マイクを開いています…"
+    },
+    "privacy": {
+      "title": "プライバシーの初期設定",
+      "historyTitle": "ローカル履歴を保持",
+      "historyBodyMac": "文字起こしをこのMacに保存します。「プライバシーとデータ」でいつでも変更できます。",
+      "historyBodyOther": "文字起こしをこのコンピュータに保存します。「プライバシーとデータ」でいつでも変更できます。",
+      "updatesTitle": "アップデートを自動ダウンロード",
+      "updatesBody": "署名済みリリースを毎日確認します。再起動のタイミングは自分で選べます。"
+    },
+    "voice": {
+      "checkingMac": "このMacを確認中…",
+      "checkingOther": "このコンピュータを確認中…",
+      "title": "おすすめの音声モデルを選びました。",
+      "unsupportedTitle": "自分に合った音声モデルを選びましょう。",
+      "why": {
+        "englishMac": "Macの言語が英語のため、英語を選びました。",
+        "englishOther": "コンピュータの言語が英語のため、英語を選びました。",
+        "languageMac": "Macの言語が{{language}}のため、{{voice}}を選びました。",
+        "languageOther": "コンピュータの言語が{{language}}のため、{{voice}}を選びました。",
+        "multilingualMac": "Macが{{languages}}を使うため、{{voice}}を選びました。",
+        "multilingualOther": "コンピュータが{{languages}}を使うため、{{voice}}を選びました。",
+        "unsupported": "Loquiのデバイス上の音声モデルは、まだ{{language}}を認識できません。近いものを選ぶか、後で設定からクラウドの音声モデルを追加してください。"
+      },
+      "noticed": "検出した情報",
+      "signals": {
+        "systemLanguage": "システム言語",
+        "memory": "メモリ",
+        "freeSpace": "空き容量",
+        "graphics": "グラフィックス"
+      },
+      "gpu": {
+        "appleSilicon": "Appleシリコン",
+        "nvidia": "NVIDIAグラフィックス",
+        "unknown": "検出されませんでした"
+      },
+      "unknown": "不明",
+      "diskShort": "この音声モデルのインストールには約{{needed}}の空き容量が必要です。現在の空き容量は{{free}}です。",
+      "recommended": "おすすめ",
+      "installed": "このデバイスにインストール済み",
+      "notRight": "合いませんか？自分で選ぶ",
+      "pickerLabel": "音声モデル",
+      "lockedWhileDownloading": "別の音声モデルを選ぶには、ダウンロードをキャンセルしてください。",
+      "languageLocked": "言語を変えるには、ダウンロードをキャンセルしてください。",
+      "cantHear": "{{language}}を認識できません",
+      "blocked": {
+        "mismatch": "この音声モデルは{{language}}を認識できません。下から別のものを選んでください。",
+        "none": "{{language}}を認識できるデバイス上の音声モデルはまだありません。対応言語を選ぶか、後で設定からクラウドの音声モデルを追加してください。"
+      },
+      "download": "ダウンロード（{{size}}）",
+      "outcomes": {
+        "fastEnglish": {
+          "name": "英語をすばやく認識",
+          "description": "英語をすばやく正確に認識します。話し終えてから約1秒で文字が表示されます。"
+        },
+        "manyLanguages": {
+          "name": "多くの言語に対応",
+          "description": "25言語を認識し、自動判別します。日中に使う言語を切り替えても対応できます。"
+        },
+        "liveCaptions": {
+          "name": "リアルタイム字幕",
+          "description": "話している間に文字が表示されます。会議や長い音声入力に最適です。"
+        },
+        "liveMultilingual": {
+          "name": "リアルタイムで、さらに多くの言語に",
+          "description": "日本語、アラビア語、ヒンディー語など15言語で、話している間に文字が表示されます。"
+        }
+      },
+      "commitToTry": "音声入力を試す前に、ローカルの音声モデルを選んで適用してください。"
+    },
+    "tour": {
+      "label": "ダウンロードを待つ間に",
+      "title": "ダウンロードを待つ間にLoquiをご紹介します。",
+      "skip": "紹介をスキップ",
+      "skipped": "音声モデルの準備ができたらテストを始めます。",
+      "noVoice": "先に音声モデルを選んでください。このデバイス上で動作します。",
+      "chooseVoice": "音声モデルを選ぶ",
+      "slideOf": "{{total}}件中{{current}}件目",
+      "previous": "前のヒント",
+      "next": "次のヒント",
+      "tip": "ヒント{{number}}",
+      "shortcut": {
+        "title": "ショートカットを使う",
+        "tap": "{{key}}を押して話し始め、もう一度押すと終了します。",
+        "push": "{{key}}を押したまま話し、離すと終了します。"
+      },
+      "privacy": {
+        "title": "言葉の行き先",
+        "bodyMac": "プロバイダーを選ばない限り、このMacから何も送信されません。",
+        "bodyOther": "プロバイダーを選ばない限り、このコンピュータから何も送信されません。",
+        "nodes": {
+          "mic": "マイク",
+          "loqui": "Loqui",
+          "model": "音声認識モデル",
+          "notes": "ノート"
+        }
+      },
+      "demo": {
+        "title": "話すと文字に",
+        "body": "テキスト補正で、つなぎ言葉や句読点を整えられます。次の手順で選べます。",
+        "raw": "えーとお昼までに下書きを送るようにリマインドして",
+        "final": "お昼までに下書きを送るようにリマインドして。"
+      },
+      "readyTitle": "準備完了。何か話してみましょう。",
+      "readyBody": "音声モデルはこのデバイス上にあります。",
+      "carouselRole": "カルーセル",
+      "slideRole": "スライド"
+    },
+    "cleanupAuthority": {
+      "unavailable": "元のテキスト補正は利用できなくなりました。元の言葉は保持されています。",
+      "changed": "テキスト補正の送信先または認証情報が変更されました。元の言葉は保持されています。",
+      "unsupported": "選択した {{provider}} の認証元はテキスト補正用に保持できません。元の言葉は保持されています。",
+      "failed": "テキスト補正に失敗しました。元の言葉は保持されています。",
+      "busy": "テキスト補正はすでに実行中です。"
+    },
+    "try": {
+      "idle": {
+        "tap": "{{key}}を押して何か話してください。もう一度押すと終了します。",
+        "push": "{{key}}を押したまま何か話してください。離すと終了します。"
+      },
+      "keycap": {
+        "tap": "押して話す",
+        "push": "押している間に話す"
+      },
+      "listening": "聞き取り中",
+      "processing": "文字にしています…",
+      "shortcutWorks": "ショートカットは使えます",
+      "heardYou": "Loquiに声が届きました",
+      "discarded": "破棄しました。",
+      "undo": "元に戻す",
+      "silent": "何も聞こえません。別のマイクが選ばれていませんか？",
+      "noAudioTitle": "音声が聞こえませんでした",
+      "noAudioBody": "正しいマイクが選ばれ、ミュートされていないことを確認してから、もう一度お試しください。",
+      "memoryTitle": "この音声モデルには空きメモリが足りません",
+      "memoryBody": "アプリをいくつか閉じるか、より小さな音声モデルを選んでください。",
+      "chooseSmaller": "別の音声モデルを選ぶ",
+      "changeMic": "マイクを変更",
+      "otherTitle": "この録音はうまくいきませんでした",
+      "otherBody": "もう一度お試しください。設定は変わっていません。",
+      "again": "もう一度試す",
+      "cleanupFailed": "テキスト補正は実行されませんでした。これは元のテキストです。",
+      "retryFailed": "テキスト補正は今回も実行されませんでした。これは元のテキストです。",
+      "retryCleanup": "テキスト補正を再試行",
+      "cleanupOff": "テキスト補正をオフにする",
+      "wordsSafe": "どちらの場合も元の言葉は保持されます。",
+      "accessibilityTitle": "ショートカットにはアクセシビリティの許可が必要です",
+      "accessibilityBody": "macOSでLoquiがグローバルショートカットを認識するには許可が必要です。Loqui内の音声入力は許可なしでも使えます。",
+      "grantAccess": "アクセスを許可",
+      "useButton": "代わりにボタンを使う",
+      "start": "録音を開始",
+      "stop": "停止",
+      "privacyLine": "どこにも貼り付けず、保存もしません。",
+      "bandTitle": "あなたの声です。Loquiがこのデバイス上で認識しました。",
+      "makeItYours": "自分好みにする",
+      "startUsing": "Loquiを使い始める",
+      "cancel": "録音を破棄",
+      "cleanupUnsupported": "この認証元はテキスト補正用に保持できません。元の言葉は保持されています。",
+      "controlUnavailable": "録音の操作に応答がありませんでした。停止または破棄をもう一度試してください。"
+    },
+    "cleanup": {
+      "title": "テキスト補正の効果を見る",
+      "label": "テキスト補正",
+      "options": {
+        "none": "なし",
+        "local": "デバイス上",
+        "codex": "ChatGPT",
+        "provider": "APIキー"
+      },
+      "original": "元のテキスト",
+      "withCleanup": "テキスト補正あり",
+      "nothingChanges": "変更なし",
+      "running": "文を補正中…",
+      "wordsSent_other": "{{count}}語を{{provider}}に送信することになります",
+      "sentNotice_other": "このプレビューのために{{count}}語を{{provider}}に送信しました",
+      "tryMine_other": "自分の文で試す · {{count}}語を{{provider}}に送信",
+      "exampleNotice": "サンプルのテキストです。何も送信されていません。",
+      "localExampleNotice": "サンプルのテキストです。このデバイスでローカルのテキスト補正が使えるようになると、ここに自分の文が表示されます。",
+      "example": {
+        "original": "えーとお昼までに下書きをマヤに送ろうそれとあの木曜日の部屋を予約するようにリマインドして",
+        "local": "お昼までに下書きをマヤに送ろう。それと、木曜日の部屋を予約するようにリマインドして。",
+        "codex": "お昼までに下書きをマヤに送ろう。木曜日の部屋を予約するようにリマインドして。",
+        "provider": "マヤにお昼までに下書きを送ろう。それから、木曜日の部屋を予約するようにリマインドして。"
+      },
+      "listModels": "ChatGPT のモデル一覧を取得",
+      "modelListFailed": "ChatGPT のモデル一覧を取得できませんでした。もう一度お試しください。",
+      "now": {
+        "off": "テキスト補正はオフです。話した言葉がそのまま残ります。",
+        "checking": "テキスト補正が使えるか確認中…",
+        "ready": "{{name}}でテキスト補正がオンになっています。",
+        "readyNetwork": "{{provider}}の{{name}}でテキスト補正がオンになっています。",
+        "needsKey": "設定で{{provider}}のキーを追加すると、テキスト補正をオンにできます。それまでは話した言葉がそのまま残ります。",
+        "needsConnection": "上でChatGPTに接続すると、テキスト補正をオンにできます。それまでは話した言葉がそのまま残ります。",
+        "needsModel": "ローカルのテキスト補正モデルは、まだこのデバイスにありません。設定の「言語モデル」からダウンロードしてください（1.3 GB）。",
+        "unreachable": "現在、Loquiは{{provider}}に接続できません。話した言葉はそのまま保持されます。",
+        "modelSetup": "ChatGPT に接続済みです。モデル一覧を取得して、テキスト整形に使うモデルを選んでください。",
+        "review": "変更を確認してから「適用」を選んでください。"
+      },
+      "reuse": "ほかのテキスト機能にもこの選択を使う",
+      "exampleInProgress": "リクエストの実行中はサンプルが表示されます。補正に成功した場合にのみ、自分の結果が表示されます。",
+      "attemptNotice_other": "{{count}}語を{{provider}}に送信することを許可しました。試行は失敗しましたが、すでに届いている可能性があります。元の言葉は変わっていません。",
+      "previousAttemptNotice_other": "以前、{{count}}語を{{provider}}に送信することを許可しました。このプレビューを変更しても、そのリクエストは取り消されません。元の言葉は保持されています。"
+    },
+    "shortcut": {
+      "title": "ショートカットを試しましょう。",
+      "testerLabel": "ショートカットのテスト。{{key}}を押してください。",
+      "hint": "{{key}}を押してください。短く押すと開始・停止し、長押しすると押している間だけ話せます。",
+      "fills": "こんにちは、動作しています。",
+      "works": "ショートカットは正常です",
+      "detected": {
+        "tap": "短押しで開始・停止を検出",
+        "hold": "長押しで話す操作を検出"
+      },
+      "suggest": {
+        "push": "キーの長押しを検出しました。長押しで話すモードに切り替えますか？",
+        "tap": "キーの短押しを検出しました。短押しで開始・停止するモードに切り替えますか？"
+      },
+      "switch": "切り替える",
+      "change": "ショートカットを変更",
+      "changeHelp": "どのアプリでも、このキーを押して話せます。他のアプリと競合する場合は変更してください。",
+      "autoPaste": "自動貼り付け",
+      "autoPasteBodyMac": "カーソルの位置に文字を貼り付けます。macOSではアクセシビリティの許可が必要です。",
+      "autoPasteBodyOther": "カーソルの位置に文字を貼り付けます。",
+      "accessibilityBody": "macOSでは、許可した後にのみLoquiがショートカットを検出し、貼り付けられます。今すぐ許可するか、後で設定から許可できます。"
+    },
+    "ready": {
+      "titleProven": "音声入力できました。",
+      "titleConfigured": "設定できました。一度試して確認しましょう。",
+      "titlePending_one": "あと少し：残り{{count}}項目です。",
+      "titlePending_other": "あと少し：残り{{count}}項目です。",
+      "subAllLocalMac": "最初の音声入力に成功しました。すべてこのMacで動作します。",
+      "subAllLocalOther": "最初の音声入力に成功しました。すべてこのコンピュータで動作します。",
+      "subProven": "最初の音声入力に成功しました。",
+      "subConfigured": "一度音声入力して、この設定を確認しましょう。",
+      "subPending": "残りの項目を完了しましょう。各項目から設定場所を開けます。",
+      "rows": {
+        "speech": "音声",
+        "microphone": "マイク",
+        "shortcut": "ショートカット",
+        "cleanup": "テキスト補正"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}、最初の音声入力を認識しました",
+          "checking": "確認中…",
+          "configured": "{{voice}}、まだ試していません",
+          "downloading": "ダウンロード中です",
+          "needsModel": "音声モデルをダウンロード",
+          "unavailable": "設定でセットアップを完了"
+        },
+        "microphone": {
+          "heard": "動作しています",
+          "allowed": "許可済み、音声は未確認",
+          "denied": "システム設定で許可",
+          "untested": "何か話して確認"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}、押すと開始・停止",
+            "push": "{{key}}、押している間に話す"
+          },
+          "configured": {
+            "tap": "{{key}}、まだ試していません",
+            "push": "{{key}}、まだ試していません"
+          },
+          "needsAccessibility": "アクセシビリティを許可",
+          "checkAccessibility": "アクセシビリティの許可を確認"
+        },
+        "cleanup": {
+          "off": "オフ。後で追加できます",
+          "checking": "確認中です",
+          "needsConnection": "ChatGPTに接続",
+          "needsKey": "設定で{{provider}}のキーを追加",
+          "needsModel": "設定でローカルモデルをダウンロード",
+          "unreachable": "{{provider}}に接続できません",
+          "configured": "{{name}}で設定済み",
+          "configuredNetwork": "{{provider}}で{{name}}を設定済み",
+          "modelSetup": "テキスト整形用の ChatGPT モデル一覧を取得",
+          "review": "変更を確認してから「適用」を選んでください。"
+        }
+      },
+      "dictateNote": "ノートに音声入力",
+      "openWorkspace": "ワークスペースを開く",
+      "noteLocal": "ノートはこのデバイスで文字起こしされます。",
+      "noteSends": "ノートの音声は{{provider}}に送信されます。",
+      "noteChecking": "ノートの文字起こし方法を確認中…",
+      "noteBlocked": {
+        "microphone": "ノートにはマイクが必要です。",
+        "unsupported": "ノートの録音に、自前のサーバーなど、まだ対応していないサービスが設定されています。",
+        "sealed": "封印モードが有効なため、ノートの録音は{{provider}}に接続できません。",
+        "needsModel": "ノートの録音には、このデバイス上の音声モデルが必要です。",
+        "needsKey": "ノートの録音には{{provider}}のキーが必要です。",
+        "needsUrl": "ノートの録音にはサーバーアドレスが必要です。",
+        "unreachable": "Loquiはノートの録音用に{{provider}}へ接続できません。"
+      },
+      "fixNote": "修正する",
+      "noteNetwork": "ノートの音声は{{provider}}に送信する設定です。"
+    },
+    "resume": {
+      "title": "設定を完了する",
+      "body": "ワークスペースは利用できます。いつでも続きから設定を再開できます。",
+      "items": {
+        "finishDictating": "初めての音声入力を試す",
+        "cleanup": "テキスト補正を選ぶ",
+        "shortcut": "ショートカットを試す"
+      },
+      "resume": "設定を再開",
+      "dismiss": "設定チェックリストを閉じる",
+      "label": "設定チェックリスト"
+    }
   }
 }

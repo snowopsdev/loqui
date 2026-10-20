@@ -139,6 +139,9 @@ class DeepgramStreaming {
     this.tokenRefreshFn = null;
     this.proactiveRefreshTimer = null;
     this._generation = 0;
+    // Separate warm lifetime: cleanup/rotation/adoption must invalidate token
+    // continuations without cancelling the active liveness reconnect itself.
+    this._warmGeneration = 0;
     this.audioBytesSent = 0;
     this.currentModel = "nova-3";
     this.resultsReceived = 0;
@@ -230,7 +233,8 @@ class DeepgramStreaming {
     const target = socket || this.warmConnection;
     const isWarm = !socket;
     debugLogger.debug("Deepgram keep-alive started", { isWarm });
-    this.keepAliveInterval = setInterval(() => {
+    const interval = setInterval(() => {
+      if (this.keepAliveInterval !== interval) return;
       if (target && target.readyState === WebSocket.OPEN) {
         try {
           // Warm connections send silence audio — Deepgram's net0001 idle timeout
@@ -251,6 +255,7 @@ class DeepgramStreaming {
         this.stopKeepAlive();
       }
     }, KEEPALIVE_INTERVAL_MS);
+    this.keepAliveInterval = interval;
   }
 
   stopKeepAlive() {
@@ -281,6 +286,7 @@ class DeepgramStreaming {
       return;
     }
 
+    const generation = ++this._warmGeneration;
     this.warmConnectionReady = false;
     this.warmSessionId = null;
     // Only update tokenFetchedAt when the token actually changes —
@@ -322,8 +328,11 @@ class DeepgramStreaming {
       };
 
       const warmupTimeout = setTimeout(() => {
-        this.cleanupWarmConnection();
-        reject(new Error("Deepgram warmup connection timeout"));
+        if (isCurrent()) this.cleanupWarmConnection();
+        if (!settled) {
+          settled = true;
+          reject(new Error("Deepgram warmup connection timeout"));
+        }
       }, WEBSOCKET_TIMEOUT_MS);
 
       const socket = new WebSocket(url, {
@@ -331,7 +340,7 @@ class DeepgramStreaming {
       });
       this.warmConnection = socket;
       // A replaced warm socket's late events must not touch its successor.
-      const isCurrent = () => this.warmConnection === socket;
+      const isCurrent = () => generation === this._warmGeneration && this.warmConnection === socket;
 
       socket.on("open", () => {
         if (!isCurrent()) return;
@@ -358,7 +367,7 @@ class DeepgramStreaming {
         clearTimeout(warmupTimeout);
         debugLogger.error("Deepgram warmup connection error", { error: error.message });
         // Invalidate cached token on auth failure so next attempt fetches fresh
-        if (error.message && error.message.includes("401")) {
+        if (isCurrent() && error.message && error.message.includes("401")) {
           this.cachedToken = null;
           this.tokenFetchedAt = null;
         }
@@ -420,7 +429,9 @@ class DeepgramStreaming {
       delayMs: delay,
     });
     clearTimeout(this.rewarmTimer);
+    const generation = this._warmGeneration;
     this.rewarmTimer = setTimeout(async () => {
+      if (generation !== this._warmGeneration) return;
       this.rewarmTimer = null;
       if (this.hasWarmConnection() || this.isConnected) return;
 
@@ -436,17 +447,21 @@ class DeepgramStreaming {
       if (!token && this.tokenRefreshFn) {
         try {
           token = await this.tokenRefreshFn();
-          if (token) this.cacheToken(token);
         } catch (err) {
           debugLogger.debug("Deepgram token refresh for re-warm failed", {
             error: err.message,
           });
         }
       }
+      // Cleanup cannot cancel a token request already in flight. Its saved
+      // options must never reopen a retired/replaced/adopted warm lifetime.
+      if (generation !== this._warmGeneration || this.isConnected || this.hasWarmConnection())
+        return;
       if (!token) {
         debugLogger.debug("Deepgram cannot re-warm: no valid token");
         return;
       }
+      if (token !== this.cachedToken) this.cacheToken(token);
 
       this.warmup({ ...savedOptions, token }).catch((err) => {
         debugLogger.debug("Deepgram auto re-warm failed", { error: err.message });
@@ -456,8 +471,10 @@ class DeepgramStreaming {
 
   scheduleProactiveRefresh() {
     clearTimeout(this.proactiveRefreshTimer);
+    const generation = this._warmGeneration;
     const refreshDelay = TOKEN_EXPIRY_MS - TOKEN_REFRESH_BUFFER_MS * 2;
     this.proactiveRefreshTimer = setTimeout(async () => {
+      if (generation !== this._warmGeneration) return;
       this.proactiveRefreshTimer = null;
       if (!this.hasWarmConnection() || this.isConnected) return;
 
@@ -473,7 +490,7 @@ class DeepgramStreaming {
         });
         return;
       }
-      if (!newToken || this.isConnected) return;
+      if (generation !== this._warmGeneration || !newToken || this.isConnected) return;
 
       debugLogger.debug("Deepgram rotating warm connection with fresh token");
       this.cleanupWarmConnection();
@@ -498,6 +515,9 @@ class DeepgramStreaming {
       return false;
     }
 
+    this._warmGeneration++;
+    clearTimeout(this.rewarmTimer);
+    this.rewarmTimer = null;
     this.stopKeepAlive();
     clearTimeout(this.proactiveRefreshTimer);
     this.proactiveRefreshTimer = null;
@@ -552,16 +572,18 @@ class DeepgramStreaming {
   }
 
   cleanupWarmConnection() {
+    this._warmGeneration++;
     this.stopKeepAlive();
     clearTimeout(this.proactiveRefreshTimer);
     this.proactiveRefreshTimer = null;
-    if (this.warmConnection) {
+    const socket = this.warmConnection;
+    this.warmConnection = null;
+    if (socket) {
       try {
-        this.warmConnection.close();
+        socket.close();
       } catch (err) {
         // Ignore
       }
-      this.warmConnection = null;
     }
     this.warmConnectionReady = false;
     this.warmConnectionOptions = null;
@@ -928,6 +950,11 @@ class DeepgramStreaming {
 
   async disconnect(closeStream = true) {
     this._generation++;
+    this._warmGeneration++;
+    clearTimeout(this.rewarmTimer);
+    this.rewarmTimer = null;
+    clearTimeout(this.proactiveRefreshTimer);
+    this.proactiveRefreshTimer = null;
     clearTimeout(this.livenessTimer);
     this.livenessTimer = null;
 
@@ -999,6 +1026,7 @@ class DeepgramStreaming {
   }
 
   cleanupAll() {
+    this._generation++;
     this.cleanup();
     this.cleanupWarmConnection();
     clearTimeout(this.rewarmTimer);

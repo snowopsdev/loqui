@@ -9,9 +9,10 @@ function installTree({ trackFocusRemoval = false } = {}) {
     const node = {
       nodeType,
       ownerDocument: document,
+      // React writes CSS custom properties through setProperty.
       style: {
         setProperty(name, value) {
-          this[name] = value;
+          this[name] = String(value);
         },
         removeProperty(name) {
           delete this[name];
@@ -41,6 +42,41 @@ function installTree({ trackFocusRemoval = false } = {}) {
         if (removedFocus) document.activeElement = null;
         return child;
       },
+      // React's controlled native select reads the live options collection.
+      get options() {
+        if (node.tagName !== "SELECT") return undefined;
+        const options = [];
+        const collect = (parent) => {
+          for (const child of parent.childNodes) {
+            if (child.tagName === "OPTION") options.push(child);
+            else collect(child);
+          }
+        };
+        collect(node);
+        return options;
+      },
+      get selected() {
+        return node._selected ?? false;
+      },
+      set selected(value) {
+        node._selected = Boolean(value);
+        let select = node.parentNode;
+        while (select && select.tagName !== "SELECT") select = select.parentNode;
+        if (value && select && !select.multiple) {
+          for (const option of select.options) if (option !== node) option._selected = false;
+        }
+      },
+      get value() {
+        if (node.tagName === "OPTION") return node.attributes.value ?? node.textContent;
+        if (node.tagName === "SELECT")
+          return (node.options.find((option) => option.selected) ?? node.options[0])?.value ?? "";
+        return node._value ?? "";
+      },
+      set value(value) {
+        if (node.tagName === "SELECT") {
+          for (const option of node.options) option.selected = option.value === String(value);
+        } else node._value = String(value);
+      },
       get firstChild() {
         return node.childNodes[0] ?? null;
       },
@@ -48,18 +84,18 @@ function installTree({ trackFocusRemoval = false } = {}) {
         const siblings = node.parentNode?.childNodes ?? [];
         return siblings[siblings.indexOf(node) + 1] ?? null;
       },
+      get nodeValue() {
+        return node.nodeType === 3 ? node.data : null;
+      },
+      set nodeValue(value) {
+        if (node.nodeType === 3) node.data = String(value ?? "");
+      },
       get textContent() {
         return node.nodeType === 3 ? node.data : node.childNodes.map((c) => c.textContent).join("");
       },
       set textContent(value) {
         node.childNodes = [];
         if (value) node.appendChild(make(3, { nodeName: "#text", data: String(value) }));
-      },
-      get nodeValue() {
-        return node.nodeType === 3 ? node.data : null;
-      },
-      set nodeValue(value) {
-        if (node.nodeType === 3) node.data = String(value);
       },
       getBoundingClientRect: () => ({
         x: 0,
@@ -85,10 +121,37 @@ function installTree({ trackFocusRemoval = false } = {}) {
           if (current === node) return true;
         return false;
       },
-      focus() {
-        if (trackFocusRemoval) document.activeElement = node;
+      getAttribute(name) {
+        return name in node.attributes ? node.attributes[name] : null;
       },
-      querySelector: () => null,
+      focus() {
+        document.activeElement = node;
+      },
+      // Enough of querySelector for focus effects: "h1", "[data-x]", '[role="radio"]'.
+      querySelector(selector) {
+        const match = selector.match(/^([a-z0-9]+)?(?:\[([\w-]+)(?:="([^"]*)")?\])?$/i);
+        if (!match) return null;
+        const [, tag, attr, value] = match;
+        let found = null;
+        const visit = (current) => {
+          for (const child of current.childNodes) {
+            if (found) return;
+            if (
+              child.nodeType === 1 &&
+              (!tag || child.tagName === tag.toUpperCase()) &&
+              (!attr ||
+                (attr in child.attributes &&
+                  (value === undefined || child.attributes[attr] === value)))
+            ) {
+              found = child;
+              return;
+            }
+            visit(child);
+          }
+        };
+        visit(node);
+        return found;
+      },
       closest: () => null,
       ...props,
     };
@@ -118,7 +181,7 @@ function installTree({ trackFocusRemoval = false } = {}) {
     const key = Object.keys(target).find((name) => name.startsWith("__reactProps$"));
     await React.act(async () => {
       // The handler returns the pending check; awaiting it would deadlock the test.
-      void target[key].onClick();
+      void target[key].onClick(eventFor(target));
     });
   };
   const text = () => container.textContent;
@@ -139,7 +202,38 @@ function installTree({ trackFocusRemoval = false } = {}) {
       await new Promise((resolve) => setImmediate(resolve));
     });
   };
-  return { container, click, clickNode, text, find, props };
+  const findAll = (predicate) => {
+    const out = [];
+    walk(container, (node) => {
+      if (node.nodeType === 1 && predicate(node)) out.push(node);
+    });
+    return out;
+  };
+  const byAttr = (name, value) =>
+    findAll((node) =>
+      value === undefined ? name in node.attributes : node.attributes[name] === String(value)
+    );
+  const eventFor = (node, extra = {}) => ({
+    preventDefault() {},
+    stopPropagation() {},
+    currentTarget: node,
+    target: node,
+    ...extra,
+  });
+  // Plan 02's click(label) keeps working; it now also takes a node and passes an event.
+  const clickAny = async (labelOrNode) => {
+    if (typeof labelOrNode === "string") return click(labelOrNode);
+    assert.ok(labelOrNode, "node to click exists");
+    await React.act(async () => {
+      void props(labelOrNode).onClick?.(eventFor(labelOrNode));
+    });
+  };
+  const press = async (node, key, extra = {}) => {
+    await React.act(async () => {
+      void props(node).onKeyDown?.(eventFor(node, { key, repeat: false, ...extra }));
+    });
+  };
+  return { clickNode, container, click: clickAny, text, find, props, findAll, byAttr, press };
 }
 
 module.exports = { installTree };

@@ -79,9 +79,19 @@ test("the focus ring clears 3:1 on every surface in both themes", async () => {
     }
 });
 
-test("the onboarding canvas does not swap in a lower-contrast focus ring", () => {
-  const canvas = css.match(/\n\.onboarding-canvas \{([^}]*)\}/)[1];
-  assert.doesNotMatch(canvas, /--color-ring:/);
+test("the current onboarding shell retains the shared contrast-tested focus ring", () => {
+  const source = fs.readFileSync(path.join(repoRoot, "src/styles/onboarding.css"), "utf8");
+  const assertSharedRing = (stylesheet) => {
+    assert.match(stylesheet, /\.onb-shell\s*\{/u, "the real shell selector must exist");
+    assert.doesNotMatch(stylesheet, /--color-ring\s*:/u, "setup cannot override the shared ring");
+  };
+  assertSharedRing(source);
+  assert.throws(
+    () => assertSharedRing(source + "\n.onb-shell { --color-ring: #ff5a1f; }"),
+    /setup cannot override the shared ring/,
+    "a deliberate lower-contrast override is rejected"
+  );
+  assert.throws(() => assertSharedRing(""), /the real shell selector must exist/);
 });
 
 test("focus indicators on shared controls are fully opaque", () => {
@@ -95,10 +105,20 @@ test("focus indicators on shared controls are fully opaque", () => {
   }
 });
 
-test("every HotkeyInput variant draws an opaque ring on focus and while capturing", async () => {
+test("every HotkeyInput variant draws an opaque ring on focus and while capturing", async (t) => {
+  const { captureDiagnostics } = require("../lib/scopedDiagnostics");
+  const diagnostics = captureDiagnostics(t);
+  t.after(() => assert.deepEqual(diagnostics, []));
+  const i18n = require("i18next").createInstance();
+  const { I18nextProvider } = require("react-i18next");
+  await i18n.init({ lng: "en", resources: { en: { translation: {} } }, initImmediate: false });
   const { HotkeyInput } = await import("../../src/components/ui/HotkeyInput.tsx");
   for (const variant of ["default", "hero", "capture-overlay"]) {
-    const html = renderStatic(HotkeyInput, { value: "", onChange() {}, variant });
+    const html = renderStatic(
+      I18nextProvider,
+      { i18n },
+      require("react").createElement(HotkeyInput, { value: "", onChange() {}, variant })
+    );
     assert.match(html, /focus-visible:ring-2 focus-visible:ring-ring(?![\w/-])/, variant);
   }
   const source = fs.readFileSync(path.join(repoRoot, "src/components/ui/HotkeyInput.tsx"), "utf8");

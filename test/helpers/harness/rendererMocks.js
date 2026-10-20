@@ -7,10 +7,14 @@ const path = require("node:path");
 // and the module graph fails to load without them. It only applies with
 // noExternal: ["react-i18next"], which rendererOptions sets.
 const I18N_KEYS_MOCK = `
-const format = (key, options) =>
-  options
-    ? key + "(" + Object.entries(options).map(([name, value]) => name + "=" + value).join(",") + ")"
-    : key;
+const format = (key, options) => {
+  if (!options) return key;
+  const entries = Object.entries(options);
+  // Preserve the readable legacy form only when its delimiters are unambiguous.
+  if (entries.every(([name, value]) => /^[\\w.-]+$/.test(name) && !/[(),={}]/.test(String(value))))
+    return key + "(" + entries.map(([name, value]) => name + "=" + value).join(",") + ")";
+  return key + JSON.stringify(options);
+};
 export const useTranslation = () => ({
   t: format,
   i18n: { language: "en", dir: () => globalThis.__i18nDir ?? "ltr" },

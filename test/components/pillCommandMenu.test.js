@@ -14,6 +14,8 @@ test.before(async () => {
   });
 });
 const assert = require("node:assert/strict");
+const { captureDiagnostics } = require("../lib/scopedDiagnostics");
+const { I18N_KEYS_MOCK } = require("../helpers/harness/rendererMocks");
 const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
@@ -22,7 +24,11 @@ const { createRendererServer, installBrowserGlobals } = require("../lib/renderer
 // so assertions match on the raw translation key rather than resolved copy.
 async function renderMenu(t, props) {
   installBrowserGlobals(t);
+  const diagnostics = captureDiagnostics(t);
+  t.after(() => assert.deepEqual(diagnostics, []));
   const vite = await createRendererServer(t, {
+    mockModules: { "react-i18next": I18N_KEYS_MOCK },
+    noExternal: ["react-i18next"],
     cachePrefix: "openwhispr-pill-command-menu-test-",
   });
   const mod = await vite.ssrLoadModule("/components/dictation/PillCommandMenu.tsx");

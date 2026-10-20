@@ -5,10 +5,12 @@ import type { UpdateStatus } from "../types/updates";
 import product from "../config/product.json";
 import { version } from "../../package.json";
 import { parseOnboardingPreviewConfig } from "../utils/onboardingState";
+import { createOnboardingScenarioBridge } from "./onboardingScenarioBridge";
 
 declare global {
   interface Window {
     loquiBrowserPreview?: boolean;
+    loquiPreviewBridge?: { simulateHotkey(phase: "down" | "up"): void; reset(): void };
   }
 }
 
@@ -55,7 +57,9 @@ function makeNote(
 
 // An explicit, in-memory bridge for UI review. No IPC, network proxy, filesystem,
 // provider credentials or model downloads are exposed by this adapter.
-function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
+function createBrowserPreviewAPI(
+  setup: ReturnType<typeof createOnboardingScenarioBridge>
+): Partial<Window["electronAPI"]> {
   let notes = [
     makeNote(
       1,
@@ -155,18 +159,23 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     notes.filter((note) =>
       `${note.title} ${note.content}`.toLowerCase().includes(query.toLowerCase())
     );
+  const capturedText = setup.textOperations;
   const personalInference: PersonalInferenceAPI = {
+    captureTextOperation: capturedText.captureTextOperation,
+    runTextOperation: capturedText.runTextOperation,
+    retireTextOperation: capturedText.retireTextOperation,
     describeModels: async () => {
       throw new Error("unavailable");
     },
-    codexStatus: async () => ({ available: false, error: desktopMessage, code: "BROWSER_PREVIEW" }),
+    codexStatus: setup.cleanupChecks.codexStatus,
     codexLogin: unavailable,
     codexCancelLogin: unavailable,
     codexLogout: unavailable,
-    codexModels: async () => ({ data: [], nextCursor: null }),
+    codexModels: setup.cleanupChecks.codexModels,
+    codexModelCatalog: setup.cleanupChecks.codexModelCatalog,
     codexRateLimits: async () => ({}),
     models: async () => ({ data: [] }),
-    credentialStatus: async () => ({ configured: false }),
+    credentialStatus: setup.cleanupChecks.credentialStatus,
     credentialSave: unavailable,
     textGenerate: unavailable,
     textStream: unavailable,
@@ -188,7 +197,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     onChanged: unsubscribe,
   };
   const credentials: Window["electronAPI"]["credentials"] = {
-    list: async () => [],
+    list: setup.cleanupFacts.credentials,
     save: async () => ({ ok: false, error: "unsupported" }),
     remove: async () => ({ ok: false, error: "unsupported" }),
     undoRemove: async () => ({ ok: false, reason: "unknown" }),
@@ -204,6 +213,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     onDictationFlushRequest: unsubscribe,
     replyDictationFlush: () => {},
     personalInference,
+    processLocalReasoning: capturedText.processLocalReasoning,
     probeSelfHosted: async () => ({ ok: false as const, code: "network" as const }),
     getEnterpriseRouteState: async () => enterpriseState(),
     onEnterpriseRouteChanged: on("enterprise-route-changed"),
@@ -321,20 +331,12 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     checkWhisperInstallation: async () => ({ installed: false, working: false }),
     listWhisperModels: async () => ({ success: true, models: [], cache_dir: "Desktop app only" }),
     listParakeetModels: async () => ({ success: true, models: [], cache_dir: "Desktop app only" }),
-    checkParakeetModelStatus: async (modelName) => ({
-      success: true,
-      model: modelName,
-      downloaded: window.loquiBrowserPreviewConfig?.scenario === "ready",
-    }),
-    modelGetAll: async () => [],
-    modelGetActiveDownloads: async () => [],
+    modelGetAll: setup.cleanupFacts.models,
     modelCheckRuntime: async () => ({ available: false, error: desktopMessage }),
     onModelDownloadProgress: unsubscribe,
     onWhisperDownloadProgress: unsubscribe,
-    onParakeetDownloadProgress: unsubscribe,
     modelDownload: unavailable,
     downloadWhisperModel: unavailable,
-    downloadParakeetModel: unavailable,
     modelImportGguf: unavailable,
     modelTestLoad: unavailable,
     getSearchModelStatus: async () => ({ downloaded: false }),
@@ -369,13 +371,6 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     onMeetingRecordingStopRequested: unsubscribe,
     onMeetingRecorderRevealRequested: unsubscribe,
     getSpeakerMappings: async () => [],
-    checkMicrophoneAccess: async () => ({
-      granted: window.loquiBrowserPreviewConfig?.scenario !== "microphone-denied",
-      status: "preview",
-    }),
-    checkAccessibilityPermission: async () =>
-      window.loquiBrowserPreviewConfig?.platform !== "macos",
-    openAccessibilitySettings: async () => ({ success: true }),
     checkPasteTools: async () => ({
       platform: window.loquiBrowserPreviewConfig?.platform === "macos" ? "darwin" : "linux",
       available: window.loquiBrowserPreviewConfig?.platform !== "macos",
@@ -383,6 +378,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
       requiresPermission: window.loquiBrowserPreviewConfig?.platform === "macos",
       tools: [],
     }),
+    ...setup.api,
   };
 }
 
@@ -392,7 +388,11 @@ export function installBrowserPreview() {
   window.loquiBrowserPreviewConfig = parseOnboardingPreviewConfig(window.location.search);
   // Only the explicit subset above is supplied. Optional desktop features remain
   // absent rather than pretending an unsupported operation succeeded.
-  window.electronAPI = createBrowserPreviewAPI() as Window["electronAPI"];
+  const setup = createOnboardingScenarioBridge(
+    () => window.loquiBrowserPreviewConfig ?? parseOnboardingPreviewConfig(window.location.search)
+  );
+  window.loquiPreviewBridge = { simulateHotkey: setup.simulateHotkey, reset: setup.reset };
+  window.electronAPI = createBrowserPreviewAPI(setup) as Window["electronAPI"];
   const url = new URL(window.location.href);
   url.searchParams.set("panel", "true");
   window.history.replaceState(null, "", url);

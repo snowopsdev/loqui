@@ -4,7 +4,7 @@ import type { SettingsPatch } from "../lib/providerSwitchPlans";
 import { TEXT_PROVIDER_TABS } from "./settings/routing/providerCatalog";
 import { unavailableSecretSave } from "../lib/credentialSlots";
 import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API_ENDPOINTS } from "../config/constants";
 import {
@@ -753,11 +753,14 @@ function CodexModelPicker({
   const [models, setModels] = useState<Array<{ value: string; label: string }>>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const requestGeneration = useRef(0);
   const refresh = useCallback(async () => {
+    const request = ++requestGeneration.current;
     setLoading(true);
     setError("");
     try {
       const result = await window.electronAPI.personalInference.codexModels();
+      if (request !== requestGeneration.current) return;
       setModels(
         result.data.map((model) => ({
           value: model.model,
@@ -765,16 +768,26 @@ function CodexModelPicker({
         }))
       );
     } catch (err) {
-      setError((err as Error).message);
+      if (request === requestGeneration.current) setError((err as Error).message);
     } finally {
-      setLoading(false);
+      if (request === requestGeneration.current) setLoading(false);
     }
   }, []);
   useEffect(() => {
-    return window.electronAPI.personalInference.onTextEvent((event) => {
-      if (event.type === "account") void refresh();
+    const unsubscribe = window.electronAPI.personalInference.onTextEvent((event) => {
+      if (event.type !== "account") return;
+      // Only the labeled list-models action discovers/acknowledges inventory.
+      // Account events invalidate both displayed models and pending requests.
+      requestGeneration.current += 1;
+      setModels([]);
+      setError("");
+      setLoading(false);
     });
-  }, [refresh]);
+    return () => {
+      requestGeneration.current += 1;
+      unsubscribe();
+    };
+  }, []);
   return (
     <div className="space-y-3">
       <CodexConnection />

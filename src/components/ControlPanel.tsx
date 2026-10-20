@@ -1,5 +1,7 @@
 import { subscribeSettingsDeepLinks } from "../utils/settingsDeepLink";
-import React, { Suspense, useCallback, useEffect, useState } from "react";
+import { useStartOnboardingListener } from "../hooks/useStartOnboarding";
+import WorkspacePresentation from "./WorkspacePresentation";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -47,7 +49,8 @@ import MeetingRecordingMount from "./MeetingRecordingMount";
 import MeetingRecordingPill from "./notes/MeetingRecordingPill";
 import NewNoteMenu from "./notes/NewNoteMenu";
 
-import { useCreateNote } from "../hooks/useCreateNote";
+import { takeAfterSetupIntent } from "../utils/afterSetupIntent";
+import { useCreateNote, type CreateNoteOptions } from "../hooks/useCreateNote";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
 import {
   initializeNotes,
@@ -81,11 +84,29 @@ const ChatView = React.lazy(() => import("./chat/ChatView"));
 const CommandSearch = React.lazy(() => import("./CommandSearch"));
 
 interface ControlPanelProps {
+  /** Retain admitted owners during setup, but gate new workspace interaction. Plan06 carries both props. */
+  workspaceActive?: boolean;
+  /** Host increments synchronously at every setup request, before React commits. */
+  workspaceActivationEpoch?: React.RefObject<number>;
+  onReturnToWorkspace?: () => void;
   /** Open the settings modal at this section on mount (e.g. after onboarding). */
   initialSettingsSection?: string;
 }
 
-export default function ControlPanel({ initialSettingsSection }: ControlPanelProps = {}) {
+export default function ControlPanel({
+  initialSettingsSection,
+  workspaceActive = true,
+  workspaceActivationEpoch,
+  onReturnToWorkspace,
+}: ControlPanelProps = {}) {
+  const activeRef = useRef(workspaceActive);
+  activeRef.current = workspaceActive;
+  const interactionEpoch = useRef(0);
+  const invalidateActivation = useCallback(() => {
+    interactionEpoch.current += 1;
+  }, []);
+  // Also protects default hosts using the public request event without an epoch prop.
+  useStartOnboardingListener(invalidateActivation);
   const { t } = useTranslation();
   const history = useTranscriptions();
   const [isLoading, setIsLoading] = useState(true);
@@ -137,10 +158,36 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
   const { createNote } = useCreateNote();
   // The note is created before the view switches so Notes mounts with it already open.
-  const handleNewNote = useCallback(async () => {
-    await createNote();
-    setActiveView("personal-notes");
-  }, [createNote]);
+  const handleNewNote = useCallback(
+    async (options?: CreateNoteOptions) => {
+      await createNote(options);
+      if (!options?.canActivate || options.canActivate()) setActiveView("personal-notes");
+    },
+    [createNote]
+  );
+
+  // Plan06 must carry this Ready hand-off beside handleNewNote. The existing
+  // useCreateNote/meeting recorder owns creation and recording, including live capture.
+  // Run on each actual workspace return, never while the retained workspace is hidden.
+  useEffect(() => {
+    if (!workspaceActive) return;
+    const intent = takeAfterSetupIntent();
+    if (!intent) return;
+    if (intent.kind === "dictate-note") {
+      const interaction = interactionEpoch.current;
+      const setup = workspaceActivationEpoch?.current;
+      void handleNewNote({
+        canActivate: () =>
+          activeRef.current &&
+          interactionEpoch.current === interaction &&
+          workspaceActivationEpoch?.current === setup,
+      });
+    } else {
+      setSettingsSection(intent.path);
+      setSettingsActivationId(crypto.randomUUID());
+      setShowSettings(true);
+    }
+  }, [handleNewNote, workspaceActive, workspaceActivationEpoch]);
 
   const policyMinAppVersion = null;
 
@@ -228,23 +275,35 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!activeRef.current) return;
       const mod = platform === "darwin" ? e.metaKey : e.ctrlKey;
       if (mod && e.key === "k") {
+        invalidateActivation();
         e.preventDefault();
         setShowSearch(true);
       } else if (mod && e.key === ",") {
+        invalidateActivation();
         e.preventDefault();
         setShowSettings(true);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [invalidateActivation]);
 
+  const pendingMeetingNavigation = useRef(null);
+  const pendingNoteNavigation = useRef(null);
   useEffect(() => {
+    if (!workspaceActive) return;
     const drain = async () => {
-      const data = await window.electronAPI?.getPendingMeetingNoteNavigation?.();
+      const data =
+        pendingMeetingNavigation.current ??
+        (await window.electronAPI?.getPendingMeetingNoteNavigation?.());
+      pendingMeetingNavigation.current = data;
+      if (!activeRef.current) return;
+      pendingMeetingNavigation.current = null;
       if (!data) return;
+      invalidateActivation();
       setActiveFolderId(data.folderId);
       setActiveNoteId(data.noteId);
       setActiveView("personal-notes");
@@ -262,14 +321,24 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       }
     };
     drain();
-    const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(drain);
+    const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(() => {
+      // Receipt is newer workspace work even while its IPC payload is pending.
+      invalidateActivation();
+      return drain();
+    });
     return () => cleanup?.();
-  }, []);
+  }, [workspaceActive, invalidateActivation]);
 
   useEffect(() => {
+    if (!workspaceActive) return;
     const drain = async () => {
-      const data = await window.electronAPI?.getPendingNoteNavigation?.();
+      const data =
+        pendingNoteNavigation.current ?? (await window.electronAPI?.getPendingNoteNavigation?.());
+      pendingNoteNavigation.current = data;
+      if (!activeRef.current) return;
+      pendingNoteNavigation.current = null;
       if (!data) return;
+      invalidateActivation();
       if (data.folderId) {
         setActiveFolderId(data.folderId);
         initializeNotes(null, 50, data.folderId);
@@ -278,24 +347,30 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       setActiveView("personal-notes");
     };
     drain();
-    const cleanup = window.electronAPI?.onNoteNavigationPending?.(drain);
+    const cleanup = window.electronAPI?.onNoteNavigationPending?.(() => {
+      // Keep initial/return drains separate: an empty getter is not a new command.
+      invalidateActivation();
+      return drain();
+    });
     return () => cleanup?.();
-  }, []);
+  }, [workspaceActive, invalidateActivation]);
 
   useEffect(
     () =>
       subscribeSettingsDeepLinks(window.electronAPI, (section, activationId) => {
+        if (!activeRef.current) return;
+        invalidateActivation();
         setSettingsSection(section);
         setSettingsActivationId(activationId);
         setShowSettings(true);
       }),
-    []
+    [invalidateActivation]
   );
 
   // When accessibility is missing on macOS, open the permissions settings page
   useEffect(() => {
     const cleanup = window.electronAPI?.onAccessibilityMissing?.(async () => {
-      if (isAccessibilitySkipped()) return;
+      if (!activeRef.current || isAccessibilitySkipped()) return;
       setSettingsSection("privacyData");
       setShowSettings(true);
       notify({
@@ -623,12 +698,21 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   }, [loadTranscriptions, showDiscarded]);
 
   return (
-    <div className="h-screen bg-surface-window flex flex-col">
+    <WorkspacePresentation
+      active={workspaceActive}
+      onInteraction={invalidateActivation}
+      className="h-screen bg-surface-window flex flex-col"
+    >
       <MeetingRecordingMount />
       <MeetingRecordingPill
+        workspaceActive={workspaceActive}
         activeView={activeView}
         activeNoteId={activeNoteId}
         onReturnToNote={() => {
+          if (!activeRef.current) {
+            onReturnToWorkspace?.();
+            return;
+          }
           setActiveView("personal-notes");
           setActiveFolderId(recordingFolderId);
           setActiveNoteId(recordingNoteId);
@@ -710,8 +794,12 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
         >
           <ControlPanelSidebar
             activeView={activeView}
-            onViewChange={setActiveView}
+            onViewChange={(view) => {
+              invalidateActivation();
+              setActiveView(view);
+            }}
             onOpenSettings={() => {
+              invalidateActivation();
               setSettingsSection(undefined);
               setShowSettings(true);
             }}
@@ -857,6 +945,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
         </main>
       </div>
       <BackgroundActionNoticeListener />
-    </div>
+    </WorkspacePresentation>
   );
 }

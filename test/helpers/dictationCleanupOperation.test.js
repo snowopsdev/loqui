@@ -246,7 +246,7 @@ test("the actual completion hook retains the original Retry and privacy through 
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
   });
-  const f = await fixture(t);
+  const f = await fixture(t, { private: false });
   const saveGate = deferred(),
     saveEntered = deferred(),
     pasteGate = deferred();
@@ -308,7 +308,7 @@ test("the actual completion hook retains the original Retry and privacy through 
     cleanupModel: "new-model",
     snippets: [],
   });
-  f.manager._recordingPrivate = false;
+  f.manager._recordingPrivate = true;
   f.manager.beginDictationSession();
   result.cleanupFailure.retryCleanup = () => {
     throw new Error("new operation must never run");
@@ -317,7 +317,7 @@ test("the actual completion hook retains the original Retry and privacy through 
   saveGate.resolve();
   await React.act(async () => completion);
   assert.equal(saves[0][2].sessionId, f.session.id);
-  assert.equal(saves[0][2].private, true);
+  assert.equal(saves[0][2].private, false);
   const { useCleanupFailureStore } = await f.vite.ssrLoadModule("/stores/cleanupFailureStore.ts");
   const failure = useCleanupFailureStore.getState().lastFailure;
   assert.equal(failure.retryCleanup, f.failure.retryCleanup);
@@ -404,7 +404,7 @@ test("actual completion, snapshot saver and default Retry preserve original priv
           source: "fixture",
           cleanupFailure: f.failure,
         });
-        await pasted.promise;
+        if (mode !== "private") await pasted.promise;
         if (mode === "row" || mode === "audio") await entered.promise;
       });
       // The actual saver has captured A; B takes ownership while A awaits.
@@ -429,7 +429,14 @@ test("actual completion, snapshot saver and default Retry preserve original priv
       const { useCleanupFailureStore } = await f.vite.ssrLoadModule(
         "/stores/cleanupFailureStore.ts"
       );
-      const failure = useCleanupFailureStore.getState().lastFailure;
+      const storedFailure = useCleanupFailureStore.getState().lastFailure;
+      if (mode === "private")
+        assert.equal(
+          storedFailure,
+          null,
+          "private completion never claims an external paste failure"
+        );
+      const failure = mode === "private" ? { ...f.failure, rawText: f.raw } : storedFailure;
       assert.equal(failure.rawText, f.raw);
       f.succeed();
       const retry = f.retryDictationCleanup(failure.rawText, { processText: failure.retryCleanup });

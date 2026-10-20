@@ -106,3 +106,12 @@ test("a deep link moves an already-open modal and an empty path clears stale sub
   assert.equal(h.modal().activeSection, "general");
   assert.equal(h.page().initialSubTab, undefined);
 });
+
+test("a legacy initial destination waits intact for its first opening", async (t) => {
+  let props = { open: false, onOpenChange() {}, initialSection: "stt/noteRecording" };
+  const h = await mount(t, () => props);
+  props = { ...props, open: true };
+  await h.render();
+  assert.equal(h.modal().activeSection, "speechToText");
+  assert.equal(h.page().initialSubTab, "noteRecording");
+});

@@ -4305,5 +4305,436 @@
       "transcribe": "转写录音",
       "discard": "丢弃录音"
     }
+  },
+  "setupFlow": {
+    "progress": {
+      "nav": "设置进度",
+      "dictate": "开始听写",
+      "personalize": "按你的习惯设置",
+      "ready": "准备就绪",
+      "label": "{{phase}} · {{step}}",
+      "goTo": "前往{{step}}"
+    },
+    "steps": {
+      "welcome": "你好",
+      "speech": "语音",
+      "try": "说点什么",
+      "cleanup": "文本整理",
+      "shortcuts": "快捷键",
+      "finish": "准备就绪"
+    },
+    "units": {
+      "mb": "{{value}} MB",
+      "gb": "{{value}} GB"
+    },
+    "download": {
+      "eta": {
+        "seconds": "约{{count}}秒",
+        "minutes": "约{{count}}分钟"
+      },
+      "chip": "正在下载 {{percent}}% · 还需{{eta}}",
+      "chipNoEta": "正在下载 {{percent}}%",
+      "chipInstalling": "正在安装语音模型",
+      "chipCancelling": "正在停止下载…",
+      "chipCancelled": "下载已取消",
+      "chipReady": "语音模型已就绪",
+      "chipFailed": "下载失败",
+      "received": "{{done}}，共{{total}}",
+      "stoppedKept": "下载在 {{percent}}% 处停止。下载进度已保留。",
+      "stoppedRestart": "下载在 {{percent}}% 处停止。重试会从头开始。",
+      "cancelledLine": "你取消了下载。下载内容未保留。",
+      "downloadAgain": "重新下载",
+      "retry": "重试",
+      "cancel": "取消",
+      "readyTitle": "语音模型已就绪",
+      "failedTitle": "语音模型未能下载",
+      "announcePercent": "语音模型下载已完成百分之{{percent}}。",
+      "announceReady": "语音模型已就绪",
+      "checking": "正在检查语音模型…",
+      "voiceModel": "语音模型",
+      "stoppedUnknown": "已在 {{percent}}% 处停止。无法检查保留的下载数据大小。",
+      "cleanupFailed": "下载已停止，但部分下载文件无法删除。"
+    },
+    "brand": "Loqui 设置",
+    "back": "返回",
+    "skipStep": "跳过此步骤",
+    "continue": "继续",
+    "finishLater": "稍后完成",
+    "lookAroundFirst": "先看看",
+    "instrument": {
+      "idle": "随时可以开始",
+      "downloading": "正在下载 · {{percent}}% · {{done}}，共{{total}}",
+      "goodLevel": "正在聆听 · 音量合适",
+      "waiting": "正在聆听 · 等待你说话",
+      "processing": "正在转成文字…",
+      "heard": "听到你了",
+      "downloadError": "下载已停止",
+      "micError": "Loqui 听不到麦克风的声音",
+      "nothingHeard": "没有听到声音。请检查麦克风。",
+      "error": "没有成功。请重试。"
+    },
+    "rail": {
+      "welcome": {
+        "title": "你说话，Loqui 打字。",
+        "bodyMac": "随处听写，将笔记和会议集中在一处，并自主决定哪些内容可以离开你的 Mac。",
+        "bodyOther": "随处听写，将笔记和会议集中在一处，并自主决定哪些内容可以离开你的电脑。"
+      },
+      "speech": {
+        "title": "选择 Loqui 如何聆听。",
+        "bodyMac": "为你推荐一款语音模型。它在这台 Mac 上运行，离线也能使用。",
+        "bodyOther": "为你推荐一款语音模型。它在这台电脑上运行，离线也能使用。"
+      },
+      "try": {
+        "title": "说点什么",
+        "bodyMac": "这次测试的内容不会粘贴到其他应用，也不会保存到历史记录。",
+        "bodyOther": "这次测试的内容不会粘贴到其他应用，也不会保存到历史记录。"
+      },
+      "cleanup": {
+        "title": "让文字更易读。",
+        "bodyMac": "看看文本整理如何调整你说的话，再做选择。",
+        "bodyOther": "看看文本整理如何调整你说的话，再做选择。"
+      },
+      "shortcuts": {
+        "title": "在任何应用中说话。",
+        "bodyMac": "随时按下快捷键即可使用。如果与其他应用冲突，可以更改。",
+        "bodyOther": "随时按下快捷键即可使用。如果与其他应用冲突，可以更改。"
+      },
+      "finish": {
+        "title": "这是你目前的设置情况。",
+        "bodyMac": "以下内容均反映当前的实际状态。",
+        "bodyOther": "以下内容均反映当前的实际状态。"
+      }
+    },
+    "hello": {
+      "start": "开始使用",
+      "micTitle": "让 Loqui 听到你",
+      "micBody": "Loqui 只会在听写时聆听。此页面不会录音。",
+      "allowMic": "允许使用麦克风",
+      "micReady": "{{device}} 正在聆听",
+      "micReadyGeneric": "你的麦克风正在聆听",
+      "micLabel": "麦克风",
+      "systemDefault": "系统默认",
+      "builtIn": "内置麦克风",
+      "unnamedMic": "未命名的麦克风",
+      "notHearing": "听不到你？请选择另一个麦克风。",
+      "savedMicMissing": "你保存的麦克风未连接，Loqui 正在使用系统默认麦克风。",
+      "deniedTitle": "Loqui 无法使用你的麦克风",
+      "deniedBodyMac": "请在系统设置中允许访问，然后返回。返回后 Loqui 会再次检查。",
+      "deniedBodyOther": "请在系统的隐私或声音设置中允许访问，然后返回。返回后 Loqui 会再次检查。",
+      "openSettings": "打开系统设置",
+      "recheck": "我已开启权限",
+      "unavailableTitle": "Loqui 无法打开你的麦克风",
+      "unavailableBody": "可能有其他应用正在使用麦克风，或未连接输入设备。",
+      "retryOpen": "再试一次",
+      "openSound": "打开声音设置",
+      "starting": "正在打开麦克风…"
+    },
+    "privacy": {
+      "title": "隐私默认设置",
+      "historyTitle": "保留本地历史记录",
+      "historyBodyMac": "将转写文本保存在这台 Mac 上。可随时在“隐私与数据”中更改。",
+      "historyBodyOther": "将转写文本保存在这台电脑上。可随时在“隐私与数据”中更改。",
+      "updatesTitle": "自动下载更新",
+      "updatesBody": "每天检查已签名的版本。由你决定何时重启。"
+    },
+    "voice": {
+      "checkingMac": "正在检查这台 Mac…",
+      "checkingOther": "正在检查这台电脑…",
+      "title": "我们为你选好了语音模型。",
+      "unsupportedTitle": "选择最适合你的语音模型。",
+      "why": {
+        "englishMac": "因为你的 Mac 设置为英语，我们选择了英语。",
+        "englishOther": "因为你的电脑设置为英语，我们选择了英语。",
+        "languageMac": "因为你的 Mac 设置为{{language}}，我们选择了{{voice}}。",
+        "languageOther": "因为你的电脑设置为{{language}}，我们选择了{{voice}}。",
+        "multilingualMac": "因为你的 Mac 使用{{languages}}，我们选择了{{voice}}。",
+        "multilingualOther": "因为你的电脑使用{{languages}}，我们选择了{{voice}}。",
+        "unsupported": "Loqui 的本地语音模型还无法识别{{language}}。请选择最接近的模型，或稍后在设置中添加云端语音模型。"
+      },
+      "noticed": "检测到的信息",
+      "signals": {
+        "systemLanguage": "系统语言",
+        "memory": "内存",
+        "freeSpace": "可用空间",
+        "graphics": "显卡"
+      },
+      "gpu": {
+        "appleSilicon": "Apple 芯片",
+        "nvidia": "NVIDIA 显卡",
+        "unknown": "未检测到"
+      },
+      "unknown": "未知",
+      "diskShort": "此语音模型安装时需要约 {{needed}} 可用空间。当前可用 {{free}}。",
+      "recommended": "为你推荐",
+      "installed": "已安装在此设备上",
+      "notRight": "不合适？自己选择",
+      "pickerLabel": "语音模型",
+      "lockedWhileDownloading": "请先取消下载，再选择其他语音模型。",
+      "languageLocked": "请先取消下载，再更改语言。",
+      "cantHear": "无法识别{{language}}",
+      "blocked": {
+        "mismatch": "此语音模型无法识别{{language}}。请在下方选择其他模型。",
+        "none": "目前还没有本地语音模型能够识别{{language}}。请选择支持的语言，或稍后在设置中添加云端语音模型。"
+      },
+      "download": "下载（{{size}}）",
+      "outcomes": {
+        "fastEnglish": {
+          "name": "快速识别英语",
+          "description": "快速、准确地识别英语。停止说话约一秒后即可看到文字。"
+        },
+        "manyLanguages": {
+          "name": "支持多种语言",
+          "description": "可识别并自动检测 25 种语言，方便你在一天中切换语言。"
+        },
+        "liveCaptions": {
+          "name": "实时字幕",
+          "description": "边说边显示文字。适合会议和长时间听写。"
+        },
+        "liveMultilingual": {
+          "name": "实时识别，支持更多语言",
+          "description": "支持日语、阿拉伯语和印地语等 15 种语言，边说边显示文字。"
+        }
+      },
+      "commitToTry": "请先选择并应用本地语音模型，再尝试听写。"
+    },
+    "tour": {
+      "label": "等待下载时",
+      "title": "等待下载时，认识一下 Loqui。",
+      "skip": "跳过介绍",
+      "skipped": "语音模型准备好后，我们就会开始测试。",
+      "noVoice": "请先选择语音模型。它会在此设备上运行。",
+      "chooseVoice": "选择语音模型",
+      "slideOf": "第{{current}}项，共{{total}}项",
+      "previous": "上一条提示",
+      "next": "下一条提示",
+      "tip": "提示{{number}}",
+      "shortcut": {
+        "title": "使用快捷键",
+        "tap": "按下{{key}}开始说话，再按一次结束。",
+        "push": "按住{{key}}说话，松开结束。"
+      },
+      "privacy": {
+        "title": "你的话会去哪里",
+        "bodyMac": "除非你选择服务提供商，否则不会有任何内容离开这台 Mac。",
+        "bodyOther": "除非你选择服务提供商，否则不会有任何内容离开这台电脑。",
+        "nodes": {
+          "mic": "麦克风",
+          "loqui": "Loqui",
+          "model": "语音模型",
+          "notes": "笔记"
+        }
+      },
+      "demo": {
+        "title": "说话即可得到文字",
+        "body": "文本整理可以去掉语气词、调整标点。你可以在下一步选择。",
+        "raw": "嗯提醒我午饭前把草稿发出去",
+        "final": "提醒我午饭前把草稿发出去。"
+      },
+      "readyTitle": "准备好了。说点什么吧。",
+      "readyBody": "你的语音模型在此设备上。",
+      "carouselRole": "轮播",
+      "slideRole": "幻灯片"
+    },
+    "cleanupAuthority": {
+      "unavailable": "原来的文本整理已不可用。原始文字已保留。",
+      "changed": "文本整理的目标或凭据已更改。原始文字已保留。",
+      "unsupported": "无法为文本整理保留所选的 {{provider}} 身份验证来源。原始文字已保留。",
+      "failed": "文本整理失败。原始文字已保留。",
+      "busy": "文本整理已在运行。"
+    },
+    "try": {
+      "idle": {
+        "tap": "按下{{key}}，说点什么。再按一次结束。",
+        "push": "按住{{key}}，说点什么。松开结束。"
+      },
+      "keycap": {
+        "tap": "按下说话",
+        "push": "按住说话"
+      },
+      "listening": "正在聆听",
+      "processing": "正在转成文字…",
+      "shortcutWorks": "快捷键正常",
+      "heardYou": "Loqui 听到你了",
+      "discarded": "已丢弃。",
+      "undo": "撤销",
+      "silent": "没有听到声音。是不是选错了麦克风？",
+      "noAudioTitle": "没有听到声音",
+      "noAudioBody": "请检查是否选中了正确的麦克风，并确认未静音，然后重试。",
+      "memoryTitle": "此语音模型需要的内存超过当前可用内存",
+      "memoryBody": "请关闭一些应用，或选择较小的语音模型。",
+      "chooseSmaller": "选择其他语音模型",
+      "changeMic": "更换麦克风",
+      "otherTitle": "这次录音没有成功",
+      "otherBody": "请重试。你的设置没有改变。",
+      "again": "再试一次",
+      "cleanupFailed": "文本整理未运行。这是你的原始文本。",
+      "retryFailed": "文本整理仍未运行。这是你的原始文本。",
+      "retryCleanup": "重试文本整理",
+      "cleanupOff": "关闭文本整理",
+      "wordsSafe": "无论哪种情况，你的文字都会保留。",
+      "accessibilityTitle": "快捷键需要辅助功能权限",
+      "accessibilityBody": "获得你的许可后，macOS 才会允许 Loqui 检测全局快捷键。在 Loqui 内听写无需此权限。",
+      "grantAccess": "授予权限",
+      "useButton": "改用按钮",
+      "start": "开始录音",
+      "stop": "停止",
+      "privacyLine": "不会粘贴到任何地方，也不会保存。",
+      "bandTitle": "这是你的声音。Loqui 已在你的设备上识别。",
+      "makeItYours": "按你的习惯设置",
+      "startUsing": "开始使用 Loqui",
+      "cancel": "丢弃本次录音",
+      "cleanupUnsupported": "无法为文本整理保留此身份验证来源。原始文字已保留。",
+      "controlUnavailable": "录音控制未响应。请再次尝试停止或丢弃。"
+    },
+    "cleanup": {
+      "title": "看看文本整理的效果",
+      "label": "文本整理",
+      "options": {
+        "none": "不整理",
+        "local": "设备本地",
+        "codex": "ChatGPT",
+        "provider": "API 密钥"
+      },
+      "original": "原始文本",
+      "withCleanup": "整理后",
+      "nothingChanges": "没有变化",
+      "running": "正在整理你的句子…",
+      "wordsSent_other": "将向 {{provider}} 发送 {{count}} 个词",
+      "sentNotice_other": "本次预览已将你的 {{count}} 个词发送至 {{provider}}",
+      "tryMine_other": "用我的句子试试 · 向 {{provider}} 发送 {{count}} 个词",
+      "exampleNotice": "示例文本。未发送任何内容。",
+      "localExampleNotice": "示例文本。此设备上的本地文本整理准备好后，这里会显示你自己的句子。",
+      "example": {
+        "original": "嗯我们午饭前把草稿发给玛雅吧然后那个提醒我预订周四的会议室",
+        "local": "我们午饭前把草稿发给玛雅吧，然后提醒我预订周四的会议室。",
+        "codex": "我们午饭前把草稿发给玛雅吧。提醒我预订周四的会议室。",
+        "provider": "我们在午饭前给玛雅发送草稿吧，再提醒我预订周四的会议室。"
+      },
+      "listModels": "获取 ChatGPT 模型列表",
+      "modelListFailed": "无法获取 ChatGPT 模型列表，请重试。",
+      "now": {
+        "off": "文本整理已关闭。你的话会原样保留。",
+        "checking": "正在检查文本整理是否可用…",
+        "ready": "已启用文本整理，使用 {{name}}。",
+        "readyNetwork": "已启用文本整理，使用 {{provider}} 上的 {{name}}。",
+        "needsKey": "在设置中添加你的 {{provider}} 密钥即可启用文本整理。在此之前，你的话会原样保留。",
+        "needsConnection": "在上方连接 ChatGPT 即可启用文本整理。在此之前，你的话会原样保留。",
+        "needsModel": "此设备上还没有本地文本整理模型。请在“设置 → 语言模型”中下载（1.3 GB）。",
+        "unreachable": "Loqui 目前无法连接 {{provider}}。你的话会原样保留。",
+        "modelSetup": "已连接 ChatGPT。请获取模型列表，选择用于文本润色的模型。",
+        "review": "请查看此更改，然后选择“应用”。"
+      },
+      "reuse": "其他文本功能也使用此选择",
+      "exampleInProgress": "请求运行期间显示示例文本。只有文本整理成功后，才会显示你的结果。",
+      "attemptNotice_other": "你已允许向 {{provider}} 发送 {{count}} 个词。本次尝试失败，但内容可能已经送达。你的原始文字没有改变。",
+      "previousAttemptNotice_other": "你此前允许向 {{provider}} 发送 {{count}} 个词。更改此预览不会撤回那次请求。原始文字已保留。"
+    },
+    "shortcut": {
+      "title": "试试你的快捷键。",
+      "testerLabel": "快捷键测试。请按{{key}}。",
+      "hint": "请按{{key}}。轻按可开始或停止；长按时，只在按住期间录音。",
+      "fills": "你好，可以用了。",
+      "works": "快捷键正常",
+      "detected": {
+        "tap": "已检测到轻按开始和停止",
+        "hold": "已检测到按住说话"
+      },
+      "suggest": {
+        "push": "你按住了按键。要切换为按住说话吗？",
+        "tap": "你轻按了按键。要切换为轻按开始和停止吗？"
+      },
+      "switch": "切换",
+      "change": "更改快捷键",
+      "changeHelp": "在任何应用中按此快捷键即可说话。如果与其他应用冲突，请更改。",
+      "autoPaste": "自动粘贴",
+      "autoPasteBodyMac": "将文字粘贴到光标所在位置。macOS需要辅助功能权限。",
+      "autoPasteBodyOther": "将文字粘贴到光标所在位置。",
+      "accessibilityBody": "只有获得你的许可后，macOS才允许Loqui检测快捷键和粘贴。你可以现在授权，也可以稍后在设置中授权。"
+    },
+    "ready": {
+      "titleProven": "你已开始听写。",
+      "titleConfigured": "设置完成。试一次来确认吧。",
+      "titlePending_one": "快好了：还剩{{count}}项。",
+      "titlePending_other": "快好了：还剩{{count}}项。",
+      "subAllLocalMac": "首次听写成功。所有处理都在这台 Mac 上运行。",
+      "subAllLocalOther": "首次听写成功。所有处理都在这台电脑上运行。",
+      "subProven": "首次听写成功。",
+      "subConfigured": "试着听写一次，确认此设置可用。",
+      "subPending": "完成这些项目即可。每项都会打开对应的设置位置。",
+      "rows": {
+        "speech": "语音",
+        "microphone": "麦克风",
+        "shortcut": "快捷键",
+        "cleanup": "文本整理"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}，已识别首次听写",
+          "checking": "正在检查…",
+          "configured": "{{voice}}，尚未试用",
+          "downloading": "仍在下载",
+          "needsModel": "下载语音模型",
+          "unavailable": "在设置中完成配置"
+        },
+        "microphone": {
+          "heard": "工作正常",
+          "allowed": "已允许，尚未检测到语音",
+          "denied": "在系统设置中允许",
+          "untested": "说点什么来测试"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}，按下开始或停止",
+            "push": "{{key}}，按住说话"
+          },
+          "configured": {
+            "tap": "{{key}}，尚未试用",
+            "push": "{{key}}，尚未试用"
+          },
+          "needsAccessibility": "授予辅助功能权限",
+          "checkAccessibility": "检查辅助功能权限"
+        },
+        "cleanup": {
+          "off": "已关闭。可稍后添加",
+          "checking": "仍在检查",
+          "needsConnection": "连接 ChatGPT",
+          "needsKey": "在设置中添加 {{provider}} 密钥",
+          "needsModel": "在设置中下载本地模型",
+          "unreachable": "无法连接 {{provider}}",
+          "configured": "已配置 {{name}}",
+          "configuredNetwork": "已在 {{provider}} 配置 {{name}}",
+          "modelSetup": "获取用于文本润色的 ChatGPT 模型列表",
+          "review": "请查看此更改，然后选择“应用”。"
+        }
+      },
+      "dictateNote": "向笔记听写",
+      "openWorkspace": "打开工作区",
+      "noteLocal": "笔记在此设备上转写。",
+      "noteSends": "笔记会将音频发送至 {{provider}}。",
+      "noteChecking": "正在检查笔记的转写方式…",
+      "noteBlocked": {
+        "microphone": "笔记需要使用麦克风。",
+        "unsupported": "笔记录音配置了尚不支持的服务，例如自托管服务器。",
+        "sealed": "密封模式已开启，笔记录音无法连接 {{provider}}。",
+        "needsModel": "笔记录音需要此设备上的语音模型。",
+        "needsKey": "笔记录音需要你的 {{provider}} 密钥。",
+        "needsUrl": "笔记录音需要服务器地址。",
+        "unreachable": "Loqui 无法连接 {{provider}} 进行笔记录音。"
+      },
+      "fixNote": "修复此项",
+      "noteNetwork": "笔记已设为向 {{provider}} 发送音频。"
+    },
+    "resume": {
+      "title": "完成设置",
+      "body": "工作区已就绪。你可以随时从上次的位置继续设置。",
+      "items": {
+        "finishDictating": "试试第一次听写",
+        "cleanup": "选择文本整理方式",
+        "shortcut": "试试快捷键"
+      },
+      "resume": "继续设置",
+      "dismiss": "关闭设置清单",
+      "label": "设置清单"
+    }
   }
 }

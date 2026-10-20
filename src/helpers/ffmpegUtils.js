@@ -462,9 +462,114 @@ function splitAudioFile(inputPath, outputDir, options = {}) {
   });
 }
 
-async function mergeAudioSegments(segments) {
+// Private conversion has no pathname input/output or temporary directory.
+// Decode one independent container per pipe, then join PCM in original order;
+// concatenating WebM bytes would lose headers/segments on some decoders.
+async function decodePrivatePcm(audioBuffer, { signal } = {}) {
+  if (signal?.aborted) throw createAbortError("Audio conversion cancelled");
+  const binary = getFFmpegPath();
+  if (!binary) throw new Error("FFmpeg not found - required for private audio conversion");
+  return new Promise((resolve, reject) => {
+    const proc = spawn(
+      binary,
+      [
+        "-nostdin",
+        "-i",
+        "pipe:0",
+        "-vn",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        "-f",
+        "s16le",
+        "pipe:1",
+      ],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      }
+    );
+    const chunks = [];
+    let size = 0,
+      failure = null;
+    const stop = (error) => {
+      failure ??= error;
+      proc.kill();
+    };
+    const abort = () => stop(createAbortError("Audio conversion cancelled"));
+    const timeout = setTimeout(() => stop(new Error("Private audio conversion timed out")), 120000);
+    timeout.unref?.();
+    const cleanup = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    proc.stdout.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > 256 * 1024 * 1024)
+        return stop(new Error("Private audio conversion exceeds memory limit"));
+      chunks.push(Buffer.from(chunk));
+    });
+    proc.stderr.resume();
+    proc.stdin.on("error", (error) => stop(error));
+    proc.on("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    proc.on("close", (code) => {
+      cleanup();
+      if (failure || signal?.aborted || code !== 0 || size === 0 || size % 2)
+        return reject(
+          failure ||
+            (signal?.aborted
+              ? createAbortError("Audio conversion cancelled")
+              : new Error("Private audio conversion failed"))
+        );
+      resolve(Buffer.concat(chunks));
+    });
+    if (signal?.aborted) abort();
+    else proc.stdin.end(Buffer.from(audioBuffer));
+  });
+}
+
+function pcm16Wav(pcm) {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(16000, 24);
+  header.writeUInt32LE(32000, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+async function convertPrivateBufferToWav(audioBuffer, options = {}) {
+  return pcm16Wav(await decodePrivatePcm(audioBuffer, options));
+}
+
+async function mergeAudioSegments(segments, options = {}) {
   if (!Array.isArray(segments) || segments.length === 0) {
     throw new Error("At least one audio segment is required");
+  }
+  if (options.private === true) {
+    const pcm = [];
+    let total = 0;
+    for (const segment of segments) {
+      const decoded = await decodePrivatePcm(segment.buffer, options);
+      total += decoded.length;
+      if (total > 256 * 1024 * 1024) throw new Error("Private audio merge exceeds memory limit");
+      pcm.push(decoded);
+    }
+    return pcm16Wav(Buffer.concat(pcm));
   }
   if (segments.length === 1) return Buffer.from(segments[0].buffer);
 
@@ -546,6 +651,7 @@ module.exports = {
   isPcm16Mono16kWav,
   convertToWav,
   convertBufferToWav,
+  convertPrivateBufferToWav,
   convertToMp3,
   parseFfmpegDuration,
   wavToFloat32Samples,

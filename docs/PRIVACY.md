@@ -19,6 +19,8 @@ When you cancel a dictation, Loqui keeps that recording in memory for 5 seconds 
 
 The SQLite database, recordings, and exports are not encrypted by Loqui. Protect the computer, OS account, and backups accordingly. Logs, screenshots, exports, and diagnostics may contain private content; review and redact them before sharing in a public issue.
 
+- Setup reads your system languages, total memory, free disk space and graphics hardware to recommend a voice model. These values are read on your device, shown to you on the Voice step, and are not stored or sent anywhere.
+
 ## Storage and credentials
 
 Product identity is defined in [`src/config/product.json`](../src/config/product.json).

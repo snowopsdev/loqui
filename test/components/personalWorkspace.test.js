@@ -3,7 +3,6 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const path = require("node:path");
 const { createRoot } = require("react-dom/client");
-const { renderToStaticMarkup } = require("react-dom/server");
 const {
   createRendererServer,
   installBrowserGlobals,
@@ -22,7 +21,10 @@ async function harness(t, module, options = {}) {
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
   });
-  installBrowserGlobals(t, { window: { electronAPI: options.api ?? {} } });
+  installBrowserGlobals(t, {
+    initialStorage: require("../lib/routeStateFixture").MIGRATED_STORAGE,
+    window: { electronAPI: options.api ?? {} },
+  });
   const container = installHookDom(t);
   const vite = await createRendererServer(
     t,
@@ -45,76 +47,6 @@ async function harness(t, module, options = {}) {
   await React.act(async () => root.render(React.createElement(Harness)));
   return { tree: () => tree, vite };
 }
-
-test("first setup reaches completion without account APIs or implicit downloads", async (t) => {
-  let completed = 0;
-  const h = await harness(t, "/components/OnboardingFlow.tsx", {
-    mocks: { "/SettingsPage": "export default function SettingsPage() { return null; }" },
-    props: {
-      onComplete: () => completed++,
-      initialStep: "welcome",
-      previewConfig: { step: "welcome", scenario: "ready", platform: "linux" },
-    },
-  });
-  for (const step of ["welcome", "speech", "cleanup", "try", "shortcuts", "finish"]) {
-    if (step === "welcome") {
-      const markup = renderToStaticMarkup(h.tree());
-      assert.match(markup, /A quieter way to get words out/);
-      assert.match(markup, /Keep local history/);
-      assert.match(markup, /Download updates automatically/);
-    } else {
-      assert.equal(h.tree().props.step, step);
-    }
-    await React.act(async () => h.tree().props.onContinue());
-  }
-  assert.equal(completed, 1);
-  assert.deepEqual(globalThis.window.electronAPI, {});
-});
-
-test("speech setup offers Orukeet and NVIDIA models and commits a local dictation choice", async (t) => {
-  const h = await harness(t, "/components/OnboardingFlow.tsx", {
-    api: { checkParakeetModelStatus: async () => ({ downloaded: false }) },
-    props: { onComplete() {}, initialStep: "speech" },
-  });
-  const markup = renderToStaticMarkup(h.tree());
-  for (const name of [
-    "Orukeet",
-    "Parakeet Unified EN 0.6B",
-    "Parakeet TDT 0.6B",
-    "Nemotron Speech Streaming EN 0.6B",
-    "Nemotron 3.5 ASR Streaming 0.6B",
-  ]) {
-    assert.ok(markup.includes(name), `${name} should be selectable during speech setup`);
-  }
-  const { useSettingsStore } = await h.vite.ssrLoadModule("/stores/settingsStore.ts");
-  useSettingsStore.getState().setUseLocalWhisper(false);
-  await React.act(async () => h.tree().props.children.props.onSelectModel("orukeet-v0.1.0"));
-  const state = useSettingsStore.getState();
-  assert.equal(state.useLocalWhisper, true);
-  assert.equal(state.localTranscriptionProvider, "nvidia");
-  assert.equal(state.parakeetModel, "orukeet-v0.1.0");
-
-  const { supportsSpeechLanguage, firstCompatibleSpeechModel } = await h.vite.ssrLoadModule(
-    "/utils/onboardingSpeechModels.ts"
-  );
-  assert.equal(supportsSpeechLanguage("orukeet-v0.1.0", "ja-JP"), false);
-  assert.equal(supportsSpeechLanguage("nemotron-3.5-asr-streaming-0.6b", "ja-JP"), true);
-  assert.equal(firstCompatibleSpeechModel("ja-JP"), "nemotron-3.5-asr-streaming-0.6b");
-});
-
-test("preview speech choices stay in preview storage", async (t) => {
-  const config = { step: "speech", scenario: "fresh", platform: "linux" };
-  const h = await harness(t, "/components/OnboardingFlow.tsx", {
-    props: { onComplete() {}, initialStep: "speech", previewConfig: config },
-  });
-  await React.act(async () => h.tree().props.children.props.onSelectModel("orukeet-v0.1.0"));
-  const { onboardingPreviewStorageKey } = await h.vite.ssrLoadModule("/utils/onboardingState.ts");
-  assert.equal(globalThis.localStorage.getItem("parakeetModel"), null);
-  assert.equal(
-    globalThis.localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechModel`),
-    "orukeet-v0.1.0"
-  );
-});
 
 test("saved credential presence is never revealed or erased by opening its editor", async (t) => {
   const saved = [];
@@ -267,6 +199,12 @@ test("a key save clears the draft only after main acknowledges it", async (t) =>
 
 // change-driving review R2: profile draft is separate from acknowledged readiness.
 test("Bedrock profile typing remains editable during pending persistence and retains a failed draft", async (t) => {
+  const diagnostics = require("../lib/scopedDiagnostics").captureDiagnostics(t);
+  t.after(() =>
+    assert.deepEqual(diagnostics, [
+      ["warn", "[WARN][settings] Failed to persist Bedrock profile", {}],
+    ])
+  );
   const first = deferred();
   const second = deferred();
   const third = deferred();

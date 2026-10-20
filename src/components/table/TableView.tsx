@@ -10,7 +10,13 @@ import { TableCanvas } from "./TableCanvas";
 import { TableInbox } from "./TableInbox";
 import { TableSelectionBar } from "./TableSelectionBar";
 import { fitViewport, screenToWorld, snapToGrid, zoomAt, type Point } from "./tableGeometry";
-import { buildGroupedNote, parseRefKey, placementsFor } from "./tableModel";
+import {
+  buildGroupedNote,
+  parseRefKey,
+  placementsFor,
+  type CardSize,
+  type TableSizing,
+} from "./tableModel";
 import { useTableBoard } from "./useTableBoard";
 import { useTableChat } from "./useTableChat";
 import { TableDictationDetail } from "./TableDictationDetail";
@@ -155,6 +161,22 @@ export default function TableView({
       void place(placementsFor(stateRef.current, Object.keys(positions), positions)),
     [place]
   );
+  const onResizeCard = useCallback(
+    (key: string, size: CardSize, commit: boolean) => {
+      dispatch({ type: "resized", key, size });
+      if (commit) {
+        const current = stateRef.current;
+        void place(placementsFor({ ...current, sizes: { ...current.sizes, [key]: size } }, [key]));
+      }
+    },
+    [dispatch, place]
+  );
+  const onResizeCancel = useCallback(
+    (key: string, sizing: TableSizing) => {
+      dispatch({ type: "sizeRestored", key, sizing });
+    },
+    [dispatch]
+  );
   const onClickCard = useCallback(
     (key: string, additive: boolean) => dispatch({ type: "clickCard", key, additive }),
     [dispatch]
@@ -293,6 +315,9 @@ export default function TableView({
           onMeasure={onMeasure}
           onDropRef={placeFromInbox}
           onResize={onResize}
+          onResizeCard={onResizeCard}
+          onResizeCancel={onResizeCancel}
+          gestureScope={space.id}
         />
         {expanded !== null && (
           <TableDictationDetail key={expanded} id={expanded} onClose={() => setExpanded(null)} />

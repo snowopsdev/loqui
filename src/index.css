@@ -2840,3 +2840,23 @@ a.markdown-link:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Physical world-space corner; chrome alone follows text direction. The card
+   stays unmasked so its focus outline and the resize target remain opaque. */
+.table-card__resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border-right: 2px solid var(--color-table-card-border);
+  border-bottom: 2px solid var(--color-table-card-border);
+  border-bottom-right-radius: 4px;
+  cursor: nwse-resize;
+  opacity: 0;
+}
+.table-card:hover .table-card__resize,
+.table-card:focus-visible .table-card__resize,
+.table-card[aria-selected="true"] .table-card__resize {
+  opacity: 1;
+}

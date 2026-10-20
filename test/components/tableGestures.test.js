@@ -197,3 +197,57 @@ test("keyboard: arrows move focus, shift-arrows nudge 8px, and the rest map to a
     { type: "enterCards" }
   );
 });
+
+test("resize uses world units, threshold, clamps, final point and numeric preview rollback", async () => {
+  const { press, move, release, cancel, clampSize } = await load();
+  const g = press({
+    ...base,
+    point: { x: 0, y: 0 },
+    cardKey: "note:1",
+    resizeKey: "note:1",
+    sizes: { "note:1": { w: 280, h: 150 } },
+  });
+  assert.equal(g.kind, "resize");
+  assert.equal(move(g, { x: 2, y: 1 }).effect, null);
+  assert.equal(release(g, { x: 2, y: 1 }), null);
+  const r = move(g, { x: 41, y: -400 });
+  assert.deepEqual(r.effect, { type: "size", key: "note:1", size: { w: 300.5, h: 80 } });
+  assert.deepEqual(release(g, { x: 41, y: -400 }), {
+    type: "resized",
+    key: "note:1",
+    size: { w: 304, h: 80 },
+  });
+  assert.deepEqual(release(r.gesture, { x: 72, y: 116 }), {
+    type: "resized",
+    key: "note:1",
+    size: { w: 320, h: 208 },
+  });
+  assert.deepEqual(cancel(r.gesture), { type: "size", key: "note:1", size: { w: 280, h: 150 } });
+  assert.deepEqual(clampSize({ w: 9999, h: -1 }), { w: 640, h: 80 });
+  assert.deepEqual(move(g, { x: 9999, y: 9999 }).effect.size, { w: 640, h: 600 });
+  assert.equal(
+    press({
+      ...base,
+      point: { x: 0, y: 0 },
+      cardKey: "note:1",
+      resizeKey: "note:1",
+      sizes: { "note:1": { w: 280, h: 150 } },
+      spaceHeld: true,
+    }).kind,
+    "pan"
+  );
+});
+test("Alt arrows resize only the focused card in physical grid steps", async () => {
+  const { keyAction } = await load();
+  for (const [key, dw, dh] of [
+    ["ArrowRight", 8, 0],
+    ["ArrowLeft", -8, 0],
+    ["ArrowUp", 0, -8],
+    ["ArrowDown", 0, 8],
+  ]) {
+    const e = { key, shiftKey: false, metaKey: false, ctrlKey: false, altKey: true };
+    assert.deepEqual(keyAction(e, true), { type: "resize", dw, dh });
+    assert.equal(keyAction(e, false), null);
+    assert.equal(keyAction({ ...e, ctrlKey: true }, true), null);
+  }
+});

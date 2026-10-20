@@ -130,7 +130,13 @@ async function setup(t, { api = {}, creation, write, stream, board, spaceId = 3 
     Object.defineProperty(n, "dataset", {
       get: () => ({ cardKey: n.attributes["data-card-key"] }),
     });
-    n.closest = () => (n.attributes["data-card-key"] ? n : null);
+    n.closest = (selector) => {
+      const match =
+        selector === "[data-card-key]"
+          ? n.attributes["data-card-key"] != null
+          : selector === "[data-resize-handle]" && n.attributes["data-resize-handle"] != null;
+      return match ? n : (n.parentNode?.closest?.(selector) ?? null);
+    };
     return n;
   };
   globalThis.window.matchMedia = () => ({ matches: false });
@@ -716,4 +722,224 @@ test("blocked selection actions retain the actual readiness explanation on the T
   );
   assert.match(bar.textContent, /needsKey/);
   assert.equal(c.tree.props(c.button("table.selection.summarise")).disabled, true);
+});
+
+for (const prior of ["natural", "explicit", "widthOnly"])
+  test(`Task9 actual consumer + SQLite: ${prior} resize cancel detail nudge and reopen, then keyboard/pointer size persists`, async (t) => {
+    const db = createDb(t);
+    assert.ok(db);
+    const spaceId = db.getPrivateSpaceId();
+    const full =
+      "Minutes from the planning discussion. ".repeat(40) +
+      "FINAL ACTION: publish the accessibility checklist on Friday.";
+    const id = db.saveTranscription(full, full).id;
+    const key = `dictation:${id}`;
+    const original =
+      prior === "explicit"
+        ? { w: 304, h: 184 }
+        : prior === "widthOnly"
+          ? { w: 304, h: null }
+          : { w: null, h: null };
+    db.placeTableCards(spaceId, [{ type: "dictation", id, x: 32, y: 32, ...original }]);
+    const writes = [],
+      detailReads = [];
+    const c = await setup(t, {
+      spaceId,
+      api: {
+        getTableBoard: async (s) => db.getTableBoard(s),
+        placeTableCards: async (s, p) => {
+          writes.push(structuredClone(p));
+          return db.placeTableCards(s, p);
+        },
+        getTranscriptionById: async (id) => {
+          detailReads.push(id);
+          return db.getTranscriptionById(id);
+        },
+      },
+    });
+    const frames = new Map();
+    let frameId = 0;
+    globalThis.requestAnimationFrame = (fn) => {
+      frames.set(++frameId, fn);
+      return frameId;
+    };
+    globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+    const flush = () =>
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        pending.forEach((fn) => fn());
+      });
+    const canvas = () => c.tree.find((n) => n.attributes.role === "listbox");
+    const card = () => c.tree.find((n) => n.attributes["data-card-key"] === key);
+    const handle = () => c.tree.find((n) => n.attributes["data-resize-handle"] != null);
+    const event = (name, target, over = {}) =>
+      act(() => {
+        const handler = c.tree.props(canvas())[name];
+        return handler({
+          target,
+          currentTarget: canvas(),
+          button: 0,
+          pointerId: 1,
+          clientX: 0,
+          clientY: 0,
+          shiftKey: false,
+          altKey: false,
+          ctrlKey: false,
+          metaKey: false,
+          preventDefault() {},
+          ...over,
+        });
+      });
+    const layout = () => db.getTableBoard(spaceId).cards.find((e) => e.ref.id === id).layout;
+    const style = () => c.tree.props(card()).style;
+    await event("onPointerDown", handle());
+    await event("onPointerMove", handle(), { clientX: 80, clientY: -400 });
+    await flush();
+    assert.equal(style().height, 80);
+    await event("onPointerCancel", handle());
+    assert.equal(style().height, original.h ?? undefined);
+    assert.equal(style().overflow, original.h === null ? undefined : "hidden");
+    assert.equal(writes.length, 0);
+    // Full detail remains usable after natural-size rollback; closing never persists dimensions.
+    globalThis.document.activeElement = card();
+    await event("onKeyDown", card(), { key: "Enter" });
+    let detail = c.tree.find((n) => n.attributes.role === "region");
+    assert.equal(globalThis.document.activeElement, detail);
+    assert.match(detail.textContent, /FINAL ACTION: publish the accessibility checklist on Friday/);
+    await act(() => c.tree.props(detail).onKeyDown({ key: "Escape", stopPropagation() {} }));
+    assert.equal(globalThis.document.activeElement, card());
+    assert.equal(writes.length, 0);
+    await event("onKeyDown", card(), { key: "ArrowRight", shiftKey: true });
+    assert.deepEqual([layout().w, layout().h, layout().x], [original.w, original.h, 40]);
+    const reopened = new DatabaseManager();
+    t.after(() => reopened.db.close());
+    assert.deepEqual(reopened.getTableBoard(spaceId), db.getTableBoard(spaceId));
+    // The very same fixed 80px card must expose complete full text through both open paths.
+    const originW = style().width;
+    await event("onPointerDown", handle());
+    await event("onPointerMove", handle(), { clientX: 21, clientY: -400 });
+    await event("onPointerUp", handle(), { clientX: 43, clientY: -400 }); // before queued RAF
+    assert.equal(frames.size, 0);
+    const expectedW = Math.round((originW + 43) / 8) * 8;
+    assert.deepEqual([layout().w, layout().h], [expectedW, 80]);
+    assert.equal(style().height, 80);
+    assert.equal(style().overflow, "hidden");
+    const beforeDetail = writes.length;
+    for (const open of ["Enter", "doubleclick"]) {
+      globalThis.document.activeElement = card();
+      if (open === "Enter") await event("onKeyDown", card(), { key: "Enter" });
+      else {
+        globalThis.document.elementFromPoint = card;
+        await event("onDoubleClick", card(), { clientX: 50, clientY: 50 });
+      }
+      detail = c.tree.find((n) => n.attributes.role === "region");
+      assert.ok(detail);
+      assert.equal(globalThis.document.activeElement, detail);
+      assert.match(
+        detail.textContent,
+        /FINAL ACTION: publish the accessibility checklist on Friday/
+      );
+      if (open === "Enter") await c.click("table.detail.close");
+      else await act(() => c.tree.props(detail).onKeyDown({ key: "Escape", stopPropagation() {} }));
+      assert.equal(globalThis.document.activeElement, card());
+      assert.deepEqual([layout().w, layout().h], [expectedW, 80]);
+    }
+    assert.equal(writes.length, beforeDetail);
+    assert.deepEqual(detailReads, [id, id, id]);
+    await event("onKeyDown", card(), { key: "ArrowDown", altKey: true });
+    assert.deepEqual([layout().w, layout().h], [expectedW, 88]);
+    await event("onKeyDown", card(), { key: "ArrowRight", altKey: true });
+    assert.deepEqual([layout().w, layout().h], [expectedW + 8, 88]);
+    await event("onKeyDown", card(), { key: "ArrowUp", shiftKey: true });
+    assert.deepEqual([layout().w, layout().h], [expectedW + 8, 88]);
+    assert.deepEqual(reopened.getTableBoard(spaceId), db.getTableBoard(spaceId));
+    assert.equal(reopened.getTranscriptionById(id).text, full, "D12 preserves every character");
+    const count = writes.length;
+    await flush();
+    assert.equal(writes.length, count);
+  });
+
+test("Task9 prior override: cancel restores pending size separately from nullable SQLite layout across ACK, nudge and reopen", async (t) => {
+  const db = createDb(t);
+  assert.ok(db);
+  const spaceId = db.getPrivateSpaceId();
+  const full = "Original full content. ".repeat(50) + "Keep the meaningful tail intact.";
+  const id = db.saveTranscription(full, full).id;
+  db.placeTableCards(spaceId, [{ type: "dictation", id, x: 32, y: 32, w: null, h: null }]);
+  const ack = deferred(),
+    writes = [];
+  const c = await setup(t, {
+    spaceId,
+    api: {
+      getTableBoard: async (s) => db.getTableBoard(s),
+      getTranscriptionById: async (id) => db.getTranscriptionById(id),
+      placeTableCards: async (s, p) => {
+        writes.push(structuredClone(p));
+        if (writes.length === 1) await ack.promise;
+        return db.placeTableCards(s, p);
+      },
+    },
+  });
+  const frames = new Map();
+  let frameId = 0;
+  globalThis.requestAnimationFrame = (fn) => {
+    frames.set(++frameId, fn);
+    return frameId;
+  };
+  globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+  const canvas = () => c.tree.find((n) => n.attributes.role === "listbox");
+  const card = () => c.tree.find((n) => n.attributes["data-card-key"] === `dictation:${id}`);
+  const handle = () => c.tree.find((n) => n.attributes["data-resize-handle"] != null);
+  const event = (name, target, over = {}) =>
+    act(() => {
+      const handler = c.tree.props(canvas())[name];
+      return handler({
+        target,
+        currentTarget: canvas(),
+        button: 0,
+        pointerId: 1,
+        clientX: 0,
+        clientY: 0,
+        shiftKey: false,
+        altKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        preventDefault() {},
+        ...over,
+      });
+    });
+  const style = () => c.tree.props(card()).style;
+  await event("onKeyDown", card(), { key: "ArrowRight", altKey: true });
+  const prior = { w: style().width, h: style().height };
+  assert.deepEqual(prior, { w: 232, h: 112 });
+  assert.deepEqual(
+    [db.getTableBoard(spaceId).cards[0].layout.w, db.getTableBoard(spaceId).cards[0].layout.h],
+    [null, null]
+  );
+  await event("onPointerDown", handle());
+  await event("onPointerMove", handle(), { clientX: 80, clientY: -400 });
+  await act(() => {
+    const pending = [...frames.values()];
+    frames.clear();
+    pending.forEach((fn) => fn());
+  });
+  assert.equal(style().height, 80);
+  await event("onPointerCancel", handle());
+  assert.deepEqual({ w: style().width, h: style().height }, prior);
+  assert.equal(writes.length, 1);
+  // Earlier successful ACK/read must retain the restored pre-existing preview.
+  await act(() => ack.resolve());
+  assert.deepEqual({ w: style().width, h: style().height }, prior);
+  globalThis.document.activeElement = card();
+  await event("onKeyDown", card(), { key: "Enter" });
+  assert.match(c.tree.text(), /Keep the meaningful tail intact/);
+  await c.click("table.detail.close");
+  await event("onKeyDown", card(), { key: "ArrowRight", shiftKey: true });
+  assert.equal(writes.length, 2);
+  assert.deepEqual([writes[1][0].w, writes[1][0].h], [prior.w, prior.h]);
+  const reopened = new DatabaseManager();
+  t.after(() => reopened.db.close());
+  assert.deepEqual(reopened.getTableBoard(spaceId), db.getTableBoard(spaceId));
+  assert.equal(reopened.getTranscriptionById(id).text, full);
 });

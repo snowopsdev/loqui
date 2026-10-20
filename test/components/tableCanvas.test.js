@@ -198,9 +198,11 @@ async function mount(t, overrides = {}) {
   const listeners = new Map();
   const all = (node) => [node, ...node.childNodes.flatMap(all)];
   const matches = (node, selector) =>
-    selector === "[data-card-key]"
-      ? node.attributes["data-card-key"] != null
-      : node.attributes["data-card-key"] === selector.match(/data-card-key="([^"]+)"/)?.[1];
+    selector === "[data-resize-handle]"
+      ? node.attributes["data-resize-handle"] != null
+      : selector === "[data-card-key]"
+        ? node.attributes["data-card-key"] != null
+        : node.attributes["data-card-key"] === selector.match(/data-card-key="([^"]+)"/)?.[1];
   const enhance = (node) => {
     node.contains = (other) => all(node).includes(other);
     node.focus = () => {
@@ -262,6 +264,11 @@ async function mount(t, overrides = {}) {
   t.after(() => {
     globalThis.ResizeObserver = previousObserver;
   });
+  const windowListeners = new Map();
+  globalThis.window.addEventListener = (name, fn) => windowListeners.set(name, fn);
+  globalThis.window.removeEventListener = (name, fn) => {
+    if (windowListeners.get(name) === fn) windowListeners.delete(name);
+  };
   globalThis.window.getComputedStyle = () => ({ getPropertyValue: () => "725ms" });
   globalThis.window.matchMedia = () => ({ matches: false });
   const { TableCanvas, TABLE_REF_MIME } = await load();
@@ -280,6 +287,8 @@ async function mount(t, overrides = {}) {
         "onNudge",
         "onMeasure",
         "onResize",
+        "onResizeCard",
+        "onResizeCancel",
         "onDropRef",
       ].map((name) => [
         name,
@@ -359,6 +368,7 @@ async function mount(t, overrides = {}) {
     captures,
     releases,
     listeners,
+    windowListeners,
     observers,
     unmount,
     TABLE_REF_MIME,
@@ -707,4 +717,158 @@ test("a removed logical focus never removes the remaining rendered card tab stop
   const { TableCanvas } = await load();
   const html = renderStatic(TableCanvas, props({ focused: "note:404" }));
   assert.match(html, /tabindex="0"[^>]*data-card-key="note:1"/);
+});
+
+test("resize handle and exact clipping preserve the unmasked focus ring and physical corner", async () => {
+  const { TableCanvas } = await load();
+  const html = renderStatic(
+    TableCanvas,
+    props({ cards: [{ ...card("note:1", "note", 32, 32), fixedH: 80 }] })
+  );
+  assert.match(html, /data-resize-handle=""[^>]*aria-hidden="true"/);
+  assert.match(html, /data-sized="true"[^>]*style="[^"]*height:80px;overflow:hidden/);
+  const natural = renderStatic(TableCanvas, props());
+  assert.doesNotMatch(natural, /data-sized|overflow:hidden/);
+  const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
+  assert.match(css, /\.table-card__resize\s*\{[^}]*right:\s*2px;[^}]*bottom:\s*2px;/);
+  assert.doesNotMatch(css, /\.table-card\[data-sized="true"\]\s*\{[^}]*mask-image/);
+  assert.match(css, /\.table-card:focus-visible \.table-card__resize/);
+});
+const handleFor = (m, key = "note:1") =>
+  m.cardEl(key)?.childNodes.find((n) => n.attributes["data-resize-handle"] != null);
+for (const earlier of [false, true])
+  test(`mounted resize settles final up with earlier frame=${earlier}, one snapped commit, no late write`, async (t) => {
+    const m = await mount(t, { viewport: { x: 0, y: 0, scale: 2 } });
+    const target = handleFor(m);
+    assert.ok(target);
+    await m.event("onPointerDown", target);
+    await m.event("onPointerMove", target, { clientX: 30, clientY: 40 });
+    if (earlier) await m.flush();
+    await m.event("onPointerMove", target, { clientX: 50, clientY: 60 });
+    await m.event("onPointerUp", target, { clientX: 51, clientY: -380 });
+    assert.deepEqual(m.byCall("onResizeCard").at(-2), ["note:1", { w: 300.5, h: 80 }, false]);
+    assert.deepEqual(m.byCall("onResizeCard").at(-1), ["note:1", { w: 304, h: 80 }, true]);
+    assert.equal(m.byCall("onResizeCard").filter((c) => c[2]).length, 1);
+    assert.deepEqual(m.byCall("onDrop"), []);
+    assert.equal(m.frames.size, 0);
+    const count = m.calls.length;
+    await m.flush();
+    assert.equal(m.calls.length, count);
+  });
+for (const ending of [
+  "onPointerCancel",
+  "onLostPointerCapture",
+  "blur",
+  "Escape",
+  "unmount",
+  "scope",
+])
+  test(`mounted resize ${ending} rolls back exact sizing without committing or late writes`, async (t) => {
+    const original = { persisted: { w: null, h: null }, override: { w: 304, h: 200 } };
+    const c = { ...card("note:1", "note", 32, 32), sizeOverride: original.override };
+    const m = await mount(t, { cards: [c], gestureScope: 1 });
+    const target = handleFor(m);
+    assert.ok(target);
+    await m.event("onPointerDown", target);
+    await m.event("onPointerMove", target, { clientX: 90, clientY: 80 });
+    await m.flush();
+    await m.event("onPointerMove", target, { clientX: 190, clientY: 180 });
+    if (ending === "unmount") await m.unmount();
+    else if (ending === "scope") await m.render({ gestureScope: 2 });
+    else if (ending === "blur") await m.event("onBlur", target, { relatedTarget: null });
+    else if (ending === "Escape") await m.event("onKeyDown", target, { key: "Escape" });
+    else await m.event(ending, target);
+    assert.deepEqual(m.byCall("onResizeCancel"), ending === "scope" ? [] : [["note:1", original]]);
+    assert.equal(m.byCall("onResizeCard").filter((c) => c[2]).length, 0);
+    assert.equal(m.frames.size, 0);
+    assert.equal(m.captures.size, 0);
+    const count = m.calls.length;
+    await m.flush();
+    assert.equal(m.calls.length, count);
+  });
+test("resize owning pointer cannot be hijacked; Alt arrows snap and clamp only the focused card", async (t) => {
+  const m = await mount(t);
+  const target = handleFor(m);
+  assert.ok(target);
+  await m.event("onPointerDown", target);
+  await m.event("onPointerDown", m.cardEl("chat:2"), { pointerId: 2 });
+  await m.event("onPointerMove", target, { pointerId: 2, clientX: 900 });
+  await m.event("onPointerUp", target, { pointerId: 2, clientX: 900 });
+  await m.event("onPointerCancel", target, { pointerId: 2 });
+  assert.deepEqual(m.byCall("onResizeCard"), []);
+  await m.event("onPointerUp", target, { clientX: 51, clientY: 61 });
+  assert.deepEqual(m.byCall("onResizeCard").at(-1), ["note:1", { w: 320, h: 192 }, true]);
+  await m.event("onKeyDown", m.cardEl("note:1"), { key: "ArrowUp", altKey: true });
+  assert.deepEqual(m.byCall("onResizeCard").at(-1), ["note:1", { w: 280, h: 144 }, true]);
+  await m.render({
+    cards: [
+      { ...card("note:1", "note", 32, 32), rect: { x: 32, y: 32, w: 640, h: 80 }, fixedH: 80 },
+    ],
+  });
+  for (const key of ["ArrowRight", "ArrowUp"]) {
+    await m.event("onKeyDown", m.cardEl("note:1"), { key, altKey: true });
+    assert.deepEqual(m.byCall("onResizeCard").at(-1), ["note:1", { w: 640, h: 80 }, true]);
+  }
+});
+
+test("resize window blur rolls back and removes the listener on unmount", async (t) => {
+  const m = await mount(t);
+  const handle = handleFor(m);
+  await m.event("onPointerDown", handle);
+  await m.event("onPointerMove", handle, { clientX: 100 });
+  await m.flush();
+  const blur = m.windowListeners.get("blur");
+  assert.equal(typeof blur, "function");
+  await React.act(async () => blur());
+  assert.deepEqual(m.byCall("onResizeCancel"), [
+    ["note:1", { persisted: { w: null, h: null }, override: null }],
+  ]);
+  assert.equal(m.captures.size, 0);
+  await m.unmount();
+  assert.equal(m.windowListeners.has("blur"), false);
+});
+test("resize scope change removes transient drag styling and cancelled RAF cannot write into a new gesture", async (t) => {
+  const m = await mount(t, { gestureScope: 1 });
+  const handle = handleFor(m);
+  await m.event("onPointerDown", handle);
+  await m.event("onPointerMove", handle, { clientX: 100 });
+  await m.flush();
+  assert.equal(m.cardEl("note:1").attributes["data-dragging"], "true");
+  await m.event("onPointerMove", handle, { clientX: 200 });
+  const stale = [...m.frames.values()][0];
+  await m.render({ gestureScope: 2 });
+  assert.equal(m.cardEl("note:1").attributes["data-dragging"], undefined);
+  await m.event("onPointerDown", handle);
+  await m.event("onPointerMove", handle, { clientX: 110 });
+  const count = m.calls.length;
+  await React.act(async () => stale());
+  assert.equal(m.calls.length, count);
+  await m.event("onPointerCancel", handle);
+});
+test("resize press under threshold neither clips nor writes dimensions", async (t) => {
+  const m = await mount(t);
+  const handle = handleFor(m);
+  await m.event("onPointerDown", handle);
+  await m.event("onPointerMove", handle, { clientX: 12, clientY: 21 });
+  await m.event("onPointerUp", handle, { clientX: 12, clientY: 21 });
+  assert.deepEqual(m.byCall("onResizeCard"), []);
+  assert.deepEqual(m.byCall("onResizeCancel"), []);
+  assert.equal(m.frames.size, 0);
+});
+
+test("resize target leaving canonical projection retires its gesture without resurrecting an override", async (t) => {
+  const m = await mount(t);
+  const handle = handleFor(m);
+  await m.event("onPointerDown", handle);
+  await m.event("onPointerMove", handle, { clientX: 100 });
+  await m.flush();
+  await m.event("onPointerMove", handle, { clientX: 200 });
+  await m.render({ cards: [] });
+  assert.equal(m.frames.size, 0);
+  assert.equal(m.captures.size, 0);
+  const before = m.calls.length;
+  await m.event("onPointerUp", m.canvas(), { clientX: 300 });
+  await m.flush();
+  assert.equal(m.calls.length, before);
+  assert.deepEqual(m.byCall("onResizeCancel"), []);
 });

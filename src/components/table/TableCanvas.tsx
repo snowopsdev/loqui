@@ -20,9 +20,19 @@ import {
   type Size,
   type Viewport,
 } from "./tableGeometry";
-import { cancel, keyAction, move, press, release, wheel, type Gesture } from "./tableGestures";
+import {
+  cancel,
+  keyAction,
+  move,
+  press,
+  release,
+  snapSize,
+  wheel,
+  type CardSize,
+  type Gesture,
+} from "./tableGestures";
 import { TableCard } from "./TableCard";
-import type { TableCardModel } from "./tableModel";
+import type { TableCardModel, TableSizing } from "./tableModel";
 
 export const TABLE_REF_MIME = "application/x-loqui-table-ref";
 const ZOOM_STEP = 1.2;
@@ -47,6 +57,9 @@ export interface TableCanvasProps {
   onMeasure: (key: string, h: number) => void;
   onDropRef?: (key: string, world: Point) => void;
   onResize?: (size: Size) => void;
+  onResizeCard?: (key: string, size: CardSize, commit: boolean) => void;
+  onResizeCancel?: (key: string, sizing: TableSizing) => void;
+  gestureScope?: number;
 }
 
 export function TableCanvas(props: TableCanvasProps) {
@@ -57,6 +70,13 @@ export function TableCanvas(props: TableCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<Gesture>({ kind: "idle" });
   const spaceHeld = useRef(false);
+  const resizeRollback = useRef<{
+    key: string;
+    sizing: TableSizing;
+    restore: TableCanvasProps["onResizeCancel"];
+  } | null>(null);
+  const frameOwner = useRef({ revision: 0 });
+  const cancelRef = useRef<(restoreResize?: boolean) => void>(() => {});
   const [size, setSize] = useState<Size>({ width: 1200, height: 800 });
   const [lasso, setLasso] = useState<Rect | null>(null);
   const [dragging, setDragging] = useState<string[]>([]);
@@ -192,7 +212,20 @@ export function TableCanvas(props: TableCanvasProps) {
   // Cancel work and release capture while the root still exists on unmount.
   useLayoutEffect(() => {
     const root = rootRef.current;
+    const scope = props.gestureScope;
+    const frames = frameOwner.current;
+    setDragging([]);
+    setLasso(null);
+    setSnapping([]);
+    setFocusRequest(null);
     return () => {
+      frames.revision++;
+      const rollback = resizeRollback.current;
+      resizeRollback.current = null;
+      // Unmount can leave the board mounted; changing scope instead resets its
+      // reducer, and must never send an old card's rollback into the new board.
+      if (rollback && propsRef.current.gestureScope === scope)
+        rollback.restore?.(rollback.key, rollback.sizing);
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
       latestPoint.current = null;
@@ -203,7 +236,7 @@ export function TableCanvas(props: TableCanvasProps) {
       clearSnap();
       if (id !== null && root?.hasPointerCapture(id)) root.releasePointerCapture(id);
     };
-  }, [clearSnap]);
+  }, [clearSnap, props.gestureScope]);
 
   const local = (event: { clientX: number; clientY: number }): Point => {
     const r = rootRef.current?.getBoundingClientRect();
@@ -217,6 +250,22 @@ export function TableCanvas(props: TableCanvasProps) {
     pointerIdRef.current = event.pointerId;
     sessionRef.current = { selection: [...selection], viewport, placed };
     const cardEl = (event.target as HTMLElement).closest<HTMLElement>("[data-card-key]");
+    const handle = (event.target as HTMLElement).closest("[data-resize-handle]");
+    const resizeCard = handle && cardEl ? byKey.get(cardEl.dataset.cardKey!) : undefined;
+    resizeRollback.current =
+      resizeCard && !spaceHeld.current
+        ? {
+            key: resizeCard.key,
+            sizing: {
+              persisted: {
+                w: resizeCard.entity.layout?.w ?? null,
+                h: resizeCard.entity.layout?.h ?? null,
+              },
+              override: resizeCard.sizeOverride ? { ...resizeCard.sizeOverride } : null,
+            },
+            restore: props.onResizeCancel,
+          }
+        : null;
     const positions: Record<string, Point> = {};
     for (const c of cards) positions[c.key] = { x: c.rect.x, y: c.rect.y };
     gestureRef.current = press({
@@ -227,6 +276,10 @@ export function TableCanvas(props: TableCanvasProps) {
       viewport,
       selection,
       positions,
+      resizeKey: resizeCard?.key,
+      sizes: resizeCard
+        ? { [resizeCard.key]: { w: resizeCard.rect.w, h: resizeCard.rect.h } }
+        : undefined,
     });
     rootRef.current?.setPointerCapture(event.pointerId);
   };
@@ -236,6 +289,10 @@ export function TableCanvas(props: TableCanvasProps) {
     gestureRef.current = gesture;
     if (!effect) return;
     const callbacks = propsRef.current;
+    if (effect.type === "size") {
+      setDragging([effect.key]);
+      callbacks.onResizeCard?.(effect.key, effect.size, false);
+    }
     if (effect.type === "viewport") callbacks.onViewport(effect.viewport, false);
     if (effect.type === "positions") {
       const keys = Object.keys(effect.positions);
@@ -256,6 +313,7 @@ export function TableCanvas(props: TableCanvasProps) {
     if (point && pointerIdRef.current !== null) applyPoint(point);
   };
   const cancelFrame = () => {
+    frameOwner.current.revision++;
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     frameRef.current = null;
     latestPoint.current = null;
@@ -264,7 +322,12 @@ export function TableCanvas(props: TableCanvasProps) {
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerId !== pointerIdRef.current) return;
     latestPoint.current = local(event);
-    if (frameRef.current === null) frameRef.current = requestAnimationFrame(applyMove);
+    if (frameRef.current === null) {
+      const owner = frameOwner.current.revision;
+      frameRef.current = requestAnimationFrame(() => {
+        if (owner === frameOwner.current.revision) applyMove();
+      });
+    }
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -278,9 +341,11 @@ export function TableCanvas(props: TableCanvasProps) {
       rootRef.current.releasePointerCapture(id);
     const effect = release(gestureRef.current, point);
     gestureRef.current = { kind: "idle" };
+    resizeRollback.current = null;
     setDragging([]);
     setLasso(null);
     if (!effect) return;
+    if (effect.type === "resized") props.onResizeCard?.(effect.key, effect.size, true);
     if (effect.type === "drop") {
       const keys = Object.keys(effect.positions);
       startSnap(keys);
@@ -295,20 +360,42 @@ export function TableCanvas(props: TableCanvasProps) {
       );
   };
 
-  const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerId !== pointerIdRef.current) return;
+  const cancelGesture = (restoreResize = true) => {
+    if (pointerIdRef.current === null) return;
     const id = pointerIdRef.current;
     pointerIdRef.current = null;
     cancelFrame();
     if (id !== null && rootRef.current?.hasPointerCapture(id))
       rootRef.current.releasePointerCapture(id);
     if (gestureRef.current.kind === "lasso") props.onSelect(sessionRef.current.selection);
+    const rollback = resizeRollback.current;
+    resizeRollback.current = null;
+    if (restoreResize) rollback?.restore?.(rollback.key, rollback.sizing);
     const effect = cancel(gestureRef.current);
     gestureRef.current = { kind: "idle" };
     setDragging([]);
     setLasso(null);
     if (effect?.type === "positions") props.onMove(effect.positions);
     if (effect?.type === "viewport") props.onViewport(effect.viewport, false);
+  };
+
+  cancelRef.current = (restoreResize = true) => {
+    spaceHeld.current = false;
+    cancelGesture(restoreResize);
+  };
+  useEffect(() => {
+    const onBlur = () => cancelRef.current();
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, []);
+
+  useLayoutEffect(() => {
+    const gesture = gestureRef.current;
+    if (gesture.kind === "resize" && !byKey.has(gesture.key)) cancelRef.current(false);
+  }, [byKey]);
+
+  const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerId === pointerIdRef.current) cancelGesture();
   };
 
   const zoomBy = useCallback(
@@ -318,6 +405,13 @@ export function TableCanvas(props: TableCanvasProps) {
   );
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && pointerIdRef.current !== null) {
+      event.preventDefault();
+      cancelGesture();
+      return;
+    }
+    // A held pointer owns its sizing until release/cancel.
+    if (gestureRef.current.kind === "resize") return;
     const cardKey =
       (event.target as HTMLElement).closest<HTMLElement>("[data-card-key]")?.dataset.cardKey ??
       null;
@@ -334,6 +428,16 @@ export function TableCanvas(props: TableCanvasProps) {
         const next = cardKey ? nearestInDirection(cardKey, placed, action.dir) : null;
         if (!next) return;
         focusAndReveal(next);
+        return;
+      }
+      case "resize": {
+        const rect = cardKey ? byKey.get(cardKey)?.rect : undefined;
+        if (cardKey && rect)
+          props.onResizeCard?.(
+            cardKey,
+            snapSize({ w: rect.w + action.dw, h: rect.h + action.dh }),
+            true
+          );
         return;
       }
       case "nudge":
@@ -392,8 +496,10 @@ export function TableCanvas(props: TableCanvasProps) {
         if (event.key === " ") spaceHeld.current = false;
       }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           spaceHeld.current = false;
+          cancelGesture();
+        }
       }}
       onFocus={(event) => {
         const key = (event.target as HTMLElement).closest<HTMLElement>("[data-card-key]")?.dataset

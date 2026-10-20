@@ -15,6 +15,18 @@ import {
 export const DRAG_THRESHOLD = 4;
 const WHEEL_ZOOM_RATE = 0.01;
 
+export type CardSize = { w: number; h: number };
+export const MIN_CARD = { w: 180, h: 80 };
+export const MAX_CARD = { w: 640, h: 600 };
+export function clampSize(size: CardSize): CardSize {
+  return {
+    w: Math.min(MAX_CARD.w, Math.max(MIN_CARD.w, size.w)),
+    h: Math.min(MAX_CARD.h, Math.max(MIN_CARD.h, size.h)),
+  };
+}
+export const snapSize = (size: CardSize): CardSize =>
+  clampSize({ w: snapToGrid(size.w), h: snapToGrid(size.h) });
+
 export type Gesture =
   | { kind: "idle" }
   | { kind: "pan"; start: Point; origin: Viewport; moved: boolean }
@@ -28,6 +40,7 @@ export type Gesture =
       pressed: string;
       additive: boolean;
     }
+  | { kind: "resize"; key: string; start: Point; origin: CardSize; scale: number; moved: boolean }
   | { kind: "lasso"; start: Point; current: Point };
 
 export interface PressInput {
@@ -38,9 +51,21 @@ export interface PressInput {
   viewport: Viewport;
   selection: string[];
   positions: Record<string, Point>;
+  resizeKey?: string | null;
+  sizes?: Record<string, CardSize>;
 }
 
 export function press(input: PressInput): Gesture {
+  const origin = input.resizeKey ? input.sizes?.[input.resizeKey] : undefined;
+  if (input.resizeKey && origin && !input.spaceHeld)
+    return {
+      kind: "resize",
+      key: input.resizeKey,
+      start: input.point,
+      origin,
+      scale: input.viewport.scale,
+      moved: false,
+    };
   if (input.cardKey && !input.spaceHeld) {
     const keys = input.selection.includes(input.cardKey) ? input.selection : [input.cardKey];
     const origins: Record<string, Point> = {};
@@ -62,6 +87,7 @@ export function press(input: PressInput): Gesture {
 }
 
 export type MoveEffect =
+  | { type: "size"; key: string; size: CardSize }
   | { type: "viewport"; viewport: Viewport }
   | { type: "positions"; positions: Record<string, Point> }
   | { type: "lasso"; rect: Rect }
@@ -93,8 +119,22 @@ function dragPositions(
   return out;
 }
 
+function resizeSize(g: Extract<Gesture, { kind: "resize" }>, point: Point): CardSize {
+  return clampSize({
+    w: g.origin.w + (point.x - g.start.x) / g.scale,
+    h: g.origin.h + (point.y - g.start.y) / g.scale,
+  });
+}
+
 export function move(gesture: Gesture, point: Point): { gesture: Gesture; effect: MoveEffect } {
   switch (gesture.kind) {
+    case "resize": {
+      const moved = gesture.moved || passed(gesture.start, point);
+      return {
+        gesture: { ...gesture, moved },
+        effect: moved ? { type: "size", key: gesture.key, size: resizeSize(gesture, point) } : null,
+      };
+    }
     case "pan": {
       const moved = gesture.moved || passed(gesture.start, point);
       const next = { ...gesture, moved };
@@ -122,6 +162,7 @@ export function move(gesture: Gesture, point: Point): { gesture: Gesture; effect
 }
 
 export type ReleaseEffect =
+  | { type: "resized"; key: string; size: CardSize }
   | { type: "drop"; positions: Record<string, Point> }
   | { type: "click-card"; key: string; additive: boolean }
   | { type: "click-background" }
@@ -131,6 +172,10 @@ export type ReleaseEffect =
 
 export function release(gesture: Gesture, point: Point): ReleaseEffect {
   switch (gesture.kind) {
+    case "resize":
+      return gesture.moved || passed(gesture.start, point)
+        ? { type: "resized", key: gesture.key, size: snapSize(resizeSize(gesture, point)) }
+        : null;
     case "drag": {
       const moved = gesture.moved || passed(gesture.start, point);
       return moved
@@ -152,6 +197,8 @@ export function release(gesture: Gesture, point: Point): ReleaseEffect {
 
 // A cancelled pointer (system gesture, lost capture) restores where things were.
 export function cancel(gesture: Gesture): MoveEffect {
+  if (gesture.kind === "resize" && gesture.moved)
+    return { type: "size", key: gesture.key, size: gesture.origin };
   if (gesture.kind === "drag" && gesture.moved)
     return { type: "positions", positions: { ...gesture.origins } };
   if (gesture.kind === "pan" && gesture.moved)
@@ -169,6 +216,7 @@ export function wheel(
 }
 
 export type KeyAction =
+  | { type: "resize"; dw: number; dh: number }
   | { type: "focusMove"; dir: Direction }
   | { type: "nudge"; dx: number; dy: number }
   | { type: "open" }
@@ -197,8 +245,12 @@ export function keyAction(
   e: { key: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean },
   onCard: boolean
 ): KeyAction | null {
-  if (e.metaKey || e.ctrlKey || e.altKey) return null;
+  if (e.metaKey || e.ctrlKey) return null;
   const dir = ARROWS[e.key];
+  if (e.altKey)
+    return dir && onCard
+      ? { type: "resize", dw: STEP[dir][0] * GRID, dh: STEP[dir][1] * GRID }
+      : null;
   if (dir && onCard) {
     if (e.shiftKey) return { type: "nudge", dx: STEP[dir][0] * GRID, dy: STEP[dir][1] * GRID };
     return { type: "focusMove", dir };

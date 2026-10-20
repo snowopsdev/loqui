@@ -19,7 +19,7 @@ type BoardAction =
   | Exclude<TableAction, { type: "loaded" }>
   | { type: "loaded"; board: TableBoardData; preserveViewport?: boolean }
   | { type: "reset" }
-  | { type: "settled"; keys: string[]; accepted: TablePlacement[] };
+  | { type: "settled"; keys: string[]; sizeKeys: string[]; accepted: TablePlacement[] };
 function reduce(state: TableState, action: BoardAction): TableState {
   if (action.type === "reset") return initialTableState();
   if (action.type === "settled") {
@@ -29,7 +29,11 @@ function reduce(state: TableState, action: BoardAction): TableState {
       Object.entries(state.overrides).filter(([key]) => present.has(key))
     );
     for (const key of action.keys) delete overrides[key];
-    return { ...next, overrides };
+    const sizes = Object.fromEntries(
+      Object.entries(state.sizes).filter(([key]) => present.has(key))
+    );
+    for (const key of action.sizeKeys) delete sizes[key];
+    return { ...next, overrides, sizes };
   }
   const next = tableReducer(state, action);
   // A lifecycle read may finish between pointer frames. Keep the gesture preview
@@ -40,6 +44,7 @@ function reduce(state: TableState, action: BoardAction): TableState {
     ...next,
     viewport: action.preserveViewport ? state.viewport : next.viewport,
     overrides: Object.fromEntries(Object.entries(state.overrides).filter(([k]) => present.has(k))),
+    sizes: Object.fromEntries(Object.entries(state.sizes).filter(([k]) => present.has(k))),
   };
 }
 
@@ -47,11 +52,14 @@ function reduce(state: TableState, action: BoardAction): TableState {
 export function useTableBoard(spaceId: number) {
   const [state, reduceDispatch] = useReducer(reduce, undefined, initialTableState);
   const moves = useRef<Record<string, number>>({});
+  const resizes = useRef<Record<string, number>>({});
   const placementWrites = useRef<Record<string, number>>({});
   const dispatch = useCallback((action: TableAction) => {
     if (action.type === "moved")
       for (const key of Object.keys(action.positions))
         moves.current[key] = (moves.current[key] ?? 0) + 1;
+    if (action.type === "resized" || action.type === "sizeRestored")
+      resizes.current[action.key] = (resizes.current[action.key] ?? 0) + 1;
     reduceDispatch(action);
   }, []);
   const [status, setStatus] = useState<"idle" | "full" | "saveFailed">("idle");
@@ -66,6 +74,7 @@ export function useTableBoard(spaceId: number) {
     };
     reduceDispatch({ type: "reset" });
     moves.current = {};
+    resizes.current = {};
     placementWrites.current = {};
     setStatus("idle");
   }
@@ -137,6 +146,7 @@ export function useTableBoard(spaceId: number) {
       const scope = owner.current;
       if (scope.spaceId === spaceId) scope.read++; // A read started before this transaction cannot undo its ACK.
       const preview = { ...moves.current };
+      const sizePreview = { ...resizes.current };
       const writeVersions = new Map<string, number>();
       if (scope.spaceId === spaceId) {
         for (const placement of placements) {
@@ -167,6 +177,9 @@ export function useTableBoard(spaceId: number) {
         const ownsWrite = (key: string) => placementWrites.current[key] === writeVersions.get(key);
         reduceDispatch({
           type: "settled",
+          sizeKeys: placements
+            .map(refKey)
+            .filter((key) => ownsWrite(key) && resizes.current[key] === sizePreview[key]),
           accepted: acceptedPlacements.filter((p) => ownsWrite(refKey(p))),
           keys: placements
             .map(refKey)

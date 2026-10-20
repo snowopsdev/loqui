@@ -487,3 +487,92 @@ for (const navigateInB of [false, true])
     assert.equal(c.h.state.board.spaceId, 2);
     assert.deepEqual(c.h.state.viewport, navigateInB ? liveB : storedB);
   });
+
+test("resize ownership: canonical read retains active size; ACK settles size without clearing newer move", async (t) => {
+  const pending = deferred();
+  const c = await mount(t, {
+    getTableBoard: async () => data(),
+    placeTableCards: async () => pending.promise,
+  });
+  await act(() => c.h.dispatch({ type: "resized", key: "note:1", size: { w: 320, h: 80 } }));
+  await act(() => c.h.reload());
+  assert.deepEqual(c.h.state.sizes, { "note:1": { w: 320, h: 80 } });
+  let write;
+  await act(() => {
+    write = c.h.place([{ type: "note", id: 1, x: 40, y: 48, w: 320, h: 80 }]);
+  });
+  await act(() => c.h.dispatch({ type: "moved", positions: { "note:1": { x: 160, y: 176 } } }));
+  await act(() => pending.resolve({ success: true, placed: 1, placedKeys: ["note:1"] }));
+  await write;
+  assert.deepEqual(c.h.state.sizes, {});
+  assert.deepEqual(c.h.state.overrides, { "note:1": { x: 160, y: 176 } });
+});
+test("resize ownership: older move ACK cannot clear a newer size; refusal clears only owned size", async (t) => {
+  const pending = deferred();
+  let calls = 0;
+  const c = await mount(t, {
+    getTableBoard: async () => data(),
+    placeTableCards: async () => (++calls === 1 ? pending.promise : { success: false }),
+  });
+  let write;
+  await act(() => {
+    write = c.h.place([{ type: "note", id: 1, x: 40, y: 48 }]);
+  });
+  await act(() => c.h.dispatch({ type: "resized", key: "note:1", size: { w: 400, h: 240 } }));
+  await act(() => pending.resolve({ success: true, placed: 1, placedKeys: ["note:1"] }));
+  await write;
+  assert.deepEqual(c.h.state.sizes, { "note:1": { w: 400, h: 240 } });
+  await act(() => c.h.place([{ type: "note", id: 1, x: 40, y: 48, w: 400, h: 240 }]));
+  assert.deepEqual(c.h.state.sizes, {});
+  assert.equal(c.h.status, "saveFailed");
+});
+test("resize ownership: later settled size survives old ACK while canonical read waits", async (t) => {
+  const a = deferred(),
+    b = deferred(),
+    finalRead = deferred();
+  let writes = 0,
+    reads = 0;
+  const layout = { x: 40, y: 48, w: 400, h: 240, z: 0, hidden: false };
+  const c = await mount(t, {
+    getTableBoard: async () =>
+      ++reads >= 3 ? finalRead.promise : data([entity(1, "note", reads === 1 ? null : layout)]),
+    placeTableCards: async () => (++writes === 1 ? a.promise : b.promise),
+  });
+  let wa, wb;
+  await act(() => {
+    c.h.dispatch({ type: "resized", key: "note:1", size: { w: 320, h: 80 } });
+    wa = c.h.place([{ type: "note", id: 1, x: 40, y: 48, w: 320, h: 80 }]);
+  });
+  await act(() => {
+    c.h.dispatch({ type: "resized", key: "note:1", size: { w: 400, h: 240 } });
+    wb = c.h.place([{ type: "note", id: 1, x: 40, y: 48, w: 400, h: 240 }]);
+  });
+  await act(() => b.resolve({ success: true, placed: 1, placedKeys: ["note:1"] }));
+  await wb;
+  assert.deepEqual(c.h.state.sizes, {});
+  await act(() => a.resolve({ success: true, placed: 1, placedKeys: ["note:1"] }));
+  assert.equal(c.h.cards[0].fixedH, 240);
+  await act(() => finalRead.resolve(data([entity(1, "note", layout)])));
+  await wa;
+  assert.equal(c.h.cards[0].fixedH, 240);
+});
+test("resize ownership: partial ACK settles only submitted keys, newer preview and scope reset retain authority", async (t) => {
+  const pending = deferred();
+  const c = await mount(t, {
+    getTableBoard: async (id) => ({ ...data([entity(1), entity(2)]), spaceId: id }),
+    placeTableCards: async () => pending.promise,
+  });
+  let write;
+  await act(() => {
+    for (const id of [1, 2])
+      c.h.dispatch({ type: "resized", key: `note:${id}`, size: { w: 320, h: 80 } });
+    write = c.h.place([1, 2].map((id) => ({ type: "note", id, x: 40, y: 48, w: 320, h: 80 })));
+  });
+  await act(() => c.h.dispatch({ type: "resized", key: "note:2", size: { w: 408, h: 248 } }));
+  await act(() => pending.resolve({ success: true, placed: 1, placedKeys: ["note:1"] }));
+  await write;
+  assert.equal(c.h.status, "saveFailed");
+  assert.deepEqual(c.h.state.sizes, { "note:2": { w: 408, h: 248 } });
+  await c.render(2);
+  assert.deepEqual(c.h.state.sizes, {});
+});

@@ -490,3 +490,50 @@ test("accepted Inbox placement matches main's capped projection and reopen witho
   assert.equal(s.focused, retained);
   assert.deepEqual(s.viewport, { x: 120, y: -80, scale: 0.75 });
 });
+
+test("resize previews serialize sizes, commit clears overrides, exact rollback restores nullable and prior override states", async () => {
+  const { initialTableState, tableReducer, cardsFor, placementsFor } = await load();
+  for (const persisted of [
+    { w: null, h: null },
+    { w: 312, h: 184 },
+    { w: 312, h: null },
+  ]) {
+    for (const override of [null, { w: 408, h: 248 }]) {
+      let s = tableReducer(initialTableState(), {
+        type: "loaded",
+        board: board([
+          entity("note", 1, { layout: { x: 96, y: 40, ...persisted, z: 0, hidden: false } }),
+        ]),
+      });
+      if (override) s = tableReducer(s, { type: "resized", key: "note:1", size: override });
+      s = tableReducer(s, { type: "resized", key: "note:1", size: { w: 320, h: 80 } });
+      assert.deepEqual(
+        [cardsFor(s)[0].rect.w, cardsFor(s)[0].rect.h, cardsFor(s)[0].fixedH],
+        [320, 80, 80]
+      );
+      assert.deepEqual(placementsFor(s, ["note:1"])[0], {
+        type: "note",
+        id: 1,
+        x: 96,
+        y: 40,
+        w: 320,
+        h: 80,
+        z: 0,
+      });
+      s = tableReducer(s, { type: "sizeRestored", key: "note:1", sizing: { persisted, override } });
+      assert.deepEqual(s.sizes, override ? { "note:1": override } : {});
+      assert.deepEqual(
+        [placementsFor(s, ["note:1"])[0].w, placementsFor(s, ["note:1"])[0].h],
+        [override?.w ?? persisted.w, override?.h ?? persisted.h]
+      );
+      s = tableReducer(s, { type: "measured", key: "note:1", h: 400 });
+      assert.equal(cardsFor(s)[0].fixedH, override?.h ?? persisted.h);
+      if (!override && persisted.h === null) assert.equal(cardsFor(s)[0].rect.h, 400);
+    }
+  }
+  let s = tableReducer(initialTableState(), { type: "loaded", board: board([entity("note", 1)]) });
+  s = tableReducer(s, { type: "resized", key: "note:1", size: { w: 320, h: 200 } });
+  s = tableReducer(s, { type: "placed", placements: placementsFor(s, ["note:1"]) });
+  assert.deepEqual(s.sizes, {});
+  assert.equal(cardsFor(s)[0].fixedH, 200);
+});

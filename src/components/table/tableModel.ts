@@ -42,10 +42,19 @@ export function parseRefKey(key: string): TableEntityRef | null {
     : null;
 }
 
+export type CardSize = { w: number; h: number };
+// Persisted nulls describe natural layout, independently of measured preview geometry.
+export interface TableSizing {
+  persisted: { w: number | null; h: number | null };
+  override: CardSize | null;
+}
+
 export interface TableCardModel {
   key: string;
   entity: TableEntity;
   rect: Rect;
+  fixedH: number | null;
+  sizeOverride?: CardSize | null;
   placed: boolean;
   z: number;
 }
@@ -67,6 +76,7 @@ export function buildCards(
     key: refKey(e.ref),
     entity: e,
     rect: { x: e.layout!.x, y: e.layout!.y, ...sizeOf(e, measured) },
+    fixedH: e.layout?.h ?? null,
     placed: true,
     z: e.layout!.z,
   }));
@@ -78,6 +88,7 @@ export function buildCards(
     key: refKey(e.ref),
     entity: e,
     rect: { ...spots[i], ...sizeOf(e, measured) },
+    fixedH: e.layout?.h ?? null,
     placed: false,
     z: 0,
   }));
@@ -193,6 +204,7 @@ export interface TableState {
   board: TableBoardData | null;
   measured: Record<string, number>;
   overrides: Record<string, Point>;
+  sizes: Record<string, CardSize>;
   selection: string[];
   focused: string | null;
   viewport: Viewport;
@@ -201,6 +213,8 @@ export interface TableState {
 export type TableAction =
   | { type: "loaded"; board: TableBoardData }
   | { type: "measured"; key: string; h: number }
+  | { type: "resized"; key: string; size: CardSize }
+  | { type: "sizeRestored"; key: string; sizing: TableSizing }
   | { type: "moved"; positions: Record<string, Point> }
   | { type: "placed"; placements: TablePlacement[] }
   | { type: "hidden"; keys: string[] }
@@ -215,6 +229,7 @@ export function initialTableState(): TableState {
     board: null,
     measured: {},
     overrides: {},
+    sizes: {},
     selection: [],
     focused: null,
     viewport: DEFAULT_VIEWPORT,
@@ -244,11 +259,35 @@ export function tableReducer(state: TableState, action: TableAction): TableState
         ...state,
         board: action.board,
         overrides: {},
+        sizes: {},
         selection: state.selection.filter((k) => present.has(k)),
         focused: state.focused && present.has(state.focused) ? state.focused : null,
         // Only the first load restores the saved view; later reloads (after a
         // placement or a chat answer) must not snap a pan the user just made.
         viewport: state.board === null ? (action.board.viewport ?? state.viewport) : state.viewport,
+      };
+    }
+    case "resized":
+      return { ...state, sizes: { ...state.sizes, [action.key]: action.size } };
+    case "sizeRestored": {
+      const sizes = { ...state.sizes };
+      if (action.sizing.override) sizes[action.key] = action.sizing.override;
+      else delete sizes[action.key];
+      // A canonical read may have arrived during the preview. Restore the exact
+      // nullable press-time dimensions without writing a placement.
+      return {
+        ...state,
+        sizes,
+        board: state.board
+          ? {
+              ...state.board,
+              cards: state.board.cards.map((e) =>
+                refKey(e.ref) === action.key && e.layout
+                  ? { ...e, layout: { ...e.layout, ...action.sizing.persisted } }
+                  : e
+              ),
+            }
+          : null,
       };
     }
     case "measured":
@@ -283,12 +322,16 @@ export function tableReducer(state: TableState, action: TableAction): TableState
       const inbox = state.board.inbox.filter((e) => !byKey.has(refKey(e.ref)));
       const linkable = new Set([...present, ...inbox.map((e) => refKey(e.ref))]);
       const overrides = { ...state.overrides };
+      const sizes = { ...state.sizes };
+      for (const key of Object.keys(sizes))
+        if (byKey.has(key) || !present.has(key)) delete sizes[key];
       for (const key of Object.keys(overrides)) {
         if (byKey.has(key) || !present.has(key)) delete overrides[key];
       }
       return {
         ...state,
         overrides,
+        sizes,
         selection: state.selection.filter((key) => present.has(key)),
         focused: state.focused && present.has(state.focused) ? state.focused : null,
         board: {
@@ -349,7 +392,11 @@ export function cardsFor(state: TableState): TableCardModel[] {
   if (!state.board) return [];
   return buildCards(state.board.cards, state.measured).map((card) => {
     const o = state.overrides[card.key];
-    return o ? { ...card, rect: { ...card.rect, x: o.x, y: o.y } } : card;
+    const moved = o ? { ...card, rect: { ...card.rect, x: o.x, y: o.y } } : card;
+    const size = state.sizes[card.key];
+    return size
+      ? { ...moved, rect: { ...moved.rect, ...size }, fixedH: size.h, sizeOverride: size }
+      : moved;
   });
 }
 
@@ -367,8 +414,8 @@ export function placementsFor(
         ...card.entity.ref,
         x: snapToGrid(at.x),
         y: snapToGrid(at.y),
-        w: card.entity.layout?.w ?? null,
-        h: card.entity.layout?.h ?? null,
+        w: state.sizes[card.key]?.w ?? card.entity.layout?.w ?? null,
+        h: state.sizes[card.key]?.h ?? card.entity.layout?.h ?? null,
         z: card.z,
       };
     });

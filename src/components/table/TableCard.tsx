@@ -74,6 +74,7 @@ export function TableCard({
       data-kind={entity.kind}
       data-dragging={dragging ? "true" : undefined}
       data-snapping={snapping ? "true" : undefined}
+      data-sized={card.fixedH != null ? "true" : undefined}
       aria-label={t("table.card.label", { kind: kindLabel, title: title || excerpt.slice(0, 60) })}
       className="table-card"
       style={{
@@ -81,6 +82,7 @@ export function TableCard({
         top: card.rect.y,
         width: card.rect.w,
         zIndex: dragging ? 1000 : card.z,
+        ...(card.fixedH != null ? { height: card.fixedH, overflow: "hidden" } : {}),
       }}
     >
       <div className="table-card__kind">
@@ -105,6 +107,7 @@ export function TableCard({
           )}
         </div>
       )}
+      <span className="table-card__resize" data-resize-handle="" aria-hidden="true" />
     </div>
   );
 }

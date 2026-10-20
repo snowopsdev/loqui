@@ -83,12 +83,21 @@ export function ensureVisible(rect: Rect, v: Viewport, size: Size, pad = 24): Vi
   const s = worldToScreen(rect, v);
   const w = rect.w * v.scale;
   const h = rect.h * v.scale;
-  let dx = 0;
-  let dy = 0;
-  if (s.x < pad) dx = pad - s.x;
-  else if (s.x + w > size.width - pad) dx = size.width - pad - (s.x + w);
-  if (s.y < pad) dy = pad - s.y;
-  else if (s.y + h > size.height - pad) dy = size.height - pad - (s.y + h);
+  const axisDelta = (start: number, extent: number, viewportExtent: number): number => {
+    const band = viewportExtent - pad * 2;
+    if (extent > band) {
+      const minStart = viewportExtent - pad - extent;
+      const maxStart = pad;
+      if (start < minStart) return minStart - start;
+      if (start > maxStart) return maxStart - start;
+      return 0;
+    }
+    if (start < pad) return pad - start;
+    if (start + extent > viewportExtent - pad) return viewportExtent - pad - (start + extent);
+    return 0;
+  };
+  const dx = axisDelta(s.x, w, size.width);
+  const dy = axisDelta(s.y, h, size.height);
   return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
 }
 

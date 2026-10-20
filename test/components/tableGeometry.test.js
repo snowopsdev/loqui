@@ -51,6 +51,34 @@ test("ensureVisible pans the least distance needed", async () => {
   assert.deepEqual(ensureVisible({ x: -50, y: -80, w: 100, h: 50 }, v, size), { x: 74, y: 104, scale: 1 });
 });
 
+test("ensureVisible keeps oversized cards stable when they span the visible band", async () => {
+  const { ensureVisible } = await load();
+  const size = { width: 800, height: 600 };
+  const v = { x: 0, y: 0, scale: 1 };
+  const horizontal = { x: 0, y: 100, w: 1000, h: 50 };
+  const vertical = { x: 100, y: 0, w: 50, h: 800 };
+  const scaled = { x: 0, y: 100, w: 500, h: 50 };
+  const zoomed = { x: 0, y: 0, scale: 2 };
+
+  for (const [rect, viewport] of [[horizontal, v], [vertical, v], [scaled, zoomed]]) {
+    const next = ensureVisible(rect, viewport, size);
+    assert.deepEqual(next, viewport);
+    assert.deepEqual(ensureVisible(rect, next, size), next, "repeated reveal stays put");
+  }
+});
+
+test("ensureVisible minimally pans oversized cards that start outside the visible band", async () => {
+  const { ensureVisible } = await load();
+  const size = { width: 800, height: 600 };
+  const horizontal = ensureVisible({ x: 0, y: 100, w: 1000, h: 50 }, { x: -400, y: 0, scale: 1 }, size);
+  assert.deepEqual(horizontal, { x: -224, y: 0, scale: 1 });
+  assert.deepEqual(ensureVisible({ x: 0, y: 100, w: 1000, h: 50 }, horizontal, size), horizontal);
+
+  const vertical = ensureVisible({ x: 100, y: 0, w: 50, h: 800 }, { x: 0, y: -400, scale: 1 }, size);
+  assert.deepEqual(vertical, { x: 0, y: -224, scale: 1 });
+  assert.deepEqual(ensureVisible({ x: 100, y: 0, w: 50, h: 800 }, vertical, size), vertical);
+});
+
 test("arrow focus picks the nearest card in that direction", async () => {
   const { nearestInDirection } = await load();
   const items = [card("o", 0, 0), card("r", 200, 10), card("rr", 400, 0), card("d", 0, 200), card("diag", 150, 150)];

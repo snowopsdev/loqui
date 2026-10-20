@@ -4371,12 +4371,21 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     } = {}
   ) {
     return this._trackRecordingWork(async () => {
-      const owned =
+      const audioOwner =
         recording?.ownedAudio ??
         this._ownedAudioSnapshot({
           sessionId: sessionId ?? recording?.sessionId,
           private: sessionPrivate ?? recording?.private,
         });
+      // Audio ownership is captured before transcription finishes. Bind the
+      // completed metadata from that same recording before any save can yield;
+      // the manager's current metadata may already belong to a newer recording.
+      const owned = recording?.audioMetadata
+        ? Object.freeze({
+            ...audioOwner,
+            metadata: Object.freeze({ ...recording.audioMetadata }),
+          })
+        : audioOwner;
       if (owned.private) {
         this._releaseOwnedAudio(owned);
         return true;

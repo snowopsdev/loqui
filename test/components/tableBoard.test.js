@@ -43,7 +43,7 @@ const data = (cards = [entity(1)], inbox = []) => ({
   viewport: null,
   truncated: false,
 });
-async function mount(t, api, spaceId = 1) {
+async function mount(t, api, spaceId = 1, framed = false) {
   let root;
   t.after(async () => {
     if (root) await act(() => root.unmount());
@@ -52,9 +52,23 @@ async function mount(t, api, spaceId = 1) {
   const container = installHookDom(t);
   const vite = await createRendererServer(t, rendererOptions("loqui-table-board-"));
   const { useTableBoard } = await vite.ssrLoadModule("/components/table/useTableBoard.ts");
+  let publication;
+  const frames = new Map();
+  if (framed) {
+    publication = (
+      await vite.ssrLoadModule("/components/table/tablePublication.ts")
+    ).createTablePublication();
+    let id = 0;
+    globalThis.requestAnimationFrame = (fn) => {
+      frames.set(++id, fn);
+      return id;
+    };
+    globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+    t.after(() => publication.dispose());
+  }
   let h;
   function Harness({ id }) {
-    h = useTableBoard(id);
+    h = useTableBoard(id, publication);
     return null;
   }
   root = createRoot(container);
@@ -72,6 +86,14 @@ async function mount(t, api, spaceId = 1) {
   await render(spaceId);
   return {
     commits,
+    frames,
+    publication,
+    flush: () =>
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        pending.forEach((fn) => fn());
+      }),
     get h() {
       return h;
     },
@@ -675,4 +697,190 @@ test("Task10 fix1: identical ACK still writes and reads main without publishing 
   assert.equal(writes, 1);
   assert.equal(reads, 2, "canonical main read is never skipped");
   assert.equal(f.commits.length, before, "unchanged ACK and read are not UI changes");
+});
+
+test("Task10 fix2: logical actions and ACK reconciliation are current before one paint publication", async (t) => {
+  let canonical = data([
+    entity(1, "note", { x: 32, y: 32, w: null, h: null, z: 0, hidden: false }),
+  ]);
+  const f = await mount(
+    t,
+    {
+      getTableBoard: async () => structuredClone(canonical),
+      placeTableCards: async (_id, placements) => {
+        const { type: _type, id: _entityId, ...layout } = placements[0];
+        canonical.cards[0].layout = { ...canonical.cards[0].layout, ...layout };
+        return { success: true, placed: 1, placedKeys: ["note:1"] };
+      },
+    },
+    1,
+    true
+  );
+  await f.flush();
+  const before = f.commits.length;
+  await act(async () => {
+    f.h.dispatch({ type: "moved", positions: { "note:1": { x: 80, y: 88 } } });
+    f.h.dispatch({ type: "resized", key: "note:1", size: { w: 320, h: 80 } });
+    assert.deepEqual(f.h.read().overrides["note:1"], { x: 80, y: 88 });
+    assert.deepEqual(f.h.read().sizes["note:1"], { w: 320, h: 80 });
+    assert.equal(await f.h.place([{ type: "note", id: 1, x: 80, y: 88, w: 320, h: 80 }]), true);
+    assert.equal(f.h.read().board.cards[0].layout.x, 80, "ACK settled synchronously before paint");
+    assert.equal(f.h.read().sizes["note:1"], undefined);
+    f.h.dispatch({ type: "focus", key: "note:1" });
+  });
+  assert.equal(f.commits.length, before);
+  await f.flush();
+  assert.equal(f.commits.length, before + 1);
+  assert.deepEqual(f.h.cards[0].rect, { x: 80, y: 88, w: 320, h: 80 });
+  assert.equal(f.h.state.focused, "note:1");
+});
+
+test("Task10 fix2: scope retirement cannot expose the previous paint board", async (t) => {
+  const f = await mount(t, { getTableBoard: async (id) => ({ ...data(), spaceId: id }) }, 1, true);
+  await f.flush();
+  await act(() => f.h.dispatch({ type: "moved", positions: { "note:1": { x: 500, y: 500 } } }));
+  await f.render(2);
+  assert.notEqual(f.h.state.board?.spaceId, 1, "new scope must not paint the previous board");
+  assert.equal(f.h.read().board.spaceId, 2);
+  await f.flush();
+  assert.equal(f.h.state.board.spaceId, 2);
+  assert.deepEqual(f.h.state.overrides, {});
+  const count = f.commits.length;
+  await f.unmount();
+  await f.flush();
+  assert.equal(f.commits.length, count, "no scheduled publication survives unmount");
+});
+
+test("Task10 fix2: transient world actions notify the synchronous DOM owner without a React paint", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() }, 1, true);
+  await f.flush();
+  const before = f.commits.length;
+  const observed = [];
+  const off = f.h.subscribe?.(() => observed.push(f.h.read().viewport.x));
+  await act(() => {
+    f.h.setViewport({ x: 73, y: 19, scale: 0.25 }, false);
+    f.h.dispatch({ type: "moved", positions: { "note:1": { x: 90, y: 99 } } });
+  });
+  assert.deepEqual(f.h.read().overrides["note:1"], { x: 90, y: 99 });
+  assert.deepEqual(observed, [73, 73], "the DOM owner sees both logical actions immediately");
+  await f.flush();
+  assert.equal(
+    f.commits.length,
+    before,
+    "transient projection is owned by semantic DOM, not a stale React repaint"
+  );
+  off();
+});
+
+test("Task10 fix2: changed canonical metadata preserves unchanged source identities, changed content invalidates", async (t) => {
+  let canonical = data([entity(1)]);
+  const f = await mount(t, { getTableBoard: async () => structuredClone(canonical) });
+  const source = f.h.cards[0].entity;
+  canonical.viewport = { x: 12, y: 24, scale: 0.5 };
+  await act(() => f.h.reload());
+  assert.deepEqual(f.h.state.board.viewport, canonical.viewport);
+  assert.ok(
+    f.h.cards[0].entity === source,
+    "canonical metadata does not remount/rebuild unchanged content"
+  );
+  canonical.cards[0].title = "Changed authoritative title";
+  await act(() => f.h.reload());
+  assert.equal(f.h.cards[0].entity.title, canonical.cards[0].title);
+  assert.notEqual(f.h.cards[0].entity, source);
+});
+
+test("Task10 fix2: measured values are synchronous and one native delivery projects layout once", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data([entity(1), entity(2)]) }, 1, true);
+  await f.flush();
+  let notices = 0;
+  const off = f.h.subscribe(() => notices++);
+  await act(async () => {
+    f.h.dispatch({ type: "measured", key: "note:1", h: 225 });
+    f.h.dispatch({ type: "measured", key: "note:2", h: 250 });
+    assert.equal(f.h.read().measured["note:1"], 225);
+    assert.equal(f.h.read().measured["note:2"], 250);
+    assert.equal(notices, 0);
+    await Promise.resolve();
+    assert.equal(notices, 1, "all actual measurements share a before-paint layout projection");
+  });
+  await f.flush();
+  assert.equal(f.h.state.measured["note:2"], 250);
+  off();
+});
+
+test("Task10 fix2: refusal authority and status notification precede its paint snapshot", async (t) => {
+  const f = await mount(
+    t,
+    {
+      getTableBoard: async () => data(),
+      placeTableCards: async () => ({ success: false, code: "TABLE_FULL" }),
+    },
+    1,
+    true
+  );
+  await f.flush();
+  const observed = [];
+  const off = f.h.subscribe(() => observed.push(f.h.readStatus()));
+  await act(async () => {
+    assert.equal(await f.h.place([{ type: "note", id: 1, x: 40, y: 48 }]), false);
+    assert.equal(f.h.readStatus(), "full");
+    assert.equal(
+      f.h.status,
+      "idle",
+      "logical acceptance is independent of the pending paint snapshot"
+    );
+    assert.ok(observed.includes("full"), "visible status owner was notified synchronously");
+  });
+  await f.flush();
+  assert.equal(f.h.status, "full");
+  off();
+});
+
+test("Task10 fix2: a cancelled publication callback cannot flush a reactivated owner", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() }, 1, true);
+  await f.flush();
+  await act(() => f.h.dispatch({ type: "focus", key: "note:1" }));
+  const old = [...f.frames.values()][0];
+  f.publication.dispose();
+  f.publication.activate();
+  await act(() => f.h.dispatch({ type: "focus", key: null }));
+  const before = f.commits.length;
+  await act(() => old());
+  assert.equal(
+    f.commits.length,
+    before,
+    "retired callback must not publish the newer pending state"
+  );
+  await f.flush();
+  assert.equal(f.commits.length, before + 1);
+});
+
+test("Task10 fix2: logical projection identity survives viewport actions and invalidates synchronously for geometry", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() }, 1, true);
+  await f.flush();
+  assert.ok(Array.isArray(f.h.readCards?.()), "logical owner provides the current projection");
+  const before = f.h.readCards();
+  await act(() => f.h.setViewport({ x: 12, y: 24, scale: 0.25 }, false));
+  assert.equal(f.h.readCards(), before);
+  await act(() => f.h.dispatch({ type: "moved", positions: { "note:1": { x: 77, y: 88 } } }));
+  const moved = f.h.readCards();
+  assert.notEqual(moved, before);
+  assert.equal(moved[0].rect.x, 77);
+  assert.equal(f.h.cards[0].rect.x, 32, "paint snapshot may lag, handler projection must not");
+  await act(() => f.h.dispatch({ type: "measured", key: "note:1", h: 240 }));
+  assert.equal(f.h.readCards()[0].rect.h, 240);
+});
+
+test("Task10 fix2: a retired scope handler cannot restore sizing into a same-key newer board", async (t) => {
+  const f = await mount(t, { getTableBoard: async (id) => ({ ...data(), spaceId: id }) }, 1, true);
+  await f.flush();
+  const oldDispatch = f.h.dispatch;
+  await f.render(2);
+  await f.flush();
+  await act(() => oldDispatch({ type: "resized", key: "note:1", size: { w: 600, h: 600 } }));
+  assert.deepEqual(
+    f.h.read().sizes,
+    {},
+    "old Canvas cleanup has no authority over a new scope's same key"
+  );
 });

@@ -2,8 +2,9 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { CalendarDays, MessageSquare, Mic, NotebookPen } from "../icons";
 import { formatMmSs } from "../../utils/formatDuration";
-import type { TableCardModel } from "./tableModel";
+import { sameTableCard, type TableCardProps } from "./tableCardIdentity";
 import { plainExcerpt } from "./tableModel";
+export type { TableCardProps } from "./tableCardIdentity";
 
 const KIND_ICON = {
   note: NotebookPen,
@@ -21,16 +22,6 @@ const initials = (name: string) =>
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 
-export interface TableCardProps {
-  card: TableCardModel;
-  selected: boolean;
-  focusable: boolean;
-  dragging: boolean;
-  snapping: boolean;
-  expanded: boolean;
-  onMeasure: (key: string, h: number) => void;
-}
-
 // Cards are DOM, not canvas pixels, so text stays selectable by assistive tech
 // and inherits theme, zoom and font settings. The dictation glyph is neutral:
 // orange is reserved for live voice (D1).
@@ -42,6 +33,8 @@ function TableCardContent({
   snapping,
   expanded,
   onMeasure,
+  onNode,
+  observe,
 }: TableCardProps) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
@@ -49,15 +42,23 @@ function TableCardContent({
   const bodyRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef(false);
   sizedRef.current = card.fixedH != null;
-  const updateOverflow = useCallback(() => {
+  const updateOverflow = useCallback((fixed?: boolean) => {
+    if (fixed !== undefined) sizedRef.current = fixed;
     const content = contentRef.current;
     if (!content) return;
     // The cue changes paint only. Keep it synchronous with actual layout without
     // scheduling another React commit for otherwise unchanged card content.
-    if (sizedRef.current && content.scrollHeight > content.clientHeight)
+    if ((fixed ?? sizedRef.current) && content.scrollHeight > content.clientHeight)
       content.setAttribute("data-overflowing", "true");
     else content.removeAttribute("data-overflowing");
   }, []);
+  const attach = useCallback(
+    (node: HTMLDivElement | null) => {
+      ref.current = node;
+      onNode?.(card.key, node, updateOverflow);
+    },
+    [card.key, onNode, updateOverflow]
+  );
   const { entity } = card;
   const Icon = KIND_ICON[entity.kind];
   const kindLabel = t(`table.kind.${entity.kind}`);
@@ -85,18 +86,31 @@ function TableCardContent({
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
+    let active = true;
+    const measure = () => {
+      if (!active) return;
       onMeasure(card.key, el.offsetHeight);
       updateOverflow();
-    });
+    };
+    if (observe) {
+      const stop = observe(el, bodyRef.current, measure);
+      return () => {
+        active = false;
+        stop();
+      };
+    }
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     if (bodyRef.current) observer.observe(bodyRef.current);
-    return () => observer.disconnect();
-  }, [card.key, onMeasure, updateOverflow]);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [card.key, onMeasure, updateOverflow, observe]);
 
   return (
     <div
-      ref={ref}
+      ref={attach}
       role="option"
       aria-selected={selected}
       tabIndex={focusable ? 0 : -1}
@@ -150,23 +164,4 @@ function TableCardContent({
 }
 
 // Reuse the text/metadata subtree while another card or the viewport moves.
-export const TableCard = memo(TableCardContent, (previous, next) => {
-  const a = previous.card;
-  const b = next.card;
-  return (
-    a.key === b.key &&
-    a.entity === b.entity &&
-    a.z === b.z &&
-    a.fixedH === b.fixedH &&
-    a.rect.x === b.rect.x &&
-    a.rect.y === b.rect.y &&
-    a.rect.w === b.rect.w &&
-    a.rect.h === b.rect.h &&
-    previous.selected === next.selected &&
-    previous.focusable === next.focusable &&
-    previous.dragging === next.dragging &&
-    previous.snapping === next.snapping &&
-    previous.expanded === next.expanded &&
-    previous.onMeasure === next.onMeasure
-  );
-});
+export const TableCard = memo(TableCardContent, sameTableCard);

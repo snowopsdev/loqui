@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { SpaceItem } from "../../types/electron";
@@ -9,7 +9,14 @@ import { Button } from "../ui/button";
 import { TableCanvas } from "./TableCanvas";
 import { TableInbox } from "./TableInbox";
 import { TableSelectionBar } from "./TableSelectionBar";
-import { fitViewport, screenToWorld, snapToGrid, zoomAt, type Point } from "./tableGeometry";
+import {
+  ensureVisible,
+  fitViewport,
+  screenToWorld,
+  snapToGrid,
+  zoomAt,
+  type Point,
+} from "./tableGeometry";
 import {
   buildGroupedNote,
   parseRefKey,
@@ -17,6 +24,7 @@ import {
   type CardSize,
   type TableSizing,
 } from "./tableModel";
+import { createTablePublication } from "./tablePublication";
 import { useTableBoard } from "./useTableBoard";
 import { useTableChat } from "./useTableChat";
 import { TableDictationDetail } from "./TableDictationDetail";
@@ -31,13 +39,51 @@ export default function TableView({
   viewSwitch: ReactNode;
 }) {
   const { t } = useTranslation();
-  const board = useTableBoard(space.id);
-  const { state, cards, edges, dispatch, place, hide, setViewport } = board;
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const publication = useMemo(createTablePublication, [space.id]);
+  useLayoutEffect(() => {
+    publication.activate();
+    return () => publication.dispose();
+  }, [publication]);
+  const board = useTableBoard(space.id, publication);
+  const {
+    state,
+    cards,
+    edges,
+    dispatch,
+    place,
+    hide,
+    setViewport,
+    read,
+    subscribe,
+    readStatus,
+    readCards,
+  } = board;
+  const zoomLabel = useRef<HTMLSpanElement>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionFailed, setActionFailed] = useState(false);
+  const statusLabel = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(
+    () =>
+      subscribe(() => {
+        const zoom = t("table.zoomLevel", { percent: Math.round(read().viewport.scale * 100) });
+        if (zoomLabel.current && zoomLabel.current.textContent !== zoom)
+          zoomLabel.current.textContent = zoom;
+        if (statusLabel.current) {
+          const currentStatus = readStatus();
+          const text =
+            currentStatus === "full"
+              ? t("table.status.full")
+              : currentStatus === "saveFailed" || actionFailed
+                ? t("table.status.saveFailed")
+                : read().board?.truncated
+                  ? t("table.status.truncated")
+                  : "";
+          if (statusLabel.current.textContent !== text) statusLabel.current.textContent = text;
+        }
+      }),
+    [subscribe, read, readStatus, t, actionFailed]
+  );
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -48,11 +94,14 @@ export default function TableView({
   const canvasSize = useRef({ width: 1200, height: 800 });
 
   const belowSelection = (): Point => {
-    const rects = cards.filter((c) => state.selection.includes(c.key)).map((c) => c.rect);
+    const live = read();
+    const rects = readCards()
+      .filter((c) => live.selection.includes(c.key))
+      .map((c) => c.rect);
     if (!rects.length)
       return screenToWorld(
         { x: canvasSize.current.width / 2, y: canvasSize.current.height / 2 },
-        state.viewport
+        live.viewport
       );
     const cx = rects.reduce((sum, r) => sum + r.x + r.w / 2, 0) / rects.length;
     const bottom = Math.max(...rects.map((r) => r.y + r.h));
@@ -79,7 +128,10 @@ export default function TableView({
   const group = async () => {
     if (busy) return;
     // Freeze source content, refs and result geometry before the first save await.
-    const sources = cards.filter((c) => state.selection.includes(c.key)).map((c) => c.entity);
+    const live = read();
+    const sources = readCards()
+      .filter((c) => live.selection.includes(c.key))
+      .map((c) => c.entity);
     const at = { ...belowSelection() };
     const host = space.id;
     setBusy(true);
@@ -143,33 +195,33 @@ export default function TableView({
         world ??
         screenToWorld(
           { x: canvasSize.current.width / 2, y: canvasSize.current.height / 2 },
-          stateRef.current.viewport
+          read().viewport
         );
       void place([{ ...ref, x: snapToGrid(at.x), y: snapToGrid(at.y) }]);
     },
-    [place]
+    [place, read]
   );
 
-  // Stable handlers: the canvas re-renders on every pointer frame, and a new
-  // function identity would reconnect every card's ResizeObserver.
+  // Keep observation ownership stable across paint snapshots. Handlers read
+  // the synchronous logical owner rather than an older React snapshot.
   const onMove = useCallback(
     (positions: Record<string, Point>) => dispatch({ type: "moved", positions }),
     [dispatch]
   );
   const onDrop = useCallback(
     (positions: Record<string, Point>) =>
-      void place(placementsFor(stateRef.current, Object.keys(positions), positions)),
-    [place]
+      void place(placementsFor(read(), Object.keys(positions), positions)),
+    [place, read]
   );
   const onResizeCard = useCallback(
     (key: string, size: CardSize, commit: boolean) => {
       dispatch({ type: "resized", key, size });
       if (commit) {
-        const current = stateRef.current;
+        const current = read();
         void place(placementsFor({ ...current, sizes: { ...current.sizes, [key]: size } }, [key]));
       }
     },
-    [dispatch, place]
+    [dispatch, place, read]
   );
   const onResizeCancel = useCallback(
     (key: string, sizing: TableSizing) => {
@@ -186,15 +238,15 @@ export default function TableView({
   const onRemove = useCallback((keys: string[]) => void hide(keys), [hide]);
   const onNudge = useCallback(
     (keys: string[], dx: number, dy: number) => {
-      const current = stateRef.current;
+      const current = read();
       const positions = Object.fromEntries(
-        cards
+        readCards()
           .filter((c) => keys.includes(c.key))
           .map((c) => [c.key, { x: c.rect.x + dx, y: c.rect.y + dy }])
       );
       void place(placementsFor(current, keys, positions));
     },
-    [cards, place]
+    [read, readCards, place]
   );
   const onMeasure = useCallback(
     (key: string, h: number) => dispatch({ type: "measured", key, h }),
@@ -203,6 +255,18 @@ export default function TableView({
   const onResize = useCallback((size: { width: number; height: number }) => {
     canvasSize.current = size;
   }, []);
+
+  const closeDetail = () => {
+    const live = read();
+    const key = expanded === null ? null : `dictation:${expanded}`;
+    const card = readCards().find((item) => item.key === key);
+    if (card) {
+      dispatch({ type: "focus", key: card.key });
+      const next = ensureVisible(card.rect, live.viewport, canvasSize.current);
+      if (next !== live.viewport) setViewport(next, true);
+    }
+    setExpanded(null);
+  };
 
   const routeChip = tableChat.ready ? (
     <RouteDestinationChip route={chatRoute} />
@@ -213,11 +277,11 @@ export default function TableView({
   );
 
   const status =
-    board.status === "full"
+    readStatus() === "full"
       ? t("table.status.full")
-      : board.status === "saveFailed" || actionFailed
+      : readStatus() === "saveFailed" || actionFailed
         ? t("table.status.saveFailed")
-        : state.board?.truncated
+        : read().board?.truncated
           ? t("table.status.truncated")
           : "";
 
@@ -231,7 +295,7 @@ export default function TableView({
           aria-label={t("table.zoomOut")}
           onClick={() =>
             setViewport(
-              zoomAt(state.viewport, 1 / 1.2, {
+              zoomAt(read().viewport, 1 / 1.2, {
                 x: canvasSize.current.width / 2,
                 y: canvasSize.current.height / 2,
               }),
@@ -241,8 +305,8 @@ export default function TableView({
         >
           −
         </Button>
-        <span className="table-toolbar__zoom">
-          {t("table.zoomLevel", { percent: Math.round(state.viewport.scale * 100) })}
+        <span ref={zoomLabel} className="table-toolbar__zoom">
+          {t("table.zoomLevel", { percent: Math.round(read().viewport.scale * 100) })}
         </span>
         <Button
           size="sm"
@@ -250,7 +314,7 @@ export default function TableView({
           aria-label={t("table.zoomIn")}
           onClick={() =>
             setViewport(
-              zoomAt(state.viewport, 1.2, {
+              zoomAt(read().viewport, 1.2, {
                 x: canvasSize.current.width / 2,
                 y: canvasSize.current.height / 2,
               }),
@@ -267,7 +331,7 @@ export default function TableView({
             invalidate();
             setViewport(
               fitViewport(
-                cards.map((c) => c.rect),
+                readCards().map((c) => c.rect),
                 canvasSize.current
               ),
               true
@@ -290,12 +354,13 @@ export default function TableView({
           {t(askOpen ? "table.ask.close" : "table.ask.open")}
         </Button>
       </div>
-      <p role="status" aria-live="polite" className="table-status">
+      <p ref={statusLabel} role="status" aria-live="polite" className="table-status">
         {status}
       </p>
       <div className="table-body">
         <TableInbox entities={state.board?.inbox ?? []} onPlace={placeFromInbox} />
         <TableCanvas
+          key={`canvas:${space.id}`}
           cards={cards}
           edges={edges}
           viewport={state.viewport}
@@ -318,9 +383,20 @@ export default function TableView({
           onResizeCard={onResizeCard}
           onResizeCancel={onResizeCancel}
           gestureScope={space.id}
+          publication={publication}
+          subscribe={subscribe}
+          read={() => {
+            const live = read();
+            return {
+              cards: readCards(),
+              viewport: live.viewport,
+              selection: live.selection,
+              focused: live.focused,
+            };
+          }}
         />
         {expanded !== null && (
-          <TableDictationDetail key={expanded} id={expanded} onClose={() => setExpanded(null)} />
+          <TableDictationDetail key={expanded} id={expanded} onClose={closeDetail} />
         )}
         {askOpen && (
           <aside className="table-ask" aria-label={t("table.ask.open")}>
@@ -378,7 +454,7 @@ export default function TableView({
           onSummarise={() => tableChat.startFromSelection(t("table.selection.summarisePrompt"))}
           onAsk={() => tableChat.startFromSelection(null)}
           onGroup={() => void group()}
-          onRemove={() => void hide(state.selection)}
+          onRemove={() => void hide(read().selection)}
         />
       )}
     </div>

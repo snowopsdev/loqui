@@ -204,6 +204,7 @@ async function mount(t, overrides = {}) {
         ? node.attributes["data-card-key"] != null
         : node.attributes["data-card-key"] === selector.match(/data-card-key="([^"]+)"/)?.[1];
   const enhance = (node) => {
+    node.getAttribute = (key) => node.attributes[key] ?? null;
     node.contains = (other) => all(node).includes(other);
     node.focus = () => {
       globalThis.document.activeElement = node;
@@ -257,6 +258,9 @@ async function mount(t, overrides = {}) {
     observe(node) {
       this.node ??= node;
       (this.nodes ??= []).push(node);
+    }
+    unobserve(node) {
+      this.nodes = this.nodes.filter((target) => target !== node);
     }
     disconnect() {
       this.disconnected = true;
@@ -1053,4 +1057,381 @@ test("Task10 fix1: overflow paint follows real measurement without regenerating 
   await React.act(async () => observer.callback());
   assert.equal(content.attributes["data-overflowing"], undefined);
   assert.equal(translations, before);
+});
+
+test("Task10 fix2: a visited card retains its semantic node and observer across viewport roundtrip", async (t) => {
+  const c = card("note:1", "note", 32, 32);
+  const f = await mount(t, { cards: [c], selection: [] });
+  const original = f.cardEl(c.key);
+  const observer = f.observers.find((o) => o.node === original);
+  await f.render({ viewport: { x: -9000, y: -9000, scale: 1 } });
+  assert.ok(f.cardEl(c.key) === original, "offscreen retention preserves the semantic DOM node");
+  assert.equal(original.attributes["aria-hidden"], "true");
+  assert.equal(original.attributes.tabindex, "-1");
+  assert.notEqual(observer.disconnected, true);
+  await f.render({ viewport: { x: 0, y: 0, scale: 1 } });
+  assert.equal(f.cardEl(c.key), original);
+  assert.equal(original.attributes["aria-hidden"], undefined);
+  await f.render({ cards: [] });
+  assert.equal(f.cardEl(c.key), null, "canonical deletion retires the retained node");
+  assert.equal(observer.disconnected, true);
+});
+
+test("Task10 fix2: final pointer DOM and nullable cancel restore are synchronous before paint", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  let logical = card("note:1", "note", 32, 32);
+  let m, insideDrop, insideResizeCommit;
+  const live = () => ({
+    cards: [logical],
+    viewport: { x: 0, y: 0, scale: 1 },
+    selection: [],
+    focused: null,
+  });
+  m = await mount(t, {
+    cards: [logical],
+    selection: [],
+    publication,
+    read: live,
+    onMove: (positions) => {
+      logical = { ...logical, rect: { ...logical.rect, ...positions[logical.key] } };
+    },
+    onDrop: () => {
+      insideDrop = [
+        parseFloat(m.cardEl(logical.key).style.left),
+        parseFloat(m.cardEl(logical.key).style.top),
+      ];
+    },
+    onResizeCard: (_key, size, commit) => {
+      if (commit)
+        insideResizeCommit = [
+          parseFloat(m.cardEl(logical.key).style.width),
+          parseFloat(m.cardEl(logical.key).style.height),
+        ];
+      logical = {
+        ...logical,
+        rect: { ...logical.rect, ...{ w: size.w, h: size.h } },
+        fixedH: size.h,
+      };
+    },
+    onResizeCancel: () => {
+      logical = { ...logical, rect: { ...logical.rect, w: 280, h: 150 }, fixedH: undefined };
+    },
+  });
+  const node = m.cardEl(logical.key);
+  await m.event("onPointerDown", node, { clientX: 42, clientY: 52 });
+  await m.event("onPointerMove", node, { clientX: 50, clientY: 60 });
+  await m.event("onPointerUp", node, { clientX: 101, clientY: 83 });
+  assert.deepEqual(
+    insideDrop,
+    [91, 63],
+    "main drop callback already observes the exact final pointer DOM"
+  );
+  const handle = handleFor(m);
+  await m.event("onPointerDown", handle);
+  await m.event("onPointerMove", handle, { clientX: 100, clientY: 100 });
+  await m.flush();
+  assert.equal(parseFloat(node.style.height), 230);
+  await React.act(() => {
+    m.tree.props(m.canvas()).onPointerCancel({ pointerId: 1 });
+    assert.equal(
+      node.style.height,
+      "",
+      "nullable natural height is restored before callback return"
+    );
+    assert.equal(node.style.overflow, "");
+    assert.equal(parseFloat(node.style.width), 280);
+  });
+  await m.event("onPointerDown", handleFor(m));
+  await m.event("onPointerMove", handleFor(m), { clientX: 25, clientY: 30 });
+  await m.event("onPointerUp", handleFor(m), { clientX: 51, clientY: -380 });
+  assert.deepEqual(
+    insideResizeCommit,
+    [321, 80],
+    "resize commit callback sees the exact final preview DOM"
+  );
+  assert.equal(
+    parseFloat(node.style.width),
+    320,
+    "snapped geometry is also current before returning"
+  );
+});
+
+test("Task10 fix2: a retired card observer cannot measure into a later canonical owner", async (t) => {
+  const m = await mount(t, { cards: [card("note:1", "note", 32, 32)] });
+  const observer = m.observers.find((o) => o.node === m.cardEl("note:1"));
+  await m.render({ cards: [] });
+  const before = m.byCall("onMeasure").length;
+  await React.act(() => observer.callback());
+  assert.equal(m.byCall("onMeasure").length, before);
+});
+
+test("Task10 fix2: one Table observer retains both actual targets per card and deduplicates entries", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const m = await mount(t, {
+    publication,
+    cards: [card("note:1", "note", 32, 32), card("note:2", "note", 400, 32)],
+  });
+  const a = m.cardEl("note:1"),
+    b = m.cardEl("note:2");
+  const observer = m.observers.find((o) => o.nodes?.includes(a) && o.nodes.includes(b));
+  assert.ok(observer, "cards share the Table-owned real ResizeObserver");
+  assert.equal(observer.nodes.length, 4, "outer and intrinsic body are both observed");
+  const before = m.byCall("onMeasure").length;
+  await React.act(() => observer.callback(observer.nodes.map((target) => ({ target }))));
+  assert.equal(
+    m.byCall("onMeasure").length,
+    before + 2,
+    "both entries for a card produce its actual outer measurement once"
+  );
+  await m.render({ cards: [] });
+  const retired = m.byCall("onMeasure").length;
+  await React.act(() => observer.callback([{ target: a }, { target: b }]));
+  assert.equal(
+    m.byCall("onMeasure").length,
+    retired,
+    "retired targets cannot measure into a later board"
+  );
+});
+
+test("Task10 fix2: keyboard entry and connector geometry use the live world before any paint", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const { connectorPath } = await import("../../src/components/table/tableGeometry.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  let a = card("note:1", "note", 32, 32),
+    b = card("note:2", "note", 9000, 32);
+  let viewport = { x: 0, y: 0, scale: 1 },
+    focused = null,
+    m;
+  const read = () => ({ cards: [a, b], viewport, focused, selection: [] });
+  m = await mount(t, {
+    cards: [a, b],
+    selection: [],
+    edges: [{ a: a.key, b: b.key }],
+    publication,
+    read,
+    onFocus: (key) => {
+      focused = key;
+    },
+    onViewport: (value) => {
+      viewport = value;
+    },
+    onMove: (positions) => {
+      a = { ...a, rect: { ...a.rect, ...positions[a.key] } };
+    },
+    onDrop: () => {
+      const svg = m.tree.find((n) => n.attributes.class === "table-connectors");
+      assert.equal(
+        svg.childNodes[0].attributes.d,
+        connectorPath(a.rect, b.rect),
+        "physical connector already follows the final DOM geometry"
+      );
+    },
+  });
+  const node = m.cardEl(a.key);
+  await m.event("onPointerDown", node);
+  await m.event("onPointerUp", node, { clientX: 50, clientY: 60 });
+  viewport = { x: -8970, y: 0, scale: 1 };
+  await m.event("onKeyDown", m.canvas(), { key: "ArrowDown" });
+  assert.equal(focused, b.key, "entry uses live viewport, not its older React snapshot");
+  assert.equal(globalThis.document.activeElement, m.cardEl(b.key));
+});
+
+test("Task10 fix2: canonical retirement and same-key return update DOM ownership before paint", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const a = card("note:1", "note", 32, 32);
+  let cards = [a],
+    notify;
+  const m = await mount(t, {
+    cards,
+    selection: [],
+    publication,
+    read: () => ({ cards, viewport: { x: 0, y: 0, scale: 1 }, focused: null, selection: [] }),
+    subscribe: (callback) => {
+      notify = callback;
+      return () => {
+        notify = null;
+      };
+    },
+  });
+  const node = m.cardEl(a.key);
+  await React.act(() => {
+    cards = [];
+    notify();
+    assert.equal(node.attributes["aria-hidden"], "true");
+    cards = [a];
+    notify();
+  });
+  assert.equal(node.attributes["aria-hidden"], undefined);
+  assert.notEqual(
+    node.style.visibility,
+    "hidden",
+    "a same-key current owner cannot inherit retired DOM visibility"
+  );
+  assert.equal(
+    node.style.clipPath || "none",
+    "none",
+    "current visible controls are fully unclipped"
+  );
+});
+
+test("Task10 fix2: native measurement retains a just-resized overflow cue before React publication", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  let a = card("note:1", "note", 32, 32);
+  const m = await mount(t, {
+    cards: [a],
+    selection: [],
+    publication,
+    read: () => ({ cards: [a], viewport: { x: 0, y: 0, scale: 1 }, selection: [], focused: null }),
+    onResizeCard: (_key, size) => {
+      a = { ...a, fixedH: size.h, rect: { ...a.rect, w: size.w, h: size.h } };
+    },
+  });
+  const node = m.cardEl(a.key),
+    content = m.tree.find((n) => n.attributes.class === "table-card__content");
+  content.clientHeight = 54;
+  content.scrollHeight = 180;
+  node.offsetHeight = 80;
+  await m.event("onPointerDown", handleFor(m));
+  await m.event("onPointerMove", handleFor(m), { clientX: 40, clientY: -400 });
+  await m.flush();
+  assert.equal(content.attributes["data-overflowing"], "true");
+  const observer = m.observers.find((o) => o.nodes?.includes(node));
+  await React.act(() => observer.callback([{ target: node }]));
+  assert.equal(
+    content.attributes["data-overflowing"],
+    "true",
+    "a real native delivery must use the synchronous sizing owner, not an older React card"
+  );
+});
+
+test("Task10 fix2: render-free background pan retains immediate cursor feedback and cancellation", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const a = card("note:1", "note", 32, 32);
+  let viewport = { x: 0, y: 0, scale: 1 };
+  const m = await mount(t, {
+    cards: [a],
+    publication,
+    read: () => ({ cards: [a], viewport, selection: [], focused: null }),
+    onViewport: (value) => {
+      viewport = value;
+    },
+  });
+  await m.flush();
+  await m.event("onPointerDown", m.canvas());
+  await m.event("onPointerMove", m.canvas(), { clientX: 90, clientY: 110 });
+  await m.flush();
+  assert.equal(m.canvas().attributes["data-panning"], "true");
+  await m.event("onPointerCancel", m.canvas());
+  assert.equal(m.canvas().attributes["data-panning"], undefined);
+  assert.deepEqual(viewport, { x: 0, y: 0, scale: 1 });
+});
+
+test("Task10 fix2: retired drag keys cannot keep the bounded warm publisher alive", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  let cards = [card("note:1", "note", 32, 32)];
+  const m = await mount(t, {
+    cards,
+    publication,
+    read: () => ({ cards, viewport: { x: 0, y: 0, scale: 1 }, selection: [], focused: null }),
+    onMove: () => {},
+  });
+  await m.flush();
+  await m.event("onPointerDown", m.cardEl("note:1"));
+  await m.event("onPointerMove", m.cardEl("note:1"), { clientX: 70, clientY: 70 });
+  await m.flush();
+  cards = [];
+  await m.render({ cards });
+  await m.flush();
+  assert.equal(m.frames.size, 0, "a missing retired key is not a canonical card waiting to warm");
+});
+
+test("Task10 fix2: lasso DOM clears synchronously at cancellation before a paint snapshot", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const cards = [card("note:1", "note", 32, 32)];
+  const m = await mount(t, {
+    cards,
+    publication,
+    read: () => ({ cards, viewport: { x: 0, y: 0, scale: 1 }, selection: [], focused: null }),
+    onSelect: () => {},
+  });
+  await m.flush();
+  await m.event("onPointerDown", m.canvas(), { shiftKey: true });
+  await m.event("onPointerMove", m.canvas(), { clientX: 110, clientY: 120 });
+  await m.flush();
+  await m.flush();
+  const overlay = m.tree.find((n) => n.attributes.class === "table-lasso");
+  assert.ok(overlay);
+  await m.event("onPointerCancel", m.canvas());
+  assert.equal(
+    overlay.style.visibility,
+    "hidden",
+    "cancelled overlay must be absent before the next RAF"
+  );
+});
+
+test("Task10 fix2: newly visible canonical content is mounted before the wheel callback returns", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const cards = Array.from({ length: 50 }, (_, i) =>
+    card(`note:${i + 1}`, "note", 32 + i * 304, 32)
+  );
+  let viewport = { x: 0, y: 0, scale: 1 };
+  const m = await mount(t, {
+    cards,
+    selection: [],
+    publication,
+    read: () => ({ cards, viewport, selection: [], focused: null }),
+    onViewport: (value) => {
+      viewport = value;
+    },
+  });
+  assert.ok(!m.cardEl("note:50"));
+  await React.act(() => {
+    m.listeners.get("wheel")({
+      deltaX: 14900,
+      deltaY: 0,
+      ctrlKey: false,
+      metaKey: false,
+      clientX: 100,
+      clientY: 100,
+      preventDefault() {},
+    });
+    assert.ok(m.cardEl("note:50"), "visible content must exist before the wheel callback returns");
+    assert.notEqual(m.cardEl("note:50").style.visibility, "hidden");
+  });
+});
+
+test("Task10 fix2: optional retention warms nearby world content before distant canonical-order cards", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const near = card("note:50", "note", 1700, 32);
+  const cards = [
+    card("note:1", "note", 32, 32),
+    ...Array.from({ length: 30 }, (_, i) => card(`note:${i + 2}`, "note", 9000 + i * 304, 9000)),
+    near,
+  ];
+  const m = await mount(t, { cards, selection: [], publication });
+  assert.ok(
+    m.cardEl(near.key),
+    "the bounded first warm chunk prioritizes the spatial neighborhood"
+  );
+  assert.equal(m.cardEl(near.key).attributes["aria-hidden"], "true");
+  assert.equal(m.cardEl(near.key).attributes.tabindex, "-1");
 });

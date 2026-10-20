@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useTablePaintState, type TablePublication } from "./tablePublication";
 import type { TableBoardData, TableEntityRef, TablePlacement } from "../../types/table";
 import type { Viewport } from "./tableGeometry";
 import { parseEntityHref } from "./tableEdges";
@@ -35,6 +36,27 @@ function sameTableValue(a: unknown, b: unknown): boolean {
 }
 function reduce(state: TableState, action: BoardAction): TableState {
   if (action.type === "loaded" && sameTableValue(state.board, action.board)) return state;
+  if (action.type === "loaded" && state.board) {
+    const old = new Map(
+      [...state.board.cards, ...state.board.inbox].map((entity) => [refKey(entity.ref), entity])
+    );
+    const share = (entities: TableBoardData["cards"]) =>
+      entities.map((entity) => {
+        const previous = old.get(refKey(entity.ref));
+        return previous && sameTableValue(previous, entity) ? previous : entity;
+      });
+    action = {
+      ...action,
+      board: {
+        ...action.board,
+        cards: share(action.board.cards),
+        inbox: share(action.board.inbox),
+        links: sameTableValue(state.board.links, action.board.links)
+          ? state.board.links
+          : action.board.links,
+      },
+    };
+  }
   if (action.type === "reset") return initialTableState();
   if (action.type === "settled") {
     const next = tableReducer(state, { type: "placed", placements: action.accepted });
@@ -63,23 +85,57 @@ function reduce(state: TableState, action: BoardAction): TableState {
 }
 
 /** ACKs describe mutations; main's read describes the canonical, capped projection. */
-export function useTableBoard(spaceId: number) {
-  const [state, setState] = useState(initialTableState);
+export function useTableBoard(spaceId: number, publication?: TablePublication) {
+  const [state, setState, liveState, resetState, projectState] = useTablePaintState(
+    initialTableState(),
+    publication
+  );
   // Apply every action immediately, including ACK ownership. Avoid enqueueing a
   // React update for an unchanged result: a reducer bailout can still commit.
-  // This ref is written only here, never overwritten by an older React render.
-  const liveState = useRef(state);
-  const reduceDispatch = useCallback((action: BoardAction) => {
-    const next = reduce(liveState.current, action);
-    if (sameTableValue(next, liveState.current)) return;
-    liveState.current = next;
-    setState(next);
+  // The paint-state helper is its sole writer; older renders never overwrite it.
+  const listeners = useRef(new Set<() => void>());
+  const measurementNotice = useRef<{ scope: unknown } | null>(null);
+  const subscribe = useCallback((listener: () => void) => {
+    listeners.current.add(listener);
+    return () => {
+      listeners.current.delete(listener);
+    };
   }, []);
+  const reduceDispatch = useCallback(
+    (action: BoardAction) => {
+      const next = reduce(liveState.current, action);
+      if (sameTableValue(next, liveState.current)) return;
+      // Geometry has a synchronous semantic-DOM owner; authoritative content
+      // and status still publish complete React snapshots on the shared frame.
+      if (publication && (action.type === "viewport" || action.type === "moved"))
+        projectState(next);
+      else setState(next);
+      if (publication && action.type === "measured") {
+        const scope = owner.current;
+        if (measurementNotice.current?.scope !== scope) {
+          const notice = { scope };
+          measurementNotice.current = notice;
+          queueMicrotask(() => {
+            if (measurementNotice.current === notice) measurementNotice.current = null;
+            if (owner.current === scope && scope.mounted)
+              listeners.current.forEach((listener) => listener());
+          });
+        }
+      } else listeners.current.forEach((listener) => listener());
+    },
+    [setState, liveState, publication, projectState]
+  );
   const moves = useRef<Record<string, number>>({});
   const resizes = useRef<Record<string, number>>({});
   const placementWrites = useRef<Record<string, number>>({});
   const dispatch = useCallback(
     (action: TableAction) => {
+      if (owner.current.spaceId !== spaceId || !owner.current.mounted) return;
+      if (
+        action.type === "measured" &&
+        !liveState.current.board?.cards.some((card) => refKey(card.ref) === action.key)
+      )
+        return;
       if (action.type === "moved")
         for (const key of Object.keys(action.positions))
           moves.current[key] = (moves.current[key] ?? 0) + 1;
@@ -87,15 +143,19 @@ export function useTableBoard(spaceId: number) {
         resizes.current[action.key] = (resizes.current[action.key] ?? 0) + 1;
       reduceDispatch(action);
     },
-    [reduceDispatch]
+    [reduceDispatch, liveState, spaceId]
   );
-  const [status, publishStatus] = useState<"idle" | "full" | "saveFailed">("idle");
-  const liveStatus = useRef(status);
-  const setStatus = useCallback((next: typeof status) => {
-    if (next === liveStatus.current) return;
-    liveStatus.current = next;
-    publishStatus(next);
-  }, []);
+  const [status, publishStatus, liveStatus, resetStatus] = useTablePaintState<
+    "idle" | "full" | "saveFailed"
+  >("idle", publication);
+  const setStatus = useCallback(
+    (next: typeof status) => {
+      if (next === liveStatus.current) return;
+      publishStatus(next);
+      listeners.current.forEach((listener) => listener());
+    },
+    [publishStatus, liveStatus]
+  );
   const owner = useRef({ spaceId, generation: 0, mounted: true, read: 0, viewport: 0 });
   if (owner.current.spaceId !== spaceId) {
     owner.current = {
@@ -105,11 +165,11 @@ export function useTableBoard(spaceId: number) {
       read: 0,
       viewport: 0,
     };
-    reduceDispatch({ type: "reset" });
+    resetState(initialTableState());
     moves.current = {};
     resizes.current = {};
     placementWrites.current = {};
-    setStatus("idle");
+    resetStatus("idle");
   }
   const viewportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reload = useCallback(
@@ -307,5 +367,50 @@ export function useTableBoard(spaceId: number) {
     () => deriveEdges(cards, state.board?.links ?? [], parseEntityHref),
     [cards, state.board?.links]
   );
-  return { state, cards, edges, dispatch, reload, place, hide, link, setViewport, status };
+  const projection = useRef<{
+    board: TableState["board"];
+    measured: TableState["measured"];
+    overrides: TableState["overrides"];
+    sizes: TableState["sizes"];
+    cards: ReturnType<typeof cardsFor>;
+  } | null>(null);
+  const readCards = useCallback(() => {
+    const current = liveState.current;
+    const cached = projection.current;
+    if (
+      cached &&
+      cached.board === current.board &&
+      cached.measured === current.measured &&
+      cached.overrides === current.overrides &&
+      cached.sizes === current.sizes
+    )
+      return cached.cards;
+    const cards = cardsFor(current);
+    projection.current = {
+      board: current.board,
+      measured: current.measured,
+      overrides: current.overrides,
+      sizes: current.sizes,
+      cards,
+    };
+    return cards;
+  }, [liveState]);
+  const read = useCallback(() => liveState.current, [liveState]);
+  const readStatus = useCallback(() => liveStatus.current, [liveStatus]);
+  return {
+    state,
+    cards,
+    edges,
+    dispatch,
+    reload,
+    place,
+    hide,
+    link,
+    setViewport,
+    status,
+    read,
+    subscribe,
+    readStatus,
+    readCards,
+  };
 }

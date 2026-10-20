@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContainerChat } from "../../hooks/useContainerChat";
 import type { NoteItem, SpaceItem } from "../../types/electron";
 import { buildBoardContext, parseRefKey, pinSelection, type TableCardModel } from "./tableModel";
@@ -34,7 +34,7 @@ interface Options {
 
 /** Table owns unadmitted intent; the existing sender owns admitted requests. */
 export function useTableChat({ space, cards, selection, resultPoint, board }: Options) {
-  const { place, link, reload } = board;
+  const { place, link, reload, read, readCards } = board;
   const destination = useTableRoute();
   const [askOpen, setAskOpen] = useState(false);
   const [pinned, setPinned] = useState<Scope | null>(null);
@@ -43,16 +43,19 @@ export function useTableChat({ space, cards, selection, resultPoint, board }: Op
   const generation = useRef(0);
   const intent = useRef<Intent | null>(null);
   const mounted = useRef(true);
+  const boardContext = useMemo(
+    () =>
+      buildBoardContext(
+        space.name,
+        cards.map((card) => card.entity)
+      ),
+    [space.name, cards]
+  );
   const chat = useContainerChat({
     space,
     folder: null,
     notes: NO_NOTES,
-    contextOverride:
-      pinned?.context ??
-      buildBoardContext(
-        space.name,
-        cards.map((c) => c.entity)
-      ),
+    contextOverride: pinned?.context ?? boardContext,
   });
   const latest = useRef({ chat, destination });
   latest.current = { chat, destination };
@@ -90,14 +93,14 @@ export function useTableChat({ space, cards, selection, resultPoint, board }: Op
   const freeze = useCallback(
     (): Scope =>
       pinned ?? {
-        keys: cards.map((c) => c.key).slice(0, 12),
+        keys: (readCards ? readCards() : cards).map((c) => c.key).slice(0, 12),
         context: buildBoardContext(
           space.name,
-          cards.map((c) => c.entity)
+          (readCards ? readCards() : cards).map((c) => c.entity)
         ),
         at: { ...resultPoint() },
       },
-    [pinned, cards, space.name, resultPoint]
+    [pinned, cards, space.name, resultPoint, readCards]
   );
   const makeIntent = useCallback(
     (scope: Scope, text: string | null, phase: Intent["phase"]): Intent => ({
@@ -183,7 +186,9 @@ export function useTableChat({ space, cards, selection, resultPoint, board }: Op
     if (!destination.canAdmit(destination.destinationKey)) return;
     const pin = pinSelection(
       space.name,
-      cards.filter((c) => selection.includes(c.key)).map((c) => c.entity)
+      (readCards ? readCards() : cards)
+        .filter((c) => (read ? read().selection : selection).includes(c.key))
+        .map((c) => c.entity)
     );
     if ("error" in pin) return;
     start({ ...pin, at: { ...resultPoint() } }, text);

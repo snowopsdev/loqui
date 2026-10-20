@@ -11,11 +11,24 @@ const { createDb } = require("../helpers/harness/db");
 const DatabaseManager = require("../../src/helpers/database");
 const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
 const { installTree } = require("../helpers/harness/fakeDomTree");
-const act = (fn) =>
-  React.act(async () => {
+const paintFrames = new Map();
+let nextPaintFrame = 0;
+const act = async (fn) => {
+  await React.act(async () => {
     await fn();
     await new Promise((r) => setTimeout(r, 0));
   });
+  // Browser paints are explicit in this fake DOM. Individual gesture tests may
+  // install their own frame queue; those frames remain manually controlled.
+  for (let i = 0; paintFrames.size && i < 20; i++) {
+    const pending = [...paintFrames.values()];
+    paintFrames.clear();
+    await React.act(async () => {
+      pending.forEach((callback) => callback());
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+};
 function deferred() {
   let resolve, reject;
   const promise = new Promise((r, j) => {
@@ -112,6 +125,12 @@ async function setup(t, { api = {}, creation, write, stream, board, spaceId = 3 
   };
   installBrowserGlobals(t, { window: { electronAPI: bridge } });
   installHookDom(t);
+  paintFrames.clear();
+  globalThis.requestAnimationFrame = (fn) => {
+    paintFrames.set(++nextPaintFrame, fn);
+    return nextPaintFrame;
+  };
+  globalThis.cancelAnimationFrame = (id) => paintFrames.delete(id);
   const tree = installTree();
   const make = globalThis.document.createElement;
   globalThis.document.createElement = (...args) => {
@@ -122,6 +141,7 @@ async function setup(t, { api = {}, creation, write, stream, board, spaceId = 3 
     n.hasPointerCapture = () => false;
     n.setPointerCapture = () => {};
     n.releasePointerCapture = () => {};
+    n.getAttribute = (key) => n.attributes[key] ?? null;
     n.contains = () => false;
     n.focus = () => {
       globalThis.document.activeElement = n;
@@ -792,7 +812,11 @@ for (const prior of ["natural", "explicit", "widthOnly"])
         });
       });
     const layout = () => db.getTableBoard(spaceId).cards.find((e) => e.ref.id === id).layout;
-    const style = () => c.tree.props(card()).style;
+    const style = () => ({
+      width: parseFloat(card().style.width),
+      height: card().style.height ? parseFloat(card().style.height) : undefined,
+      overflow: card().style.overflow || undefined,
+    });
     await event("onPointerDown", handle());
     await event("onPointerMove", handle(), { clientX: 80, clientY: -400 });
     await flush();
@@ -820,7 +844,13 @@ for (const prior of ["natural", "explicit", "widthOnly"])
     await event("onPointerDown", handle());
     await event("onPointerMove", handle(), { clientX: 21, clientY: -400 });
     await event("onPointerUp", handle(), { clientX: 43, clientY: -400 }); // before queued RAF
-    assert.equal(frames.size, 0);
+    const committedWrites = writes.length;
+    await flush();
+    assert.equal(
+      writes.length,
+      committedWrites,
+      "a remaining paint cannot replay the released pointer write"
+    );
     const expectedW = Math.round((originW + 43) / 8) * 8;
     assert.deepEqual([layout().w, layout().h], [expectedW, 80]);
     assert.equal(style().height, 80);
@@ -909,7 +939,11 @@ test("Task9 prior override: cancel restores pending size separately from nullabl
         ...over,
       });
     });
-  const style = () => c.tree.props(card()).style;
+  const style = () => ({
+    width: parseFloat(card().style.width),
+    height: card().style.height ? parseFloat(card().style.height) : undefined,
+    overflow: card().style.overflow || undefined,
+  });
   await event("onKeyDown", card(), { key: "ArrowRight", altKey: true });
   const prior = { w: style().width, h: style().height };
   assert.deepEqual(prior, { w: 232, h: 112 });
@@ -942,4 +976,50 @@ test("Task9 prior override: cancel restores pending size separately from nullabl
   t.after(() => reopened.db.close());
   assert.deepEqual(reopened.getTableBoard(spaceId), db.getTableBoard(spaceId));
   assert.equal(reopened.getTranscriptionById(id).text, full);
+});
+
+test("same numeric Space and dictation IDs keep distinct canvas and detail ownership", async (t) => {
+  const diagnostics = [];
+  const originalError = console.error;
+  t.mock.method(console, "error", (...args) => {
+    diagnostics.push(args.map(String).join(" "));
+    originalError.apply(console, args);
+  });
+  const d = item(1, "dictation", "Full dictation ending");
+  const c = await setup(t, {
+    spaceId: 1,
+    board: { spaceId: 1, cards: [d], inbox: [], links: [], viewport: null, truncated: false },
+    api: { getTranscriptionById: async () => ({ id: 1, text: "Full dictation ending" }) },
+  });
+  const canvas = c.tree.find((n) => n.attributes.role === "listbox");
+  const card = c.tree.find((n) => n.attributes["data-card-key"] === "dictation:1");
+  globalThis.document.activeElement = card;
+  await act(() =>
+    c.tree.props(canvas).onKeyDown({
+      key: "Enter",
+      target: card,
+      preventDefault() {},
+    })
+  );
+  const detail = c.tree.find((n) => n.attributes.role === "region");
+  assert.ok(detail);
+  assert.equal(globalThis.document.activeElement, detail);
+  assert.equal(
+    c.tree.find((n) => n.attributes.role === "listbox"),
+    canvas
+  );
+  await act(() => c.tree.props(detail).onKeyDown({ key: "Escape", stopPropagation() {} }));
+  assert.equal(
+    c.tree.find((n) => n.attributes.role === "region"),
+    null
+  );
+  assert.equal(
+    c.tree.find((n) => n.attributes.role === "listbox"),
+    canvas
+  );
+  assert.equal(globalThis.document.activeElement, card);
+  assert.deepEqual(
+    diagnostics.filter((message) => message.includes("same key")),
+    []
+  );
 });

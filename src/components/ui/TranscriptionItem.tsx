@@ -34,7 +34,7 @@ import { formatMmSs } from "../../utils/formatDuration";
 const platform = getCachedPlatform();
 
 const ACTION_BUTTON_CLASS =
-  "h-7 w-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-foreground/8 data-[state=open]:bg-foreground/8 data-[state=open]:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
+  "h-7 w-7 rounded-full text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground hover:bg-foreground/8 dark:hover:bg-foreground/8 data-[state=open]:bg-foreground/8 dark:data-[state=open]:bg-foreground/8 data-[state=open]:text-foreground dark:data-[state=open]:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
 function getShowInFolderKey(): string {
   if (platform === "win32") return "controlPanel.history.showInFolderWindows";
@@ -239,12 +239,14 @@ export default function TranscriptionItem({
             {item.audio_duration_ms != null && <span>{formatElapsed(item.audio_duration_ms)}</span>}
             {words != null && <span>· {t("home.history.words", { count: words })}</span>}
             {locality && (
-              <LocalityRing
-                size={12}
-                locality={locality.locality}
-                provider={providerLabel}
-                label={t(`locality.${locality.locality}`, { provider: providerLabel ?? "" })}
-              />
+              <span className="inline-flex shrink-0 ps-2 pe-2 pb-1" data-history-locality>
+                <LocalityRing
+                  size={20}
+                  locality={locality.locality}
+                  provider={providerLabel}
+                  label={t(`locality.${locality.locality}`, { provider: providerLabel ?? "" })}
+                />
+              </span>
             )}
           </span>
         </div>
@@ -332,7 +334,7 @@ export default function TranscriptionItem({
           <div className="min-h-0 overflow-hidden">
             <div className="mt-2 border-t border-border/70 pt-2">
               <div className="flex items-center justify-between">
-                <span className="text-micro font-medium uppercase tracking-wider text-muted-foreground">
+                <span className="text-caption font-medium uppercase tracking-wider text-muted-foreground">
                   {t("controlPanel.history.rawTranscript")}
                 </span>
                 <Tooltip content={t("controlPanel.history.copyRawTranscript")}>
@@ -341,7 +343,7 @@ export default function TranscriptionItem({
                     variant="ghost"
                     aria-label={t("controlPanel.history.copyRawTranscript")}
                     onClick={() => onCopy(rawText)}
-                    className="h-5 w-5 rounded-sm focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                    className={cn(ACTION_BUTTON_CLASS, "h-5 w-5 rounded-sm")}
                   >
                     <Copy size={10} />
                   </Button>
@@ -351,7 +353,7 @@ export default function TranscriptionItem({
                 {rawText}
               </p>
               {rawText === item.text && (
-                <p className="mt-1 text-micro italic text-muted-foreground">
+                <p className="mt-1 text-caption italic text-muted-foreground">
                   {t("controlPanel.history.noAiProcessing")}
                 </p>
               )}

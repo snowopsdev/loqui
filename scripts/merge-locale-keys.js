@@ -13,8 +13,23 @@ const { isDeepStrictEqual } = require("node:util");
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
 const baseKey = (key) => key.replace(PLURAL_SUFFIX, "");
 const placeholders = (value) =>
-  [...String(value).matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)].map((m) => m[1]).sort().join(",");
+  [...String(value).matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)]
+    .map((m) => m[1])
+    .sort()
+    .join(",");
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+// Valid JSON persists either signed zero as 0. Normalize only that numeric
+// distinction, recursively, retaining structural key/type/array equality.
+function persistedNumbers(value) {
+  if (typeof value === "number") return value === 0 ? 0 : value;
+  if (Array.isArray(value)) return value.map(persistedNumbers);
+  if (isObject(value))
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, persistedNumbers(item)])
+    );
+  return value;
+}
 
 function flatten(obj, prefix = "", out = {}) {
   for (const [key, value] of Object.entries(obj)) {
@@ -31,7 +46,7 @@ function listLocales(root) {
 
 function validateFragment(fragment, locales) {
   const errors = [];
-  if (!fragment.en) return ["missing locale \"en\""];
+  if (!fragment.en) return ['missing locale "en"'];
   const en = flatten(fragment.en);
   const enBases = new Set(Object.keys(en).map(baseKey));
   for (const lang of [...locales].sort()) {
@@ -42,7 +57,8 @@ function validateFragment(fragment, locales) {
     for (const key of bases) if (!enBases.has(key)) errors.push(`${lang}: extra ${key}`);
     for (const [key, value] of Object.entries(flat)) {
       if (PLURAL_SUFFIX.test(key) || !(key in en)) continue;
-      if (placeholders(value) !== placeholders(en[key])) errors.push(`${lang}: placeholders differ at ${key}`);
+      if (placeholders(value) !== placeholders(en[key]))
+        errors.push(`${lang}: placeholders differ at ${key}`);
     }
   }
   return errors;
@@ -50,7 +66,9 @@ function validateFragment(fragment, locales) {
 
 function mergeLoose(target, source) {
   for (const [key, value] of Object.entries(source)) {
-    target[key] = isObject(value) ? mergeLoose(isObject(target[key]) ? target[key] : {}, value) : value;
+    target[key] = isObject(value)
+      ? mergeLoose(isObject(target[key]) ? target[key] : {}, value)
+      : value;
   }
   return target;
 }
@@ -67,7 +85,7 @@ function mergeStrict(target, source, trail, conflicts) {
       mergeStrict(target[key], value, at, conflicts);
     } else if (target[key] === undefined) {
       target[key] = value;
-    } else if (!isDeepStrictEqual(target[key], value)) {
+    } else if (!isDeepStrictEqual(persistedNumbers(target[key]), persistedNumbers(value))) {
       conflicts.push(at);
     }
   }
@@ -88,7 +106,10 @@ function mergeFragment(fragment, { localesRoot, strict = false }) {
     if (strict) {
       const conflicts = [];
       mergeStrict(json, fragment[lang], "", conflicts);
-      if (conflicts.length) throw new Error(`Locale fragment rejected: ${lang}: keys already exist with other values: ${conflicts.join(", ")}`);
+      if (conflicts.length)
+        throw new Error(
+          `Locale fragment rejected: ${lang}: keys already exist with other values: ${conflicts.join(", ")}`
+        );
     } else {
       mergeLoose(json, fragment[lang]);
     }
@@ -105,13 +126,20 @@ if (require.main === module) {
   const strict = args.includes("--strict");
   const [fragmentPath, rootArg] = args.filter((a) => a !== "--strict");
   if (!fragmentPath) {
-    console.error("Usage: node scripts/merge-locale-keys.js [--strict] <fragment.json> [localesRoot]");
+    console.error(
+      "Usage: node scripts/merge-locale-keys.js [--strict] <fragment.json> [localesRoot]"
+    );
     process.exit(2);
   }
   const localesRoot = rootArg ?? path.join(__dirname, "..", "src", "locales");
   try {
-    const langs = mergeFragment(JSON.parse(fs.readFileSync(fragmentPath, "utf8")), { localesRoot, strict });
-    console.log(`Merged ${path.basename(fragmentPath)} into ${langs.length} locales${strict ? " (strict)" : ""}.`);
+    const langs = mergeFragment(JSON.parse(fs.readFileSync(fragmentPath, "utf8")), {
+      localesRoot,
+      strict,
+    });
+    console.log(
+      `Merged ${path.basename(fragmentPath)} into ${langs.length} locales${strict ? " (strict)" : ""}.`
+    );
   } catch (error) {
     console.error(error.message);
     process.exit(1);

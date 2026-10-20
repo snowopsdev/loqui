@@ -1,17 +1,21 @@
-// Day grouping is local-time; pin the zone so a run in UTC+10 cannot split a day.
-process.env.TZ = "UTC";
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 
 const load = () => import("../../src/lib/homeFeed.ts");
+
+// These grouping fixtures describe local wall-clock times; serialize them as
+// UTC database instants without changing the timezone of other tests.
+const localTimestamp = (value) => new Date(value.replace(" ", "T")).toISOString();
 
 // SQLite stores UTC without a zone; these mimic real rows.
 const dictation = (id, timestamp, text, over = {}) => ({
   id,
   text,
   raw_text: null,
-  timestamp,
-  created_at: timestamp,
+  timestamp: localTimestamp(timestamp),
+  created_at: localTimestamp(timestamp),
   has_audio: 1,
   audio_duration_ms: 7000,
   provider: "local-parakeet",
@@ -32,9 +36,54 @@ const note = (id, updated_at, title, note_type = "personal", content = "") => ({
   note_type,
   folder_id: 1,
   space_id: 1,
-  created_at: updated_at,
-  updated_at,
+  created_at: localTimestamp(updated_at),
+  updated_at: localTimestamp(updated_at),
 });
+
+for (const zone of ["America/New_York", "Asia/Kathmandu"]) {
+  test(`isolated ${zone}: local midnight is a session boundary, fractional offsets and DST stay local`, () => {
+    const probe = `
+      import assert from 'node:assert/strict';
+      import {buildHomeFeed, parseDbTimestamp} from './src/lib/homeFeed.ts';
+      const row = (id, at) => ({id, timestamp:new Date(at).toISOString(), text:'two words', status:'completed', audio_duration_ms:1000});
+      const feed = (rows) => buildHomeFeed({transcriptions:rows,notes:[],filter:'all',query:''});
+      const before = new Date(2026,9,14,23,59).getTime();
+      const after = new Date(2026,9,15,0,1).getTime();
+      const midnight = feed([row(1,before),row(2,after)]);
+      assert.equal(midnight.groups.length,2);
+      assert.deepEqual(midnight.groups.map(g=>g.entries[0].kind),['dictation','dictation']);
+      assert.equal(feed([row(1,after),row(2,after+120000)]).groups[0].entries[0].kind,'session');
+      assert.equal(parseDbTimestamp('2026-10-14 19:51:00'),Date.UTC(2026,9,14,19,51));
+      if (process.env.TZ === 'Asia/Kathmandu') {
+        assert.equal(new Date(after).getTimezoneOffset(),-345);
+        assert.equal(new Date(after).toISOString(),'2026-10-14T18:16:00.000Z');
+      } else {
+        const spring=feed([row(1,'2026-03-08T06:59:00Z'),row(2,'2026-03-08T07:01:00Z')]);
+        assert.equal(spring.groups.length,1);
+        assert.equal(spring.groups[0].entries[0].kind,'session');
+        const fall=feed([row(1,'2026-11-01T05:59:00Z'),row(2,'2026-11-01T06:01:00Z')]);
+        assert.equal(fall.groups.length,1);
+        assert.equal(fall.groups[0].entries[0].kind,'session');
+      }
+      console.log(JSON.stringify({zone:process.env.TZ,midnightGroups:midnight.groups.length,node:process.version}));
+    `;
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", probe],
+      {
+        cwd: path.resolve(__dirname, "../.."),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TZ: zone,
+          PATH: `/home/snowdesk/.local/share/mise/installs/node/24.21.0/bin:${process.env.PATH}`,
+        },
+      }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { zone, midnightGroups: 2, node: process.version });
+  });
+}
 
 test("dictations within five minutes fold into one session; a longer gap starts a new row", async () => {
   const { buildHomeFeed } = await load();

@@ -1214,7 +1214,9 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               !useLocalWhisper &&
               !isSelfHosted &&
               cloudTranscriptionProvider === "groq" && (
-                <p className="text-xs text-warning mt-1.5">{t("notes.upload.groqDiarizeNote")}</p>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  {t("notes.upload.groqDiarizeNote")}
+                </p>
               )}
 
             {diarizationDownloading && (

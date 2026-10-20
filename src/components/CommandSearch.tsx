@@ -495,7 +495,7 @@ export default function CommandSearch({
                   onClick={() => selectConversation(conv)}
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={cn(
-                    "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-start transition-colors duration-100 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-start transition-colors duration-(--motion-fast) motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     selectedIndex === idx
                       ? "bg-foreground/5 dark:bg-foreground/5"
                       : "hover:bg-foreground/4 dark:hover:bg-white/4"
@@ -563,6 +563,8 @@ export default function CommandSearch({
                               : row.kind === "ask"
                                 ? Sparkles
                                 : FileText;
+                    const containingSpace =
+                      row.kind === "container" ? spaceMap.get(row.target.spaceId) : undefined;
                     const meta =
                       row.kind === "meeting"
                         ? t("commandSearch.meta.meeting")
@@ -570,9 +572,13 @@ export default function CommandSearch({
                           ? noteBreadcrumb(row.note)
                           : row.kind === "conversation"
                             ? t("commandSearch.meta.chat")
-                            : row.kind === "transcript"
-                              ? formatRelativeTime(row.transcript.created_at, t, locale)
-                              : "";
+                            : row.kind === "container" &&
+                                row.target.folderId != null &&
+                                containingSpace
+                              ? spaceLabel(containingSpace)
+                              : row.kind === "transcript"
+                                ? formatRelativeTime(row.transcript.created_at, t, locale)
+                                : "";
                     const hint =
                       row.kind === "command"
                         ? row.command.shortcut

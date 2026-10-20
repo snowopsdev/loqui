@@ -145,6 +145,8 @@ test("Streak scrolls and focuses the mounted group without changing Home", async
   assert.equal(h.home.useHomeViewStore.getState(), before);
 });
 test("loading, local error/retry and analytics subscription cleanup survive", async (t) => {
+  const diagnostics = [];
+  t.mock.method(console, "error", (...args) => diagnostics.push(args));
   const first = deferred();
   let reads = 0;
   const h = await mount(t, {
@@ -152,7 +154,9 @@ test("loading, local error/retry and analytics subscription cleanup survive", as
     retention: false,
   });
   assert.match(h.text(), /controlPanel.loading/);
-  await React.act(async () => first.reject(new Error("synthetic local read failure")));
+  const failure = new Error("synthetic local read failure");
+  await React.act(async () => first.reject(failure));
+  assert.deepEqual(diagnostics, [["Reading local Insights failed:", failure]]);
   assert.match(h.text(), /insights.loadError/);
   assert.doesNotMatch(h.text(), /insights.wordsSpoken/);
   await h.click("common.retry");
@@ -160,6 +164,11 @@ test("loading, local error/retry and analytics subscription cleanup survive", as
   assert.match(h.text(), /insights.dataRetentionDisabled/);
   await h.unmount();
   assert.equal(h.disposed(), 1);
+  assert.deepEqual(
+    diagnostics,
+    [["Reading local Insights failed:", failure]],
+    "no unexpected diagnostics"
+  );
 });
 for (const outcome of ["success", "failure"]) {
   test(`newest analytics generation wins over older ${outcome}`, async (t) => {

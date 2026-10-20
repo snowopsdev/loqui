@@ -4269,7 +4269,8 @@
     }
   },
   "workspace": {
-    "noteMissing": "該筆記已遭刪除或移出此工作區。"
+    "noteMissing": "該筆記已遭刪除或移出此工作區。",
+    "noteLoadError": "無法載入此筆記。請再試一次。"
   },
   "capture": {
     "group": "擷取",

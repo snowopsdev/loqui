@@ -14,7 +14,8 @@ const MAX_DRAFT = 280;
 export function buildAskAiDraft(selection: string): string {
   const quote = selection.replace(/\s+/g, " ").trim();
   if (!quote) return "";
-  const clipped = quote.length > MAX_DRAFT - 3 ? `${quote.slice(0, MAX_DRAFT - 4)}…` : quote;
+  const end = /[\uD800-\uDBFF]/.test(quote.charAt(MAX_DRAFT - 5)) ? MAX_DRAFT - 5 : MAX_DRAFT - 4;
+  const clipped = quote.length > MAX_DRAFT - 3 ? `${quote.slice(0, end)}…` : quote;
   return `“${clipped}” `;
 }
 

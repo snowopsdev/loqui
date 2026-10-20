@@ -21,6 +21,16 @@ async function load() {
   return import("../../src/components/ui/editor/BubbleToolbar.tsx");
 }
 const noop = () => {};
+
+test("Ask preview backs off a split surrogate within the same 280 UTF-16 budget", async () => {
+  const { buildAskAiDraft } = await load();
+  const source = "a".repeat(275) + "😀" + "tail";
+  const draft = buildAskAiDraft(source);
+  assert.equal(draft, `“${"a".repeat(275)}…” `);
+  assert.ok(draft.isWellFormed());
+  assert.ok(draft.length <= 280);
+  assert.equal(source, "a".repeat(275) + "😀tail");
+});
 const base = {
   active: { bold: true, italic: false, link: false },
   onBold: noop,

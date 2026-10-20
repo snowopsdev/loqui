@@ -4297,7 +4297,8 @@
     }
   },
   "workspace": {
-    "noteMissing": "That note was deleted or moved out of this workspace."
+    "noteMissing": "That note was deleted or moved out of this workspace.",
+    "noteLoadError": "Could not load this note. Try again."
   },
   "capture": {
     "group": "Capture",

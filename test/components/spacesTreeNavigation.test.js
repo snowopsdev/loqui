@@ -19,7 +19,7 @@ function find(node, predicate) {
   return predicate(node) ? node : find(node.props?.children, predicate);
 }
 
-test("real tree notifies only after note/container selection changes, never expansion or an unchanged row", async (t) => {
+test("real tree always notifies intentional container activation without redundant selection mutation", async (t) => {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -80,23 +80,36 @@ test("real tree notifies only after note/container selection changes, never expa
   assert.deepEqual(seen, []);
   await click((n) => text(n) === "Work");
   assert.deepEqual(seen, [[null, 2]], "callback sees the already committed container");
+  const folderGeneration = notes.getNoteNavigationGeneration();
   await click((n) => text(n) === "Work");
-  assert.equal(seen.length, 1);
+  assert.equal(seen.length, 2);
+  assert.equal(
+    notes.getNoteNavigationGeneration(),
+    folderGeneration,
+    "unchanged folder does not reselect"
+  );
   await click((n) => text(n) === "Note 9");
   assert.deepEqual(
     seen,
     [
+      [null, 2],
       [null, 2],
       [9, 2],
     ],
     "callback sees the already committed note"
   );
   await click((n) => text(n) === "Note 9");
-  assert.equal(seen.length, 2);
+  assert.equal(seen.length, 3);
   await click((n) => text(n) === "notes.spaces.personal");
   assert.deepEqual(seen.at(-1), [null, null]);
+  const rootGeneration = notes.getNoteNavigationGeneration();
   await click((n) => text(n) === "notes.spaces.personal");
-  assert.equal(seen.length, 3);
+  assert.equal(seen.length, 5);
+  assert.equal(
+    notes.getNoteNavigationGeneration(),
+    rootGeneration,
+    "unchanged root does not reselect"
+  );
 });
 
 test("sidebar activation delegates an already selected note to workspace navigation", async (t) => {

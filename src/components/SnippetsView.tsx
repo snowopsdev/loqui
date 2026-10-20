@@ -179,7 +179,7 @@ export default function SnippetsView() {
 
       {/* ─── Add snippet ─── */}
       <div>
-        <div className="relative">
+        <div className="flex min-w-0 items-center gap-2 rounded-md border border-input bg-background px-2.5 focus-within:ring-2 focus-within:ring-ring">
           <Input
             dir="auto"
             ref={triggerInputRef}
@@ -190,13 +190,13 @@ export default function SnippetsView() {
               if (e.key === "Enter") openPanel();
             }}
             maxLength={80}
-            className="focus-visible:ring-2 focus-visible:ring-ring w-full h-8 text-caption pe-16 placeholder:text-muted-foreground disabled:opacity-100"
+            className="focus-visible:ring-2 focus-visible:ring-ring min-w-0 flex-1 h-8 border-0 px-0 shadow-none text-caption placeholder:text-muted-foreground disabled:opacity-100"
           />
           <button
             onClick={openPanel}
             disabled={!trimmedTrigger || duplicate}
             aria-label={t("dictionary.snippets.create")}
-            className="focus-visible:ring-2 focus-visible:ring-ring absolute end-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-caption text-muted-foreground enabled:hover:text-link disabled:text-muted-foreground transition-colors"
+            className="focus-visible:ring-2 focus-visible:ring-ring flex shrink-0 items-center gap-1 text-caption text-muted-foreground enabled:hover:text-link disabled:text-muted-foreground transition-colors"
           >
             {t("dictionary.add")}
             <CornerDownLeft size={10} />

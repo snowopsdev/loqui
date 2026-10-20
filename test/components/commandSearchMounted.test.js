@@ -166,6 +166,34 @@ test("mounted all-mode keyboard selects the rendered flattened row, Tab cycles s
   );
 });
 
+test("duplicate folder results retain containing-space hints from existing target data", async (t) => {
+  const h = await mount(t, {
+    api: {
+      getFolders: async () => [
+        { id: 2, name: "Archive", space_id: 1 },
+        { id: 3, name: "Archive", space_id: 2 },
+      ],
+    },
+  });
+  await h.query("Archive");
+  await h.wait();
+  const text = (node) =>
+    typeof node === "string"
+      ? node
+      : Array.isArray(node)
+        ? node.map(text).join("")
+        : node && typeof node === "object"
+          ? (node.props?.text ?? text(node.props?.children))
+          : "";
+  const folders = h
+    .rows()
+    .map(text)
+    .filter((value) => value.includes("Archive"));
+  assert.equal(folders.length, 2);
+  assert.ok(folders.some((value) => value.includes("Personal")));
+  assert.ok(folders.some((value) => value.includes("Team")));
+});
+
 test("mounted result dispatch uses owner callbacks; See all retains query and Ask only seeds", async (t) => {
   const transcriptions = Array.from({ length: 11 }, (_, i) => ({
     id: i + 1,

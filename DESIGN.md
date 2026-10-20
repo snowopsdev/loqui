@@ -187,15 +187,15 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 
 Tailwind utilities from `@theme` in `src/index.css`. Chrome, lists, menus and dialogs use these and nothing else.
 
-| Utility | Size / line / weight / tracking | Use |
-|---|---|---|
-| `text-display` | 32px / 1.15 / 650 / -0.02em | Rare page hero |
-| `text-title` | 22px / 1.25 / 600 / -0.015em | View titles, dialog titles |
-| `text-heading` | 17px / 1.35 / 600 | Section headings |
-| `text-body` | 15px / 1.55 / 400 | Transcripts, chat answers, previews |
-| `text-ui` | 13px / 1.4 / 500 | Labels, nav rows, buttons, menu rows |
-| `text-caption` | 12px / 1.4 / 450 | Metadata, timestamps, helper text |
-| `text-micro` | 11px / 1.3 / 500 / +0.02em | `kbd` and badges only |
+| Utility        | Size / line / weight / tracking | Use                                  |
+| -------------- | ------------------------------- | ------------------------------------ |
+| `text-display` | 32px / 1.15 / 650 / -0.02em     | Rare page hero                       |
+| `text-title`   | 22px / 1.25 / 600 / -0.015em    | View titles, dialog titles           |
+| `text-heading` | 17px / 1.35 / 600               | Section headings                     |
+| `text-body`    | 15px / 1.55 / 400               | Transcripts, chat answers, previews  |
+| `text-ui`      | 13px / 1.4 / 500                | Labels, nav rows, buttons, menu rows |
+| `text-caption` | 12px / 1.4 / 450                | Metadata, timestamps, helper text    |
+| `text-micro`   | 11px / 1.3 / 500 / +0.02em      | `kbd` and badges only                |
 
 No size below 11px. Readable text floors at 12px. Hierarchy comes from size and weight, never opacity: metadata is full `text-muted-foreground`.
 
@@ -331,14 +331,17 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 
 - **Provider tabs:** a real tablist. Arrow keys (reversed in RTL), Home and End move focus across enabled tabs; Enter, Space or a click selects. Focus alone never switches provider, local or remote. Tabbing into the list lands on the selected tab (WAI-ARIA tabs pattern). A saved key shows as a small dot with screen-reader text.
 - **Top bar:** 48px draggable title area with a breadcrumb (`Notes / Work / Product catch-up`, title column at least 120px), centred search (⌘K), and the Capture split button. Capture is neutral at rest and turns `live` only while listening.
-- **Tree navigation:** activating a sidebar note opens it through workspace navigation, including the currently selected note when Home is visible. Selection and container updates remain owned by the existing note-opening path.
+- **Tree navigation:** activating a sidebar note opens it through workspace navigation, including the currently selected note when Home is visible. Activating a folder or space root always opens Notes; unchanged containers avoid redundant selection mutations. Selection and container updates remain owned by the existing note-opening path. Deferred opens and launch restoration require both the original caller's lifetime and the current navigation generation before cache, context, selection, page or notice updates. A rejected note read preserves the current content and saved launch target, shows a localized load error, and offers an explicit Retry for that failed intent only; navigation, reset, deletion or unmount makes the old Retry inert. Only a successful missing/deleted result shows the absence notice. Embedded chat tool cards use this same authority.
+
+Dictionary and Snippets allocate separate inline action cells so automatic text direction cannot move text beneath Add or Import. Notes header groups wrap within the document's available width beside the chat sidebar. The document viewport reserves a non-content area for bottom controls, including the optional summary callout, and the floating chat; nested editors do not apply that reservation twice as padding, and no gradient washes readable note lines. Composer placement changes preserve the one stable draft and queue owner. Palette folder results show their containing space. Quote and label previews stay within their published UTF-16 budgets without splitting a surrogate pair. History uses explicit full-muted dark ghost roles, caption-sized readable raw/no-AI labels, and a history-specific footprint for provider badges; shared Button and LocalityRing defaults stay unchanged. Groq's upload explanation uses readable full-muted text. Today headers round their own top corners without clipping focus or popovers; the conversation picker and meeting reveal wash use shared motion durations.
+
 - **Collapsed:** a 56px icon rail (⌘\, or automatically below 1100px). There is no hover peek. Meeting mode and narrow open notes hide the sidebar and show "Back to notes".
 
 ### Chat
 
 The Chat view answers as a document. Assistant turns are unbubbled 15px `text-body` prose at 1.6 line-height, capped at 68ch, 24px apart, under an Assistant label and Agent spark. While a turn streams it carries a 2px `--color-agent` rail; thinking uses three dots with a text twin and the shared cadence. User turns are a neutral `surface-3` block. Citations are superscript numerals in `--color-agent-text`, numbered by first eligible Markdown appearance. A Sources row of 28px chips follows each answer; pointer or keyboard focus reveals the persisted quote, constrained to the visible scroll area, with Escape dismissal. Activity expands through native buttons with readable detail. Sources, activity, copy and shared Markdown links use full-opacity 2px focus rings; copy appears on keyboard focus. Embedded and assistant-panel chats retain their default bubbles.
 
-The model chip and per-answer route disclosure are future Task 21 work. They must use Plan 03's `RouteDestinationChip` and, when not ready, `RouteStateChip`.
+The model chip and per-answer route disclosure use Plan 03's `RouteDestinationChip` and, when not ready, `RouteStateChip`. Answers retain the route captured when their request was admitted.
 
 ### Voice Pill
 

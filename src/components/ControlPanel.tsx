@@ -118,10 +118,19 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
   const [initialWorkspace] = useState(() => readPersistedWorkspace(window.localStorage));
+  const { toast } = useToast();
+  const lifetime = useRef(false);
+  useEffect(() => {
+    lifetime.current = true;
+    return () => {
+      lifetime.current = false;
+    };
+  }, []);
   const [activeView, setView] = useState<ControlPanelView>(initialWorkspace.view);
   const setActiveView = useCallback((view: ControlPanelView) => {
     // View navigation may keep the current selection, but a late open cannot reclaim it.
     invalidatePendingNoteNavigation();
+    setRestoring(false);
     setView(view);
   }, []);
   const [restoring, setRestoring] = useState(
@@ -146,15 +155,37 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   useEffect(() => {
     if (initialWorkspace.view !== "personal-notes" || initialWorkspace.noteId == null) return;
     // Reuse the same launch operation if StrictMode replays the effect.
-    restoreRef.current ??= restoreLaunchNote(initialWorkspace.noteId);
+    restoreRef.current ??= restoreLaunchNote(initialWorkspace.noteId, {
+      isEligible: () => lifetime.current,
+      onMissing: () => toast({ title: t("workspace.noteMissing") }),
+      onLoadError: (retry) =>
+        toast({
+          title: t("workspace.noteLoadError"),
+          variant: "destructive",
+          duration: 0,
+          action: (
+            <button
+              type="button"
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-caption text-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={async () => {
+                const result = await retry();
+                if (lifetime.current && result !== "error" && result !== "superseded")
+                  setRestoring(false);
+              }}
+            >
+              {t("common.retry")}
+            </button>
+          ),
+        }),
+    });
     let mounted = true;
-    void restoreRef.current.finally(() => {
-      if (mounted) setRestoring(false);
+    void restoreRef.current.then((result) => {
+      if (mounted && result !== "error") setRestoring(false);
     });
     return () => {
       mounted = false;
     };
-  }, [initialWorkspace]);
+  }, [initialWorkspace, t, toast]);
   const isSidePanelLayout =
     isMeetingMode || (isNarrowWindow && activeView === "personal-notes" && activeNoteId != null);
   const { mode: sidebarMode, toggle: toggleSidebar } = useCollapsibleSidebar(isSidePanelLayout);
@@ -182,7 +213,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   );
 
   const { hotkey } = useHotkey();
-  const { toast } = useToast();
   const { useCleanupModel } = useSettings();
 
   // Suppressed while a deep-linked invitation is open so the two never stack.
@@ -675,9 +705,31 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   }, [loadTranscriptions, showDiscarded]);
 
   const openNote = useCallback(
-    async (noteId: number) => {
+    async (noteId: number, options?: { isEligible?: () => boolean }) => {
+      const isEligible = () => lifetime.current && (options?.isEligible?.() ?? true);
+      if (!isEligible()) return;
       setActiveView("personal-notes");
-      if ((await openNoteById(noteId)) === "missing") toast({ title: t("workspace.noteMissing") });
+      await openNoteById(noteId, {
+        isEligible,
+        onMissing: () => toast({ title: t("workspace.noteMissing") }),
+        onLoadError: (retry) =>
+          toast({
+            title: t("workspace.noteLoadError"),
+            variant: "destructive",
+            duration: 0,
+            action: (
+              <button
+                type="button"
+                className="rounded-md border border-border bg-background px-3 py-1.5 text-caption text-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={async () => {
+                  await retry();
+                }}
+              >
+                {t("common.retry")}
+              </button>
+            ),
+          }),
+      });
     },
     [setActiveView, t, toast]
   );
@@ -685,7 +737,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const navigation = useMemo<WorkspaceNavigation>(
     () => ({
       openView: setActiveView,
-      openNote: (id) => void openNote(id),
+      openNote: (id, options) => void openNote(id, options),
       openFolder: (spaceId, folderId) => {
         setActiveView("personal-notes");
         navigateToContainer(spaceId, folderId);
@@ -817,7 +869,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             open={showSearch}
             onOpenChange={setShowSearch}
             transcriptions={history}
-            onNoteSelect={navigation.openNote}
+            onNoteSelect={(id) => navigation.openNote(id)}
             onContainerSelect={navigation.openFolder}
             onTranscriptSelect={navigation.openTranscript}
             onConversationSelect={navigation.openConversation}

@@ -171,7 +171,7 @@ export default function DictionaryView() {
         <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 py-4 flex flex-col gap-3")}>
           {/* ─── Add word ─── */}
           <div>
-            <div className="relative">
+            <div className="flex min-w-0 items-center gap-2 rounded-md border border-input bg-background px-2.5 focus-within:ring-2 focus-within:ring-ring">
               <Input
                 dir="auto"
                 ref={addInputRef}
@@ -181,9 +181,9 @@ export default function DictionaryView() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleAdd();
                 }}
-                className="focus-visible:ring-2 focus-visible:ring-ring w-full h-8 text-caption pe-24 placeholder:text-muted-foreground disabled:opacity-100"
+                className="focus-visible:ring-2 focus-visible:ring-ring min-w-0 flex-1 h-8 border-0 px-0 shadow-none text-caption placeholder:text-muted-foreground disabled:opacity-100"
               />
-              <div className="absolute end-2.5 top-1/2 -translate-y-1/2 flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   onClick={handleAdd}
                   disabled={!newWord.trim()}

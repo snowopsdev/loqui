@@ -4297,7 +4297,8 @@
     }
   },
   "workspace": {
-    "noteMissing": "Diese Notiz wurde gelöscht oder aus diesem Arbeitsbereich verschoben."
+    "noteMissing": "Diese Notiz wurde gelöscht oder aus diesem Arbeitsbereich verschoben.",
+    "noteLoadError": "Diese Notiz konnte nicht geladen werden. Versuche es erneut."
   },
   "capture": {
     "group": "Erfassen",

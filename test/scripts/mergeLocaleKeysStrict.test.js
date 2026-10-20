@@ -8,16 +8,48 @@ const { spawnSync } = require("node:child_process");
 const script = path.join(__dirname, "../../scripts/merge-locale-keys.js");
 const helper = () => require(script);
 
+test("strict persisted JSON equality treats nested signed zero idempotently, with atomic real conflicts", (t) => {
+  const root = makeRoot(t);
+  const fragment = Object.fromEntries(
+    ["en", "de", "ar"].map((lang) => [
+      lang,
+      {
+        signedZero: -0,
+        nested: [-0, { values: [1, -0], label: "same" }],
+      },
+    ])
+  );
+  const { mergeFragment } = helper();
+  mergeFragment(fragment, { localesRoot: root, strict: true });
+  for (const lang of ["en", "de", "ar"]) assert.ok(Object.is(read(root, lang).signedZero, 0));
+  assert.doesNotThrow(() => mergeFragment(fragment, { localesRoot: root, strict: true }));
+  const before = ["en", "de", "ar"].map((lang) =>
+    fs.readFileSync(path.join(root, lang, "translation.json"), "utf8")
+  );
+  fragment.en.nested[1].values[0] = 2;
+  assert.throws(
+    () => mergeFragment(fragment, { localesRoot: root, strict: true }),
+    /^Error: Locale fragment rejected:/
+  );
+  ["en", "de", "ar"].forEach((lang, i) =>
+    assert.equal(fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"), before[i])
+  );
+});
+
 function makeRoot(t, locales = ["en", "de", "ar"]) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "plan06-locales-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   for (const lang of locales) {
     fs.mkdirSync(path.join(root, lang));
-    fs.writeFileSync(path.join(root, lang, "translation.json"), JSON.stringify({ sidebar: { home: `home-${lang}` } }, null, 2) + "\n");
+    fs.writeFileSync(
+      path.join(root, lang, "translation.json"),
+      JSON.stringify({ sidebar: { home: `home-${lang}` } }, null, 2) + "\n"
+    );
   }
   return root;
 }
-const read = (root, lang) => JSON.parse(fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"));
+const read = (root, lang) =>
+  JSON.parse(fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"));
 const run = (args) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
 function writeFragment(root, fragment) {
   const file = path.join(root, "frag.json");
@@ -30,7 +62,10 @@ test("the plain CLI keeps Plan 03's contract: optional root, overwrite, missing-
   const bad = run([writeFragment(root, { en: { a: "A" } }), root]);
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /Missing locales in fragment: de/);
-  const ok = run([writeFragment(root, { en: { sidebar: { home: "Home" } }, de: { sidebar: { home: "Start" } } }), root]);
+  const ok = run([
+    writeFragment(root, { en: { sidebar: { home: "Home" } }, de: { sidebar: { home: "Start" } } }),
+    root,
+  ]);
   assert.equal(ok.status, 0, ok.stderr);
   assert.equal(read(root, "de").sidebar.home, "Start", "plain mode overwrites, as before");
   assert.equal(run([]).status, 2);
@@ -38,11 +73,23 @@ test("the plain CLI keeps Plan 03's contract: optional root, overwrite, missing-
 
 test("--strict refuses a changed existing value and writes nothing", (t) => {
   const root = makeRoot(t);
-  const before = Object.fromEntries(["en", "de", "ar"].map((lang) => [lang, fs.readFileSync(path.join(root, lang, "translation.json"), "utf8")]));
-  const frag = writeFragment(root, { en: { sidebar: { home: "Today" } }, de: { sidebar: { home: "Heute" } }, ar: { sidebar: { home: "اليوم" } } });
+  const before = Object.fromEntries(
+    ["en", "de", "ar"].map((lang) => [
+      lang,
+      fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"),
+    ])
+  );
+  const frag = writeFragment(root, {
+    en: { sidebar: { home: "Today" } },
+    de: { sidebar: { home: "Heute" } },
+    ar: { sidebar: { home: "اليوم" } },
+  });
   const result = run(["--strict", frag, root]);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /^Locale fragment rejected: (?:ar|de|en): keys already exist with other values: sidebar\.home\n?$/);
+  assert.match(
+    result.stderr,
+    /^Locale fragment rejected: (?:ar|de|en): keys already exist with other values: sidebar\.home\n?$/
+  );
   for (const lang of ["en", "de", "ar"]) {
     assert.equal(fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"), before[lang]);
   }
@@ -69,7 +116,12 @@ test("--strict rejects a changed array leaf without writing any locale", (t) => 
     ar: { content: { nested: [["original"]] } },
   });
   assert.equal(run(["--strict", seed, root]).status, 0);
-  const before = Object.fromEntries(["en", "de", "ar"].map((lang) => [lang, fs.readFileSync(path.join(root, lang, "translation.json"), "utf8")]));
+  const before = Object.fromEntries(
+    ["en", "de", "ar"].map((lang) => [
+      lang,
+      fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"),
+    ])
+  );
   const changed = writeFragment(root, {
     en: { content: { nested: [["changed"]] } },
     de: { content: { nested: [["changed"]] } },
@@ -77,7 +129,10 @@ test("--strict rejects a changed array leaf without writing any locale", (t) => 
   });
   const result = run(["--strict", changed, root]);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /^Locale fragment rejected: (?:ar|de|en): keys already exist with other values: content\.nested\n?$/);
+  assert.match(
+    result.stderr,
+    /^Locale fragment rejected: (?:ar|de|en): keys already exist with other values: content\.nested\n?$/
+  );
   for (const lang of ["en", "de", "ar"]) {
     assert.equal(fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"), before[lang]);
   }
@@ -93,10 +148,13 @@ test("--strict works from any argument position and is idempotent", (t) => {
 
 test("--strict checks key parity and placeholders against English", () => {
   const { validateFragment } = helper();
-  assert.deepEqual(validateFragment({ en: { a: "In {{minutes}} min", b: "B" }, de: { a: "In {{min}} Min." } }, ["de", "en"]), [
-    "de: missing b",
-    "de: placeholders differ at a",
-  ]);
+  assert.deepEqual(
+    validateFragment({ en: { a: "In {{minutes}} min", b: "B" }, de: { a: "In {{min}} Min." } }, [
+      "de",
+      "en",
+    ]),
+    ["de: missing b", "de: placeholders differ at a"]
+  );
 });
 
 test("Arabic may carry extra plural forms for the same base key", () => {
@@ -104,7 +162,14 @@ test("Arabic may carry extra plural forms for the same base key", () => {
   const errors = validateFragment(
     {
       en: { n_one: "{{count}} capture", n_other: "{{count}} captures" },
-      ar: { n_zero: "لا شيء", n_one: "{{count}}", n_two: "{{count}}", n_few: "{{count}}", n_many: "{{count}}", n_other: "{{count}}" },
+      ar: {
+        n_zero: "لا شيء",
+        n_one: "{{count}}",
+        n_two: "{{count}}",
+        n_few: "{{count}}",
+        n_many: "{{count}}",
+        n_other: "{{count}}",
+      },
     },
     ["ar", "en"]
   );

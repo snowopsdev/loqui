@@ -59,6 +59,10 @@ async function mount(
   let dialogOpen = false;
   globalThis.document.querySelector = () => (dialogOpen ? {} : null);
   const mockModules = {
+    // This test owns note navigation, not route resolution. Keep the route
+    // presentation hook inert while the real shell, EmbeddedChat and note store run.
+    "/lib/routes":
+      "export const useResolvedRoute = () => ({ id:'chat', state:{status:'unknown'}, locality:'device', providerId:null, model:null, settingsPath:'chat' });",
     "/stores/settingsStore":
       'import { create } from "zustand"; export const useSettingsStore = create(() => ({})); export const getSettings = () => ({});',
     "/stores/transcriptionStore":
@@ -103,7 +107,7 @@ async function mount(
   const options = withI18nMock({ mockModules });
   // The production hook returns a stable t; avoid the generic mock's per-render function.
   options.mockModules["react-i18next"] =
-    "const t = (key) => key; export const useTranslation = () => ({ t });";
+    "const t = (key) => key; export const useTranslation = () => ({ t }); export const initReactI18next = { type: '3rdParty', init() {} };";
   const vite = await createRendererServer(t, options);
   const { default: ControlPanel } = await vite.ssrLoadModule("/components/ControlPanel.tsx");
   const notes = await vite.ssrLoadModule("/stores/noteStore.ts");
@@ -122,6 +126,18 @@ async function mount(
     )
   );
   return {
+    vite,
+    freshOwner: async () => {
+      await React.act(async () => {
+        if (root) root.unmount();
+      });
+      root = createRoot(container);
+      await React.act(async () => root.render(React.createElement(Probe)));
+    },
+    unmount: async () => {
+      await React.act(async () => root.unmount());
+      root = null;
+    },
     notes,
     home,
     meeting: await vite.ssrLoadModule("/stores/meetingRecordingStore"),
@@ -158,6 +174,187 @@ async function mount(
     toasts: (await vite.ssrLoadModule("/components/ui/useToast")).toasts,
   };
 }
+
+test("final shell: a fresh owner without a restore cannot revive the retired owner's read", async (t) => {
+  const pending = deferred();
+  const h = await mount(t, { api: { getNote: () => pending.promise } });
+  await React.act(async () => h.navigation().openNote(999));
+  await h.unmount();
+  h.storage.setItem("workspace.activeView", "home");
+  h.storage.removeItem("workspace.lastNoteId");
+  const generation = h.notes.getNoteNavigationGeneration();
+  await h.freshOwner();
+  assert.equal(h.notes.getNoteNavigationGeneration(), generation, "new owner admits no navigation");
+  await React.act(async () => pending.resolve(fixtureNote(999)));
+  assert.equal(h.notes.getNoteFromStore(999), null);
+  assert.equal(h.notes.getActiveNoteIdValue(), null);
+  assert.equal(h.view(), "home");
+  assert.deepEqual(h.toasts, []);
+});
+
+for (const outcome of ["missing", "error"]) {
+  test(`final shell: deferred ${outcome} cannot notify after unmount`, async (t) => {
+    const pending = deferred();
+    const h = await mount(t, {
+      api: {
+        getNote: async () => {
+          await pending.promise;
+          if (outcome === "error") throw new Error("retired failure");
+          return null;
+        },
+      },
+    });
+    await React.act(async () => h.navigation().openNote(999));
+    await h.unmount();
+    pending.resolve(null);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(h.toasts, []);
+  });
+}
+
+test("final EmbeddedChat tool cards use the real shell/store authority and caller lifetime", async (t) => {
+  const pending = deferred();
+  let reads = 0;
+  const h = await mount(t, {
+    api: {
+      getNote: async (id) => {
+        reads++;
+        if (id === 998) return pending.promise;
+        if (id === 404) return null;
+        if (id === 500) throw new Error("fixture read failure");
+        return { ...fixtureNote(id), space_id: 7, folder_id: null };
+      },
+    },
+  });
+  const { default: EmbeddedChat } = await h.vite.ssrLoadModule(
+    "/components/notes/EmbeddedChat.tsx"
+  );
+  const { WorkspaceNavigationProvider } = await h.vite.ssrLoadModule(
+    "/components/workspaceNavigation.tsx"
+  );
+  const host = createRoot({
+    nodeType: 1,
+    nodeName: "DIV",
+    tagName: "DIV",
+    namespaceURI: "http://www.w3.org/1999/xhtml",
+    ownerDocument: globalThis.document,
+    addEventListener() {},
+    removeEventListener() {},
+    appendChild() {},
+    removeChild() {},
+    insertBefore() {},
+  });
+  let tree;
+  const props = {
+    mode: "floating",
+    onModeChange() {},
+    messages: [],
+    agentState: { status: "idle" },
+    onTextSubmit() {},
+    onCancel() {},
+  };
+  function Probe() {
+    tree = EmbeddedChat(props);
+    return null;
+  }
+  let retired = false;
+  t.after(async () => {
+    if (!retired) await React.act(async () => host.unmount());
+  });
+  await React.act(async () =>
+    host.render(
+      React.createElement(
+        WorkspaceNavigationProvider,
+        { value: h.navigation() },
+        React.createElement(Probe)
+      )
+    )
+  );
+  const open = (id) =>
+    find(tree, (node) => typeof node.props?.onOpenNote === "function").props.onOpenNote(id);
+  await React.act(async () => open(999));
+  assert.equal(h.view(), "personal-notes");
+  assert.equal(h.notes.getActiveNoteIdValue(), 999);
+  assert.equal(h.notes.getNoteFromStore(999).space_id, 7);
+  assert.equal(h.notes.getActiveFolderIdValue(), null);
+  await React.act(async () => open(404));
+  assert.equal(h.notes.getActiveNoteIdValue(), 999);
+  assert.equal(h.toasts.at(-1).title, "workspace.noteMissing");
+  await React.act(async () => open(500));
+  assert.equal(h.notes.getActiveNoteIdValue(), 999);
+  assert.equal(h.toasts.at(-1).title, "workspace.noteLoadError");
+  await React.act(async () => open(998));
+  await React.act(async () => h.navigation().openNote(997));
+  await React.act(async () => pending.resolve(fixtureNote(998)));
+  assert.equal(h.notes.getActiveNoteIdValue(), 997);
+  assert.equal(h.notes.getNoteFromStore(998), null);
+  const late = deferred();
+  // The caller retires while the shell stays mounted, without a newer intent.
+  globalThis.window.electronAPI.getNote = () => {
+    reads++;
+    return late.promise;
+  };
+  await React.act(async () => open(996));
+  await React.act(async () => host.unmount());
+  retired = true;
+  const generation = h.notes.getNoteNavigationGeneration();
+  await React.act(async () => late.resolve(fixtureNote(996)));
+  assert.equal(h.notes.getActiveNoteIdValue(), 997);
+  assert.equal(h.notes.getNoteFromStore(996), null);
+  assert.equal(h.notes.getNoteNavigationGeneration(), generation);
+  const before = reads;
+  await React.act(async () =>
+    h.toasts.find((value) => value.title === "workspace.noteLoadError").action.props.onClick()
+  );
+  assert.equal(reads, before, "old caller Retry cannot read again");
+});
+
+for (const launch of [false, true]) {
+  test(`final shell lifetime: deferred ${launch ? "restore" : "open"} cannot mutate or notify after unmount`, async (t) => {
+    const fetch = deferred();
+    const h = await mount(t, {
+      initialStorage: launch
+        ? { "workspace.activeView": "personal-notes", "workspace.lastNoteId": "999" }
+        : {},
+      api: { getNote: () => fetch.promise },
+    });
+    let opening;
+    if (!launch)
+      await React.act(async () => {
+        opening = h.navigation().openNote(999);
+      });
+    await h.unmount();
+    const generation = h.notes.getNoteNavigationGeneration();
+    fetch.resolve(fixtureNote(999));
+    await opening;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(h.notes.getNoteFromStore(999), null);
+    assert.equal(h.notes.getActiveNoteIdValue(), null);
+    assert.equal(h.notes.getNoteNavigationGeneration(), generation);
+    assert.deepEqual(h.toasts, []);
+  });
+}
+
+test("final restore failure keeps saved target and offers a truthful localized Retry", async (t) => {
+  let reads = 0;
+  const h = await mount(t, {
+    initialStorage: { "workspace.activeView": "personal-notes", "workspace.lastNoteId": "999" },
+    api: {
+      getNote: async () => {
+        if (++reads === 1) throw new Error("fixture failure");
+        return fixtureNote(999);
+      },
+    },
+  });
+  assert.equal(h.storage.getItem("workspace.lastNoteId"), "999");
+  assert.equal(h.notes.getActiveNoteIdValue(), null);
+  assert.equal(h.toasts.length, 1);
+  assert.equal(h.toasts[0].title, "workspace.noteLoadError");
+  assert.equal(h.toasts[0].action.props.children, "common.retry");
+  await React.act(async () => h.toasts[0].action.props.onClick());
+  assert.equal(h.notes.getActiveNoteIdValue(), 999);
+  assert.equal(h.storage.getItem("workspace.lastNoteId"), "999");
+});
 
 test("shell waits for saved-note restore before persisting, including StrictMode replay", async (t) => {
   const fetch = deferred();

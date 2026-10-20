@@ -4305,7 +4305,8 @@
     }
   },
   "workspace": {
-    "noteMissing": "Cette note a été supprimée ou déplacée hors de cet espace de travail."
+    "noteMissing": "Cette note a été supprimée ou déplacée hors de cet espace de travail.",
+    "noteLoadError": "Impossible de charger cette note. Réessayez."
   },
   "capture": {
     "group": "Capturer",

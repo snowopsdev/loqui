@@ -249,7 +249,7 @@ test("production TipTap mention nodes parse and serialize entity and person link
   const { Markdown } = await import("tiptap-markdown");
   const { DOMParser: HtmlParser } = require("@xmldom/xmldom");
   const { DOMParser: TipTapDOMParser } = await import("@tiptap/pm/model");
-  const { mentionHref } = await load();
+  const { mentionHref, buildMentionMarkdown } = await load();
   const mention = createMentionExtension(() => ({
     people: [],
     searchContacts: async () => [],
@@ -332,6 +332,8 @@ test("production TipTap mention nodes parse and serialize entity and person link
     "[@Pricing review](meeting:38)",
     "[@Draft a reply](dictation:311)",
     "[@Work](folder:2)",
+    buildMentionMarkdown({ name: "A\\B [Ops] *bold* _x_ `code` ~wave~ 50% 東京", email: null }),
+    buildMentionMarkdown({ name: "Élodie [équipe] \\ مرحبا", email: null }),
   ].join(" ");
   const parsed = parseMarkdown(source);
   const mentions = [];
@@ -351,10 +353,21 @@ test("production TipTap mention nodes parse and serialize entity and person link
       ["meeting", "38", null, "Pricing review"],
       ["dictation", "311", null, "Draft a reply"],
       ["folder", "2", null, "Work"],
+      ["person", null, null, "A\\B Ops *bold* _x_ `code` ~wave~ 50% 東京"],
+      ["person", null, null, "Élodie équipe \\ مرحبا"],
     ]
   );
   for (const mentionNode of mentions) {
     const markdown = serializeMention(mentionNode);
+    if (mentionNode.attrs.kind === "person" && !mentionNode.attrs.email) {
+      const href = markdown.match(/\]\(([^)]+)\)$/)[1];
+      assert.equal(
+        decodeURIComponent(href.slice("mention:".length)),
+        mentionNode.attrs.label,
+        "sanitized unescaped identity stays separate from Markdown display escaping"
+      );
+      assert.match(markdown, /\\[\\*_`~]/, "special display punctuation is escaped");
+    }
     const reloaded = parseMarkdown(markdown);
     const roundTripped = [];
     reloaded.descendants((node) => {

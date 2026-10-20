@@ -5,7 +5,7 @@ import type { ControlPanelView } from "./controlPanelNav";
  *  citations, palette rows, Insights tiles). ControlPanel provides it. */
 export interface WorkspaceNavigation {
   openView(view: ControlPanelView): void;
-  openNote(noteId: number): void;
+  openNote(noteId: number, options?: { isEligible?: () => boolean }): void;
   openFolder(spaceId: number, folderId: number | null): void;
   openTranscript(transcriptId: number): void;
   openConversation(conversationId: number): void;

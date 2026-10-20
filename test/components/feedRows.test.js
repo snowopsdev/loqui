@@ -76,6 +76,6 @@ test("meetings and notes say what they are, not by colour", async () => {
 
 test("clock times are not zero-padded", async () => {
   const { formatClockTime } = await load();
-  assert.match(formatClockTime(Date.UTC(2026, 9, 14, 7, 51), "en-US"), /^\d{1,2}:51/);
+  assert.equal(formatClockTime(new Date(2026, 9, 14, 7, 51).getTime(), "en-US"), "7:51 AM");
   assert.doesNotMatch(formatClockTime(new Date(2026, 9, 14, 7, 51).getTime(), "en-US"), /^0/);
 });

@@ -172,3 +172,14 @@ test("contact rejection and synchronous preload failure retain other sources and
     ["folder"]
   );
 });
+test("label and quote cuts preserve surrogate pairs within their published UTF-16 budgets", async () => {
+  const { dictationLabel, quoteExcerpt } = await import("../../src/lib/mentionSearch.ts");
+  const label = dictationLabel("a".repeat(38) + "😀tail");
+  const quote = quoteExcerpt("a".repeat(238) + "😀tail", 240);
+  assert.equal(label, "a".repeat(38) + "…");
+  assert.equal(quote, "a".repeat(238) + "…");
+  assert.ok(label.isWellFormed());
+  assert.ok(quote.isWellFormed());
+  assert.ok(label.length <= 40);
+  assert.ok(quote.length <= 240);
+});

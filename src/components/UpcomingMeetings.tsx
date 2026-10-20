@@ -186,7 +186,7 @@ function EventRow({
         <span
           // Overlaid so the row keeps its full width until hovered; the scrim fades the
           // covered end of a long title out instead of slicing it.
-          className="pointer-events-none absolute inset-y-0 end-0 flex items-center bg-linear-to-r from-transparent to-background to-[2rem] ps-8 pe-1 opacity-0 transition-opacity duration-150 group-hover/event:opacity-100 has-[:focus-visible]:opacity-100 dark:to-surface-2"
+          className="pointer-events-none absolute inset-y-0 end-0 flex items-center bg-linear-to-r from-transparent to-background to-[2rem] ps-8 pe-1 opacity-0 transition-opacity duration-(--motion-fast) motion-reduce:transition-none group-hover/event:opacity-100 has-[:focus-visible]:opacity-100 dark:to-surface-2"
         >
           {joinButton}
         </span>
@@ -215,7 +215,7 @@ function DayCard({
     >
       <div
         className={cn(
-          "flex items-center gap-1.5 px-2.5 py-2 text-caption font-medium",
+          "flex items-center gap-1.5 rounded-t-[15px] px-2.5 py-2 text-caption font-medium",
           group.isToday
             ? "bg-foreground/8 font-semibold text-foreground dark:bg-white/10"
             : "bg-surface-3 text-foreground dark:bg-surface-2"

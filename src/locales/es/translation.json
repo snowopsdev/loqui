@@ -4305,7 +4305,8 @@
     }
   },
   "workspace": {
-    "noteMissing": "Esa nota se eliminó o se movió fuera de este espacio de trabajo."
+    "noteMissing": "Esa nota se eliminó o se movió fuera de este espacio de trabajo.",
+    "noteLoadError": "No se pudo cargar esta nota. Inténtalo de nuevo."
   },
   "capture": {
     "group": "Capturar",

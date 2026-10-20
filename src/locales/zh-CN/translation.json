@@ -4269,7 +4269,8 @@
     }
   },
   "workspace": {
-    "noteMissing": "该笔记已被删除或移出此工作区。"
+    "noteMissing": "该笔记已被删除或移出此工作区。",
+    "noteLoadError": "无法加载此笔记。请重试。"
   },
   "capture": {
     "group": "采集",

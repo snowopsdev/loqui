@@ -27,7 +27,8 @@ test("the UI type ramp is registered with Tailwind", () => {
     assert.equal(theme[`--text-${name}`], size, `${name} size`);
     assert.equal(theme[`--text-${name}--line-height`], lineHeight, `${name} line-height`);
     assert.equal(theme[`--text-${name}--font-weight`], weight, `${name} weight`);
-    if (tracking) assert.equal(theme[`--text-${name}--letter-spacing`], tracking, `${name} tracking`);
+    if (tracking)
+      assert.equal(theme[`--text-${name}--letter-spacing`], tracking, `${name} tracking`);
   }
 });
 
@@ -56,7 +57,10 @@ test("no ramp step is smaller than 11px", () => {
 test("AI and Agent text roles meet 4.5:1 in light and Plum Night", async () => {
   const { contrastRatio } = await loadContrast();
   const { light, dark } = resolveTokens(css);
-  for (const [theme, map] of [["light", light], ["dark", dark]]) {
+  for (const [theme, map] of [
+    ["light", light],
+    ["dark", dark],
+  ]) {
     for (const fg of ["--color-ai-text", "--color-agent-text"]) {
       for (const bg of SURFACES) {
         const ratio = contrastRatio(map[fg], map[bg]);
@@ -69,7 +73,10 @@ test("AI and Agent text roles meet 4.5:1 in light and Plum Night", async () => {
 test("AI and Agent fills meet 3:1 as non-text UI in both themes", async () => {
   const { contrastRatio } = await loadContrast();
   const { light, dark } = resolveTokens(css);
-  for (const [theme, map] of [["light", light], ["dark", dark]]) {
+  for (const [theme, map] of [
+    ["light", light],
+    ["dark", dark],
+  ]) {
     for (const fg of ["--color-ai", "--color-agent"]) {
       for (const bg of SURFACES) {
         const ratio = contrastRatio(map[fg], map[bg]);
@@ -84,7 +91,24 @@ test("the agent brand mark keeps its value for the dictation panel", () => {
 });
 
 test("DESIGN.md documents both ramps and the AI and Agent roles", () => {
-  assert.match(design, /\| `text-micro` \| 11px \/ 1\.3 \/ 500/);
+  const rows = design
+    .split("\n")
+    .filter((line) => /^\|\s*`text-/.test(line))
+    .map((line) =>
+      line
+        .split("|")
+        .slice(1, -1)
+        .map((cell) => cell.trim())
+    );
+  assert.deepEqual(rows, [
+    ["`text-display`", "32px / 1.15 / 650 / -0.02em", "Rare page hero"],
+    ["`text-title`", "22px / 1.25 / 600 / -0.015em", "View titles, dialog titles"],
+    ["`text-heading`", "17px / 1.35 / 600", "Section headings"],
+    ["`text-body`", "15px / 1.55 / 400", "Transcripts, chat answers, previews"],
+    ["`text-ui`", "13px / 1.4 / 500", "Labels, nav rows, buttons, menu rows"],
+    ["`text-caption`", "12px / 1.4 / 450", "Metadata, timestamps, helper text"],
+    ["`text-micro`", "11px / 1.3 / 500 / +0.02em", "`kbd` and badges only"],
+  ]);
   assert.match(design, /### Note document ramp/);
   assert.match(design, /`--color-ai`/);
   assert.match(design, /`--color-agent`/);

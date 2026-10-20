@@ -34,9 +34,15 @@ export interface MentionSources {
 }
 
 const LABEL_MAX = 40;
+function boundedPreview(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let end = Math.max(0, max - 1);
+  if (/[\uD800-\uDBFF]/.test(text.charAt(end - 1))) end--;
+  return `${text.slice(0, end)}…`;
+}
 export function dictationLabel(text: string): string {
   const clean = text.replace(/\s+/g, " ").trim();
-  return clean.length > LABEL_MAX ? `${clean.slice(0, LABEL_MAX - 1)}…` : clean;
+  return boundedPreview(clean, LABEL_MAX);
 }
 
 export function quoteExcerpt(text: string, max = 280): string {
@@ -46,7 +52,7 @@ export function quoteExcerpt(text: string, max = 280): string {
     .replace(/[*_`~]+/g, "") // inline emphasis markers
     .replace(/\s+/g, " ")
     .trim();
-  return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
+  return boundedPreview(plain, max);
 }
 
 const includes = (haystack: string | null | undefined, needle: string) =>

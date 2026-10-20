@@ -838,11 +838,11 @@ export default function NoteEditor({
               </span>
             )}
           </div>
-          <div className="mt-5 flex items-center justify-between gap-3">
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center">
               <div
                 ref={segmentContainerRef}
-                className="relative flex shrink-0 items-center rounded-full bg-surface-3 p-0.5 dark:bg-surface-2"
+                className="relative flex min-w-0 flex-wrap items-center rounded-2xl bg-surface-3 p-0.5 dark:bg-surface-2"
               >
                 <div
                   className="pointer-events-none absolute top-0.5 left-0 rounded-full bg-background shadow-sm transition-[width,height,transform,opacity] duration-200 ease-out dark:bg-surface-3"
@@ -900,7 +900,7 @@ export default function NoteEditor({
                 )}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               {canEditNote && (
                 <NoteRecordControl
                   isRecording={isRecording}
@@ -910,7 +910,7 @@ export default function NoteEditor({
                   onStop={onStopRecording}
                 />
               )}
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 {exportOptions.map((option) => (
                   <button
                     key={option.id}
@@ -926,99 +926,103 @@ export default function NoteEditor({
         </div>
 
         <div className="relative col-start-1 row-start-2 min-h-0 min-w-0">
-          <div ref={contentScrollRef} className="h-full overflow-y-auto">
-            {viewMode === "transcript" && (hasChatSegments || isRecording) ? (
-              isRecording ? (
-                <LiveMeetingTranscriptChat
-                  contentClassName={PAGE_CONTENT_WIDTH_CLASS}
-                  speakerMappings={speakerMappings}
-                  speakerProfiles={speakerProfiles}
-                  participants={parsedParticipants}
-                  isDiarizing={isDiarizing}
-                  sessionDiarizationEnabled={sessionDiarizationEnabled}
-                  sessionExpectedCount={sessionExpectedCount}
-                  userTouchedStepper={userTouchedStepper}
-                  onSetSessionDiarizationEnabled={onSetSessionDiarizationEnabled}
-                  onSetSessionExpectedCount={onSetSessionExpectedCount}
-                  onMapSpeaker={handleMapSpeaker}
-                  onConfirmSuggestion={handleConfirmSuggestion}
-                  onDismissSuggestion={handleDismissSuggestion}
-                  onAttachSpeakerEmail={handleAttachSpeakerEmail}
+          <div
+            ref={contentScrollRef}
+            className="overflow-y-auto"
+            style={{
+              height: "max(80px, calc(100% - max(var(--floating-inset, 0px), 9rem)))",
+            }}
+          >
+            {/* The viewport already excludes the controls. Nested editors must
+                not reserve the same floating inset again as content padding. */}
+            <div className="h-full" style={{ "--floating-inset": "0px" } as React.CSSProperties}>
+              {viewMode === "transcript" && (hasChatSegments || isRecording) ? (
+                isRecording ? (
+                  <LiveMeetingTranscriptChat
+                    contentClassName={PAGE_CONTENT_WIDTH_CLASS}
+                    speakerMappings={speakerMappings}
+                    speakerProfiles={speakerProfiles}
+                    participants={parsedParticipants}
+                    isDiarizing={isDiarizing}
+                    sessionDiarizationEnabled={sessionDiarizationEnabled}
+                    sessionExpectedCount={sessionExpectedCount}
+                    userTouchedStepper={userTouchedStepper}
+                    onSetSessionDiarizationEnabled={onSetSessionDiarizationEnabled}
+                    onSetSessionExpectedCount={onSetSessionExpectedCount}
+                    onMapSpeaker={handleMapSpeaker}
+                    onConfirmSuggestion={handleConfirmSuggestion}
+                    onDismissSuggestion={handleDismissSuggestion}
+                    onAttachSpeakerEmail={handleAttachSpeakerEmail}
+                  />
+                ) : (
+                  <MeetingTranscriptChat
+                    contentClassName={PAGE_CONTENT_WIDTH_CLASS}
+                    segments={displaySegments}
+                    speakerMappings={speakerMappings}
+                    speakerProfiles={knownSpeakers}
+                    participants={parsedParticipants}
+                    isDiarizing={isDiarizing}
+                    sessionDiarizationEnabled={sessionDiarizationEnabled}
+                    sessionExpectedCount={sessionExpectedCount}
+                    userTouchedStepper={userTouchedStepper}
+                    onSetSessionDiarizationEnabled={onSetSessionDiarizationEnabled}
+                    onSetSessionExpectedCount={onSetSessionExpectedCount}
+                    onMapSpeaker={handleMapSpeaker}
+                    onConfirmSuggestion={handleConfirmSuggestion}
+                    onDismissSuggestion={handleDismissSuggestion}
+                    onAttachSpeakerEmail={handleAttachSpeakerEmail}
+                    selectedSegmentIds={selectedSegmentIds}
+                    onToggleSelect={handleToggleSelect}
+                  />
+                )
+              ) : viewMode === "transcript" && hasMeetingTranscript ? (
+                <RichTextEditor value={note.transcript || ""} disabled />
+              ) : viewMode === "transcript" ? (
+                <EmptyStateCard
+                  icon={Mic}
+                  title={t("notes.editor.transcriptEmptyTitle")}
+                  description={t("notes.editor.transcriptEmptyDescription")}
+                  className={cn(PAGE_CONTENT_WIDTH_CLASS, "mt-2")}
+                >
+                  {canEditNote && recordingAllowed && (
+                    <Button
+                      variant="live"
+                      size="sm"
+                      onClick={onStartRecording}
+                      disabled={isProcessing}
+                    >
+                      <Mic size={13} />
+                      {t("notes.editor.startRecording")}
+                    </Button>
+                  )}
+                </EmptyStateCard>
+              ) : viewMode === "enhanced" && enhancement ? (
+                <RichTextEditor
+                  key="enhanced"
+                  onAskAi={handleAskAi}
+                  value={enhancement.content}
+                  onChange={handleEnhancedChange}
+                  disabled={!canEditNote}
+                  mentionPeople={mentionPeople}
                 />
               ) : (
-                <MeetingTranscriptChat
-                  contentClassName={PAGE_CONTENT_WIDTH_CLASS}
-                  segments={displaySegments}
-                  speakerMappings={speakerMappings}
-                  speakerProfiles={knownSpeakers}
-                  participants={parsedParticipants}
-                  isDiarizing={isDiarizing}
-                  sessionDiarizationEnabled={sessionDiarizationEnabled}
-                  sessionExpectedCount={sessionExpectedCount}
-                  userTouchedStepper={userTouchedStepper}
-                  onSetSessionDiarizationEnabled={onSetSessionDiarizationEnabled}
-                  onSetSessionExpectedCount={onSetSessionExpectedCount}
-                  onMapSpeaker={handleMapSpeaker}
-                  onConfirmSuggestion={handleConfirmSuggestion}
-                  onDismissSuggestion={handleDismissSuggestion}
-                  onAttachSpeakerEmail={handleAttachSpeakerEmail}
-                  selectedSegmentIds={selectedSegmentIds}
-                  onToggleSelect={handleToggleSelect}
+                <RichTextEditor
+                  key="raw"
+                  onAskAi={handleAskAi}
+                  value={note.content}
+                  onChange={handleContentChange}
+                  editorRef={editorRef}
+                  slash={slash}
+                  placeholder={t("notes.editor.startWriting")}
+                  disabled={!canEditNote || actionProcessingState === "processing"}
+                  mentionPeople={mentionPeople}
                 />
-              )
-            ) : viewMode === "transcript" && hasMeetingTranscript ? (
-              <RichTextEditor value={note.transcript || ""} disabled />
-            ) : viewMode === "transcript" ? (
-              <EmptyStateCard
-                icon={Mic}
-                title={t("notes.editor.transcriptEmptyTitle")}
-                description={t("notes.editor.transcriptEmptyDescription")}
-                className={cn(PAGE_CONTENT_WIDTH_CLASS, "mt-2")}
-              >
-                {canEditNote && recordingAllowed && (
-                  <Button
-                    variant="live"
-                    size="sm"
-                    onClick={onStartRecording}
-                    disabled={isProcessing}
-                  >
-                    <Mic size={13} />
-                    {t("notes.editor.startRecording")}
-                  </Button>
-                )}
-              </EmptyStateCard>
-            ) : viewMode === "enhanced" && enhancement ? (
-              <RichTextEditor
-                key="enhanced"
-                onAskAi={handleAskAi}
-                value={enhancement.content}
-                onChange={handleEnhancedChange}
-                disabled={!canEditNote}
-                mentionPeople={mentionPeople}
-              />
-            ) : (
-              <RichTextEditor
-                key="raw"
-                onAskAi={handleAskAi}
-                value={note.content}
-                onChange={handleContentChange}
-                editorRef={editorRef}
-                slash={slash}
-                placeholder={t("notes.editor.startWriting")}
-                disabled={!canEditNote || actionProcessingState === "processing"}
-                mentionPeople={mentionPeople}
-              />
-            )}
+              )}
+            </div>
           </div>
           <ActionProcessingOverlay
             state={actionProcessingState ?? "idle"}
             actionName={actionName ?? null}
-          />
-          <div
-            className="absolute bottom-0 left-0 right-0 h-20 pointer-events-none"
-            style={{
-              background: "linear-gradient(to bottom, transparent, var(--color-background))",
-            }}
           />
           {!isRecording && selectedSegmentIds.size > 0 && (
             <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">

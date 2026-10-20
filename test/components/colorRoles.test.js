@@ -2,7 +2,17 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const { renderStatic } = require("../helpers/harness/reactSsr");
+const { renderStatic: renderComponent, React } = require("../helpers/harness/reactSsr");
+const { createInstance } = require("i18next");
+const { I18nextProvider } = require("react-i18next");
+const i18n = createInstance();
+i18n.init({
+  lng: "en",
+  initImmediate: false,
+  resources: { en: { translation: require("../../src/locales/en/translation.json") } },
+});
+const renderStatic = (Component, props, children) =>
+  renderComponent(I18nextProvider, { i18n }, React.createElement(Component, props, children));
 const { readTokens, resolveTokens } = require("../helpers/harness/cssTokens");
 
 const repoRoot = path.join(__dirname, "../..");

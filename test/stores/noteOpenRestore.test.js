@@ -94,6 +94,110 @@ test("an IPC delete of an opened older note clears it from the editor", async (t
 // N01: main deletes a folder's notes and broadcasts only folder-deleted.
 const ARCHIVE = { id: 3, space_id: 1, name: "Archive", is_default: 0 };
 
+test("final-overview: a rejected explicit read retains the prior overview through tree initialization", async (t) => {
+  const { store } = await loadStore(t, {
+    getNote: async (id) => {
+      if (id === 500) throw new Error("fixture read failure");
+      return null;
+    },
+  });
+  assert.equal(await store.restoreLaunchNote(404), "missing");
+  assert.equal(await store.openNoteById(500), "error");
+  await store.initializeNotesTree();
+  assert.equal(
+    store.getActiveNoteIdValue(),
+    null,
+    "failure cannot rearm an incidental first-note pick"
+  );
+});
+
+for (const method of ["openNoteById", "restoreLaunchNote"]) {
+  test(`final lifetime: ${method} retires on owner unmount without newer navigation`, async (t) => {
+    const pending = deferred();
+    const { store } = await loadStore(t, { getNote: () => pending.promise });
+    let alive = true;
+    const notices = [];
+    const generation = store.getNoteNavigationGeneration();
+    const opening = store[method](999, {
+      isEligible: () => alive,
+      onMissing: () => notices.push("missing"),
+      onLoadError: () => notices.push("error"),
+    });
+    alive = false;
+    pending.resolve(note(999));
+    assert.equal(await opening, "superseded");
+    assert.equal(store.getNoteNavigationGeneration(), generation + 1);
+    assert.equal(store.getNoteFromStore(999), null);
+    assert.equal(store.getActiveNoteIdValue(), null);
+    assert.equal(store.getActiveFolderIdValue(), null);
+    assert.deepEqual(notices, []);
+  });
+
+  test(`final truth: ${method} preserves selection on rejection and retries only the failed intent`, async (t) => {
+    let reads = 0;
+    let retry;
+    const { store } = await loadStore(t, {
+      getNote: async () => {
+        if (++reads <= 2) throw new Error("fixture read failed");
+        return note(999);
+      },
+    });
+    store.setActiveNoteId(7);
+    let missing = 0;
+    const options = {
+      onMissing: () => missing++,
+      onLoadError: (value) => {
+        retry = value;
+      },
+    };
+    assert.equal(await store[method](999, options), "error");
+    assert.equal(store.getActiveNoteIdValue(), 7);
+    assert.equal(missing, 0);
+    assert.equal(await retry(), "error");
+    assert.equal(await retry(), "opened");
+    assert.equal(store.getActiveNoteIdValue(), 999);
+    assert.equal(reads, 3);
+    assert.equal(await retry(), "superseded", "a completed intent cannot be replayed");
+    assert.equal(reads, 3);
+  });
+
+  for (const retirement of ["navigation", "reset", "delete", "unmount"]) {
+    test(`final retry: ${method} ${retirement} is inert before read or generation claim`, async (t) => {
+      let retry;
+      let reads = 0;
+      let alive = true;
+      let deleted;
+      const { store } = await loadStore(t, {
+        getNote: async () => {
+          reads++;
+          throw new Error("fixture read failed");
+        },
+        onNoteDeleted: (cb) => {
+          deleted = cb;
+          return () => {};
+        },
+      });
+      assert.equal(
+        await store[method](999, {
+          isEligible: () => alive,
+          onLoadError: (value) => {
+            retry = value;
+          },
+        }),
+        "error"
+      );
+      if (retirement === "navigation") store.navigateToContainer(1, null);
+      if (retirement === "reset") store.invalidatePendingNoteNavigation();
+      if (retirement === "delete") deleted({ id: 999 });
+      if (retirement === "unmount") alive = false;
+      const generation = store.getNoteNavigationGeneration();
+      assert.equal(await retry(), "superseded");
+      assert.equal(reads, 1);
+      assert.equal(store.getNoteNavigationGeneration(), generation);
+    });
+  }
+}
+
 test("deleting the folder of an opened older note evicts it, by broadcast (N01)", async (t) => {
   let folderDeleted;
   let rowExists = true;

@@ -233,7 +233,7 @@ export default function SpacesTree({
               activeNoteId != null || context?.spaceId !== space.id || context?.folderId != null;
             if (changed) navigateToContainer(space.id, null);
             setContainerExpanded(rootKey, true);
-            if (changed) onNavigate?.();
+            onNavigate?.();
           }}
         >
           {space.emoji && (
@@ -289,7 +289,7 @@ export default function SpacesTree({
                         context?.folderId !== folder.id;
                       if (changed) navigateToContainer(space.id, folder.id);
                       setContainerExpanded(key, true);
-                      if (changed) onNavigate?.();
+                      onNavigate?.();
                     }}
                     onKeyDown={(e) => containerKeys(e, key)}
                     className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring flex flex-1 min-w-0 items-center gap-2 py-2 text-start"

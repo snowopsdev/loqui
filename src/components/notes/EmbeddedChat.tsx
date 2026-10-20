@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { X, PanelRight, PanelRightClose } from "../icons";
 import { cn } from "../lib/utils";
@@ -9,7 +9,6 @@ import { useResolvedRoute } from "../../lib/routes";
 import { useWorkspaceNavigation } from "../workspaceNavigation";
 import type { ComposerSeed } from "../chat/chatRequest";
 import type { Message, AgentState } from "../chat/types";
-import { setActiveNoteId, setActiveFolderId } from "../../stores/noteStore";
 import type { ContainerConversationItem } from "../../hooks/useContainerChat";
 import { ConversationPicker } from "./ConversationPicker";
 import { FLOATING_CHAT_MAX_HEIGHT_CSS } from "./floatingChatLayout";
@@ -63,11 +62,19 @@ export default function EmbeddedChat({
   const chatRoute = useResolvedRoute("chat");
   const navigation = useWorkspaceNavigation();
 
-  const handleOpenNote = useCallback(async (noteId: number) => {
-    const note = await window.electronAPI.getNote(noteId);
-    if (note?.folder_id) setActiveFolderId(note.folder_id);
-    setActiveNoteId(noteId);
+  const lifetime = useRef(false);
+  useEffect(() => {
+    lifetime.current = true;
+    return () => {
+      lifetime.current = false;
+    };
   }, []);
+  const handleOpenNote = useCallback(
+    (noteId: number) => {
+      navigation.openNote(noteId, { isEligible: () => lifetime.current });
+    },
+    [navigation]
+  );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {

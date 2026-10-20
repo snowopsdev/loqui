@@ -940,3 +940,25 @@ test("Task10 fix4: a newer logical snapshot during commit keeps its scheduled pu
   assert.equal(f.commits.length, before + 1);
   assert.deepEqual(f.h.state.selection, ["note:1"]);
 });
+
+test("Task10 fix5: immediate child layout measurement retires an already covered semantic publication", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() }, 1, true);
+  assert.ok(f.frames.size, "the canonical board snapshot is queued");
+  await f.render(1, (board) => board.dispatch({ type: "measured", key: "note:1", h: 468 }));
+  assert.equal(f.h.readCards()[0].rect.h, 468, "logical natural measurement is immediate");
+  assert.equal(f.h.state.board, f.h.read().board, "the semantic board is already in this commit");
+  const count = f.commits.length;
+  await f.flush();
+  assert.equal(
+    f.commits.length,
+    count,
+    "projection-only child measurement needs no extra semantic commit"
+  );
+  await act(() => f.h.dispatch({ type: "select", keys: ["note:1"] }));
+  await f.flush();
+  assert.equal(
+    f.h.state.measured["note:1"],
+    468,
+    "later semantic snapshots preserve the measurement"
+  );
+});

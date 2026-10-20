@@ -62,12 +62,17 @@ export function useTablePaintState<T>(initial: T, publication?: TablePublication
   const [paint, publish] = useState(initial);
   const current = useRef(paint);
   const key = useRef({});
+  const semanticRevision = useRef(0);
+  const renderedRevision = semanticRevision.current;
   // An ancestor may render while a Table snapshot is waiting for its frame.
   // Consume the current logical snapshot in that render, then retire only the
-  // queued publication that this committed render actually covered.
+  // queued semantic publication that this committed render actually covered.
+  // Projection-only measurements during child layout need no React snapshot;
+  // a newer semantic set still increments the revision and keeps its queue.
   const snapshot = publication ? current.current : paint;
   useLayoutEffect(() => {
-    if (publication && Object.is(snapshot, current.current)) publication.cancel(key.current);
+    if (publication && renderedRevision === semanticRevision.current)
+      publication.cancel(key.current);
   });
   const set: Dispatch<SetStateAction<T>> = useCallback(
     (action) => {
@@ -75,6 +80,7 @@ export function useTablePaintState<T>(initial: T, publication?: TablePublication
         typeof action === "function" ? (action as (previous: T) => T)(current.current) : action;
       if (Object.is(next, current.current)) return;
       current.current = next;
+      semanticRevision.current++;
       if (publication) publication.schedule(key.current, () => publish(current.current));
       else publish(next);
     },
@@ -87,6 +93,7 @@ export function useTablePaintState<T>(initial: T, publication?: TablePublication
   const reset = useCallback(
     (value: T) => {
       publication?.cancel(key.current);
+      semanticRevision.current++;
       current.current = value;
       publish(value);
     },

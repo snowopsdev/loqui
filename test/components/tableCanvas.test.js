@@ -188,7 +188,7 @@ const { installTree } = require("../helpers/harness/fakeDomTree");
 
 // Mount the real DOM components. Only layout, event dispatch and browser scheduling
 // are faked; React reconciles actual nodes and focus updates globalThis.document.activeElement.
-async function mount(t, overrides = {}) {
+async function mount(t, overrides = {}, heights = {}) {
   t.after(() => unmount());
   installBrowserGlobals(t);
   installHookDom(t);
@@ -224,7 +224,13 @@ async function mount(t, overrides = {}) {
     });
     node.clientWidth = 1200;
     node.clientHeight = 800;
-    node.offsetHeight = 150;
+    Object.defineProperty(node, "offsetHeight", {
+      get: () => heights[node.attributes["data-card-key"]] ?? 150,
+      set: (value) => {
+        heights[node.attributes["data-card-key"]] = value;
+      },
+      configurable: true,
+    });
     node.getBoundingClientRect = () => ({ left: 10, top: 20, width: 1200, height: 800 });
     node.setPointerCapture = (id) => captures.add(id);
     node.hasPointerCapture = (id) => captures.has(id);
@@ -466,12 +472,13 @@ for (const kind of ["drag", "pan", "lasso"]) {
 
 test("second pointer cannot hijack, cancel or release the owning pointer", async (t) => {
   const m = await mount(t);
+  const initialCalls = m.calls.length;
   await m.event("onPointerDown", m.cardEl("note:1"));
   await m.event("onPointerDown", m.cardEl("chat:2"), { pointerId: 2 });
   await m.event("onPointerMove", m.canvas(), { pointerId: 2, clientX: 900 });
   await m.event("onPointerCancel", m.canvas(), { pointerId: 2 });
   await m.event("onPointerUp", m.canvas(), { pointerId: 2, clientX: 900 });
-  assert.equal(m.calls.length, 0);
+  assert.equal(m.calls.length, initialCalls);
   assert.deepEqual([...m.captures], [1]);
   await m.event("onPointerUp", m.canvas(), { clientX: 90 });
   assert.deepEqual(m.byCall("onDrop"), [[{ "note:1": { x: 112, y: 32 } }]]);
@@ -658,7 +665,11 @@ test("ResizeObserver uses real mounted root/card dimensions and disconnects on u
     cardObserver.callback();
   });
   assert.deepEqual(m.byCall("onResize"), [[{ width: 500, height: 300 }]]);
-  assert.deepEqual(m.byCall("onMeasure"), [["note:1", 212]]);
+  assert.deepEqual(m.byCall("onMeasure"), [
+    ["note:1", 150],
+    ["chat:2", 150],
+    ["note:1", 212],
+  ]);
   await m.unmount();
   assert.ok(m.observers.every((o) => o.disconnected));
 });
@@ -1670,7 +1681,9 @@ test("Task10 fix4: canonical retirement prunes optional warm keys before any Rea
   const a = card("note:1", "note", 0, 0),
     b = card("note:2", "note", 0, 0);
   const retained = new Set([a.key]);
-  const icons = new Map([["note", globalThis.document.createElementNS("http://www.w3.org/2000/svg", "svg")]]);
+  const icons = new Map([
+    ["note", globalThis.document.createElementNS("http://www.w3.org/2000/svg", "svg")],
+  ]);
   owner.reconcile(container, [a], retained, null, (key) => key, icons);
   const old = nodes.get(a.key);
   retained.add(b.key);
@@ -1680,3 +1693,112 @@ test("Task10 fix4: canonical retirement prunes optional warm keys before any Rea
   assert.equal(old.parentNode, null);
   assert.deepEqual(stopped, [old]);
 });
+
+for (const native of [true, false]) {
+  test(`Task10 fix5: cold natural content beyond the estimate mounts immediately (${native ? "native" : "React fallback"})`, async (t) => {
+    const { createTablePublication } =
+      await import("../../src/components/table/tablePublication.ts");
+    const publication = native ? createTablePublication() : undefined;
+    t.after(() => publication?.dispose());
+    const { buildCards } = await import("../../src/components/table/tableModel.ts");
+    const entities = Array.from({ length: 21 }, (_, i) => ({
+      ...card(`note:${i + 1}`, "note", 40, 48).entity,
+      title: i === 20 ? "Full natural wrapping title ".repeat(40) : `Nearer ${i}`,
+      layout: { x: 40, y: i === 20 ? 40 : 48, w: 280, h: null, z: 0, hidden: false },
+    }));
+    const cards = buildCards(entities);
+    assert.equal(cards[20].rect.h, 152);
+    assert.equal(cards[20].fixedH, null);
+    const viewport = { x: 0, y: -350, scale: 1 };
+    const { visibleIds } = await import("../../src/components/table/tableGeometry.ts");
+    const placed = cards.map((c) => ({ id: c.key, rect: c.rect }));
+    assert.equal(visibleIds(placed, viewport, { width: 1200, height: 800 }).has("note:21"), true);
+    assert.equal(40 - 350 + 468, 158, "actual simulated natural extent intersects the viewport");
+    const m = await mount(
+      t,
+      { cards, viewport, selection: [], focused: null, publication },
+      { "note:21": 468 }
+    );
+    const node = m.cardEl("note:21");
+    assert.ok(
+      node,
+      "cold natural target must not wait behind the twenty closer optional candidates"
+    );
+    assert.equal(node.offsetHeight, 468);
+    assert.match(node.textContent, /Full natural wrapping title/);
+    assert.notEqual(node.style.visibility, "hidden");
+    assert.notEqual(node.attributes["aria-hidden"], "true");
+    assert.equal(node.style.height || "", "", "natural content must remain unrestricted");
+  });
+}
+
+for (const native of [true, false]) {
+  test(`Task10 fix5: current natural bounds follow content, width, locale and native reflow (${native ? "native" : "React fallback"})`, async (t) => {
+    const { createTablePublication } =
+      await import("../../src/components/table/tablePublication.ts");
+    const publication = native ? createTablePublication() : undefined;
+    t.after(() => publication?.dispose());
+    let target = { ...card("note:21", "note", 40, 40), fixedH: null };
+    const fixed = { ...card("note:22", "note", 40, 40), fixedH: 152 };
+    const heights = { "note:21": 100 };
+    const m = await mount(
+      t,
+      { cards: [target, fixed], viewport: { x: 0, y: -350, scale: 1 }, selection: [], publication },
+      heights
+    );
+    const node = m.cardEl(target.key);
+    assert.ok(node);
+    assert.ok(m.calls.some((c) => c[0] === "onMeasure" && c[1] === target.key && c[2] === 100));
+    await m.render();
+    assert.equal(
+      node.style.visibility,
+      "hidden",
+      "current measured natural bound excludes intersection"
+    );
+    if (m.cardEl(fixed.key)) assert.equal(m.cardEl(fixed.key).style.visibility, "hidden");
+    heights[target.key] = 468;
+    target = {
+      ...target,
+      entity: { ...target.entity, title: "Changed full natural title ".repeat(40) },
+    };
+    await m.render({ cards: [target, fixed] });
+    assert.equal(m.cardEl(target.key), node);
+    assert.notEqual(
+      node.style.visibility,
+      "hidden",
+      "changed content cannot reuse a shorter bound"
+    );
+    assert.ok(m.calls.some((c) => c[0] === "onMeasure" && c[2] === 468));
+    const observer = m.observers.find((o) => o.nodes?.includes(node));
+    const count = m.observers.length;
+    heights[target.key] = 100;
+    await React.act(() => observer.callback([{ target: node }]));
+    await m.render();
+    assert.equal(node.style.visibility, "hidden");
+    heights[target.key] = 600;
+    target = { ...target, rect: { ...target.rect, w: 180 } };
+    await m.render({ cards: [target, fixed] });
+    assert.notEqual(node.style.visibility, "hidden", "new width invalidates the old natural bound");
+    assert.equal(node.style.height || "", "");
+    heights[target.key] = 100;
+    await React.act(() => observer.callback([{ target: node }]));
+    await m.render();
+    assert.equal(node.style.visibility, "hidden");
+    heights[target.key] = 500;
+    t.after(async () => i18n.changeLanguage("en"));
+    await React.act(async () => i18n.changeLanguage("de"));
+    assert.notEqual(
+      node.style.visibility,
+      "hidden",
+      "locale invalidates even a previously hidden natural bound"
+    );
+    assert.ok(m.calls.some((c) => c[0] === "onMeasure" && c[2] === 500));
+    assert.equal(m.observers.length, count, "bounds do not reconnect observers");
+    heights[target.key] = 700;
+    await React.act(() => observer.callback([{ target: node }]));
+    assert.ok(
+      m.calls.some((c) => c[0] === "onMeasure" && c[2] === 700),
+      "native reflow still reaches the real height consumer"
+    );
+  });
+}

@@ -114,23 +114,71 @@ export function TableCanvas(props: TableCanvasProps) {
   const nodes = useRef(
     new Map<string, { node: HTMLDivElement; overflow: (fixed?: boolean) => void }>()
   );
+  const naturalBounds = useRef(
+    new Map<
+      string,
+      {
+        h: number;
+        entity: TableCardModel["entity"];
+        w: number;
+        expanded: boolean;
+        translation: typeof t;
+        scope: number | undefined;
+      }
+    >()
+  );
+  const translationRef = useRef(t);
+  translationRef.current = t;
   const register = useCallback(
     (key: string, node: HTMLDivElement | null, overflow: (fixed?: boolean) => void) => {
       painted.current.delete(key);
+      naturalBounds.current.delete(key);
       if (node) nodes.current.set(key, { node, overflow });
       else nodes.current.delete(key);
     },
     []
   );
   const current = () => ({ ...propsRef.current, ...propsRef.current.read?.() });
+  const onMeasure = useCallback((key: string, h: number) => {
+    const live = { ...propsRef.current, ...propsRef.current.read?.() };
+    const card = live.cards.find((candidate) => candidate.key === key);
+    if (card && nodes.current.has(key)) {
+      if (card.fixedH == null && h > 0)
+        naturalBounds.current.set(key, {
+          h,
+          entity: card.entity,
+          w: card.rect.w,
+          expanded: live.expanded === key,
+          translation: translationRef.current,
+          scope: live.gestureScope,
+        });
+      else naturalBounds.current.delete(key);
+    }
+    propsRef.current.onMeasure(key, h);
+  }, []);
+  // An estimate is not a lower-edge bound. Until this lifetime has measured
+  // current natural content, only its horizontal extent and top can exclude it.
+  const naturalHeight = (card: TableCardModel) => {
+    const bound = naturalBounds.current.get(card.key);
+    return bound &&
+      bound.entity === card.entity &&
+      bound.w === card.rect.w &&
+      bound.expanded === (propsRef.current.expanded === card.key) &&
+      bound.translation === t &&
+      bound.scope === propsRef.current.gestureScope
+      ? bound.h
+      : undefined;
+  };
+  const visibilityRects = (models: TableCardModel[]) =>
+    models.map((card) => ({
+      id: card.key,
+      rect: card.fixedH != null ? card.rect : { ...card.rect, h: naturalHeight(card) ?? Infinity },
+    }));
   const measurements = useMemo(createTableMeasurements, []);
   useEffect(() => () => measurements.dispose(), [measurements]);
   const semanticCards = useMemo(
-    () =>
-      createTableSemanticCards(measurements.observe, register, (key, height) =>
-        propsRef.current.onMeasure(key, height)
-      ),
-    [measurements, register]
+    () => createTableSemanticCards(measurements.observe, register, onMeasure),
+    [measurements, register, onMeasure]
   );
   useLayoutEffect(
     () => () => semanticCards.dispose(),
@@ -189,9 +237,12 @@ export function TableCanvas(props: TableCanvasProps) {
     ],
     [selection, focused, dragging, focusRequest]
   );
-  const visible = useMemo(
-    () => visibleIds(placed, viewport, size, always, paintMargin(viewport, size)),
-    [placed, viewport, size, always]
+  const visible = visibleIds(
+    visibilityRects(cards),
+    viewport,
+    size,
+    always,
+    paintMargin(viewport, size)
   );
   const retention = useRef({ scope: props.gestureScope, keys: new Set<string>(), warmed: false });
   if (retention.current.scope !== props.gestureScope)
@@ -343,7 +394,7 @@ export function TableCanvas(props: TableCanvasProps) {
       };
     const byKeyNow = geometry.current.byKey;
     const visibleNow = visibleIds(
-      geometry.current.placed,
+      visibilityRects(live.cards),
       live.viewport,
       liveSize.current,
       [...live.selection, ...(live.focused ? [live.focused] : []), ...liveDragging.current],
@@ -479,6 +530,17 @@ export function TableCanvas(props: TableCanvasProps) {
     const overflowPaints = [...overflowUpdates].map(([overflow, fixed]) =>
       semanticCards.prepareOverflow(overflow, fixed)
     );
+    // New/reflowed natural nodes need an actual bound now, not an optional RAF.
+    // Batch these reads after all geometry/content writes, alongside overflow.
+    for (const card of live.cards) {
+      const entry = nodes.current.get(card.key);
+      if (
+        card.fixedH == null &&
+        entry &&
+        (naturalHeight(card) == null || overflowUpdates.has(entry.overflow))
+      )
+        onMeasure(card.key, entry.node.offsetHeight);
+    }
     for (const paint of overflowPaints) paint();
   };
   useLayoutEffect(paintGeometry);
@@ -911,7 +973,7 @@ export function TableCanvas(props: TableCanvasProps) {
               dragging: dragging.includes(card.key),
               snapping: snapping.includes(card.key),
               expanded: expanded === card.key,
-              onMeasure: props.onMeasure,
+              onMeasure,
               onNode: register,
               observe: props.publication ? measurements.observe : undefined,
             };

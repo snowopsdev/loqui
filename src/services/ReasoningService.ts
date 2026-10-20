@@ -1,3 +1,4 @@
+import { toToolMetadata } from "../components/chat/citations";
 import { BaseReasoningService, type ReasoningConfig } from "./BaseReasoningService";
 import i18n from "../i18n";
 import { getSettings } from "../stores/settingsStore";
@@ -283,6 +284,7 @@ class ReasoningService extends BaseReasoningService {
                   typeof result === "string"
                     ? result
                     : (result as { error?: string })?.error || "Done",
+                metadata: toToolMetadata(event.name, result),
               };
             } catch (error) {
               await api.textToolResult({

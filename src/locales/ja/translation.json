@@ -720,7 +720,8 @@
       "title": "必須モデルがありません",
       "description": "組織では、このデバイスにこれらのモデルが必要です：{{models}}。",
       "download": "ダウンロード"
-    }
+    },
+    "breadcrumb": "現在の場所"
   },
   "reasoning": {
     "mode": {
@@ -2434,7 +2435,7 @@
       "transcriptEmptyDescription": "録音ボタンを押すと文字起こしが始まります。話した内容がここにリアルタイムで表示されます。",
       "startRecording": "録音を開始",
       "generateSummary": "AI要約を生成",
-      "startWriting": "書き始める..."
+      "startWriting": "入力、音声入力、または貼り付け。/ キーでブロックやアクションを表示します。"
     },
     "participants": {
       "attendee": "名の参加者",
@@ -2624,7 +2625,9 @@
       "urlFileTooLarge": "ファイルが大きすぎてダウンロードできません。最大サイズは500 MBです。",
       "urlYoutubeBlocked": "YouTubeがお使いのネットワークからのダウンロードを一時的にブロックしています。しばらくしてからもう一度お試しください。",
       "customEndpointInvalid": "カスタム文字起こしエンドポイントが未設定か無効です。設定から更新してください。",
-      "streamingOnlyProvider": "このプロバイダーはライブ文字起こしのみに対応しています。ファイルのアップロードや再実行には別のプロバイダーを選択してください。"
+      "streamingOnlyProvider": "このプロバイダーはライブ文字起こしのみに対応しています。ファイルのアップロードや再実行には別のプロバイダーを選択してください。",
+      "needsModel": "アップロードには文字起こしモデルが必要です。",
+      "chooseModel": "文字起こしモデルを選択"
     },
     "meeting": {
       "title": "議事録",
@@ -2764,7 +2767,57 @@
     },
     "actionsModelHint": {
       "title": "アクションには AI モデルが必要です",
-      "choose": "モデルを選択"
+      "choose": "モデルを選択",
+      "needsProvider": "アクションには AI プロバイダーが必要です",
+      "chooseProvider": "プロバイダーを選択",
+      "needsKey": "アクションには {{provider}} の API キーが必要です",
+      "addKey": "キーを追加",
+      "needsUrl": "アクションにはサーバーのアドレスが必要です",
+      "addUrl": "アドレスを追加",
+      "sealed": "シールモードがオンの間、アクションは一時停止します",
+      "unreachable": "アクションがノート用モデルに接続できません",
+      "openSettings": "設定を開く"
+    },
+    "slash": {
+      "label": "ブロックを挿入",
+      "empty": "一致するブロックがありません",
+      "aiNeedsModel": "アクションにはAIモデルが必要です",
+      "setupAi": "ノートAIを設定…",
+      "ai": {
+        "needsModel": "設定でノートモデルをダウンロードしてください",
+        "needsKey": "設定でAPIキーを追加してください",
+        "needsUrl": "設定でサーバーアドレスを追加してください",
+        "off": "設定でノートAIがオフになっています",
+        "unreachable": "ノートモデルに接続できません",
+        "unknown": "ノートモデルを確認中…"
+      },
+      "manageActions": "アクションを管理…",
+      "groups": {
+        "text": "テキスト",
+        "ai": "AI",
+        "insert": "挿入"
+      },
+      "items": {
+        "h1": "見出し1",
+        "h2": "見出し2",
+        "h3": "見出し3",
+        "bullet": "箇条書き",
+        "numbered": "番号付きリスト",
+        "todo": "タスクリスト",
+        "quote": "引用",
+        "code": "コード",
+        "timestamp": "タイムスタンプ",
+        "dictation": "ここに音声入力",
+        "mention": "メンション"
+      }
+    },
+    "bubble": {
+      "bold": "太字",
+      "italic": "斜体",
+      "link": "リンク",
+      "linkUrl": "リンク先アドレス",
+      "linkInvalid": "ウェブまたはメールのアドレスを入力してください",
+      "askAi": "AI に質問"
     }
   },
   "dictionary": {
@@ -3020,12 +3073,18 @@
       "saved": "画像をダウンロードしました。",
       "failed": "共有カードを作成できませんでした。",
       "unnamedMember": "チームメイト"
-    }
+    },
+    "openHistory": "履歴を開く",
+    "openDictations": "履歴に音声入力を表示",
+    "focusHeatmap": "アクティビティチャートに移動"
   },
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "スペース",
+      "recent": "最近のノート",
+      "voice": "音声"
     },
     "navigation": "Main navigation",
     "insights": "統計",
@@ -3051,7 +3110,8 @@
     "notSignedIn": "未サインイン",
     "chat": "チャット",
     "collapse": "サイドバーを折りたたむ",
-    "expand": "サイドバーを展開"
+    "expand": "サイドバーを展開",
+    "calendars": "カレンダー"
   },
   "chat": {
     "newChat": "新しいチャット",
@@ -3073,7 +3133,27 @@
     "searchChats": "チャットを検索",
     "searchTitle": "会話を検索",
     "searchDescription": "すべての会話を検索",
-    "newChatEmpty": "ノートや文字起こし、その他なんでも聞いてください"
+    "newChatEmpty": "ノートや文字起こし、その他なんでも聞いてください",
+    "assistant": "アシスタント",
+    "sources": {
+      "label": "参照元",
+      "note": "ノート",
+      "meeting": "会議"
+    },
+    "model": {
+      "changeHint": "設定で変更"
+    },
+    "rail": {
+      "label": "コンテキスト",
+      "toggle": "コンテキスト",
+      "inScope": "対象範囲",
+      "found": "自動で見つかった項目",
+      "emptyScope": "@ を入力してノート、会議、フォルダーを追加します。アシスタントはノートを自動で検索することもあります。",
+      "unpin": "{{label}} をコンテキストから削除",
+      "activity": "アクティビティ",
+      "noActivity": "まだありません",
+      "addContext": "コンテキストを追加"
+    }
   },
   "support": {
     "documentation": "ドキュメント",
@@ -3272,7 +3352,8 @@
       "copiedToClipboard": "クリップボードにコピーしました",
       "openNote": "ノートを開く",
       "unknownTool": "不明なツール: {{name}}",
-      "invalidArgs": "{{name}} のツール引数が無効です"
+      "invalidArgs": "{{name}} のツール引数が無効です",
+      "summary_other": "{{count}}件のノートを検索しました"
     }
   },
   "assistant": {
@@ -3448,7 +3529,8 @@
     "openSettings": "システム設定を開く",
     "connectCalendar": "カレンダーを接続",
     "connectCalendarDescription": "Loqui を離れずに会議を確認して参加できます。",
-    "connectCalendarButton": "カレンダーを接続"
+    "connectCalendarButton": "カレンダーを接続",
+    "todayLabel": "今日"
   },
   "notesView": {
     "searchPlaceholder": "ノートを検索…",
@@ -3522,15 +3604,46 @@
     "sections": {
       "notes": "ノート",
       "transcripts": "文字起こし",
-      "jumpTo": "移動"
+      "jumpTo": "移動",
+      "suggested": "おすすめ",
+      "recent": "最近の項目",
+      "commands": "コマンド",
+      "meetings": "会議",
+      "chats": "チャット",
+      "folders": "フォルダー"
     },
     "noResults": "結果なし",
     "emptyState": "入力して検索",
     "footer": {
       "navigate": "移動",
       "open": "開く",
-      "dismiss": "閉じる"
-    }
+      "dismiss": "閉じる",
+      "scope": "検索範囲",
+      "close": "閉じる"
+    },
+    "placeholderAll": "ノートや会議を検索、またはコマンドを実行…",
+    "commands": {
+      "newNote": "新規ノート",
+      "startDictation": "音声入力を開始",
+      "askAssistant": "アシスタントに質問",
+      "goNotes": "ノートへ移動",
+      "goHome": "ホームへ移動",
+      "goChat": "チャットへ移動",
+      "recordMeeting": "会議を録音",
+      "uploadAudio": "音声をアップロード…",
+      "newChat": "新規チャット",
+      "openSettings": "設定を開く",
+      "switchSpeechModel": "音声モデルを切り替え…",
+      "toggleTheme": "ダークテーマを切り替え"
+    },
+    "askAssistant": "アシスタントに質問：「{{query}}」",
+    "nothingMatches": "「{{query}}」に一致する項目はありません。",
+    "meta": {
+      "meeting": "会議",
+      "chat": "チャット"
+    },
+    "clear": "検索をクリア",
+    "seeAllTranscripts_other": "履歴で全{{count}}件を表示"
   },
   "emojiPicker": {
     "search": "絵文字を検索…",
@@ -4736,5 +4849,107 @@
       "dismiss": "設定チェックリストを閉じる",
       "label": "設定チェックリスト"
     }
+  },
+  "workspace": {
+    "noteMissing": "そのノートは削除されたか、このワークスペースの外に移動されました。",
+    "noteLoadError": "このノートを読み込めませんでした。もう一度お試しください。"
+  },
+  "capture": {
+    "group": "キャプチャ",
+    "moreOptions": "その他のキャプチャオプション",
+    "actions": {
+      "dictate": "Loquiに音声入力",
+      "recordMeeting": "会議を録音",
+      "upload": "音声をアップロード…",
+      "newNote": "新しいノート",
+      "newChat": "新しいチャット"
+    },
+    "short": {
+      "dictate": "音声入力",
+      "recordMeeting": "録音",
+      "upload": "アップロード",
+      "newNote": "新しいノート",
+      "newChat": "新しいチャット"
+    },
+    "listening": "聞き取り中 {{time}}",
+    "stopListening": "聞き取りを停止",
+    "stopRecording": "録音を停止",
+    "cleaningUp": "文章を整えています…"
+  },
+  "micCard": {
+    "ready": "準備完了",
+    "listening": "聞き取り中",
+    "listeningFor": "聞き取り中 {{time}}",
+    "cleaningUp": "文章を整えています…",
+    "offline": "マイクがオフラインです",
+    "offlinePermission": "マイクへのアクセスが無効です",
+    "offlineDevice": "マイクが接続されていません",
+    "nextCapture": "次回の録音",
+    "role": {
+      "dictation": "音声入力",
+      "meeting": "会議",
+      "assistant": "アシスタント",
+      "translation": "翻訳"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "音声入力の状態",
+      "ready": "準備完了",
+      "listening": "聞き取り中",
+      "listeningFor": "聞き取り中 {{time}}",
+      "cleaningUp": "整形中…",
+      "offline": "マイク未接続",
+      "hold": "<kbd>{{key}}</kbd>を押し続けて音声入力",
+      "press": "<kbd>{{key}}</kbd>を押して音声入力",
+      "nextNow": "{{title}}は開催中です",
+      "nextAt": "{{title}}は{{time}}から",
+      "takeNotes": "ノートを取る",
+      "nextIn_other": "{{title}}まで{{count}}分"
+    },
+    "history": {
+      "filterLabel": "履歴を絞り込む",
+      "filterPlaceholder": "このリストを絞り込む",
+      "chipsLabel": "表示",
+      "menu": "履歴のオプション",
+      "showDiscarded": "破棄した録音を表示",
+      "clearAll": "すべて削除…",
+      "expand": "展開",
+      "collapse": "折りたたむ",
+      "meetingRow": "会議",
+      "noteRow": "ノート",
+      "nothingMatches": "「{{query}}」に一致する項目はありません。",
+      "clearFilter": "絞り込みを解除",
+      "olderMissing": "この音声入力は履歴にありません。",
+      "chips": {
+        "all": "すべて",
+        "dictations": "音声入力",
+        "meetings": "会議",
+        "notes": "ノート",
+        "failed": "失敗"
+      },
+      "dayCount_other": "音声入力 {{count}} 件",
+      "words_other": "{{count}} 語",
+      "session_other": "セッション · 録音 {{count}} 件 · {{duration}}",
+      "loadFailed": "この音声入力を読み込めませんでした。もう一度お試しください。"
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "ユーザー",
+      "note": "ノート",
+      "meeting": "会議",
+      "dictation": "音声入力",
+      "folder": "フォルダー"
+    },
+    "empty": "メンションできる項目がありません",
+    "loading": "読み込み中…",
+    "missing": "この項目は削除されました。",
+    "open": "開く",
+    "insertQuote": "引用を挿入",
+    "folderMeta": "フォルダー",
+    "error": "この項目を読み込めませんでした。",
+    "retry": "再試行",
+    "pickerLabel": "項目をメンション"
   }
 }

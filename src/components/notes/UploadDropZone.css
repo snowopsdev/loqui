@@ -1,0 +1,30 @@
+/* Pulse only the border decoration: copy and its ancestors remain opaque. */
+@keyframes upload-drop-border {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px var(--color-foreground);
+  }
+
+  50% {
+    box-shadow: inset 0 0 0 2px var(--color-muted-foreground);
+  }
+}
+
+.upload-drop-zone-active {
+  transform: scale(1.01);
+  animation: upload-drop-border var(--motion-loop-pulse) var(--motion-ease-std) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upload-drop-zone {
+    transition:
+      background-color var(--motion-fast) var(--motion-ease-std),
+      border-color var(--motion-fast) var(--motion-ease-std);
+  }
+
+  .upload-drop-zone-active {
+    animation: none !important;
+    transform: none !important;
+    box-shadow: inset 0 0 0 2px var(--color-muted-foreground);
+  }
+}

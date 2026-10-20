@@ -65,3 +65,12 @@ export function extractMeetingUrl(candidates) {
   }
   return null;
 }
+
+// Shared by the calendar column and the compact Home next-meeting action.
+export function openJoinUrl(url) {
+  if (window.electronAPI?.openExternal) {
+    window.electronAPI.openExternal(url);
+  } else {
+    window.open(url, "_blank");
+  }
+}

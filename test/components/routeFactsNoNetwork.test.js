@@ -409,24 +409,22 @@ test("[baseline source guard] an available renderer build does not enter authore
   assert.ok(authored.every((file) => !file.startsWith("src/dist/")));
 });
 
-test("[change-driving source guard] lint excludes retained scratch and generated cache while authored source remains linted", async () => {
+test("[change-driving source guard] root lint retains QA and generated-cache ignores without hiding authored tests", async () => {
   const { ESLint } = require("eslint");
   const lint = new ESLint({ cwd: root });
-  assert.equal(
-    await lint.isPathIgnored(
-      path.join(root, ".superpowers/fixture/browser-vite-cache/deps/react.js")
-    ),
-    true
-  );
-  assert.equal(
-    await lint.isPathIgnored(
-      path.join(root, ".superpowers/fixture/browser-vite-cache-authored.js")
-    ),
-    true
-  );
-  assert.equal(
-    await lint.isPathIgnored(path.join(root, "test/fixtures/browser-vite-cache-authored.js")),
-    false
+  for (const file of [
+    ".superpowers/fixture/browser-vite-cache/deps/react.js",
+    ".superpowers/fixture/browser-vite-cache-authored.js",
+    "test/fixtures/browser-vite-cache/deps/react.js",
+  ])
+    assert.equal(await lint.isPathIgnored(path.join(root, file)), true, file);
+  const authored = path.join(root, "test/fixtures/browser-vite-cache-authored.js");
+  assert.equal(await lint.isPathIgnored(authored), false);
+  const [result] = await lint.lintText("task25IntentionallyUndefined();", { filePath: authored });
+  assert.equal(result.errorCount, 1);
+  assert.deepEqual(
+    result.messages.map(({ ruleId, message }) => ({ ruleId, message })),
+    [{ ruleId: "no-undef", message: "'task25IntentionallyUndefined' is not defined." }]
   );
   assert.equal(await lint.isPathIgnored(path.join(root, "main.js")), false);
   // The suite's tsx loader changes ESLint's ESM-config loading. Check the same

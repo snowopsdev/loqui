@@ -720,7 +720,8 @@
       "title": "缺少必要的模型",
       "description": "您的組織要求在此裝置上安裝這些模型：{{models}}。",
       "download": "下載"
-    }
+    },
+    "breadcrumb": "位置"
   },
   "reasoning": {
     "mode": {
@@ -2532,7 +2533,7 @@
       "transcriptEmptyDescription": "點擊錄製開始轉錄。所說的內容會即時顯示在這裡。",
       "startRecording": "開始錄製",
       "generateSummary": "產生 AI 摘要",
-      "startWriting": "開始撰寫...",
+      "startWriting": "輸入、聽寫或貼上。按 / 使用區塊與操作。",
       "staleIndicator": "內容在增強後已變更",
       "live": "即時",
       "transcript": "轉錄",
@@ -2631,7 +2632,9 @@
       "urlFileTooLarge": "檔案過大，無法下載。大小上限為 500 MB。",
       "urlYoutubeBlocked": "YouTube 暫時封鎖了來自您網路的下載。請稍後再試。",
       "customEndpointInvalid": "自訂轉錄端點未設定或無效。請在設定中更新。",
-      "streamingOnlyProvider": "此服務商僅支援即時轉錄。請為檔案上傳與重試選擇其他服務商。"
+      "streamingOnlyProvider": "此服務商僅支援即時轉錄。請為檔案上傳與重試選擇其他服務商。",
+      "needsModel": "上傳檔案需要轉錄模型。",
+      "chooseModel": "選擇轉錄模型"
     },
     "meeting": {
       "title": "會議筆記",
@@ -2836,7 +2839,57 @@
     },
     "actionsModelHint": {
       "title": "動作需要 AI 模型",
-      "choose": "選擇模型"
+      "choose": "選擇模型",
+      "needsProvider": "操作需要 AI 提供者",
+      "chooseProvider": "選擇提供者",
+      "needsKey": "操作需要 {{provider}} 的 API 金鑰",
+      "addKey": "新增金鑰",
+      "needsUrl": "操作需要你的伺服器位址",
+      "addUrl": "新增位址",
+      "sealed": "封存模式開啟時，操作會暫停",
+      "unreachable": "操作無法連線至筆記模型",
+      "openSettings": "開啟設定"
+    },
+    "slash": {
+      "label": "插入區塊",
+      "empty": "沒有相符的區塊",
+      "aiNeedsModel": "操作需要 AI 模型",
+      "setupAi": "設定筆記 AI…",
+      "ai": {
+        "needsModel": "請在設定中下載筆記模型",
+        "needsKey": "請在設定中新增 API 金鑰",
+        "needsUrl": "請在設定中新增伺服器位址",
+        "off": "筆記 AI 已在設定中關閉",
+        "unreachable": "無法連線至筆記模型",
+        "unknown": "正在檢查筆記模型…"
+      },
+      "manageActions": "管理操作…",
+      "groups": {
+        "text": "文字",
+        "ai": "AI",
+        "insert": "插入"
+      },
+      "items": {
+        "h1": "標題 1",
+        "h2": "標題 2",
+        "h3": "標題 3",
+        "bullet": "項目符號清單",
+        "numbered": "編號清單",
+        "todo": "待辦清單",
+        "quote": "引言",
+        "code": "程式碼",
+        "timestamp": "時間戳記",
+        "dictation": "在此聽寫",
+        "mention": "提及"
+      }
+    },
+    "bubble": {
+      "bold": "粗體",
+      "italic": "斜體",
+      "link": "連結",
+      "linkUrl": "連結位址",
+      "linkInvalid": "請輸入網址或電子郵件地址",
+      "askAi": "詢問 AI"
     }
   },
   "dictionary": {
@@ -3020,12 +3073,18 @@
       "saved": "圖片已下載。",
       "failed": "無法建立分享卡片。",
       "unnamedMember": "團隊成員"
-    }
+    },
+    "openHistory": "開啟歷史記錄",
+    "openDictations": "在歷史記錄中顯示聽寫",
+    "focusHeatmap": "前往活動圖表"
   },
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "空間",
+      "recent": "最近使用",
+      "voice": "語音"
     },
     "navigation": "Main navigation",
     "insights": "統計",
@@ -3051,7 +3110,8 @@
     "notSignedIn": "尚未登入",
     "chat": "聊天",
     "collapse": "收合側邊欄",
-    "expand": "展開側邊欄"
+    "expand": "展開側邊欄",
+    "calendars": "行事曆"
   },
   "chat": {
     "newChat": "新對話",
@@ -3073,7 +3133,27 @@
     "searchChats": "搜尋聊天",
     "searchTitle": "搜尋對話",
     "searchDescription": "搜尋所有對話",
-    "newChatEmpty": "詢問關於筆記、轉錄或其他任何內容"
+    "newChatEmpty": "詢問關於筆記、轉錄或其他任何內容",
+    "assistant": "助理",
+    "sources": {
+      "label": "來源",
+      "note": "筆記",
+      "meeting": "會議"
+    },
+    "model": {
+      "changeHint": "在設定中變更"
+    },
+    "rail": {
+      "label": "上下文",
+      "toggle": "上下文",
+      "inScope": "範圍內",
+      "found": "自動找到",
+      "emptyScope": "輸入 @ 新增筆記、會議或資料夾。助理也會自行搜尋你的筆記。",
+      "unpin": "從上下文中移除{{label}}",
+      "activity": "活動",
+      "noActivity": "暫無活動",
+      "addContext": "新增上下文"
+    }
   },
   "support": {
     "documentation": "文件",
@@ -3272,7 +3352,8 @@
       "copiedToClipboard": "已複製到剪貼簿",
       "openNote": "開啟筆記",
       "unknownTool": "未知工具：{{name}}",
-      "invalidArgs": "{{name}} 的工具參數無效"
+      "invalidArgs": "{{name}} 的工具參數無效",
+      "summary_other": "已搜尋 {{count}} 則筆記"
     }
   },
   "assistant": {
@@ -3448,7 +3529,8 @@
     "openSettings": "打開系統設定",
     "connectCalendar": "連接您的日曆",
     "connectCalendarDescription": "無需離開 Loqui 即可查看並加入您的會議。",
-    "connectCalendarButton": "連接日曆"
+    "connectCalendarButton": "連接日曆",
+    "todayLabel": "今天"
   },
   "notesView": {
     "searchPlaceholder": "搜尋筆記…",
@@ -3522,15 +3604,46 @@
     "sections": {
       "notes": "筆記",
       "transcripts": "轉錄",
-      "jumpTo": "跳至"
+      "jumpTo": "跳至",
+      "suggested": "推薦",
+      "recent": "最近",
+      "commands": "命令",
+      "meetings": "會議",
+      "chats": "聊天",
+      "folders": "資料夾"
     },
     "noResults": "無結果",
     "emptyState": "輸入內容開始搜尋",
     "footer": {
       "navigate": "導覽",
       "open": "開啟",
-      "dismiss": "關閉"
-    }
+      "dismiss": "關閉",
+      "scope": "範圍",
+      "close": "關閉"
+    },
+    "placeholderAll": "搜尋筆記、會議或執行命令…",
+    "commands": {
+      "newNote": "新增筆記",
+      "startDictation": "開始聽寫",
+      "askAssistant": "詢問助理",
+      "goNotes": "前往筆記",
+      "goHome": "前往首頁",
+      "goChat": "前往聊天",
+      "recordMeeting": "錄製會議",
+      "uploadAudio": "上傳音訊…",
+      "newChat": "新增聊天",
+      "openSettings": "開啟設定",
+      "switchSpeechModel": "切換語音模型…",
+      "toggleTheme": "切換深色主題"
+    },
+    "askAssistant": "詢問助理：「{{query}}」",
+    "nothingMatches": "沒有符合「{{query}}」的結果。",
+    "meta": {
+      "meeting": "會議",
+      "chat": "聊天"
+    },
+    "clear": "清除搜尋",
+    "seeAllTranscripts_other": "在歷史紀錄中查看全部 {{count}} 筆結果"
   },
   "emojiPicker": {
     "search": "搜尋表情符號…",
@@ -4736,5 +4849,107 @@
       "dismiss": "關閉設定清單",
       "label": "設定清單"
     }
+  },
+  "workspace": {
+    "noteMissing": "該筆記已遭刪除或移出此工作區。",
+    "noteLoadError": "無法載入此筆記。請再試一次。"
+  },
+  "capture": {
+    "group": "擷取",
+    "moreOptions": "更多擷取選項",
+    "actions": {
+      "dictate": "向 Loqui 聽寫",
+      "recordMeeting": "錄製會議",
+      "upload": "上傳音訊…",
+      "newNote": "新增筆記",
+      "newChat": "新增聊天"
+    },
+    "short": {
+      "dictate": "聽寫",
+      "recordMeeting": "錄製",
+      "upload": "上傳",
+      "newNote": "新增筆記",
+      "newChat": "新增聊天"
+    },
+    "listening": "正在聆聽 {{time}}",
+    "stopListening": "停止聆聽",
+    "stopRecording": "停止錄製",
+    "cleaningUp": "正在整理文字…"
+  },
+  "micCard": {
+    "ready": "就緒",
+    "listening": "正在聆聽",
+    "listeningFor": "正在聆聽 {{time}}",
+    "cleaningUp": "正在潤飾…",
+    "offline": "麥克風離線",
+    "offlinePermission": "麥克風存取權限已關閉",
+    "offlineDevice": "麥克風已中斷連線",
+    "nextCapture": "下次錄音",
+    "role": {
+      "dictation": "聽寫",
+      "meeting": "會議",
+      "assistant": "助理",
+      "translation": "翻譯"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "語音輸入狀態",
+      "ready": "就緒",
+      "listening": "正在聆聽",
+      "listeningFor": "正在聆聽 {{time}}",
+      "cleaningUp": "正在整理…",
+      "offline": "麥克風離線",
+      "hold": "按住<kbd>{{key}}</kbd>進行語音輸入",
+      "press": "按下<kbd>{{key}}</kbd>進行語音輸入",
+      "nextNow": "{{title}}正在進行",
+      "nextAt": "{{title}}於{{time}}開始",
+      "takeNotes": "做筆記",
+      "nextIn_other": "{{title}}將在{{count}}分鐘後開始"
+    },
+    "history": {
+      "filterLabel": "篩選歷史記錄",
+      "filterPlaceholder": "篩選此清單",
+      "chipsLabel": "顯示",
+      "menu": "歷史記錄選項",
+      "showDiscarded": "顯示已捨棄的錄音",
+      "clearAll": "全部清除…",
+      "expand": "展開",
+      "collapse": "收合",
+      "meetingRow": "會議",
+      "noteRow": "筆記",
+      "nothingMatches": "沒有符合「{{query}}」的內容。",
+      "clearFilter": "清除篩選",
+      "olderMissing": "此聽寫已不在歷史記錄中。",
+      "chips": {
+        "all": "全部",
+        "dictations": "聽寫",
+        "meetings": "會議",
+        "notes": "筆記",
+        "failed": "失敗"
+      },
+      "dayCount_other": "{{count}} 則聽寫",
+      "words_other": "{{count}} 個詞",
+      "session_other": "工作階段 · {{count}} 段錄音 · {{duration}}",
+      "loadFailed": "無法載入這則聽寫。請再試一次。"
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "聯絡人",
+      "note": "筆記",
+      "meeting": "會議",
+      "dictation": "聽寫",
+      "folder": "資料夾"
+    },
+    "empty": "沒有可提及的項目",
+    "loading": "載入中…",
+    "missing": "此項目已不存在。",
+    "open": "開啟",
+    "insertQuote": "插入引用",
+    "folderMeta": "資料夾",
+    "error": "無法載入此項目。",
+    "retry": "重試",
+    "pickerLabel": "提及項目"
   }
 }

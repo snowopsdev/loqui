@@ -165,6 +165,12 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 
 - **Progress** (downloads, installs): ink fill on a muted track with an `--color-input-border` edge, and ink percentage text. Orange stays reserved for live voice.
 
+### AI and Agent
+
+- `--color-ai` (#d90078 light, #ff5fae Plum Night): machine-authored content. AI chips (12% fill, 1px 30% border), slash-menu AI items, the bubble toolbar's Ask AI. Small text uses `--color-ai-text` (#b8006a light).
+- `--color-agent` (#7b7bf7 light, #8787ff Plum Night): the Agent's presence. The streaming rail, the spark avatar, citation numerals. Small text uses `--color-agent-text` (#4a4ad8 light, #a5a5ff Plum Night).
+- Neither is ever a call to action, and neither is orange: orange means live voice (D1).
+
 ### Named Rules
 
 **The Two-Brand-Accent Rule.** Orange marks live voice, the focus accent and, in the light theme (as the deeper #E84E16), the active navigation marker; the everyday primary action is the ink CTA, and Plum Night marks active navigation in magenta #E6007A. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.
@@ -177,13 +183,51 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 
 **Character:** A neutral, highly legible sans keeps controls and transcripts quick to scan. Display and body use the same family; size, weight, and spacing create hierarchy rather than a decorative pairing.
 
-### Hierarchy
+### UI ramp (WS-R11 B)
+
+Tailwind utilities from `@theme` in `src/index.css`. Chrome, lists, menus and dialogs use these and nothing else.
+
+| Utility        | Size / line / weight / tracking | Use                                  |
+| -------------- | ------------------------------- | ------------------------------------ |
+| `text-display` | 32px / 1.15 / 650 / -0.02em     | Rare page hero                       |
+| `text-title`   | 22px / 1.25 / 600 / -0.015em    | View titles, dialog titles           |
+| `text-heading` | 17px / 1.35 / 600               | Section headings                     |
+| `text-body`    | 15px / 1.55 / 400               | Transcripts, chat answers, previews  |
+| `text-ui`      | 13px / 1.4 / 500                | Labels, nav rows, buttons, menu rows |
+| `text-caption` | 12px / 1.4 / 450                | Metadata, timestamps, helper text    |
+| `text-micro`   | 11px / 1.3 / 500 / +0.02em      | `kbd` and badges only                |
+
+No size below 11px. Readable text floors at 12px. Hierarchy comes from size and weight, never opacity: metadata is full `text-muted-foreground`.
+
+### Note document ramp (WS-R6 B)
+
+Inside the note editor (`.rich-text-editor-content`) and the note title: title 32/1.15/600; h1 24/1.25/650; h2 19/1.3/600; h3 16/1.4/600; body 16/1.65 with a 68ch measure; code 14 mono. Chat answers use 15/1.6 at 68ch. Answer source metadata persists with its admitted conversation: compact tool hits and retrieved note references retain titles and excerpts of up to 240 characters. Citation numbering follows eligible Markdown and GFM text, excluding code and links; an answer without eligible citations retains up to five unnumbered sources. Document answers render eligible citations as numbered superscripts with a Sources row.
+
+### Note slash menu (WS-R6 B)
+
+In editable raw notes, `/` at the start or after a space opens Text, AI and Insert groups. URLs, dates and code keep literal slashes. Typing filters; arrows select; Enter or Tab applies; Escape closes. AI choices use the actual note actions and resolved notes route: unknown stays disabled with a checking reason and no setup prompt; confirmed unavailable states offer Settings at that route. Disabled explanations remain full-opacity `text-muted-foreground`, with 12px group headers and no extra option tab stops. Only an explicit enabled action invokes note AI. Manage actions preserves the first-run flow; Dictation here uses the control-panel toggle.
+
+Changes to slash readiness, actions or locale dismiss an open menu immediately, preserving the editor, draft and selection. Reinvoking it resolves the current context; unrelated saves and renders keep it open. Command admission independently checks current readiness before deleting the query or invoking work. The shared mention popup contract is unchanged.
+
+Slash and mention suggestions share a caret popup that clamps horizontally, flips above near the bottom, and marks its wrapper with `data-editor-chrome`. Mention insertion and Markdown round-tripping keep their existing contract.
+
+Universal mention suggestions group People, Notes, Meetings, Dictations and Folders in that order, with at most three rows each in a 262px caret picker. Empty queries use Recent notes; contact and note searches fail independently. Headers and metadata use readable 12px tokens at full opacity. Stored dictations use a neutral marker. Compact person markers retain the avatar/name with an 11px dark initial on the existing local pastel.
+
+Entity chips navigate within the workspace. Hover and keyboard focus share one chip/card boundary, including its padded gap; Escape returns focus once and stays dismissed until either modality really leaves and re-enters. The 240px preview flips above and clamps at inline edges within the visible editor/viewport, updating on scroll, resize and content changes while preserving native Tab order. Preview failures show an explicit Retry separately from deleted items. Only ready, nonempty meeting/dictation excerpts can be inserted, as a local document quote; pending or stale requests cannot change another target or editor. Chip and card controls use the opaque shared focus ring.
+
+Mention links keep people on the `mention:` scheme and store note, meeting, dictation and folder references as readable `[@Label](kind:id)` Markdown links. Labels escape Markdown display characters while entity identifiers and existing person fallback identities remain unchanged.
+
+### Note selection toolbar (WS-R6 B)
+
+A nonempty editable selection outside code blocks offers Bold, Italic, Link and Ask AI. Formatting survives the Markdown save cycle; no Highlight mark is offered. Newly entered links accept web or email addresses and bare domains; an empty address removes the link. Existing relative, anchor, phone and FTP links retain the default Link load policy. Clicking links edits rather than opening them. The URL field stays LTR and keeps its caret when clicked. Bubble and suggestion chrome never pull focus back into the document.
+
+Ask AI places a quote of at most 280 characters in the visible note chat and never sends. A hidden chat opens floating; a sidebar stays docked. One lazily mounted composer persists across dock, undock, hide and reopen, retaining newer words and Restore/Discard text without replaying a seed. Hiding disarms its existing queue before idle effects, stops voice drafts and prevents hidden focus or submission; it does not cancel an admitted chat response. The note owner key still ends that composer's lifetime. Bubble controls use full opaque focus rings, AI text uses `text-ai-text`, and the entry fade uses only shared instant/enter opacity motion, including reduced motion. Light uses the existing glass shadow; Plum uses the elevated shadow.
+### Brand and setup headings
 
 - **Display** (700, 40px, 1.15 line-height, -0.025em tracking): Global h1 scale where a page title is genuinely the display heading.
 - **Headline** (600, 1.15 line-height, -0.025em tracking): h2 through h6; size is assigned by the specific screen.
 - **Onboarding title** (650, 36px, 1.1 line-height, -0.025em tracking): The setup rail heading; 22px in windows under 760px.
-- **Body** (usually 12–16px in controls and workspace copy): Short labels and supporting text use compact Tailwind sizes; `.brand-body` uses a 1.6 line-height when applied.
-- **Label** (500, 13px; section labels may be 10px uppercase with 0.08em tracking): Sidebar items, section names, and secondary controls.
+
 
 ### Named Rules
 
@@ -192,6 +236,12 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 ## Layout
 
 The desktop shell pairs a 208px sidebar with a flexible content area. The main workspace sits 8px inside the window, inside a 12px-radius frame. A 48px top bar carries the current view, centered search, and view actions. Page content commonly centers at a maximum width of 64rem. The sidebar can collapse or disappear in narrow note and meeting side-panel layouts; the window content keeps its own scroll region. Setup is a pinned window: a 56px header with per-phase progress, a 36% orange rail beside the controls (a 72px banner under 760px), and a 64px footer that wraps to at most two rows at 200% zoom or with long translations. Footer actions retain their minimum word width and wrap at word boundaries, so narrow windows do not split a label such as “Continue” inside a word. The onboarding shell pins `html`, `body` and `#root` to the window, so only the middle scrolls. On macOS the header keeps 84px of physical left padding (also in RTL) to clear the traffic lights. Spacing follows Tailwind’s 4px base scale, with common 8, 12, 16, and 24px intervals.
+
+The workspace restores its last view on launch, defaulting to Home. A saved Notes selection opens through the shared note navigation path, including notes outside the first loaded page. Missing notes keep the Notes overview; deliberate navigation and confirmed data resets supersede pending restores. Deep workspace actions share one navigation context. Chat requests seed or focus the composer without submitting. New and open requests disarm its destination-bound queue; replaced drafts and refused sends overtaken by a new intent stay available through Restore and Discard. Focus and edit seeds keep the user’s queue. Seeds apply before idle auto-send effects, including at mount.
+
+Workspace shortcuts use ⌘ on macOS and Ctrl elsewhere: K opens search, comma opens Settings, 1–3 open Home, Notes and Chat, backslash toggles the sidebar, N creates a note, Shift+N starts a chat, Shift+M requests a meeting, Shift+U opens audio upload, and slash focuses the assistant. IME composition, Alt chords and handled events are ignored. Open dialogs block view-changing shortcuts; search and Settings remain available.
+
+Note deletion retires outstanding page reads before evicting the row, so an older page cannot restore deleted content to the cache. Incidental first-note picks require unchanged navigation, the current context, and a still-valid committed page; newer overview navigation and confirmed reset admission keep their selection authority without clearing cached content.
 
 ## Elevation & Depth
 
@@ -242,7 +292,7 @@ Decorative loop cadences use shared tokens too. Functional deadlines such as the
 
 Rules:
 
-- Loops take their timing from these tokens. A rotation stays `linear`, because an eased spin stalls once per turn. Under reduced motion, keyframes stop except opacity-only loading cues (`.progress-pulse`), which keep running.
+- Loops take their timing from these tokens. Capture travel, thinking pulse, streaming blink and the deep-link dwell use the shared Plan 06 cadence values. A rotation stays `linear`, because an eased spin stalls once per turn. Under reduced motion, keyframes stop except opacity-only loading cues (`.progress-pulse`), which keep running.
 - First feedback within 50 ms.
 - At most two focal motions at once.
 - Animate only `transform`, `opacity`, `clip-path`, `filter` and registered properties.
@@ -301,11 +351,25 @@ Model cartridges are 10px-radius tonal cards. The hover lift applies in light th
 
 ### Navigation
 
-- **Sidebar:** 208px wide, with 36px rows and 13px labels. The active item uses a quiet foreground-tinted surface and a 2px rail in the nav-marker colour (orange in the light theme, magenta #E6007A in Plum Night); the active icon takes that same colour while inactive icons remain subdued.
+- **Sidebar:** 232px. Home, Notes, Chat (⌘1–3), then Spaces (the notes tree), Recent (4) and Voice (Dictionary, Insights, Calendars). The footer holds the mic status card (Ready / Listening m:ss / Cleaning up… / Mic offline) and Settings. A 2px capture rail on its inline-end edge follows the mic level while listening. The active row uses `--color-nav-marker`.
+- **Selected tree note:** title and file icon inherit the accessible `--color-link` role in both themes, with the full-opacity 2px focus ring retained. The Notes Actions hint consumes the existing resolved note-formatting route. It is silent while checking, ready or off; missing models, providers, committed keys, server addresses and unreachable models name their matching fix. Provider names use the localized route provider label, and Settings opens the route’s own `llms/noteFormatting` destination. Dismissal persists under `notesActionsModelHintDismissed` across route changes and remounts. Only the published off state disables the whole Actions picker; content and processing guards and slash-menu readiness remain authoritative. Hint and picker controls use readable 12px `text-caption`, full-opacity ink and opaque 2px focus rings; disabled picker text stays readable with neutral decoration. The picker keeps its native dropdown keyboard model. Picker colour transitions use the shared fast duration and standard easing curve.
 - **Settings sidebar:** the current section carries `aria-current="page"`; every item shows a 2px full-opacity `--color-ring` focus ring, inset because the list scrolls. Compact (icon-only) items are named by their label.
+- **Home:** a 44px Ready strip names Ready, Listening with elapsed time, Cleaning up… or Mic offline with the shared static capture glyph. Ready explains the dictation shortcut. The next meeting and its Take notes action appear here when Home's content is narrower than 960px. At 960px of content, a 320px Coming up column appears instead; its next or live event always shows the notes action. Both actions use the same event and join-link dispatch. Today is named in words on a neutral calendar header; orange remains live voice. Take notes has the shared full-opacity focus ring. Shared status glyphs use accessible ink on light tinted fills and the live/warning colors in Plum Night.
+  Home history combines dictations, notes and meetings in timestamp order. Search filters this list, and All, Dictations, Meetings, Notes and Failed chips preserve original chronological adjacency: hiding a record never joins captures across it. Only consecutive completed captures within five minutes on the same day form a session; sessions expand in place. Rows show unpadded clock time, word count, duration and recorded locality, with full-muted Copy and More actions visible at rest. Failed counts and headings use readable foreground ink on their tinted surfaces; destructive menu text keeps a full-contrast focus surface. Search uses the field-edge token. Compact provider monograms use the 11px metadata floor. Selecting paragraph text never copies it; the labelled Copy button remains the keyboard and screen-reader path. History options exposes discarded recordings and the existing Clear all confirmation. Deep links clear search/chips, fetch and reveal older rows beyond the loaded page, expand their session, scroll and ring for 1.2 seconds. Only the current owned target is retained through an outstanding history-page response; expansion and scrolling wait for that page, recheck page generations, then release retention; explicit deletion or clear invalidates that retention and any older page response. A failed lookup shows a localized load error and an explicit Retry that publishes a fresh focus request; a successful missing/deleted result shows the absence notice. Newer requests or unmount also make old Retry callbacks inert. Repeating a link restarts the ring; newer requests and Home unmount invalidate every deferred mutation and frame. Reduced motion keeps the ring without animation or transforms.
+
 - **Provider tabs:** a real tablist. Arrow keys (reversed in RTL), Home and End move focus across enabled tabs; Enter, Space or a click selects. Focus alone never switches provider, local or remote. Tabbing into the list lands on the selected tab (WAI-ARIA tabs pattern). A saved key shows as a small dot with screen-reader text.
-- **Top bar:** A 48px draggable Electron title area with centered capsule search and platform-appropriate window controls. macOS clears space for traffic lights when the sidebar is collapsed; Linux displays the app window controls.
-- **Narrow layout:** The sidebar collapses for focused note and meeting side panels; a back control replaces it.
+- **Top bar:** 48px draggable title area with a breadcrumb (`Notes / Work / Product catch-up`, title column at least 120px), centred search (⌘K), and the Capture split button. Capture is neutral at rest and turns `live` only while listening.
+- **Tree navigation:** activating a sidebar note opens it through workspace navigation, including the currently selected note when Home is visible. Activating a folder or space root always opens Notes; unchanged containers avoid redundant selection mutations. Selection and container updates remain owned by the existing note-opening path. Deferred opens and launch restoration require both the original caller's lifetime and the current navigation generation before cache, context, selection, page or notice updates. A rejected note read preserves the current content and saved launch target, shows a localized load error, and offers an explicit Retry for that failed intent only; navigation, reset, deletion or unmount makes the old Retry inert. Only a successful missing/deleted result shows the absence notice. Embedded chat tool cards use this same authority.
+
+Dictionary and Snippets allocate separate inline action cells so automatic text direction cannot move text beneath Add or Import. Notes header groups wrap within the document's available width beside the chat sidebar. The document viewport reserves a non-content area for bottom controls, including the optional summary callout, and the floating chat; nested editors do not apply that reservation twice as padding, and no gradient washes readable note lines. Composer placement changes preserve the one stable draft and queue owner. Palette folder results show their containing space. Quote and label previews stay within their published UTF-16 budgets without splitting a surrogate pair. History uses explicit full-muted dark ghost roles, caption-sized readable raw/no-AI labels, and a history-specific footprint for provider badges; shared Button and LocalityRing defaults stay unchanged. Groq's upload explanation uses readable full-muted text. Today headers round their own top corners without clipping focus or popovers; the conversation picker and meeting reveal wash use shared motion durations.
+
+- **Collapsed:** a 56px icon rail (⌘\, or automatically below 1100px). There is no hover peek. Meeting mode and narrow open notes hide the sidebar and show "Back to notes".
+
+### Chat
+
+The Chat view answers as a document. Assistant turns are unbubbled 15px `text-body` prose at 1.6 line-height, capped at 68ch, 24px apart, under an Assistant label and Agent spark. While a turn streams it carries a 2px `--color-agent` rail; thinking uses three dots with a text twin and the shared cadence. User turns are a neutral `surface-3` block. Citations are superscript numerals in `--color-agent-text`, numbered by first eligible Markdown appearance. A Sources row of 28px chips follows each answer; pointer or keyboard focus reveals the persisted quote, constrained to the visible scroll area, with Escape dismissal. Activity expands through native buttons with readable detail. Sources, activity, copy and shared Markdown links use full-opacity 2px focus rings; copy appears on keyboard focus. Embedded and assistant-panel chats retain their default bubbles.
+
+The model chip and per-answer route disclosure use Plan 03's `RouteDestinationChip` and, when not ready, `RouteStateChip`. Answers retain the route captured when their request was admitted.
 
 ### Voice Pill
 
@@ -391,6 +455,45 @@ The overlay follows the live `onboardingCompleted` flag and fails closed when st
 
 Streaming warmup and start assemble dictionary hints with the existing selected provider/model keyword rule and session-options builder; provider adapters retain their vocabulary limits. Startup privacy tests execute the real admission, audio pipeline and IPC adapter through injected hardware/transport boundaries.
 
+The control panel capture rail pulls the current dictation lifecycle on mount and follows main-process updates. The Agent pill, tray and hotkey gate keep the finite known lifecycle; the control panel can display a 1–64 character future state unchanged until the renderer learns it. Audio levels reach the control panel only while recording and at no more than 15 Hz. The dictation renderer continues sampling at 80 ms, including while the Agent panel is closed; main sends pill levels only while that panel is open.
+
+### Workspace Capture
+
+The topbar Capture split button is neutral while idle and remembers the last chosen
+capture action on this device. Its menu offers dictation, meeting recording, audio
+upload, a plain note, and a new chat with the existing shortcut hints. New chat
+opens the composer without sending a message. Plain New note skips recording;
+Record meeting creates a recording note, or opens the current meeting’s note.
+Repeated recording actions share one admission through note save and recording
+startup, while plain notes remain independently available.
+
+Only live listening uses the orange live Button and level bars, alongside an
+elapsed clock and the source-specific Stop label. Its label and current-colour
+Stop glyph retain live ink in both themes, including hover. Processing is neutral,
+busy and announced as “Cleaning up…”. The clock and meter mount only while listening;
+spinner motion uses shared motion tokens and stops under reduced motion. Both
+split segments and menu items retain full opaque focus rings, logical spacing and
+Radix’s keyboard and dismissal semantics. ControlPanel owns one capture-status
+hook result for this control and the later sidebar and Home consumers.
+
+The sidebar mic card opens Settings in expanded and compact forms, with full
+opaque keyboard focus rings. It uses static state glyphs, including the processing
+glyph, and unfaded status/reason text. The expanded card shows the elapsed clock,
+idle hotkey and Plan 03 destination/state chips; unconfirmed routes say “Checking…”.
+Configured speech and assistant/translation routes sit under “Next capture” while
+listening, processing or an active meeting has lost its mic. These describe the
+next configuration, not the frozen active recipient. Idle cards use ordinary role
+labels. The compact card announces only capture status and discloses no route.
+
+The decorative 2px rail sits on the sidebar’s logical inline-end edge. It is hidden
+while ready, follows smoothed live levels only while listening, travels in amber
+only while processing, and stays solid amber offline. The card adds no focal
+motion: Capture’s processing spinner and the rail’s travel share the two-motion
+budget. Reduced motion stops level sampling, travel, glow and transitions while
+keeping active rails visible. State changes, reader replacement, preference changes
+and unmount clean up the owned timer and level property. Shell integration remains
+separate from these presentational components.
+
 ### Settings
 
 **Routing is one model, drawn three ways.** `src/lib/routeGraph.ts` (pure, Node-loadable) resolves all 11 tasks, and `src/lib/routes.ts` adds the snapshot builder and hooks. Settings → Routing (the Patchbay), the editors' mode selectors and the voice pill use `ResolvedRoute`; the keyring exposes the main-owned credential health and recipient descriptions that supply route facts. Never compute "is this local?" or "is this ready?" anywhere else. Readiness reuses the executors' own validation, and a fact main has not confirmed reads `unknown`, never Ready.
@@ -404,6 +507,8 @@ Streaming warmup and start assemble dictionary hints with the existing selected 
 - **Sealed handoff.** `src/stores/sealedStore.ts` is the single renderer authority; unknown currently maps to false. `RouteSettingsSnapshot.sealed` remains a required boolean, and off routes remain off while non-device routes, including LAN, resolve sealed when the snapshot says so. Main `IPCHandlers` accepts `managers.isSealed` with a default `() => false` and passes it to keyring verification after credential waits. Plan 07 must supply the authoritative predicate at `new IPCHandlers({ … })` and migrate this store. Plan 07 remains **BLOCKED under D16**: this default-false seam is not a working seal or a zero-egress guarantee.
 - **Model cartridges.** Cards sit in a 2-column `radiogroup` with one tab stop. Arrows move focus between cards (left and right swap in RTL) and never change the model. Enter, Space or a click selects a downloaded model; a download starts only from the card's Download button, never from moving or pressing Enter on a card. A local pick goes through the route planner like any other model change. Speed, Quality and Memory use 5-pip meters labelled "{label} N of 5", filled with `foreground/70`, never orange. Orange is only the selected card's 2px border. The download button is outline, except on the Recommended card.
 - **Storage.** Count before you delete, with the same main-owned predicate for the count and the deletion. An unreadable count is an error, never zero. Row triggers are outline buttons with destructive text on `hover:bg-background`. Solid destructive appears only inside a confirm, and that confirm repeats the count, size and folder; deleting history also deletes every audio file, so its confirm counts both. Opaque main-generated audio/history identities bind the reviewed set as well as counts; equal-count replacements stale the confirmation. Only reviewed recordings are deleted, and new arrivals or unknown recounts cannot become cleared success. Model selections clear only after every family succeeds and a complete known-zero recount. A partial failure keeps the dialog open with `role="alert"` and exact counts. Reset requires typing the localized word.
+- **Workspace command palette.** In all mode, an empty query shows four suggested commands followed by five recent notes, dictations and chats. A query groups Commands, Notes, Meetings, Transcripts, Chats and Folders, with caps of 6/6/4/8/4/5. Titles use fuzzy matching with original-string highlight offsets and locale-independent Unicode lowercase, so results stay stable across runtime locales; transcripts use substrings only. Every substring outranks a subsequence, including long and case-expanding text. Match wash uses the link tone. More than eight transcript hits offer History with the trimmed query; transcript selections use the owned Home reveal path. Ask opens a new composer draft without sending, retaining the composer's queue and replaced-word recovery. Commands use workspace owners, the registered dictation hotkey and click-time dictation route settings. Tab and Shift+Tab cycle space scope only when multiple spaces exist. Query, scope, close and unmount retire pending search completions; a DB failure preserves the last admitted visible results. Rows, scope menu, input and clear control carry full focus rings. The conversations-only chat picker keeps its existing search limits and selection callback.
+
 - **Search.** ⌘F or Ctrl+F focuses it, and `/` does when you are not typing. Results replace the pane (the page stays mounted), grouped by section with a breadcrumb. Appearance, sound, notification, clipboard and retention settings carry a live control. Anything that feeds a route (cleanup, assistant, translation, screen context, speaker labels, every provider, model and URL) navigates, so route changes still pass through the planner. Enter jumps and flashes the row once (`--motion-flash`, ended by `animationend`); reduced motion keeps only the outline. A new jump, query, close or unmount cancels its owned pending or landed cue; normal uncancelled timing stays in CSS.
 - **Nav and title.** Nav items carry a one-line description at 11px when the sidebar is wide and a tooltip in the icon rail. The content column has a sticky title and a 32px close target at 70% resting opacity and full keyboard-focus opacity so its focus ring stays readable.
 - **Escape order.** A hotkey being captured owns Escape. So does any widget that holds transient state while focus is inside it and marks itself `data-escape-active="true"` (the Patchbay selection, the Settings search query; `escapeClaim.ts`). Escape clears that state first, and the next Escape closes the dialog.
@@ -412,6 +517,9 @@ Streaming warmup and start assemble dictionary hints with the existing selected 
 
 ### Do:
 
+- **Do** use the UI ramp utilities (`text-micro` through `text-display`) in workspace components. Arbitrary `text-[Npx]` sizes fail `workspaceTokenAdoption.test.js`; Tailwind's standard sizes (`text-sm`, `text-xs`) are not flagged and migrate to the ramp when a file is touched.
+- **Do** show metadata at full `text-muted-foreground`; hierarchy comes from size and weight, not opacity.
+
 - **Do** use the ink CTA for everyday actions, Signal Orange for live voice, and the deeper orange nav marker for current navigation state in the light theme; in Plum Night, magenta marks current navigation.
 - **Do** use Electric Fuchsia as a supporting accent, keeping the two roles distinct.
 - **Do** preserve the Plum Night surface steps and soft rims when adding dark-theme surfaces.
@@ -419,6 +527,11 @@ Streaming warmup and start assemble dictionary hints with the existing selected 
 - **Do** adapt window controls and traffic-light clearance to the host OS while keeping the shared React interface coherent.
 
 ### Don't:
+
+- **Don't** fill non-voice surfaces with orange or tint them with `primary`; orange means live voice (D1). Notes, chips and CTAs are ink or neutral.
+- **Don't** use text glyphs (⊘, ✕) as status icons; use the Lucide icon with a token colour and a word.
+- **Don't** put a leading icon on a default (ink) Button; its brand dot already leads. Icon buttons are `live` (voice) or `secondary`/`outline`.
+- **Don't** show `providerDisplayName` output in the UI; name providers with `providerDisplayLabel(providerId, t)` so custom endpoints and unknown providers are localised.
 
 - **Don't** drift into generic AI-dashboard styling or decorative marketing-page chrome.
 - **Don't** swap orange and fuchsia roles or make both accents compete for the live-voice signal.
@@ -1055,3 +1168,63 @@ can still reach the current owner; retired/lost owners cannot publish. Legacy
 unlabeled controls can address only a same-sender unlabeled record and never fall
 back against a labeled attempt. This boundary is connection ownership, without
 adding Plan04 recording, hold, Undo or Task22 integration authority.
+### Workspace · Next-message model and recorded answers
+
+Chat and the note editor’s visible Ask AI composer disclose the next message’s destination and model with Plan 03’s `RouteDestinationChip`. Non-ready routes add `RouteStateChip`; unknown stays neutral “Checking…”, and blocked network and remote routes show the existing Sealed state. The whole read-only chip opens that route’s Settings path. Model text may truncate; state words wrap and stay visible. Text uses the shared 12px caption floor, and keyboard focus uses a full opaque 2px ring.
+
+Each newly admitted answer records its destination from the same synchronous settings snapshot as inference, before conversation creation, user-save or context waits. The shared stream resolves Chat, Voice Assistant or the chosen Assistant Vision route according to its effective inference scope. Document answer headers render that recorded destination with the published chip; later Settings or fact changes update only the next-message chip. Unstamped legacy answers remain unstamped. Note Ask retains one composer across floating, sidebar and hide/reopen, preserving drafts and disarming replaced queues without sending.
+
+This is route disclosure and persisted request attribution. Synthetic readiness and Sealed display checks do not establish native isolation, attestation or a zero-byte claim; Plan 07 D16 remains blocked.
+
+### Chat context rail and deliberate pins
+
+Chat uses the shared entity mention picker for notes, meetings, folders and dictations; people remain editor mentions. Typing `@` selects context without sending. A typed pick splices only its local query and at most one adjacent separator, preserving Markdown whitespace and the user's destination queue. Add context preserves the draft and caret. Native Add, remove, found-item, close and Context controls have localized names and opaque 2px focus rings. Rail and picker headings use the 12px caption ramp and full muted text.
+
+Both typed and Add context picks belong to the exact draft, caret and logical selection that opened them. Editing text or moving the caret retires the old rows immediately; a newly detected `@query` owns fresh results. Held commands revalidate that intent and its source results before changing pins or the composer.
+
+Context (`⌘.` on macOS, `Ctrl+.` elsewhere) defaults open at viewport widths of at least 1280px, with the user's choice stored in `chat.contextRailOpen`. The chat measures its actual available width: three columns require 784px; below that, the rail stacks in a bounded, scrollable row, leaving the composer and toggle reachable. At widths below 544px, the conversation list stacks above the chat. The local fixed mention popup clamps to viewport edges and follows resizing, scrolling and content growth; it retains textarea keyboard focus.
+
+In scope lists deliberate pins. Found automatically lists the last assistant's tool/RAG notes, separately from current note/meeting pins, and remains read-only. Activity lists actual tool steps in order. Pins start local content lookup synchronously with admitted settings, route, note context and search scope before creation or user-save waits. Later pin edits affect the next admission. Notes use enhanced-or-raw content capped at 1500 UTF-16 units without splitting a code point; folders contribute their first five raw notes capped at 500 each, and source quotes cap at 240. Missing, deleted or failed items are skipped independently; dictations contribute text without a fabricated note citation. Only notes included in the prompt become saved pinned citation sources. Existing request ownership and route disclosure remain authoritative through navigation and cancellation.
+
+### Insights destinations and activity layout
+
+Insights tiles use a two-column grid below 720px of available content and four columns at or above it. Words and WPM open all History; Dictations opens its dictation filter. These explicit entries clear the previous Home search before changing the filter and navigating. Streak only scrolls to and focuses the mounted activity chart, preserving Home state. Metric labels and details use the full-opacity 12px caption ramp; destination tiles are native buttons with the shared opaque 2px focus ring.
+
+Each destination tile’s accessible name references its visible localized metric label and displayed value through stable per-card IDs. Its accessible description references the visible detail and a screen-reader-only hint using the existing localized destination string. Words and WPM therefore retain distinct metric names and values even though both open History. A card without a selection action remains a noninteractive div.
+
+The activity chart sizes fixed week tracks from its own container with `clamp(10px, calc((100cqi - 3rem - (weeks - 1) * 2px) / weeks), 18px)` and 2px gaps. Graphics may reach 10px; all month, weekday and legend text stays at least 12px with full muted ink. Month labels span until the next month’s track so readable text fits. The weekday track and gap reserve 3rem. At the cell floor, horizontal overflow remains inside the keyboard-focusable chart, keeping today reachable without widening the document. Activity uses five neutral levels including zero, a meaningful muted boundary and a neutral outer marker for today; orange remains live voice or the approved focus accent. The larger labels and neutral palette deliberately replace the older faded 10px labels and orange ramp. Analytics remains local-only with its existing loading, retry, retention and newest-request behavior.
+
+### Workspace · Upload
+
+The upload drop zone, its formats and the URL field stay visible while the upload
+route is unavailable. Only Plan 03's confirmed `ready` state admits browse, drop,
+URL submissions, transcription, retry or queue start. Unknown shows the shared
+neutral Checking chip; other unavailable states show their actual shared route
+reason. A missing model adds the transcription-model hint and an upload-scoped
+Settings action. Readiness changes preserve draft URLs, selected files and the
+queue, and do not cancel an operation already admitted. Speaker controls appear
+only while the route is ready; their neutral track and thumb remain distinguishable
+in both themes. Changed selection and retry controls enter without fading copy.
+
+Chooser files returned after readiness is lost stay outside the running queue.
+Their filenames remain in an opaque, readable local selection with an Add to
+queue action, disabled until readiness is confirmed. Readiness restoration alone
+does not add them; a fresh explicit action admits the current selection once.
+Concurrent chooser returns accumulate, and unmount cannot append late files.
+Previously admitted work keeps its existing run and cancellation ownership.
+
+Disabled copy stays opaque at the readable text floor, with the full muted token;
+aria-disabled and the cursor convey availability. Changed native controls have
+full opaque two-pixel focus rings. Drag feedback uses neutral ink and an opaque
+border pulse only during an enabled active drag, timed by shared motion tokens.
+Reduced motion keeps a static border and colour, with no transform or loop.
+
+### Workspace contrast and validation policy
+
+Home and Insights share `DataRetentionNotice`: existing translated retention copy uses foreground text at the 13px UI step, with a warning glyph and warning frame. Warning colour supports the icon, not small readable text. AI glyphs retain the AI accent; small AI labels use `text-ai-text`. Everyday actions stay neutral; recording controls use `live`.
+
+The published workspace token guard retains its scoped file list and same-line reasoned opt-outs. Missing native focus rings and faded ancestors require a separate audit: the regex guard alone cannot certify accessibility. Native controls use an opaque 2px focus ring, hover-revealed actions remain visible with keyboard focus, and explanatory disabled text stays unfaded. Composite editor options retain their existing keyboard ownership.
+
+Root ESLint intentionally excludes retained nonproduct QA evidence in `.superpowers/**` and generated `**/browser-vite-cache/**` directories. Authored lookalike filenames outside QA, including `test/fixtures/browser-vite-cache-authored.js`, and ordinary test guards remain linted. The policy regression uses the real ESLint configuration and verifies `no-undef` on authored source.
+
+Dictionary's header keeps the shared Toggle and existing action order. Caller-scoped styles make its track neutral in both states, retain a distinguishable thumb and boundary, and override the inherited translucent ring with an opaque 2px ring. Shared Toggle behavior and styling elsewhere are unchanged.

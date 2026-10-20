@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { startRecording, useMeetingRecordingStore } from "../stores/meetingRecordingStore";
 import {
@@ -28,6 +28,7 @@ export function startRecordingForNote(note: NoteItem | null): Promise<boolean> {
 }
 
 export interface CreateNoteOptions {
+  record?: boolean;
   /** Saving still completes; only the caller's optional UI/automatic-start activation expires. */
   canActivate?: () => boolean;
 }
@@ -39,28 +40,50 @@ export interface CreateNoteOptions {
 export function useCreateNote() {
   const { t } = useTranslation();
   const activeContext = useActiveContext();
-  const isRecording = useMeetingRecordingStore((s) => s.isRecording);
+  // One recording intent owns note creation through async recording activation.
+  // Plain notes deliberately bypass this admission lock.
+  const recordingCreationRef = useRef<Promise<void> | null>(null);
 
   const createNoteIn = useCallback(
-    async (spaceId: number | null, folderId: number | null, options?: CreateNoteOptions) => {
-      const result = await window.electronAPI.saveNote(
-        t("notes.list.untitledNote"),
-        "",
-        "personal",
-        null,
-        null,
-        folderId,
-        spaceId
-      );
-      if (!result.success || !result.note) return;
-      if (options?.canActivate && !options.canActivate()) return;
-      setActiveContext(result.note.space_id, result.note.folder_id);
-      revealContainer(result.note.space_id, result.note.folder_id);
-      setActiveNoteId(result.note.id);
-      // A new note is a recording waiting to happen: start it unless one is already live.
-      if (!isRecording) void startRecordingForNote(result.note);
+    async (spaceId: number | null, folderId: number | null, options: CreateNoteOptions = {}) => {
+      const record = options.record ?? true;
+      if (record && recordingCreationRef.current) return recordingCreationRef.current;
+      let activation: Promise<boolean> | undefined;
+      const operation = (async () => {
+        const result = await window.electronAPI.saveNote(
+          t("notes.list.untitledNote"),
+          "",
+          "personal",
+          null,
+          null,
+          folderId,
+          spaceId
+        );
+        if (!result.success || !result.note) return;
+        if (options.canActivate && !options.canActivate()) return;
+        setActiveContext(result.note.space_id, result.note.folder_id);
+        revealContainer(result.note.space_id, result.note.folder_id);
+        setActiveNoteId(result.note.id);
+        // Read live state after saving; another capture may have started during the await.
+        if (record && !useMeetingRecordingStore.getState().isRecording)
+          activation = startRecordingForNote(result.note);
+      })();
+      if (record) recordingCreationRef.current = operation;
+      try {
+        await operation;
+      } finally {
+        if (record) {
+          const release = () => {
+            if (recordingCreationRef.current === operation) recordingCreationRef.current = null;
+          };
+          // Keep the admission held through activation, but preserve creation's existing
+          // navigation timing. The recording store owns startup errors and cleanup.
+          if (activation) void activation.then(release, release);
+          else release();
+        }
+      }
     },
-    [t, isRecording]
+    [t]
   );
 
   const createNote = useCallback(

@@ -7,6 +7,7 @@ module.exports = [
       ".superpowers/**", // retained local verification evidence, not authored source
       "dist/**",
       "node_modules/**",
+      ".superpowers/**", // ignored nonproduct controller/QA workspace; retained validation evidence
       "**/browser-vite-cache/**", // generated validation-browser dependencies, not authored source
       "src/dist/**",
       "*.min.js",

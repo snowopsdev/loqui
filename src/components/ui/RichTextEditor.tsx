@@ -1,3 +1,4 @@
+import { useMentionSources } from "../../hooks/useMentionSources";
 import { useEffect, useRef, useCallback, type MutableRefObject } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -7,17 +8,36 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
 import { cn } from "../lib/utils";
 import { createMentionExtension } from "./RichTextEditorMention";
+import { useTranslation } from "react-i18next";
+import type { ActionItem } from "../../types/electron";
+import { exitSuggestion } from "@tiptap/suggestion";
+import { createSlashCommand, SLASH_PLUGIN_KEY } from "./editor/SlashCommand";
+import { slashItemsFromProp } from "./editor/slashItems";
+import { BubbleToolbar } from "./editor/BubbleToolbar";
+import { isEditorChromeTarget } from "./editor/editorChrome";
 import type { MentionPerson } from "../../utils/mentionMarkdown";
 
-interface RichTextEditorProps {
+export interface RichTextEditorProps {
   value: string;
   onChange?: (value: string) => void;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  onAskAi?: (selection: string) => void;
   editorRef?: MutableRefObject<Editor | null>;
-  /** Enables @mention tagging with these people as suggestions. */
+  /** Enables universal @mentions, including these people as suggestions. */
   mentionPeople?: MentionPerson[];
+  /** Enables / at mount; current callbacks and route readiness are read through refs. */
+  slash?: {
+    actions: ActionItem[];
+    aiAvailable: boolean;
+    aiUnavailableReason?: string;
+    aiNeedsSetup: boolean;
+    onRunAction(actionId: number): void;
+    onManageActions(): void;
+    onSetupAi(): void;
+    onDictateHere(): void;
+  };
 }
 
 export function RichTextEditor({
@@ -28,23 +48,58 @@ export function RichTextEditor({
   disabled,
   editorRef,
   mentionPeople,
+  slash,
+  onAskAi,
 }: RichTextEditorProps) {
+  const { t, i18n } = useTranslation();
   const internalValueRef = useRef(value);
   const suppressUpdateRef = useRef(false);
 
-  // Mention support is decided at mount; the ref keeps suggestions current
-  // without rebuilding the editor when the people list changes.
-  const mentionPeopleRef = useRef(mentionPeople);
-  useEffect(() => {
-    mentionPeopleRef.current = mentionPeople;
-  }, [mentionPeople]);
   const withMentions = useRef(mentionPeople != null).current;
+  const sourcesRef = useMentionSources(mentionPeople ?? []);
+
+  const slashRef = useRef(slash);
+  slashRef.current = slash;
+  const translationRef = useRef({ t, i18n });
+  translationRef.current = { t, i18n };
+  const withSlash = useRef(slash != null && !disabled).current;
+  // Compare values, not callback/array identities: saves and unrelated renders
+  // must not dismiss the menu. Include action edits and translated item labels.
+  const slashContextKey = JSON.stringify([
+    slash,
+    slash ? slashItemsFromProp(slash, t) : null,
+    i18n.language,
+  ]);
 
   const editor = useEditor({
     extensions: [
-      ...(withMentions ? [createMentionExtension(() => mentionPeopleRef.current ?? [])] : []),
+      ...(withSlash
+        ? [
+            createSlashCommand(() => {
+              const current = slashRef.current;
+              const { t, i18n } = translationRef.current;
+              return {
+                items: current ? slashItemsFromProp(current, t) : [],
+                onSetupAi: () => current?.onSetupAi(),
+                onRunAction: (id) => current?.onRunAction(id),
+                onManageActions: () => current?.onManageActions(),
+                onDictateHere: () => current?.onDictateHere(),
+                formatTimestamp: (date) =>
+                  date.toLocaleString(i18n.language, {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  }),
+              };
+            }),
+          ]
+        : []),
+      ...(withMentions ? [createMentionExtension(() => sourcesRef.current!)] : []),
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        link: { openOnClick: false, autolink: true },
         bulletList: { keepMarks: true },
         orderedList: { keepMarks: true },
       }),
@@ -71,11 +126,20 @@ export function RichTextEditor({
     },
     editorProps: {
       attributes: {
-        class: "rich-text-editor-content",
+        class: "rich-text-editor-content focus-visible:ring-2 focus-visible:ring-ring",
         dir: "auto",
       },
     },
   });
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !withSlash) return;
+    // Suggestion skips unchanged queries. Explicit exit cancels pending items
+    // and runs popup cleanup while retaining the document, selection and owner.
+    if (SLASH_PLUGIN_KEY.getState(editor.state)?.active) {
+      exitSuggestion(editor.view, SLASH_PLUGIN_KEY);
+    }
+  }, [editor, withSlash, slashContextKey]);
 
   useEffect(() => {
     if (editorRef) editorRef.current = editor;
@@ -111,11 +175,15 @@ export function RichTextEditor({
     }
   }, [disabled, editor]);
 
-  const handleClick = useCallback(() => {
-    if (editor && !editor.isFocused && !disabled) {
-      editor.commands.focus();
-    }
-  }, [editor, disabled]);
+  const handleClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (isEditorChromeTarget(event.target)) return;
+      if (editor && !editor.isFocused && !disabled) {
+        editor.commands.focus();
+      }
+    },
+    [editor, disabled]
+  );
 
   return (
     <div className={cn("relative w-full h-full", className)} onClick={handleClick}>
@@ -128,6 +196,7 @@ export function RichTextEditor({
           "pb-[var(--floating-inset,0px)]"
         )}
       />
+      {editor && onAskAi && !disabled && <BubbleToolbar editor={editor} onAskAi={onAskAi} />}
     </div>
   );
 }

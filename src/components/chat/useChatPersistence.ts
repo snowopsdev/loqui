@@ -33,7 +33,8 @@ export interface ChatPersistence {
   saveAssistantMessage: (
     content: string,
     toolCalls?: ToolCallInfo[],
-    conversationId?: number
+    conversationId?: number,
+    context?: Message["context"]
   ) => Promise<void>;
   handleNewChat: () => void;
 }
@@ -109,12 +110,22 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
       const loaded: Message[] = conv.messages.map((m) => {
         const parsed = m.metadata ? tryParseMetadata(m.metadata) : undefined;
         const toolCalls = parsed?.toolCalls as ToolCallInfo[] | undefined;
+        const rawContext = parsed?.context as Message["context"];
+        const context =
+          rawContext &&
+          typeof rawContext === "object" &&
+          !Array.isArray(rawContext) &&
+          (rawContext.ragNotes === undefined || Array.isArray(rawContext.ragNotes)) &&
+          (rawContext.pinnedNotes === undefined || Array.isArray(rawContext.pinnedNotes))
+            ? rawContext
+            : undefined;
         return {
           id: crypto.randomUUID(),
           role: m.role as Message["role"],
           content: m.content,
           isStreaming: false,
           ...(toolCalls ? { toolCalls } : {}),
+          ...(context ? { context } : {}),
         };
       });
       setMessages((current) => (selection.isCurrent() ? loaded : current));
@@ -133,14 +144,21 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
   }, []);
 
   const saveAssistantMessage = useCallback(
-    async (content: string, toolCalls?: ToolCallInfo[], targetId?: number) => {
+    async (
+      content: string,
+      toolCalls?: ToolCallInfo[],
+      targetId?: number,
+      context?: Message["context"]
+    ) => {
       const id = targetId ?? conversationIdRef.current;
       if (id) {
         await window.electronAPI?.addAgentMessage?.(
           id,
           "assistant",
           content,
-          toolCalls?.length ? { toolCalls } : undefined
+          toolCalls?.length || context
+            ? { ...(toolCalls?.length ? { toolCalls } : {}), ...(context ? { context } : {}) }
+            : undefined
         );
       }
     },

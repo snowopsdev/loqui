@@ -720,7 +720,8 @@
       "title": "Erforderliche Modelle fehlen",
       "description": "Ihre Organisation erfordert diese Modelle auf diesem Gerät: {{models}}.",
       "download": "Herunterladen"
-    }
+    },
+    "breadcrumb": "Position"
   },
   "reasoning": {
     "mode": {
@@ -1228,7 +1229,8 @@
     "openSettings": "Systemeinstellungen öffnen",
     "connectCalendar": "Kalender verbinden",
     "connectCalendarDescription": "Sieh deine Meetings und tritt ihnen bei, ohne Loqui zu verlassen.",
-    "connectCalendarButton": "Kalender verbinden"
+    "connectCalendarButton": "Kalender verbinden",
+    "todayLabel": "Heute"
   },
   "cleanupPrompt": "Textbereinigung",
   "developerSection": {
@@ -2478,12 +2480,18 @@
       "saved": "Bild heruntergeladen.",
       "failed": "Die Karte konnte nicht erstellt werden.",
       "unnamedMember": "Teammitglied"
-    }
+    },
+    "openHistory": "Verlauf öffnen",
+    "openDictations": "Diktate im Verlauf anzeigen",
+    "focusHeatmap": "Zum Aktivitätsdiagramm"
   },
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "Bereiche",
+      "recent": "Zuletzt verwendet",
+      "voice": "Sprache"
     },
     "navigation": "Main navigation",
     "insights": "Statistiken",
@@ -2509,7 +2517,8 @@
     "notSignedIn": "Nicht angemeldet",
     "chat": "Chat",
     "collapse": "Seitenleiste einklappen",
-    "expand": "Seitenleiste ausklappen"
+    "expand": "Seitenleiste ausklappen",
+    "calendars": "Kalender"
   },
   "workspaces": {
     "switcher": {
@@ -2607,7 +2616,27 @@
     "searchChats": "Chats suchen",
     "searchTitle": "Unterhaltungen suchen",
     "searchDescription": "In allen Unterhaltungen suchen",
-    "newChatEmpty": "Fragen Sie zu Ihren Notizen, Transkripten oder anderem"
+    "newChatEmpty": "Fragen Sie zu Ihren Notizen, Transkripten oder anderem",
+    "assistant": "Assistent",
+    "sources": {
+      "label": "Quellen",
+      "note": "Notiz",
+      "meeting": "Besprechung"
+    },
+    "model": {
+      "changeHint": "In den Einstellungen ändern"
+    },
+    "rail": {
+      "label": "Kontext",
+      "toggle": "Kontext",
+      "inScope": "Im Kontext",
+      "found": "Automatisch gefunden",
+      "emptyScope": "Tippe @, um eine Notiz, ein Meeting oder einen Ordner hinzuzufügen. Der Assistent durchsucht deine Notizen auch selbstständig.",
+      "unpin": "{{label}} aus dem Kontext entfernen",
+      "activity": "Aktivität",
+      "noActivity": "Noch nichts",
+      "addContext": "Kontext hinzufügen"
+    }
   },
   "referral": {
     "title": "Empfehlen und Belohnungen erhalten",
@@ -2880,7 +2909,7 @@
       "transcriptEmptyDescription": "Drücke auf Aufnahme, um mit der Transkription zu beginnen. Alles Gesagte erscheint hier in Echtzeit.",
       "startRecording": "Aufnahme starten",
       "generateSummary": "KI-Zusammenfassung erstellen",
-      "startWriting": "Schreibe los...",
+      "startWriting": "Tippen, diktieren oder einfügen. Drücke / für Blöcke und Aktionen.",
       "staleIndicator": "Der Inhalt hat sich seit der Verbesserung geändert",
       "live": "Live",
       "transcript": "Transkript",
@@ -2979,7 +3008,9 @@
       "urlFileTooLarge": "Die Datei ist zu groß zum Herunterladen. Die maximale Größe beträgt 500 MB.",
       "urlYoutubeBlocked": "YouTube blockiert Downloads aus Ihrem Netzwerk vorübergehend. Versuchen Sie es später erneut.",
       "customEndpointInvalid": "Benutzerdefinierter Transkriptionsendpunkt ist nicht konfiguriert oder ungültig. Aktualisieren Sie ihn in den Einstellungen.",
-      "streamingOnlyProvider": "Dieser Anbieter unterstützt nur Live-Transkription. Wähle für Datei-Uploads und Wiederholungen einen anderen Anbieter."
+      "streamingOnlyProvider": "Dieser Anbieter unterstützt nur Live-Transkription. Wähle für Datei-Uploads und Wiederholungen einen anderen Anbieter.",
+      "needsModel": "Uploads benötigen ein Transkriptionsmodell.",
+      "chooseModel": "Transkriptionsmodell auswählen"
     },
     "meeting": {
       "title": "Besprechungsnotizen",
@@ -3184,7 +3215,57 @@
     },
     "actionsModelHint": {
       "title": "Aktionen benötigen ein KI-Modell",
-      "choose": "Modell wählen"
+      "choose": "Modell wählen",
+      "needsProvider": "Aktionen benötigen einen KI-Anbieter",
+      "chooseProvider": "Anbieter auswählen",
+      "needsKey": "Aktionen benötigen einen API-Schlüssel für {{provider}}",
+      "addKey": "Schlüssel hinzufügen",
+      "needsUrl": "Aktionen benötigen die Adresse deines Servers",
+      "addUrl": "Adresse hinzufügen",
+      "sealed": "Aktionen sind pausiert, solange der versiegelte Modus aktiv ist",
+      "unreachable": "Aktionen können das Notizmodell nicht erreichen",
+      "openSettings": "Einstellungen öffnen"
+    },
+    "slash": {
+      "label": "Block einfügen",
+      "empty": "Keine passenden Blöcke",
+      "aiNeedsModel": "Aktionen benötigen ein KI-Modell",
+      "setupAi": "Notizen-KI einrichten…",
+      "ai": {
+        "needsModel": "Notizenmodell in den Einstellungen herunterladen",
+        "needsKey": "API-Schlüssel in den Einstellungen hinzufügen",
+        "needsUrl": "Serveradresse in den Einstellungen hinzufügen",
+        "off": "Notizen-KI ist in den Einstellungen deaktiviert",
+        "unreachable": "Das Notizenmodell ist nicht erreichbar",
+        "unknown": "Notizenmodell wird geprüft…"
+      },
+      "manageActions": "Aktionen verwalten…",
+      "groups": {
+        "text": "Text",
+        "ai": "KI",
+        "insert": "Einfügen"
+      },
+      "items": {
+        "h1": "Überschrift 1",
+        "h2": "Überschrift 2",
+        "h3": "Überschrift 3",
+        "bullet": "Aufzählung",
+        "numbered": "Nummerierte Liste",
+        "todo": "Aufgabenliste",
+        "quote": "Zitat",
+        "code": "Code",
+        "timestamp": "Zeitstempel",
+        "dictation": "Hier diktieren",
+        "mention": "Erwähnung"
+      }
+    },
+    "bubble": {
+      "bold": "Fett",
+      "italic": "Kursiv",
+      "link": "Link",
+      "linkUrl": "Linkadresse",
+      "linkInvalid": "Verwende eine Web- oder E-Mail-Adresse",
+      "askAi": "KI fragen"
     }
   },
   "dictionary": {
@@ -3441,7 +3522,9 @@
       "copiedToClipboard": "In die Zwischenablage kopiert",
       "openNote": "Notiz öffnen",
       "unknownTool": "Unbekanntes Werkzeug: {{name}}",
-      "invalidArgs": "Ungültige Tool-Argumente für {{name}}"
+      "invalidArgs": "Ungültige Tool-Argumente für {{name}}",
+      "summary_one": "{{count}} Notiz durchsucht",
+      "summary_other": "{{count}} Notizen durchsucht"
     }
   },
   "assistant": {
@@ -3651,15 +3734,47 @@
     "sections": {
       "notes": "Notizen",
       "transcripts": "Transkripte",
-      "jumpTo": "Gehe zu"
+      "jumpTo": "Gehe zu",
+      "suggested": "Vorgeschlagen",
+      "recent": "Zuletzt",
+      "commands": "Befehle",
+      "meetings": "Besprechungen",
+      "chats": "Chats",
+      "folders": "Ordner"
     },
     "noResults": "Keine Ergebnisse",
     "emptyState": "Tippen, um zu suchen",
     "footer": {
       "navigate": "Navigieren",
       "open": "Öffnen",
-      "dismiss": "Schließen"
-    }
+      "dismiss": "Schließen",
+      "scope": "Bereich",
+      "close": "Schließen"
+    },
+    "placeholderAll": "Notizen und Besprechungen suchen oder einen Befehl ausführen…",
+    "commands": {
+      "newNote": "Neue Notiz",
+      "startDictation": "Diktat starten",
+      "askAssistant": "Assistenten fragen",
+      "goNotes": "Zu Notizen",
+      "goHome": "Zur Startseite",
+      "goChat": "Zum Chat",
+      "recordMeeting": "Besprechung aufnehmen",
+      "uploadAudio": "Audio hochladen…",
+      "newChat": "Neuer Chat",
+      "openSettings": "Einstellungen öffnen",
+      "switchSpeechModel": "Sprachmodell wechseln…",
+      "toggleTheme": "Dunkles Design umschalten"
+    },
+    "askAssistant": "Assistenten fragen: „{{query}}“",
+    "nothingMatches": "Keine Treffer für „{{query}}“.",
+    "meta": {
+      "meeting": "Besprechung",
+      "chat": "Chat"
+    },
+    "clear": "Suche löschen",
+    "seeAllTranscripts_one": "{{count}} Treffer im Verlauf anzeigen",
+    "seeAllTranscripts_other": "Alle {{count}} im Verlauf anzeigen"
   },
   "emojiPicker": {
     "search": "Emoji suchen…",
@@ -4769,5 +4884,111 @@
       "dismiss": "Einrichtungscheckliste ausblenden",
       "label": "Einrichtungscheckliste"
     }
+  },
+  "workspace": {
+    "noteMissing": "Diese Notiz wurde gelöscht oder aus diesem Arbeitsbereich verschoben.",
+    "noteLoadError": "Diese Notiz konnte nicht geladen werden. Versuche es erneut."
+  },
+  "capture": {
+    "group": "Erfassen",
+    "moreOptions": "Weitere Erfassungsoptionen",
+    "actions": {
+      "dictate": "In Loqui diktieren",
+      "recordMeeting": "Besprechung aufnehmen",
+      "upload": "Audio hochladen…",
+      "newNote": "Neue Notiz",
+      "newChat": "Neuer Chat"
+    },
+    "short": {
+      "dictate": "Diktieren",
+      "recordMeeting": "Aufnehmen",
+      "upload": "Hochladen",
+      "newNote": "Neue Notiz",
+      "newChat": "Neuer Chat"
+    },
+    "listening": "Hört zu {{time}}",
+    "stopListening": "Zuhören beenden",
+    "stopRecording": "Aufnahme stoppen",
+    "cleaningUp": "Wird überarbeitet…"
+  },
+  "micCard": {
+    "ready": "Bereit",
+    "listening": "Hört zu",
+    "listeningFor": "Hört zu {{time}}",
+    "cleaningUp": "Wird überarbeitet…",
+    "offline": "Mikrofon offline",
+    "offlinePermission": "Mikrofonzugriff ist deaktiviert",
+    "offlineDevice": "Mikrofon getrennt",
+    "nextCapture": "Nächste Aufnahme",
+    "role": {
+      "dictation": "Diktat",
+      "meeting": "Besprechung",
+      "assistant": "Assistent",
+      "translation": "Übersetzung"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "Diktierstatus",
+      "ready": "Bereit",
+      "listening": "Hört zu",
+      "listeningFor": "Hört zu {{time}}",
+      "cleaningUp": "Wird bereinigt…",
+      "offline": "Mikrofon offline",
+      "hold": "Zum Diktieren <kbd>{{key}}</kbd> gedrückt halten",
+      "press": "Zum Diktieren <kbd>{{key}}</kbd> drücken",
+      "nextNow": "{{title}} läuft jetzt",
+      "nextAt": "{{title}} um {{time}}",
+      "takeNotes": "Notizen machen",
+      "nextIn_one": "{{title}} in {{count}} Min.",
+      "nextIn_other": "{{title}} in {{count}} Min."
+    },
+    "history": {
+      "filterLabel": "Verlauf filtern",
+      "filterPlaceholder": "Diese Liste filtern",
+      "chipsLabel": "Anzeigen",
+      "menu": "Verlaufsoptionen",
+      "showDiscarded": "Verworfene anzeigen",
+      "clearAll": "Alle löschen…",
+      "expand": "Aufklappen",
+      "collapse": "Zuklappen",
+      "meetingRow": "Besprechung",
+      "noteRow": "Notiz",
+      "nothingMatches": "Keine Treffer für „{{query}}“.",
+      "clearFilter": "Filter löschen",
+      "olderMissing": "Dieses Diktat ist nicht mehr in deinem Verlauf.",
+      "chips": {
+        "all": "Alle",
+        "dictations": "Diktate",
+        "meetings": "Besprechungen",
+        "notes": "Notizen",
+        "failed": "Fehlgeschlagen"
+      },
+      "dayCount_one": "{{count}} Diktat",
+      "words_one": "{{count}} Wort",
+      "session_one": "Sitzung · {{count}} Aufnahme · {{duration}}",
+      "dayCount_other": "{{count}} Diktate",
+      "words_other": "{{count}} Wörter",
+      "session_other": "Sitzung · {{count}} Aufnahmen · {{duration}}",
+      "loadFailed": "Dieses Diktat konnte nicht geladen werden. Versuche es erneut."
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "Personen",
+      "note": "Notizen",
+      "meeting": "Besprechungen",
+      "dictation": "Diktate",
+      "folder": "Ordner"
+    },
+    "empty": "Keine passenden Einträge",
+    "loading": "Wird geladen…",
+    "missing": "Dieser Eintrag existiert nicht mehr.",
+    "open": "Öffnen",
+    "insertQuote": "Zitat einfügen",
+    "folderMeta": "Ordner",
+    "error": "Dieser Eintrag konnte nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "pickerLabel": "Eintrag erwähnen"
   }
 }

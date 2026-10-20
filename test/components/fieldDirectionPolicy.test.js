@@ -75,6 +75,8 @@ const EXPECTED_SHARED_FIELD_DIRECTIONS = {
 };
 
 const EXPECTED_NATIVE_FIELD_DIRECTIONS = {
+  "src/components/ui/editor/BubbleToolbar.tsx": ["ltr"],
+  "src/components/home/HistoryToolbar.tsx": ["auto"],
   "src/components/CommandSearch.tsx": ["auto"],
   "src/components/onboarding/CleanupStep.tsx": ["ltr"],
   "src/components/chat/ChatInput.tsx": ["auto"],

@@ -20,7 +20,7 @@ import microsoftCalendarIcon from "../assets/icons/microsoft-calendar.svg";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-2 ps-1">
+    <div className="text-caption font-medium uppercase tracking-wider text-muted-foreground mb-2 ps-1">
       {children}
     </div>
   );
@@ -45,11 +45,11 @@ function ProviderRow({ icon, i18nKey, connected, isConnecting, onConnect }: Prov
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <p className="text-xs font-semibold text-foreground">{t(`${i18nKey}.title`)}</p>
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+            <Badge variant="outline" className="text-caption px-1.5 py-0 font-normal">
               {t(`${i18nKey}.optional`)}
             </Badge>
           </div>
-          <p className="text-xs text-muted-foreground/70 mt-0.5 leading-relaxed">
+          <p className="text-caption text-muted-foreground mt-0.5 leading-relaxed">
             {t(`${i18nKey}.description`)}
           </p>
         </div>
@@ -99,14 +99,14 @@ function CalendarAccountRows({
       {accounts.map((account) => (
         <SettingsPanelRow key={account.email}>
           <div className="group flex items-center gap-3 ps-12">
-            <Mail className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+            <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="text-xs text-muted-foreground truncate flex-1">
               <bdi dir="ltr">{account.email}</bdi>
             </span>
             <button
               onClick={() => onUnlink(account.email)}
               disabled={disconnectingEmail === account.email}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-50"
+              className="focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus-within:opacity-100 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-100"
               aria-label={t(`${i18nKey}.disconnect`)}
             >
               {disconnectingEmail === account.email ? (
@@ -132,7 +132,7 @@ function CalendarAccountRows({
         <button
           onClick={onAddAnother}
           disabled={isConnecting}
-          className="flex items-center gap-2 ps-12 text-xs text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
+          className="focus-visible:ring-2 focus-visible:ring-ring flex items-center gap-2 ps-12 text-caption text-link hover:text-link transition-colors disabled:opacity-100"
         >
           {isConnecting ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -343,7 +343,7 @@ export default function IntegrationsView() {
 
   return (
     <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 py-6 space-y-5")}>
-      <p className="text-xs text-muted-foreground/70">{t("integrations.description")}</p>
+      <p className="text-caption text-muted-foreground">{t("integrations.description")}</p>
 
       <div>
         <SectionLabel>{t("integrations.sections.calendar")}</SectionLabel>
@@ -397,13 +397,13 @@ export default function IntegrationsView() {
           {isMac && appleCalendarConnected && (
             <SettingsPanelRow>
               <div className="group flex items-center gap-3 ps-12">
-                <CalendarDays className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+                <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <span className="text-xs text-muted-foreground truncate flex-1">
                   {appleSourceNames.join(" · ")}
                 </span>
                 <button
                   onClick={() => setConfirmAppleDisconnect(true)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                  className="focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus-within:opacity-100 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
                   aria-label={t("integrations.appleCalendar.disconnect")}
                 >
                   <Unlink className="h-3.5 w-3.5" />
@@ -416,12 +416,12 @@ export default function IntegrationsView() {
 
       {!hasAccounts && (
         <div className="rounded-lg border border-border/70 dark:border-border-subtle/60 bg-muted/20 dark:bg-surface-2/30 p-4 flex items-start gap-3">
-          <Info size={15} className="text-primary/60 shrink-0 mt-0.5" />
+          <Info size={15} className="text-link shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-foreground/80">
               {t("integrations.notABot.title")}
             </p>
-            <p className="text-xs text-muted-foreground/70 mt-0.5 leading-relaxed">
+            <p className="text-caption text-muted-foreground mt-0.5 leading-relaxed">
               {t("integrations.notABot.description")}
             </p>
           </div>

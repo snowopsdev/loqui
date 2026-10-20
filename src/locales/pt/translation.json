@@ -699,7 +699,8 @@
       "title": "Modelos exigidos ausentes",
       "description": "Sua organização exige estes modelos neste dispositivo: {{models}}.",
       "download": "Baixar"
-    }
+    },
+    "breadcrumb": "Localização"
   },
   "reasoning": {
     "mode": {
@@ -2533,7 +2534,7 @@
       "transcriptEmptyDescription": "Toque em gravar para começar a transcrever. Tudo o que for dito aparece aqui em tempo real.",
       "startRecording": "Começar a gravar",
       "generateSummary": "Gerar resumo com IA",
-      "startWriting": "Comece a escrever...",
+      "startWriting": "Digite, dite ou cole. Pressione / para blocos e ações.",
       "staleIndicator": "O conteúdo mudou desde o aprimoramento",
       "live": "Ao vivo",
       "transcript": "Transcrição",
@@ -2632,7 +2633,9 @@
       "urlFileTooLarge": "O arquivo é grande demais para baixar. O tamanho máximo é 500 MB.",
       "urlYoutubeBlocked": "O YouTube está bloqueando temporariamente downloads da sua rede. Tente novamente em instantes.",
       "customEndpointInvalid": "O endpoint de transcrição personalizado não está configurado ou é inválido. Atualize-o nas Configurações.",
-      "streamingOnlyProvider": "Este provedor só suporta transcrição ao vivo. Escolha outro provedor para uploads de arquivos e novas tentativas."
+      "streamingOnlyProvider": "Este provedor só suporta transcrição ao vivo. Escolha outro provedor para uploads de arquivos e novas tentativas.",
+      "needsModel": "Os envios precisam de um modelo de transcrição.",
+      "chooseModel": "Escolher um modelo de transcrição"
     },
     "meeting": {
       "title": "Notas de reunião",
@@ -2837,7 +2840,57 @@
     },
     "actionsModelHint": {
       "title": "As ações precisam de um modelo de IA",
-      "choose": "Escolher um modelo"
+      "choose": "Escolher um modelo",
+      "needsProvider": "As ações precisam de um provedor de IA",
+      "chooseProvider": "Escolher um provedor",
+      "needsKey": "As ações precisam de uma chave de API para {{provider}}",
+      "addKey": "Adicionar a chave",
+      "needsUrl": "As ações precisam do endereço do seu servidor",
+      "addUrl": "Adicionar o endereço",
+      "sealed": "As ações estão pausadas enquanto o modo selado está ativado",
+      "unreachable": "As ações não conseguem acessar o modelo de notas",
+      "openSettings": "Abrir configurações"
+    },
+    "slash": {
+      "label": "Inserir bloco",
+      "empty": "Nenhum bloco corresponde",
+      "aiNeedsModel": "As ações precisam de um modelo de IA",
+      "setupAi": "Configurar a IA de notas…",
+      "ai": {
+        "needsModel": "Baixe o modelo de notas nas Configurações",
+        "needsKey": "Adicione uma chave de API nas Configurações",
+        "needsUrl": "Adicione um endereço de servidor nas Configurações",
+        "off": "A IA de notas está desativada nas Configurações",
+        "unreachable": "Não foi possível acessar o modelo de notas",
+        "unknown": "Verificando o modelo de notas…"
+      },
+      "manageActions": "Gerenciar ações…",
+      "groups": {
+        "text": "Texto",
+        "ai": "IA",
+        "insert": "Inserir"
+      },
+      "items": {
+        "h1": "Título 1",
+        "h2": "Título 2",
+        "h3": "Título 3",
+        "bullet": "Lista com marcadores",
+        "numbered": "Lista numerada",
+        "todo": "Lista de tarefas",
+        "quote": "Citação",
+        "code": "Código",
+        "timestamp": "Data e hora",
+        "dictation": "Ditar aqui",
+        "mention": "Menção"
+      }
+    },
+    "bubble": {
+      "bold": "Negrito",
+      "italic": "Itálico",
+      "link": "Link",
+      "linkUrl": "Endereço do link",
+      "linkInvalid": "Use um endereço da web ou de e-mail",
+      "askAi": "Perguntar à IA"
     }
   },
   "dictionary": {
@@ -3021,12 +3074,18 @@
       "saved": "Imagem baixada.",
       "failed": "Não foi possível criar o cartão de compartilhamento.",
       "unnamedMember": "Colega de equipe"
-    }
+    },
+    "openHistory": "Abrir histórico",
+    "openDictations": "Mostrar ditados no histórico",
+    "focusHeatmap": "Ir para o gráfico de atividade"
   },
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "Espaços",
+      "recent": "Recentes",
+      "voice": "Voz"
     },
     "navigation": "Main navigation",
     "insights": "Estatísticas",
@@ -3052,7 +3111,8 @@
     "notSignedIn": "Não conectado",
     "chat": "Chat",
     "collapse": "Recolher barra lateral",
-    "expand": "Expandir barra lateral"
+    "expand": "Expandir barra lateral",
+    "calendars": "Calendários"
   },
   "chat": {
     "newChat": "Novo chat",
@@ -3074,7 +3134,27 @@
     "searchChats": "Pesquisar chats",
     "searchTitle": "Pesquisar conversas",
     "searchDescription": "Pesquisar em todas as conversas",
-    "newChatEmpty": "Pergunte sobre suas notas, transcrições ou qualquer coisa"
+    "newChatEmpty": "Pergunte sobre suas notas, transcrições ou qualquer coisa",
+    "assistant": "Assistente",
+    "sources": {
+      "label": "Fontes",
+      "note": "Nota",
+      "meeting": "Reunião"
+    },
+    "model": {
+      "changeHint": "Alterar nas definições"
+    },
+    "rail": {
+      "label": "Contexto",
+      "toggle": "Contexto",
+      "inScope": "No contexto",
+      "found": "Encontrado automaticamente",
+      "emptyScope": "Digite @ para adicionar uma nota, reunião ou pasta. O assistente também pesquisa suas notas por conta própria.",
+      "unpin": "Remover {{label}} do contexto",
+      "activity": "Atividade",
+      "noActivity": "Nada ainda",
+      "addContext": "Adicionar contexto"
+    }
   },
   "support": {
     "documentation": "Documentação",
@@ -3273,7 +3353,10 @@
       "copiedToClipboard": "Copiado para a área de transferência",
       "openNote": "Abrir nota",
       "unknownTool": "Ferramenta desconhecida: {{name}}",
-      "invalidArgs": "Argumentos de ferramenta inválidos para {{name}}"
+      "invalidArgs": "Argumentos de ferramenta inválidos para {{name}}",
+      "summary_one": "Pesquisa em {{count}} nota",
+      "summary_many": "Pesquisa em {{count}} notas",
+      "summary_other": "Pesquisa em {{count}} notas"
     }
   },
   "assistant": {
@@ -3449,7 +3532,8 @@
     "openSettings": "Abrir Configurações do Sistema",
     "connectCalendar": "Conecte seu calendário",
     "connectCalendarDescription": "Veja suas reuniões e entre nelas sem sair do Loqui.",
-    "connectCalendarButton": "Conectar calendário"
+    "connectCalendarButton": "Conectar calendário",
+    "todayLabel": "Hoje"
   },
   "notesView": {
     "searchPlaceholder": "Pesquisar notas…",
@@ -3523,15 +3607,48 @@
     "sections": {
       "notes": "Notas",
       "transcripts": "Transcrições",
-      "jumpTo": "Ir para"
+      "jumpTo": "Ir para",
+      "suggested": "Sugestões",
+      "recent": "Recentes",
+      "commands": "Comandos",
+      "meetings": "Reuniões",
+      "chats": "Conversas",
+      "folders": "Pastas"
     },
     "noResults": "Sem resultados",
     "emptyState": "Comece a digitar para pesquisar",
     "footer": {
       "navigate": "Navegar",
       "open": "Abrir",
-      "dismiss": "Fechar"
-    }
+      "dismiss": "Fechar",
+      "scope": "Escopo",
+      "close": "Fechar"
+    },
+    "placeholderAll": "Pesquise notas, reuniões ou execute um comando…",
+    "commands": {
+      "newNote": "Nova nota",
+      "startDictation": "Iniciar ditado",
+      "askAssistant": "Perguntar ao assistente",
+      "goNotes": "Ir para Notas",
+      "goHome": "Ir para Início",
+      "goChat": "Ir para Conversas",
+      "recordMeeting": "Gravar reunião",
+      "uploadAudio": "Enviar áudio…",
+      "newChat": "Nova conversa",
+      "openSettings": "Abrir configurações",
+      "switchSpeechModel": "Trocar modelo de voz…",
+      "toggleTheme": "Alternar tema escuro"
+    },
+    "askAssistant": "Perguntar ao assistente: “{{query}}”",
+    "nothingMatches": "Nenhum resultado para “{{query}}”.",
+    "meta": {
+      "meeting": "Reunião",
+      "chat": "Conversa"
+    },
+    "clear": "Limpar pesquisa",
+    "seeAllTranscripts_one": "Ver {{count}} resultado no histórico",
+    "seeAllTranscripts_many": "Ver todos os {{count}} resultados no histórico",
+    "seeAllTranscripts_other": "Ver todos os {{count}} resultados no histórico"
   },
   "emojiPicker": {
     "search": "Pesquisar emoji…",
@@ -4778,5 +4895,115 @@
       "dismiss": "Ocultar a lista de configuração",
       "label": "Lista de verificação da configuração"
     }
+  },
+  "workspace": {
+    "noteMissing": "Essa nota foi excluída ou movida para fora deste espaço de trabalho.",
+    "noteLoadError": "Não foi possível carregar esta nota. Tente novamente."
+  },
+  "capture": {
+    "group": "Capturar",
+    "moreOptions": "Mais opções de captura",
+    "actions": {
+      "dictate": "Ditar no Loqui",
+      "recordMeeting": "Gravar reunião",
+      "upload": "Carregar áudio…",
+      "newNote": "Nova nota",
+      "newChat": "Nova conversa"
+    },
+    "short": {
+      "dictate": "Ditar",
+      "recordMeeting": "Gravar",
+      "upload": "Carregar",
+      "newNote": "Nova nota",
+      "newChat": "Nova conversa"
+    },
+    "listening": "A ouvir {{time}}",
+    "stopListening": "Parar de ouvir",
+    "stopRecording": "Parar gravação",
+    "cleaningUp": "A rever o texto…"
+  },
+  "micCard": {
+    "ready": "Pronto",
+    "listening": "A ouvir",
+    "listeningFor": "A ouvir {{time}}",
+    "cleaningUp": "A rever…",
+    "offline": "Microfone offline",
+    "offlinePermission": "O acesso ao microfone está desativado",
+    "offlineDevice": "Microfone desligado",
+    "nextCapture": "Próxima gravação",
+    "role": {
+      "dictation": "Ditado",
+      "meeting": "Reunião",
+      "assistant": "Assistente",
+      "translation": "Tradução"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "Estado do ditado",
+      "ready": "Pronto",
+      "listening": "A ouvir",
+      "listeningFor": "A ouvir {{time}}",
+      "cleaningUp": "A limpar…",
+      "offline": "Microfone desligado",
+      "hold": "Mantenha <kbd>{{key}}</kbd> premida para ditar",
+      "press": "Prima <kbd>{{key}}</kbd> para ditar",
+      "nextNow": "{{title}} está a decorrer",
+      "nextAt": "{{title}} às {{time}}",
+      "takeNotes": "Tirar notas",
+      "nextIn_one": "{{title}} dentro de {{count}} min",
+      "nextIn_many": "{{title}} dentro de {{count}} min",
+      "nextIn_other": "{{title}} dentro de {{count}} min"
+    },
+    "history": {
+      "filterLabel": "Filtrar histórico",
+      "filterPlaceholder": "Filtrar esta lista",
+      "chipsLabel": "Mostrar",
+      "menu": "Opções do histórico",
+      "showDiscarded": "Mostrar descartadas",
+      "clearAll": "Limpar tudo…",
+      "expand": "Expandir",
+      "collapse": "Recolher",
+      "meetingRow": "Reunião",
+      "noteRow": "Nota",
+      "nothingMatches": "Nenhum resultado para “{{query}}”.",
+      "clearFilter": "Limpar filtro",
+      "olderMissing": "Este ditado já não está no seu histórico.",
+      "chips": {
+        "all": "Tudo",
+        "dictations": "Ditados",
+        "meetings": "Reuniões",
+        "notes": "Notas",
+        "failed": "Falhas"
+      },
+      "dayCount_one": "{{count}} ditado",
+      "words_one": "{{count}} palavra",
+      "session_one": "Sessão · {{count}} gravação · {{duration}}",
+      "dayCount_other": "{{count}} ditados",
+      "words_other": "{{count}} palavras",
+      "session_other": "Sessão · {{count}} gravações · {{duration}}",
+      "dayCount_many": "{{count}} ditados",
+      "words_many": "{{count}} palavras",
+      "session_many": "Sessão · {{count}} gravações · {{duration}}",
+      "loadFailed": "Não foi possível carregar esse ditado. Tente novamente."
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "Pessoas",
+      "note": "Notas",
+      "meeting": "Reuniões",
+      "dictation": "Ditados",
+      "folder": "Pastas"
+    },
+    "empty": "Nenhum item para mencionar",
+    "loading": "Carregando…",
+    "missing": "Este item não existe mais.",
+    "open": "Abrir",
+    "insertQuote": "Inserir citação",
+    "folderMeta": "Pasta",
+    "error": "Não foi possível carregar este item.",
+    "retry": "Tentar novamente",
+    "pickerLabel": "Mencionar um item"
   }
 }

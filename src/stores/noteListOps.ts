@@ -14,10 +14,12 @@ export interface NoteContainerState {
   notesByContainer: Record<string, NoteItem[]>;
   expandedContainers: Set<string>;
   activeNoteId: number | null;
+  openedNotes?: Record<number, NoteItem>;
 }
 
 export interface TeardownContainersResult extends NoteContainerState {
   removedNotes: NoteItem[];
+  openedNotes: Record<number, NoteItem>;
 }
 
 export function createClearedAccountNoteState<TSpace, TFolder, TShare, TConflict>() {
@@ -28,6 +30,7 @@ export function createClearedAccountNoteState<TSpace, TFolder, TShare, TConflict
     folderCounts: {} as Record<number, number>,
     spaceRootCounts: {} as Record<number, number>,
     notesByContainer: {} as Record<string, NoteItem[]>,
+    openedNotes: {} as Record<number, NoteItem>,
     expandedContainers: new Set<string>(),
     activeContext: null,
     activeNoteId: null,
@@ -99,6 +102,13 @@ export function teardownNoteContainers(
     else notesByContainer[key] = items;
   }
 
+  const openedNotes: Record<number, NoteItem> = {};
+  for (const note of Object.values(state.openedNotes ?? {})) {
+    const key = note.folder_id != null ? `f:${note.folder_id}` : `s:${note.space_id}`;
+    if (removedKeys.has(key)) removedNotes.push(note);
+    else openedNotes[note.id] = note;
+  }
+
   const expandedContainers = new Set(
     [...state.expandedContainers].filter((key) => !removedKeys.has(key))
   );
@@ -107,5 +117,5 @@ export function teardownNoteContainers(
       ? null
       : state.activeNoteId;
 
-  return { notesByContainer, expandedContainers, activeNoteId, removedNotes };
+  return { notesByContainer, expandedContainers, activeNoteId, removedNotes, openedNotes };
 }

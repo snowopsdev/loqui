@@ -25,12 +25,16 @@ import type {
 } from "../../types/electron";
 import { cn } from "../lib/utils";
 import { getCachedPlatform } from "../../utils/platform";
+import { formatElapsed } from "../../lib/captureStatus";
+import { parseDbTimestamp, transcriptionLocality } from "../../lib/homeFeed";
+import { providerDisplayLabel } from "../../lib/locality";
+import { LocalityRing } from "./LocalityRing";
 import { formatMmSs } from "../../utils/formatDuration";
 
 const platform = getCachedPlatform();
 
 const ACTION_BUTTON_CLASS =
-  "h-7 w-7 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-foreground/6 dark:hover:bg-white/6";
+  "h-7 w-7 rounded-full text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground hover:bg-foreground/8 dark:hover:bg-foreground/8 data-[state=open]:bg-foreground/8 dark:data-[state=open]:bg-foreground/8 data-[state=open]:text-foreground dark:data-[state=open]:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
 function getShowInFolderKey(): string {
   if (platform === "win32") return "controlPanel.history.showInFolderWindows";
@@ -53,6 +57,9 @@ interface TranscriptionItemProps {
   onShowAudioInFolder?: (id: number) => void;
   onRetryTranscription?: (id: number, options?: { isRecover?: boolean }) => Promise<void>;
   onOpenSettings?: () => void;
+  words?: number;
+  focused?: boolean;
+  nested?: boolean;
 }
 
 export default function TranscriptionItem({
@@ -62,19 +69,31 @@ export default function TranscriptionItem({
   onShowAudioInFolder,
   onRetryTranscription,
   onOpenSettings,
+  words,
+  focused,
+  nested,
 }: TranscriptionItemProps) {
   const { t, i18n } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
 
-  const timestampSource = item.timestamp.endsWith("Z") ? item.timestamp : `${item.timestamp}Z`;
-  const timestampDate = new Date(timestampSource);
+  const timestampDate = new Date(parseDbTimestamp(item.timestamp));
   const formattedTime = Number.isNaN(timestampDate.getTime())
     ? ""
     : timestampDate.toLocaleTimeString(i18n.language, {
-        hour: "2-digit",
+        hour: "numeric",
         minute: "2-digit",
       });
+
+  const locality = transcriptionLocality(item.provider);
+  const providerLabel =
+    locality?.locality === "remote" ? providerDisplayLabel(locality.providerId, t) : null;
+  // Mouse convenience; the visible Copy button is the keyboard/AT path.
+  // Selecting text never copies the whole row.
+  const copyUnlessSelecting = () => {
+    if (window.getSelection()?.toString()) return;
+    onCopy(item.text);
+  };
 
   const handleRetry = async () => {
     if (isRetrying || !onRetryTranscription) return;
@@ -147,81 +166,98 @@ export default function TranscriptionItem({
 
   return (
     <div
+      data-transcript-id={item.id}
+      data-focused={focused ? "true" : undefined}
       className={cn(
-        "group/row px-4 py-3 transition-colors duration-150",
+        "group/row grid grid-cols-[64px_1fr_auto] items-start gap-x-3 px-4 py-3 transition-colors duration-(--motion-fast) ease-(--motion-ease-std)",
         isFailed
           ? "bg-destructive/5"
           : isDiscarded
-            ? "bg-muted/20 opacity-80"
+            ? "bg-muted/20"
             : "hover:bg-muted/20 dark:hover:bg-white/2",
+        nested && "ps-6",
         // Translation rows get a 2px primary accent; ps-[14px] keeps text aligned with the other rows.
         item.route_kind === "translation" && "border-s-2 border-s-primary/70 ps-[14px]"
       )}
     >
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs tabular-nums text-muted-foreground">{formattedTime}</span>
-        <div
-          className={cn(
-            "-me-1.5 flex items-center gap-1 transition-opacity duration-150",
-            // Actions surface on hover, keyboard focus, or while the menu is open; failed and
-            // discarded rows keep them visible because recovery is the point of the row.
-            isTranscribed &&
-              "opacity-0 group-hover/row:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-state=open]]:opacity-100"
-          )}
-        >
-          {isTranscribed && (
-            <Tooltip content={t("controlPanel.history.copyText")}>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => onCopy(item.text)}
-                className={ACTION_BUTTON_CLASS}
-              >
-                <Copy size={13} />
-              </Button>
-            </Tooltip>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                disabled={isRetrying}
-                aria-label={t("controlPanel.history.moreActions")}
-                className={ACTION_BUTTON_CLASS}
-              >
-                {isRetrying ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <MoreVertical size={13} />
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {menuActions.map(({ key, icon: Icon, label, onSelect, destructive }) => (
-                <DropdownMenuItem
-                  key={key}
-                  onSelect={onSelect}
-                  className={cn(
-                    "gap-2.5",
-                    destructive && "text-destructive focus:bg-destructive/8 focus:text-destructive"
-                  )}
+      <div className="contents">
+        <span className="pt-1 text-caption tabular-nums text-muted-foreground">
+          {formattedTime}
+        </span>
+        <div className="col-start-3 row-start-1 flex flex-col items-end gap-1">
+          <div
+            data-row-actions="true"
+            className="-me-1.5 flex items-center gap-1 text-muted-foreground"
+          >
+            {isTranscribed && (
+              <Tooltip content={t("controlPanel.history.copyText")}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label={t("controlPanel.history.copyText")}
+                  onClick={() => onCopy(item.text)}
+                  className={ACTION_BUTTON_CLASS}
                 >
-                  <Icon size={14} className="shrink-0 opacity-70" />
-                  {label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <Copy size={13} />
+                </Button>
+              </Tooltip>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  disabled={isRetrying}
+                  aria-label={t("controlPanel.history.moreActions")}
+                  className={ACTION_BUTTON_CLASS}
+                >
+                  {isRetrying ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <MoreVertical size={13} />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {menuActions.map(({ key, icon: Icon, label, onSelect, destructive }) => (
+                  <DropdownMenuItem
+                    key={key}
+                    onSelect={onSelect}
+                    className={cn(
+                      "gap-2.5 focus-visible:ring-2 focus-visible:ring-ring",
+                      destructive && "text-destructive focus:bg-background focus:text-destructive"
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    {label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <span className="flex flex-wrap justify-end items-center gap-1.5 text-caption tabular-nums text-muted-foreground">
+            {item.audio_duration_ms != null && <span>{formatElapsed(item.audio_duration_ms)}</span>}
+            {words != null && <span>· {t("home.history.words", { count: words })}</span>}
+            {locality && (
+              <span className="inline-flex shrink-0 ps-2 pe-2 pb-1" data-history-locality>
+                <LocalityRing
+                  size={20}
+                  locality={locality.locality}
+                  provider={providerLabel}
+                  label={t(`locality.${locality.locality}`, { provider: providerLabel ?? "" })}
+                />
+              </span>
+            )}
+          </span>
         </div>
       </div>
 
-      <div className="mt-1.5">
+      <div className="col-start-2 row-start-1 min-w-0">
         {isFailed ? (
           <div className="flex items-start gap-2">
             <AlertCircle size={14} className="mt-0.5 shrink-0 text-destructive" />
             <div className="min-w-0">
-              <p className="text-sm font-medium text-destructive">
+              <p className="text-sm font-medium text-foreground">
                 {t("controlPanel.history.transcriptionFailed")}
               </p>
               {item.error_message && (
@@ -235,7 +271,7 @@ export default function TranscriptionItem({
                     <>
                       <button
                         onClick={() => onOpenSettings?.()}
-                        className="cursor-pointer text-primary hover:underline"
+                        className="cursor-pointer text-link hover:underline focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {t("controlPanel.history.failedCtaSettings")}
                       </button>{" "}
@@ -244,7 +280,7 @@ export default function TranscriptionItem({
                   ) : (
                     <button
                       onClick={() => onOpenSettings?.()}
-                      className="cursor-pointer text-primary hover:underline"
+                      className="cursor-pointer text-link hover:underline focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       {t("controlPanel.history.failedCtaSettingsOnly")}
                     </button>
@@ -265,7 +301,7 @@ export default function TranscriptionItem({
           </div>
         ) : isDiscarded ? (
           <div className="flex items-center gap-2">
-            <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-micro font-medium uppercase tracking-wide text-muted-foreground">
               {t("controlPanel.history.discarded.badge")}
             </span>
             <span className="truncate text-sm text-muted-foreground">
@@ -279,7 +315,8 @@ export default function TranscriptionItem({
         ) : (
           <p
             dir="auto"
-            className="text-base leading-normal wrap-break-word whitespace-pre-wrap text-foreground"
+            className="text-body line-clamp-4 wrap-break-word whitespace-pre-wrap text-foreground"
+            onClick={copyUnlessSelecting}
           >
             {item.text}
           </p>
@@ -290,32 +327,33 @@ export default function TranscriptionItem({
         <div
           inert={!isExpanded}
           className={cn(
-            "grid transition-[grid-template-rows] duration-200",
+            "col-start-2 col-span-2 grid transition-[grid-template-rows] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none",
             isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
           )}
         >
           <div className="min-h-0 overflow-hidden">
             <div className="mt-2 border-t border-border/70 pt-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <span className="text-caption font-medium uppercase tracking-wider text-muted-foreground">
                   {t("controlPanel.history.rawTranscript")}
                 </span>
                 <Tooltip content={t("controlPanel.history.copyRawTranscript")}>
                   <Button
                     size="icon"
                     variant="ghost"
+                    aria-label={t("controlPanel.history.copyRawTranscript")}
                     onClick={() => onCopy(rawText)}
-                    className="h-5 w-5 rounded-sm text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                    className={cn(ACTION_BUTTON_CLASS, "h-5 w-5 rounded-sm")}
                   >
                     <Copy size={10} />
                   </Button>
                 </Tooltip>
               </div>
-              <p dir="auto" className="mt-1 text-xs leading-relaxed text-muted-foreground/80">
+              <p dir="auto" className="mt-1 text-caption leading-relaxed text-muted-foreground">
                 {rawText}
               </p>
               {rawText === item.text && (
-                <p className="mt-1 text-[10px] italic text-muted-foreground/70">
+                <p className="mt-1 text-caption italic text-muted-foreground">
                   {t("controlPanel.history.noAiProcessing")}
                 </p>
               )}

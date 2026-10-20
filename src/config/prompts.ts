@@ -4,6 +4,7 @@ export {
   resolvePrompt,
   getDefaultPromptText,
   appendDictionarySuffix,
+  appendCitationSuffix,
   appendScreenContextSuffix,
   wrapCleanupTranscript,
 } from "./prompts/index";

@@ -11,10 +11,10 @@ export function DictionaryHeaderActions(props: {
 }) {
   const { t } = useTranslation();
   const action =
-    "inline-flex items-center gap-1 rounded-sm text-xs text-foreground/60 outline-none transition-colors duration-[var(--motion-fast)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
+    "inline-flex items-center gap-1 rounded-sm text-caption text-muted-foreground outline-none transition-colors duration-[var(--motion-fast)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <label className="inline-flex items-center gap-2 text-xs text-foreground/60">
+      <label className="inline-flex items-center gap-2 text-caption text-muted-foreground [&>button]:border [&>button]:border-muted-foreground [&>button]:bg-surface-3! [&>button:hover]:bg-surface-3! [&>button:focus-visible]:ring-2! [&>button:focus-visible]:ring-ring! [&>button>span]:bg-muted-foreground! [&>button[aria-checked=true]]:bg-foreground! [&>button[aria-checked=true]:hover]:bg-foreground! [&>button[aria-checked=true]>span]:bg-background! [&>button]:duration-(--motion-fast)! [&>button>span]:duration-(--motion-fast)!">
         <Toggle
           checked={props.autoLearn}
           onChange={props.onAutoLearnChange}
@@ -33,7 +33,7 @@ export function DictionaryHeaderActions(props: {
       <button
         type="button"
         onClick={props.onClearAll}
-        className="rounded-sm text-xs text-foreground/60 outline-none transition-colors duration-[var(--motion-fast)] hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
+        className="rounded-sm text-caption text-muted-foreground outline-none transition-colors duration-[var(--motion-fast)] hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
       >
         {t("dictionary.clearAll")}
       </button>

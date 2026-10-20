@@ -609,7 +609,8 @@
       "title": "النماذج المطلوبة مفقودة",
       "description": "تتطلب مؤسستك هذه النماذج على هذا الجهاز: {{models}}.",
       "download": "تنزيل"
-    }
+    },
+    "breadcrumb": "الموقع"
   },
   "integrations": {
     "title": "التكاملات (Integrations)",
@@ -1296,7 +1297,13 @@
       "copiedToClipboard": "تم النسخ إلى حافظتك",
       "openNote": "فتح الملاحظة",
       "unknownTool": "أداة غير معروفة: {{name}}",
-      "invalidArgs": "وسيطات غير صالحة للأداة {{name}}"
+      "invalidArgs": "وسيطات غير صالحة للأداة {{name}}",
+      "summary_zero": "تم البحث في {{count}} ملاحظة",
+      "summary_one": "تم البحث في {{count}} ملاحظة",
+      "summary_two": "تم البحث في {{count}} ملاحظتين",
+      "summary_few": "تم البحث في {{count}} ملاحظات",
+      "summary_many": "تم البحث في {{count}} ملاحظة",
+      "summary_other": "تم البحث في {{count}} ملاحظة"
     }
   },
   "noteEditor": {
@@ -1434,7 +1441,8 @@
     "openSettings": "فتح إعدادات النظام",
     "connectCalendar": "اربط تقويمك",
     "connectCalendarDescription": "شاهد اجتماعاتك وانضم إليها دون مغادرة Loqui.",
-    "connectCalendarButton": "ربط التقويم"
+    "connectCalendarButton": "ربط التقويم",
+    "todayLabel": "اليوم"
   },
   "notes": {
     "sidebar": {
@@ -1643,7 +1651,7 @@
       "transcriptEmptyDescription": "اضغط على تسجيل لبدء النسخ. كل ما يُقال يظهر هنا لحظيًا.",
       "startRecording": "بدء التسجيل",
       "generateSummary": "إنشاء ملخص بالذكاء الاصطناعي",
-      "startWriting": "ابدأ الكتابة...",
+      "startWriting": "اكتب أو أملِ أو الصق. اضغط / للكتل والإجراءات.",
       "staleIndicator": "تم تغيير المحتوى منذ التحسين",
       "live": "مباشر",
       "transcript": "النص المفرَّغ",
@@ -1742,7 +1750,9 @@
       "urlYoutubeBlocked": "يحظر YouTube التنزيلات من شبكتك مؤقتًا. حاول مرة أخرى بعد قليل.",
       "customEndpointInvalid": "نقطة نهاية التفريغ المخصصة غير مهيأة أو غير صالحة. قم بتحديثها في الإعدادات.",
       "streamingOnlyProvider": "هذا المزود يدعم التفريغ المباشر فقط. اختر مزودًا آخر لرفع الملفات وإعادة المحاولة.",
-      "diarizationWarning": "تعذر تطبيق تحديد المتحدثين. حُفظ النص المفرَّغ دون تسميات المتحدثين."
+      "diarizationWarning": "تعذر تطبيق تحديد المتحدثين. حُفظ النص المفرَّغ دون تسميات المتحدثين.",
+      "needsModel": "تحتاج عمليات الرفع إلى نموذج للتفريغ النصي.",
+      "chooseModel": "اختر نموذجًا للتفريغ النصي"
     },
     "meeting": {
       "title": "ملاحظات الاجتماع",
@@ -1961,7 +1971,57 @@
     },
     "actionsModelHint": {
       "title": "تحتاج الإجراءات إلى نموذج ذكاء اصطناعي",
-      "choose": "اختر نموذجًا"
+      "choose": "اختر نموذجًا",
+      "needsProvider": "تحتاج الإجراءات إلى موفّر ذكاء اصطناعي",
+      "chooseProvider": "اختر موفّرًا",
+      "needsKey": "تحتاج الإجراءات إلى مفتاح API لـ {{provider}}",
+      "addKey": "أضف المفتاح",
+      "needsUrl": "تحتاج الإجراءات إلى عنوان خادمك",
+      "addUrl": "أضف العنوان",
+      "sealed": "الإجراءات متوقفة مؤقتًا ما دام الوضع المحكم مفعّلًا",
+      "unreachable": "يتعذّر على الإجراءات الوصول إلى نموذج الملاحظات",
+      "openSettings": "افتح الإعدادات"
+    },
+    "slash": {
+      "label": "إدراج كتلة",
+      "empty": "لا توجد كتل مطابقة",
+      "aiNeedsModel": "تحتاج الإجراءات إلى نموذج ذكاء اصطناعي",
+      "setupAi": "إعداد ذكاء الملاحظات…",
+      "ai": {
+        "needsModel": "نزّل نموذج الملاحظات من الإعدادات",
+        "needsKey": "أضف مفتاح API في الإعدادات",
+        "needsUrl": "أضف عنوان خادم في الإعدادات",
+        "off": "ذكاء الملاحظات معطّل في الإعدادات",
+        "unreachable": "يتعذر الوصول إلى نموذج الملاحظات",
+        "unknown": "جارٍ التحقق من نموذج الملاحظات…"
+      },
+      "manageActions": "إدارة الإجراءات…",
+      "groups": {
+        "text": "نص",
+        "ai": "ذكاء اصطناعي",
+        "insert": "إدراج"
+      },
+      "items": {
+        "h1": "عنوان 1",
+        "h2": "عنوان 2",
+        "h3": "عنوان 3",
+        "bullet": "قائمة نقطية",
+        "numbered": "قائمة مرقّمة",
+        "todo": "قائمة مهام",
+        "quote": "اقتباس",
+        "code": "شفرة",
+        "timestamp": "طابع زمني",
+        "dictation": "إملاء هنا",
+        "mention": "إشارة"
+      }
+    },
+    "bubble": {
+      "bold": "عريض",
+      "italic": "مائل",
+      "link": "رابط",
+      "linkUrl": "عنوان الرابط",
+      "linkInvalid": "استخدم عنوان ويب أو بريد إلكتروني",
+      "askAi": "اسأل الذكاء الاصطناعي"
     }
   },
   "onboarding": {
@@ -3447,7 +3507,10 @@
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "المساحات",
+      "recent": "الأخيرة",
+      "voice": "الصوت"
     },
     "navigation": "Main navigation",
     "home": "الرئيسية",
@@ -3473,7 +3536,8 @@
     "chat": "الدردشة",
     "collapse": "طي الشريط الجانبي",
     "expand": "توسيع الشريط الجانبي",
-    "insights": "الإحصاءات"
+    "insights": "الإحصاءات",
+    "calendars": "التقويمات"
   },
   "insights": {
     "title": "الإحصاءات",
@@ -3635,7 +3699,10 @@
       "saved": "تم تنزيل الصورة.",
       "failed": "تعذر إنشاء بطاقة المشاركة.",
       "unnamedMember": "زميل"
-    }
+    },
+    "openHistory": "فتح السجل",
+    "openDictations": "عرض الإملاءات في السجل",
+    "focusHeatmap": "الانتقال إلى مخطط النشاط"
   },
   "chat": {
     "newChat": "محادثة جديدة",
@@ -3657,7 +3724,27 @@
     "searchChats": "البحث في المحادثات",
     "searchTitle": "البحث في المحادثات",
     "searchDescription": "البحث في جميع محادثاتك",
-    "newChatEmpty": "اسأل عن ملاحظاتك أو نصوصك المفرَّغة أو أي شيء آخر"
+    "newChatEmpty": "اسأل عن ملاحظاتك أو نصوصك المفرَّغة أو أي شيء آخر",
+    "assistant": "المساعد",
+    "sources": {
+      "label": "المصادر",
+      "note": "ملاحظة",
+      "meeting": "اجتماع"
+    },
+    "model": {
+      "changeHint": "التغيير في الإعدادات"
+    },
+    "rail": {
+      "label": "السياق",
+      "toggle": "السياق",
+      "inScope": "ضمن النطاق",
+      "found": "عُثر عليها تلقائيًا",
+      "emptyScope": "اكتب @ لإضافة ملاحظة أو اجتماع أو مجلد. يبحث المساعد أيضًا في ملاحظاتك من تلقاء نفسه.",
+      "unpin": "إزالة {{label}} من السياق",
+      "activity": "النشاط",
+      "noActivity": "لا شيء بعد",
+      "addContext": "إضافة سياق"
+    }
   },
   "support": {
     "documentation": "الوثائق",
@@ -3755,15 +3842,51 @@
     "sections": {
       "notes": "الملاحظات",
       "transcripts": "النصوص المفرَّغة",
-      "jumpTo": "الانتقال إلى"
+      "jumpTo": "الانتقال إلى",
+      "suggested": "مقترح",
+      "recent": "الأخيرة",
+      "commands": "الأوامر",
+      "meetings": "الاجتماعات",
+      "chats": "المحادثات",
+      "folders": "المجلدات"
     },
     "noResults": "لا توجد نتائج",
     "emptyState": "ابدأ الكتابة للبحث",
     "footer": {
       "navigate": "تنقل",
       "open": "فتح",
-      "dismiss": "تجاهل"
-    }
+      "dismiss": "تجاهل",
+      "scope": "النطاق",
+      "close": "إغلاق"
+    },
+    "placeholderAll": "ابحث في الملاحظات والاجتماعات أو شغّل أمرًا…",
+    "commands": {
+      "newNote": "ملاحظة جديدة",
+      "startDictation": "بدء الإملاء",
+      "askAssistant": "اسأل المساعد",
+      "goNotes": "الانتقال إلى الملاحظات",
+      "goHome": "الانتقال إلى الرئيسية",
+      "goChat": "الانتقال إلى المحادثة",
+      "recordMeeting": "تسجيل اجتماع",
+      "uploadAudio": "رفع ملف صوتي…",
+      "newChat": "محادثة جديدة",
+      "openSettings": "فتح الإعدادات",
+      "switchSpeechModel": "تغيير نموذج الكلام…",
+      "toggleTheme": "تبديل المظهر الداكن"
+    },
+    "askAssistant": "اسأل المساعد: «{{query}}»",
+    "nothingMatches": "لا توجد نتائج تطابق «{{query}}».",
+    "meta": {
+      "meeting": "اجتماع",
+      "chat": "محادثة"
+    },
+    "clear": "مسح البحث",
+    "seeAllTranscripts_zero": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_one": "عرض نتيجة واحدة ({{count}}) في السجل",
+    "seeAllTranscripts_two": "عرض النتيجتين ({{count}}) في السجل",
+    "seeAllTranscripts_few": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_many": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_other": "عرض كل النتائج وعددها {{count}} في السجل"
   },
   "emojiPicker": {
     "search": "ابحث عن رمز تعبيري…",
@@ -5009,5 +5132,127 @@
       "dismiss": "إخفاء قائمة الإعداد",
       "label": "قائمة الإعداد"
     }
+  },
+  "workspace": {
+    "noteMissing": "حُذفت هذه الملاحظة أو نُقلت إلى خارج مساحة العمل هذه.",
+    "noteLoadError": "تعذّر تحميل هذه الملاحظة. حاول مرة أخرى."
+  },
+  "capture": {
+    "group": "التقاط",
+    "moreOptions": "المزيد من خيارات الالتقاط",
+    "actions": {
+      "dictate": "الإملاء في Loqui",
+      "recordMeeting": "تسجيل اجتماع",
+      "upload": "رفع ملف صوتي…",
+      "newNote": "ملاحظة جديدة",
+      "newChat": "محادثة جديدة"
+    },
+    "short": {
+      "dictate": "إملاء",
+      "recordMeeting": "تسجيل",
+      "upload": "رفع",
+      "newNote": "ملاحظة جديدة",
+      "newChat": "محادثة جديدة"
+    },
+    "listening": "جارٍ الاستماع {{time}}",
+    "stopListening": "إيقاف الاستماع",
+    "stopRecording": "إيقاف التسجيل",
+    "cleaningUp": "جارٍ تنقيح النص…"
+  },
+  "micCard": {
+    "ready": "جاهز",
+    "listening": "جارٍ الاستماع",
+    "listeningFor": "جارٍ الاستماع {{time}}",
+    "cleaningUp": "جارٍ التنقيح…",
+    "offline": "الميكروفون غير متاح",
+    "offlinePermission": "الوصول إلى الميكروفون متوقف",
+    "offlineDevice": "الميكروفون غير متصل",
+    "nextCapture": "التسجيل التالي",
+    "role": {
+      "dictation": "الإملاء",
+      "meeting": "الاجتماع",
+      "assistant": "المساعد",
+      "translation": "الترجمة"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "حالة الإملاء",
+      "ready": "جاهز",
+      "listening": "جارٍ الاستماع",
+      "listeningFor": "جارٍ الاستماع {{time}}",
+      "cleaningUp": "جارٍ التنقيح…",
+      "offline": "الميكروفون غير متصل",
+      "hold": "اضغط مطولًا على <kbd>{{key}}</kbd> للإملاء",
+      "press": "اضغط على <kbd>{{key}}</kbd> للإملاء",
+      "nextNow": "{{title}} جارٍ الآن",
+      "nextAt": "{{title}} في {{time}}",
+      "takeNotes": "تدوين ملاحظات",
+      "nextIn_zero": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_one": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_two": "{{title}} بعد {{count}} دقيقتين",
+      "nextIn_few": "{{title}} بعد {{count}} دقائق",
+      "nextIn_many": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_other": "{{title}} بعد {{count}} دقيقة"
+    },
+    "history": {
+      "filterLabel": "تصفية السجل",
+      "filterPlaceholder": "تصفية هذه القائمة",
+      "chipsLabel": "عرض",
+      "menu": "خيارات السجل",
+      "showDiscarded": "عرض التسجيلات المستبعدة",
+      "clearAll": "مسح الكل…",
+      "expand": "توسيع",
+      "collapse": "طي",
+      "meetingRow": "اجتماع",
+      "noteRow": "ملاحظة",
+      "nothingMatches": "لا توجد نتائج تطابق «{{query}}».",
+      "clearFilter": "مسح التصفية",
+      "olderMissing": "لم يعد هذا الإملاء موجودًا في سجلك.",
+      "chips": {
+        "all": "الكل",
+        "dictations": "الإملاءات",
+        "meetings": "الاجتماعات",
+        "notes": "الملاحظات",
+        "failed": "فشل"
+      },
+      "dayCount_zero": "{{count}} إملاء",
+      "words_zero": "{{count}} كلمة",
+      "session_zero": "جلسة · {{count}} تسجيل · {{duration}}",
+      "dayCount_one": "{{count}} إملاء",
+      "words_one": "{{count}} كلمة",
+      "session_one": "جلسة · {{count}} تسجيل · {{duration}}",
+      "dayCount_two": "{{count}} إملاءان",
+      "words_two": "{{count}} كلمتان",
+      "session_two": "جلسة · {{count}} تسجيلان · {{duration}}",
+      "dayCount_few": "{{count}} إملاءات",
+      "words_few": "{{count}} كلمات",
+      "session_few": "جلسة · {{count}} تسجيلات · {{duration}}",
+      "dayCount_many": "{{count}} إملاءً",
+      "words_many": "{{count}} كلمةً",
+      "session_many": "جلسة · {{count}} تسجيلًا · {{duration}}",
+      "dayCount_other": "{{count}} إملاء",
+      "words_other": "{{count}} كلمة",
+      "session_other": "جلسة · {{count}} تسجيل · {{duration}}",
+      "loadFailed": "تعذّر تحميل هذا الإملاء. حاول مرة أخرى."
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "الأشخاص",
+      "note": "الملاحظات",
+      "meeting": "الاجتماعات",
+      "dictation": "الإملاءات",
+      "folder": "المجلدات"
+    },
+    "empty": "لا توجد عناصر للإشارة إليها",
+    "loading": "جارٍ التحميل…",
+    "missing": "لم يعد هذا العنصر موجودًا.",
+    "open": "فتح",
+    "insertQuote": "إدراج اقتباس",
+    "folderMeta": "مجلد",
+    "error": "تعذّر تحميل هذا العنصر.",
+    "retry": "إعادة المحاولة",
+    "pickerLabel": "الإشارة إلى عنصر"
   }
 }

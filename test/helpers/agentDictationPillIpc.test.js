@@ -305,3 +305,41 @@ test("the meeting failure action opens the control panel through its registered 
   show({ sender: {} });
   assert.equal(shown, 1);
 });
+
+test("only the live control panel can read dictation state or toggle dictation", () => {
+  const { stub, calls, mainContents } = makeWindowManagerStub();
+  const panelContents = {};
+  stub.controlPanelWindow = { isDestroyed: () => false, webContents: panelContents };
+  stub.getControlPanelDictationState = () => ({ state: "recording", inputKind: "dictation" });
+  installWindowManager(stub);
+
+  const read = handlers.get("get-dictation-lifecycle-state");
+  assert.ok(read, "get-dictation-lifecycle-state must be registered");
+  assert.deepEqual(read({ sender: panelContents }), { state: "recording", inputKind: "dictation" });
+  assert.deepEqual(read({ sender: mainContents }), { state: "idle", inputKind: "dictation" });
+
+  const toggle = handlers.get("control-panel-toggle-dictation");
+  assert.ok(toggle, "control-panel-toggle-dictation must be registered");
+  assert.deepEqual(toggle({ sender: mainContents }), { success: false });
+  assert.deepEqual(toggle({ sender: {} }), { success: false });
+  assert.deepEqual(toggle({ sender: panelContents }), { success: true });
+  assert.equal(calls.toggle, 1);
+
+  const replacementContents = {};
+  stub.controlPanelWindow = { isDestroyed: () => false, webContents: replacementContents };
+  assert.deepEqual(read({ sender: panelContents }), { state: "idle", inputKind: "dictation" });
+  assert.deepEqual(toggle({ sender: panelContents }), { success: false });
+  assert.deepEqual(read({ sender: replacementContents }), {
+    state: "recording",
+    inputKind: "dictation",
+  });
+  stub.controlPanelWindow.isDestroyed = () => true;
+  assert.deepEqual(read({ sender: replacementContents }), {
+    state: "idle",
+    inputKind: "dictation",
+  });
+  assert.deepEqual(toggle({ sender: replacementContents }), { success: false });
+
+  stub.controlPanelWindow = null;
+  assert.deepEqual(toggle({ sender: replacementContents }), { success: false });
+});

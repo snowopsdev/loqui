@@ -18,6 +18,8 @@ interface PersonAvatarProps {
   /** Diameter in px. */
   size?: number;
   className?: string;
+  /** Optional readable initial size for compact mention markers. */
+  initialFontSize?: number;
 }
 
 /** Local initials only: rendering a contact never contacts an avatar service. */
@@ -26,13 +28,14 @@ export default function PersonAvatar({
   displayName,
   size = 24,
   className,
+  initialFontSize,
 }: PersonAvatarProps) {
   return (
     <span
       style={{
         width: size,
         height: size,
-        fontSize: Math.max(8, Math.round(size * 0.42)),
+        fontSize: initialFontSize ?? Math.max(8, Math.round(size * 0.42)),
         backgroundColor: getInitialColor(email || displayName || "?"),
       }}
       className={cn(

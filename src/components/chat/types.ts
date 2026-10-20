@@ -1,3 +1,12 @@
+import type { Locality } from "../../lib/locality";
+import type { RagNoteRef } from "./citations";
+
+export interface MessageRoute {
+  model: string | null;
+  providerId: string | null;
+  locality: Locality;
+}
+
 export interface ToolCallInfo {
   id: string;
   name: string;
@@ -14,6 +23,7 @@ export interface Message {
   content: string;
   isStreaming: boolean;
   toolCalls?: ToolCallInfo[];
+  context?: { ragNotes?: RagNoteRef[]; pinnedNotes?: RagNoteRef[]; route?: MessageRoute | null };
 }
 
 export type AgentState =

@@ -285,6 +285,7 @@ for (const firstSend of [false, true]) {
         window: {
           electronAPI: {
             createAgentConversation: () => creation.promise,
+            getNote: async () => null,
             async semanticSearchNotes(_text, _limit, spaceId, folderId) {
               searchScopes.push({ spaceId, folderId });
               return [];

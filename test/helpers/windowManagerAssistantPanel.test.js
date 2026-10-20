@@ -865,3 +865,173 @@ test("busy workspace companion can be recreated during setup presentation", () =
   pill.webContentsListeners.get("did-finish-load")();
   assert.equal(pill.isVisible(), true);
 });
+
+function makeControlPanelWindow({ loading = false } = {}) {
+  const sent = [];
+  const queuedLoadListeners = [];
+  return {
+    sent,
+    queuedLoadListeners,
+    window: {
+      isDestroyed: () => false,
+      webContents: {
+        isLoading: () => loading,
+        send: (channel, payload) => sent.push({ channel, payload }),
+        once: (event, listener) => queuedLoadListeners.push({ event, listener }),
+      },
+    },
+  };
+}
+
+test("the control panel mirrors normalized dictation lifecycle changes", () => {
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow();
+  manager.controlPanelWindow = panel.window;
+  manager.setDictationLifecycleState("recording", "dictation");
+  manager.setDictationLifecycleState("processing", "dictation");
+  manager.setDictationLifecycleState("idle", "dictation");
+  assert.deepEqual(
+    panel.sent.filter((m) => m.channel === "dictation-lifecycle-changed").map((m) => m.payload),
+    [
+      { state: "recording", inputKind: "dictation" },
+      { state: "processing", inputKind: "dictation" },
+      { state: "idle", inputKind: "dictation" },
+    ]
+  );
+  assert.deepEqual(manager.getControlPanelDictationState(), {
+    state: "idle",
+    inputKind: "dictation",
+  });
+});
+
+test("future lifecycle states pass through independently of finite main state", () => {
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow();
+  manager.controlPanelWindow = panel.window;
+  const pushed = () =>
+    panel.sent.filter((m) => m.channel === "dictation-lifecycle-changed").map((m) => m.payload);
+
+  manager.setDictationLifecycleState("future-state", "dictation");
+  assert.deepEqual(pushed().at(-1), { state: "future-state", inputKind: "dictation" });
+  assert.deepEqual(manager.getControlPanelDictationState(), {
+    state: "future-state",
+    inputKind: "dictation",
+  });
+  assert.equal(manager.getAgentDictationPillState().lifecycle, "idle");
+  assert.equal(manager.isDictationProcessing(), false);
+  const sameStateCount = pushed().length;
+  manager.setDictationLifecycleState("future-state", "dictation");
+  assert.equal(pushed().length, sameStateCount);
+
+  manager.setDictationLifecycleState("recording", "assistant");
+  manager.setDictationLifecycleState("future-state", "assistant");
+  assert.deepEqual(pushed().at(-1), { state: "future-state", inputKind: "assistant" });
+  assert.deepEqual(manager.getControlPanelDictationState(), {
+    state: "future-state",
+    inputKind: "assistant",
+  });
+  assert.equal(manager.isDictating(), false);
+  for (const state of ["future_state", "state2", "cancelled"]) {
+    manager.setDictationLifecycleState(state, "assistant");
+    assert.deepEqual(manager.getControlPanelDictationState(), { state, inputKind: "assistant" });
+  }
+
+  manager.setDictationLifecycleState("a".repeat(64), "assistant");
+  assert.equal(manager.getControlPanelDictationState().state, "a".repeat(64));
+  for (const invalid of ["a".repeat(65), "", { state: "bad" }, 7]) {
+    manager.setDictationLifecycleState("recording", "assistant");
+    manager.setDictationLifecycleState(invalid, "assistant");
+    assert.deepEqual(pushed().at(-1), { state: "idle", inputKind: "assistant" });
+    assert.deepEqual(manager.getControlPanelDictationState(), {
+      state: "idle",
+      inputKind: "assistant",
+    });
+  }
+});
+
+test("control panel audio levels are recording-only and throttled at the 66/67ms boundary", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow();
+  manager.controlPanelWindow = panel.window;
+  const levels = () =>
+    panel.sent.filter((m) => m.channel === "dictation-level-changed").map((m) => m.payload);
+
+  manager.setDictationAudioLevel(0.5);
+  manager.setDictationLifecycleState("recording", "dictation");
+  manager.setDictationAudioLevel(0.2);
+  t.mock.timers.tick(66);
+  manager.setDictationAudioLevel(0.3);
+  assert.deepEqual(levels(), [0.2], "66ms is below the strict 15Hz minimum interval");
+  t.mock.timers.tick(1);
+  manager.setDictationAudioLevel(0.4);
+  assert.deepEqual(levels(), [0.2, 0.4], "67ms is eligible");
+
+  manager.setDictationAudioLevel(Number.NaN);
+  manager.setDictationLifecycleState("processing", "dictation");
+  t.mock.timers.tick(70);
+  manager.setDictationAudioLevel(0.9);
+  assert.deepEqual(levels(), [0.2, 0.4]);
+});
+
+test("control panel audio cadence survives recording input-kind changes", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 20_000 });
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow();
+  manager.controlPanelWindow = panel.window;
+  const levels = () =>
+    panel.sent.filter((m) => m.channel === "dictation-level-changed").map((m) => m.payload);
+
+  manager.setDictationLifecycleState("recording", "dictation");
+  manager.setDictationAudioLevel(0.1);
+  assert.deepEqual(levels(), [0.1], "the initially eligible sample is sent");
+
+  t.mock.timers.tick(1);
+  manager.setDictationLifecycleState("recording", "translation");
+  manager.setDictationAudioLevel(0.2);
+  t.mock.timers.tick(65);
+  manager.setDictationAudioLevel(0.3);
+  assert.deepEqual(levels(), [0.1], "input-kind changes do not reset the last send time");
+
+  t.mock.timers.tick(1);
+  manager.setDictationAudioLevel(0.4);
+  assert.deepEqual(levels(), [0.1, 0.4], "a sample is eligible at 67ms");
+});
+
+test("control panel audio cadence survives recording stopping and restarting", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 30_000 });
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow();
+  manager.controlPanelWindow = panel.window;
+  const levels = () =>
+    panel.sent.filter((m) => m.channel === "dictation-level-changed").map((m) => m.payload);
+
+  manager.setDictationLifecycleState("recording", "dictation");
+  manager.setDictationAudioLevel(0.1);
+  assert.deepEqual(levels(), [0.1], "the initially eligible sample is sent");
+
+  t.mock.timers.tick(1);
+  manager.setDictationLifecycleState("idle", "dictation");
+  manager.setDictationLifecycleState("recording", "dictation");
+  manager.setDictationAudioLevel(0.2);
+  t.mock.timers.tick(65);
+  manager.setDictationAudioLevel(0.3);
+  assert.deepEqual(levels(), [0.1], "restarting recording does not reset the last send time");
+
+  t.mock.timers.tick(1);
+  manager.setDictationAudioLevel(0.4);
+  assert.deepEqual(levels(), [0.1, 0.4], "a sample is eligible at 67ms");
+});
+
+test("loading or missing control panels do not queue audio-level listeners", () => {
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow({ loading: true });
+  manager.controlPanelWindow = panel.window;
+  manager.setDictationLifecycleState("recording", "dictation");
+  const lifecycleLoadListenerCount = panel.queuedLoadListeners.length;
+  manager.setDictationAudioLevel(0.5);
+  assert.equal(panel.sent.filter((m) => m.channel === "dictation-level-changed").length, 0);
+  assert.equal(panel.queuedLoadListeners.length, lifecycleLoadListenerCount);
+  manager.controlPanelWindow = null;
+  assert.doesNotThrow(() => manager.setDictationAudioLevel(0.5));
+});

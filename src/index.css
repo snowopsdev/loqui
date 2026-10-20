@@ -70,6 +70,43 @@
   --color-locality-network: #3b6ea8;
   --color-locality-remote: #ad5008;
 
+  /* Machine and Agent roles (DESIGN.md "Colors"). Fuchsia marks content a
+     model wrote (AI chips, slash AI items, Ask AI); violet marks the Agent
+     (chat rail, spark, citations). Fills/rails use the base token (>= 3:1),
+     small text uses the -text token (>= 4.5:1). */
+  --color-ai: #d90078;
+  --color-ai-text: #b8006a;
+  --color-agent: #7b7bf7;
+  --color-agent-text: #4a4ad8;
+
+  /* UI type ramp (DESIGN.md "Typography"). Chrome only: the note document
+     ramp lives on .rich-text-editor-content. Nothing below 11px; readable
+     text floors at 12px (caption). */
+  --text-display: 2rem;
+  --text-display--line-height: 1.15;
+  --text-display--font-weight: 650;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.25;
+  --text-title--font-weight: 600;
+  --text-title--letter-spacing: -0.015em;
+  --text-heading: 1.0625rem;
+  --text-heading--line-height: 1.35;
+  --text-heading--font-weight: 600;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.55;
+  --text-body--font-weight: 400;
+  --text-ui: 0.8125rem;
+  --text-ui--line-height: 1.4;
+  --text-ui--font-weight: 500;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--font-weight: 450;
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.3;
+  --text-micro--font-weight: 500;
+  --text-micro--letter-spacing: 0.02em;
+
   /* Surface hierarchy — light mode equivalents */
   --color-surface-0: #ffffff;
   --color-surface-1: #fafafa;
@@ -106,6 +143,13 @@
   --motion-stagger: 40ms;
   --motion-slow: 360ms;
   --motion-hero: 520ms;
+  /* Loop and dwell cadences (Plan 06, CR-06-4). A loop runs only in its
+     active state; reduced motion stops it (the policy below). */
+  --motion-loop-travel: 1400ms; /* the capture rail's "Cleaning up…" band */
+  --motion-loop-pulse: 1200ms; /* chat "thinking" dots */
+  --motion-loop-blink: 1000ms; /* streaming cursor */
+  --motion-stagger: 150ms; /* step between items of one loop */
+  --motion-dwell-ring: 1200ms; /* a deep-linked history row's focus ring */
   /* One-shot landing flash on a searched setting (Settings search). The animation uses this
    duration and JS removes data-flash on animationend, so this is the only place it lives. */
   --motion-flash: 1400ms;
@@ -305,6 +349,10 @@
   --color-locality-device: #5ee0ad;
   --color-locality-network: #9bb4d6;
   --color-locality-remote: #fbbf6a;
+  --color-ai: #ff5fae;
+  --color-ai-text: #ff5fae;
+  --color-agent: #8787ff;
+  --color-agent-text: #a5a5ff;
 
   /* Surface hierarchy — plum depth system */
   --color-surface-0: #1c1218;
@@ -1199,31 +1247,40 @@ a:hover {
   /* Centers the text in the page column (PAGE_CONTENT_WIDTH_CLASS) with padding, not a
      max-width, so the editable area spans the pane and a margin click places the caret. */
   padding-inline: max(1.25rem, calc((100% - var(--container-5xl)) / 2 + 1.25rem));
-  font-size: 0.875rem;
-  line-height: 1.7;
+  font-size: 1rem;
+  line-height: 1.65;
   color: var(--color-foreground);
   caret-color: var(--color-foreground);
 }
 
+/* WS-R6 B: a readable measure. Blocks cap at 68ch inside the page padding. */
+.rich-text-editor-content > * {
+  max-width: 68ch;
+}
+
 .rich-text-editor-content h1 {
-  font-size: 1.125rem;
-  font-weight: 700;
-  margin-top: 1rem;
-  margin-bottom: 0.25rem;
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .rich-text-editor-content h2 {
-  font-size: 1rem;
+  font-size: 1.1875rem;
+  line-height: 1.3;
   font-weight: 600;
-  margin-top: 0.75rem;
-  margin-bottom: 0.25rem;
+  margin-top: 1.25rem;
+  margin-bottom: 0.375rem;
 }
 
 .rich-text-editor-content h3 {
-  font-size: 0.875rem;
+  font-size: 1rem;
+  line-height: 1.4;
   font-weight: 600;
-  margin-top: 0.5rem;
-  margin-bottom: 0.125rem;
+  margin-top: 1rem;
+  margin-bottom: 0.25rem;
 }
 
 .rich-text-editor-content p {
@@ -1278,8 +1335,24 @@ a:hover {
   background: oklch(0.5 0 0 / 0.06);
   border-radius: 2px;
   padding: 1px 3px;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+
+.rich-text-editor-content a {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--color-link) 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+.rich-text-editor-content a:hover {
+  opacity: 1;
+}
+
+.rich-text-editor-content a:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
 
 .rich-text-editor-content hr {
@@ -1366,6 +1439,20 @@ a:hover {
 
 .dark .rich-text-editor-content p.is-editor-empty:first-child::before {
   color: oklch(0.7 0 0 / 0.2);
+}
+
+/* WS-R6 B: opacity-only feedback also remains under reduced motion. */
+.bubble-toolbar {
+  animation: bubble-toolbar-in var(--motion-instant) var(--motion-ease-enter) both;
+}
+
+@keyframes bubble-toolbar-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Colour emoji fonts per platform. Keep in sync with EMOJI_FONT_FAMILY in
@@ -1455,6 +1542,92 @@ a:hover {
 @media (prefers-reduced-motion: reduce) {
   .locality-ring__svg {
     animation: none !important;
+  }
+}
+
+/* Capture rail (WS-R3 C). The sidebar edge breathes with the mic: idle is
+   invisible, listening follows --capture-level in live orange, Cleaning up is
+   amber with one band travelling down, offline is solid warning (the mic card
+   names the reason). Orange appears only while the mic is live (D1). */
+.capture-rail {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(to bottom, var(--color-live), var(--color-accent));
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.capture-rail[data-state="listening"] {
+  opacity: calc(0.25 + var(--capture-level, 0.4) * 0.75);
+  box-shadow: 0 0 calc(var(--capture-level, 0) * 12px) rgb(255 90 31 / 0.45);
+}
+.capture-rail[data-state="processing"] {
+  opacity: 0.7;
+  background: var(--color-warning);
+}
+.capture-rail[data-state="processing"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  block-size: 120px;
+  background: rgb(255 255 255 / 0.95);
+  animation: capture-rail-travel var(--motion-loop-travel) linear infinite;
+}
+.capture-rail[data-state="offline"] {
+  opacity: 1;
+  background: var(--color-warning);
+}
+@keyframes capture-rail-travel {
+  from {
+    transform: translateY(-120px);
+  }
+  to {
+    transform: translateY(100vh);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .capture-rail {
+    transition: none;
+  }
+  .capture-rail[data-state="processing"]::after {
+    display: none;
+    animation: none;
+    transform: none;
+  }
+  .capture-rail[data-state="listening"] {
+    opacity: 1;
+    box-shadow: none;
+  }
+}
+
+/* History metadata keeps the shared ring's decorative provider monogram
+   readable at this compact size, without changing rings on other surfaces. */
+[data-transcript-id] .locality-ring__badge {
+  font-size: var(--text-micro);
+}
+
+/* WS-Q3: a deep-linked history row rings for 1.2s. */
+[data-focused="true"] {
+  border-radius: var(--radius-md, 8px);
+  animation: history-row-focus var(--motion-dwell-ring) var(--motion-ease-std) both;
+}
+@keyframes history-row-focus {
+  0%,
+  70% {
+    box-shadow: inset 0 0 0 2px var(--color-ring);
+  }
+  100% {
+    box-shadow: inset 0 0 0 2px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-focused="true"] {
+    animation: none;
+    box-shadow: inset 0 0 0 2px var(--color-ring);
   }
 }
 
@@ -1650,5 +1823,59 @@ a:hover {
   [data-setting-id][data-flash="true"] {
     background-color: transparent;
     animation-duration: var(--motion-flash) !important;
+  }
+}
+
+/* WS-R8 B: active thinking and document citation feedback. */
+.thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.thinking-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.35;
+  animation: thinking-dot var(--motion-loop-pulse) var(--motion-ease-std) infinite;
+}
+.thinking-dots i:nth-child(2) {
+  animation-delay: var(--motion-stagger);
+}
+.thinking-dots i:nth-child(3) {
+  animation-delay: calc(var(--motion-stagger) * 2);
+}
+@keyframes thinking-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.citation-in {
+  animation: citation-in var(--motion-fast) var(--motion-ease-enter) both;
+}
+@keyframes citation-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Shared link hover must retain readable paint despite the global anchor rule. */
+a.markdown-link:hover {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots i,
+  .citation-in,
+  .document-stream-cursor {
+    animation: none !important;
+  }
+  .thinking-dots i {
+    opacity: 0.7;
   }
 }

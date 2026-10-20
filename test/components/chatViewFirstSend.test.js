@@ -32,7 +32,7 @@ const VIEW_MOCKS = {
   "/useChatStreaming": `
     export function useChatStreaming() {
       return {
-        agentState: "idle",
+        agentState: globalThis.__chatViewAgentState ?? "idle",
         activeToolName: null,
         toolStatus: "",
         cancelStream() {},
@@ -61,19 +61,23 @@ const act = (fn) =>
     await settle();
   });
 
-async function mountChatView(t, electronAPI) {
+async function mountChatView(t, electronAPI, initialProps = {}) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
   });
+  globalThis.__chatViewAgentState = "idle";
   globalThis.__chatViewDispatched = [];
   globalThis.__chatViewRequests = [];
   t.after(() => {
     delete globalThis.__chatViewDispatched;
     delete globalThis.__chatViewRequests;
     delete globalThis.__chatViewNavigation;
+    delete globalThis.__chatViewAgentState;
   });
-  installBrowserGlobals(t, { window: { electronAPI } });
+  installBrowserGlobals(t, {
+    window: { electronAPI: { getNotes: async () => [], ...electronAPI } },
+  });
   installHookDom(t);
   const tree = installTree();
   const vite = await createRendererServer(
@@ -82,11 +86,17 @@ async function mountChatView(t, electronAPI) {
   );
   const { default: ChatView } = await vite.ssrLoadModule("/components/chat/ChatView.tsx");
   root = createRoot(tree.container);
-  await act(() => root.render(createElement(ChatView)));
+  let props = initialProps;
+  const rerender = (next = {}) => {
+    props = { ...props, ...next };
+    return act(() => root.render(createElement(ChatView, props)));
+  };
+  await rerender();
   const textarea = () => tree.find((node) => node.tagName === "TEXTAREA");
   return {
     ...tree,
     textarea,
+    rerender,
     type: (value) => act(() => tree.props(textarea()).onChange({ target: { value } })),
     enter: () =>
       act(() =>
@@ -259,5 +269,81 @@ for (const missing of [false, true]) {
     assert.equal(view.props(view.textarea()).value, "C draft");
     assert.match(view.text(), /C history/);
     assert.doesNotMatch(view.text(), /B private history/);
+  });
+}
+
+test("a real ChatView request on mount seeds once and survives request acknowledgement", async (t) => {
+  let handled = 0;
+  const view = await mountChatView(
+    t,
+    {},
+    {
+      request: { kind: "new", nonce: 1, draft: "Seed at mount" },
+      onRequestHandled: () => handled++,
+    }
+  );
+  assert.equal(handled, 1);
+  assert.equal(view.props(view.textarea()).value, "Seed at mount");
+  await view.type("my edit");
+  await view.rerender({ request: { kind: "new", nonce: 1, draft: "Seed at mount" } });
+  assert.equal(handled, 1);
+  assert.equal(view.props(view.textarea()).value, "my edit", "the same nonce does not replay");
+  await view.rerender({ request: null });
+  assert.equal(
+    view.props(view.textarea()).value,
+    "my edit",
+    "acknowledgement keeps the seed state"
+  );
+  assert.deepEqual(globalThis.__chatViewDispatched, []);
+});
+
+test("ChatView delivers a new request before the composer can auto-send on idle", async (t) => {
+  const view = await mountChatView(t, {});
+  globalThis.__chatViewAgentState = "streaming";
+  await view.rerender();
+  await view.type("queued A");
+  await view.enter();
+  assert.match(view.text(), /agentMode.input.queued/);
+  globalThis.__chatViewAgentState = "idle";
+  await view.rerender({ request: { kind: "new", nonce: 2, draft: "seed B" } });
+  assert.equal(view.props(view.textarea()).value, "seed B");
+  assert.match(view.text(), /agentMode.input.unsent/);
+  assert.match(view.text(), /agentMode.input.queueDropped/);
+  assert.deepEqual(globalThis.__chatViewDispatched, []);
+});
+
+for (const outcome of ["success", "refusal"]) {
+  test(`request null to B to new-null preserves admitted A and newer seed: ${outcome}`, async (t) => {
+    const creation = deferred();
+    const load = deferred();
+    const writes = [];
+    const view = await mountChatView(t, {
+      createAgentConversation: () => creation.promise,
+      getAgentConversation: () => load.promise,
+      addAgentMessage: async (id, role, content) => {
+        writes.push({ id, role, content });
+        return { id: writes.length };
+      },
+    });
+    await view.type("admitted A");
+    await view.enter();
+    await view.rerender({ request: { kind: "open", nonce: 3, conversationId: 8 } });
+    await view.rerender({ request: { kind: "new", nonce: 4, draft: "" } });
+    await act(() => load.resolve({ id: 8, messages: [{ role: "user", content: "B history" }] }));
+    await act(() => creation.resolve(outcome === "success" ? { id: 7 } : null));
+    assert.equal(globalThis.__chatViewNavigation.activeConversationId, null);
+    assert.equal(view.props(view.textarea()).value, "");
+    assert.doesNotMatch(view.text(), /B history|admitted A/);
+    if (outcome === "refusal") {
+      assert.match(view.text(), /agentMode.input.unsent/);
+      assert.deepEqual(writes, []);
+      assert.deepEqual(globalThis.__chatViewDispatched, []);
+    } else {
+      assert.deepEqual(writes, [
+        { id: 7, role: "user", content: "admitted A" },
+        { id: 7, role: "assistant", content: "answer: admitted A" },
+      ]);
+      assert.equal(globalThis.__chatViewRequests[0].current, false);
+    }
   });
 }

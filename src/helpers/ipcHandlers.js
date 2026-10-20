@@ -1755,6 +1755,23 @@ class IPCHandlers {
       this.windowManager.setDictationAudioLevel(level);
     });
 
+    // The control panel pulls once on mount, then receives lifecycle pushes.
+    // Both invoke channels are scoped to the currently live control panel.
+    const fromControlPanel = (event) => {
+      const panel = this.windowManager.controlPanelWindow;
+      return !!panel && !panel.isDestroyed() && event.sender === panel.webContents;
+    };
+    ipcMain.handle("get-dictation-lifecycle-state", (event) =>
+      fromControlPanel(event)
+        ? this.windowManager.getControlPanelDictationState()
+        : { state: "idle", inputKind: "dictation" }
+    );
+    ipcMain.handle("control-panel-toggle-dictation", (event) => {
+      if (!fromControlPanel(event)) return { success: false };
+      this.windowManager.sendToggleDictation();
+      return { success: true };
+    });
+
     // Dictionary handlers
     ipcMain.on("auto-learn-changed", (_event, enabled) => {
       // Both renderer windows re-sync this on mount — ignore same-value updates (#1080).

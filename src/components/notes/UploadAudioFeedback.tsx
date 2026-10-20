@@ -29,9 +29,9 @@ export function UploadModelSettingsButton({
       disabled={!onOpenSettings}
       className={cn(
         "rounded-sm underline underline-offset-2 decoration-foreground/30 transition-colors",
-        "hover:text-foreground hover:decoration-foreground/50 active:text-foreground/50",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-1",
-        "disabled:pointer-events-none disabled:no-underline disabled:opacity-50",
+        "hover:text-foreground hover:decoration-foreground/50 active:text-foreground",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+        "disabled:pointer-events-none disabled:no-underline disabled:cursor-not-allowed",
         className
       )}
     >

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ElementType, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { clearMissingLocalModelSelections } from "../../stores/settingsStore";
+import { invalidatePendingNoteNavigation } from "../../stores/noteStore";
 import { formatDecimalBytes } from "../../utils/formatBytes";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
@@ -653,6 +654,8 @@ export function StorageList() {
     )
       return;
     if (!resetConfirmed(reset.typed, word)) return;
+    // The confirmed reset owns navigation even if cleanup later fails.
+    invalidatePendingNoteNavigation();
     const owner = reset.owner;
     resetBusy.current = true;
     const typed = reset.typed;

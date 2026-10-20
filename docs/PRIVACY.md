@@ -6,6 +6,8 @@ Loqui is a local-first desktop application. It has no hosted Loqui account, anal
 
 Notes, folders, conversations, meetings, dictionary entries, snippets, and transcription history are stored in the local workspace. Audio and downloaded models also use local files.
 
+Chat history also stores, on this device, the titles of the notes an answer used and a short excerpt (up to 240 characters) of each, so the Sources row can be shown later. This local storage feature adds no new transfer; when remote inference is selected, that provider already receives the context supplied to the request.
+
 On a fresh profile:
 
 - Local transcription history is enabled.

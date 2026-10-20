@@ -119,20 +119,20 @@ export default function DictionaryView() {
 
   const emptyState = (
     <div className="flex flex-col items-center text-center py-8">
-      <div className="w-10 h-10 rounded-[10px] bg-gradient-to-b from-primary/8 to-primary/4 dark:from-primary/12 dark:to-primary/6 border border-primary/10 dark:border-primary/15 flex items-center justify-center mb-3.5">
-        <BookOpen size={17} strokeWidth={1.5} className="text-primary/50 dark:text-primary/60" />
+      <div className="w-10 h-10 rounded-[10px] bg-foreground/5 border border-border flex items-center justify-center mb-3.5">
+        <BookOpen size={17} strokeWidth={1.5} className="text-link dark:text-link" />
       </div>
       <h4 className="text-xs font-semibold text-foreground mb-1">{t("dictionary.emptyTitle")}</h4>
-      <p className="text-xs text-foreground/45 leading-relaxed max-w-[240px] mb-4">
+      <p className="text-caption text-muted-foreground leading-relaxed max-w-[240px] mb-4">
         {t("dictionary.emptyDescription", { agentName })}
       </p>
-      <Button size="sm" onClick={() => addInputRef.current?.focus()}>
+      <Button variant="secondary" size="sm" onClick={() => addInputRef.current?.focus()}>
         <Plus size={12} />
         {t("dictionary.addFirstWord")}
       </Button>
       <button
         onClick={() => setShowBulkImport(true)}
-        className="mt-3 flex items-center gap-1.5 text-xs text-foreground/45 hover:text-foreground/60 transition-colors"
+        className="focus-visible:ring-2 focus-visible:ring-ring mt-3 flex items-center gap-1.5 text-caption text-muted-foreground hover:text-muted-foreground transition-colors"
       >
         <Upload size={11} />
         {t("dictionary.importList")}
@@ -166,7 +166,7 @@ export default function DictionaryView() {
         <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 py-4 flex flex-col gap-3")}>
           {/* ─── Add word ─── */}
           <div>
-            <div className="relative">
+            <div className="flex min-w-0 items-center gap-2 rounded-md border border-input bg-background px-2.5 focus-within:ring-2 focus-within:ring-ring">
               <Input
                 dir="auto"
                 ref={addInputRef}
@@ -176,14 +176,14 @@ export default function DictionaryView() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleAdd();
                 }}
-                className="w-full h-8 text-xs pe-24 placeholder:text-foreground/45"
+                className="focus-visible:ring-2 focus-visible:ring-ring min-w-0 flex-1 h-8 border-0 px-0 shadow-none text-caption placeholder:text-muted-foreground disabled:opacity-100"
               />
-              <div className="absolute end-2.5 top-1/2 -translate-y-1/2 flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   onClick={handleAdd}
                   disabled={!newWord.trim()}
                   aria-label={t("dictionary.addWord")}
-                  className="flex items-center gap-1 text-xs text-foreground/45 enabled:hover:text-primary disabled:text-foreground/45 transition-colors"
+                  className="focus-visible:ring-2 focus-visible:ring-ring flex items-center gap-1 text-caption text-muted-foreground enabled:hover:text-link disabled:text-muted-foreground transition-colors"
                 >
                   {t("dictionary.add")}
                   <CornerDownLeft size={10} />
@@ -194,7 +194,7 @@ export default function DictionaryView() {
                   type="button"
                   title={t("dictionary.importWords")}
                   aria-label={t("dictionary.importWords")}
-                  className="text-foreground/45 hover:text-foreground/60 transition-colors"
+                  className="focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-muted-foreground transition-colors"
                 >
                   <Upload size={11} />
                 </button>
@@ -212,10 +212,10 @@ export default function DictionaryView() {
                 onChange={(e) => setBulkText(e.target.value)}
                 placeholder={t("dictionary.importPlaceholder")}
                 rows={4}
-                className="min-h-[72px] resize-none border-0 shadow-none rounded-none bg-transparent p-0 text-xs text-foreground placeholder:text-foreground/45 hover:border-0 focus:border-0 focus:ring-0"
+                className="focus-visible:ring-2 focus-visible:ring-ring min-h-[72px] resize-none border-0 shadow-none rounded-none bg-transparent p-0 text-caption text-foreground placeholder:text-muted-foreground disabled:opacity-100 hover:border-0 focus:border-0"
               />
               <div className="flex items-center justify-between pt-1.5">
-                <p className="text-xs text-foreground/45">
+                <p className="text-caption text-muted-foreground">
                   {t("dictionary.separateWithCommas")}
                   {pendingImportCount > 0 && (
                     <span className="text-foreground">
@@ -244,14 +244,14 @@ export default function DictionaryView() {
           )}
 
           {/* ─── Agent name (always recognized) ─── */}
-          <div className="rounded-md border border-primary/15 dark:border-primary/20 bg-primary/3 dark:bg-primary/6 px-4 py-2.5 flex items-center justify-between gap-3">
+          <div className="rounded-md border border-border dark:border-border bg-foreground/5 dark:bg-foreground/5 px-4 py-2.5 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
-              <Sparkles size={11} className="text-primary/70 shrink-0" />
-              <span dir="auto" className="text-xs font-medium text-primary truncate">
+              <Sparkles size={11} className="text-ai shrink-0" />
+              <span dir="auto" className="text-caption font-medium text-ai-text truncate">
                 {agentName}
               </span>
             </div>
-            <span className="text-xs text-foreground/45 shrink-0">
+            <span className="text-caption text-muted-foreground shrink-0">
               {t("dictionary.agentDefault")}
             </span>
           </div>
@@ -275,7 +275,7 @@ export default function DictionaryView() {
             {userWords.length === 0 ? (
               emptyState
             ) : visibleWords.length === 0 ? (
-              <p className="py-6 text-xs text-foreground/45 text-center">
+              <p className="py-6 text-caption text-muted-foreground text-center">
                 {t("dictionary.noMatches", { word: newWord.trim() })}
               </p>
             ) : (
@@ -298,26 +298,29 @@ export default function DictionaryView() {
                             if (e.key === "Escape") setEditingWord(null);
                           }}
                           onBlur={commitEdit}
-                          className="h-7 text-xs flex-1"
+                          className="focus-visible:ring-2 focus-visible:ring-ring h-7 text-caption flex-1"
                         />
                       ) : (
-                        <span dir="auto" className="flex-1 text-xs truncate text-foreground/60">
+                        <span
+                          dir="auto"
+                          className="flex-1 text-caption truncate text-muted-foreground"
+                        >
                           {word}
                         </span>
                       )}
                       {!isEditing && (
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
                           <button
                             onClick={() => startEdit(word)}
                             aria-label={t("dictionary.editWord", { word })}
-                            className="p-1 text-foreground/45 hover:text-foreground/60 transition-colors"
+                            className="focus-visible:ring-2 focus-visible:ring-ring p-1 text-muted-foreground hover:text-muted-foreground transition-colors"
                           >
                             <Pencil size={11} />
                           </button>
                           <button
                             onClick={() => handleRemove(word)}
                             aria-label={t("dictionary.removeWord", { word })}
-                            className="p-1 text-foreground/45 hover:text-destructive/70 transition-colors"
+                            className="focus-visible:ring-2 focus-visible:ring-ring p-1 text-muted-foreground hover:text-destructive/70 transition-colors"
                           >
                             <X size={11} strokeWidth={2} />
                           </button>
@@ -332,7 +335,7 @@ export default function DictionaryView() {
 
           {/* ─── Provider prompt-limit notice ─── */}
           {promptChars > WHISPER_DECODER_PROMPT_CHARS && (
-            <p className="text-xs text-foreground/45 leading-relaxed">
+            <p className="text-caption text-muted-foreground leading-relaxed">
               {t("dictionary.promptLimitNotice", { chars: promptChars })}
             </p>
           )}

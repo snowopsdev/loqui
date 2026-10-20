@@ -2860,3 +2860,13 @@ a.markdown-link:hover {
 .table-card[aria-selected="true"] .table-card__resize {
   opacity: 1;
 }
+
+/* Clip and fade content only: outer focus, borders and the handle stay opaque. */
+.table-card[data-sized="true"] > .table-card__content {
+  height: 100%;
+  overflow: hidden;
+}
+.table-card__content[data-overflowing="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+}

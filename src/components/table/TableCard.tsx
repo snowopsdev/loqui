@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CalendarDays, MessageSquare, Mic, NotebookPen } from "../icons";
 import { formatMmSs } from "../../utils/formatDuration";
@@ -45,6 +45,15 @@ export function TableCard({
 }: TableCardProps) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const sizedRef = useRef(false);
+  sizedRef.current = card.fixedH != null;
+  const [overflowing, setOverflowing] = useState(false);
+  const updateOverflow = useCallback(() => {
+    const content = contentRef.current;
+    setOverflowing(sizedRef.current && !!content && content.scrollHeight > content.clientHeight);
+  }, []);
   const { entity } = card;
   const Icon = KIND_ICON[entity.kind];
   const kindLabel = t(`table.kind.${entity.kind}`);
@@ -56,13 +65,30 @@ export function TableCard({
       ? t("table.card.answerPending")
       : "";
 
+  // Prop-driven resize/cancel/content changes settle the paint cue before paint.
+  // The stable observer also catches intrinsic wrapping/font/theme reflow.
+  useLayoutEffect(updateOverflow, [
+    card.fixedH,
+    card.rect.w,
+    title,
+    excerpt,
+    kindLabel,
+    entity.durationMs,
+    entity.participants,
+    updateOverflow,
+  ]);
+
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => onMeasure(card.key, el.offsetHeight));
+    const observer = new ResizeObserver(() => {
+      onMeasure(card.key, el.offsetHeight);
+      updateOverflow();
+    });
     observer.observe(el);
+    if (bodyRef.current) observer.observe(bodyRef.current);
     return () => observer.disconnect();
-  }, [card.key, onMeasure]);
+  }, [card.key, onMeasure, updateOverflow]);
 
   return (
     <div
@@ -85,28 +111,36 @@ export function TableCard({
         ...(card.fixedH != null ? { height: card.fixedH, overflow: "hidden" } : {}),
       }}
     >
-      <div className="table-card__kind">
-        <Icon size={12} aria-hidden="true" />
-        <span>{kindLabel}</span>
-      </div>
-      {title && <h3 className="table-card__title">{title}</h3>}
-      {excerpt && <p className="table-card__excerpt">{excerpt}</p>}
-      {(entity.durationMs != null || entity.participants.length > 0) && (
-        <div className="table-card__meta">
-          {entity.participants.length > 0 && (
-            <span className="table-card__people" aria-hidden="true">
-              {entity.participants.slice(0, 3).map((name) => (
-                <span key={name} className="table-card__avatar">
-                  {initials(name)}
+      <div
+        ref={contentRef}
+        className="table-card__content"
+        data-overflowing={card.fixedH != null && overflowing ? "true" : undefined}
+      >
+        <div ref={bodyRef} className="table-card__body">
+          <div className="table-card__kind">
+            <Icon size={12} aria-hidden="true" />
+            <span>{kindLabel}</span>
+          </div>
+          {title && <h3 className="table-card__title">{title}</h3>}
+          {excerpt && <p className="table-card__excerpt">{excerpt}</p>}
+          {(entity.durationMs != null || entity.participants.length > 0) && (
+            <div className="table-card__meta">
+              {entity.participants.length > 0 && (
+                <span className="table-card__people" aria-hidden="true">
+                  {entity.participants.slice(0, 3).map((name) => (
+                    <span key={name} className="table-card__avatar">
+                      {initials(name)}
+                    </span>
+                  ))}
                 </span>
-              ))}
-            </span>
-          )}
-          {entity.durationMs != null && (
-            <span>{formatMmSs(Math.round(entity.durationMs / 1000))}</span>
+              )}
+              {entity.durationMs != null && (
+                <span>{formatMmSs(Math.round(entity.durationMs / 1000))}</span>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
       <span className="table-card__resize" data-resize-handle="" aria-hidden="true" />
     </div>
   );

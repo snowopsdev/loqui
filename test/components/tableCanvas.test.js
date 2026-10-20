@@ -255,7 +255,8 @@ async function mount(t, overrides = {}) {
       observers.push(this);
     }
     observe(node) {
-      this.node = node;
+      this.node ??= node;
+      (this.nodes ??= []).push(node);
     }
     disconnect() {
       this.disconnected = true;
@@ -871,4 +872,133 @@ test("resize target leaving canonical projection retires its gesture without res
   await m.flush();
   assert.equal(m.calls.length, before);
   assert.deepEqual(m.byCall("onResizeCancel"), []);
+});
+
+test("fix1 clipping cue: only the overflowing inner content is masked, outer card and handle stay opaque", async (t) => {
+  const c = { ...card("note:1", "note", 32, 32), fixedH: 80 };
+  const m = await mount(t, { cards: [c], selection: [c.key], focused: c.key });
+  const outer = m.cardEl(c.key);
+  const content = m.tree.find((n) => n.attributes.class === "table-card__content");
+  assert.ok(content, "a separate inner clipping layer is required");
+  content.clientHeight = 54;
+  content.scrollHeight = 180;
+  outer.offsetHeight = 80;
+  const observer = m.observers.find((o) => o.node === outer);
+  await React.act(async () => observer.callback());
+  assert.equal(content.attributes["data-overflowing"], "true");
+  assert.equal(content.parentNode, outer);
+  assert.equal(handleFor(m).parentNode, outer, "handle is outside the masked content");
+  assert.equal(outer.attributes["aria-selected"], "true");
+  assert.equal(outer.attributes.tabindex, "0");
+  assert.deepEqual(
+    m.byCall("onMeasure").at(-1),
+    [c.key, 80],
+    "measure the outer card, not overflowing content"
+  );
+  assert.equal(m.tree.props(outer).style.height, 80);
+  assert.equal(m.tree.props(outer).style.maskImage, undefined);
+  const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
+  assert.match(
+    css,
+    /\.table-card\[data-sized="true"\] > \.table-card__content\s*\{[^}]*height:\s*100%;[^}]*overflow:\s*hidden;/
+  );
+  assert.match(
+    css,
+    /\.table-card__content\[data-overflowing="true"\]\s*\{[^}]*-webkit-mask-image:\s*linear-gradient\(to bottom, #000 calc\(100% - 20px\), transparent\);[^}]*mask-image:\s*linear-gradient\(to bottom, #000 calc\(100% - 20px\), transparent\);/
+  );
+  assert.doesNotMatch(css, /\.table-card(?:\[[^\]]*\])?\s*\{[^}]*mask-image/);
+  assert.doesNotMatch(
+    css,
+    /\.table-card__resize\s*\{[^}]*mask|\.table-card__content[^}]*pointer-events:\s*none/
+  );
+  assert.equal(m.tree.props(outer).onPointerDown, undefined, "canvas still owns pointer events");
+  await m.event("onPointerDown", handleFor(m));
+  assert.equal(m.captures.size, 1, "unmasked handle still starts the owning pointer");
+  await m.event("onPointerCancel", handleFor(m));
+});
+
+test("fix1 clipping cue: fitting/natural cards and resize/cancel/content reflow update without observer churn", async (t) => {
+  const natural = { ...card("note:1", "note", 32, 32), fixedH: null };
+  const m = await mount(t, { cards: [natural] });
+  const outer = m.cardEl(natural.key);
+  const content = m.tree.find((n) => n.attributes.class === "table-card__content");
+  const body = m.tree.find((n) => n.attributes.class === "table-card__body");
+  assert.ok(content);
+  assert.ok(body);
+  let available = 54,
+    full = 180;
+  Object.defineProperty(content, "clientHeight", { get: () => available });
+  Object.defineProperty(content, "scrollHeight", { get: () => full });
+  const observer = m.observers.find((o) => o.node === outer);
+  assert.ok(
+    observer.nodes.includes(body),
+    "intrinsic content reflow is observed, even when the clip height stays fixed"
+  );
+  const initialObservers = m.observers.length;
+  const measure = () => React.act(async () => observer.callback());
+  await measure();
+  assert.equal(
+    content.attributes["data-overflowing"],
+    undefined,
+    "natural content has no false cue"
+  );
+  await m.render({ cards: [{ ...natural, fixedH: 80 }] });
+  assert.equal(
+    content.attributes["data-overflowing"],
+    "true",
+    "sizing below content adds the cue before paint"
+  );
+  available = 174;
+  full = 120;
+  await m.render({ cards: [{ ...natural, fixedH: 200 }] });
+  assert.equal(
+    content.attributes["data-overflowing"],
+    undefined,
+    "larger fitting preview clears the cue"
+  );
+  available = 54;
+  full = 54;
+  await m.render({ cards: [{ ...natural, fixedH: 80 }] });
+  assert.equal(content.attributes["data-overflowing"], undefined, "exact fit is not overflow");
+  full = 180;
+  await m.render({
+    cards: [
+      { ...natural, fixedH: 80, entity: { ...natural.entity, excerpt: "Changed long content" } },
+    ],
+  });
+  assert.equal(
+    content.attributes["data-overflowing"],
+    "true",
+    "content update recomputes without waiting for an outer resize"
+  );
+  full = 30;
+  await m.render({
+    cards: [{ ...natural, fixedH: 80, entity: { ...natural.entity, excerpt: "Short" } }],
+  });
+  assert.equal(content.attributes["data-overflowing"], undefined);
+  full = 180;
+  await measure();
+  assert.equal(
+    content.attributes["data-overflowing"],
+    "true",
+    "font/theme/wrapping reflow uses the intrinsic body observer"
+  );
+  await m.render({ cards: [natural] });
+  assert.equal(
+    content.attributes["data-overflowing"],
+    undefined,
+    "natural cancellation removes the cue immediately"
+  );
+  assert.equal(m.tree.props(outer).style.height, undefined);
+  assert.equal(m.tree.props(outer).style.overflow, undefined);
+  assert.equal(
+    m.observers.length,
+    initialObservers,
+    "size/content changes do not reconnect measurement observers"
+  );
+  assert.ok(m.observers.every((o) => !o.disconnected));
+  assert.deepEqual(m.byCall("onDrop"), []);
+  assert.deepEqual(m.byCall("onResizeCard"), [], "paint-only checks cannot persist dimensions");
+  await m.unmount();
+  assert.ok(m.observers.every((o) => o.disconnected));
 });

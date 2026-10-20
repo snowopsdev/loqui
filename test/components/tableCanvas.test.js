@@ -215,6 +215,13 @@ async function mount(t, overrides = {}) {
     Object.defineProperty(node, "dataset", {
       get: () => ({ cardKey: node.attributes["data-card-key"] }),
     });
+    Object.defineProperty(node, "tabIndex", {
+      get: () => Number(node.attributes.tabindex ?? -1),
+      set: (value) => {
+        node.setAttribute("tabindex", String(value));
+      },
+      configurable: true,
+    });
     node.clientWidth = 1200;
     node.clientHeight = 800;
     node.offsetHeight = 150;
@@ -278,6 +285,13 @@ async function mount(t, overrides = {}) {
   globalThis.window.matchMedia = () => ({ matches: false });
   const { TableCanvas, TABLE_REF_MIME } = await load();
   const calls = [];
+  const commits = [];
+  const renderTree = (value) =>
+    React.createElement(
+      React.Profiler,
+      { id: "canvas", onRender: (...args) => commits.push(args) },
+      React.createElement(I18nextProvider, { i18n }, React.createElement(TableCanvas, value))
+    );
   let current = props(
     Object.fromEntries(
       [
@@ -303,13 +317,7 @@ async function mount(t, overrides = {}) {
           else if (name === "onViewport") current = { ...current, viewport: args[0] };
           else if (name === "onSelect") current = { ...current, selection: args[0] };
           else return;
-          root.render(
-            React.createElement(
-              I18nextProvider,
-              { i18n },
-              React.createElement(TableCanvas, current)
-            )
-          );
+          root.render(renderTree(current));
         },
       ])
     )
@@ -325,11 +333,7 @@ async function mount(t, overrides = {}) {
   };
   const render = async (over = {}) => {
     current = { ...current, ...over };
-    await React.act(async () =>
-      root.render(
-        React.createElement(I18nextProvider, { i18n }, React.createElement(TableCanvas, current))
-      )
-    );
+    await React.act(async () => root.render(renderTree(current)));
   };
   await render();
   const canvas = () => tree.find((n) => n.attributes.role === "listbox");
@@ -362,6 +366,7 @@ async function mount(t, overrides = {}) {
     tree,
     calls,
     byCall,
+    commits,
     current: () => current,
     render,
     canvas,
@@ -1268,14 +1273,21 @@ test("Task10 fix2: canonical retirement and same-key return update DOM ownership
     cards = [a];
     notify();
   });
-  assert.equal(node.attributes["aria-hidden"], undefined);
+  const returned = m.cardEl(a.key);
+  assert.ok(returned, "the current same-key card is present immediately");
+  assert.equal(
+    node.parentNode,
+    null,
+    "retired native content releases its DOM ownership immediately"
+  );
+  assert.equal(returned.attributes["aria-hidden"], undefined);
   assert.notEqual(
-    node.style.visibility,
+    returned.style.visibility,
     "hidden",
     "a same-key current owner cannot inherit retired DOM visibility"
   );
   assert.equal(
-    node.style.clipPath || "none",
+    returned.style.clipPath || "none",
     "none",
     "current visible controls are fully unclipped"
   );
@@ -1462,4 +1474,209 @@ test("Task10 fix3: a retired optional-warm callback cannot schedule another fram
   assert.equal(m.frames.size, 0);
   await React.act(async () => old.forEach((callback) => callback()));
   assert.equal(m.frames.size, 0, "retired callbacks cannot create more optional work");
+});
+
+test("Task10 fix4: cold visible semantic cards mount synchronously without another React commit", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const cards = Array.from({ length: 50 }, (_, i) =>
+    card(`note:${i + 1}`, "note", 32 + i * 304, 32)
+  );
+  let viewport = { x: 0, y: 0, scale: 1 };
+  const m = await mount(t, {
+    cards,
+    selection: [],
+    publication,
+    read: () => ({ cards, viewport, selection: [], focused: null }),
+    onViewport: (value) => {
+      viewport = value;
+    },
+  });
+  assert.ok(!m.cardEl("note:50"));
+  const before = m.commits.length;
+  await React.act(() => {
+    m.listeners.get("wheel")({
+      deltaX: 14900,
+      deltaY: 0,
+      ctrlKey: false,
+      metaKey: false,
+      clientX: 100,
+      clientY: 100,
+      preventDefault() {},
+    });
+    const node = m.cardEl("note:50");
+    assert.ok(node, "all newly visible content exists before wheel returns");
+    assert.match(node.textContent, /T50/);
+    assert.notEqual(node.style.visibility, "hidden");
+    assert.equal(
+      m.commits.length,
+      before,
+      "semantic DOM growth must not force a second commit in this frame"
+    );
+  });
+});
+
+test("Task10 fix4: semantic content stays current, literal and observed through locale and kind changes", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  let cards = [card("note:1", "note", 32, 32)];
+  const m = await mount(t, {
+    cards,
+    selection: [],
+    publication,
+    read: () => ({ cards, viewport: { x: 0, y: 0, scale: 1 }, selection: [], focused: null }),
+  });
+  const node = m.cardEl("note:1");
+  const observers = m.observers.length;
+  cards = [
+    {
+      ...cards[0],
+      entity: {
+        ...cards[0].entity,
+        kind: "chat",
+        title: '<img src=x onerror="attack()">',
+        excerpt: "",
+        durationMs: 123000,
+        participants: ["Ada Lovelace", "Grace Hopper"],
+      },
+    },
+  ];
+  await m.render({ cards });
+  assert.equal(m.cardEl("note:1"), node);
+  assert.match(node.textContent, /<img src=x onerror="attack\(\)">/);
+  assert.match(node.textContent, /table.card.answerPending/);
+  assert.match(node.textContent, /ALGH/);
+  assert.match(node.textContent, /2:03/);
+  assert.equal(node.attributes["data-kind"], "chat");
+  assert.equal(
+    m.tree.find((n) => n.tagName === "IMG"),
+    null
+  );
+  assert.ok(
+    m.tree.find((n) => n.tagName === "svg" && n.attributes["data-icon"] === "message-square")
+  );
+  const observer = m.observers.find((o) => o.nodes?.includes(node));
+  assert.equal(
+    observer.nodes.length,
+    2,
+    "outer and intrinsic body targets survive content updates"
+  );
+  assert.equal(m.observers.length, observers, "no new native observer on content change");
+  i18n.addResourceBundle(
+    "de",
+    "translation",
+    {
+      table: {
+        kind: { chat: "Antwort" },
+        card: { answerPending: "Antwort wird erstellt", label: "{{kind}}: {{title}}" },
+      },
+    },
+    true,
+    true
+  );
+  t.after(async () => {
+    await i18n.changeLanguage("en");
+    i18n.removeResourceBundle("de", "translation");
+  });
+  await React.act(async () => i18n.changeLanguage("de"));
+  assert.match(node.textContent, /Antwort wird erstellt/);
+  assert.match(node.attributes["aria-label"], /^Antwort:/);
+  assert.equal(m.observers.length, observers);
+});
+
+test("Task10 fix4: same-key new scope retires observers and resets current option ownership", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const a = card("note:1", "note", 32, 32);
+  const m = await mount(t, {
+    cards: [a],
+    selection: [a.key],
+    focused: a.key,
+    publication,
+    gestureScope: 1,
+  });
+  const old = m.cardEl(a.key),
+    observer = m.observers.find((o) => o.nodes?.includes(old));
+  await m.render({
+    gestureScope: 2,
+    cards: [{ ...a, entity: { ...a.entity, title: "New scope" } }],
+  });
+  const current = m.cardEl(a.key);
+  assert.notEqual(current, old);
+  assert.equal(old.parentNode, null);
+  assert.equal(current.attributes["aria-selected"], "true");
+  assert.equal(current.tabIndex, 0);
+  assert.equal(current.attributes["aria-hidden"], undefined);
+  assert.match(current.textContent, /New scope/);
+  const before = m.byCall("onMeasure").length;
+  await React.act(() => observer.callback([{ target: old }]));
+  assert.equal(
+    m.byCall("onMeasure").length,
+    before,
+    "retired target cannot publish to the returned key"
+  );
+});
+
+test("Task10 fix4: shared observations read every target before applying paint", async () => {
+  const { createTableMeasurements } =
+    await import("../../src/components/table/tableMeasurements.ts");
+  const previous = globalThis.ResizeObserver;
+  let delivery;
+  const order = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      delivery = callback;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  const owner = createTableMeasurements();
+  try {
+    const a = {},
+      b = {};
+    owner.observe(a, null, () => {
+      order.push("read a");
+      return () => order.push("paint a");
+    });
+    owner.observe(b, null, () => {
+      order.push("read b");
+      return () => order.push("paint b");
+    });
+    delivery([{ target: a }, { target: b }, { target: a }]);
+    assert.deepEqual(order, ["read a", "read b", "paint a", "paint b"]);
+  } finally {
+    owner.dispose();
+    globalThis.ResizeObserver = previous;
+  }
+});
+
+test("Task10 fix4: canonical retirement prunes optional warm keys before any React frame", async (t) => {
+  const { createTableSemanticCards } =
+    await import("../../src/components/table/tableSemanticCards.ts");
+  await mount(t, { cards: [], selection: [] });
+  const container = globalThis.document.createElement("div");
+  const nodes = new Map(),
+    stopped = [];
+  const owner = createTableSemanticCards(
+    (outer) => () => stopped.push(outer),
+    (key, node) => (node ? nodes.set(key, node) : nodes.delete(key)),
+    () => {}
+  );
+  t.after(() => owner.dispose());
+  const a = card("note:1", "note", 0, 0),
+    b = card("note:2", "note", 0, 0);
+  const retained = new Set([a.key]);
+  const icons = new Map([["note", globalThis.document.createElementNS("http://www.w3.org/2000/svg", "svg")]]);
+  owner.reconcile(container, [a], retained, null, (key) => key, icons);
+  const old = nodes.get(a.key);
+  retained.add(b.key);
+  owner.reconcile(container, [b], retained, null, (key) => key, icons);
+  assert.deepEqual([...retained], [b.key], "retention stays within the current canonical set");
+  assert.deepEqual([...nodes.keys()], [b.key]);
+  assert.equal(old.parentNode, null);
+  assert.deepEqual(stopped, [old]);
 });

@@ -2563,6 +2563,9 @@ a.markdown-link:hover {
   transform-origin: 0 0;
   will-change: transform;
 }
+.table-card-plane {
+  contain: layout style;
+}
 .table-connectors {
   position: absolute;
   left: 0;

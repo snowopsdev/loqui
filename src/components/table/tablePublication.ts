@@ -62,6 +62,13 @@ export function useTablePaintState<T>(initial: T, publication?: TablePublication
   const [paint, publish] = useState(initial);
   const current = useRef(paint);
   const key = useRef({});
+  // An ancestor may render while a Table snapshot is waiting for its frame.
+  // Consume the current logical snapshot in that render, then retire only the
+  // queued publication that this committed render actually covered.
+  const snapshot = publication ? current.current : paint;
+  useLayoutEffect(() => {
+    if (publication && Object.is(snapshot, current.current)) publication.cancel(key.current);
+  });
   const set: Dispatch<SetStateAction<T>> = useCallback(
     (action) => {
       const next =
@@ -88,5 +95,5 @@ export function useTablePaintState<T>(initial: T, publication?: TablePublication
   const project = useCallback((value: T) => {
     current.current = value;
   }, []);
-  return [paint, set, current, reset, project] as const;
+  return [snapshot, set, current, reset, project] as const;
 }

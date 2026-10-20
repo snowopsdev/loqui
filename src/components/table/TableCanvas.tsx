@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type {
   PointerEvent as ReactPointerEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -38,8 +38,39 @@ import type { ReactElement } from "react";
 import { useTablePaintState, type TablePublication } from "./tablePublication";
 import type { TableCardModel, TableSizing } from "./tableModel";
 
+import { TableCardSymbols } from "./TableCardSymbols";
+import { createTableSemanticCards } from "./tableSemanticCards";
+
 export const TABLE_REF_MIME = "application/x-loqui-table-ref";
 const ZOOM_STEP = 1.2;
+// Bound offscreen preparation in world units rather than growing it with the
+// whole viewport at low zoom. This exceeds the card's largest shadow/focus cue.
+const CARD_PAINT_MARGIN = 128;
+const paintMargin = (viewport: Viewport, size: Size) =>
+  1 + (2 * CARD_PAINT_MARGIN * viewport.scale) / Math.max(1, Math.min(size.width, size.height));
+
+function warmNearby(
+  cards: TableCardModel[],
+  retained: Set<string>,
+  viewport: Viewport,
+  size: Size,
+  count: number
+) {
+  const left = -viewport.x / viewport.scale,
+    top = -viewport.y / viewport.scale;
+  const width = Math.max(1, size.width / viewport.scale),
+    height = Math.max(1, size.height / viewport.scale);
+  const distance = (rect: Rect) =>
+    Math.max(
+      Math.max(left - rect.x - rect.w, rect.x - left - width, 0) / width,
+      Math.max(top - rect.y - rect.h, rect.y - top - height, 0) / height
+    );
+  const nearby = cards
+    .filter((card) => !retained.has(card.key))
+    .map((card) => ({ card, distance: distance(card.rect) }))
+    .sort((a, b) => a.distance - b.distance);
+  for (const { card } of nearby.slice(0, count)) retained.add(card.key);
+}
 
 export interface TableCanvasProps {
   cards: TableCardModel[];
@@ -75,6 +106,8 @@ export function TableCanvas(props: TableCanvasProps) {
     ...props.read?.(),
   };
   const { t } = useTranslation();
+  const iconTemplates = useRef(new Map<string, SVGSVGElement>());
+  const semanticRoot = useRef<HTMLDivElement>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -83,6 +116,7 @@ export function TableCanvas(props: TableCanvasProps) {
   );
   const register = useCallback(
     (key: string, node: HTMLDivElement | null, overflow: (fixed?: boolean) => void) => {
+      painted.current.delete(key);
       if (node) nodes.current.set(key, { node, overflow });
       else nodes.current.delete(key);
     },
@@ -91,6 +125,17 @@ export function TableCanvas(props: TableCanvasProps) {
   const current = () => ({ ...propsRef.current, ...propsRef.current.read?.() });
   const measurements = useMemo(createTableMeasurements, []);
   useEffect(() => () => measurements.dispose(), [measurements]);
+  const semanticCards = useMemo(
+    () =>
+      createTableSemanticCards(measurements.observe, register, (key, height) =>
+        propsRef.current.onMeasure(key, height)
+      ),
+    [measurements, register]
+  );
+  useLayoutEffect(
+    () => () => semanticCards.dispose(),
+    [semanticCards, props.gestureScope, props.publication]
+  );
   const paths = useRef(new Map<string, SVGPathElement>());
   const pathGeometry = useRef(new Map<string, [Rect, Rect]>());
   const pathElements = useRef(new Map<string, { d: string; element: ReactElement }>());
@@ -112,7 +157,10 @@ export function TableCanvas(props: TableCanvasProps) {
   const lassoRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging, liveDragging] = useTablePaintState<string[]>([], props.publication);
   const [snapping, setSnapping, liveSnapping] = useTablePaintState<string[]>([], props.publication);
-  const [focusRequest, setFocusRequest] = useState<{ key: string } | null>(null);
+  const [focusRequest, setFocusRequest] = useTablePaintState<{ key: string } | null>(
+    null,
+    props.publication
+  );
   const snapRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; owner: number }>({
     timer: null,
     owner: 0,
@@ -142,7 +190,7 @@ export function TableCanvas(props: TableCanvasProps) {
     [selection, focused, dragging, focusRequest]
   );
   const visible = useMemo(
-    () => visibleIds(placed, viewport, size, always),
+    () => visibleIds(placed, viewport, size, always, paintMargin(viewport, size)),
     [placed, viewport, size, always]
   );
   const retention = useRef({ scope: props.gestureScope, keys: new Set<string>(), warmed: false });
@@ -154,45 +202,31 @@ export function TableCanvas(props: TableCanvasProps) {
   // Warm only offscreen semantic nodes in bounded chunks. Visible cards always
   // mount immediately; retention never substitutes a placeholder for content.
   const batch = retention.current.warmed ? 32 : 8;
-  if (props.publication && retained.size < cards.length) {
-    const left = -viewport.x / viewport.scale;
-    const top = -viewport.y / viewport.scale;
-    const width = Math.max(1, size.width / viewport.scale);
-    const height = Math.max(1, size.height / viewport.scale);
-    const distance = (rect: Rect) => {
-      const dx = Math.max(left - rect.x - rect.w, rect.x - left - width, 0) / width;
-      const dy = Math.max(top - rect.y - rect.h, rect.y - top - height, 0) / height;
-      return Math.max(dx, dy);
-    };
-    // Canonical order still owns DOM/order/caps. Optional warming follows the
-    // spatial neighborhood so a first pan/zoom does not warm the far end first.
-    const nearby = cards
-      .filter((card) => !retained.has(card.key))
-      .map((card) => ({ card, distance: distance(card.rect) }))
-      .sort((a, b) => a.distance - b.distance);
-    for (const { card } of nearby.slice(0, batch)) retained.add(card.key);
-  }
+  if (props.publication && retained.size < cards.length)
+    warmNearby(cards, retained, viewport, size, batch);
   if (cards.length) retention.current.warmed = true;
-  const [retentionRevision, warm] = useTablePaintState(0, props.publication);
   useEffect(() => {
     if (!props.publication || retained.size >= cards.length) return;
-    // Only optional offscreen preparation yields between batches. Newly visible
-    // content continues to drain synchronously through the current paint owner.
     let active = true;
     let next: number | null = null;
-    const first = requestAnimationFrame(() => {
+    const step = () => {
       if (!active) return;
       next = requestAnimationFrame(() => {
-        if (active) warm((value) => value + 1);
+        if (!active) return;
+        const live = current();
+        warmNearby(live.cards, retained, live.viewport, liveSize.current, 32);
+        paintRef.current();
+        if (retained.size < live.cards.length) next = requestAnimationFrame(step);
       });
-    });
+    };
+    const first = requestAnimationFrame(step);
     return () => {
       active = false;
       cancelAnimationFrame(first);
       if (next !== null) cancelAnimationFrame(next);
     };
-  }, [props.publication, cards, retained, retained.size, retentionRevision, warm]);
-  const rendered = cards.filter((c) => retained.has(c.key));
+  }, [props.publication, cards, retained, retained.size, liveSize]);
+  const rendered = props.publication ? [] : cards.filter((c) => retained.has(c.key));
   const elements = useRef(new Map<string, { props: TableCardProps; element: ReactElement }>());
   for (const key of elements.current.keys()) if (!retained.has(key)) elements.current.delete(key);
 
@@ -262,7 +296,7 @@ export function TableCanvas(props: TableCanvasProps) {
     const el = root?.querySelector<HTMLElement>(`[data-card-key="${focusRequest.key}"]`);
     el?.focus({ preventScroll: true });
     setFocusRequest(null);
-  }, [focusRequest]);
+  }, [focusRequest, setFocusRequest]);
 
   const geometry = useRef<{
     cards: TableCardModel[];
@@ -289,7 +323,8 @@ export function TableCanvas(props: TableCanvasProps) {
   const paintGeometry = () => {
     const live = current();
     const root = rootRef.current;
-    const world = root?.querySelector<HTMLElement>(".table-world");
+    if (!root) return;
+    const world = root.querySelector<HTMLElement>(".table-world");
     const transform = `translate3d(${live.viewport.x}px, ${live.viewport.y}px, 0) scale(${live.viewport.scale})`;
     if (world && world.style.transform !== transform) world.style.transform = transform;
     if (root) {
@@ -307,20 +342,25 @@ export function TableCanvas(props: TableCanvasProps) {
         byKey: new Map(live.cards.map((card) => [card.key, card])),
       };
     const byKeyNow = geometry.current.byKey;
-    const visibleNow = visibleIds(geometry.current.placed, live.viewport, liveSize.current, [
-      ...live.selection,
-      ...(live.focused ? [live.focused] : []),
-      ...liveDragging.current,
-    ]);
-    if (
-      propsRef.current.publication &&
-      [...visibleNow].some((key) => byKeyNow.has(key) && !nodes.current.has(key))
-    ) {
-      warm((value) => value + 1);
-      // Offscreen warming is optional; newly visible semantic content is not.
-      // Drain the paint owner synchronously when a viewport outruns retention.
-      propsRef.current.publication.flushNow();
-      return;
+    const visibleNow = visibleIds(
+      geometry.current.placed,
+      live.viewport,
+      liveSize.current,
+      [...live.selection, ...(live.focused ? [live.focused] : []), ...liveDragging.current],
+      paintMargin(live.viewport, liveSize.current)
+    );
+    const overflowUpdates = new Map<(fixed?: boolean) => void, boolean>();
+    if (propsRef.current.publication && semanticRoot.current) {
+      for (const key of visibleNow) if (byKeyNow.has(key)) retention.current.keys.add(key);
+      for (const [overflow, fixed] of semanticCards.reconcile(
+        semanticRoot.current,
+        live.cards,
+        retention.current.keys,
+        live.expanded,
+        t,
+        iconTemplates.current
+      ))
+        overflowUpdates.set(overflow, fixed);
     }
     const overlay = lassoRef.current;
     if (overlay) {
@@ -343,7 +383,7 @@ export function TableCanvas(props: TableCanvasProps) {
         painted.current.delete(key);
         entry.node.setAttribute("aria-hidden", "true");
 
-        entry.node.tabIndex = -1;
+        entry.node.setAttribute("tabindex", "-1");
       }
     const cardsByKey = byKeyNow;
     const equalRect = (a: Rect, b: Rect) =>
@@ -419,7 +459,7 @@ export function TableCanvas(props: TableCanvasProps) {
         }
       }
       if (!previous || previous.tab !== next.tab || previous.hidden !== next.hidden)
-        node.tabIndex = !next.hidden && next.tab ? 0 : -1;
+        node.setAttribute("tabindex", !next.hidden && next.tab ? "0" : "-1");
       if (!previous || previous.selected !== next.selected)
         node.setAttribute("aria-selected", String(next.selected));
       if (!previous || previous.z !== next.z || previous.dragging !== next.dragging) {
@@ -432,8 +472,14 @@ export function TableCanvas(props: TableCanvasProps) {
         else node.removeAttribute("data-snapping");
       }
       painted.current.set(card.key, next);
-      if (reflow) overflow(next.h != null);
+      if (reflow) overflowUpdates.set(overflow, next.h != null);
     }
+    // Set every geometry/visibility style before reading intrinsic overflow.
+    // These reads still complete synchronously before the event returns.
+    const overflowPaints = [...overflowUpdates].map(([overflow, fixed]) =>
+      semanticCards.prepareOverflow(overflow, fixed)
+    );
+    for (const paint of overflowPaints) paint();
   };
   useLayoutEffect(paintGeometry);
   const paintRef = useRef(paintGeometry);
@@ -511,7 +557,7 @@ export function TableCanvas(props: TableCanvasProps) {
       clearSnap();
       if (id !== null && root?.hasPointerCapture(id)) root.releasePointerCapture(id);
     };
-  }, [clearSnap, props.gestureScope, setDragging, setLasso, setSnapping]);
+  }, [clearSnap, props.gestureScope, setDragging, setLasso, setSnapping, setFocusRequest]);
 
   const local = (event: { clientX: number; clientY: number }): Point => {
     const r = rootRef.current?.getBoundingClientRect();
@@ -819,6 +865,7 @@ export function TableCanvas(props: TableCanvasProps) {
       onDragOver={onDragOver}
       onDrop={onDropRef}
     >
+      {props.publication && <TableCardSymbols templates={iconTemplates.current} />}
       <div
         className="table-world"
         style={{
@@ -853,24 +900,28 @@ export function TableCanvas(props: TableCanvasProps) {
               return element;
             })}
         </svg>
-        {rendered.map((card) => {
-          const next: TableCardProps = {
-            card,
-            selected: selection.includes(card.key),
-            focusable: card.key === tabStop,
-            dragging: dragging.includes(card.key),
-            snapping: snapping.includes(card.key),
-            expanded: expanded === card.key,
-            onMeasure: props.onMeasure,
-            onNode: register,
-            observe: props.publication ? measurements.observe : undefined,
-          };
-          const previous = elements.current.get(card.key);
-          if (previous && sameTableCard(previous.props, next)) return previous.element;
-          const element = <TableCard key={card.key} {...next} />;
-          elements.current.set(card.key, { props: next, element });
-          return element;
-        })}
+        {props.publication ? (
+          <div ref={semanticRoot} className="table-card-plane" />
+        ) : (
+          rendered.map((card) => {
+            const next: TableCardProps = {
+              card,
+              selected: selection.includes(card.key),
+              focusable: card.key === tabStop,
+              dragging: dragging.includes(card.key),
+              snapping: snapping.includes(card.key),
+              expanded: expanded === card.key,
+              onMeasure: props.onMeasure,
+              onNode: register,
+              observe: props.publication ? measurements.observe : undefined,
+            };
+            const previous = elements.current.get(card.key);
+            if (previous && sameTableCard(previous.props, next)) return previous.element;
+            const element = <TableCard key={card.key} {...next} />;
+            elements.current.set(card.key, { props: next, element });
+            return element;
+          })
+        )}
       </div>
       {lasso && (
         <div

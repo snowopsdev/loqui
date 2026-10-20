@@ -1,9 +1,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { CalendarDays, MessageSquare, Mic, NotebookPen } from "../icons";
-import { formatMmSs } from "../../utils/formatDuration";
 import { sameTableCard, type TableCardProps } from "./tableCardIdentity";
-import { plainExcerpt } from "./tableModel";
+import { tableCardContent } from "./tableCardContent";
 export type { TableCardProps } from "./tableCardIdentity";
 
 const KIND_ICON = {
@@ -12,16 +11,6 @@ const KIND_ICON = {
   dictation: Mic,
   chat: MessageSquare,
 } as const;
-const EXCERPT = { note: 200, meeting: 160, dictation: 220, chat: 260 } as const;
-
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-
 // Cards are DOM, not canvas pixels, so text stays selectable by assistive tech
 // and inherits theme, zoom and font settings. The dictation glyph is neutral:
 // orange is reserved for live voice (D1).
@@ -61,14 +50,11 @@ function TableCardContent({
   );
   const { entity } = card;
   const Icon = KIND_ICON[entity.kind];
-  const kindLabel = t(`table.kind.${entity.kind}`);
-  const title =
-    entity.title?.trim() || (entity.kind === "dictation" ? "" : t("table.card.untitled"));
-  const excerpt = entity.excerpt
-    ? plainExcerpt(entity.excerpt, expanded ? 600 : EXCERPT[entity.kind])
-    : entity.kind === "chat"
-      ? t("table.card.answerPending")
-      : "";
+  const { kindLabel, title, excerpt, label, duration, participants } = tableCardContent(
+    card,
+    expanded,
+    t
+  );
 
   // Prop-driven resize/cancel/content changes settle the paint cue before paint.
   // The stable observer also catches intrinsic wrapping/font/theme reflow.
@@ -119,10 +105,7 @@ function TableCardContent({
       data-dragging={dragging ? "true" : undefined}
       data-snapping={snapping ? "true" : undefined}
       data-sized={card.fixedH != null ? "true" : undefined}
-      aria-label={t("table.card.label", {
-        kind: kindLabel,
-        title: title || excerpt.slice(0, 60),
-      })}
+      aria-label={label}
       className="table-card"
       style={{
         left: card.rect.x,
@@ -144,16 +127,14 @@ function TableCardContent({
             <div className="table-card__meta">
               {entity.participants.length > 0 && (
                 <span className="table-card__people" aria-hidden="true">
-                  {entity.participants.slice(0, 3).map((name) => (
+                  {entity.participants.slice(0, 3).map((name, index) => (
                     <span key={name} className="table-card__avatar">
-                      {initials(name)}
+                      {participants[index]}
                     </span>
                   ))}
                 </span>
               )}
-              {entity.durationMs != null && (
-                <span>{formatMmSs(Math.round(entity.durationMs / 1000))}</span>
-              )}
+              {entity.durationMs != null && <span>{duration}</span>}
             </div>
           )}
         </div>

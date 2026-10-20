@@ -67,19 +67,23 @@ async function mount(t, api, spaceId = 1, framed = false) {
     t.after(() => publication.dispose());
   }
   let h;
-  function Harness({ id }) {
-    h = useTableBoard(id, publication);
+  function DuringCommit({ run }) {
+    React.useLayoutEffect(() => run(h), [run]);
     return null;
+  }
+  function Harness({ id, duringCommit }) {
+    h = useTableBoard(id, publication);
+    return duringCommit ? React.createElement(DuringCommit, { run: duringCommit }) : null;
   }
   root = createRoot(container);
   const commits = [];
-  const render = (id) =>
+  const render = (id, duringCommit) =>
     act(() =>
       root.render(
         React.createElement(
           React.Profiler,
           { id: "board", onRender: (...args) => commits.push(args) },
-          React.createElement(Harness, { id })
+          React.createElement(Harness, { id, duringCommit })
         )
       )
     );
@@ -907,4 +911,32 @@ test("Task10 fix3: intrinsic measurement projects current geometry without a sep
   assert.equal(f.h.cards[0].rect.h, 237, "later semantic publication retains the measurement");
   assert.equal(f.h.state.focused, "note:1");
   off();
+});
+
+test("Task10 fix4: an ancestor render consumes current board publication without a redundant frame", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() }, 1, true);
+  assert.ok(f.h.read().board, "logical initial read is already current");
+  assert.ok(f.frames.size, "initial snapshot still has a queued frame");
+  await f.render(1);
+  assert.equal(f.h.state.board, f.h.read().board, "ancestor paint includes the current snapshot");
+  const afterAncestor = f.commits.length;
+  await f.flush();
+  assert.equal(f.commits.length, afterAncestor, "an already painted snapshot has no second commit");
+  await act(() => f.h.dispatch({ type: "select", keys: ["note:1"] }));
+  assert.deepEqual(f.h.read().selection, ["note:1"]);
+  await f.flush();
+  assert.equal(f.commits.length, afterAncestor + 1, "a later logical change still publishes");
+  assert.deepEqual(f.h.state.selection, ["note:1"]);
+});
+
+test("Task10 fix4: a newer logical snapshot during commit keeps its scheduled publication", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() }, 1, true);
+  await f.render(1, (board) => board.dispatch({ type: "select", keys: ["note:1"] }));
+  assert.deepEqual(f.h.state.selection, [], "the ancestor rendered the earlier snapshot");
+  assert.deepEqual(f.h.read().selection, ["note:1"], "the child layout action is synchronous");
+  assert.ok(f.frames.size, "parent layout cannot cancel a newer logical snapshot");
+  const before = f.commits.length;
+  await f.flush();
+  assert.equal(f.commits.length, before + 1);
+  assert.deepEqual(f.h.state.selection, ["note:1"]);
 });

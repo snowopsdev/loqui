@@ -702,7 +702,7 @@ for (const kind of ["group", "answer"])
       (n) => n.attributes["data-card-key"] === `${created.type}:${created.id}`
     );
     assert.ok(card);
-    assert.equal(c.tree.props(card).style.left, canonical.cards[0].layout.x);
+    assert.equal(Number.parseFloat(card.style.left), canonical.cards[0].layout.x);
     const reopened = new DatabaseManager();
     t.after(() => reopened.db.close());
     assert.deepEqual(canonical, reopened.getTableBoard(spaceId));

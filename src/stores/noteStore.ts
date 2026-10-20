@@ -69,7 +69,9 @@ let spacesLoadGeneration = 0;
 let foldersLoadGeneration = 0;
 
 let noteNavigationGeneration = 0;
-let launchRestoreOwner: object | null = null;
+// The current intentional read owns selection while pending or retryable.
+// Eligibility also releases the initializer when the caller's lifetime ends.
+let noteReadOwner: (() => boolean) | null = null;
 let landOnOverview = false;
 
 /** Request ownership for deferred tree moves, including view and A→B→A intents. */
@@ -80,7 +82,7 @@ export function getNoteNavigationGeneration(): number {
 /** A confirmed reset or newer view intent supersedes pending opens, preserving content. */
 export function invalidatePendingNoteNavigation(): void {
   noteNavigationGeneration += 1;
-  launchRestoreOwner = null;
+  noteReadOwner = null;
 }
 
 // Folder navigation requested before folders load; consumed once by initializeNotesTree.
@@ -409,7 +411,7 @@ export async function initializeNotesTree(): Promise<void> {
     useNoteStore.getState().expandedContainers.forEach((key) => {
       if (validKeys.has(key)) void ensureContainerLoaded(key);
     });
-    if (!launchRestoreOwner && !landOnOverview) {
+    if (!noteReadOwner?.() && !landOnOverview) {
       const first = firstSelectableContainerNote(
         context,
         notes,
@@ -764,11 +766,10 @@ async function readAndOpenNote(
   if (options.isEligible && !options.isEligible()) return "superseded";
   ensureIpcListeners();
   const generation = ++noteNavigationGeneration;
-  const owner = {};
   const isEligible = () =>
     generation === noteNavigationGeneration && (options.isEligible?.() ?? true);
   let failed = false;
-  launchRestoreOwner = restore ? owner : null;
+  noteReadOwner = isEligible;
   const attempt = async (): Promise<OpenNoteResult> => {
     if (!isEligible()) return "superseded";
     failed = false;
@@ -787,15 +788,15 @@ async function readAndOpenNote(
     } catch {
       if (!isEligible()) return "superseded";
       failed = true;
-      // Keep launch ownership while failed: a later tree initialization must
-      // not replace the saved target with an incidental first-note pick.
+      // Preserve the prior selection/overview while this read is retryable;
+      // incidental tree initialization cannot choose an unrelated first note.
       options.onLoadError?.(async () => {
         if (!failed || !isEligible()) return "superseded";
         return attempt();
       });
       return "error";
     } finally {
-      if (!failed && launchRestoreOwner === owner) launchRestoreOwner = null;
+      if (!failed && noteReadOwner === isEligible) noteReadOwner = null;
     }
   };
   return attempt();

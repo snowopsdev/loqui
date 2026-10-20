@@ -27,7 +27,7 @@ function find(node, predicate) {
 
 async function mount(
   t,
-  { initialStorage = {}, api = {}, strict = false, realCreateNote = false } = {}
+  { initialStorage = {}, api = {}, strict = false, realCreateNote = false, realNotes = false } = {}
 ) {
   let root;
   t.after(async () => {
@@ -55,6 +55,17 @@ async function mount(
       },
     },
   });
+  const selectionWrites = [];
+  const setItem = storage.setItem;
+  storage.setItem = (key, value) => {
+    if (key === "workspace.lastNoteId") selectionWrites.push(String(value));
+    setItem(key, value);
+  };
+  const removeItem = storage.removeItem;
+  storage.removeItem = (key) => {
+    if (key === "workspace.lastNoteId") selectionWrites.push(null);
+    removeItem(key);
+  };
   const container = installHookDom(t);
   let dialogOpen = false;
   globalThis.document.querySelector = () => (dialogOpen ? {} : null);
@@ -104,6 +115,21 @@ async function mount(
     mockModules[`/${name}`] = emptyComponent;
   }
   if (realCreateNote) delete mockModules["/hooks/useCreateNote"];
+  if (realNotes) {
+    delete mockModules["/notes/PersonalNotesView"];
+    mockModules["/stores/settingsStore"] =
+      'import { create } from "zustand"; export const useSettingsStore = create(() => ({})); export const getSettings = () => ({}); export const selectResolvedNoteFormatting = () => ({model:null});';
+    mockModules["/hooks/useActionProcessing"] = "export const useActionProcessing = () => ({});";
+    for (const name of [
+      "NoteEditor",
+      "ActionManagerDialog",
+      "ActionPicker",
+      "AddNotesToFolderDialog",
+      "NotesOnboarding",
+    ])
+      mockModules[`/${name}`] = emptyComponent;
+    mockModules["/overview/ContainerOverview"] = "export const ContainerOverview = () => null;";
+  }
   const options = withI18nMock({ mockModules });
   // The production hook returns a stable t; avoid the generic mock's per-render function.
   options.mockModules["react-i18next"] =
@@ -112,10 +138,18 @@ async function mount(
   const { default: ControlPanel } = await vite.ssrLoadModule("/components/ControlPanel.tsx");
   const notes = await vite.ssrLoadModule("/stores/noteStore.ts");
   const home = await vite.ssrLoadModule("/stores/homeViewStore.ts");
+  const PersonalNotes = realNotes
+    ? (await vite.ssrLoadModule("/components/notes/PersonalNotesView.tsx")).default
+    : null;
+  let mountNotes = false;
+  function NotesProbe() {
+    PersonalNotes({});
+    return null;
+  }
   let tree;
   function Probe() {
     tree = ControlPanel();
-    return null;
+    return mountNotes ? React.createElement(NotesProbe) : null;
   }
   root = createRoot(container);
   await React.act(async () =>
@@ -127,6 +161,10 @@ async function mount(
   );
   return {
     vite,
+    mountNotes: async () => {
+      mountNotes = true;
+      await React.act(async () => root.render(React.createElement(Probe)));
+    },
     freshOwner: async () => {
       await React.act(async () => {
         if (root) root.unmount();
@@ -167,6 +205,7 @@ async function mount(
     sidebar: await vite.ssrLoadModule("/hooks/useCollapsibleSidebar"),
     creates: await vite.ssrLoadModule("/hooks/useCreateNote"),
     storage,
+    selectionWrites,
     navigation: () => tree.props.value,
     chat: () => find(tree, (node) => typeof node.props?.onRequestHandled === "function")?.props,
     palette: () => find(tree, (node) => !!node.props?.onConversationSelect).props,
@@ -563,3 +602,60 @@ test("recording startup does not delay opening the created note or reclaim a new
   await React.act(async () => activation.resolve(true));
   assert.equal(h.view(), "insights", "startup completion does not navigate again");
 });
+
+for (const folder of [2, null]) {
+  for (const order of ["read-first", "mount-first"]) {
+    test(`ordinary real shell/Notes ${folder === null ? "root" : "folder"} overview: ${order} rejection cannot persist an unrelated selection`, async (t) => {
+      const pending = deferred();
+      let reads = 0;
+      const h = await mount(t, {
+        realNotes: true,
+        api: {
+          getSpaces: async () => [{ id: 1, kind: "private", name: "Personal" }],
+          getFolders: async () => [{ id: 2, space_id: 1, name: "Work", is_default: 1 }],
+          getNotes: async (_type, _limit, folderId) => [
+            { ...fixtureNote(folderId === null ? 2 : 1), folder_id: folderId },
+          ],
+          getNote: async () => {
+            if (++reads === 1) await pending.promise;
+            if (reads <= 2) throw new Error("local read unavailable");
+            return { ...fixtureNote(500), folder_id: folder };
+          },
+        },
+      });
+      await React.act(async () => h.notes.initializeNotesTree());
+      assert.equal(h.notes.getActiveNoteIdValue(), 1, "successful ordinary startup control");
+      await React.act(async () => h.notes.navigateToContainer(1, folder));
+      await React.act(async () => h.navigation().openView(folder === null ? "chat" : "home"));
+      h.selectionWrites.length = 0;
+      await React.act(async () => h.navigation().openNote(500));
+      if (order === "mount-first") {
+        await h.mountNotes();
+        assert.equal(
+          h.notes.getActiveNoteIdValue(),
+          null,
+          "real Notes initializer cannot select while read is pending"
+        );
+      }
+      await React.act(async () => pending.resolve());
+      if (order === "read-first") await h.mountNotes();
+      assert.equal(h.notes.getActiveNoteIdValue(), null);
+      assert.equal(h.notes.getActiveFolderIdValue(), folder);
+      assert.equal(h.view(), "personal-notes");
+      assert.ok(
+        h.selectionWrites.every((value) => value === null),
+        JSON.stringify(h.selectionWrites)
+      );
+      assert.equal(h.storage.getItem("workspace.lastNoteId"), null);
+      assert.equal(h.toasts.at(-1).title, "workspace.noteLoadError");
+      assert.equal(h.toasts.at(-1).action.props.children, "common.retry");
+      await React.act(async () => h.toasts.at(-1).action.props.onClick());
+      assert.equal(h.notes.getActiveNoteIdValue(), null, "Retry rejection preserves overview");
+      assert.ok(h.selectionWrites.every((value) => value === null));
+      await React.act(async () => h.toasts.at(-1).action.props.onClick());
+      assert.equal(h.notes.getActiveNoteIdValue(), 500);
+      assert.equal(h.storage.getItem("workspace.lastNoteId"), "500");
+      assert.equal(reads, 3);
+    });
+  }
+}

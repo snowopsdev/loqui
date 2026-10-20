@@ -24,7 +24,11 @@ async function renderOverview(t, { lng, folder }) {
   const vite = await createRendererServer(t, {
     cachePrefix: `openwhispr-container-overview-${lng}-`,
     mockModules: {
-      "/stores/workspaceStore": "export const useWorkspaceStore = (selector) => selector({ workspaces: [] });",
+      "/stores/settingsStore": `export const useSettingsStore = (sel) => sel({ labsTable: false });`,
+      "/chat/chatRouteKey": `export const useChatRouteKey = () => "fixture-route";`,
+      "/table/TableView": `export default function TableView() { return null; }`,
+      "/stores/workspaceStore":
+        "export const useWorkspaceStore = (selector) => selector({ workspaces: [] });",
       "/stores/noteStore": `
         export const useNotes = () => [];
         export const useNotesByContainer = () => ({});

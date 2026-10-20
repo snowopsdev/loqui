@@ -11,6 +11,8 @@ import {
   useNotesByContainer,
   useSpaceRootCounts,
 } from "../../../stores/noteStore";
+import { useSettingsStore } from "../../../stores/settingsStore";
+import TableView from "../../table/TableView";
 import type { FolderItem, NoteItem, SpaceItem } from "../../../types/electron";
 import { cn } from "../../lib/utils";
 import { PAGE_CONTENT_WIDTH_CLASS } from "../../ui/pageWidth";
@@ -22,6 +24,47 @@ import { OverviewNoteList } from "./OverviewNoteList";
 import { SpaceIconButton } from "./SpaceIconButton";
 
 const SPACE_NOTES_LIMIT = 50;
+
+type OverviewView = "list" | "table";
+const viewStorageKey = (spaceId: number) => `notes.overview.view.${spaceId}`;
+const readView = (spaceId: number): OverviewView =>
+  typeof localStorage !== "undefined" && localStorage.getItem(viewStorageKey(spaceId)) === "table"
+    ? "table"
+    : "list";
+
+export function TableViewSwitch({
+  value,
+  onChange,
+}: {
+  value: OverviewView;
+  onChange: (value: OverviewView) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="group"
+      aria-label={t("table.view.label")}
+      className="inline-flex rounded-full bg-surface-3 p-0.5"
+    >
+      {(["list", "table"] as const).map((next) => (
+        <button
+          key={next}
+          type="button"
+          aria-pressed={value === next}
+          onClick={() => onChange(next)}
+          className={cn(
+            "h-7 rounded-full px-3 text-ui font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            value === next
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {t(`table.view.${next}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 interface ContainerOverviewProps {
   space: SpaceItem;
@@ -46,6 +89,15 @@ export function ContainerOverview({
   const folderCounts = useFolderCounts();
   const spaceRootCounts = useSpaceRootCounts();
   const [spaceNotes, setSpaceNotes] = useState<NoteItem[] | null>(null);
+  const labsTable = useSettingsStore((s) => s.labsTable);
+  // PersonalNotesView remounts this overview for each Space/folder owner.
+  const [view, setView] = useState<OverviewView>(() => readView(space.id));
+  const tableAvailable = labsTable && folder === null;
+  const changeView = (next: OverviewView) => {
+    setView(next);
+    localStorage.setItem(viewStorageKey(space.id), next);
+  };
+  const viewSwitch = tableAvailable ? <TableViewSwitch value={view} onChange={changeView} /> : null;
 
   // Folder overviews mirror the store's active container; space overviews list
   // the whole space (foldered + root), which the store doesn't hold — fetched
@@ -92,6 +144,10 @@ export function ContainerOverview({
     metaParts.push(t("notes.overview.meta.members", { count: space.member_count }));
   }
 
+  if (tableAvailable && view === "table") {
+    return <TableView space={space} onOpenNote={onOpenNote} viewSwitch={viewSwitch} />;
+  }
+
   return (
     <div className="flex-1 overflow-y-auto min-h-0">
       <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 py-8 flex flex-col gap-5")}>
@@ -113,6 +169,7 @@ export function ContainerOverview({
             {metaParts.join(" · ")}
           </p>
           <div className="mt-1 flex items-center gap-2">
+            {viewSwitch}
             {/* The empty state keeps its own focal create CTA in the list. */}
             {notes.length > 0 && (
               <button

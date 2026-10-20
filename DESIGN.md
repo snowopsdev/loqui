@@ -279,6 +279,20 @@ Rules:
 - Every motion has a non-motion twin (shape, label or colour).
 - Never ease-in.
 
+### The Table (Labs, WS-M5)
+
+A per-Space canvas, reached from the Space root overview's `List | Table` switch when Settings → System → Labs → The Table is on. Labs defaults off; turning it off restores the ordinary overview. The view choice is remembered per Space in localStorage (`notes.overview.view.<spaceId>`); missing or unknown choices mean List. Folders never offer Table.
+
+- **World:** physical coordinates like a map, unchanged in RTL; only chrome follows logical inline direction. A 24px dot grid, zoom 25–200%, and drag snapping to an 8px grid use `--motion-spring-snap` over `--motion-slow`. Reduced motion removes spring transforms while retaining colour and opacity feedback.
+- **Cards:** DOM note 280px, meeting 320px (initials and duration), dictation 220px (neutral mic: orange means live voice), and answer 340px with a `--color-agent-brand` inline-start rail. Selection and focus use opaque `--color-ring`. Text follows the shared ramp: body 15px, UI 13px, caption 12px, and micro 11px only for badges, keyboard hints and established avatar initials.
+- **Connectors:** 1.5px `--color-table-connector` curves represent user links, chat-about-note and note mentions. Text must reach 4.5:1 and non-text borders, rails and connectors 3:1 in light and Plum Night; rendered verification remains part of Task 10.
+- **Keyboard:** a spatial listbox has an intentional canvas entry Tab stop plus one roving card Tab stop. Arrows enter/reveal cards and move to the nearest card; Shift+arrows nudge 8px; Space selects; Enter opens content; Delete removes from Table, never the underlying content (D12). Dictation opens a keyboard-accessible full-content detail through the existing main-owned history API.
+- **Inbox:** a bounded recent tray includes up to 50 removed cards per kind, ordered by removal/layout recency with deterministic ties, plus recent unplaced dictations (up to 20 from seven days) and answered chats (up to 10). Drag or Enter places a card. Older content remains available through History and List; removing placement never deletes notes, history or conversations.
+- **Local ownership:** Electron main stores card positions, links and canvas viewport in SQLite; those layout records contain no note text. Ask and Summarise reuse existing Space chat and its explicit route/readiness contracts. This does not establish a valid Seal or attestation: Plan 07 D16 remains blocked. WS-M4 confidence typography remains on hold (D11).
+- **Resize (planned Task 9):** a physical bottom-right handle and Alt+arrows will resize cards. Exact nullable-size cancellation and the 80px full-content interaction still require Task 9 implementation/proof and Task 10 rendered verification; they are not implemented by the entry-point task.
+
+The browser preview uses an in-memory Table adapter for the single sample Space (1). Its tests compare the exercised plain-note/dictation placement, hide/restore, canonical link/refusal, nullable sizing, finite-coordinate and viewport clamping sequences with a temporary main SQLite fixture. It reads current sample arrays and loses layout on reload. It is not evidence for main's multi-Space scope, meeting metadata/enhanced content/mention extraction, chat cards or AI, full-content dictation detail (the browser bridge does not supply its detail IPC), 500-card capacity/rollback, archive/deletion pruning, removal-recency ordering or the complete recent-capture policy (the sample shows three unplaced dictations). Those scenarios require the real main APIs and separate Task 10/desktop proof; this adapter must not certify them. No provider, credential, native capture or isolation behavior is simulated here.
+
 ## Shapes
 
 The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px larger cards, and 12px for the inset workspace shell. Primary actions, search, and badges use full capsules. Borders are thin and neutral at rest; active and focus borders take the orange accent. Large 24px corners belong to the animated voice and assistant panels, not ordinary cards.

@@ -1,3 +1,4 @@
+import { createPreviewTable } from "./previewTable";
 import { normalizeRouteVerificationOptions } from "../helpers/routeVerificationOptions.mjs";
 import type { NoteItem, SpaceItem, TranscriptionItem } from "../types/electron";
 import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes";
@@ -254,6 +255,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     getNotes: async (type) =>
       notes.filter((note) => !type || note.note_type === type).map((note) => ({ ...note })),
     getSpaceNotes: async () => notes.map((note) => ({ ...note })),
+    ...createPreviewTable({ notes: () => notes, history: () => history }),
     getNote: async (id) => notes.find((note) => note.id === id) ?? null,
     saveNote: async (title, content, type) => {
       const note = makeNote(

@@ -6,6 +6,8 @@ Loqui is a local-first desktop application. It has no hosted Loqui account, anal
 
 Notes, folders, conversations, meetings, dictionary entries, snippets, and transcription history are stored in the local workspace. Audio and downloaded models also use local files.
 
+With Labs → The Table on, card positions, links and each Space’s canvas viewport are stored in the local SQLite database. These layout records contain no note text. Removing a card returns it to the bounded recent Inbox tray without deleting the underlying note, dictation or conversation; older content remains available through History and List. The per-Space List/Table preference is stored separately in localStorage. The browser preview keeps sample layout only in memory until reload.
+
 Chat history also stores, on this device, the titles of the notes an answer used and a short excerpt (up to 240 characters) of each, so the Sources row can be shown later. This local storage feature adds no new transfer; when remote inference is selected, that provider already receives the context supplied to the request.
 
 On a fresh profile:

@@ -197,7 +197,7 @@ export function TableCanvas(props: TableCanvasProps) {
       ? parseFloat(token) * (token.endsWith("ms") ? 1 : 1000)
       : 0;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || duration <= 0) {
-      setSnapping([]);
+      setSnapping((current) => (current.length ? [] : current));
       return;
     }
     setSnapping(keys);
@@ -205,7 +205,7 @@ export function TableCanvas(props: TableCanvasProps) {
     snapRef.current.timer = setTimeout(() => {
       if (snapRef.current.owner !== owner) return;
       snapRef.current.timer = null;
-      setSnapping([]);
+      setSnapping((current) => (current.length ? [] : current));
     }, duration);
   };
 
@@ -216,7 +216,7 @@ export function TableCanvas(props: TableCanvasProps) {
     const frames = frameOwner.current;
     setDragging([]);
     setLasso(null);
-    setSnapping([]);
+    setSnapping((current) => (current.length ? [] : current));
     setFocusRequest(null);
     return () => {
       frames.revision++;
@@ -246,7 +246,7 @@ export function TableCanvas(props: TableCanvasProps) {
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || pointerIdRef.current !== null) return;
     clearSnap();
-    setSnapping([]);
+    setSnapping((current) => (current.length ? [] : current));
     pointerIdRef.current = event.pointerId;
     sessionRef.current = { selection: [...selection], viewport, placed };
     const cardEl = (event.target as HTMLElement).closest<HTMLElement>("[data-card-key]");

@@ -1027,3 +1027,30 @@ test("Task10: pan and unrelated card geometry do not rerender unchanged card con
   assert.equal(f.cardEl(changed[0].key).attributes["aria-selected"], "true");
   assert.ok(translations > initial, "changed source must still render");
 });
+
+test("Task10 fix1: overflow paint follows real measurement without regenerating unchanged card text", async (t) => {
+  const original = i18n.t;
+  let translations = 0;
+  i18n.t = function (key, ...args) {
+    if (key === "table.kind.note") translations++;
+    return original.call(this, key, ...args);
+  };
+  t.after(() => (i18n.t = original));
+  const c = { ...card("note:1", "note", 32, 32), fixedH: 80 };
+  const m = await mount(t, { cards: [c] });
+  const outer = m.cardEl(c.key);
+  const content = m.tree.find((n) => n.attributes.class === "table-card__content");
+  const observer = m.observers.find((o) => o.node === outer);
+  const before = translations;
+  content.clientHeight = 54;
+  content.scrollHeight = 180;
+  outer.offsetHeight = 80;
+  await React.act(async () => observer.callback());
+  assert.equal(content.attributes["data-overflowing"], "true");
+  assert.deepEqual(m.byCall("onMeasure").at(-1), [c.key, 80]);
+  assert.equal(translations, before, "paint-only overflow should not trigger a React render");
+  content.scrollHeight = 54;
+  await React.act(async () => observer.callback());
+  assert.equal(content.attributes["data-overflowing"], undefined);
+  assert.equal(translations, before);
+});

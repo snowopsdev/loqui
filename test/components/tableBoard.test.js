@@ -58,9 +58,20 @@ async function mount(t, api, spaceId = 1) {
     return null;
   }
   root = createRoot(container);
-  const render = (id) => act(() => root.render(React.createElement(Harness, { id })));
+  const commits = [];
+  const render = (id) =>
+    act(() =>
+      root.render(
+        React.createElement(
+          React.Profiler,
+          { id: "board", onRender: (...args) => commits.push(args) },
+          React.createElement(Harness, { id })
+        )
+      )
+    );
   await render(spaceId);
   return {
+    commits,
     get h() {
       return h;
     },
@@ -590,4 +601,78 @@ test("Task10: chrome state keeps card and edge projections stable while geometry
   assert.notEqual(f.h.cards, cards);
   assert.equal(f.h.cards[0].rect.x, 80);
   assert.equal(f.h.cards[0].rect.y, 88);
+});
+
+test("Task10 fix1: identical canonical read adds no second settlement update, changed content still wins", async (t) => {
+  let canonical = data([
+    entity(1, "note", { x: 32, y: 32, w: null, h: null, z: 0, hidden: false }),
+  ]);
+  let held = null;
+  const f = await mount(t, {
+    getTableBoard: async () => (held ? held.promise : structuredClone(canonical)),
+    placeTableCards: async (_space, placements) => {
+      canonical.cards[0].layout = { ...canonical.cards[0].layout, ...placements[0] };
+      delete canonical.cards[0].layout.type;
+      delete canonical.cards[0].layout.id;
+      return { success: true, placed: 1, placedKeys: ["note:1"] };
+    },
+  });
+  held = deferred();
+  let operation;
+  await act(() => {
+    operation = f.h.place([{ type: "note", id: 1, x: 80, y: 88 }]);
+  });
+  const accepted = f.h.state;
+  const acceptedCommits = f.commits.length;
+  assert.equal(accepted.board.cards[0].layout.x, 80);
+  await act(async () => {
+    held.resolve(structuredClone(canonical));
+    await operation;
+  });
+  assert.equal(f.h.state, accepted, "an identical main projection needs no second UI update");
+  assert.equal(
+    f.commits.length,
+    acceptedCommits,
+    "no-op reload must not publish even a zero-duration commit"
+  );
+  held = null;
+  canonical.cards[0].title = "New authoritative content";
+  await act(() => f.h.reload());
+  assert.equal(f.h.state.board.cards[0].title, "New authoritative content");
+  assert.notEqual(f.h.state, accepted);
+});
+
+test("Task10 fix1: synchronous action sequence retains every field before React publishes", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() });
+  await act(() => {
+    f.h.dispatch({ type: "moved", positions: { "note:1": { x: 40, y: 48 } } });
+    f.h.dispatch({ type: "resized", key: "note:1", size: { w: 320, h: 80 } });
+    f.h.dispatch({ type: "focus", key: "note:1" });
+    f.h.dispatch({ type: "moved", positions: { "note:1": { x: 56, y: 64 } } });
+  });
+  assert.deepEqual(f.h.cards[0].rect, { x: 56, y: 64, w: 320, h: 80 });
+  assert.equal(f.h.state.focused, "note:1");
+});
+
+test("Task10 fix1: identical ACK still writes and reads main without publishing unchanged UI", async (t) => {
+  const canonical = data([
+    entity(1, "note", { x: 32, y: 32, w: null, h: null, z: 0, hidden: false }),
+  ]);
+  let writes = 0,
+    reads = 0;
+  const f = await mount(t, {
+    getTableBoard: async () => {
+      reads++;
+      return structuredClone(canonical);
+    },
+    placeTableCards: async () => {
+      writes++;
+      return { success: true, placed: 1, placedKeys: ["note:1"] };
+    },
+  });
+  const before = f.commits.length;
+  await act(() => f.h.place([{ type: "note", id: 1, x: 32, y: 32 }]));
+  assert.equal(writes, 1);
+  assert.equal(reads, 2, "canonical main read is never skipped");
+  assert.equal(f.commits.length, before, "unchanged ACK and read are not UI changes");
 });

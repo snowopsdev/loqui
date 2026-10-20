@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { CalendarDays, MessageSquare, Mic, NotebookPen } from "../icons";
 import { formatMmSs } from "../../utils/formatDuration";
@@ -49,10 +49,14 @@ function TableCardContent({
   const bodyRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef(false);
   sizedRef.current = card.fixedH != null;
-  const [overflowing, setOverflowing] = useState(false);
   const updateOverflow = useCallback(() => {
     const content = contentRef.current;
-    setOverflowing(sizedRef.current && !!content && content.scrollHeight > content.clientHeight);
+    if (!content) return;
+    // The cue changes paint only. Keep it synchronous with actual layout without
+    // scheduling another React commit for otherwise unchanged card content.
+    if (sizedRef.current && content.scrollHeight > content.clientHeight)
+      content.setAttribute("data-overflowing", "true");
+    else content.removeAttribute("data-overflowing");
   }, []);
   const { entity } = card;
   const Icon = KIND_ICON[entity.kind];
@@ -114,11 +118,7 @@ function TableCardContent({
         ...(card.fixedH != null ? { height: card.fixedH, overflow: "hidden" } : {}),
       }}
     >
-      <div
-        ref={contentRef}
-        className="table-card__content"
-        data-overflowing={card.fixedH != null && overflowing ? "true" : undefined}
-      >
+      <div ref={contentRef} className="table-card__content">
         <div ref={bodyRef} className="table-card__body">
           <div className="table-card__kind">
             <Icon size={12} aria-hidden="true" />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TableBoardData, TableEntityRef, TablePlacement } from "../../types/table";
 import type { Viewport } from "./tableGeometry";
 import { parseEntityHref } from "./tableEdges";
@@ -20,7 +20,21 @@ type BoardAction =
   | { type: "loaded"; board: TableBoardData; preserveViewport?: boolean }
   | { type: "reset" }
   | { type: "settled"; keys: string[]; sizeKeys: string[]; accepted: TablePlacement[] };
+// Compare bounded, acyclic Table model/wire values before publishing UI state.
+// ACKs still settle immediately; a read with no changed field is not a new UI state.
+function sameTableValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const keys = Object.keys(x);
+  return (
+    keys.length === Object.keys(y).length &&
+    keys.every((key) => Object.hasOwn(y, key) && sameTableValue(x[key], y[key]))
+  );
+}
 function reduce(state: TableState, action: BoardAction): TableState {
+  if (action.type === "loaded" && sameTableValue(state.board, action.board)) return state;
   if (action.type === "reset") return initialTableState();
   if (action.type === "settled") {
     const next = tableReducer(state, { type: "placed", placements: action.accepted });
@@ -50,19 +64,38 @@ function reduce(state: TableState, action: BoardAction): TableState {
 
 /** ACKs describe mutations; main's read describes the canonical, capped projection. */
 export function useTableBoard(spaceId: number) {
-  const [state, reduceDispatch] = useReducer(reduce, undefined, initialTableState);
+  const [state, setState] = useState(initialTableState);
+  // Apply every action immediately, including ACK ownership. Avoid enqueueing a
+  // React update for an unchanged result: a reducer bailout can still commit.
+  // This ref is written only here, never overwritten by an older React render.
+  const liveState = useRef(state);
+  const reduceDispatch = useCallback((action: BoardAction) => {
+    const next = reduce(liveState.current, action);
+    if (sameTableValue(next, liveState.current)) return;
+    liveState.current = next;
+    setState(next);
+  }, []);
   const moves = useRef<Record<string, number>>({});
   const resizes = useRef<Record<string, number>>({});
   const placementWrites = useRef<Record<string, number>>({});
-  const dispatch = useCallback((action: TableAction) => {
-    if (action.type === "moved")
-      for (const key of Object.keys(action.positions))
-        moves.current[key] = (moves.current[key] ?? 0) + 1;
-    if (action.type === "resized" || action.type === "sizeRestored")
-      resizes.current[action.key] = (resizes.current[action.key] ?? 0) + 1;
-    reduceDispatch(action);
+  const dispatch = useCallback(
+    (action: TableAction) => {
+      if (action.type === "moved")
+        for (const key of Object.keys(action.positions))
+          moves.current[key] = (moves.current[key] ?? 0) + 1;
+      if (action.type === "resized" || action.type === "sizeRestored")
+        resizes.current[action.key] = (resizes.current[action.key] ?? 0) + 1;
+      reduceDispatch(action);
+    },
+    [reduceDispatch]
+  );
+  const [status, publishStatus] = useState<"idle" | "full" | "saveFailed">("idle");
+  const liveStatus = useRef(status);
+  const setStatus = useCallback((next: typeof status) => {
+    if (next === liveStatus.current) return;
+    liveStatus.current = next;
+    publishStatus(next);
   }, []);
-  const [status, setStatus] = useState<"idle" | "full" | "saveFailed">("idle");
   const owner = useRef({ spaceId, generation: 0, mounted: true, read: 0, viewport: 0 });
   if (owner.current.spaceId !== spaceId) {
     owner.current = {
@@ -101,7 +134,7 @@ export function useTableBoard(spaceId: number) {
         if (current()) setStatus("saveFailed");
       }
     },
-    [spaceId, dispatch]
+    [spaceId, dispatch, reduceDispatch, setStatus]
   );
 
   useEffect(() => {
@@ -190,7 +223,7 @@ export function useTableBoard(spaceId: number) {
       }
       return ok;
     },
-    [reload, spaceId]
+    [reload, spaceId, reduceDispatch, setStatus]
   );
 
   const hide = useCallback(
@@ -211,7 +244,7 @@ export function useTableBoard(spaceId: number) {
         await reload();
       }
     },
-    [reload, spaceId]
+    [reload, spaceId, setStatus]
   );
 
   const link = useCallback(
@@ -230,7 +263,7 @@ export function useTableBoard(spaceId: number) {
       }
       return ok;
     },
-    [reload, spaceId]
+    [reload, spaceId, setStatus]
   );
 
   const setViewport = useCallback(
@@ -261,7 +294,7 @@ export function useTableBoard(spaceId: number) {
         })();
       }, VIEWPORT_SAVE_MS);
     },
-    [reload, spaceId, dispatch]
+    [reload, spaceId, dispatch, setStatus]
   );
   // Chrome-only changes do not change card content or geometry. Preserve the
   // projection so viewport frames can reuse memoized card subtrees.

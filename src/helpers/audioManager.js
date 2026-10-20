@@ -5182,6 +5182,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   _attachStreamingListeners(sessionId, provider = this.getStreamingProvider()) {
     const ownsSession = () => this._activeStreamingSessionId === sessionId;
+    const onboardingTake = this._onboardingTake;
     // 3. Register IPC event listeners BEFORE connecting, so no transcript
     //    events are lost during the connect handshake.
     this.streamingFinalText = "";
@@ -5193,7 +5194,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       if (!ownsSession()) return;
       this.streamingPartialText = text;
       this.streamingTextBump?.();
-      this.onPartialTranscript?.(text);
+      this.onPartialTranscript?.(text, onboardingTake);
     });
 
     const finalCleanup = provider.onFinal((text) => {
@@ -5213,10 +5214,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const errorCleanup = provider.onError((error) => {
       if (!ownsSession()) return;
       logger.error("Streaming provider error", { error }, "streaming");
-      this.onError?.({
-        title: "Streaming Error",
-        description: error,
-      });
+      this.onError?.(
+        {
+          title: "Streaming Error",
+          description: error,
+        },
+        onboardingTake
+      );
       if (this.isStreaming) {
         logger.warn("Connection lost during streaming, auto-stopping", {}, "streaming");
         this.stopStreamingRecording().catch((e) => {

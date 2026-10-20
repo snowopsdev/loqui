@@ -341,3 +341,149 @@ test("a retained reload callback does no Table IPC after unmount", async (t) => 
   await act(() => reload());
   assert.equal(reads, 1);
 });
+
+for (const finalRead of ["success", "failure"])
+  test(`fix1 I1: older ACK after newer ACK keeps accepted geometry before final ${finalRead} read`, async (t) => {
+    const a = deferred(),
+      b = deferred(),
+      final = deferred();
+    const newer = data([
+      entity(1, "note", { x: 160, y: 176, w: null, h: null, z: 0, hidden: false }),
+    ]);
+    let reads = 0,
+      writes = 0;
+    const c = await mount(t, {
+      getTableBoard: () => {
+        reads++;
+        return reads === 1
+          ? Promise.resolve(data())
+          : reads === 2
+            ? Promise.resolve(newer)
+            : final.promise;
+      },
+      placeTableCards: () => (++writes === 1 ? a.promise : b.promise),
+    });
+    let first, second;
+    await act(() => {
+      c.h.dispatch({ type: "moved", positions: { "note:1": { x: 80, y: 88 } } });
+      first = c.h.place([{ type: "note", id: 1, x: 80, y: 88 }]);
+    });
+    await act(() => {
+      c.h.dispatch({ type: "moved", positions: { "note:1": { x: 160, y: 176 } } });
+      second = c.h.place([{ type: "note", id: 1, x: 160, y: 176 }]);
+    });
+    await act(() => b.resolve({ success: true, placed: 1, placedKeys: ["note:1"] }));
+    assert.equal(await second, true);
+    assert.deepEqual(c.h.state.overrides, {}, "B has settled its preview");
+    assert.equal(c.h.cards[0].rect.x, 160);
+    await act(() => a.resolve({ success: true, placed: 1, placedKeys: ["note:1"] }));
+    try {
+      assert.equal(reads, 3, "A still reconciles main after its obsolete ACK");
+      assert.equal(c.h.cards[0].rect.x, 160, "before final read, A must not replay x80");
+      assert.equal(c.h.cards[0].rect.y, 176);
+    } finally {
+      await act(() =>
+        finalRead === "success"
+          ? final.resolve(newer)
+          : final.reject(Error("canonical read failed"))
+      );
+      assert.equal(await first, true, "main accepted A even though its local geometry is obsolete");
+    }
+    assert.equal(c.h.cards[0].rect.x, 160);
+    assert.equal(c.h.cards[0].rect.y, 176);
+    assert.equal(c.h.status, finalRead === "success" ? "idle" : "saveFailed");
+  });
+
+test("fix1 I1: per-key write ownership also orders placements without move previews", async (t) => {
+  const a = deferred(),
+    b = deferred(),
+    final = deferred();
+  const initial = data([entity(1), entity(2)]);
+  const newer = data([
+    entity(1, "note", { x: 160, y: 176, w: null, h: null, z: 0, hidden: false }),
+    entity(2),
+  ]);
+  let reads = 0,
+    writes = 0;
+  const c = await mount(t, {
+    getTableBoard: () =>
+      ++reads === 1
+        ? Promise.resolve(initial)
+        : reads === 2
+          ? Promise.resolve(newer)
+          : final.promise,
+    placeTableCards: () => (++writes === 1 ? a.promise : b.promise),
+  });
+  let first, second;
+  await act(() => {
+    first = c.h.place([
+      { type: "note", id: 1, x: 80, y: 88 },
+      { type: "note", id: 2, x: 240, y: 248 },
+    ]);
+  });
+  await act(() => {
+    second = c.h.place([{ type: "note", id: 1, x: 160, y: 176 }]);
+  });
+  await act(() => b.resolve({ success: true, placed: 1, placedKeys: ["note:1"] }));
+  await second;
+  await act(() => a.resolve({ success: true, placed: 2, placedKeys: ["note:1", "note:2"] }));
+  try {
+    assert.equal(c.h.cards.find((card) => card.key === "note:1").rect.x, 160);
+    assert.equal(
+      c.h.cards.find((card) => card.key === "note:2").rect.x,
+      240,
+      "uncontested key in A's batch still applies"
+    );
+  } finally {
+    await act(() =>
+      final.resolve(
+        data([
+          newer.cards[0],
+          entity(2, "note", { x: 240, y: 248, w: null, h: null, z: 0, hidden: false }),
+        ])
+      )
+    );
+    await first;
+  }
+});
+
+test("fix1 I2: first board read accepts content without replacing a newer live viewport", async (t) => {
+  const initial = deferred();
+  const c = await mount(t, { getTableBoard: () => initial.promise });
+  const live = { x: 90, y: 100, scale: 1.2 };
+  await act(() => c.h.setViewport(live, false));
+  await act(() => initial.resolve({ ...data(), viewport: { x: 0, y: 0, scale: 1 } }));
+  assert.equal(c.h.state.board.spaceId, 1);
+  assert.equal(c.h.cards[0].key, "note:1");
+  assert.deepEqual(c.h.state.viewport, live);
+});
+
+test("fix1 I2: untouched initial load still restores the stored viewport", async (t) => {
+  const initial = deferred();
+  const stored = { x: -40, y: 12, scale: 0.8 };
+  const c = await mount(t, { getTableBoard: () => initial.promise });
+  await act(() => initial.resolve({ ...data(), viewport: stored }));
+  assert.deepEqual(c.h.state.viewport, stored);
+});
+
+for (const navigateInB of [false, true])
+  test(`fix1 I2: scope reset rejects old load and ${navigateInB ? "retains B live navigation" : "restores B stored view"}`, async (t) => {
+    const a = deferred(),
+      b = deferred();
+    const c = await mount(t, { getTableBoard: (id) => (id === 1 ? a.promise : b.promise) });
+    await act(() => c.h.setViewport({ x: 90, y: 100, scale: 1.2 }, false));
+    await c.render(2);
+    assert.deepEqual(
+      c.h.state.viewport,
+      { x: 0, y: 0, scale: 1 },
+      "scope change resets live ownership"
+    );
+    const liveB = { x: 180, y: 200, scale: 1.4 };
+    if (navigateInB) await act(() => c.h.setViewport(liveB, false));
+    await act(() => a.resolve({ ...data(), viewport: { x: -40, y: 12, scale: 0.8 } }));
+    assert.equal(c.h.state.board, null, "stale A cannot initialize B");
+    const storedB = { x: -70, y: -50, scale: 0.7 };
+    await act(() => b.resolve({ ...data([entity(2)]), spaceId: 2, viewport: storedB }));
+    assert.equal(c.h.state.board.spaceId, 2);
+    assert.deepEqual(c.h.state.viewport, navigateInB ? liveB : storedB);
+  });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { TableEntityRef, TablePlacement } from "../../types/table";
+import type { TableBoardData, TableEntityRef, TablePlacement } from "../../types/table";
 import type { Viewport } from "./tableGeometry";
 import { parseEntityHref } from "./tableEdges";
 import {
@@ -16,7 +16,10 @@ import {
 const VIEWPORT_SAVE_MS = 400;
 const LIFECYCLE_RELOAD_MS = 250;
 type BoardAction =
-  TableAction | { type: "reset" } | { type: "settled"; keys: string[]; accepted: TablePlacement[] };
+  | Exclude<TableAction, { type: "loaded" }>
+  | { type: "loaded"; board: TableBoardData; preserveViewport?: boolean }
+  | { type: "reset" }
+  | { type: "settled"; keys: string[]; accepted: TablePlacement[] };
 function reduce(state: TableState, action: BoardAction): TableState {
   if (action.type === "reset") return initialTableState();
   if (action.type === "settled") {
@@ -35,6 +38,7 @@ function reduce(state: TableState, action: BoardAction): TableState {
   const present = new Set(action.board.cards.map((e) => refKey(e.ref)));
   return {
     ...next,
+    viewport: action.preserveViewport ? state.viewport : next.viewport,
     overrides: Object.fromEntries(Object.entries(state.overrides).filter(([k]) => present.has(k))),
   };
 }
@@ -43,6 +47,7 @@ function reduce(state: TableState, action: BoardAction): TableState {
 export function useTableBoard(spaceId: number) {
   const [state, reduceDispatch] = useReducer(reduce, undefined, initialTableState);
   const moves = useRef<Record<string, number>>({});
+  const placementWrites = useRef<Record<string, number>>({});
   const dispatch = useCallback((action: TableAction) => {
     if (action.type === "moved")
       for (const key of Object.keys(action.positions))
@@ -61,6 +66,7 @@ export function useTableBoard(spaceId: number) {
     };
     reduceDispatch({ type: "reset" });
     moves.current = {};
+    placementWrites.current = {};
     setStatus("idle");
   }
   const viewportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -77,7 +83,9 @@ export function useTableBoard(spaceId: number) {
           setStatus("saveFailed");
           return;
         }
-        dispatch({ type: "loaded", board });
+        // A first read may outlive navigation on an otherwise empty board.
+        // Only an untouched scope may restore the stored viewport.
+        reduceDispatch({ type: "loaded", board, preserveViewport: scope.viewport !== 0 });
         if (viewportRevision !== undefined && scope.viewport === viewportRevision)
           dispatch({ type: "viewport", viewport: board.viewport ?? { x: 0, y: 0, scale: 1 } });
       } catch {
@@ -129,6 +137,15 @@ export function useTableBoard(spaceId: number) {
       const scope = owner.current;
       if (scope.spaceId === spaceId) scope.read++; // A read started before this transaction cannot undo its ACK.
       const preview = { ...moves.current };
+      const writeVersions = new Map<string, number>();
+      if (scope.spaceId === spaceId) {
+        for (const placement of placements) {
+          const key = refKey(placement);
+          const revision = (placementWrites.current[key] ?? 0) + 1;
+          placementWrites.current[key] = revision;
+          writeVersions.set(key, revision);
+        }
+      }
       let acceptedPlacements: TablePlacement[] = [];
       let ok = false;
       let nextStatus: typeof status = "saveFailed";
@@ -145,10 +162,15 @@ export function useTableBoard(spaceId: number) {
         /* Refusal and bridge failure both preserve underlying content. */
       }
       if (owner.current === scope && scope.mounted && scope.spaceId === spaceId) {
+        // An old ACK must not replay geometry after a newer write has already
+        // settled its preview. Nonoverlapping keys in a batch keep their owner.
+        const ownsWrite = (key: string) => placementWrites.current[key] === writeVersions.get(key);
         reduceDispatch({
           type: "settled",
-          accepted: acceptedPlacements,
-          keys: placements.map(refKey).filter((key) => moves.current[key] === preview[key]),
+          accepted: acceptedPlacements.filter((p) => ownsWrite(refKey(p))),
+          keys: placements
+            .map(refKey)
+            .filter((key) => ownsWrite(key) && moves.current[key] === preview[key]),
         });
         setStatus(nextStatus);
         await reload(); // Also on all-ACK: new entities may displace automatic notes.

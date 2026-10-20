@@ -27,7 +27,7 @@ function sender(id) {
   });
   return wc;
 }
-function mainFixture(t) {
+function mainFixture(t, { DeepgramStreaming = null } = {}) {
   const source = fs.readFileSync(
     path.resolve(__dirname, "../../../src/helpers/ipcHandlers.js"),
     "utf8"
@@ -168,7 +168,7 @@ function mainFixture(t) {
     (error) => ({ success: false, error: error.message }),
     Client,
     Client,
-    Client,
+    DeepgramStreaming || Client,
     Client,
     Client,
     "fixture-tinfoil",

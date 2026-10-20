@@ -38,11 +38,11 @@ test("Plan 06's loop and dwell cadences are shared motion tokens (N03)", () => {
     "--motion-loop-travel": "1400ms",
     "--motion-loop-pulse": "1200ms",
     "--motion-loop-blink": "1000ms",
-    "--motion-stagger": "150ms",
+    "--motion-loop-stagger": "150ms",
     "--motion-dwell-ring": "1200ms",
   };
   for (const [name, value] of Object.entries(cadence)) {
-    assert.match(css, new RegExp(`${name}:\\s*${value};`), name);
+    assert.equal(readTokens(css, ":root")[name], value, name);
   }
 });
 

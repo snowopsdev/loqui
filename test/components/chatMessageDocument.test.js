@@ -77,7 +77,7 @@ test("the chat loops use the shared cadence tokens, never literal durations (N03
   );
   const dots = css.slice(css.indexOf(".thinking-dots {"), css.indexOf("@keyframes thinking-dot"));
   assert.match(dots, /animation:\s*thinking-dot var\(--motion-loop-pulse\)/);
-  assert.match(dots, /animation-delay:\s*calc\(var\(--motion-stagger\) \* 2\)/);
+  assert.match(dots, /animation-delay:\s*calc\(var\(--motion-loop-stagger\) \* 2\)/);
   assert.doesNotMatch(dots, /\d(?:ms|s)\b/);
   const message = require("node:fs").readFileSync(
     require("node:path").join(__dirname, "../../src/components/chat/ChatMessage.tsx"),

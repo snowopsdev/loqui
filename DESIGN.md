@@ -288,7 +288,7 @@ One language for every surface. **Hue is mode, shape is locality, motion is prog
 | `--motion-locality-orbit`                      | 6000ms                        | active remote locality ring rotation                                                                  |
 | `--motion-ease-ambient`                        | ease-in-out                   | ambient halo breath                                                                                   |
 
-Decorative loop cadences use shared tokens too. Functional deadlines such as the real Undo window and the JS-shared footprint/listening timing remain separate.
+Decorative loop cadences use shared tokens too. `--motion-loop-stagger` is 150ms between thinking dots; it is separate from the 40ms `--motion-stagger` for notice bursts. Functional deadlines such as the real Undo window and the JS-shared footprint/listening timing remain separate.
 
 Rules:
 

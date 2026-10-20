@@ -9,6 +9,27 @@
         "files": ["src/styles/onboarding.css"],
         "createdAt": "2026-10-19T14:15:30.273Z",
         "reason": "Approved Task14 brief and Plan05 composition prescribe onb-popin with the shared motion-spring-snap token; preserve that intentional arrival easing."
+      },
+      {
+        "rule": "design-system-font",
+        "value": "caveat variable",
+        "files": ["src/index.css"],
+        "createdAt": "2026-10-20T21:24:02.091Z",
+        "reason": "Agent triage: accepted brand-script in both integration parents explicitly binds the self-hosted Figma Caveat face; M1 changes timing only."
+      },
+      {
+        "rule": "design-system-font",
+        "value": "sfmono-regular",
+        "files": ["src/index.css"],
+        "createdAt": "2026-10-20T21:24:02.100Z",
+        "reason": "Agent triage: DESIGN.md reserves system monospace for inline code; this is the existing rich-text editor code fallback."
+      },
+      {
+        "rule": "design-system-font",
+        "value": "apple color emoji",
+        "files": ["src/index.css"],
+        "createdAt": "2026-10-20T21:24:02.110Z",
+        "reason": "Agent triage: accepted font-emoji is the platform emoji glyph fallback, synchronized with emojiData.ts; not application typography."
       }
     ]
   }

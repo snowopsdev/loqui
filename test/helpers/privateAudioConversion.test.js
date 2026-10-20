@@ -7,6 +7,19 @@ const { PassThrough, Writable } = require("node:stream");
 const { wavHeader } = require("./harness/wavFixtures");
 
 function conversionFixture(t) {
+  // npm ci --ignore-scripts intentionally installs no Electron runtime. Fake
+  // this nonpersonal leaf before the converter/logger imports; sink assertions
+  // below still intercept the actual converter filesystem/process operations.
+  const electronPath = require.resolve("electron");
+  const previousElectron = require.cache[electronPath];
+  require.cache[electronPath] = {
+    loaded: true,
+    exports: { app: { isReady: () => false, getPath: () => "/fixture-unused" } },
+  };
+  t.after(() => {
+    if (previousElectron) require.cache[electronPath] = previousElectron;
+    else delete require.cache[electronPath];
+  });
   const sinks = [],
     processes = [],
     files = new Map();

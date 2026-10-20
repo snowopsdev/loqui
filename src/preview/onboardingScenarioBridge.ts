@@ -675,6 +675,10 @@ export function createOnboardingScenarioBridge(
       available: scenario() !== "codex-missing",
       account: scenario() === "ready" ? { type: "chatgpt" } : null,
     }),
+    codexModelCatalog: async () => ({
+      connected: scenario() === "ready",
+      data: scenario() === "ready" ? [{ model: "preview-codex", isDefault: true }] : [],
+    }),
     codexModels: async () => ({
       data:
         scenario() === "ready"
@@ -690,7 +694,10 @@ export function createOnboardingScenarioBridge(
       nextCursor: null,
     }),
     credentialStatus: async (_ref: string) => ({ configured: scenario() === "ready" }),
-  } satisfies Pick<API["personalInference"], "codexStatus" | "codexModels" | "credentialStatus">;
+  } satisfies Pick<
+    API["personalInference"],
+    "codexStatus" | "codexModels" | "codexModelCatalog" | "credentialStatus"
+  >;
   const cleanupFacts = {
     credentials: async () =>
       ["openai", "codex"].map((id) => ({

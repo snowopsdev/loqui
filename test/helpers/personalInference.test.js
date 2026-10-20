@@ -158,3 +158,32 @@ test("inference admission waits for startup source migration before reading sett
   assert.deepEqual(touched, ["enterprise", "credential"]);
   registered.dispose();
 });
+
+test("passive Codex model IPC calls only the cached snapshot reader", async () => {
+  const handlers = new Map();
+  const codex = new EventEmitter();
+  const calls = [];
+  codex.stop = () => {};
+  codex.modelCatalog = () => {
+    calls.push("cache");
+    return { connected: true, data: [{ model: "ack-fixture", isDefault: true }] };
+  };
+  for (const method of ["start", "status", "models", "login"])
+    codex[method] = () => {
+      throw new Error(`automatic ${method}`);
+    };
+  const service = registerPersonalInferenceIPC({
+    ipcMain: {
+      handle: (name, fn) => handlers.set(name, fn),
+      removeHandler: (name) => handlers.delete(name),
+    },
+    codex,
+    userDataPath: "/fixture-unused",
+  });
+  assert.deepEqual(await handlers.get("personal-inference:codex-model-catalog")({}), {
+    connected: true,
+    data: [{ model: "ack-fixture", isDefault: true }],
+  });
+  assert.deepEqual(calls, ["cache"]);
+  service.dispose();
+});

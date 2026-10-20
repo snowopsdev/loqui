@@ -1795,3 +1795,208 @@ test("Ready invalidates voice proof when the admitted model/route changes, while
   await h.ui.click("setupFlow.back");
   assert.ok(h.ui.text().includes("um A"), "historical words stay in RAM for Cleanup");
 });
+
+for (const remembered of ["fixture-codex-ack", "unrelated-cloud-model"]) {
+  test(`actual Flow selects only acknowledged Codex inventory through coupled planner (${remembered})`, async (t) => {
+    const { testFacts, TEST_COPY } = require("../lib/routeStateFixture");
+    const automatic = [];
+    const { ui } = await mountFlow(
+      t,
+      { initialStep: "cleanup", previewConfig: undefined },
+      {
+        storage: {
+          useCleanupModel: "false",
+          cleanupModel: remembered,
+          chatAgentModel: "keep-existing",
+          translationModel: "",
+          dictationAgentModel: "",
+          noteFormattingModel: "",
+          "loqui.onboarding.reuseCleanup": "true",
+        },
+        api: {
+          credentials: {
+            list: async () => [{ id: "codex", present: true, generation: 1 }],
+            onChanged: () => () => {},
+          },
+          personalInference: {
+            codexStatus: async () => ({ available: true, account: { type: "chatgpt" } }),
+            codexModelCatalog: async () => ({
+              connected: true,
+              data: [
+                { model: "fixture-codex-default", isDefault: true },
+                { model: "fixture-codex-ack" },
+              ],
+            }),
+            codexModels: async () => {
+              automatic.push("discovery");
+              return { data: [] };
+            },
+            textGenerate: async () => automatic.push("generate"),
+          },
+        },
+      }
+    );
+    const settings = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+    const drafts = await ui.vite.ssrLoadModule("/stores/routeDraftStore.ts");
+    const facts = (await ui.vite.ssrLoadModule("/stores/routeFactsStore.ts")).useRouteFactsStore;
+    await React.act(async () =>
+      facts.setState({ facts: testFacts({ credentials: new Map([["codex", true]]) }) })
+    );
+    const before = { ...settings.getState() };
+    await ui.click(ui.byAttr("data-value", "codex")[0]);
+    const draft = drafts.useRouteDraftStore.getState().draft;
+    assert.ok(draft, "connected acknowledged Codex must reach the actual planner");
+    const model = remembered === "fixture-codex-ack" ? remembered : "fixture-codex-default";
+    const plan = drafts.planDraft(draft, TEST_COPY);
+    assert.equal(settings.getState().cleanupModel, remembered, "review has not committed");
+    assert.equal(draft.patch.cleanupProvider, "codex");
+    assert.equal(draft.patch.cleanupModel, model);
+    assert.ok(plan.changes.length >= 4);
+    assert.ok(
+      plan.changes.filter((c) => c.after.state.status !== "off").every((c) => c.after.sends)
+    );
+    await ui.click("staging.discard");
+    for (const key of Object.keys(plan.undoPatch))
+      assert.deepEqual(settings.getState()[key], before[key], key);
+    await ui.click(ui.byAttr("data-value", "none")[0]);
+    await ui.click(ui.byAttr("data-value", "codex")[0]);
+    let applied;
+    await React.act(async () => {
+      applied = await drafts.applyDraft(TEST_COPY);
+    });
+    assert.equal(applied.applied, true, JSON.stringify(applied));
+    assert.equal(settings.getState().cleanupProvider, "codex");
+    assert.equal(settings.getState().cleanupModel, model);
+    assert.equal(settings.getState().chatAgentModel, "keep-existing");
+    for (const key of ["translationModel", "dictationAgentModel", "noteFormattingModel"])
+      assert.equal(settings.getState()[key], model);
+    await React.act(async () => {
+      await applied.undo();
+    });
+    for (const key of Object.keys(plan.undoPatch))
+      assert.deepEqual(settings.getState()[key], before[key], key);
+    assert.deepEqual(automatic, []);
+    assert.equal(
+      ui.calls.filter(([name]) =>
+        /codexStatus|codexModels|providerTest|describeModels|textGenerate|runTextOperation/.test(
+          name
+        )
+      ).length,
+      0
+    );
+  });
+}
+
+test("actual Flow connected without acknowledged models names model setup and only lists on explicit tap", async (t) => {
+  let listed = 0;
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "cleanup", previewConfig: undefined },
+    {
+      api: {
+        personalInference: {
+          codexStatus: async () => ({ available: true, account: { type: "chatgpt" } }),
+          codexModelCatalog: async () => ({
+            connected: true,
+            data: listed ? [{ model: "explicit-fixture", isDefault: true }] : [],
+          }),
+          codexModels: async () => {
+            listed++;
+            return { data: [{ model: "explicit-fixture" }], nextCursor: null };
+          },
+        },
+      },
+    }
+  );
+  const drafts = (await ui.vite.ssrLoadModule("/stores/routeDraftStore.ts")).useRouteDraftStore;
+  await ui.click(ui.byAttr("data-value", "codex")[0]);
+  assert.equal(drafts.getState().draft, null);
+  assert.ok(ui.text().includes("setupFlow.cleanup.now.modelSetup"));
+  assert.equal(ui.text().includes("setupFlow.cleanup.now.needsConnection"), false);
+  assert.equal(listed, 0);
+  await ui.click("setupFlow.cleanup.listModels");
+  assert.equal(listed, 1);
+  assert.equal(drafts.getState().draft.patch.cleanupModel, "explicit-fixture");
+});
+
+for (const unavailable of [
+  undefined,
+  { connected: false, data: [{ model: "stale-account-model", isDefault: true }] },
+  { connected: true, data: [] },
+]) {
+  test(`actual Flow refuses unavailable/stale/empty passive Codex inventory (${JSON.stringify(unavailable)})`, async (t) => {
+    const { ui } = await mountFlow(
+      t,
+      { initialStep: "cleanup", previewConfig: undefined },
+      {
+        storage: { cleanupModel: "stale-account-model", useCleanupModel: "false" },
+        api: {
+          personalInference: {
+            codexModelCatalog: unavailable === undefined ? undefined : async () => unavailable,
+            codexStatus: () => {
+              throw new Error("automatic status");
+            },
+            codexModels: () => {
+              throw new Error("automatic discovery");
+            },
+          },
+        },
+      }
+    );
+    const settings = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+    const drafts = (await ui.vite.ssrLoadModule("/stores/routeDraftStore.ts")).useRouteDraftStore;
+    const before = { ...settings.getState() };
+    await ui.click(ui.byAttr("data-value", "codex")[0]);
+    assert.equal(drafts.getState().draft, null);
+    for (const key of [
+      "cleanupModel",
+      "cleanupProvider",
+      "useCleanupModel",
+      "chatAgentModel",
+      "translationModel",
+    ])
+      assert.deepEqual(settings.getState()[key], before[key]);
+    assert.ok(
+      ui
+        .text()
+        .includes(
+          unavailable?.connected
+            ? "setupFlow.cleanup.now.modelSetup"
+            : "setupFlow.cleanup.now.needsConnection"
+        )
+    );
+    assert.equal(
+      ui.calls.filter(([name]) =>
+        /codexStatus|codexModels|providerTest|describeModels|textGenerate|runTextOperation/.test(
+          name
+        )
+      ).length,
+      0
+    );
+  });
+}
+
+test("actual meaningful settings ABA during passive Codex availability cannot recreate an old planner intent", async (t) => {
+  let resolve;
+  const pending = new Promise((done) => {
+    resolve = done;
+  });
+  const { ui } = await mountFlow(
+    t,
+    { initialStep: "cleanup", previewConfig: undefined },
+    {
+      api: { personalInference: { codexModelCatalog: () => pending } },
+    }
+  );
+  const settings = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+  const drafts = (await ui.vite.ssrLoadModule("/stores/routeDraftStore.ts")).useRouteDraftStore;
+  await ui.click(ui.byAttr("data-value", "codex")[0]);
+  const original = settings.getState().cleanupModel;
+  await React.act(async () => {
+    settings.getState().setCleanupModel("new-user-intent");
+    settings.getState().setCleanupModel(original);
+    resolve({ connected: true, data: [{ model: "acknowledged-old-choice", isDefault: true }] });
+  });
+  assert.equal(drafts.getState().draft, null);
+  assert.equal(settings.getState().cleanupModel, original);
+});

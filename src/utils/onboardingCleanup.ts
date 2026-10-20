@@ -1,5 +1,6 @@
 export type CleanupChoice = "none" | "local" | "codex" | "provider";
-export type CleanupStatus = "checking" | "pending" | "ready" | "failed" | "skipped" | "review";
+export type CleanupStatus =
+  "checking" | "pending" | "ready" | "failed" | "skipped" | "review" | "modelSetup";
 
 import type { SettingsPatch } from "../lib/providerSwitchPlans";
 export interface CleanupSettings {
@@ -9,8 +10,10 @@ export interface CleanupSettings {
 export interface CleanupBridge {
   modelTestLoad?: (model: string) => Promise<{ success?: boolean } | undefined>;
   personalInference?: {
-    codexStatus: () => Promise<{ available?: boolean; account?: { type?: string } | null }>;
-    codexModels: () => Promise<{ data: Array<{ model: string; isDefault?: boolean }> }>;
+    codexModelCatalog?: () => Promise<{
+      connected: boolean;
+      data: Array<{ model: string; isDefault?: boolean }>;
+    }>;
     credentialStatus: (ref: string) => Promise<{ configured?: boolean }>;
   };
 }
@@ -62,18 +65,20 @@ export async function applyCleanupChoice({
         cleanupModel: model,
       };
     } else if (choice === "codex") {
-      const status = await bridge?.personalInference?.codexStatus();
+      const snapshot = await bridge?.personalInference?.codexModelCatalog?.();
       if (!isCurrent()) return;
-      if (!(status?.available && status.account?.type === "chatgpt")) {
+      if (!snapshot?.connected) {
         setStatus("failed");
         return;
       }
-      // Use the shipped catalog; selection must never start remote discovery.
-      const model = catalog.owns("codex", settings.cleanupModel)
+      // No Codex shipped defaults exist. Only main's account-bound explicitly
+      // discovered inventory can acknowledge ownership; never borrow cloud ids.
+      const models = snapshot.data.filter((entry) => entry.model.trim());
+      const model = models.some((entry) => entry.model === settings.cleanupModel)
         ? settings.cleanupModel
-        : catalog.defaultModel("codex");
+        : (models.find((entry) => entry.isDefault) ?? models[0])?.model;
       if (!model) {
-        setStatus("failed");
+        setStatus("modelSetup");
         return;
       }
       patch = {

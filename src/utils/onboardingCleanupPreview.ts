@@ -111,6 +111,7 @@ export type CleanupSituation =
   | "review"
   | "ready"
   | "needsModel"
+  | "modelSetup"
   | "needsConnection"
   | "needsKey"
   | "unreachable";
@@ -134,6 +135,7 @@ export function cleanupSituation(
   if (choice === "none") return "off";
   if (status === "checking") return "checking";
   if (status === "review") return "review";
+  if (status === "modelSetup") return "modelSetup";
   if (status !== "ready") return UNMET[choice];
   switch (route.state.status) {
     case "ready":

@@ -200,3 +200,10 @@ test("admission and scoped stop/cancel/preparation payloads survive actual prelo
   disposers.forEach((dispose) => dispose());
   assert.equal(listeners.size, 0);
 });
+
+test("actual preload passive Codex catalog read invokes no active status/discovery channel", async () => {
+  const { api, invocations, sends } = loadPreloadApi();
+  await api.personalInference.codexModelCatalog();
+  assert.deepEqual(invocations, [["personal-inference:codex-model-catalog"]]);
+  assert.deepEqual(sends, []);
+});

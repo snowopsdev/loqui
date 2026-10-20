@@ -4468,6 +4468,8 @@
         "codex": "我們午餐前把草稿寄給瑪雅吧。提醒我預訂週四的會議室。",
         "provider": "我們在午餐前寄草稿給瑪雅吧，再提醒我預訂週四的會議室。"
       },
+      "listModels": "取得 ChatGPT 模型清單",
+      "modelListFailed": "無法取得 ChatGPT 模型清單，請再試一次。",
       "now": {
         "off": "文字整理已關閉。你的話會原樣保留。",
         "checking": "正在檢查文字整理是否可用…",
@@ -4477,6 +4479,7 @@
         "needsConnection": "在上方連接 ChatGPT 即可啟用文字整理。在此之前，你的話會原樣保留。",
         "needsModel": "此裝置上還沒有本機文字整理模型。請在「設定 → 語言模型」中下載（1.3 GB）。",
         "unreachable": "Loqui 目前無法連接 {{provider}}。你的話會原樣保留。",
+        "modelSetup": "已連接 ChatGPT。請取得模型清單，選擇用於文字潤飾的模型。",
         "review": "請檢視此變更，然後選擇「套用」。"
       },
       "reuse": "其他文字功能也使用此選擇",
@@ -4558,6 +4561,7 @@
           "unreachable": "無法連接 {{provider}}",
           "configured": "已設定 {{name}}",
           "configuredNetwork": "已在 {{provider}} 設定 {{name}}",
+          "modelSetup": "取得用於文字潤飾的 ChatGPT 模型清單",
           "review": "請檢視此變更，然後選擇「套用」。"
         }
       },

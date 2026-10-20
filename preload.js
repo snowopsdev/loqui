@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("personal-inference:codex-cancel-login", loginId),
     codexLogout: () => ipcRenderer.invoke("personal-inference:codex-logout"),
     codexModels: () => ipcRenderer.invoke("personal-inference:codex-models"),
+    codexModelCatalog: () => ipcRenderer.invoke("personal-inference:codex-model-catalog"),
     codexRateLimits: () => ipcRenderer.invoke("personal-inference:codex-rate-limits"),
     credentialStatus: (ref) => ipcRenderer.invoke("personal-inference:credential-status", ref),
     credentialSave: (ref, value) =>

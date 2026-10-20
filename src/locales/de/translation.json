@@ -4497,6 +4497,8 @@
         "codex": "Lass uns den Entwurf vor dem Mittagessen an Maya schicken. Erinnere mich, den Raum für Donnerstag zu buchen.",
         "provider": "Lass uns Maya vor dem Mittagessen den Entwurf schicken, und erinnere mich daran, den Raum für Donnerstag zu buchen."
       },
+      "listModels": "ChatGPT-Modelle abrufen",
+      "modelListFailed": "ChatGPT-Modelle konnten nicht abgerufen werden. Versuche es erneut.",
       "now": {
         "off": "Die Textbereinigung ist aus. Deine Worte bleiben genau so, wie du sie gesagt hast.",
         "checking": "Verfügbarkeit der Textbereinigung wird geprüft…",
@@ -4506,6 +4508,7 @@
         "needsConnection": "Verbinde oben ChatGPT, um die Textbereinigung einzuschalten. Bis dahin bleiben deine Worte unverändert.",
         "needsModel": "Das lokale Modell zur Textbereinigung ist noch nicht auf diesem Gerät. Lade es in Einstellungen → Sprachmodelle herunter (1,3 GB).",
         "unreachable": "Loqui kann {{provider}} gerade nicht erreichen. Deine Worte bleiben unverändert.",
+        "modelSetup": "ChatGPT ist verbunden. Rufe die Modelle ab, um eines für die Textkorrektur auszuwählen.",
         "review": "Prüfe diese Änderung und wähle dann „Anwenden“."
       },
       "reuse": "Diese Wahl auch für andere Textfunktionen verwenden",
@@ -4589,6 +4592,7 @@
           "unreachable": "{{provider}} ist nicht erreichbar",
           "configured": "Mit {{name}} eingerichtet",
           "configuredNetwork": "Bei {{provider}} mit {{name}} eingerichtet",
+          "modelSetup": "ChatGPT-Modelle für die Textkorrektur abrufen",
           "review": "Prüfe diese Änderung und wähle dann „Anwenden“."
         }
       },

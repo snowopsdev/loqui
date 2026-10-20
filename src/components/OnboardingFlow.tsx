@@ -492,14 +492,21 @@ export default function OnboardingFlow({
       revokeSetupCleanupSelection();
       useRouteDraftStore.getState().discard();
       setCleanupChoice(choice);
+      let availabilityRevision: number | null = getSetupCleanupRevision();
       await applyCleanupChoice({
         choice,
         settings: useSettingsStore.getState(),
         bridge: window.electronAPI,
         catalog: cleanupModelCatalog,
         setStatus: setCleanupStatus,
-        isCurrent: () => !closedRef.current && cleanupRequestRef.current === request,
+        isCurrent: () =>
+          !closedRef.current &&
+          cleanupRequestRef.current === request &&
+          (availabilityRevision === null || availabilityRevision === getSetupCleanupRevision()),
         requestPatch: async (choicePatch) => {
+          // The planner takes over request/commit ownership once availability
+          // has settled. Its own commit may advance the selection revision.
+          availabilityRevision = null;
           const patch: SettingsPatch = { ...choicePatch };
           const reuseKey = config
             ? `${onboardingPreviewStorageKey(config)}.reuseCleanup`

@@ -62,12 +62,12 @@ async function mountCleanupStep(t, personalInference) {
   };
 }
 
-const signedIn = { available: true, account: { type: "chatgpt" } };
+const signedIn = { connected: true, data: [{ model: "fixture-model", isDefault: true }] };
 
 test("OnboardingFlow: a Codex check finishing after No cleanup was chosen leaves cleanup off", async (t) => {
   const check = deferred();
   const flow = await mountCleanupStep(t, {
-    codexStatus: () => check.promise,
+    codexModelCatalog: () => check.promise,
     codexModels: async () => ({ data: [{ model: "fixture-model", isDefault: true }] }),
     codexRateLimits: async () => ({}),
     onTextEvent: () => () => {},
@@ -81,7 +81,7 @@ test("OnboardingFlow: a Codex check finishing after No cleanup was chosen leaves
 test("OnboardingFlow: a Codex check finishing after setup closed leaves cleanup off", async (t) => {
   const check = deferred();
   const flow = await mountCleanupStep(t, {
-    codexStatus: () => check.promise,
+    codexModelCatalog: () => check.promise,
     codexModels: async () => ({ data: [{ model: "fixture-model", isDefault: true }] }),
     codexRateLimits: async () => ({}),
     onTextEvent: () => () => {},
@@ -101,7 +101,7 @@ test("OnboardingFlow: a late sign-in read cannot re-enable cleanup after No clea
     codexStatus: () => {
       const index = calls++;
       // Only the read started by the sign-in event stays pending.
-      if (index !== 1) return Promise.resolve(account);
+      if (index !== 0) return Promise.resolve(account);
       return new Promise((resolve) => (lateRead = resolve));
     },
     codexModels: async () => ({ data: [{ model: "fixture-model", isDefault: true }] }),
@@ -120,14 +120,14 @@ test("OnboardingFlow: a late sign-in read cannot re-enable cleanup after No clea
   );
   await flow.click("None");
   assert.ok(lateRead, "the sign-in refresh is still pending");
-  await React.act(async () => lateRead(signedIn));
+  await React.act(async () => lateRead({ available: true, account: { type: "chatgpt" } }));
   assert.equal(flow.cleanupEnabled(), false);
 });
 
 test("OnboardingFlow: leaving Cleanup supersedes its pending connection check", async (t) => {
   const check = deferred();
   const flow = await mountCleanupStep(t, {
-    codexStatus: () => check.promise,
+    codexModelCatalog: () => check.promise,
     codexModels: async () => ({ data: [{ model: "fixture-model", isDefault: true }] }),
     onTextEvent: () => () => {},
   });
@@ -140,7 +140,7 @@ test("OnboardingFlow: leaving Cleanup supersedes its pending connection check", 
 test("OnboardingFlow: Finish later supersedes a pending cleanup check even before parent unmount", async (t) => {
   const check = deferred();
   const flow = await mountCleanupStep(t, {
-    codexStatus: () => check.promise,
+    codexModelCatalog: () => check.promise,
     codexModels: async () => ({ data: [{ model: "fixture-model", isDefault: true }] }),
     onTextEvent: () => () => {},
   });

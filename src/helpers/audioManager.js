@@ -3994,7 +3994,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const result = await (async () => {
         if (startWasCancelled() || !ownsSession() || admittedTransport.closed)
           return { success: false };
-        const res = await provider.start(admittedTransport.options);
+        // Capture only adapter startup, not this method's finalization/cancel
+        // path. Teardown may wait for it without awaiting itself.
+        admittedTransport.startPromise = Promise.resolve().then(() =>
+          provider.start(admittedTransport.options)
+        );
+        const res = await admittedTransport.startPromise;
 
         if (!res.success) {
           const err = new Error(res.error || "Failed to start streaming session");
@@ -4200,8 +4205,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (owner.stopPromise) return owner.stopPromise;
     owner.closed = true;
     // Install before calling an adapter: a synchronous throw/reentrant cancel
-    // must still count as this owner's sole teardown attempt.
-    owner.stopPromise = Promise.resolve().then(() => owner.adapter.stop?.());
+    // must still count as this owner's sole teardown attempt. closed fences
+    // any not-yet-dispatched start; an already dispatched start can still open
+    // main's connection after its token await, so stop only after that settles.
+    owner.stopPromise = Promise.resolve()
+      .then(() => owner.startPromise?.catch(() => {}))
+      .then(() => owner.adapter.stop?.());
     return owner.stopPromise;
   }
 

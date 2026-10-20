@@ -314,3 +314,17 @@ test("advisory installation cannot mask a provider route's missing key or server
     );
   }
 });
+
+test("connected Codex without acknowledged models returns to Cleanup's explicit model setup", async () => {
+  const { summarizeReadiness } = await load();
+  const row = summarizeReadiness(input({ cleanupChoice: "codex", cleanupStatus: "modelSetup" }))
+    .rows[3];
+  assert.equal(row.status, "pending");
+  assert.equal(row.detail, "cleanup.modelSetup");
+  assert.equal(row.step, "cleanup");
+  assert.equal(
+    row.settingsPath,
+    undefined,
+    "do not route to the prior committed local provider's Settings"
+  );
+});

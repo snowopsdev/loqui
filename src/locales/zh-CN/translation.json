@@ -4468,6 +4468,8 @@
         "codex": "我们午饭前把草稿发给玛雅吧。提醒我预订周四的会议室。",
         "provider": "我们在午饭前给玛雅发送草稿吧，再提醒我预订周四的会议室。"
       },
+      "listModels": "获取 ChatGPT 模型列表",
+      "modelListFailed": "无法获取 ChatGPT 模型列表，请重试。",
       "now": {
         "off": "文本整理已关闭。你的话会原样保留。",
         "checking": "正在检查文本整理是否可用…",
@@ -4477,6 +4479,7 @@
         "needsConnection": "在上方连接 ChatGPT 即可启用文本整理。在此之前，你的话会原样保留。",
         "needsModel": "此设备上还没有本地文本整理模型。请在“设置 → 语言模型”中下载（1.3 GB）。",
         "unreachable": "Loqui 目前无法连接 {{provider}}。你的话会原样保留。",
+        "modelSetup": "已连接 ChatGPT。请获取模型列表，选择用于文本润色的模型。",
         "review": "请查看此更改，然后选择“应用”。"
       },
       "reuse": "其他文本功能也使用此选择",
@@ -4558,6 +4561,7 @@
           "unreachable": "无法连接 {{provider}}",
           "configured": "已配置 {{name}}",
           "configuredNetwork": "已在 {{provider}} 配置 {{name}}",
+          "modelSetup": "获取用于文本润色的 ChatGPT 模型列表",
           "review": "请查看此更改，然后选择“应用”。"
         }
       },

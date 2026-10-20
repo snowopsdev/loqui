@@ -334,6 +334,7 @@ function registerPersonalInferenceIPC({
   handle("codex-cancel-login", (_event, loginId) => codex.cancelLogin(loginId));
   handle("codex-logout", () => codex.logout());
   handle("codex-models", () => codex.models());
+  handle("codex-model-catalog", () => codex.modelCatalog());
   handle("codex-rate-limits", () => codex.rateLimits());
   handle("credential-status", async (_event, ref) => {
     validateCredentialRef(ref);

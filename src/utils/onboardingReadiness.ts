@@ -145,6 +145,7 @@ function cleanupRow(input: ReadinessInput): ReadinessRow {
       return { ...base, status: "pending", detail: "cleanup.review" };
     case "checking":
     case "needsConnection":
+    case "modelSetup":
       return { ...base, status: "pending", detail: `cleanup.${situation}` };
     default:
       return {

@@ -23,16 +23,16 @@ function deferred() {
   return { promise, resolve };
 }
 
-const signedIn = { available: true, account: { type: "chatgpt" } };
+const signedIn = {
+  connected: true,
+  data: [{ model: "codex-fixture-b" }, { model: "codex-fixture-a", isDefault: true }],
+};
 const codexCatalog = {
   data: [{ model: "codex-fixture-b" }, { model: "codex-fixture-a", isDefault: true }],
 };
 const catalog = {
-  owns: (provider, model) =>
-    provider === "openai"
-      ? model.startsWith("gpt-")
-      : provider === "codex" && model.startsWith("codex-"),
-  defaultModel: (provider) => (provider === "openai" ? "gpt-fixture" : "codex-fixture-a"),
+  owns: (provider, model) => provider === "openai" && model.startsWith("gpt-"),
+  defaultModel: (provider) => (provider === "openai" ? "gpt-fixture" : ""),
 };
 
 // The harness mirrors OnboardingFlow: every pick bumps a counter and a result
@@ -75,7 +75,7 @@ test("a Codex check that settles after No cleanup was chosen never activates cle
     settings,
     bridge: {
       personalInference: {
-        codexStatus: () => check.promise,
+        codexModelCatalog: () => check.promise,
         codexModels: async () => codexCatalog,
       },
     },
@@ -120,7 +120,7 @@ test("the latest check still activates cleanup once it succeeds", async () => {
     bridge: {
       modelTestLoad: () => stale.promise,
       personalInference: {
-        codexStatus: async () => (calls.push("codex"), signedIn),
+        codexModelCatalog: async () => (calls.push("codex"), signedIn),
         codexModels: async () => codexCatalog,
       },
     },
@@ -140,7 +140,7 @@ test("an unavailable provider leaves cleanup off and reports the failure", async
     settings,
     bridge: {
       personalInference: {
-        codexStatus: async () => ({ available: true, account: null }),
+        codexModelCatalog: async () => ({ connected: false, data: [] }),
         codexModels: async () => codexCatalog,
         credentialStatus: async () => {
           throw new Error("keychain locked");
@@ -219,7 +219,7 @@ test("Codex cleanup selects a model Codex lists instead of the local default", a
     settings,
     bridge: {
       personalInference: {
-        codexStatus: async () => signedIn,
+        codexModelCatalog: async () => signedIn,
         codexModels: async () => codexCatalog,
       },
     },
@@ -236,7 +236,7 @@ test("a Codex model the account already serves is kept", async () => {
     settings,
     bridge: {
       personalInference: {
-        codexStatus: async () => signedIn,
+        codexModelCatalog: async () => signedIn,
         codexModels: async () => codexCatalog,
       },
     },
@@ -245,14 +245,14 @@ test("a Codex model the account already serves is kept", async () => {
   assert.equal(settings.state.model, "codex-fixture-b");
 });
 
-test("Codex selection uses the shipped catalog and never starts model discovery", async () => {
+test("Codex selection uses only acknowledged cached inventory and never starts model discovery", async () => {
   const settings = createSettings({ model: "qwen3.5-2b-q4_k_m" });
   let discovery = 0;
   const chooser = createChooser({
     settings,
     bridge: {
       personalInference: {
-        codexStatus: async () => signedIn,
+        codexModelCatalog: async () => signedIn,
         codexModels: async () => {
           discovery++;
           throw new Error("must never discover");

@@ -4503,6 +4503,8 @@
         "codex": "Vamos a enviar el borrador a Maya antes de comer. Recuérdame reservar la sala para el jueves.",
         "provider": "Enviemos a Maya el borrador antes de comer, y recuérdame reservar la sala para el jueves."
       },
+      "listModels": "Consultar modelos de ChatGPT",
+      "modelListFailed": "No se pudieron consultar los modelos de ChatGPT. Inténtalo de nuevo.",
       "now": {
         "off": "La corrección de texto está desactivada. Tus palabras quedan tal como las dijiste.",
         "checking": "Comprobando la disponibilidad de la corrección de texto…",
@@ -4512,6 +4514,7 @@
         "needsConnection": "Conecta ChatGPT arriba para activar la corrección de texto. Hasta entonces, tus palabras quedan tal como las dijiste.",
         "needsModel": "El modelo local de corrección aún no está en este dispositivo. Descárgalo en Ajustes → Modelos de lenguaje (1,3 GB).",
         "unreachable": "Loqui no puede acceder a {{provider}} ahora. Tus palabras quedan tal como las dijiste.",
+        "modelSetup": "ChatGPT está conectado. Consulta sus modelos para elegir uno para corregir el texto.",
         "review": "Revisa este cambio y selecciona «Aplicar»."
       },
       "reuse": "Usar también esta elección para otras funciones de texto",
@@ -4595,6 +4598,7 @@
           "unreachable": "No se puede acceder a {{provider}}",
           "configured": "Configurada con {{name}}",
           "configuredNetwork": "Configurada en {{provider}} con {{name}}",
+          "modelSetup": "Consultar modelos de ChatGPT para corregir el texto",
           "review": "Revisa este cambio y selecciona «Aplicar»."
         }
       },

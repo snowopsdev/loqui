@@ -861,3 +861,19 @@ A synchronous monotonic renderer admission revision tracks meaningful cleanup se
 Private multi-segment audio is decoded segment by segment through FFmpeg stdin/stdout and combined as PCM16 mono 16 kHz WAV in memory. The actual Parakeet decoder uses that same pipe path for private WebM without complete PCM, while valid PCM WAV bypasses conversion. Public conversion keeps its existing file path. Conversion failure retains every original segment on the admitted recording owner and reports failure. Streaming captures one adapter, identity and immutable options before its first await; sends, finalization, cancellation and exactly-once teardown keep that owner despite later settings changes. These repairs do not supply Plan04 session, hold or Undo contracts or a Sealed attestation.
 
 Download failure and cancellation report actual remaining bytes, or an explicit unknown when cleanup cannot be verified. A failed unlink is never represented as zero bytes or “nothing kept.” The preview shortcut releases only its keyboard-owned hold on blur, focus loss and unmount. Ordinary retained Settings returns preserve the selected section, subtab and draft; a new explicit activation is consumed once. Tour role descriptions use localized setup copy, and Ready exposes one stable described status for an unknown destination.
+
+Onboarding's ChatGPT cleanup selection reads only a passive main-memory model
+catalog. The catalog comes from the user's explicit Codex model-list action and
+is bound to the acknowledged ChatGPT account and running app-server session;
+account changes, login/logout, discovery failure and disconnect invalidate it.
+Selection keeps a remembered model only when that catalog owns it, otherwise
+uses an acknowledged catalog default/first model through the existing coupled
+route planner. A connected account with no inventory offers explicit model
+listing, with no automatic process startup or discovery on selection. Captured
+Codex cleanup execution retains its existing source-specific safe refusal.
+
+Streaming teardown closes the admitted transport to new dispatch immediately,
+but its single cached stop waits for that adapter's already-dispatched startup
+to settle. A late token/start connection is therefore disconnected on disposal;
+the wait covers only adapter startup, never the cancel/finalization path that
+awaits teardown, and never looks up a newer provider or manager.

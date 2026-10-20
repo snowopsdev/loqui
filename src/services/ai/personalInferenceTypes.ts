@@ -73,6 +73,11 @@ export interface PersonalInferenceAPI {
   codexCancelLogin(loginId: string): Promise<unknown>;
   codexLogout(): Promise<unknown>;
   codexModels(): Promise<{ data: CodexModel[]; nextCursor: string | null }>;
+  /** Passive main-RAM snapshot from explicit discovery in this account/session. */
+  codexModelCatalog(): Promise<{
+    connected: boolean;
+    data: Array<{ model: string; isDefault: boolean }>;
+  }>;
   codexRateLimits(): Promise<{
     rateLimits?: { primary?: { usedPercent: number }; secondary?: { usedPercent: number } };
     rateLimitsByLimitId?: Record<string, unknown>;

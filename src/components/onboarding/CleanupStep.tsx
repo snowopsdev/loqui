@@ -71,6 +71,22 @@ export function CleanupStep(props: CleanupStepProps) {
   const identity = context.current;
   const { t } = useTranslation();
   const situation = cleanupSituation(props.choice, props.status, route);
+  const [listing, setListing] = useState(false);
+  const [listFailed, setListFailed] = useState(false);
+  const listModels = async () => {
+    setListing(true);
+    setListFailed(false);
+    try {
+      await window.electronAPI.personalInference.codexModels();
+      // The same availability/planner path consumes the acknowledged snapshot.
+      // A late explicit-list completion cannot replace a newer user choice.
+      if (context.current === identity) props.onChoose("codex");
+    } catch {
+      if (context.current === identity) setListFailed(true);
+    } finally {
+      setListing(false);
+    }
+  };
   const now =
     situation === "ready"
       ? t(
@@ -111,7 +127,15 @@ export function CleanupStep(props: CleanupStepProps) {
         />
       </section>
       {props.choice === "codex" ? (
-        <CodexConnection onSignedInChange={() => props.onChoose("codex")} />
+        <>
+          <CodexConnection onStatusChecked={() => props.onChoose("codex")} />
+          {situation === "modelSetup" ? (
+            <Button variant="outline" disabled={listing} onClick={() => void listModels()}>
+              {t("setupFlow.cleanup.listModels")}
+            </Button>
+          ) : null}
+          {listFailed ? <p role="alert">{t("setupFlow.cleanup.modelListFailed")}</p> : null}
+        </>
       ) : null}
       <p className="onb-muted" role="status">
         {showRouteState ? <RouteStateChip state={route.state} /> : null} {now}

@@ -381,3 +381,203 @@ for (const failure of ["getter", "start", "stop"]) {
     assert.equal(stream.manager.streamingStartInProgress, false);
   });
 }
+
+for (const dispose of ["manager", "hook"]) {
+  test(`${dispose} disposal closes an A connection opened AFTER an early no-connection stop`, async (t) => {
+    const h = await mountTrial(t);
+    const stream = configureStreamingStartup(t, h);
+    const token = deferred();
+    let connected = false,
+      stops = 0,
+      bStops = 0,
+      tracks = 0;
+    const api = h.window.electronAPI;
+    api.dictationRealtimeStart = async (options) => {
+      stream.calls.push(["start", options]);
+      await token.promise;
+      connected = true; // faithful main: token awaited before actual connection
+      return { success: true };
+    };
+    api.dictationRealtimeStop = async () => {
+      stops++;
+      connected = false; // faithful disconnect: no connection at early stop => no effect on late open
+      return { success: true };
+    };
+    api.deepgramStreamingStop = async () => {
+      bStops++;
+      return { success: true };
+    };
+    let start;
+    await React.act(async () => {
+      start = h.api().startRecording();
+      await h.waitAcquisition();
+      h.mic().resolve({
+        getAudioTracks: () => [],
+        getTracks: () => [
+          {
+            stop() {
+              tracks++;
+            },
+          },
+        ],
+      });
+      await stream.waitConnect();
+    });
+    const port = stream.manager.streamingProcessor.port;
+    if (dispose === "hook") await h.render(false, () => {});
+    else
+      await React.act(async () => {
+        void stream.manager.cancelStreamingRecording();
+        stream.manager.cleanup();
+        await flush();
+      });
+    await flush(); // old implementation spends stop here, while connected === false
+    const newer = h.manager();
+    const newerAudio = new Blob(["B preserved"]);
+    if (dispose === "hook") newer.lastAudioBlob = newerAudio;
+    Object.assign(globalThis.__trialBoundarySettings, { cloudTranscriptionProvider: "deepgram" });
+    await React.act(async () => {
+      token.resolve();
+      await start;
+      await flush();
+    });
+    assert.equal(
+      connected,
+      false,
+      "actual late A connection must be closed, not merely renderer flags"
+    );
+    assert.equal(stops, 1, "one effective stop after startup settlement");
+    assert.equal(bStops, 0);
+    assert.ok(tracks > 0);
+    assert.deepEqual(Object.keys(stream.listeners), []);
+    port.onmessage({ data: new ArrayBuffer(2) });
+    assert.equal(stream.manager.isStreaming, false);
+    if (dispose === "hook") assert.equal(newer.lastAudioBlob, newerAudio);
+    assert.deepEqual(h.writes, []);
+    assert.equal(
+      h.events.some((event) => event.status === "success"),
+      false
+    );
+  });
+}
+
+for (const outcome of ["resolve", "reject", "sync-throw"]) {
+  test(`captured teardown settles ${outcome} startup with duplicate/reentrant cancellation and B untouched`, async (t) => {
+    const h = await mountTrial(t);
+    const stream = configureStreamingStartup(t, h);
+    const begin = deferred();
+    let stops = 0,
+      bStops = 0,
+      live = false;
+    h.window.electronAPI.dictationRealtimeStart = (options) => {
+      stream.calls.push(["start", options]);
+      if (outcome === "sync-throw") throw new Error("sync startup fixture");
+      return begin.promise.then(() => {
+        live = true;
+        return { success: true };
+      });
+    };
+    h.window.electronAPI.dictationRealtimeStop = () => {
+      stops++;
+      live = false;
+      // Re-entry must see the installed stop, and never start a second stop.
+      stream.manager.cleanup();
+      void stream.manager.cancelStreamingRecording();
+      if (outcome === "reject") return Promise.reject(new Error("stop rejection fixture"));
+      return { success: true };
+    };
+    h.window.electronAPI.deepgramStreamingStop = () => {
+      bStops++;
+    };
+    let start, cancel;
+    await React.act(async () => {
+      start = stream.manager.startStreamingRecording();
+      h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
+      await stream.waitConnect();
+      if (outcome !== "sync-throw") {
+        cancel = stream.manager.cancelStreamingRecording();
+        stream.manager.cleanup();
+        stream.manager.cleanup();
+      }
+      Object.assign(globalThis.__trialBoundarySettings, { cloudTranscriptionProvider: "deepgram" });
+      if (outcome === "reject") begin.reject(new Error("start rejection fixture"));
+      else begin.resolve();
+      await Promise.all([start, cancel]);
+      await flush();
+    });
+    assert.equal(stops, 1);
+    assert.equal(live, false);
+    assert.equal(bStops, 0);
+    assert.equal(stream.manager.streamingStartInProgress, false);
+    assert.equal(stream.manager.isStreaming, false);
+    assert.deepEqual(h.writes, []);
+  });
+}
+
+test("disposed hook A settles and disconnects while a genuine newer manager B stays connected", async (t) => {
+  const h = await mountTrial(t);
+  const a = configureStreamingStartup(t, h);
+  const token = deferred();
+  let liveA = false,
+    liveB = false,
+    stopsA = 0,
+    stopsB = 0;
+  const api = h.window.electronAPI;
+  api.dictationRealtimeStart = async (options) => {
+    a.calls.push(["start", options]);
+    await token.promise;
+    liveA = true;
+    return { success: true };
+  };
+  const stopA = (api.dictationRealtimeStop = async () => {
+    stopsA++;
+    liveA = false;
+    return { success: true };
+  });
+  let startA;
+  await React.act(async () => {
+    startA = h.api().startRecording();
+    await h.waitAcquisition();
+    h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
+    await a.waitConnect();
+  });
+  await h.render(false, () => {});
+  h.reset();
+  const b = configureStreamingStartup(t, h, {
+    cloudTranscriptionProvider: "deepgram",
+    cloudTranscriptionModel: "nova-3",
+    deepgramApiKey: "fixture-only",
+  });
+  api.dictationRealtimeStop = stopA;
+  api.deepgramStreamingStart = async (options) => {
+    b.calls.push(["start", options]);
+    liveB = true;
+    return { success: true };
+  };
+  api.deepgramStreamingStop = async () => {
+    stopsB++;
+    liveB = false;
+    return { success: true };
+  };
+  await React.act(async () => {
+    h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
+    assert.equal(await b.manager.startStreamingRecording(), true);
+  });
+  assert.equal(liveB, true);
+  await React.act(async () => {
+    token.resolve();
+    await startA;
+    await flush();
+  });
+  assert.equal(liveA, false);
+  assert.equal(stopsA, 1);
+  assert.equal(liveB, true);
+  assert.equal(b.manager.isRecording, true);
+  assert.equal(stopsB, 0);
+  await React.act(async () => {
+    await b.manager.cancelStreamingRecording();
+  });
+  assert.equal(liveB, false, "positive B control proves its stop still works");
+  assert.equal(stopsB, 1);
+  assert.deepEqual(h.writes, []);
+});

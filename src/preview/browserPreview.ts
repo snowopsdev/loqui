@@ -172,6 +172,7 @@ function createBrowserPreviewAPI(
     codexCancelLogin: unavailable,
     codexLogout: unavailable,
     codexModels: setup.cleanupChecks.codexModels,
+    codexModelCatalog: setup.cleanupChecks.codexModelCatalog,
     codexRateLimits: async () => ({}),
     models: async () => ({ data: [] }),
     credentialStatus: setup.cleanupChecks.credentialStatus,

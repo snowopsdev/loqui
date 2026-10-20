@@ -207,3 +207,28 @@ test("actual preload passive Codex catalog read invokes no active status/discove
   assert.deepEqual(invocations, [["personal-inference:codex-model-catalog"]]);
   assert.deepEqual(sends, []);
 });
+
+test("actual preload carries canonical streaming operation on all sends/finalizes/stops", async () => {
+  const { api, invocations, sends } = loadPreloadApi();
+  const operation = { correlationId: "A", dictationSessionId: "A", operationId: "attempt-A" };
+  for (const [name, prefix, finalize] of [
+    ["dictationRealtime", "dictation-realtime"],
+    ["deepgramStreaming", "deepgram-streaming", "Finalize"],
+    ["assemblyAiStreaming", "assemblyai-streaming", "ForceEndpoint"],
+    ["geminiStreaming", "gemini-streaming", "Finalize"],
+    ["cortiStreaming", "corti-streaming", "Finalize"],
+  ]) {
+    const frame = new ArrayBuffer(2);
+    api[name + "Send"](frame, operation);
+    assert.deepEqual(sends.at(-1), [prefix + "-send", frame, operation]);
+    if (finalize) {
+      api[name + finalize](operation);
+      assert.deepEqual(sends.at(-1), [
+        prefix + (finalize === "ForceEndpoint" ? "-force-endpoint" : "-finalize"),
+        operation,
+      ]);
+    }
+    await api[name + "Stop"](operation);
+    assert.deepEqual(invocations.at(-1), [prefix + "-stop", operation]);
+  }
+});

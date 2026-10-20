@@ -817,10 +817,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   assemblyAiStreamingWarmup: (options) =>
     ipcRenderer.invoke("assemblyai-streaming-warmup", options),
   assemblyAiStreamingStart: (options) => ipcRenderer.invoke("assemblyai-streaming-start", options),
-  assemblyAiStreamingSend: (audioBuffer) =>
-    ipcRenderer.send("assemblyai-streaming-send", audioBuffer),
-  assemblyAiStreamingForceEndpoint: () => ipcRenderer.send("assemblyai-streaming-force-endpoint"),
-  assemblyAiStreamingStop: () => ipcRenderer.invoke("assemblyai-streaming-stop"),
+  assemblyAiStreamingSend: (audioBuffer, operation) =>
+    ipcRenderer.send("assemblyai-streaming-send", audioBuffer, operation),
+  assemblyAiStreamingForceEndpoint: (operation) =>
+    ipcRenderer.send("assemblyai-streaming-force-endpoint", operation),
+  assemblyAiStreamingStop: (operation) =>
+    ipcRenderer.invoke("assemblyai-streaming-stop", operation),
   assemblyAiStreamingStatus: () => ipcRenderer.invoke("assemblyai-streaming-status"),
   onAssemblyAiPartialTranscript: registerListener(
     "assemblyai-partial-transcript",
@@ -842,9 +844,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Deepgram Streaming
   deepgramStreamingWarmup: (options) => ipcRenderer.invoke("deepgram-streaming-warmup", options),
   deepgramStreamingStart: (options) => ipcRenderer.invoke("deepgram-streaming-start", options),
-  deepgramStreamingSend: (audioBuffer) => ipcRenderer.send("deepgram-streaming-send", audioBuffer),
-  deepgramStreamingFinalize: () => ipcRenderer.send("deepgram-streaming-finalize"),
-  deepgramStreamingStop: () => ipcRenderer.invoke("deepgram-streaming-stop"),
+  deepgramStreamingSend: (audioBuffer, operation) =>
+    ipcRenderer.send("deepgram-streaming-send", audioBuffer, operation),
+  deepgramStreamingFinalize: (operation) =>
+    ipcRenderer.send("deepgram-streaming-finalize", operation),
+  deepgramStreamingStop: (operation) => ipcRenderer.invoke("deepgram-streaming-stop", operation),
   deepgramStreamingStatus: () => ipcRenderer.invoke("deepgram-streaming-status"),
   onDeepgramPartialTranscript: registerListener(
     "deepgram-partial-transcript",
@@ -866,9 +870,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Gemini Live Streaming
   geminiStreamingWarmup: (options) => ipcRenderer.invoke("gemini-streaming-warmup", options),
   geminiStreamingStart: (options) => ipcRenderer.invoke("gemini-streaming-start", options),
-  geminiStreamingSend: (audioBuffer) => ipcRenderer.send("gemini-streaming-send", audioBuffer),
-  geminiStreamingFinalize: () => ipcRenderer.send("gemini-streaming-finalize"),
-  geminiStreamingStop: () => ipcRenderer.invoke("gemini-streaming-stop"),
+  geminiStreamingSend: (audioBuffer, operation) =>
+    ipcRenderer.send("gemini-streaming-send", audioBuffer, operation),
+  geminiStreamingFinalize: (operation) => ipcRenderer.send("gemini-streaming-finalize", operation),
+  geminiStreamingStop: (operation) => ipcRenderer.invoke("gemini-streaming-stop", operation),
   geminiStreamingStatus: () => ipcRenderer.invoke("gemini-streaming-status"),
   onGeminiPartialTranscript: registerListener(
     "gemini-partial-transcript",
@@ -887,9 +892,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Corti streaming (BYOK)
   cortiStreamingWarmup: (options) => ipcRenderer.invoke("corti-streaming-warmup", options),
   cortiStreamingStart: (options) => ipcRenderer.invoke("corti-streaming-start", options),
-  cortiStreamingSend: (audioBuffer) => ipcRenderer.send("corti-streaming-send", audioBuffer),
-  cortiStreamingFinalize: () => ipcRenderer.send("corti-streaming-finalize"),
-  cortiStreamingStop: () => ipcRenderer.invoke("corti-streaming-stop"),
+  cortiStreamingSend: (audioBuffer, operation) =>
+    ipcRenderer.send("corti-streaming-send", audioBuffer, operation),
+  cortiStreamingFinalize: (operation) => ipcRenderer.send("corti-streaming-finalize", operation),
+  cortiStreamingStop: (operation) => ipcRenderer.invoke("corti-streaming-stop", operation),
   cortiStreamingStatus: () => ipcRenderer.invoke("corti-streaming-status"),
   onCortiPartialTranscript: registerListener(
     "corti-partial-transcript",
@@ -961,8 +967,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Dictation realtime streaming
   dictationRealtimeWarmup: (options) => ipcRenderer.invoke("dictation-realtime-warmup", options),
   dictationRealtimeStart: (options) => ipcRenderer.invoke("dictation-realtime-start", options),
-  dictationRealtimeSend: (buffer) => ipcRenderer.send("dictation-realtime-send", buffer),
-  dictationRealtimeStop: () => ipcRenderer.invoke("dictation-realtime-stop"),
+  dictationRealtimeSend: (buffer, operation) =>
+    ipcRenderer.send("dictation-realtime-send", buffer, operation),
+  dictationRealtimeStop: (operation) => ipcRenderer.invoke("dictation-realtime-stop", operation),
   onDictationRealtimePartial: registerListener(
     "dictation-realtime-partial",
     (callback) => (_event, data) => callback(data)

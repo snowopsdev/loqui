@@ -306,8 +306,8 @@ const makeDictationRealtimeProvider = (id) => ({
   awaitsFinalTranscript: true,
   warmup: (opts) => window.electronAPI.dictationRealtimeWarmup({ ...opts, provider: id }),
   start: (opts) => window.electronAPI.dictationRealtimeStart({ ...opts, provider: id }),
-  send: (buf) => window.electronAPI.dictationRealtimeSend(buf),
-  stop: () => window.electronAPI.dictationRealtimeStop(),
+  send: (buf, operation) => window.electronAPI.dictationRealtimeSend(buf, operation),
+  stop: (operation) => window.electronAPI.dictationRealtimeStop(operation),
   onPartial: (cb) => window.electronAPI.onDictationRealtimePartial(cb),
   onFinal: (cb) => window.electronAPI.onDictationRealtimeFinal(cb),
   onError: (cb) => window.electronAPI.onDictationRealtimeError(cb),
@@ -318,9 +318,9 @@ const STREAMING_PROVIDERS = {
   deepgram: {
     warmup: (opts) => window.electronAPI.deepgramStreamingWarmup(opts),
     start: (opts) => window.electronAPI.deepgramStreamingStart(opts),
-    send: (buf) => window.electronAPI.deepgramStreamingSend(buf),
-    finalize: () => window.electronAPI.deepgramStreamingFinalize(),
-    stop: () => window.electronAPI.deepgramStreamingStop(),
+    send: (buf, operation) => window.electronAPI.deepgramStreamingSend(buf, operation),
+    finalize: (operation) => window.electronAPI.deepgramStreamingFinalize(operation),
+    stop: (operation) => window.electronAPI.deepgramStreamingStop(operation),
     status: () => window.electronAPI.deepgramStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onDeepgramPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onDeepgramFinalTranscript(cb),
@@ -330,9 +330,9 @@ const STREAMING_PROVIDERS = {
   assemblyai: {
     warmup: (opts) => window.electronAPI.assemblyAiStreamingWarmup(opts),
     start: (opts) => window.electronAPI.assemblyAiStreamingStart(opts),
-    send: (buf) => window.electronAPI.assemblyAiStreamingSend(buf),
-    finalize: () => window.electronAPI.assemblyAiStreamingForceEndpoint(),
-    stop: () => window.electronAPI.assemblyAiStreamingStop(),
+    send: (buf, operation) => window.electronAPI.assemblyAiStreamingSend(buf, operation),
+    finalize: (operation) => window.electronAPI.assemblyAiStreamingForceEndpoint(operation),
+    stop: (operation) => window.electronAPI.assemblyAiStreamingStop(operation),
     status: () => window.electronAPI.assemblyAiStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onAssemblyAiPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onAssemblyAiFinalTranscript(cb),
@@ -349,9 +349,9 @@ const STREAMING_PROVIDERS = {
     finalCeilingMs: 3000,
     warmup: (opts) => window.electronAPI.geminiStreamingWarmup(opts),
     start: (opts) => window.electronAPI.geminiStreamingStart(opts),
-    send: (buf) => window.electronAPI.geminiStreamingSend(buf),
-    finalize: () => window.electronAPI.geminiStreamingFinalize(),
-    stop: () => window.electronAPI.geminiStreamingStop(),
+    send: (buf, operation) => window.electronAPI.geminiStreamingSend(buf, operation),
+    finalize: (operation) => window.electronAPI.geminiStreamingFinalize(operation),
+    stop: (operation) => window.electronAPI.geminiStreamingStop(operation),
     status: () => window.electronAPI.geminiStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onGeminiPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onGeminiFinalTranscript(cb),
@@ -361,9 +361,9 @@ const STREAMING_PROVIDERS = {
   corti: {
     warmup: (opts) => window.electronAPI.cortiStreamingWarmup(opts),
     start: (opts) => window.electronAPI.cortiStreamingStart(opts),
-    send: (buf) => window.electronAPI.cortiStreamingSend(buf),
-    finalize: () => window.electronAPI.cortiStreamingFinalize(),
-    stop: () => window.electronAPI.cortiStreamingStop(),
+    send: (buf, operation) => window.electronAPI.cortiStreamingSend(buf, operation),
+    finalize: (operation) => window.electronAPI.cortiStreamingFinalize(operation),
+    stop: (operation) => window.electronAPI.cortiStreamingStop(operation),
     status: () => window.electronAPI.cortiStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onCortiPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onCortiFinalTranscript(cb),
@@ -3818,12 +3818,19 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           voiceAgentRequested: this.voiceAgentRequested,
         });
         if (Array.isArray(options.keyterms)) Object.freeze(options.keyterms);
+        const correlationId = crypto.randomUUID();
+        const operation = Object.freeze({
+          correlationId,
+          dictationSessionId: correlationId,
+          operationId: crypto.randomUUID(),
+        });
         admittedTransport = {
+          operation,
           name,
           adapter,
           closed: false,
           stopPromise: null,
-          options: Object.freeze(options),
+          options: Object.freeze({ ...options, ...operation }),
         };
       }
       this._streamingTransport = admittedTransport;
@@ -3899,7 +3906,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           event.data === "flushed"
         )
           return;
-        provider.send(event.data);
+        provider.send(event.data, admittedTransport.operation);
       };
 
       this.isStreaming = true;
@@ -4210,7 +4217,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // main's connection after its token await, so stop only after that settles.
     owner.stopPromise = Promise.resolve()
       .then(() => owner.startPromise?.catch(() => {}))
-      .then(() => owner.adapter.stop?.());
+      .then(() => owner.adapter.stop?.(owner.operation));
     return owner.stopPromise;
   }
 
@@ -4432,7 +4439,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     //    Wait for the transcript to settle before disconnecting.
     const provider = transport?.adapter;
     if (!provider || transport.closed) return abandonFinalization();
-    provider.finalize?.();
+    provider.finalize?.(transport.operation);
     if (provider.awaitsFinalTranscript) {
       await this.awaitStreamingTextSettled(provider.finalCeilingMs);
     } else {

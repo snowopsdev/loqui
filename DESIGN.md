@@ -877,3 +877,17 @@ but its single cached stop waits for that adapter's already-dispatched startup
 to settle. A late token/start connection is therefore disconnected on disposal;
 the wait covers only adapter startup, never the cancel/finalization path that
 awaits teardown, and never looks up a newer provider or manager.
+
+Dictation streaming now carries the compatible operation tuple
+`correlationId`/`dictationSessionId`/`operationId` through preload for each admitted
+attempt. Main binds it to the original webContents and captured provider adapter.
+Its ephemeral per-provider record fences sends/finalization/stop, credential
+continuations and sender destruction/navigation. Retired A controls cannot stop a
+newer same-provider B, even when main A startup completed before its IPC reply
+reaches A. Pending teardown waits only for its captured core startup; replacement
+reclaims that adapter before starting another. Warmup cannot replace an admitted
+operation, and warm reuse retains its original sender. Normal disconnect tails
+can still reach the current owner; retired/lost owners cannot publish. Legacy
+unlabeled controls can address only a same-sender unlabeled record and never fall
+back against a labeled attempt. This boundary is connection ownership, without
+adding Plan04 recording, hold, Undo or Task22 integration authority.

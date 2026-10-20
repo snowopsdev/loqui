@@ -40,9 +40,14 @@ for (const route of [
       environment: undefined,
       tenant: undefined,
     };
+    const operation = stream.manager._streamingTransport.operation;
+    assert.equal(typeof operation.operationId, "string");
+    assert.ok(operation.operationId);
+    assert.equal(operation.dictationSessionId, operation.correlationId);
+    assert.ok(Object.isFrozen(operation));
     assert.deepEqual(stream.calls, [
       ["warmup", expected],
-      ["start", expected],
+      ["start", { ...expected, ...operation }],
     ]);
     await React.act(async () => {
       stream.connect.resolve({ success: true });

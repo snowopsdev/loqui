@@ -1234,6 +1234,7 @@ class IPCHandlers {
   dispose() {
     this.onboardingAdmission?.dispose();
     this.onboardingCleanup?.dispose();
+    void this.dictationStreamingOperations?.dispose();
   }
 
   setupHandlers() {
@@ -7351,21 +7352,30 @@ class IPCHandlers {
       this.activeMeetingSpeakerConfig = null;
     };
 
-    const setupDictationCallbacks = (streaming, event) => {
+    // Dictation streaming ownership boundary (shared with the canonical Plan04 tuple).
+    const dictationIPC =
+      require("./dictationStreamingOperations").createDictationStreamingOperations(ipcMain, this);
+    this.dictationStreamingOperations = dictationIPC;
+    const setupDictationCallbacks = (streaming, event, operation) => {
       streaming.onPartialTranscript = (text) => {
-        event.sender.send("dictation-realtime-partial", text);
-        if (this._dictationPreviewEnabled && text) {
+        dictationIPC.canPublish(operation) && event.sender.send("dictation-realtime-partial", text);
+        if (dictationIPC.canPublish(operation) && this._dictationPreviewEnabled && text) {
           this.windowManager.showTranscriptionPreview(text);
         }
       };
-      streaming.onFinalTranscript = (text) => event.sender.send("dictation-realtime-final", text);
+      streaming.onFinalTranscript = (text) =>
+        dictationIPC.canPublish(operation) && event.sender.send("dictation-realtime-final", text);
       streaming.onError = (err) => {
-        event.sender.send("dictation-realtime-error", err.message);
-        if (this._dictationPreviewEnabled) this.windowManager.hideTranscriptionPreview();
+        dictationIPC.canPublish(operation) &&
+          event.sender.send("dictation-realtime-error", err.message);
+        if (dictationIPC.canPublish(operation) && this._dictationPreviewEnabled)
+          this.windowManager.hideTranscriptionPreview();
       };
       streaming.onSessionEnd = (data) => {
-        event.sender.send("dictation-realtime-session-end", data || {});
-        if (this._dictationPreviewEnabled) this.windowManager.hideTranscriptionPreview();
+        dictationIPC.canPublish(operation) &&
+          event.sender.send("dictation-realtime-session-end", data || {});
+        if (dictationIPC.canPublish(operation) && this._dictationPreviewEnabled)
+          this.windowManager.hideTranscriptionPreview();
       };
     };
 
@@ -7389,7 +7399,7 @@ class IPCHandlers {
       }, DICTATION_IDLE_TIMEOUT_MS);
     };
 
-    const connectDictationStreaming = async (event, options) => {
+    const connectDictationStreaming = async (event, options, operation) => {
       // Older renderers did not label the OpenAI dictation adapter. Dictation
       // realtime was OpenAI-only before Tinfoil support, so preserve that
       // established default while requiring new adapters to be explicit.
@@ -7417,7 +7427,8 @@ class IPCHandlers {
         // fail-closed for genuinely unknown providers (#1624).
         const provider = options.provider ?? "openai-realtime";
         const streaming = new OpenAIRealtimeStreaming();
-        setupDictationCallbacks(streaming, event);
+        setupDictationCallbacks(streaming, event, operation);
+        dictationIPC.attach(operation, streaming);
         // Assign before the token fetch (a real network round trip) so
         // dictation-realtime-send has a live instance to buffer into instead
         // of silently dropping the start of the recording.
@@ -7428,6 +7439,7 @@ class IPCHandlers {
             mode: options.mode,
             provider,
           });
+          if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
           if (provider === "tinfoil-realtime") {
             const model = options.model || TINFOIL_REALTIME_MODEL;
             await streaming.connect({
@@ -8088,9 +8100,9 @@ class IPCHandlers {
       return result;
     };
 
-    ipcMain.handle("dictation-realtime-warmup", async (event, options = {}) => {
+    dictationIPC.handle("dictation-realtime-warmup", async (event, options = {}, operation) => {
       try {
-        await connectDictationStreaming(event, options);
+        await connectDictationStreaming(event, options, operation);
         startDictationIdleTimer();
         return { success: true };
       } catch (err) {
@@ -8098,28 +8110,33 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("dictation-realtime-start", async (event, options = {}) => {
+    dictationIPC.handle("dictation-realtime-start", async (event, options = {}, operation) => {
       try {
         clearDictationIdleTimer();
         this._dictationPreviewEnabled = !!options.preview;
-        if (!this._dictationStreaming?.isConnected) await connectDictationStreaming(event, options);
+        dictationIPC.attach(operation, this._dictationStreaming);
+        if (this._dictationStreaming)
+          setupDictationCallbacks(this._dictationStreaming, event, operation);
+        if (!this._dictationStreaming?.isConnected)
+          await connectDictationStreaming(event, options, operation);
         return { success: true };
       } catch (err) {
         return streamingStartFailure(err);
       }
     });
 
-    ipcMain.on("dictation-realtime-send", (_event, buffer) => {
+    dictationIPC.on("dictation-realtime-send", (_event, buffer) => {
       this._dictationStreaming?.sendAudio(Buffer.from(buffer));
     });
 
-    ipcMain.handle("dictation-realtime-stop", async () => {
+    dictationIPC.handle("dictation-realtime-stop", async (_event, _identity, operation) => {
+      const streaming = operation.adapter;
       clearDictationIdleTimer();
-      if (!this._dictationStreaming) {
+      if (!streaming) {
         return { success: true, text: "" };
       }
-      const result = await this._dictationStreaming.disconnect().catch(() => ({ text: "" }));
-      this._dictationStreaming = null;
+      const result = await streaming.disconnect().catch(() => ({ text: "" }));
+      if (this._dictationStreaming === streaming) this._dictationStreaming = null;
       if (this._dictationPreviewEnabled) {
         this.windowManager.hideTranscriptionPreview();
         this._dictationPreviewEnabled = false;
@@ -8807,13 +8824,14 @@ class IPCHandlers {
     const fetchAssemblyAiToken = (event) =>
       fetchRealtimeToken(event, { mode: "byok", provider: "assemblyai-realtime" });
 
-    ipcMain.handle("assemblyai-streaming-warmup", async (event, options = {}) => {
+    dictationIPC.handle("assemblyai-streaming-warmup", async (event, options = {}, operation) => {
       try {
         const byok = true;
 
         if (!this.assemblyAiStreaming) {
           this.assemblyAiStreaming = new AssemblyAiStreaming();
         }
+        dictationIPC.attach(operation, this.assemblyAiStreaming);
         this.assemblyAiStreaming.adoptMode(options);
 
         if (this.assemblyAiStreaming.hasWarmConnection()) {
@@ -8825,6 +8843,7 @@ class IPCHandlers {
         if (!token) {
           debugLogger.debug("Fetching new streaming token for warmup", { byok }, "streaming");
           token = await fetchAssemblyAiToken(event, byok);
+          if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
         }
 
         await this.assemblyAiStreaming.warmup({ ...options, token });
@@ -8839,7 +8858,7 @@ class IPCHandlers {
 
     let streamingStartInProgress = false;
 
-    ipcMain.handle("assemblyai-streaming-start", async (event, options = {}) => {
+    dictationIPC.handle("assemblyai-streaming-start", async (event, options = {}, operation) => {
       if (streamingStartInProgress) {
         debugLogger.debug("Streaming start already in progress, ignoring", {}, "streaming");
         return { success: false, error: "Operation in progress" };
@@ -8854,6 +8873,7 @@ class IPCHandlers {
         if (!this.assemblyAiStreaming) {
           this.assemblyAiStreaming = new AssemblyAiStreaming();
         }
+        dictationIPC.attach(operation, this.assemblyAiStreaming);
         this.assemblyAiStreaming.adoptMode(options);
 
         // Clean up any stale active connection (shouldn't happen normally)
@@ -8877,6 +8897,7 @@ class IPCHandlers {
         if (!token) {
           debugLogger.debug("Fetching streaming token", { byok }, "streaming");
           token = await fetchAssemblyAiToken(event, byok);
+          if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
           if (!byok) this.assemblyAiStreaming.cacheToken(token);
         } else {
           debugLogger.debug("Using cached streaming token", {}, "streaming");
@@ -8884,25 +8905,25 @@ class IPCHandlers {
 
         // Set up callbacks to forward events to renderer
         this.assemblyAiStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
             win.webContents.send("assemblyai-partial-transcript", text);
           }
         };
 
         this.assemblyAiStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
             win.webContents.send("assemblyai-final-transcript", text);
           }
         };
 
         this.assemblyAiStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) {
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
             win.webContents.send("assemblyai-error", error.message);
           }
         };
 
         this.assemblyAiStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) {
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
             win.webContents.send("assemblyai-session-end", data);
           }
         };
@@ -8925,7 +8946,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.on("assemblyai-streaming-send", (event, audioBuffer) => {
+    dictationIPC.on("assemblyai-streaming-send", (event, audioBuffer) => {
       try {
         if (!this.assemblyAiStreaming) return;
         const buffer = Buffer.from(audioBuffer);
@@ -8935,17 +8956,18 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.on("assemblyai-streaming-force-endpoint", () => {
+    dictationIPC.on("assemblyai-streaming-force-endpoint", () => {
       this.assemblyAiStreaming?.forceEndpoint();
     });
 
-    ipcMain.handle("assemblyai-streaming-stop", async () => {
+    dictationIPC.handle("assemblyai-streaming-stop", async (_event, _identity, operation) => {
+      const streaming = operation.adapter;
       try {
         let result = { text: "" };
-        if (this.assemblyAiStreaming) {
-          result = await this.assemblyAiStreaming.disconnect(true);
-          this.assemblyAiStreaming.cleanupAll();
-          this.assemblyAiStreaming = null;
+        if (streaming) {
+          result = await streaming.disconnect(true);
+          streaming.cleanupAll();
+          if (this.assemblyAiStreaming === streaming) this.assemblyAiStreaming = null;
         }
 
         return { success: true, text: result?.text || "" };
@@ -8955,7 +8977,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("assemblyai-streaming-status", async () => {
+    dictationIPC.handle("assemblyai-streaming-status", async () => {
       if (!this.assemblyAiStreaming) {
         return { isConnected: false, sessionId: null };
       }
@@ -8972,18 +8994,19 @@ class IPCHandlers {
       );
     };
 
-    ipcMain.handle("deepgram-streaming-warmup", async (event, options = {}) => {
+    dictationIPC.handle("deepgram-streaming-warmup", async (event, options = {}, operation) => {
       try {
         const byok = true;
 
         const win = BrowserWindow.fromWebContents(event.sender);
-        if (win && !win.isDestroyed()) {
+        if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
           deepgramTokenWindowId = win.id;
         }
 
         if (!this.deepgramStreaming) {
           this.deepgramStreaming = new DeepgramStreaming();
         }
+        dictationIPC.attach(operation, this.deepgramStreaming);
         this.deepgramStreaming.adoptMode(options);
 
         setDeepgramTokenRefreshFn(event, byok);
@@ -9001,6 +9024,7 @@ class IPCHandlers {
             "streaming"
           );
           token = await fetchDeepgramToken(event, byok);
+          if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
         }
 
         await this.deepgramStreaming.warmup({ ...options, token });
@@ -9016,7 +9040,7 @@ class IPCHandlers {
     let deepgramStreamingStartInProgress = false;
     let sendDropCount = 0;
 
-    ipcMain.handle("deepgram-streaming-start", async (event, options = {}) => {
+    dictationIPC.handle("deepgram-streaming-start", async (event, options = {}, operation) => {
       if (deepgramStreamingStartInProgress) {
         debugLogger.debug(
           "Deepgram streaming start already in progress, ignoring",
@@ -9031,13 +9055,14 @@ class IPCHandlers {
         const byok = true;
 
         const win = BrowserWindow.fromWebContents(event.sender);
-        if (win && !win.isDestroyed()) {
+        if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
           deepgramTokenWindowId = win.id;
         }
 
         if (!this.deepgramStreaming) {
           this.deepgramStreaming = new DeepgramStreaming();
         }
+        dictationIPC.attach(operation, this.deepgramStreaming);
         this.deepgramStreaming.adoptMode(options);
 
         setDeepgramTokenRefreshFn(event, byok);
@@ -9054,31 +9079,32 @@ class IPCHandlers {
         if (!token) {
           debugLogger.debug("Fetching Deepgram streaming token", { byok }, "streaming");
           token = await fetchDeepgramToken(event, byok);
+          if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
           if (!byok) this.deepgramStreaming.cacheToken(token);
         } else {
           debugLogger.debug("Using cached Deepgram streaming token", {}, "streaming");
         }
 
         this.deepgramStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
             win.webContents.send("deepgram-partial-transcript", text);
           }
         };
 
         this.deepgramStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
             win.webContents.send("deepgram-final-transcript", text);
           }
         };
 
         this.deepgramStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) {
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
             win.webContents.send("deepgram-error", error.message);
           }
         };
 
         this.deepgramStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) {
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed()) {
             win.webContents.send("deepgram-session-end", data);
           }
         };
@@ -9111,7 +9137,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.on("deepgram-streaming-send", (event, audioBuffer) => {
+    dictationIPC.on("deepgram-streaming-send", (event, audioBuffer) => {
       try {
         if (!this.deepgramStreaming) return;
         const buffer = Buffer.from(audioBuffer);
@@ -9147,17 +9173,18 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.on("deepgram-streaming-finalize", () => {
+    dictationIPC.on("deepgram-streaming-finalize", () => {
       this.deepgramStreaming?.finalize();
     });
 
-    ipcMain.handle("deepgram-streaming-stop", async () => {
+    dictationIPC.handle("deepgram-streaming-stop", async (_event, _identity, operation) => {
+      const streaming = operation.adapter;
       try {
-        const model = this.deepgramStreaming?.currentModel || "nova-3";
-        const audioBytesSent = this.deepgramStreaming?.audioBytesSent || 0;
+        const model = streaming?.currentModel || "nova-3";
+        const audioBytesSent = streaming?.audioBytesSent || 0;
         let result = { text: "" };
-        if (this.deepgramStreaming) {
-          result = await this.deepgramStreaming.disconnect(true);
+        if (streaming) {
+          result = await streaming.disconnect(true);
         }
 
         return { success: true, text: result?.text || "", model, audioBytesSent };
@@ -9167,7 +9194,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("deepgram-streaming-status", async () => {
+    dictationIPC.handle("deepgram-streaming-status", async () => {
       if (!this.deepgramStreaming) {
         return { isConnected: false, sessionId: null };
       }
@@ -9184,15 +9211,17 @@ class IPCHandlers {
 
     // Re-bound on every warmup/start so a warm socket promoted by a different
     // window can never emit into the window that opened it.
-    const ensureGeminiStreaming = (event) => {
+    const ensureGeminiStreaming = (event, operation) => {
       if (!this.geminiStreaming) {
         this.geminiStreaming = new GeminiLiveStreaming();
       }
       const win = BrowserWindow.fromWebContents(event.sender);
       const emit = (channel, payload) => {
-        if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+        if (dictationIPC.canPublish(operation) && win && !win.isDestroyed())
+          win.webContents.send(channel, payload);
       };
       const streaming = this.geminiStreaming;
+      dictationIPC.attach(operation, streaming);
       streaming.onPartialTranscript = (text) => emit("gemini-partial-transcript", text);
       streaming.onFinalTranscript = (text) => emit("gemini-final-transcript", text);
       streaming.onError = (error) => emit("gemini-error", error.message);
@@ -9200,10 +9229,10 @@ class IPCHandlers {
       return streaming;
     };
 
-    const connectGeminiStreaming = (event, options) => {
+    const connectGeminiStreaming = (event, options, operation) => {
       if (geminiConnectInFlight) return geminiConnectInFlight;
       geminiConnectInFlight = (async () => {
-        const streaming = ensureGeminiStreaming(event);
+        const streaming = ensureGeminiStreaming(event, operation);
         // byok resolves to the raw API key, managed to a single-use ephemeral
         // token; the client picks its Live method from `mode` accordingly.
         const tokenOptions = { mode: options.mode, provider: "gemini-realtime" };
@@ -9211,10 +9240,16 @@ class IPCHandlers {
         // gemini-streaming-send has somewhere to put the first frames.
         streaming.beginConnecting();
         const token = await fetchRealtimeToken(event, tokenOptions);
+        if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
         await streaming.connect({
           ...options,
           token,
-          refreshToken: () => fetchRealtimeToken(event, tokenOptions),
+          refreshToken: async () => {
+            if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
+            const next = await fetchRealtimeToken(event, tokenOptions);
+            if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
+            return next;
+          },
         });
       })().finally(() => {
         geminiConnectInFlight = null;
@@ -9222,14 +9257,14 @@ class IPCHandlers {
       return geminiConnectInFlight;
     };
 
-    ipcMain.handle("gemini-streaming-warmup", async (event, options = {}) => {
+    dictationIPC.handle("gemini-streaming-warmup", async (event, options = {}, operation) => {
       try {
         if (this.geminiStreaming?.isConnected) {
-          ensureGeminiStreaming(event);
+          ensureGeminiStreaming(event, operation);
           debugLogger.debug("Gemini Live connection already warm", {}, "streaming");
           return { success: true, alreadyWarm: true };
         }
-        await connectGeminiStreaming(event, options);
+        await connectGeminiStreaming(event, options, operation);
         return { success: true };
       } catch (error) {
         debugLogger.error("Gemini streaming warmup error", { error: error.message });
@@ -9237,7 +9272,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("gemini-streaming-start", async (event, options = {}) => {
+    dictationIPC.handle("gemini-streaming-start", async (event, options = {}, operation) => {
       if (geminiStreamingStartInProgress) {
         debugLogger.debug("Gemini streaming start already in progress, ignoring", {}, "streaming");
         return { success: false, error: "Operation in progress" };
@@ -9245,12 +9280,12 @@ class IPCHandlers {
 
       geminiStreamingStartInProgress = true;
       try {
-        const streaming = ensureGeminiStreaming(event);
+        const streaming = ensureGeminiStreaming(event, operation);
         if (geminiConnectInFlight) await geminiConnectInFlight;
         const usedWarmConnection = streaming.isConnected && !options.forceNew;
         if (!usedWarmConnection) {
           if (streaming.isConnected) await streaming.disconnect(false);
-          await connectGeminiStreaming(event, options);
+          await connectGeminiStreaming(event, options, operation);
         }
         geminiSendDropCount = 0;
         debugLogger.debug("Gemini streaming started", { usedWarmConnection }, "streaming");
@@ -9266,7 +9301,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.on("gemini-streaming-send", (_event, audioBuffer) => {
+    dictationIPC.on("gemini-streaming-send", (_event, audioBuffer) => {
       try {
         if (!this.geminiStreaming) return;
         const sent = this.geminiStreaming.sendAudio(Buffer.from(audioBuffer));
@@ -9296,17 +9331,18 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.on("gemini-streaming-finalize", () => {
+    dictationIPC.on("gemini-streaming-finalize", () => {
       this.geminiStreaming?.finalize();
     });
 
-    ipcMain.handle("gemini-streaming-stop", async () => {
+    dictationIPC.handle("gemini-streaming-stop", async (_event, _identity, operation) => {
+      const streaming = operation.adapter;
       try {
-        const model = this.geminiStreaming?.currentModel || GEMINI_LIVE_MODEL;
-        const audioBytesSent = this.geminiStreaming?.audioBytesSent || 0;
+        const model = streaming?.currentModel || GEMINI_LIVE_MODEL;
+        const audioBytesSent = streaming?.audioBytesSent || 0;
         let result = { text: "" };
-        if (this.geminiStreaming) {
-          result = await this.geminiStreaming.disconnect(true);
+        if (streaming) {
+          result = await streaming.disconnect(true);
         }
 
         return { success: true, text: result?.text || "", model, audioBytesSent };
@@ -9316,22 +9352,24 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("gemini-streaming-status", async () => {
+    dictationIPC.handle("gemini-streaming-status", async () => {
       if (!this.geminiStreaming) {
         return { isConnected: false, isConnecting: false };
       }
       return this.geminiStreaming.getStatus();
     });
 
-    ipcMain.handle("corti-streaming-warmup", async (_event, options = {}) => {
+    dictationIPC.handle("corti-streaming-warmup", async (_event, options = {}, operation) => {
       try {
         if (!this.cortiStreaming) {
           this.cortiStreaming = new CortiStreaming();
         }
+        dictationIPC.attach(operation, this.cortiStreaming);
         if (this.cortiStreaming.hasWarmConnection() || this.cortiStreaming.isConnected) {
           return { success: true, alreadyWarm: true };
         }
         const { token, environment, tenant } = await this._mintStoredCortiToken(options);
+        if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
         await this.cortiStreaming.warmup({
           token,
           environment,
@@ -9345,29 +9383,35 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("corti-streaming-start", async (event, options = {}) => {
+    dictationIPC.handle("corti-streaming-start", async (event, options = {}, operation) => {
       try {
         if (!this.cortiStreaming) {
           this.cortiStreaming = new CortiStreaming();
         }
+        dictationIPC.attach(operation, this.cortiStreaming);
         if (this.cortiStreaming.isConnected) {
           await this.cortiStreaming.disconnect(false);
         }
 
         const { token, environment, tenant } = await this._mintStoredCortiToken(options);
+        if (!dictationIPC.isCurrent(operation)) throw new Error("Streaming operation ended");
         const win = BrowserWindow.fromWebContents(event.sender);
 
         this.cortiStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-partial-transcript", text);
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed())
+            win.webContents.send("corti-partial-transcript", text);
         };
         this.cortiStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-final-transcript", text);
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed())
+            win.webContents.send("corti-final-transcript", text);
         };
         this.cortiStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-error", error.message);
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed())
+            win.webContents.send("corti-error", error.message);
         };
         this.cortiStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-session-end", data);
+          if (dictationIPC.canPublish(operation) && win && !win.isDestroyed())
+            win.webContents.send("corti-session-end", data);
         };
 
         await this.cortiStreaming.connect({
@@ -9384,21 +9428,22 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.on("corti-streaming-send", (_event, audioBuffer) => {
+    dictationIPC.on("corti-streaming-send", (_event, audioBuffer) => {
       this.cortiStreaming?.sendAudio(Buffer.from(audioBuffer));
     });
 
-    ipcMain.on("corti-streaming-finalize", () => {
+    dictationIPC.on("corti-streaming-finalize", () => {
       this.cortiStreaming?.finalize();
     });
 
-    ipcMain.handle("corti-streaming-stop", async () => {
+    dictationIPC.handle("corti-streaming-stop", async (_event, _identity, operation) => {
+      const streaming = operation.adapter;
       try {
-        const model = this.cortiStreaming?.currentModel || "corti-transcribe";
-        const audioBytesSent = this.cortiStreaming?.audioBytesSent || 0;
+        const model = streaming?.currentModel || "corti-transcribe";
+        const audioBytesSent = streaming?.audioBytesSent || 0;
         let result = { text: "" };
-        if (this.cortiStreaming) {
-          result = await this.cortiStreaming.disconnect(true);
+        if (streaming) {
+          result = await streaming.disconnect(true);
         }
         return { success: true, text: result?.text || "", model, audioBytesSent };
       } catch (error) {
@@ -9407,7 +9452,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("corti-streaming-status", async () => {
+    dictationIPC.handle("corti-streaming-status", async () => {
       if (!this.cortiStreaming) {
         return { isConnected: false, sessionId: null };
       }

@@ -4409,5 +4409,67 @@
     "error": "Dieser Eintrag konnte nicht geladen werden.",
     "retry": "Erneut versuchen",
     "pickerLabel": "Eintrag erwähnen"
+  },
+  "table": {
+    "view": {
+      "label": "Ansicht",
+      "list": "Liste",
+      "table": "Tisch"
+    },
+    "canvasLabel": "Leinwand: {{space}}",
+    "canvasRole": "Leinwand",
+    "zoomIn": "Vergrößern",
+    "zoomOut": "Verkleinern",
+    "resetView": "Ansicht zurücksetzen",
+    "zoomLevel": "{{percent}} %",
+    "hint": "Karten oder den Hintergrund ziehen. Mit Umschalt ziehen, um auszuwählen. Strg oder ⌘ mit dem Mausrad zoomt. Pfeiltasten wechseln zwischen Karten; mit Umschalt verschieben sie.",
+    "kind": {
+      "note": "Notiz",
+      "meeting": "Besprechung",
+      "dictation": "Diktat",
+      "chat": "Antwort"
+    },
+    "card": {
+      "label": "{{kind}}: {{title}}",
+      "untitled": "Ohne Titel",
+      "answerPending": "Warte auf die Antwort …"
+    },
+    "inbox": {
+      "title": "Eingang",
+      "description": "Neue Aufnahmen und bis zu 50 zuletzt entfernte Elemente je Art. Auf den Tisch ziehen oder Eingabe drücken. Alle Inhalte bleiben im Verlauf und in der Liste verfügbar.",
+      "empty": "Nichts Neues"
+    },
+    "selection": {
+      "count": "Ausgewählt: {{count}}",
+      "summarise": "Zusammenfassen",
+      "ask": "Dazu fragen",
+      "group": "Zu Notiz bündeln",
+      "remove": "Vom Tisch nehmen",
+      "summarisePrompt": "Fasse die ausgewählten Elemente in wenigen Sätzen zusammen.",
+      "limit": "KI-Aktionen funktionieren mit bis zu {{limit}} Karten.",
+      "busy": "Eine andere Aktion läuft gerade."
+    },
+    "groupedNote": {
+      "title": "Vom Tisch gebündelt"
+    },
+    "status": {
+      "full": "Der Tisch fasst bis zu 500 Karten. Entferne zuerst einige.",
+      "truncated": "Bis zu 500 Karten werden angezeigt, angeordnete zuerst. Weitere Inhalte stehen in Liste und Verlauf.",
+      "saveFailed": "Die Änderung konnte nicht gespeichert werden. Deine Inhalte bleiben erhalten."
+    },
+    "ask": {
+      "open": "Fragen",
+      "close": "Schließen",
+      "pinned": "Angeheftete Karten: {{count}}",
+      "wholeTable": "Fragen zum ganzen Tisch",
+      "sendFailed": "Deine Nachricht wurde nicht gesendet. Text und Quellen bleiben unten erhalten; versuche es erneut, wenn alles bereit ist.",
+      "invalidated": "Das Ziel hat sich geändert. Deine Nachricht wurde nicht gesendet; prüfe das Ziel vor dem erneuten Senden.",
+      "retry": "Mit diesen Quellen erneut versuchen"
+    },
+    "detail": {
+      "close": "Volltext schließen",
+      "loading": "Volltext wird geladen …",
+      "failed": "Der Volltext konnte nicht geladen werden. Zum erneuten Versuchen schließen und wieder öffnen."
+    }
   }
 }

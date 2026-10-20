@@ -1,3 +1,4 @@
+import type { ChatMessageSendOptions } from "../components/chat/useChatMessageSender";
 import type { ChatSelection } from "../components/chat/useChatPersistence";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useChatPersistence } from "../components/chat/useChatPersistence";
@@ -15,6 +16,7 @@ interface UseContainerChatOptions {
   space: SpaceItem;
   folder: FolderItem | null;
   notes: NoteItem[];
+  contextOverride?: string | null;
 }
 
 export interface ContainerConversationItem {
@@ -28,7 +30,9 @@ export interface ContainerConversationItem {
 interface UseContainerChatReturn {
   messages: Message[];
   agentState: AgentState;
-  sendMessage: (text: string) => Promise<boolean>;
+  sendMessage: (text: string, options?: ChatMessageSendOptions) => Promise<boolean>;
+  conversationGeneration: number;
+  canSend: boolean;
   cancelStream: () => void;
   conversations: ContainerConversationItem[];
   activeConversationId: number | null;
@@ -45,7 +49,9 @@ export function useContainerChat({
   space,
   folder,
   notes,
+  contextOverride = null,
 }: UseContainerChatOptions): UseContainerChatReturn {
+  const [sending, setSending] = useState(false);
   const [conversations, setConversations] = useState<ContainerConversationItem[]>([]);
   const folderId = folder?.id ?? null;
 
@@ -72,7 +78,7 @@ export function useContainerChat({
     conversationId: persistence.conversationId,
     messages: persistence.messages,
     setMessages: persistence.setMessages,
-    noteContext: containerContext,
+    noteContext: contextOverride ?? containerContext,
     searchScope,
   });
 
@@ -130,9 +136,11 @@ export function useContainerChat({
     persistence,
     streaming,
     createConversation,
+    onSendingChange: setSending,
   });
   const sendMessage = useCallback(
-    (text: string): Promise<boolean> => sendMessageWithResult(text),
+    (text: string, options?: ChatMessageSendOptions): Promise<boolean> =>
+      sendMessageWithResult(text, options),
     [sendMessageWithResult]
   );
 
@@ -143,6 +151,8 @@ export function useContainerChat({
     cancelStream: streaming.cancelStream,
     conversations,
     activeConversationId: conversationId,
+    conversationGeneration: persistence.conversationGeneration,
+    canSend: !sending && streaming.agentState === "idle",
     switchConversation,
     startNewChat,
   };

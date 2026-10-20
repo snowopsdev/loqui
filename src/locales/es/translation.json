@@ -4421,5 +4421,67 @@
     "error": "No se pudo cargar este elemento.",
     "retry": "Reintentar",
     "pickerLabel": "Mencionar un elemento"
+  },
+  "table": {
+    "view": {
+      "label": "Vista",
+      "list": "Lista",
+      "table": "Mesa"
+    },
+    "canvasLabel": "Lienzo: {{space}}",
+    "canvasRole": "lienzo",
+    "zoomIn": "Acercar",
+    "zoomOut": "Alejar",
+    "resetView": "Restablecer vista",
+    "zoomLevel": "{{percent}} %",
+    "hint": "Arrastra tarjetas o el fondo. Mayús y arrastrar para seleccionar. Ctrl o ⌘ con la rueda hace zoom. Las flechas cambian de tarjeta; con Mayús la desplazan.",
+    "kind": {
+      "note": "Nota",
+      "meeting": "Reunión",
+      "dictation": "Dictado",
+      "chat": "Respuesta"
+    },
+    "card": {
+      "label": "{{kind}}: {{title}}",
+      "untitled": "Sin título",
+      "answerPending": "Esperando la respuesta…"
+    },
+    "inbox": {
+      "title": "Bandeja",
+      "description": "Capturas recientes y hasta 50 elementos retirados recientemente de cada tipo. Arrastra uno a la mesa o pulsa Intro. Todo el contenido sigue disponible en Historial y Lista.",
+      "empty": "Nada nuevo"
+    },
+    "selection": {
+      "count": "Seleccionadas: {{count}}",
+      "summarise": "Resumir",
+      "ask": "Preguntar sobre esto",
+      "group": "Agrupar en una nota",
+      "remove": "Quitar de la mesa",
+      "summarisePrompt": "Resume los elementos seleccionados en pocas frases.",
+      "limit": "Las acciones de IA admiten hasta {{limit}} tarjetas.",
+      "busy": "Hay otra acción en curso."
+    },
+    "groupedNote": {
+      "title": "Agrupado desde la mesa"
+    },
+    "status": {
+      "full": "La mesa admite hasta 500 tarjetas. Quita algunas primero.",
+      "truncated": "Se muestran hasta 500 tarjetas, primero las colocadas. Hay más contenido en Lista e Historial.",
+      "saveFailed": "No se pudo guardar el cambio. Tu contenido se conserva."
+    },
+    "ask": {
+      "open": "Preguntar",
+      "close": "Cerrar",
+      "pinned": "Tarjetas fijadas: {{count}}",
+      "wholeTable": "Preguntas sobre toda la mesa",
+      "sendFailed": "Tu mensaje no se envió. El texto y las fuentes se conservan abajo; vuelve a intentarlo cuando esté listo.",
+      "invalidated": "El destino cambió. Tu mensaje no se envió; revisa el destino antes de reintentarlo.",
+      "retry": "Reintentar con estas fuentes"
+    },
+    "detail": {
+      "close": "Cerrar texto completo",
+      "loading": "Cargando texto completo…",
+      "failed": "No se pudo cargar el texto completo. Cierra y vuelve a abrir para reintentarlo."
+    }
   }
 }

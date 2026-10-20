@@ -24,6 +24,10 @@ interface ChatInputProps {
   onTextSubmit?: (text: string) => void | boolean | Promise<void | boolean>;
   /** Destination identity including conversation/context and effective route. */
   queueKey?: string;
+  /** Hosts can freeze context when a busy composer queues its visible words. */
+  onQueue?: () => void;
+  /** Route readiness can block admission while preserving an editable draft. */
+  submitDisabled?: boolean;
   /** A new nonce places or focuses a draft without submitting it. */
   seed?: ComposerSeed | null;
   onCancel?: () => void;
@@ -71,6 +75,8 @@ export function ChatInput({
   partialTranscript,
   onTextSubmit,
   queueKey,
+  onQueue,
+  submitDisabled = false,
   seed,
   onCancel,
   autoFocus = false,
@@ -179,7 +185,7 @@ export function ChatInput({
     agentState === "thinking" || agentState === "streaming" || agentState === "tool-executing";
 
   const handleSubmit = useCallback(async () => {
-    if (!activeRef.current) return;
+    if (!activeRef.current || submitDisabled) return;
     const text = inputTextRef.current.trim();
     if (!text || !onTextSubmit) return;
     const generation = draftGenerationRef.current;
@@ -199,7 +205,7 @@ export function ChatInput({
     // A reset seed gives the box to a newer intent; retain the refused draft.
     if (generation === draftGenerationRef.current && !inputTextRef.current.trim()) writeDraft(text);
     else setUnsent((held) => (held ? `${held}\n\n${text}` : text));
-  }, [onTextSubmit, writeDraft]);
+  }, [onTextSubmit, writeDraft, submitDisabled]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -218,15 +224,17 @@ export function ChatInput({
         hasText: Boolean(inputText.trim()),
       });
       if (action === "none") return;
+      if ((action === "submit" || action === "queue") && submitDisabled) return;
       if (action === "queue" && !queueKey) return;
       e.preventDefault();
       if (action === "submit") void handleSubmit();
       else if (action === "queue") {
+        onQueue?.();
         setQueuedFor(queueKey ?? null);
         setQueueDropped(false);
       } else setQueuedFor(null);
     },
-    [handleSubmit, inputText, isBusy, queued, queueKey, interceptKeyDown]
+    [handleSubmit, inputText, isBusy, queued, queueKey, onQueue, interceptKeyDown, submitDisabled]
   );
 
   // Grow with the text up to the cap, then scroll inside the box.
@@ -393,7 +401,7 @@ export function ChatInput({
             ) : isIdle && (inputText.trim() || !voiceDraft) ? (
               <button
                 onClick={() => void handleSubmit()}
-                disabled={!inputText.trim()}
+                disabled={submitDisabled || !inputText.trim()}
                 aria-label={t("agentMode.input.send")}
                 className={cn(
                   "rounded-full shrink-0",

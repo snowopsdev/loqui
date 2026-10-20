@@ -4421,5 +4421,67 @@
     "error": "Impossibile caricare questo elemento.",
     "retry": "Riprova",
     "pickerLabel": "Menziona un elemento"
+  },
+  "table": {
+    "view": {
+      "label": "Vista",
+      "list": "Elenco",
+      "table": "Tavolo"
+    },
+    "canvasLabel": "Tela: {{space}}",
+    "canvasRole": "tela",
+    "zoomIn": "Ingrandisci",
+    "zoomOut": "Riduci",
+    "resetView": "Ripristina vista",
+    "zoomLevel": "{{percent}}%",
+    "hint": "Trascina le schede o lo sfondo. Maiusc e trascina per selezionare. Ctrl o ⌘ con la rotellina per lo zoom. Le frecce passano da una scheda all’altra; con Maiusc la spostano.",
+    "kind": {
+      "note": "Nota",
+      "meeting": "Riunione",
+      "dictation": "Dettatura",
+      "chat": "Risposta"
+    },
+    "card": {
+      "label": "{{kind}}: {{title}}",
+      "untitled": "Senza titolo",
+      "answerPending": "In attesa della risposta…"
+    },
+    "inbox": {
+      "title": "In arrivo",
+      "description": "Acquisizioni recenti e fino a 50 elementi rimossi di recente per tipo. Trascinane uno sul tavolo o premi Invio. Tutti i contenuti restano disponibili in Cronologia ed Elenco.",
+      "empty": "Niente di nuovo"
+    },
+    "selection": {
+      "count": "Selezionati: {{count}}",
+      "summarise": "Riassumi",
+      "ask": "Chiedi su questi",
+      "group": "Raggruppa in una nota",
+      "remove": "Togli dal tavolo",
+      "summarisePrompt": "Riassumi gli elementi selezionati in poche frasi.",
+      "limit": "Le azioni IA funzionano con al massimo {{limit}} schede.",
+      "busy": "È in corso un’altra azione."
+    },
+    "groupedNote": {
+      "title": "Raggruppato dal tavolo"
+    },
+    "status": {
+      "full": "Il tavolo contiene al massimo 500 schede. Rimuovine prima qualcuna.",
+      "truncated": "Sono mostrate fino a 500 schede, prima quelle disposte. Altri contenuti sono disponibili in Elenco e Cronologia.",
+      "saveFailed": "Impossibile salvare la modifica. I tuoi contenuti sono conservati."
+    },
+    "ask": {
+      "open": "Chiedi",
+      "close": "Chiudi",
+      "pinned": "Schede fissate: {{count}}",
+      "wholeTable": "Domande su tutto il tavolo",
+      "sendFailed": "Il messaggio non è stato inviato. Testo e fonti restano qui sotto; riprova quando tutto è pronto.",
+      "invalidated": "La destinazione è cambiata. Il messaggio non è stato inviato; controlla la destinazione prima di riprovare.",
+      "retry": "Riprova con queste fonti"
+    },
+    "detail": {
+      "close": "Chiudi testo completo",
+      "loading": "Caricamento del testo completo…",
+      "failed": "Impossibile caricare il testo completo. Chiudi e riapri per riprovare."
+    }
   }
 }

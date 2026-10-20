@@ -4409,5 +4409,67 @@
     "error": "This item could not be loaded.",
     "retry": "Retry",
     "pickerLabel": "Mention an item"
+  },
+  "table": {
+    "view": {
+      "label": "View",
+      "list": "List",
+      "table": "Table"
+    },
+    "canvasLabel": "Canvas: {{space}}",
+    "canvasRole": "canvas",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "resetView": "Reset view",
+    "zoomLevel": "{{percent}}%",
+    "hint": "Drag cards or the background. Shift-drag to select. Ctrl or ⌘ with the wheel zooms. Arrow keys move between cards; Shift with arrows nudges.",
+    "kind": {
+      "note": "Note",
+      "meeting": "Meeting",
+      "dictation": "Dictation",
+      "chat": "Answer"
+    },
+    "card": {
+      "label": "{{kind}}: {{title}}",
+      "untitled": "Untitled",
+      "answerPending": "Waiting for the answer…"
+    },
+    "inbox": {
+      "title": "Inbox",
+      "description": "Recent captures and up to 50 recently removed items of each kind. Drag one onto the table or press Enter. All content remains available in History and List.",
+      "empty": "Nothing new"
+    },
+    "selection": {
+      "count": "Selected: {{count}}",
+      "summarise": "Summarise",
+      "ask": "Ask about these",
+      "group": "Group into note",
+      "remove": "Remove from table",
+      "summarisePrompt": "Summarise the selected items in a few sentences.",
+      "limit": "AI actions work on up to {{limit}} cards.",
+      "busy": "Another action is in progress."
+    },
+    "groupedNote": {
+      "title": "Grouped from the table"
+    },
+    "status": {
+      "full": "The table holds up to 500 cards. Remove some first.",
+      "truncated": "Showing up to 500 cards, with arranged cards first. More content is available in List and History.",
+      "saveFailed": "Couldn’t save that change. Your content is preserved."
+    },
+    "ask": {
+      "open": "Ask",
+      "close": "Close",
+      "pinned": "Pinned cards: {{count}}",
+      "wholeTable": "Asking about the whole table",
+      "sendFailed": "Your message was not sent. The words and sources are kept below; retry when ready.",
+      "invalidated": "The destination changed. Your message was not sent; review the destination before retrying.",
+      "retry": "Retry with these sources"
+    },
+    "detail": {
+      "close": "Close full text",
+      "loading": "Loading full text…",
+      "failed": "Couldn’t load the full text. Close and open it again to retry."
+    }
   }
 }

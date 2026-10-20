@@ -4421,5 +4421,67 @@
     "error": "Não foi possível carregar este item.",
     "retry": "Tentar novamente",
     "pickerLabel": "Mencionar um item"
+  },
+  "table": {
+    "view": {
+      "label": "Visualização",
+      "list": "Lista",
+      "table": "Mesa"
+    },
+    "canvasLabel": "Tela: {{space}}",
+    "canvasRole": "tela",
+    "zoomIn": "Aproximar",
+    "zoomOut": "Afastar",
+    "resetView": "Redefinir visualização",
+    "zoomLevel": "{{percent}}%",
+    "hint": "Arraste cartões ou o fundo. Shift e arrastar para selecionar. Ctrl ou ⌘ com a roda faz zoom. As setas mudam de cartão; com Shift, movem-no.",
+    "kind": {
+      "note": "Nota",
+      "meeting": "Reunião",
+      "dictation": "Ditado",
+      "chat": "Resposta"
+    },
+    "card": {
+      "label": "{{kind}}: {{title}}",
+      "untitled": "Sem título",
+      "answerPending": "Aguardando a resposta…"
+    },
+    "inbox": {
+      "title": "Entrada",
+      "description": "Capturas recentes e até 50 itens removidos recentemente de cada tipo. Arraste um para a mesa ou pressione Enter. Todo o conteúdo continua disponível em Histórico e Lista.",
+      "empty": "Nada novo"
+    },
+    "selection": {
+      "count": "Selecionados: {{count}}",
+      "summarise": "Resumir",
+      "ask": "Perguntar sobre estes",
+      "group": "Agrupar em uma nota",
+      "remove": "Tirar da mesa",
+      "summarisePrompt": "Resuma os itens selecionados em poucas frases.",
+      "limit": "As ações de IA funcionam com até {{limit}} cartões.",
+      "busy": "Outra ação está em andamento."
+    },
+    "groupedNote": {
+      "title": "Agrupado a partir da mesa"
+    },
+    "status": {
+      "full": "A mesa comporta até 500 cartões. Remova alguns primeiro.",
+      "truncated": "Mostrando até 500 cartões, com os organizados primeiro. Há mais conteúdo em Lista e Histórico.",
+      "saveFailed": "Não foi possível salvar a alteração. Seu conteúdo foi preservado."
+    },
+    "ask": {
+      "open": "Perguntar",
+      "close": "Fechar",
+      "pinned": "Cartões fixados: {{count}}",
+      "wholeTable": "Perguntas sobre toda a mesa",
+      "sendFailed": "Sua mensagem não foi enviada. O texto e as fontes estão mantidos abaixo; tente novamente quando estiver pronto.",
+      "invalidated": "O destino mudou. Sua mensagem não foi enviada; confira o destino antes de tentar novamente.",
+      "retry": "Tentar novamente com estas fontes"
+    },
+    "detail": {
+      "close": "Fechar texto completo",
+      "loading": "Carregando texto completo…",
+      "failed": "Não foi possível carregar o texto completo. Feche e abra novamente para tentar de novo."
+    }
   }
 }

@@ -68,6 +68,8 @@ interface UseChatStreamingOptions {
 }
 
 export interface SendToAIOptions {
+  /** Frozen Table context for this submission, captured with inference at admission. */
+  contextOverride?: string;
   /** Request ownership survives navigation and unmount; completion persists to its admitted conversation. */
   owner?: {
     conversationId: number;
@@ -267,7 +269,7 @@ export function useChatStreaming({
         ...(pinnedContext ? { pinnedContext } : {}),
         settings,
         sentRoute,
-        noteContext: noteContextRef.current,
+        noteContext: options?.contextOverride ?? noteContextRef.current,
         searchScope: searchScopeRef.current ? { ...searchScopeRef.current } : undefined,
         inference: { ...inference, config: { ...config } },
         webSearch: isProviderSearchEnabled(

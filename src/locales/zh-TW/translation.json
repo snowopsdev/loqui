@@ -4377,5 +4377,67 @@
     "error": "無法載入此項目。",
     "retry": "重試",
     "pickerLabel": "提及項目"
+  },
+  "table": {
+    "view": {
+      "label": "檢視",
+      "list": "清單",
+      "table": "桌面"
+    },
+    "canvasLabel": "畫布：{{space}}",
+    "canvasRole": "畫布",
+    "zoomIn": "放大",
+    "zoomOut": "縮小",
+    "resetView": "重設檢視",
+    "zoomLevel": "{{percent}}%",
+    "hint": "拖曳卡片或背景。按住 Shift 拖曳可框選。Ctrl 或 ⌘ 加滾輪可縮放。方向鍵在卡片間移動；Shift 加方向鍵可微調位置。",
+    "kind": {
+      "note": "筆記",
+      "meeting": "會議",
+      "dictation": "聽寫",
+      "chat": "回答"
+    },
+    "card": {
+      "label": "{{kind}}：{{title}}",
+      "untitled": "未命名",
+      "answerPending": "正在等待回答…"
+    },
+    "inbox": {
+      "title": "收件匣",
+      "description": "最近的記錄及每類最多50項最近移除的內容。拖到桌面上或按 Enter。所有內容仍可在歷史記錄和清單中查看。",
+      "empty": "沒有新內容"
+    },
+    "selection": {
+      "count": "已選取：{{count}}",
+      "summarise": "摘要",
+      "ask": "針對這些提問",
+      "group": "合併為筆記",
+      "remove": "從桌面移除",
+      "summarisePrompt": "用幾句話摘要所選內容。",
+      "limit": "AI 操作最多支援 {{limit}} 張卡片。",
+      "busy": "另一項操作正在進行中。"
+    },
+    "groupedNote": {
+      "title": "從桌面合併"
+    },
+    "status": {
+      "full": "桌面最多可容納 500 張卡片。請先移除一些。",
+      "truncated": "最多顯示500張卡片，已排列的卡片優先。更多內容可在清單和歷史記錄中查看。",
+      "saveFailed": "無法儲存此變更。內容已保留。"
+    },
+    "ask": {
+      "open": "提問",
+      "close": "關閉",
+      "pinned": "已釘選卡片：{{count}}",
+      "wholeTable": "針對整個桌面提問",
+      "sendFailed": "訊息未傳送。文字和來源保留在下方，請準備就緒後重試。",
+      "invalidated": "傳送目標已變更。訊息未傳送，請確認目標後重試。",
+      "retry": "使用這些來源重試"
+    },
+    "detail": {
+      "close": "關閉全文",
+      "loading": "正在載入全文…",
+      "failed": "無法載入全文。請關閉後重新開啟以重試。"
+    }
   }
 }

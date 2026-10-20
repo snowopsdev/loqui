@@ -187,6 +187,7 @@ const BOOLEAN_SETTINGS = new Set([
   "keepTranscriptionInClipboard",
   "dataRetentionEnabled",
   "saveDiscardedTranscriptions",
+  "labsTable",
   "noteFilesEnabled",
   "showTranscriptionPreview",
   "cleanupDisableThinking",
@@ -751,6 +752,8 @@ export interface SettingsState
     ThemeSettings,
     ChatAgentSettings {
   audioCuesEnabled: boolean;
+  // Labs prototype (Plan 08). Off by default; off means today's behaviour exactly.
+  labsTable: boolean;
   pauseMediaOnDictation: boolean;
   floatingIconAutoHide: boolean;
   startMinimized: boolean;
@@ -1062,6 +1065,7 @@ export interface SettingsState
   setTranscriptRetentionDays: (days: number) => void;
   setDataRetentionEnabled: (value: boolean) => void;
   setSaveDiscardedTranscriptions: (value: boolean) => void;
+  setLabsTable: (value: boolean) => void;
   setAudioCuesEnabled: (value: boolean) => void;
   setPauseMediaOnDictation: (value: boolean) => void;
   setFloatingIconAutoHide: (enabled: boolean) => void;
@@ -1809,6 +1813,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   transcriptRetentionDays: readNumber("transcriptRetentionDays", 0),
   dataRetentionEnabled: readBoolean("dataRetentionEnabled", true),
   saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),
+  labsTable: readBoolean("labsTable", false),
   audioCuesEnabled: readBoolean("audioCuesEnabled", true),
   pauseMediaOnDictation: readBoolean("pauseMediaOnDictation", false),
   floatingIconAutoHide: readBoolean("floatingIconAutoHide", false),
@@ -2427,6 +2432,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     );
   },
   setSaveDiscardedTranscriptions: createBooleanSetter("saveDiscardedTranscriptions"),
+  setLabsTable: createBooleanSetter("labsTable"),
   setAudioCuesEnabled: createBooleanSetter("audioCuesEnabled"),
   setPauseMediaOnDictation: createBooleanSetter("pauseMediaOnDictation"),
 

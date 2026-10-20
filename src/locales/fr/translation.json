@@ -2177,6 +2177,14 @@
       "title": "Revoir la configuration de la dictée",
       "description": "Revenez à l'assistant de configuration sans modifier vos notes ni vos identifiants.",
       "action": "Ouvrir la configuration"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "Des prototypes encore en chantier. Vous pouvez les désactiver à tout moment.",
+      "table": {
+        "label": "La Table",
+        "description": "Un canevas pour un espace : étalez notes, dictées et réponses, puis reliez-les. Les positions restent sur cet appareil ; Résumer et Demander utilisent votre fournisseur de chat."
+      }
     }
   },
   "models": {

@@ -2062,6 +2062,14 @@
       "title": "Revisar configuração de ditado",
       "description": "Volte ao fluxo de configuração sem alterar suas notas ou credenciais.",
       "action": "Abrir configuração"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "Protótipos ainda em evolução. Você pode desativá-los a qualquer momento.",
+      "table": {
+        "label": "A Mesa",
+        "description": "Uma tela para um espaço: espalhe notas, ditados e respostas e ligue-os. As posições ficam neste dispositivo; Resumir e Perguntar usam seu provedor de chat."
+      }
     }
   },
   "models": {

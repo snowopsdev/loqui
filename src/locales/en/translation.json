@@ -2176,6 +2176,14 @@
       "title": "Review dictation setup",
       "description": "Return to the focused setup flow without changing your existing notes or credentials.",
       "action": "Open setup"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "Prototypes that are still being shaped. You can turn them off at any time.",
+      "table": {
+        "label": "The Table",
+        "description": "A canvas view for a space: spread notes, dictations and answers out and link them. Card positions stay on this device; Summarise and Ask use your chat provider."
+      }
     }
   },
   "models": {

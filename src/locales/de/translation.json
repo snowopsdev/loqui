@@ -2176,6 +2176,14 @@
       "title": "Diktier-Einrichtung prüfen",
       "description": "Kehre zur geführten Einrichtung zurück, ohne vorhandene Notizen oder Zugangsdaten zu ändern.",
       "action": "Einrichtung öffnen"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "Prototypen in Arbeit. Du kannst sie jederzeit ausschalten.",
+      "table": {
+        "label": "Der Tisch",
+        "description": "Eine Leinwand für einen Bereich: Notizen, Diktate und Antworten auslegen und verbinden. Kartenpositionen bleiben auf diesem Gerät; Zusammenfassen und Fragen nutzen deinen Chat-Anbieter."
+      }
     }
   },
   "models": {

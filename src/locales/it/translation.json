@@ -2083,6 +2083,14 @@
       "title": "Rivedi la configurazione della dettatura",
       "description": "Torna alla configurazione guidata senza modificare note o credenziali esistenti.",
       "action": "Apri configurazione"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "Prototipi ancora in lavorazione. Puoi disattivarli quando vuoi.",
+      "table": {
+        "label": "Il Tavolo",
+        "description": "Una tela per uno spazio: disponi note, dettature e risposte e collegale. Le posizioni restano su questo dispositivo; Riassumi e Chiedi usano il tuo provider di chat."
+      }
     }
   },
   "models": {

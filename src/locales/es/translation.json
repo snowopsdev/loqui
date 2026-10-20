@@ -2136,6 +2136,14 @@
       "title": "Revisar la configuración del dictado",
       "description": "Vuelve al asistente de configuración sin cambiar tus notas ni credenciales.",
       "action": "Abrir configuración"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "Prototipos aún en desarrollo. Puedes desactivarlos cuando quieras.",
+      "table": {
+        "label": "La Mesa",
+        "description": "Un lienzo para un espacio: extiende notas, dictados y respuestas y enlázalos. Las posiciones se quedan en este dispositivo; Resumir y Preguntar usan tu proveedor de chat."
+      }
     }
   },
   "models": {

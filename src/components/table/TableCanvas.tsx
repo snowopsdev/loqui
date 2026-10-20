@@ -103,10 +103,11 @@ export function TableCanvas(props: TableCanvasProps) {
   } | null>(null);
   const frameOwner = useRef({ revision: 0 });
   const cancelRef = useRef<(restoreResize?: boolean) => void>(() => {});
-  const [size, setSize, liveSize] = useTablePaintState<Size>(
+  const [sizePaint, setSize, liveSize, , projectSize] = useTablePaintState<Size>(
     { width: 1200, height: 800 },
     props.publication
   );
+  const size = props.publication ? liveSize.current : sizePaint;
   const [lasso, setLasso, liveLasso] = useTablePaintState<Rect | null>(null, props.publication);
   const lassoRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging, liveDragging] = useTablePaintState<string[]>([], props.publication);
@@ -174,7 +175,22 @@ export function TableCanvas(props: TableCanvasProps) {
   if (cards.length) retention.current.warmed = true;
   const [retentionRevision, warm] = useTablePaintState(0, props.publication);
   useEffect(() => {
-    if (props.publication && retained.size < cards.length) warm((value) => value + 1);
+    if (!props.publication || retained.size >= cards.length) return;
+    // Only optional offscreen preparation yields between batches. Newly visible
+    // content continues to drain synchronously through the current paint owner.
+    let active = true;
+    let next: number | null = null;
+    const first = requestAnimationFrame(() => {
+      if (!active) return;
+      next = requestAnimationFrame(() => {
+        if (active) warm((value) => value + 1);
+      });
+    });
+    return () => {
+      active = false;
+      cancelAnimationFrame(first);
+      if (next !== null) cancelAnimationFrame(next);
+    };
   }, [props.publication, cards, retained, retained.size, retentionRevision, warm]);
   const rendered = cards.filter((c) => retained.has(c.key));
   const elements = useRef(new Map<string, { props: TableCardProps; element: ReactElement }>());
@@ -192,23 +208,27 @@ export function TableCanvas(props: TableCanvasProps) {
       ? focused
       : (cards.find((card) => visible.has(card.key))?.key ?? null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = rootRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let active = true;
-    const observer = new ResizeObserver(() => {
+    const measure = () => {
       if (!active) return;
       const next = { width: el.clientWidth, height: el.clientHeight };
-      setSize(next);
+      if (propsRef.current.publication) projectSize(next);
+      else setSize(next);
       onResizeRef.current?.(next);
       paintRef.current();
-    });
+    };
+    // Establish actual entry bounds before a board response can mount content.
+    if (propsRef.current.publication) measure();
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => {
       active = false;
       observer.disconnect();
     };
-  }, [setSize]);
+  }, [setSize, projectSize]);
 
   // React's onWheel is passive; zoom must preventDefault to stop page zoom.
   useEffect(() => {
@@ -469,7 +489,7 @@ export function TableCanvas(props: TableCanvasProps) {
     const root = rootRef.current;
     const scope = props.gestureScope;
     const frames = frameOwner.current;
-    setDragging([]);
+    setDragging((current) => (current.length ? [] : current));
     setLasso(null);
     setSnapping((current) => (current.length ? [] : current));
     setFocusRequest(null);

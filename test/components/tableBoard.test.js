@@ -803,6 +803,7 @@ test("Task10 fix2: measured values are synchronous and one native delivery proje
     await Promise.resolve();
     assert.equal(notices, 1, "all actual measurements share a before-paint layout projection");
   });
+  await act(() => f.h.dispatch({ type: "focus", key: "note:2" }));
   await f.flush();
   assert.equal(f.h.state.measured["note:2"], 250);
   off();
@@ -883,4 +884,27 @@ test("Task10 fix2: a retired scope handler cannot restore sizing into a same-key
     {},
     "old Canvas cleanup has no authority over a new scope's same key"
   );
+});
+
+test("Task10 fix3: intrinsic measurement projects current geometry without a separate React commit", async (t) => {
+  const f = await mount(t, { getTableBoard: async () => data() }, 1, true);
+  await f.flush();
+  const before = f.commits.length;
+  let height;
+  const off = f.h.subscribe(() => {
+    height = f.h.readCards()[0].rect.h;
+  });
+  await act(async () => {
+    f.h.dispatch({ type: "measured", key: "note:1", h: 237 });
+    assert.equal(f.h.readCards()[0].rect.h, 237);
+    await Promise.resolve();
+    assert.equal(height, 237, "the real layout owner receives the current intrinsic height");
+  });
+  await f.flush();
+  assert.equal(f.commits.length, before, "measurement has a DOM owner, not another entry paint");
+  await act(() => f.h.dispatch({ type: "focus", key: "note:1" }));
+  await f.flush();
+  assert.equal(f.h.cards[0].rect.h, 237, "later semantic publication retains the measurement");
+  assert.equal(f.h.state.focused, "note:1");
+  off();
 });

@@ -1435,3 +1435,31 @@ test("Task10 fix2: optional retention warms nearby world content before distant 
   assert.equal(m.cardEl(near.key).attributes["aria-hidden"], "true");
   assert.equal(m.cardEl(near.key).attributes.tabindex, "-1");
 });
+
+test("Task10 fix3: mounting an idle fully visible canvas and observing its size queues no paint", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const m = await mount(t, { cards: [card("note:1", "note", 32, 32)], selection: [], publication });
+  assert.equal(m.frames.size, 0, "empty gesture state is already initialized");
+  const rootObserver = m.observers.find((o) => o.node?.attributes.role === "listbox");
+  await React.act(async () => rootObserver.callback([]));
+  assert.equal(m.frames.size, 0, "current root geometry projects without a React publication");
+  assert.equal(m.cardEl("note:1").tabIndex, 0);
+});
+
+test("Task10 fix3: a retired optional-warm callback cannot schedule another frame", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  const m = await mount(t, {
+    cards: Array.from({ length: 30 }, (_, i) => card(`note:${i + 1}`, "note", i * 500, 32)),
+    selection: [],
+    publication,
+  });
+  const old = [...m.frames.values()];
+  await m.unmount();
+  assert.equal(m.frames.size, 0);
+  await React.act(async () => old.forEach((callback) => callback()));
+  assert.equal(m.frames.size, 0, "retired callbacks cannot create more optional work");
+});

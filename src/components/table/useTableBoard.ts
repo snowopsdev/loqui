@@ -107,7 +107,10 @@ export function useTableBoard(spaceId: number, publication?: TablePublication) {
       if (sameTableValue(next, liveState.current)) return;
       // Geometry has a synchronous semantic-DOM owner; authoritative content
       // and status still publish complete React snapshots on the shared frame.
-      if (publication && (action.type === "viewport" || action.type === "moved"))
+      if (
+        publication &&
+        (action.type === "viewport" || action.type === "moved" || action.type === "measured")
+      )
         projectState(next);
       else setState(next);
       if (publication && action.type === "measured") {

@@ -297,6 +297,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Space functions
   getSpaces: () => ipcRenderer.invoke("db-get-spaces"),
+  getTableBoard: (spaceId) => ipcRenderer.invoke("db-get-table-board", spaceId),
+  placeTableCards: (spaceId, placements) =>
+    ipcRenderer.invoke("db-place-table-cards", spaceId, placements),
+  hideTableCards: (spaceId, refs) => ipcRenderer.invoke("db-hide-table-cards", spaceId, refs),
+  linkTableCards: (spaceId, a, b) => ipcRenderer.invoke("db-link-table-cards", spaceId, a, b),
+  setTableViewport: (spaceId, viewport) =>
+    ipcRenderer.invoke("db-set-table-viewport", spaceId, viewport),
   updateSpace: (id, updates) => ipcRenderer.invoke("db-update-space", id, updates),
 
   // Note files (markdown mirror) functions
@@ -354,6 +361,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const listener = (_event, data) => callback?.(data);
     ipcRenderer.on("note-deleted", listener);
     return () => ipcRenderer.removeListener("note-deleted", listener);
+  },
+  onAgentConversationDeleted: (callback) => {
+    const listener = (_event, data) => callback?.(data);
+    ipcRenderer.on("agent-conversation-deleted", listener);
+    return () => ipcRenderer.removeListener("agent-conversation-deleted", listener);
+  },
+  onAgentConversationArchived: (callback) => {
+    const listener = (_event, data) => callback?.(data);
+    ipcRenderer.on("agent-conversation-archived", listener);
+    return () => ipcRenderer.removeListener("agent-conversation-archived", listener);
   },
   onFolderDeleted: (callback) => {
     const listener = (_event, data) => callback?.(data);

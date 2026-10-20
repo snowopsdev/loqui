@@ -2021,6 +2021,22 @@ class IPCHandlers {
       return this.databaseManager.getSpaces();
     });
 
+    ipcMain.handle("db-get-table-board", async (_event, spaceId) => {
+      return this.databaseManager.getTableBoard(spaceId);
+    });
+    ipcMain.handle("db-place-table-cards", async (_event, spaceId, placements) => {
+      return this.databaseManager.placeTableCards(spaceId, placements);
+    });
+    ipcMain.handle("db-hide-table-cards", async (_event, spaceId, refs) => {
+      return this.databaseManager.hideTableCards(spaceId, refs);
+    });
+    ipcMain.handle("db-link-table-cards", async (_event, spaceId, a, b) => {
+      return this.databaseManager.linkTableCards(spaceId, a, b);
+    });
+    ipcMain.handle("db-set-table-viewport", async (_event, spaceId, viewport) => {
+      return this.databaseManager.setTableViewport(spaceId, viewport);
+    });
+
     ipcMain.handle("db-update-space", async (event, id, updates) => {
       const result = this.databaseManager.updateSpace(id, updates);
       if (result?.success && result.space) {
@@ -2099,6 +2115,8 @@ class IPCHandlers {
       if (this.vectorIndex?.isReady?.()) {
         this.vectorIndex.deleteConversationChunks(id).catch(() => {});
       }
+      if (result?.success)
+        setImmediate(() => broadcastToWindows("agent-conversation-deleted", { id }));
       return result;
     });
 
@@ -2147,7 +2165,10 @@ class IPCHandlers {
     });
 
     ipcMain.handle("db-archive-agent-conversation", async (event, id) => {
-      return this.databaseManager.archiveAgentConversation(id);
+      const result = this.databaseManager.archiveAgentConversation(id);
+      if (result?.success)
+        setImmediate(() => broadcastToWindows("agent-conversation-archived", { id }));
+      return result;
     });
 
     ipcMain.handle("db-unarchive-agent-conversation", async (event, id) => {

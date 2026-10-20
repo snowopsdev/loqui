@@ -1,3 +1,4 @@
+import type { TableBoardData, TableEntityRef, TablePlacement, TableViewport } from "./table";
 export type VertexAuthSource = "adc" | "apiKey";
 export interface EnterpriseRouteSettings {
   bedrockRegion: string;
@@ -1233,6 +1234,27 @@ declare global {
       >;
 
       // Space operations
+      getTableBoard?: (spaceId: number) => Promise<TableBoardData>;
+      placeTableCards?: (
+        spaceId: number,
+        placements: TablePlacement[]
+      ) => Promise<
+        | { success: true; placed: number; placedKeys: string[] }
+        | { success: false; code: "TABLE_FULL" | "INVALID" }
+      >;
+      hideTableCards?: (
+        spaceId: number,
+        refs: TableEntityRef[]
+      ) => Promise<{ success: boolean; hidden: number }>;
+      linkTableCards?: (
+        spaceId: number,
+        a: TableEntityRef,
+        b: TableEntityRef
+      ) => Promise<{ success: boolean }>;
+      setTableViewport?: (
+        spaceId: number,
+        viewport: TableViewport
+      ) => Promise<{ success: boolean }>;
       getSpaces?: () => Promise<SpaceItem[]>;
       updateSpace?: (
         id: number,
@@ -1343,6 +1365,8 @@ declare global {
       // Note event listeners
       onNoteAdded?: (callback: (note: NoteItem) => void) => () => void;
       onNoteUpdated?: (callback: (note: NoteItem) => void) => () => void;
+      onAgentConversationDeleted?: (callback: (payload: { id: number }) => void) => () => void;
+      onAgentConversationArchived?: (callback: (payload: { id: number }) => void) => () => void;
       onNoteDeleted?: (callback: (payload: { id: number }) => void) => () => void;
       onFolderDeleted?: (callback: (payload: { id: number }) => void) => () => void;
 

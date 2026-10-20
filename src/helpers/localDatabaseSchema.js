@@ -338,4 +338,38 @@ CREATE TABLE IF NOT EXISTS provider_key_health (
   reminded_at INTEGER,
   updated_at INTEGER NOT NULL
 );
+
+-- The Table (Plan 08, WS-M5, Labs): per-space card positions. Rows are
+-- polymorphic (note | dictation | chat), so there is no FK; reads prune rows
+-- whose entity is gone. hidden = 1 keeps a removed note off the table
+-- without touching the note.
+CREATE TABLE IF NOT EXISTS note_layout (
+  space_id INTEGER NOT NULL,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'dictation', 'chat')),
+  entity_id INTEGER NOT NULL,
+  x REAL NOT NULL,
+  y REAL NOT NULL,
+  w REAL,
+  h REAL,
+  z INTEGER NOT NULL DEFAULT 0,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (space_id, entity_type, entity_id)
+);
+CREATE TABLE IF NOT EXISTS note_layout_links (
+  space_id INTEGER NOT NULL,
+  a_type TEXT NOT NULL,
+  a_id INTEGER NOT NULL,
+  b_type TEXT NOT NULL,
+  b_id INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (space_id, a_type, a_id, b_type, b_id)
+);
+CREATE TABLE IF NOT EXISTS note_layout_viewport (
+  space_id INTEGER PRIMARY KEY,
+  x REAL NOT NULL DEFAULT 0,
+  y REAL NOT NULL DEFAULT 0,
+  scale REAL NOT NULL DEFAULT 1,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `;

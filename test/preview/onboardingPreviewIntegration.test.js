@@ -183,7 +183,23 @@ test("real hooks retain off-selection network evidence and retry from the retain
   assert.equal(h.current().state.status, "idle");
 });
 
-test("real Parakeet singleton refuses both concurrent model IDs without replacing its owner", async () => {
+test("real Parakeet singleton refuses both concurrent model IDs without replacing its owner", async (t) => {
+  const electronPath = require.resolve("electron");
+  const originalElectron = require.cache[electronPath];
+  require.cache[electronPath] = {
+    exports: {
+      app: { isReady: () => false, isPackaged: false },
+      net: {
+        request() {
+          throw new Error("Busy admission must not request network");
+        },
+      },
+    },
+  };
+  t.after(() => {
+    if (originalElectron) require.cache[electronPath] = originalElectron;
+    else delete require.cache[electronPath];
+  });
   const ParakeetManager = require("../../src/helpers/parakeet");
   const manager = new ParakeetManager();
   manager.getModelPath = () => "/fixture/model";

@@ -137,11 +137,12 @@ test("every recording start captures its privacy", () => {
   // Spec §5.2 "Audio ownership" (aad5284): once Plan 04's setter exists, it is the only
   // writer, and privacy rides its default. Before that, the bare stamp is required.
   const owned = /_setOwnedAudio\s*\(\s*blob/.test(source);
+  assert.equal(owned, true, "combined Plan04/05 requires the actual sole owned setter");
   if (owned) {
     assert.equal(
       (
         source.match(
-          /this\._setOwnedAudio\((audioBlob|fallbackBlob),\s*\{\s*sessionId: recording.sessionId,\s*private: recording.private\s*\}\);/g
+          /this\._setOwnedAudio\((audioBlob|fallbackBlob),\s*\{\s*sessionId: recording.sessionId,\s*private: recording.private,?\s*\}\);/g
         ) ?? []
       ).length,
       2,

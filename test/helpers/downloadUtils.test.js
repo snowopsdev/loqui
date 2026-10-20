@@ -5,7 +5,30 @@ const os = require("os");
 const path = require("path");
 const { EventEmitter } = require("events");
 const { PassThrough } = require("stream");
-const ParakeetManager = require("../../src/helpers/parakeet");
+// Install the Electron leaf before importing production modules. These tests
+// exercise downloader/model methods, never an Electron installation or net API.
+const initialElectronPath = require.resolve("electron");
+const initialElectronCache = require.cache[initialElectronPath];
+require.cache[initialElectronPath] = {
+  exports: {
+    app: { isReady: () => false, isPackaged: false },
+    net: {
+      request() {
+        throw new Error("Install this test's explicit network fixture first");
+      },
+      fetch() {
+        throw new Error("Install this test's explicit network fixture first");
+      },
+    },
+  },
+};
+let ParakeetManager;
+try {
+  ParakeetManager = require("../../src/helpers/parakeet");
+} finally {
+  if (initialElectronCache) require.cache[initialElectronPath] = initialElectronCache;
+  else delete require.cache[initialElectronPath];
+}
 
 function createElectronMock(response) {
   return {

@@ -1019,3 +1019,72 @@ test("Task22 actual setup cancel → main Undo request → original hook/manager
   assert.equal(f.broadcasts.at(-1)[1].takeId, take.takeId);
   assert.deepEqual(h.writes, []);
 });
+
+test("Task22 real pending final chunk refuses duplicate Undo, re-holds the same private take, then restores and closes", async (t) => {
+  const { f, h } = await connected(t);
+  await idleDemo(f);
+  const take = await startDemo(f, h);
+  const manager = h.manager();
+  const session = manager.activeSession;
+  const recorder = manager.mediaRecorder;
+  const deliver = recorder.stop.bind(recorder);
+  // Hardware leaf only: MediaRecorder has accepted Stop but has not delivered
+  // its final dataavailable/onstop. All hold/admission/restore code is real.
+  recorder.stop = () => {
+    recorder.state = "inactive";
+  };
+  await React.act(async () => {
+    assert.equal(await f.setupApi.cancelOnboardingDemo("A", take.takeId), true);
+    await flush();
+  });
+  const held = manager._undo.peek();
+  assert.equal(held.session, session);
+  assert.equal(held.awaiting(), true);
+  let pending;
+  await React.act(async () => {
+    pending = f.setupApi.undoOnboardingDemoCancel("A", take.takeId, session.id);
+    await flush();
+  });
+  assert.equal(manager.isProcessing, true, "actual preflight owns busy lifecycle");
+  assert.equal(manager._undo.peek(), null, "claimed exactly once");
+  assert.equal(await f.setupApi.undoOnboardingDemoCancel("A", take.takeId, session.id), false);
+  assert.equal(f.sent.filter(([name]) => name === "undo-cancel-request").length, 1);
+  await React.act(async () => {
+    assert.equal(await pending, false, "main absolute deadline bounds the pending final chunk");
+    await flush();
+  });
+  assert.equal(manager._undo.peek(), held, "fresh same-session window retains the original buffer");
+  assert.equal(held.private, true);
+  assert.equal(held.isZeroed(), false);
+  assert.equal(manager.isProcessing, false);
+  const fresh = f.broadcasts.findLast(([, event]) => event.status === "cancelled")[1];
+  assert.equal(fresh.takeId, take.takeId);
+  assert.equal(fresh.cancelled.sessionId, session.id);
+  assert.ok(fresh.cancelled.undoUntil > Date.now());
+  assert.deepEqual(h.writes, []);
+  await React.act(async () => {
+    await deliver();
+    await flush();
+  });
+  assert.equal(held.awaiting(), false);
+  assert.ok(held.bytes("segment").length > 0);
+  await React.act(async () => {
+    assert.equal(await f.setupApi.undoOnboardingDemoCancel("A", take.takeId, session.id), true);
+    await flush();
+  });
+  assert.equal(manager.activeSession, session);
+  assert.equal(manager._recordingPrivate, true);
+  await React.act(async () => {
+    h.result().resolve({
+      success: true,
+      text: "late private words",
+      rawText: "late private words",
+    });
+    await manager._restoreRun;
+    await flush();
+  });
+  assert.equal(f.broadcasts.at(-1)[1].status, "success");
+  assert.equal(f.broadcasts.at(-1)[1].takeId, take.takeId);
+  assert.equal(manager._undo.peek(), null);
+  assert.deepEqual(h.writes, []);
+});

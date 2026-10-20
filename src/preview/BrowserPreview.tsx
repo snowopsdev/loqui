@@ -1,6 +1,6 @@
 import { useStartOnboardingListener } from "../hooks/useStartOnboarding";
 import { clearAfterSetupIntent, setAfterSetupIntent } from "../utils/afterSetupIntent";
-import { Suspense, lazy, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "../hooks/useTheme";
 import {
   clearOnboardingPreviewState,
@@ -21,6 +21,19 @@ const WelcomeVariations = lazy(() => import("./WelcomeVariations"));
 const OnboardingStepConcepts = lazy(() => import("./OnboardingStepConcepts"));
 
 export default function BrowserPreview() {
+  const keyboardHold = useRef(false);
+  const releaseKeyboardHold = () => {
+    if (!keyboardHold.current) return;
+    keyboardHold.current = false;
+    window.loquiPreviewBridge?.simulateHotkey("up");
+  };
+  useEffect(() => {
+    window.addEventListener("blur", releaseKeyboardHold);
+    return () => {
+      window.removeEventListener("blur", releaseKeyboardHold);
+      releaseKeyboardHold();
+    };
+  }, []);
   const initialConfig = useMemo(() => parseOnboardingPreviewConfig(window.location.search), []);
   const [config, setConfig] = useState<OnboardingPreviewConfig>(
     () => window.loquiBrowserPreviewConfig ?? initialConfig
@@ -51,6 +64,7 @@ export default function BrowserPreview() {
   const { theme, setTheme } = useTheme();
   const scenarios = ONBOARDING_SCENARIOS;
   const updateConfig = (patch: Partial<OnboardingPreviewConfig>) => {
+    releaseKeyboardHold();
     clearAfterSetupIntent();
     window.loquiPreviewBridge?.reset();
     const next = { ...configRef.current, ...patch };
@@ -71,11 +85,13 @@ export default function BrowserPreview() {
   const completeSetup = (options?: import("../utils/onboardingFlow").OnboardingCompleteOptions) => {
     if (lifetimeRef.current !== lifetime || completedLifetime.current === lifetime) return;
     completedLifetime.current = lifetime;
+    releaseKeyboardHold();
     if (options?.next) setAfterSetupIntent(options.next);
     setWorkspaceMounted(true);
     setSetup(false);
   };
   const showWorkspace = () => {
+    releaseKeyboardHold();
     completedLifetime.current = lifetimeRef.current;
     setWorkspaceMounted(true);
     setSetup(false);
@@ -286,16 +302,18 @@ export default function BrowserPreview() {
                   }}
                   onPointerUp={() => window.loquiPreviewBridge?.simulateHotkey("up")}
                   onPointerCancel={() => window.loquiPreviewBridge?.simulateHotkey("up")}
+                  onBlur={releaseKeyboardHold}
                   onKeyDown={(event) => {
                     if ((event.key === " " || event.key === "Enter") && !event.repeat) {
                       event.preventDefault();
+                      keyboardHold.current = true;
                       window.loquiPreviewBridge?.simulateHotkey("down");
                     }
                   }}
                   onKeyUp={(event) => {
                     if (event.key === " " || event.key === "Enter") {
                       event.preventDefault();
-                      window.loquiPreviewBridge?.simulateHotkey("up");
+                      releaseKeyboardHold();
                     }
                   }}
                 >

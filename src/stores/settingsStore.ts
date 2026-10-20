@@ -1,3 +1,4 @@
+import { revokeSetupCleanupSelection } from "./setupCleanupAdmission";
 import {
   SECRET_STORE_SLOTS as SECRET_SLOTS,
   type CredentialField,
@@ -10,7 +11,7 @@ import { create } from "zustand";
 import { API_ENDPOINTS } from "../config/constants";
 import i18n, { normalizeUiLanguage } from "../i18n";
 import { ensureAgentNameInDictionary } from "../utils/agentName";
-import { chooseDictionaryStartupAction } from "../helpers/dictionaryStartup";
+import { chooseDictionaryStartupAction } from "../helpers/dictionaryStartup.mjs";
 import logger from "../utils/logger";
 import whisperVadConstants from "../constants/whisperVad.json";
 import type {
@@ -2923,6 +2924,40 @@ export function setResolvedLLMConfig(
   }
   if (Object.keys(updates).length > 0) useSettingsStore.setState(updates);
 }
+
+// Synchronous mutation admission, independent of React's render scheduling.
+// Only nonsecret cleanup work dependencies participate. Main still owns its
+// credential and enterprise generations; renderer revisions never replace them.
+function setupCleanupDependencies(state: SettingsState): string {
+  const selected = selectResolvedLLMConfig(state, "dictationCleanup");
+  return JSON.stringify([
+    state.useCleanupModel,
+    selected.mode,
+    selected.provider,
+    selected.model,
+    selected.cloudMode,
+    selected.cloudBaseUrl,
+    selected.remoteUrl,
+    state.cleanupDisableThinking,
+    state.customPrompts.cleanup,
+    state.customDictionary,
+    state.snippets.map((snippet) => snippet.trigger),
+    state.preferredLanguage,
+    state.uiLanguage,
+    state.chineseScriptPreference,
+    state.azureEndpoint,
+    state.azureApiVersion,
+    state.vertexProject,
+    state.vertexLocation,
+    state.vertexAuthSource,
+    state.bedrockRegion,
+    state.bedrockProfile,
+  ]);
+}
+useSettingsStore.subscribe((state, previous) => {
+  if (setupCleanupDependencies(state) !== setupCleanupDependencies(previous))
+    revokeSetupCleanupSelection();
+});
 
 // --- Convenience getters for non-React code ---
 

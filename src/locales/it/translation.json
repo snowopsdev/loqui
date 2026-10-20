@@ -4241,7 +4241,9 @@
       "announcePercent": "Download del modello vocale al {{percent}} per cento.",
       "announceReady": "Modello vocale pronto",
       "checking": "Verifica della voce…",
-      "voiceModel": "Modello vocale"
+      "voiceModel": "Modello vocale",
+      "stoppedUnknown": "Interrotto al {{percent}}%. Non è stato possibile verificare la dimensione dei dati scaricati rimasti.",
+      "cleanupFailed": "Il download si è interrotto, ma non è stato possibile eliminare alcuni file scaricati."
     },
     "brand": "Configurazione di Loqui",
     "back": "Indietro",
@@ -4419,7 +4421,9 @@
         "final": "Ricordami di inviare la bozza prima di pranzo."
       },
       "readyTitle": "Pronto. Di’ qualcosa.",
-      "readyBody": "Il modello vocale è su questo dispositivo."
+      "readyBody": "Il modello vocale è su questo dispositivo.",
+      "carouselRole": "carosello",
+      "slideRole": "diapositiva"
     },
     "cleanupAuthority": {
       "unavailable": "La correzione testo originale non è più disponibile. Le tue parole originali sono conservate.",
@@ -4507,7 +4511,8 @@
         "needsKey": "Aggiungi la chiave {{provider}} nelle Impostazioni per attivare la correzione testo. Fino ad allora, le tue parole restano come le hai dette.",
         "needsConnection": "Collega ChatGPT qui sopra per attivare la correzione testo. Fino ad allora, le tue parole restano come le hai dette.",
         "needsModel": "Il modello locale di correzione testo non è ancora su questo dispositivo. Scaricalo in Impostazioni → Modelli linguistici (1,3 GB).",
-        "unreachable": "Loqui non riesce a raggiungere {{provider}} ora. Le tue parole restano come le hai dette."
+        "unreachable": "Loqui non riesce a raggiungere {{provider}} ora. Le tue parole restano come le hai dette.",
+        "review": "Controlla questa modifica, poi scegli «Applica»."
       },
       "reuse": "Usa questa scelta anche per le altre funzioni di testo",
       "exampleInProgress": "Testo di esempio durante la richiesta. Il risultato appare solo se la correzione testo riesce.",
@@ -4589,7 +4594,8 @@
           "needsModel": "Scarica il modello locale nelle impostazioni",
           "unreachable": "Impossibile raggiungere {{provider}}",
           "configured": "Configurata con {{name}}",
-          "configuredNetwork": "Configurata su {{provider}} con {{name}}"
+          "configuredNetwork": "Configurata su {{provider}} con {{name}}",
+          "review": "Controlla questa modifica, poi scegli «Applica»."
         }
       },
       "dictateNote": "Detta in una nota",

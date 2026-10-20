@@ -1,21 +1,9 @@
-/**
- * Applies the cleanup choice made in onboarding. The connection or model check
- * is asynchronous (a local model load can take many seconds), so the user can
- * pick another option before it settles. A superseded check must never write
- * its outcome: activating cleanup for an option the user already left would
- * silently turn cleanup on after they chose "No cleanup".
- * Pure module so the ordering guarantee is unit-testable
- * (test/utils/onboardingCleanup.test.js).
- */
 export type CleanupChoice = "none" | "local" | "codex" | "provider";
-export type CleanupStatus = "checking" | "pending" | "ready" | "failed" | "skipped";
+export type CleanupStatus = "checking" | "pending" | "ready" | "failed" | "skipped" | "review";
 
+import type { SettingsPatch } from "../lib/providerSwitchPlans";
 export interface CleanupSettings {
   cleanupModel: string;
-  setUseCleanupModel(value: boolean): void;
-  setCleanupMode(mode: "local" | "providers"): void;
-  setCleanupProvider(provider: string): void;
-  setCleanupModel(model: string): void;
 }
 
 export interface CleanupBridge {
@@ -39,10 +27,13 @@ export interface ApplyCleanupChoiceOptions {
   bridge?: CleanupBridge;
   catalog: CleanupModelCatalog;
   setStatus: (status: CleanupStatus) => void;
+  requestPatch: (patch: SettingsPatch) => Promise<"ready" | "review" | "failed">;
   /** False once the user has chosen something else; the result is then discarded. */
   isCurrent: () => boolean;
 }
 
+/** Availability checks never mutate settings. The sole route planner owns the
+ * complete patch, its review, commit and exact Undo, including reused scopes. */
 export async function applyCleanupChoice({
   choice,
   settings,
@@ -50,65 +41,68 @@ export async function applyCleanupChoice({
   catalog,
   setStatus,
   isCurrent,
+  requestPatch,
 }: ApplyCleanupChoiceOptions): Promise<void> {
-  if (choice === "none") {
-    settings.setUseCleanupModel(false);
-    setStatus("skipped");
-    return;
-  }
-  // Keep the choice visible while the connection/model check runs, but do not
-  // activate cleanup until that check succeeds.
-  settings.setUseCleanupModel(false);
   setStatus("checking");
-  const settle = (ready: boolean, pending: CleanupStatus) => {
-    if (!isCurrent()) return;
-    if (ready) settings.setUseCleanupModel(true);
-    setStatus(ready ? "ready" : pending);
-  };
-  if (choice === "local") {
-    settings.setCleanupMode("local");
-    settings.setCleanupProvider("local");
-    settings.setCleanupModel("qwen3.5-2b-q4_k_m");
-    try {
-      const result = await bridge?.modelTestLoad?.("qwen3.5-2b-q4_k_m");
-      settle(Boolean(result?.success), "pending");
-    } catch {
-      settle(false, "pending");
-    }
-  } else if (choice === "codex") {
-    settings.setCleanupMode("providers");
-    settings.setCleanupProvider("codex");
-    try {
-      const inference = bridge?.personalInference;
-      const status = await inference?.codexStatus();
+  let patch: SettingsPatch;
+  try {
+    if (choice === "none") patch = { useCleanupModel: false };
+    else if (choice === "local") {
+      const model = "qwen3.5-2b-q4_k_m";
+      const result = await bridge?.modelTestLoad?.(model);
       if (!isCurrent()) return;
-      if (!(status?.available && status.account?.type === "chatgpt"))
-        return settle(false, "failed");
-      // The stored cleanup model may still be the local default. Codex lists its
-      // own models, so confirm one it serves instead of sending a foreign id.
-      const { data } = (await inference?.codexModels()) ?? { data: [] };
-      const model = data.some((item) => item.model === settings.cleanupModel)
+      if (!result?.success) {
+        setStatus("pending");
+        return;
+      }
+      patch = {
+        useCleanupModel: true,
+        cleanupMode: "local",
+        cleanupProvider: "local",
+        cleanupModel: model,
+      };
+    } else if (choice === "codex") {
+      const status = await bridge?.personalInference?.codexStatus();
+      if (!isCurrent()) return;
+      if (!(status?.available && status.account?.type === "chatgpt")) {
+        setStatus("failed");
+        return;
+      }
+      // Use the shipped catalog; selection must never start remote discovery.
+      const model = catalog.owns("codex", settings.cleanupModel)
         ? settings.cleanupModel
-        : (data.find((item) => item.isDefault) ?? data[0])?.model;
-      if (!model || !isCurrent()) return settle(false, "failed");
-      settings.setCleanupModel(model);
-      settle(true, "failed");
-    } catch {
-      settle(false, "failed");
-    }
-  } else {
-    settings.setCleanupMode("providers");
-    settings.setCleanupProvider("openai");
-    // A model id left over from another provider would 404 on every request.
-    const model = catalog.owns("openai", settings.cleanupModel)
-      ? settings.cleanupModel
-      : catalog.defaultModel("openai");
-    try {
+        : catalog.defaultModel("codex");
+      if (!model) {
+        setStatus("failed");
+        return;
+      }
+      patch = {
+        useCleanupModel: true,
+        cleanupMode: "providers",
+        cleanupProvider: "codex",
+        cleanupModel: model,
+      };
+    } else {
       const status = await bridge?.personalInference?.credentialStatus("openai");
-      if (isCurrent() && status?.configured && model) settings.setCleanupModel(model);
-      settle(Boolean(status?.configured && model), "failed");
-    } catch {
-      settle(false, "failed");
+      if (!isCurrent()) return;
+      const model = catalog.owns("openai", settings.cleanupModel)
+        ? settings.cleanupModel
+        : catalog.defaultModel("openai");
+      if (!status?.configured || !model) {
+        setStatus("failed");
+        return;
+      }
+      patch = {
+        useCleanupModel: true,
+        cleanupMode: "providers",
+        cleanupProvider: "openai",
+        cleanupModel: model,
+      };
     }
+    if (!isCurrent()) return;
+    const result = await requestPatch(patch);
+    if (isCurrent()) setStatus(choice === "none" && result === "ready" ? "skipped" : result);
+  } catch {
+    if (isCurrent()) setStatus(choice === "local" ? "pending" : "failed");
   }
 }

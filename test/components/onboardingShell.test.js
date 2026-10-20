@@ -28,7 +28,7 @@ test("the new shell is pinned, keeps 56/64 chrome, and clears the traffic lights
   );
 });
 
-test("small windows, 200% zoom and long labels keep every action reachable (M04)", () => {
+test("responsive CSS structure reserves footer space and adapts to narrow windows (M04)", () => {
   const source = setupCss();
   const narrow = source.match(/@media \(max-width: 760px\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(narrow);
@@ -221,6 +221,10 @@ test("listening hands the bars to LevelBars; errors drop them to 30%; success dr
 
 // Drives LevelBars' real sampler (window.setInterval + performance.now) on one mocked clock.
 function meterClock(t) {
+  const diagnostics = require("../lib/scopedDiagnostics").captureDiagnostics(t);
+  t.after(() =>
+    assert.deepEqual(diagnostics, [], "meter clock produces no unexpected act diagnostics")
+  );
   let now = 0;
   t.mock.method(performance, "now", () => now);
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
@@ -230,11 +234,12 @@ function meterClock(t) {
       clearInterval: (id) => clearInterval(id),
     },
     async advance(ms) {
-      for (let elapsed = 0; elapsed < ms; elapsed += 33) {
-        now += 33;
-        t.mock.timers.tick(33);
-      }
-      await React.act(async () => {});
+      await React.act(async () => {
+        for (let elapsed = 0; elapsed < ms; elapsed += 33) {
+          now += 33;
+          t.mock.timers.tick(33);
+        }
+      });
     },
   };
 }
@@ -338,16 +343,88 @@ test("no onboarding rule overrides LevelBars with !important (the tone prop repl
   assert.doesNotMatch(css, /\[data-level-bar\][^{]*\{[^}]*!important/);
 });
 
-// Read complete declaration values, so a token on the next line is still checked.
+// Parse complete declarations and all components, including token-only shorthands.
+// This guard proves source grammar/token resolution, not rendered timing or zoom.
 function assertTokenDurations(source) {
-  const clean = source.replace(/\/\*[\s\S]*?\*\//g, "");
-  for (const [, property, value] of clean.matchAll(
-    /(?:^|[;{])\s*((?:transition|animation)(?:-duration|-delay)?)\s*:\s*([^;}]+)/g
-  )) {
-    assert.doesNotMatch(value, /(?:^|[^\w-])(?:\d*\.)?\d+(?:ms|s)\b/, `${property}: ${value}`);
-    if (property.endsWith("duration") || property.endsWith("delay"))
-      assert.match(value, /var\(--motion-|none/);
-  }
+  const postcss = require("postcss");
+  const shared = {};
+  postcss.parse(read("src/index.css")).walkDecls((decl) => {
+    if (decl.prop.startsWith("--motion-")) shared[decl.prop] = decl.value;
+  });
+  const split = (value, delimiter) => {
+    let depth = 0,
+      current = "";
+    const parts = [];
+    for (const char of value.trim()) {
+      if (char === "(") depth++;
+      if (char === ")") depth--;
+      assert.ok(depth >= 0, value);
+      if (depth === 0 && delimiter.test(char)) {
+        if (current.trim()) parts.push(current.trim());
+        current = "";
+      } else current += char;
+    }
+    assert.equal(depth, 0, value);
+    if (current.trim()) parts.push(current.trim());
+    return parts;
+  };
+  const tokenValue = (token) => {
+    const match = /^var\((--motion-[\w-]+)\)$/.exec(token);
+    if (!match) return null;
+    assert.ok(Object.hasOwn(shared, match[1]), `unknown motion token ${token}`);
+    return shared[match[1]];
+  };
+  const time = (token) => {
+    const resolved = tokenValue(token);
+    if (resolved !== null) return /^\d+(?:\.\d+)?(?:ms|s)$/.test(resolved) ? 1 : 0;
+    const calc =
+      /^calc\(\s*(var\(--motion-[\w-]+\))((?:\s*[*/]\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+))+)\s*\)$/.exec(
+        token
+      );
+    if (!calc) return 0;
+    assert.equal(time(calc[1]), 1, token);
+    assert.doesNotMatch(calc[2], /\/\s*[+-]?0(?:\.0+)?(?:\s|$)/, "zero divisor");
+    return 1;
+  };
+  postcss.parse(source).walkDecls((decl) => {
+    const property = decl.prop;
+    if (!/^(transition|animation)(-duration|-delay)?$/.test(property)) return;
+    const value = decl.value;
+    // Every raw signed/unsigned time literal is forbidden outside a shared token.
+    assert.doesNotMatch(value, /[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:ms|s)\b/, `${property}: ${value}`);
+    for (const item of split(value, /,/)) {
+      const tokens = split(item, /\s/);
+      if (property.endsWith("duration") || property.endsWith("delay")) {
+        assert.equal(tokens.length, 1, item);
+        assert.equal(time(tokens[0]), 1, item);
+        continue;
+      }
+      if (item === "none") continue;
+      let times = 0,
+        names = 0,
+        easings = 0;
+      for (const token of tokens) {
+        if (time(token)) {
+          times++;
+          continue;
+        }
+        const resolved = tokenValue(token);
+        if (resolved !== null) {
+          assert.match(resolved, /^(cubic-bezier|linear|steps)\(/, token);
+          easings++;
+          continue;
+        }
+        const keyword =
+          property === "animation"
+            ? /^(infinite|normal|reverse|alternate|alternate-reverse|none|forwards|backwards|both|running|paused|\d+(?:\.\d+)?)$/
+            : /^(allow-discrete|normal)$/;
+        if (keyword.test(token)) continue;
+        assert.match(token, /^[a-zA-Z_][\w-]*$/, token);
+        names++;
+      }
+      assert.ok(times >= 1 && times <= 2 && names <= 1 && easings <= 1, item);
+    }
+  });
 }
 test("duration guard accepts multiline tokens and rejects mixed literal durations", () => {
   assert.doesNotThrow(() =>
@@ -355,10 +432,20 @@ test("duration guard accepts multiline tokens and rejects mixed literal duration
       ".x { transition:\n opacity var(--motion-base),\n color var(--motion-fast); }"
     )
   );
+  assert.doesNotThrow(() =>
+    assertTokenDurations(".x { animation-delay: calc(var(--motion-fast) * -1); }")
+  );
+  for (const value of ["var(--motion-missing)", "var(--motion-fast) garbage", "none"])
+    assert.throws(() => assertTokenDurations(`.x { animation-duration: ${value}; }`));
   for (const value of [
     "opacity 200ms",
     "opacity var(--motion-base), transform .2s",
     "onb-shake 1s infinite",
+    "onb-shake -200ms",
+    "onb-shake +.2s",
+    "onb-shake var(--motion-fast) mixed garbage",
+    "onb-shake var(--motion-missing)",
+    "var(--motion-ease-std)",
   ]) {
     assert.throws(() => assertTokenDurations(`.x { animation:\n ${value}; }`));
   }

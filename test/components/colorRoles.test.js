@@ -91,10 +91,20 @@ test("focus indicators on shared controls are fully opaque", () => {
   }
 });
 
-test("every HotkeyInput variant draws an opaque ring on focus and while capturing", async () => {
+test("every HotkeyInput variant draws an opaque ring on focus and while capturing", async (t) => {
+  const { captureDiagnostics } = require("../lib/scopedDiagnostics");
+  const diagnostics = captureDiagnostics(t);
+  t.after(() => assert.deepEqual(diagnostics, []));
+  const i18n = require("i18next").createInstance();
+  const { I18nextProvider } = require("react-i18next");
+  await i18n.init({ lng: "en", resources: { en: { translation: {} } }, initImmediate: false });
   const { HotkeyInput } = await import("../../src/components/ui/HotkeyInput.tsx");
   for (const variant of ["default", "hero", "capture-overlay"]) {
-    const html = renderStatic(HotkeyInput, { value: "", onChange() {}, variant });
+    const html = renderStatic(
+      I18nextProvider,
+      { i18n },
+      require("react").createElement(HotkeyInput, { value: "", onChange() {}, variant })
+    );
     assert.match(html, /focus-visible:ring-2 focus-visible:ring-ring(?![\w/-])/, variant);
   }
   const source = fs.readFileSync(path.join(repoRoot, "src/components/ui/HotkeyInput.tsx"), "utf8");

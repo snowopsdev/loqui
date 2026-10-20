@@ -21,7 +21,10 @@ test("two languages pick one offline voice that hears both", async () => {
   assert.equal(pick.modelId, "orukeet-v0.1.0");
   assert.equal(pick.outcome, "manyLanguages");
   assert.deepEqual(pick.reason, { kind: "multilingual", languages: ["es", "en"] });
-  assert.equal(detectVoice({ locales: ["pt-BR", "en-US"], freeDiskBytes: plenty }).modelId, "orukeet-v0.1.0");
+  assert.equal(
+    detectVoice({ locales: ["pt-BR", "en-US"], freeDiskBytes: plenty }).modelId,
+    "orukeet-v0.1.0"
+  );
 });
 
 test("Japanese never gets an English-only voice", async () => {
@@ -32,12 +35,18 @@ test("Japanese never gets an English-only voice", async () => {
   const mixed = detectVoice({ locales: ["ja-JP", "en-US"], freeDiskBytes: plenty });
   assert.equal(mixed.modelId, "nemotron-3.5-asr-streaming-0.6b");
   assert.deepEqual(mixed.reason, { kind: "multilingual", languages: ["ja", "en"] });
-  assert.equal(detectVoice({ locales: ["de-DE", "ja-JP"], freeDiskBytes: plenty }).modelId, "nemotron-3.5-asr-streaming-0.6b");
+  assert.equal(
+    detectVoice({ locales: ["de-DE", "ja-JP"], freeDiskBytes: plenty }).modelId,
+    "nemotron-3.5-asr-streaming-0.6b"
+  );
 });
 
 test("an unsupported language is said out loud, with no model guessed", async () => {
   const { detectVoice, spokenLocalesFor, voiceSupportsAll } = await load();
-  for (const [locales, language] of [[["he-IL"], "he"], [["zh-Hant-TW"], "zh"]]) {
+  for (const [locales, language] of [
+    [["he-IL"], "he"],
+    [["zh-Hant-TW"], "zh"],
+  ]) {
     const pick = detectVoice({ locales, freeDiskBytes: plenty });
     assert.equal(pick.modelId, null);
     assert.equal(pick.outcome, null);
@@ -64,7 +73,11 @@ test("disk is flagged when free space is under 2.5 times the download", async ()
 
 test("base languages ignore junk and keep OS order", async () => {
   const { baseLanguages } = await load();
-  assert.deepEqual(baseLanguages(["en_US", "EN-gb", "", "1234", "fil-PH", "de"]), ["en", "fil", "de"]);
+  assert.deepEqual(baseLanguages(["en_US", "EN-gb", "", "1234", "fil-PH", "de"]), [
+    "en",
+    "fil",
+    "de",
+  ]);
   assert.deepEqual(baseLanguages([]), ["en"]);
 });
 
@@ -76,10 +89,22 @@ test("detection applies only until the user has chosen a voice", async () => {
 
 test("a language change keeps, replaces or clears the voice; never an incompatible one", async () => {
   const { reconcileVoice, voiceSupportsAll } = await load();
-  assert.deepEqual(reconcileVoice("orukeet-v0.1.0", ["de-DE"]), { modelId: "orukeet-v0.1.0", changed: false });
-  assert.deepEqual(reconcileVoice("parakeet-unified-en-0.6b", ["ja-JP"]), { modelId: "nemotron-3.5-asr-streaming-0.6b", changed: true });
-  assert.deepEqual(reconcileVoice("parakeet-unified-en-0.6b", ["he-IL"]), { modelId: null, changed: true });
-  assert.deepEqual(reconcileVoice(null, ["es-ES", "en-US"]), { modelId: "orukeet-v0.1.0", changed: true });
+  assert.deepEqual(reconcileVoice("orukeet-v0.1.0", ["de-DE"]), {
+    modelId: "orukeet-v0.1.0",
+    changed: false,
+  });
+  assert.deepEqual(reconcileVoice("parakeet-unified-en-0.6b", ["ja-JP"]), {
+    modelId: "nemotron-3.5-asr-streaming-0.6b",
+    changed: true,
+  });
+  assert.deepEqual(reconcileVoice("parakeet-unified-en-0.6b", ["he-IL"]), {
+    modelId: null,
+    changed: true,
+  });
+  assert.deepEqual(reconcileVoice(null, ["es-ES", "en-US"]), {
+    modelId: "orukeet-v0.1.0",
+    changed: true,
+  });
   assert.equal(voiceSupportsAll("parakeet-unified-en-0.6b", ["en-US", "ja-JP"]), false);
   assert.equal(voiceSupportsAll("nemotron-3.5-asr-streaming-0.6b", ["en-US", "ja-JP"]), true);
   assert.equal(voiceSupportsAll("nemotron-3.5-asr-streaming-0.6b", []), false);
@@ -96,4 +121,11 @@ test("spoken languages keep the OS's full locale tags for the voice's languages"
   const { spokenLocalesFor } = await load();
   assert.deepEqual(spokenLocalesFor(["es-ES", "en-US", "he-IL"], ["es", "en"]), ["es-ES", "en-US"]);
   assert.deepEqual(spokenLocalesFor([], ["en"]), ["en"]);
+});
+
+test("voice outcomes accept only own catalog identities", async () => {
+  const { outcomeFor } = await import("../../src/utils/onboardingDetection.ts");
+  assert.equal(outcomeFor("parakeet-unified-en-0.6b"), "fastEnglish");
+  for (const id of ["toString", "__proto__", "constructor", "unknown"])
+    assert.equal(outcomeFor(id), null);
 });

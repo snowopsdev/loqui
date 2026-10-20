@@ -1,5 +1,5 @@
 import { useWorkspaceActive } from "../hooks/useWorkspaceActive";
-import { withDraftDiscard } from "../stores/routeDraftStore";
+import { endSettingsSession, withDraftDiscard } from "../stores/routeDraftStore";
 import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -90,18 +90,6 @@ export default function SettingsModal({
   const initial = parseSettingsPath(initialSection);
   const [activeSection, setActiveSection] = React.useState<SettingsSectionType>(initial.section);
   const [initialSubTab, setInitialSubTab] = useState<string | undefined>(initial.subTab);
-  const [prevOpen, setPrevOpen] = useState(open);
-
-  if (open && !prevOpen && initialSection) {
-    setPrevOpen(open);
-    const next = parseSettingsPath(initialSection);
-    setActiveSection(next.section);
-    setInitialSubTab(next.subTab);
-  } else if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (!open) setInitialSubTab(undefined);
-  }
-
   const handleNavigateToPath = useCallback((path: string) => {
     const next = parseSettingsPath(path);
     setActiveSection(next.section);
@@ -122,14 +110,30 @@ export default function SettingsModal({
 
   const search = useSettingsSearch({ open, navigateToPath: navigateFromSearch });
   const clearSearch = search.clear;
+  const consumedActivation = React.useRef<number | undefined>(undefined);
+  const consumedPath = React.useRef(initialSection);
   useEffect(() => {
-    if (activationId === undefined || !open) return;
+    const changed =
+      activationId === undefined
+        ? consumedPath.current !== initialSection
+        : consumedActivation.current !== activationId;
+    if (!open || !changed) return;
+    consumedActivation.current = activationId;
+    consumedPath.current = initialSection;
     clearSearch();
     // Pass through an unset sub-tab so the retained useSubTab owner consumes
     // even an identical path after the user has manually moved elsewhere.
     setInitialSubTab(undefined);
     setSearchPath(initialSection ?? "general");
   }, [activationId, initialSection, open, clearSearch]);
+
+  const wasOpen = React.useRef(open);
+  useEffect(() => {
+    // The destination was consumed by the active page. A remount on ordinary
+    // return must read the user's saved tab rather than replay that request.
+    if (!open && wasOpen.current) setInitialSubTab(undefined);
+    wasOpen.current = open;
+  }, [open]);
 
   const handleSectionChange = (section: SettingsSectionType) => {
     search.clear();
@@ -138,13 +142,16 @@ export default function SettingsModal({
     setInitialSubTab(undefined);
   };
 
+  // The retained modal owns the planner session. Radix content may unmount
+  // while setup is displayed without closing this owner.
+  useEffect(() => () => endSettingsSession(), []);
   const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);
 
   return (
     <SidebarModal<SettingsSectionType>
       open={open}
       onOpenChange={handleOpenChange}
-      footer={<StagedRouteBar />}
+      footer={<StagedRouteBar discardOnUnmount={false} />}
       title={t("settingsModal.title")}
       contentTitle={search.query ? t("settingsSearch.title") : undefined}
       search={

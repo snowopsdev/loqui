@@ -302,6 +302,7 @@ function configureStreamingFinalization(h) {
     awaitStreamingTextSettled: async () => {},
     processTranscription: async (text) => text,
   });
+  require("./streamingTransport").admitStreamingTransportFixture(manager);
   return manager;
 }
 module.exports.configureStreamingFinalization = configureStreamingFinalization;

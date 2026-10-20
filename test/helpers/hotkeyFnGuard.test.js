@@ -5,7 +5,9 @@ const assert = require("node:assert/strict");
 // callback globalShortcut would fire, so a test can invoke it directly.
 const registered = new Map();
 require.cache[require.resolve("electron")] = {
+  loaded: true,
   exports: {
+    app: { isReady: () => false, getPath: () => "/fixture-unused" },
     globalShortcut: {
       register(accelerator, callback) {
         if (registered.has(accelerator)) return false;
@@ -26,7 +28,9 @@ require.cache[require.resolve("electron")] = {
   },
 };
 
-const HotkeyManager = require("../../src/helpers/hotkeyManager.js");
+const HotkeyManager = require("../lib/scopedDiagnostics").assertQuietImport(() =>
+  require("../../src/helpers/hotkeyManager.js")
+);
 
 test.beforeEach(() => {
   registered.clear();

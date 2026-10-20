@@ -159,7 +159,10 @@ async function mountPreview(t, options = {}) {
       const pending = deferred();
       const tracks = [1, 2].map((n) => ({
         label: `Mic ${index}`,
-        stop: () => stopped.push(`${index}.${n}`),
+        stop: () => {
+          stopped.push(`${index}.${n}`);
+          if (setup.teardownThrows && n === 1) throw new Error("fixture track stop");
+        },
       }));
       const stream = { getTracks: () => tracks, getAudioTracks: () => [tracks[0]] };
       requests.push({
@@ -205,6 +208,7 @@ async function mountPreview(t, options = {}) {
         },
         disconnect() {
           disconnected.push("analyser");
+          if (setup.teardownThrows) throw new Error("fixture analyser disconnect");
         },
       };
     }
@@ -216,11 +220,13 @@ async function mountPreview(t, options = {}) {
         },
         disconnect() {
           disconnected.push("source");
+          if (setup.teardownThrows) throw new Error("fixture source disconnect");
         },
       };
     }
     close() {
       closed.push("context");
+      if (setup.teardownThrows) throw new Error("fixture synchronous close");
       return setup.closeRejects ? Promise.reject(new Error("close")) : Promise.resolve();
     }
   };
@@ -551,4 +557,17 @@ test("a stale enumeration rejection cannot fail the new device owner", async (t)
   assert.equal(mic.current().status, "live");
   assert.equal(mic.current().deviceLabel, "Mic 2");
   assert.equal(mic.current().inputs[0].deviceId, "usb");
+});
+
+test("combined throwing track/disconnect/synchronous close still releases every preview resource", async (t) => {
+  const mic = await mountPreview(t, { teardownThrows: true });
+  await mic.render({ active: true });
+  await mic.grant(0);
+  assert.equal(mic.current().status, "live");
+  await mic.unmount();
+  assert.deepEqual(mic.stopped, ["1.1", "1.2"]);
+  assert.deepEqual(mic.disconnected, ["source", "analyser"]);
+  assert.deepEqual(mic.closed, ["context"]);
+  assert.equal(mic.listeners.size, 0);
+  assert.equal(mic.timers.size, 0);
 });

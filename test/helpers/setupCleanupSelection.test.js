@@ -73,3 +73,113 @@ test("actual setup selection captures full selected nonsecret config; every mean
     store.setState({ [field]: previous });
   }
 });
+
+test("actual synchronous setters revoke ABA selection before import/dispatch and completion; unrelated noise and fresh final A succeed", async (t) => {
+  installBrowserGlobals(t, {
+    initialStorage: MIGRATED_STORAGE,
+    window: { electronAPI: { setDictionary: async () => {} } },
+  });
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-cleanup-aba-" });
+  const service = await vite.ssrLoadModule("/services/capturedCleanupOperation.ts");
+  const { useSettingsStore: store } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  store.setState({
+    useCleanupModel: true,
+    cleanupMode: "providers",
+    cleanupProvider: "openai",
+    cleanupModel: "a",
+  });
+  const first = service.captureSetupCleanupSelection();
+  store.getState().setCleanupModel("b");
+  store.getState().setCleanupModel("a");
+  assert.equal(service.isSetupCleanupSelectionCurrent(first), false, "ABA never restores consent");
+  for (const [field, change, restore] of [
+    [
+      "dictionary",
+      () => store.getState().setCustomDictionary(["Maya"]),
+      () => store.getState().setCustomDictionary([]),
+    ],
+    [
+      "prompt",
+      () => store.getState().setCustomPrompt("cleanup", "new prompt"),
+      () => store.getState().setCustomPrompt("cleanup", ""),
+    ],
+  ]) {
+    const selected = service.captureSetupCleanupSelection();
+    change();
+    restore();
+    assert.equal(service.isSetupCleanupSelectionCurrent(selected), false, field);
+  }
+  const fresh = service.captureSetupCleanupSelection();
+  store.setState({ theme: "dark" });
+  assert.equal(service.isSetupCleanupSelectionCurrent(fresh), true);
+});
+
+for (const boundary of ["import", "result"]) {
+  test(`actual setup runner rejects synchronous setter ABA during deferred ${boundary}, fresh named final A succeeds`, async (t) => {
+    installBrowserGlobals(t, { initialStorage: MIGRATED_STORAGE });
+    const vite = await createRendererServer(t, { cachePrefix: "loqui-cleanup-aba-runner-" });
+    const service = await vite.ssrLoadModule("/services/capturedCleanupOperation.ts");
+    const { createSetupCleanupOperation } = await vite.ssrLoadModule(
+      "/components/onboarding/cleanupRunner.ts"
+    );
+    const { createCapturedTextBridge } = await vite.ssrLoadModule("/preview/capturedTextBridge.ts");
+    const { useSettingsStore: store } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+    let release;
+    const held = new Promise((resolve) => {
+      release = resolve;
+    });
+    const calls = [];
+    globalThis.window.electronAPI.personalInference = createCapturedTextBridge(
+      async (descriptor, input) => {
+        calls.push({ descriptor, input });
+        if (boundary === "result") await held;
+        return "Cleaned A.";
+      }
+    );
+    store.setState({
+      useCleanupModel: true,
+      cleanupMode: "providers",
+      cleanupProvider: "openai",
+      cleanupModel: "a",
+    });
+    const selected = service.captureSetupCleanupSelection();
+    const operation = createSetupCleanupOperation(
+      "original raw words",
+      selected,
+      () => service.isSetupCleanupSelectionCurrent(selected),
+      async () => {
+        if (boundary === "import") await held;
+        return service;
+      }
+    );
+    const rejected = assert.rejects(operation.result, { code: "RECIPIENT_CHANGED" });
+    if (boundary === "result")
+      for (let i = 0; i < 8; i++) await new Promise((resolve) => setImmediate(resolve));
+    store.getState().setCleanupModel("b");
+    store.getState().setCleanupModel("a");
+    release();
+    await rejected;
+    assert.equal(calls.length, boundary === "import" ? 0 : 1);
+    if (calls.length) {
+      assert.equal(calls[0].descriptor.model, "a");
+      assert.ok(calls[0].input.includes("original raw words"));
+    }
+    const retry = createSetupCleanupOperation(
+      "original raw words",
+      selected,
+      () => service.isSetupCleanupSelectionCurrent(selected),
+      async () => service
+    );
+    await assert.rejects(retry.result, { code: "RECIPIENT_CHANGED" });
+    assert.equal(calls.length, boundary === "import" ? 0 : 1, "Retry cannot renew stale consent");
+    const fresh = service.captureSetupCleanupSelection();
+    store.setState({ theme: "dark" });
+    const admitted = createSetupCleanupOperation(
+      "original raw words",
+      fresh,
+      () => service.isSetupCleanupSelectionCurrent(fresh),
+      async () => service
+    );
+    assert.equal(await admitted.result, "Cleaned A.");
+  });
+}

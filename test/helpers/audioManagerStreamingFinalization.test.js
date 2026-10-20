@@ -1,3 +1,4 @@
+const { admitStreamingTransportFixture } = require("./harness/streamingTransport");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { loadAudioManager } = require("./harness/audioManager");
@@ -69,6 +70,7 @@ function createFinalizingManager(AudioManager) {
     onStateChange: (state) => states.push(state),
     onTranscriptionComplete() {},
   });
+  admitStreamingTransportFixture(manager);
   return { manager, states, getProviderStopCalls: () => providerStopCalls };
 }
 
@@ -174,6 +176,7 @@ test("streaming discard blocks restart until the provider disconnects", async (t
       return { success: true };
     },
   });
+  admitStreamingTransportFixture(manager);
 
   const cancel = manager.cancelStreamingRecording();
   while (!providerStopStarted) await new Promise((resolve) => setImmediate(resolve));
@@ -200,6 +203,7 @@ test("streaming discard waits for an in-progress provider start before disconnec
       return { success: true };
     },
   });
+  admitStreamingTransportFixture(manager);
 
   const cancel = manager.cancelStreamingRecording();
   await new Promise((resolve) => setImmediate(resolve));

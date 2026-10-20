@@ -106,7 +106,14 @@ export function cleanupPreview({
 }
 
 export type CleanupSituation =
-  "off" | "checking" | "ready" | "needsModel" | "needsConnection" | "needsKey" | "unreachable";
+  | "off"
+  | "checking"
+  | "review"
+  | "ready"
+  | "needsModel"
+  | "needsConnection"
+  | "needsKey"
+  | "unreachable";
 
 const UNMET: Record<Exclude<CleanupChoice, "none">, CleanupSituation> = {
   local: "needsModel",
@@ -126,6 +133,7 @@ export function cleanupSituation(
 ): CleanupSituation {
   if (choice === "none") return "off";
   if (status === "checking") return "checking";
+  if (status === "review") return "review";
   if (status !== "ready") return UNMET[choice];
   switch (route.state.status) {
     case "ready":
@@ -147,6 +155,7 @@ export function cleanupSituation(
 export function copyCleanupDescriptor(value: TextOperationDescriptor): TextOperationDescriptor {
   const enterprise = value.expectedEnterprise;
   return Object.freeze({
+    selectionRevision: value.selectionRevision,
     provider: value.provider,
     model: value.model,
     inferenceScope: value.inferenceScope,

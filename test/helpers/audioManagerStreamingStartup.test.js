@@ -270,3 +270,114 @@ test("disposing the real streaming owner during connection cancels it and cannot
     false
   );
 });
+
+for (const boundary of ["microphone", "connection", "finalization"]) {
+  test(`stream admission binds adapter A/options across B replacement during ${boundary}`, async (t) => {
+    const h = await mountTrial(t);
+    const stream = configureStreamingStartup(t, h);
+    const calls = [];
+    let releaseStop;
+    const stopWait = new Promise((resolve) => {
+      releaseStop = resolve;
+    });
+    const api = h.window.electronAPI;
+    api.dictationRealtimeStop = async () => {
+      calls.push("A.stop");
+      if (boundary === "finalization") await stopWait;
+      return { success: true };
+    };
+    api.deepgramStreamingStop = async () => {
+      calls.push("B.stop");
+      return { success: true };
+    };
+    api.dictationRealtimeSend = () => calls.push("A.send");
+    api.deepgramStreamingSend = () => calls.push("B.send");
+    let start;
+    await React.act(async () => {
+      start = stream.manager.startStreamingRecording();
+      await h.waitAcquisition();
+    });
+    const switchB = () =>
+      Object.assign(globalThis.__trialBoundarySettings, {
+        cloudTranscriptionProvider: "deepgram",
+        cloudTranscriptionModel: "nova-3",
+        preferredLanguage: "fr",
+      });
+    if (boundary === "microphone") switchB();
+    await React.act(async () => {
+      h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
+      await stream.waitConnect();
+    });
+    const port = stream.manager.streamingProcessor.port;
+    if (boundary === "connection") switchB();
+    await React.act(async () => {
+      stream.connect.resolve({ success: true });
+      await start;
+    });
+    assert.equal(stream.calls.find(([kind]) => kind === "start")[1].provider, "openai-realtime");
+    assert.equal(stream.calls.find(([kind]) => kind === "start")[1].language, "en");
+    if (boundary === "finalization") {
+      stream.listeners.final("Owned A words.");
+      let stop;
+      await React.act(async () => {
+        stop = stream.manager.stopStreamingRecording();
+        await flush();
+      });
+      switchB();
+      releaseStop();
+      await React.act(async () => {
+        await stop;
+      });
+    } else {
+      await React.act(async () => {
+        await stream.manager.cancelStreamingRecording();
+      });
+    }
+    port.onmessage({ data: new ArrayBuffer(2) });
+    assert.deepEqual(calls, ["A.stop"], "A stops once; B and late buffered sends stay untouched");
+  });
+}
+
+for (const failure of ["getter", "start", "stop"]) {
+  test(`stream owner safely settles a thrown ${failure} without touching B`, async (t) => {
+    const h = await mountTrial(t);
+    const stream = configureStreamingStartup(t, h);
+    let stops = 0,
+      bStops = 0;
+    h.window.electronAPI.dictationRealtimeStop = () => {
+      stops++;
+      if (failure === "stop") throw new Error("A stop fixture");
+      return { success: true };
+    };
+    h.window.electronAPI.deepgramStreamingStop = () => {
+      bStops++;
+      return { success: true };
+    };
+    if (failure === "getter")
+      stream.manager.getStreamingProvider = () => {
+        throw new Error("getter fixture");
+      };
+    if (failure === "start")
+      h.window.electronAPI.dictationRealtimeStart = async () => {
+        throw new Error("A start fixture");
+      };
+    let start;
+    await React.act(async () => {
+      start = stream.manager.startStreamingRecording();
+      if (failure !== "getter") h.mic().resolve({ getAudioTracks: () => [], getTracks: () => [] });
+      if (failure === "stop") stream.connect.resolve({ success: true });
+      await start;
+    });
+    if (failure === "stop") {
+      Object.assign(globalThis.__trialBoundarySettings, { cloudTranscriptionProvider: "deepgram" });
+      await React.act(async () => {
+        await stream.manager.cancelStreamingRecording();
+        await stream.manager.cancelStreamingRecording();
+      });
+    }
+    assert.equal(stops, failure === "getter" ? 0 : 1);
+    assert.equal(bStops, 0);
+    assert.equal(stream.manager.isStreaming, false);
+    assert.equal(stream.manager.streamingStartInProgress, false);
+  });
+}

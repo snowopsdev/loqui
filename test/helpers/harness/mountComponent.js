@@ -99,22 +99,48 @@ async function mountComponent(
   };
 }
 
-// I18N_KEYS_MOCK renders t("k", { a: 1 }) as "k(a=1)"; order-independent check.
+// Match an exact rendered key and one complete interpolation record. Special
+// punctuation uses JSON in I18N_KEYS_MOCK, so values cannot forge extra entries.
 function expectKey(ui, key, values) {
-  const text = ui.text();
-  if (!values) {
-    assert.ok(text.includes(key), `${key} is rendered`);
-    return;
-  }
+  const leaves = [];
+  const collect = (node) => {
+    if (node.nodeType === 3) leaves.push(node.textContent);
+    else for (const child of node.childNodes ?? []) collect(child);
+  };
+  if (ui.container) collect(ui.container);
+  const text = ui.container ? leaves.join("\n") : ui.text();
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const occurrences = [...text.matchAll(new RegExp(`${escapedKey}\\(([^)]*)\\)`, "g"))];
-  assert.ok(occurrences.length > 0, `${key}(…) is rendered`);
-  const entries = Object.entries(values).map(([name, value]) => `${name}=${value}`);
+  const occurrences = [
+    ...text.matchAll(new RegExp(`(^|[^\\w.-])${escapedKey}(?=$|[^\\w.-])`, "g")),
+  ];
+  assert.ok(occurrences.length > 0, `${key} is rendered`);
+  if (!values) return;
+  const records = occurrences.flatMap((match) => {
+    const tail = text.slice(match.index + match[0].length);
+    if (tail.startsWith("{")) {
+      for (let i = 2; i <= tail.length; i++) {
+        if (tail[i - 1] !== "}") continue;
+        try {
+          return [JSON.parse(tail.slice(0, i))];
+        } catch {
+          /* incomplete record */
+        }
+      }
+      return [];
+    }
+    const legacy = /^\(([^()]*)\)/.exec(tail);
+    if (!legacy) return [];
+    const entries = legacy[1].split(",").map((entry) => entry.split("="));
+    if (entries.some((entry) => entry.length !== 2)) return [];
+    return [Object.fromEntries(entries)];
+  });
   assert.ok(
-    occurrences.some(([, interpolation]) =>
-      entries.every((entry) => `,${interpolation},`.includes(`,${entry},`))
+    records.some((record) =>
+      Object.entries(values).every(
+        ([name, value]) => Object.hasOwn(record, name) && String(record[name]) === String(value)
+      )
     ),
-    `${key} carries ${entries.join(",")} in one interpolation`
+    `${key} carries ${JSON.stringify(values)} in one interpolation`
   );
 }
 

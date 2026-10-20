@@ -701,3 +701,35 @@ test("original assistant completion during A's deferred save does not expire A a
     { id: 7, role: "assistant", content: "first answer" },
   ]);
 });
+
+test("ordinary effective-open Settings return retains manual section/subtab, draft and search owner", async (t) => {
+  const ui = await workspace(t, { realSettings: true });
+  await ui.act(() => ui.state.nav.onOpenSettings());
+  await ui.wait(() => ui.byAttr("data-settings-section").length);
+  await ui.click("speechToText");
+  await ui.click("settingsPage.reviewSetup.title");
+  await ui.wait(() => ui.byAttr("data-setup-instance").length);
+  await ui.act(() =>
+    ui.state.flow.onComplete({ next: { kind: "open-settings", path: "stt/noteRecording" } })
+  );
+  await ui.click("settingsPage.speechToText.tabs.dictation");
+  const search = ui.findAll((node) => node.tagName === "INPUT")[0];
+  const { useRouteDraftStore } = await ui.vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const draft = {
+    routeId: "chat",
+    kind: "patch",
+    patch: { azureEndpoint: "https://fixture.invalid" },
+  };
+  await ui.act(() => useRouteDraftStore.getState().stage(draft));
+  const epoch = useRouteDraftStore.getState().requestEpoch;
+  for (let i = 0; i < 2; i++) {
+    await ui.click("settingsPage.reviewSetup.title");
+    await ui.wait(() => ui.byAttr("data-setup-instance").length);
+    await ui.act(() => ui.state.flow.onComplete());
+    assert.equal(ui.byAttr("data-settings-section", "speechToText").length, 1);
+    assert.equal(JSON.parse(ui.storage.getItem("settings.speechToTextTab")), "dictation");
+    assert.equal(ui.findAll((node) => node.tagName === "INPUT")[0], search);
+    assert.equal(useRouteDraftStore.getState().draft, draft);
+    assert.equal(useRouteDraftStore.getState().requestEpoch, epoch);
+  }
+});

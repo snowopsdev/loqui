@@ -66,7 +66,7 @@ export function MeetLoquiTour({
   return (
     <section
       className="onb-tour"
-      aria-roledescription="carousel"
+      aria-roledescription={t("setupFlow.tour.carouselRole")}
       aria-label={t("setupFlow.tour.label")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -92,7 +92,7 @@ export function MeetLoquiTour({
           <div
             key={slide}
             className="onb-tour__slide"
-            aria-roledescription="slide"
+            aria-roledescription={t("setupFlow.tour.slideRole")}
             aria-label={t("setupFlow.tour.slideOf", {
               current: slideIndex + 1,
               total: SLIDES.length,

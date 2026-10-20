@@ -99,6 +99,8 @@ export interface TextOperationDescriptor extends Omit<
   TextRequest,
   "requestId" | "messages" | "tools" | "webSearch"
 > {
+  /** Renderer admission revision; never substitutes for main authority. */
+  selectionRevision?: number;
   expectedEnterprise?: Record<string, string>;
   expectedAuthority?: { credentialGeneration?: number; enterpriseVersion?: number };
   cleanupContext?: {

@@ -1580,7 +1580,7 @@ class IPCHandlers {
       return result;
     });
 
-    ipcMain.handle("merge-audio-segments", async (_event, segments) => {
+    ipcMain.handle("merge-audio-segments", async (_event, segments, options = {}) => {
       try {
         if (!Array.isArray(segments) || segments.length < 2 || segments.length > 100) {
           throw new Error("Invalid audio segment count");
@@ -1592,13 +1592,14 @@ class IPCHandlers {
           return { buffer: Buffer.from(segment.buffer), mimeType: segment.mimeType };
         });
         const { mergeAudioSegments } = require("./ffmpegUtils");
-        const buffer = await mergeAudioSegments(normalized);
+        const privateAudio = options.private === true;
+        const buffer = await mergeAudioSegments(normalized, { private: privateAudio });
         // Slice to a real ArrayBuffer: Buffers sent over IPC arrive as Uint8Array,
         // and pooled Buffers share a larger underlying allocation.
         return {
           success: true,
           buffer: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-          mimeType: "audio/webm",
+          mimeType: privateAudio ? "audio/wav" : "audio/webm",
         };
       } catch (error) {
         debugLogger.error("Failed to merge recovered audio segments", { error: error.message });
@@ -3115,7 +3116,8 @@ class IPCHandlers {
             model: modelName,
             error: error.message,
             code: error.code || "DOWNLOAD_FAILED",
-            keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : 0,
+            keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : null,
+            cleanupFailed: error.cleanupFailed === true,
             sequence: status?.sequence,
           });
         }
@@ -3123,7 +3125,8 @@ class IPCHandlers {
           success: false,
           error: error.message,
           code: error.code || "DOWNLOAD_FAILED",
-          keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : 0,
+          keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : null,
+          cleanupFailed: error.cleanupFailed === true,
         };
       }
     });
@@ -9980,7 +9983,7 @@ class IPCHandlers {
         const filePaths = [...result.filePaths].sort();
         const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
         const { createGranolaNoteKeyAllocator, parseGranolaCsv } =
-          await import("./granolaImport.js");
+          await import("./granolaImport.mjs");
         const allocateNoteKey = createGranolaNoteKeyAllocator();
         const notes = [];
         const seenIds = new Set();

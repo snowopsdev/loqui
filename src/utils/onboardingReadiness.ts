@@ -141,6 +141,8 @@ function cleanupRow(input: ReadinessInput): ReadinessRow {
           provider: input.cleanupProviderLabel,
         },
       };
+    case "review":
+      return { ...base, status: "pending", detail: "cleanup.review" };
     case "checking":
     case "needsConnection":
       return { ...base, status: "pending", detail: `cleanup.${situation}` };

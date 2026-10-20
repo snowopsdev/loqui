@@ -376,7 +376,7 @@ test("main's Parakeet handler propagates retained-byte evidence in both terminal
       throw Object.assign(new Error("fixture reset"), { code: "ECONNRESET", keptBytes });
     };
     const result = await h.invoke("fixture-model");
-    const expected = Number.isFinite(keptBytes) ? keptBytes : 0;
+    const expected = Number.isFinite(keptBytes) ? keptBytes : null;
     assert.equal(result.success, false);
     assert.equal(result.keptBytes, expected);
     assert.equal(result.code, "ECONNRESET");
@@ -557,4 +557,59 @@ test("an ordinary network retry resumes the partial within the same downloadFile
   assert.equal(loaded.requests[1].Range, "bytes=5-");
   assert.equal(fs.readFileSync(destination, "utf8"), "helloworld");
   assert.equal(fs.existsSync(`${destination}.tmp`), false);
+});
+
+for (const reason of ["EPERM", "EBUSY"]) {
+  test(`failed ${reason} unlink reports retained bytes for rejected and cancelled downloads`, async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "download-truth-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const destination = path.join(dir, "model.bin");
+    for (const cancel of [false, true]) {
+      fs.writeFileSync(`${destination}.tmp`, "all original bytes");
+      const loaded = loadWithResponses([
+        { requestError: Object.assign(new Error("fixture refusal"), { code: "CERT_HAS_EXPIRED" }) },
+      ]);
+      t.after(loaded.restore);
+      const unlink = t.mock.method(fs.promises, "unlink", async () => {
+        throw Object.assign(new Error("fixture locked file"), { code: reason });
+      });
+      const signal = AbortSignal.abort();
+      const failure = await loaded.downloadUtils
+        .downloadFile("https://example.invalid/model", destination, {
+          maxRetries: 0,
+          ...(cancel ? { signal } : {}),
+        })
+        .catch((error) => error);
+      assert.equal(failure.keptBytes, 18);
+      assert.equal(failure.cleanupFailed, true);
+      assert.equal(fs.readFileSync(`${destination}.tmp`, "utf8"), "all original bytes");
+      unlink.mock.restore();
+    }
+  });
+}
+
+test("failed unlink plus failed stat is explicit unknown; missing partial is known zero", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "download-unknown-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const destination = path.join(dir, "model.bin");
+  const loaded = loadWithResponses([]);
+  t.after(loaded.restore);
+  const unlink = t.mock.method(fs.promises, "unlink", async () => {
+    throw Object.assign(new Error("locked"), { code: "EPERM" });
+  });
+  const stat = t.mock.method(fs.promises, "stat", async () => {
+    throw Object.assign(new Error("unknown"), { code: "EACCES" });
+  });
+  const failure = await loaded.downloadUtils
+    .downloadFile("https://example.invalid/model", destination, { signal: AbortSignal.abort() })
+    .catch((error) => error);
+  assert.equal(failure.keptBytes, null);
+  assert.equal(failure.cleanupFailed, true);
+  unlink.mock.restore();
+  stat.mock.restore();
+  const missing = await loaded.downloadUtils
+    .downloadFile("https://example.invalid/model", destination, { signal: AbortSignal.abort() })
+    .catch((error) => error);
+  assert.equal(missing.keptBytes, 0);
+  assert.equal(missing.cleanupFailed, false);
 });

@@ -14,10 +14,10 @@ const violations = (source) =>
   ].filter((pattern) => pattern.test(source));
 test("Task16 production checks and UI have no preview globals, scenario fallback or badge", () => {
   const flow = read("src/components/OnboardingFlow.tsx");
-  const choose = flow.slice(
-    flow.indexOf("  const chooseCleanup ="),
-    flow.indexOf("  const applyCleanupToOtherTasks =")
-  );
+  const start = flow.indexOf("  const chooseCleanup =");
+  const end = flow.indexOf("  const cleanupDraft =", start);
+  assert.ok(start >= 0 && end > start, "isolate the production planner-backed choice callback");
+  const choose = flow.slice(start, end);
   for (const source of [
     choose,
     read("src/utils/onboardingCleanup.ts"),

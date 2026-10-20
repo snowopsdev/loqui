@@ -3,6 +3,7 @@ import { INITIAL_TRIAL_STATE, reduceTrial } from "../../utils/onboardingTrial";
 import type { DictationBinding, OnboardingDemoEvent } from "../../types/electron";
 import type { CleanupOperationIdentity } from "../../services/ai/personalInferenceTypes";
 import { bindingMatches } from "./useDictationHotkey";
+import { revokeSetupCleanupSelection } from "../../stores/setupCleanupAdmission";
 import { retryCleanupOperation, sameCleanupOperation } from "./cleanupRunner";
 
 export interface TrialProof {
@@ -107,7 +108,8 @@ export function useTrialSession(active: boolean, context = "", binding?: Dictati
             ? { demoId: id, takeId: event.takeId, operationId: event.cleanupOperationId }
             : null;
           setCleanupCode(event.cleanupCode ?? null);
-          if (event.text?.trim())
+          if (event.text?.trim()) {
+            revokeSetupCleanupSelection();
             setLastTake({
               demoId: id,
               takeId: event.takeId,
@@ -117,6 +119,7 @@ export function useTrialSession(active: boolean, context = "", binding?: Dictati
               rawText: event.rawText ?? null,
               text: event.text,
             });
+          }
         }
       }
       dispatch({ ...event, atMs: Date.now() });

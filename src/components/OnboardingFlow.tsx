@@ -1,11 +1,23 @@
-import { useTranslation } from "react-i18next";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  useSettingsStore,
-  selectResolvedLLMConfig,
-  setResolvedLLMConfig,
-  reasoningModelBelongsToProvider,
-} from "../stores/settingsStore";
+  getSetupCleanupRevision,
+  subscribeSetupCleanupRevision,
+} from "../stores/setupCleanupAdmission";
+import { useTranslation } from "react-i18next";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { useSettingsStore, reasoningModelBelongsToProvider } from "../stores/settingsStore";
+import { INFERENCE_SCOPES } from "../config/inferenceScopes";
+import type { SettingsPatch } from "../lib/providerSwitchPlans";
+import { useRouteDraftStore } from "../stores/routeDraftStore";
+import { useRouteChange } from "./settings/routing/useRouteChange";
+import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
 import { micPickerModel, selectionFor, type AudioInput } from "../utils/onboardingMic";
 import { HelloStep } from "./onboarding/HelloStep";
 import { useMicrophoneAccess } from "./onboarding/useMicrophoneAccess";
@@ -84,6 +96,7 @@ import { createSetupCleanupOperation } from "./onboarding/cleanupRunner";
 import {
   captureSetupCleanupSelection,
   isSetupCleanupSelectionCurrent,
+  revokeSetupCleanupSelection,
 } from "../services/capturedCleanupOperation";
 
 interface StepView {
@@ -128,6 +141,12 @@ export default function OnboardingFlow({
     writeOnboardingProgress({ step, visited }, progressStorageKey);
   }, [progressStorageKey, step, visited]);
   const { t } = useTranslation();
+  const { requestPatch: requestRoutePatch } = useRouteChange();
+  useSyncExternalStore(
+    subscribeSetupCleanupRevision,
+    getSetupCleanupRevision,
+    getSetupCleanupRevision
+  );
   const [updatesEnabled, setUpdatesEnabled] = useState(true);
   const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);
   const cleanupMode = useSettingsStore((s) => s.cleanupMode);
@@ -208,6 +227,7 @@ export default function OnboardingFlow({
   }, []);
 
   const goTo = useCallback((next: OnboardingStep) => {
+    revokeSetupCleanupSelection();
     cleanupRequestRef.current += 1;
     setCleanupStatus((status) => (status === "checking" ? "pending" : status));
     setStep(next);
@@ -239,7 +259,6 @@ export default function OnboardingFlow({
     if (previous) goTo(previous);
   };
   const advance = () => {
-    if (step === "cleanup") applyCleanupToOtherTasks();
     skip();
   };
 
@@ -277,15 +296,17 @@ export default function OnboardingFlow({
   const changeModel = (modelId: string) => {
     if (voiceBusy || !isOnboardingVoice(modelId) || !voiceSupportsAll(modelId, spokenLanguages))
       return;
+    useRouteDraftStore.getState().discard();
     setChosenModel(modelId);
   };
   const changeLanguage = (language: string) => {
     if (voiceBusy) return; // locked while a transfer runs (I03)
+    useRouteDraftStore.getState().discard();
     setChosenLanguage(language);
     setChosenModel(reconcileVoice(selectedModel, [language]).modelId);
   };
   // I02: dictation becomes local, including from self-hosted. Meeting and upload routes stay as they are.
-  const commitVoice = (): boolean => {
+  const commitVoice = async (): Promise<boolean> => {
     if (
       !selectedModel ||
       !voiceCompatible ||
@@ -294,16 +315,20 @@ export default function OnboardingFlow({
     )
       return false;
     const store = useSettingsStore.getState();
-    store.setTranscriptionMode("local");
-    store.setUseLocalWhisper(true);
-    store.setLocalTranscriptionProvider("nvidia");
-    store.setParakeetModel(selectedModel);
+    const result = await requestRoutePatch("dictationStt", {
+      transcriptionMode: "local",
+      useLocalWhisper: true,
+      localTranscriptionProvider: "nvidia",
+      parakeetModel: selectedModel,
+    });
+    if (typeof result === "string" || (!result.applied && result.plan.kind !== "noop"))
+      return false;
     store.setSpokenLanguages(spokenLanguages);
     if (spokenLanguages[0]) store.setPreferredLanguage(spokenLanguages[0]);
     return true;
   };
-  const voicePrimary = () => {
-    if (!commitVoice()) return;
+  const voicePrimary = async () => {
+    if (!(await commitVoice())) return;
     if (voiceStatus === "idle" || voiceStatus === "error" || voiceStatus === "cancelled")
       voiceDownload.start();
     goTo("try");
@@ -458,52 +483,76 @@ export default function OnboardingFlow({
       cleanupRequestRef.current += 1;
     };
   }, []);
-  const chooseCleanup = useCallback(async (choice: CleanupChoice) => {
-    if (closedRef.current) return;
-    // Each pick supersedes the one before it: a check still in flight for an
-    // earlier option must not activate cleanup after the user moved on.
-    const request = ++cleanupRequestRef.current;
-    setCleanupChoice(choice);
-    await applyCleanupChoice({
-      choice,
-      settings: useSettingsStore.getState(),
-      bridge: window.electronAPI,
-      catalog: cleanupModelCatalog,
-      setStatus: setCleanupStatus,
-      isCurrent: () => !closedRef.current && cleanupRequestRef.current === request,
-    });
-  }, []);
-
-  const applyCleanupToOtherTasks = useCallback(() => {
-    const reuseStorageKey = config
-      ? `${onboardingPreviewStorageKey(config)}.reuseCleanup`
-      : "loqui.onboarding.reuseCleanup";
-    if (
-      cleanupChoice === "none" ||
-      cleanupStatus !== "ready" ||
-      localStorage.getItem(reuseStorageKey) !== "true"
-    )
-      return;
-    const source = selectResolvedLLMConfig(useSettingsStore.getState(), "dictationCleanup");
-    const scopes = [
-      "chatIntelligence",
-      "dictationTranslation",
-      "dictationAgent",
-      "noteFormatting",
-    ] as const;
-    scopes.forEach((scope) => {
-      const current = selectResolvedLLMConfig(useSettingsStore.getState(), scope);
-      if (current.model) return;
-      setResolvedLLMConfig(scope, {
-        mode: source.mode,
-        provider: source.provider,
-        model: source.model,
-        cloudMode: source.cloudMode,
-        cloudBaseUrl: source.cloudBaseUrl,
-        remoteUrl: source.remoteUrl,
+  const chooseCleanup = useCallback(
+    async (choice: CleanupChoice) => {
+      if (closedRef.current) return;
+      const request = ++cleanupRequestRef.current;
+      // Explicit setup intent supersedes the existing review/request, including
+      // a coalesced A→B→A pick. It never becomes execution authority by itself.
+      revokeSetupCleanupSelection();
+      useRouteDraftStore.getState().discard();
+      setCleanupChoice(choice);
+      await applyCleanupChoice({
+        choice,
+        settings: useSettingsStore.getState(),
+        bridge: window.electronAPI,
+        catalog: cleanupModelCatalog,
+        setStatus: setCleanupStatus,
+        isCurrent: () => !closedRef.current && cleanupRequestRef.current === request,
+        requestPatch: async (choicePatch) => {
+          const patch: SettingsPatch = { ...choicePatch };
+          const reuseKey = config
+            ? `${onboardingPreviewStorageKey(config)}.reuseCleanup`
+            : "loqui.onboarding.reuseCleanup";
+          if (choicePatch.useCleanupModel && localStorage.getItem(reuseKey) === "true") {
+            const state = useSettingsStore.getState();
+            for (const scope of [
+              "chatIntelligence",
+              "dictationTranslation",
+              "dictationAgent",
+              "noteFormatting",
+            ] as const) {
+              const keys = INFERENCE_SCOPES[scope].storeKeys;
+              if (state[keys.model]) continue;
+              Object.assign(patch, {
+                [keys.mode]: choicePatch.cleanupMode,
+                [keys.provider]: choicePatch.cleanupProvider,
+                [keys.model]: choicePatch.cleanupModel,
+                [keys.cloudMode]: state.cleanupCloudMode,
+                [keys.cloudBaseUrl]: state.cleanupCloudBaseUrl,
+                [keys.remoteUrl]: state.cleanupRemoteUrl,
+              });
+            }
+          }
+          const result = await requestRoutePatch("dictationCleanup", patch);
+          return result === "staged"
+            ? "review"
+            : typeof result === "string" || (!result.applied && result.plan.kind !== "noop")
+              ? "failed"
+              : "ready";
+        },
       });
-    });
-  }, [cleanupChoice, cleanupStatus, config]);
+    },
+    [config, requestRoutePatch]
+  );
+  // Review never grants consent for the uncommitted choice. Apply/Discard
+  // re-read the committed route, while the shared bar retains its exact Undo.
+  const cleanupDraft = useRouteDraftStore((s) => s.draft);
+  useEffect(() => {
+    if (cleanupDraft?.routeId === "dictationCleanup") return;
+    if (cleanupStatus !== "review") return;
+    const committed = useSettingsStore.getState();
+    setCleanupChoice(
+      !committed.useCleanupModel
+        ? "none"
+        : committed.cleanupMode === "local"
+          ? "local"
+          : committed.cleanupProvider === "codex"
+            ? "codex"
+            : "provider"
+    );
+    setCleanupStatus(committed.useCleanupModel ? "ready" : "skipped");
+  }, [cleanupDraft, useCleanupModel, cleanupStatus]);
 
   const reuseStorageKey = progressStorageKey
     ? `${progressStorageKey}.reuseCleanup`
@@ -517,15 +566,13 @@ export default function OnboardingFlow({
     useState<CleanupRemoteAttempt | null>(null);
   const cleanupRoute = useResolvedRoute("dictationCleanup");
   const choiceProviderId =
-    cleanupChoice === "codex"
-      ? "codex"
-      : cleanupChoice === "provider"
-        ? cleanupProvider || "openai"
-        : null;
+    cleanupChoice === "codex" ? "codex" : cleanupChoice === "provider" ? "openai" : null;
   const cleanupProviderLabel =
-    cleanupRoute.locality === "network"
-      ? (cleanupRoute.host ?? providerDisplayLabel(null, t))
-      : providerDisplayLabel(cleanupRoute.providerId ?? choiceProviderId, t);
+    cleanupStatus !== "ready"
+      ? providerDisplayLabel(choiceProviderId, t)
+      : cleanupRoute.locality === "network"
+        ? (cleanupRoute.host ?? providerDisplayLabel(null, t))
+        : providerDisplayLabel(cleanupRoute.providerId ?? choiceProviderId, t);
   const cleanupSelection = captureSetupCleanupSelection();
   const noteRoute = useResolvedRoute("noteRecordingStt");
   const summary = summarizeReadiness({
@@ -601,24 +648,28 @@ export default function OnboardingFlow({
         onSkip: skip,
         finishLaterLabel: t("setupFlow.finishLater"),
         content: (
-          <CleanupStep
-            choice={cleanupChoice}
-            status={cleanupStatus}
-            onChoose={chooseCleanup}
-            userText={lastTake?.rawText ?? lastTake?.text ?? null}
-            route={cleanupRoute}
-            providerLabel={cleanupProviderLabel}
-            lastRemoteAttempt={lastCleanupRemoteAttempt}
-            onRemoteAttempt={setLastCleanupRemoteAttempt}
-            selection={cleanupSelection}
-            isSelectionCurrent={isSetupCleanupSelectionCurrent}
-            runCleanup={createSetupCleanupOperation}
-            reuse={reuseCleanup}
-            onReuseChange={(value) => {
-              setReuseCleanup(value);
-              localStorage.setItem(reuseStorageKey, String(value));
-            }}
-          />
+          <>
+            <CleanupStep
+              choice={cleanupChoice}
+              status={cleanupStatus}
+              onChoose={chooseCleanup}
+              userText={lastTake?.rawText ?? lastTake?.text ?? null}
+              route={cleanupRoute}
+              providerLabel={cleanupProviderLabel}
+              lastRemoteAttempt={lastCleanupRemoteAttempt}
+              onRemoteAttempt={setLastCleanupRemoteAttempt}
+              selection={cleanupSelection}
+              isSelectionCurrent={isSetupCleanupSelectionCurrent}
+              runCleanup={createSetupCleanupOperation}
+              reuse={reuseCleanup}
+              onReuseChange={(value) => {
+                setReuseCleanup(value);
+                localStorage.setItem(reuseStorageKey, String(value));
+                if (cleanupChoice !== "none") void chooseCleanup(cleanupChoice);
+              }}
+            />
+            <StagedRouteBar placement="inline" shortcut={false} />
+          </>
         ),
       };
 

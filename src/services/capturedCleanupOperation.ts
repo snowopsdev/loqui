@@ -1,3 +1,4 @@
+import { getSetupCleanupRevision } from "../stores/setupCleanupAdmission";
 import { useRouteFactsStore } from "../stores/routeFactsStore";
 import type { CredentialSlot } from "../lib/routeGraph";
 import { copyCleanupDescriptor } from "../utils/onboardingCleanupPreview";
@@ -224,6 +225,8 @@ export function createCapturedCleanupOperation(
   };
 }
 
+export { revokeSetupCleanupSelection } from "../stores/setupCleanupAdmission";
+
 /** Network-free synchronous snapshot; main still owns execution authority. */
 export function captureSetupCleanupSelection(): TextOperationDescriptor | null {
   const selected = captureCleanupSelection();
@@ -236,6 +239,7 @@ export function captureSetupCleanupSelection(): TextOperationDescriptor | null {
   const facts = useRouteFactsStore.getState().facts;
   return copyCleanupDescriptor({
     ...selected,
+    selectionRevision: getSetupCleanupRevision(),
     expectedAuthority: {
       credentialGeneration:
         selected.provider === "local"

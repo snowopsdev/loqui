@@ -84,3 +84,59 @@ test("fake captured boundary mirrors actual unsupported Codex/Tinfoil sources be
     );
   assert.equal(calls, 0);
 });
+
+for (const local of [false, true]) {
+  test(`preview ${local ? "local" : "remote"} first/Retry expire at five minutes without renewal, including in-flight`, async () => {
+    const { createCapturedTextBridge } = await import("../../src/preview/capturedTextBridge.ts");
+    let now = 0,
+      calls = 0,
+      release;
+    let slow = false;
+    const api = createCapturedTextBridge(
+      async () => {
+        calls++;
+        if (slow)
+          await new Promise((resolve) => {
+            release = resolve;
+          });
+        return "Fixture.";
+      },
+      { now: () => now }
+    );
+    const descriptor = {
+      provider: local ? "local" : "openai",
+      model: "fixture",
+      inferenceScope: "dictationCleanup",
+    };
+    const execute = async (token) => {
+      if (!local) return api.runTextOperation({ token, request: input });
+      const result = await api.processLocalReasoning("fixture words", "fixture", null, {
+        textOperationToken: token,
+        wordCount: 2,
+      });
+      if (!result.success) throw Object.assign(new Error(result.code), { code: result.code });
+      return { text: result.text };
+    };
+    const first = await api.captureTextOperation(descriptor);
+    now = 300000;
+    await assert.rejects(execute(first), { code: "CLEANUP_OPERATION_UNAVAILABLE" });
+    assert.equal(calls, 0);
+    const retry = await api.captureTextOperation(descriptor);
+    now = 599999;
+    assert.deepEqual(await execute(retry), { text: "Fixture." });
+    assert.deepEqual(await execute(retry), { text: "Fixture." });
+    now = 600000;
+    await assert.rejects(execute(retry), { code: "CLEANUP_OPERATION_UNAVAILABLE" });
+    assert.equal(calls, 2);
+    const inflight = await api.captureTextOperation(descriptor);
+    slow = true;
+    const pending = execute(inflight);
+    now = 900000;
+    release();
+    await assert.rejects(pending, { code: "CLEANUP_OPERATION_UNAVAILABLE" });
+    slow = false;
+    const fresh = await api.captureTextOperation(descriptor);
+    assert.deepEqual(await execute(fresh), { text: "Fixture." });
+    assert.equal(calls, 4);
+  });
+}

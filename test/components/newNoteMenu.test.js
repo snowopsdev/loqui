@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { captureDiagnostics } = require("../lib/scopedDiagnostics");
+const { I18N_KEYS_MOCK } = require("../helpers/harness/rendererMocks");
 const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
@@ -9,9 +11,13 @@ const { createRendererServer, installBrowserGlobals } = require("../lib/renderer
 // primitives are stubbed so the menu's items render inline instead of into a portal.
 async function renderMenu(t, { canCreateTeamSpace, withAssistant = true }) {
   installBrowserGlobals(t);
+  const diagnostics = captureDiagnostics(t);
+  t.after(() => assert.deepEqual(diagnostics, []));
   const vite = await createRendererServer(t, {
+    noExternal: ["react-i18next"],
     cachePrefix: "openwhispr-new-note-menu-test-",
     mockModules: {
+      "react-i18next": I18N_KEYS_MOCK,
       "/ui/dropdown-menu": `
         import { createElement } from "react";
         const passthrough = (props) => createElement("div", null, props.children);

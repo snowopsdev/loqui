@@ -7,11 +7,17 @@ import type {
 
 /** In-memory production-boundary fixture; no credentials, runtime or transport. */
 export function createCapturedTextBridge(
-  run: (descriptor: TextOperationDescriptor, sentence: string) => Promise<string>
+  run: (descriptor: TextOperationDescriptor, sentence: string) => Promise<string>,
+  { now = Date.now }: { now?: () => number } = {}
 ) {
   const operations = new Map<
     string,
-    { descriptor: TextOperationDescriptor; request: string | null; busy: boolean }
+    {
+      descriptor: TextOperationDescriptor;
+      request: string | null;
+      busy: boolean;
+      expiresAt: number;
+    }
   >();
   let sequence = 0;
   const execute = async (token: string, input: CapturedTextInput, local: boolean) => {
@@ -20,7 +26,11 @@ export function createCapturedTextBridge(
     const fail = (code: string): never => {
       throw Object.assign(new Error(code), { code });
     };
-    if (!operation || (operation.descriptor.provider === "local") !== local)
+    if (
+      !operation ||
+      now() >= operation.expiresAt ||
+      (operation.descriptor.provider === "local") !== local
+    )
       return fail("CLEANUP_OPERATION_UNAVAILABLE");
     if (operation.busy) return fail("CLEANUP_OPERATION_BUSY");
     const original = JSON.stringify(request);
@@ -30,7 +40,8 @@ export function createCapturedTextBridge(
     operation.busy = true;
     try {
       const text = await run(operation.descriptor, request.messages[0].content as string);
-      if (operations.get(token) !== operation) return fail("CLEANUP_OPERATION_UNAVAILABLE");
+      if (operations.get(token) !== operation || now() >= operation.expiresAt)
+        return fail("CLEANUP_OPERATION_UNAVAILABLE");
       return { text };
     } finally {
       operation.busy = false;
@@ -47,6 +58,7 @@ export function createCapturedTextBridge(
         descriptor: structuredClone(descriptor),
         request: null,
         busy: false,
+        expiresAt: now() + 5 * 60_000,
       });
       return token;
     },

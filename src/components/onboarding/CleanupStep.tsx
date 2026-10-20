@@ -142,7 +142,7 @@ function CleanupContext(
   const mounted = useRef(true);
   const situation = cleanupSituation(choice, status, route);
   const sentence = userText?.trim() || null;
-  const onDevice = route.locality === "device";
+  const onDevice = choice === "local" && route.locality === "device";
   const mayAdmit =
     choice !== "none" && situation === "ready" && sentence !== null && selection !== null;
   const current = () =>
@@ -257,9 +257,9 @@ function CleanupContext(
       <div className="onb-reco__meta">
         {choice === "none" ? (
           <span>{t("setupFlow.cleanup.nothingChanges")}</span>
-        ) : (
+        ) : status === "ready" ? (
           <RouteDestinationChip route={route} />
-        )}
+        ) : null}
         {!onDevice && !attempt?.error && choice !== "none" ? (
           <span>
             {t(run ? "setupFlow.cleanup.sentNotice" : "setupFlow.cleanup.wordsSent", {

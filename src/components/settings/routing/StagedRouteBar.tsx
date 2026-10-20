@@ -118,9 +118,12 @@ const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform
 export function StagedRouteBar({
   placement = "modal",
   shortcut = true,
+  discardOnUnmount = true,
 }: {
   placement?: "modal" | "inline";
   shortcut?: boolean;
+  /** Retained Settings owns its session above the transient dialog content. */
+  discardOnUnmount?: boolean;
 }) {
   const draft = useRouteDraftStore((s) => s.draft);
   const discard = useRouteDraftStore((s) => s.discard);
@@ -157,7 +160,12 @@ export function StagedRouteBar({
   }, [shortcut, plan, apply]);
 
   // Leaving the view that hosts the bar (Settings closing) drops the draft unapplied.
-  useEffect(() => () => useRouteDraftStore.getState().discard(), []);
+  useEffect(
+    () => () => {
+      if (discardOnUnmount) useRouteDraftStore.getState().discard();
+    },
+    [discardOnUnmount]
+  );
 
   if (!plan || plan.kind === "noop") return null;
   return (

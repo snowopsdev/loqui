@@ -93,3 +93,12 @@ test("[baseline guard] closing and reopening with a new path moves to it", async
   assert.equal(h.modal().activeSection, "speechToText");
   assert.equal(h.page().initialSubTab, "noteRecording");
 });
+
+test("a legacy initial destination waits intact for its first opening", async (t) => {
+  let props = { open: false, onOpenChange() {}, initialSection: "stt/noteRecording" };
+  const h = await mount(t, () => props);
+  props = { ...props, open: true };
+  await h.render();
+  assert.equal(h.modal().activeSection, "speechToText");
+  assert.equal(h.page().initialSubTab, "noteRecording");
+});

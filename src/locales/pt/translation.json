@@ -4241,7 +4241,9 @@
       "announcePercent": "Transferência do modelo de voz a {{percent}} por cento.",
       "announceReady": "Modelo de voz pronto",
       "checking": "A verificar a tua voz…",
-      "voiceModel": "Modelo de voz"
+      "voiceModel": "Modelo de voz",
+      "stoppedUnknown": "Parou nos {{percent}}%. Não foi possível verificar o tamanho dos dados de transferência restantes.",
+      "cleanupFailed": "A transferência parou, mas não foi possível remover alguns ficheiros transferidos."
     },
     "brand": "Configuração do Loqui",
     "back": "Voltar",
@@ -4419,7 +4421,9 @@
         "final": "Lembra-me de enviar o rascunho antes do almoço."
       },
       "readyTitle": "Pronto. Diz algo.",
-      "readyBody": "O teu modelo de voz está neste dispositivo."
+      "readyBody": "O teu modelo de voz está neste dispositivo.",
+      "carouselRole": "carrossel",
+      "slideRole": "diapositivo"
     },
     "cleanupAuthority": {
       "unavailable": "A limpeza original já não está disponível. As tuas palavras originais são preservadas.",
@@ -4507,7 +4511,8 @@
         "needsKey": "Adiciona a tua chave {{provider}} nas Definições para ativares a limpeza. Até lá, as tuas palavras ficam como as disseste.",
         "needsConnection": "Liga o ChatGPT acima para ativares a limpeza. Até lá, as tuas palavras ficam como as disseste.",
         "needsModel": "O modelo de limpeza local ainda não está neste dispositivo. Transfere-o nas Definições → Modelos de linguagem (1,3 GB).",
-        "unreachable": "O Loqui não consegue contactar {{provider}} neste momento. As tuas palavras ficam como as disseste."
+        "unreachable": "O Loqui não consegue contactar {{provider}} neste momento. As tuas palavras ficam como as disseste.",
+        "review": "Revê esta alteração e escolhe «Aplicar»."
       },
       "reuse": "Usar esta escolha também para outras funções de texto",
       "exampleInProgress": "Texto de exemplo enquanto o pedido decorre. O teu resultado só aparece se a limpeza for bem-sucedida.",
@@ -4589,7 +4594,8 @@
           "needsModel": "Transfere o modelo local nas Definições",
           "unreachable": "Não é possível contactar {{provider}}",
           "configured": "Configurada com {{name}}",
-          "configuredNetwork": "Configurada em {{provider}} com {{name}}"
+          "configuredNetwork": "Configurada em {{provider}} com {{name}}",
+          "review": "Revê esta alteração e escolhe «Aplicar»."
         }
       },
       "dictateNote": "Ditar numa nota",

@@ -591,7 +591,8 @@ export interface ParakeetCheckResult {
 }
 
 interface ParakeetModelResult {
-  keptBytes?: number;
+  keptBytes?: number | null;
+  cleanupFailed?: boolean;
   success: boolean;
   model: string;
   downloaded: boolean;
@@ -623,7 +624,8 @@ interface ParakeetModelsListResult {
 }
 
 interface ParakeetDownloadProgressData {
-  keptBytes?: number;
+  keptBytes?: number | null;
+  cleanupFailed?: boolean;
   type: "progress" | "installing" | "complete" | "error";
   model: string;
   percentage?: number;
@@ -1150,9 +1152,10 @@ declare global {
         metadata?: { durationMs?: number; provider?: string; model?: string }
       ) => Promise<{ success: boolean; path?: string }>;
       mergeAudioSegments: (
-        segments: Array<{ buffer: ArrayBuffer; mimeType: string }>
+        segments: Array<{ buffer: ArrayBuffer; mimeType: string }>,
+        options?: { private?: boolean }
       ) => Promise<
-        | { success: true; buffer: ArrayBuffer; mimeType: "audio/webm" }
+        | { success: true; buffer: ArrayBuffer; mimeType: "audio/webm" | "audio/wav" }
         | { success: false; error: string }
       >;
       getAudioPath: (id: number) => Promise<string | null>;
@@ -1553,7 +1556,7 @@ declare global {
       // Parakeet operations (NVIDIA via sherpa-onnx)
       transcribeLocalParakeet: (
         audioBlob: ArrayBuffer,
-        options?: { model?: string; language?: string }
+        options?: { model?: string; language?: string; private?: boolean }
       ) => Promise<ParakeetTranscriptionResult>;
       checkParakeetInstallation: () => Promise<ParakeetCheckResult>;
       downloadParakeetModel: (modelName: string) => Promise<ParakeetModelResult>;

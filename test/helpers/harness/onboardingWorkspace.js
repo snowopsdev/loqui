@@ -136,8 +136,7 @@ async function workspace(t, { firstLaunch = false, realSettings = false } = {}) 
             "/hooks/useTheme": "export function useTheme(){return {theme:'light',setTheme(){}};}",
             "/hooks/useSettings":
               "import {useSettingsStore} from '/stores/settingsStore.ts'; export function useSettings(){return useSettingsStore();}",
-            "/ui/SidebarModal": `import React from 'react'; export default function Sidebar(p){return React.createElement('section',{'data-settings-section':p.activeSection,hidden:!p.open},p.search,p.sidebarItems.map(i=>React.createElement('button',{key:i.id,onClick:()=>p.onSectionChange(i.id)},i.id)),p.children);}`,
-            "/settings/routing/StagedRouteBar": "export function StagedRouteBar(){return null;}",
+            "/ui/SidebarModal": `import React from 'react'; export default function Sidebar(p){return React.createElement('section',{'data-settings-section':p.activeSection,hidden:!p.open},p.search,p.sidebarItems.map(i=>React.createElement('button',{key:i.id,onClick:()=>p.onSectionChange(i.id)},i.id)),p.children,p.open?p.footer:null);}`,
             "/hooks/useWhisper":
               "export function useWhisper(){return {checkWhisperInstallation(){}};}",
             "/hooks/usePermissions": "export function usePermissions(){return {};}",

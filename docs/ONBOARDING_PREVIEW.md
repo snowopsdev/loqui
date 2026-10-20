@@ -35,7 +35,7 @@ Hold **Hold shortcut** in the toolbar to press the dictation shortcut. Tap mode 
 
 Downloads use each known catalog model’s byte size and a monotonic event sequence across attempts. Concurrent calls receive `DOWNLOAD_IN_PROGRESS`; they never replace the active transfer. Cancel/reset settle pending work once and discard that transfer’s bytes; only network interruption retains bytes for Retry. Trial events carry the original `demoId` and string `takeId`, including delayed levels/results and cancellation. Cancel is discarded with no Undo until the shared Plan 04 ownership/hold contract is integrated in Task 22. These metadata are separate from future recording `sessionId` and workspace lifecycle events.
 
-At this checkpoint the legacy Speech preview still renders its own simulated presentation; Task 13 replaces that branch with the shared bridge consumer. The bridge is independently exercised through the actual download hooks now.
+The Speech step renders the shared production `VoiceStep` and `useVoiceDownload` against the in-memory scenario bridge. Model status, transfer progress and cancellation are fixture events; this does not verify native capture, installed-model decoding or provider success. Rendered QA must install fake media, AudioContext, storage and typed IPC before importing or mounting production components. Real Plan 04 hold/Undo wiring remains pending Task 22 integration.
 
 Preview progress is stored under `loqui.onboarding.preview.*` browser-storage keys. The toolbar’s restart control clears only that preview namespace and does not touch the desktop profile.
 

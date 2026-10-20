@@ -175,6 +175,11 @@ test("an unconfirmed note route reads Checking…, with no fix and no claim (§5
   const [dictate] = ui.byAttr("data-variant", "live");
   assert.ok("disabled" in dictate.attributes);
   expectKey(ui, "setupFlow.ready.noteChecking");
+  assert.equal(ui.text().split("setupFlow.ready.noteChecking").length - 1, 1);
+  const status = ui.byAttr("id", dictate.attributes["aria-describedby"])[0];
+  assert.equal(status.attributes.role, "status");
+  assert.equal(status.attributes.id, "onb-ready-note-reason");
+  assert.equal(ui.byAttr("data-route-chip", "destination").length, 1);
   assert.equal(ui.text().includes("setupFlow.ready.fixNote"), false);
 });
 

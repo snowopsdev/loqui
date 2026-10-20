@@ -940,14 +940,31 @@ test("refused cancellation does not settle the notice identity; actual completio
         downloadParakeetModel: () => new Promise((resolve) => pending.push(resolve)),
         checkParakeetModelStatus: async () => ({ downloaded: installed }),
       }),
-      mocks: { ...SETTINGS_PAGE, "onboarding/useOnboardingNotifier": NOTIFIER_MOCK },
+      mocks: {
+        ...SETTINGS_PAGE,
+        "onboarding/useOnboardingNotifier": NOTIFIER_MOCK,
+        "ui/LanguageSelector": LANGUAGE_SELECTOR_MOCK,
+      },
     }
   );
   await ui.click(primary(ui));
   await ui.click("setupFlow.download.cancel");
   assert.ok(ui.text().includes("setupFlow.download.chipCancelling"));
+  await ui.click("setupFlow.back");
+  await ui.click(ui.byAttr("aria-expanded", "false")[0]);
+  const language = ui.byAttr("data-language")[0];
+  await React.act(async () => ui.props(language).onChange({ target: { value: "ja-JP" } }));
+  await ui.click(
+    ui.byAttr("role", "radio").find((r) => r.attributes["data-value"] === "orukeet-v0.1.0")
+  );
+  assert.equal(
+    ui.byAttr("aria-checked", "true")[0].attributes["data-value"],
+    "parakeet-unified-en-0.6b",
+    "pending cancel keeps the admitted model/language owner"
+  );
   await React.act(async () => settleCancel({ success: false, code: "INSTALLATION_IN_PROGRESS" }));
-  await ui.click("setupFlow.skipStep");
+  await ui.click("setupFlow.skipStep"); // Voice → Try
+  await ui.click("setupFlow.skipStep"); // Try → Cleanup, where the receipt is visible
   installed = true;
   await React.act(async () =>
     progress.emit({}, { type: "complete", model: "parakeet-unified-en-0.6b", sequence: 2 })
@@ -1254,12 +1271,14 @@ test("reuse keeps its existing key/default and never enables cleanup for None or
   assert.equal(settings.getState().chatAgentModel, originalChatModel);
 });
 
-test("explicit reuse of the checked choice fills only unconfigured text scopes and preserves existing choices", async (t) => {
+test("setup remote choice and empty coupled scopes use the real staged planner, Discard and exact Apply/Undo", async (t) => {
+  const { testFacts } = require("../lib/routeStateFixture");
   const { ui } = await mountFlow(
     t,
     { initialStep: "cleanup" },
     {
       storage: {
+        useCleanupModel: "false",
         chatAgentModel: "keep-existing",
         translationModel: "",
         dictationAgentModel: "",
@@ -1269,15 +1288,50 @@ test("explicit reuse of the checked choice fills only unconfigured text scopes a
     }
   );
   const settings = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
-  await ui.click(ui.byAttr("data-value", "provider")[0]);
-  const source = settings.getState().cleanupModel;
+  const drafts = await ui.vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const facts = (await ui.vite.ssrLoadModule("/stores/routeFactsStore.ts")).useRouteFactsStore;
+  await React.act(async () => facts.setState({ facts: testFacts() }));
+  const before = { ...settings.getState() };
   const checkbox = ui.findAll((n) => n.tagName === "INPUT" && ui.props(n).type === "checkbox")[0];
   await React.act(async () => ui.props(checkbox).onChange({ target: { checked: true } }));
-  await advance(ui);
+  await ui.click(ui.byAttr("data-value", "provider")[0]);
+  assert.equal(settings.getState().useCleanupModel, false, "selection does not commit");
+  assert.equal(settings.getState().translationModel, "");
+  assert.ok(ui.text().includes("staging.heading"), "real review is visible");
+  assert.ok(drafts.useRouteDraftStore.getState().draft);
+  const { TEST_COPY } = require("../lib/routeStateFixture");
+  const plan = drafts.planDraft(drafts.useRouteDraftStore.getState().draft, TEST_COPY);
+  assert.ok(plan.changes.length >= 4, "coupled empty scopes are disclosed together");
+  assert.ok(
+    plan.changes
+      .filter((change) => change.after.state.status !== "off")
+      .every((change) => change.after.sends),
+    "payloads are disclosed"
+  );
+  await ui.click("staging.discard");
+  assert.equal(settings.getState().useCleanupModel, false);
+  await ui.click(ui.byAttr("data-value", "none")[0]);
+  await ui.click(ui.byAttr("data-value", "provider")[0]);
+  let applied;
+  await React.act(async () => {
+    applied = await drafts.applyDraft(TEST_COPY);
+  });
+  assert.equal(applied.applied, true);
   assert.equal(settings.getState().chatAgentModel, "keep-existing");
-  for (const key of ["translationModel", "dictationAgentModel", "noteFormattingModel"])
-    assert.equal(settings.getState()[key], source, key);
   assert.equal(settings.getState().useCleanupModel, true);
+  for (const key of ["translationModel", "dictationAgentModel", "noteFormattingModel"])
+    assert.equal(settings.getState()[key], settings.getState().cleanupModel);
+  await React.act(async () => {
+    await applied.undo();
+  });
+  for (const key of Object.keys(plan.undoPatch))
+    assert.deepEqual(settings.getState()[key], before[key], key);
+  assert.equal(
+    ui.calls.filter(([name]) =>
+      /providerTest|textGenerate|runTextOperation|describeModels/.test(name)
+    ).length,
+    0
+  );
 });
 
 test("cleanup keyboard choice keeps focus on the selected radio while its availability check changes context", async (t) => {
@@ -1350,6 +1404,7 @@ for (const outcome of ["failed", "pending", "successful"]) {
     await h.publish({ status: "success", text: SENTENCE, rawText: SENTENCE, cleanup: "skipped" });
     await ui.click("setupFlow.try.makeItYours");
     await ui.click(ui.byAttr("data-value", "provider")[0]);
+    await ui.click("staging.apply");
     expectKey(ui, "setupFlow.cleanup.tryMine", { count: 7, provider: "OpenAI" });
     assert.equal(requests.length, 0);
     await ui.click("setupFlow.cleanup.tryMine");

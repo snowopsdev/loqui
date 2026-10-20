@@ -35,7 +35,7 @@ const OUTCOME_BY_MODEL: Record<string, VoiceOutcome> = {
 };
 
 export function outcomeFor(modelId: string): VoiceOutcome | null {
-  return OUTCOME_BY_MODEL[modelId] ?? null;
+  return Object.hasOwn(OUTCOME_BY_MODEL, modelId) ? OUTCOME_BY_MODEL[modelId] : null;
 }
 
 export function modelDownloadBytes(modelId: string): number | null {

@@ -52,6 +52,7 @@ async function mount(
     },
   };
   installBrowserGlobals(t, {
+    initialStorage: require("../lib/routeStateFixture").MIGRATED_STORAGE,
     window: {
       electronAPI: unsupported ? {} : api,
       addEventListener: events.addEventListener.bind(events),
@@ -325,7 +326,11 @@ test("a retry resets rate, milestone and main's prior retained-byte evidence", a
   assert.equal(h.current().state.bytesPerSecond, null);
   await h.emit({ type: "error", model: "a", error: "HTTP 404" });
   await h.settle({ success: false, error: "HTTP 404" });
-  assert.equal(h.current().state.progressKept, false);
+  assert.equal(
+    h.current().state.progressKept,
+    null,
+    "a fresh failed attempt without main byte evidence is unknown"
+  );
   assert.equal(h.current().state.percent, 0);
 });
 
@@ -505,8 +510,8 @@ for (const offSelectionTerminal of [true, false]) {
     await h.settle({ success: false, model: "a", error: "new A failure" });
     assert.equal(
       h.current().state.progressKept,
-      false,
-      "only A's admitted retry resets its evidence"
+      null,
+      "only A's admitted retry resets its evidence to unknown"
     );
     assert.equal(h.current().state.percent, 0);
   });
@@ -594,4 +599,81 @@ test("startup restoration computes the observed attempt's milestone without an e
   assert.equal(h.current().transferId, 1);
   assert.equal(h.current().milestone, 50);
   assert.deepEqual(h.calls, []);
+});
+
+test("cancel ACK pending + intervening model switch + late A success never readies B or retargets cancellation", async (t) => {
+  const ack = deferred();
+  const h = await mount(t, { cancelResult: ack.promise });
+  const a = deferred(),
+    b = deferred();
+  h.status.set("a", a);
+  h.status.set("b", b);
+  await h.render("a");
+  await React.act(async () => a.resolve({ downloaded: false }));
+  await React.act(async () => h.current().start());
+  let cancel;
+  await React.act(async () => {
+    cancel = h.current().cancel();
+  });
+  assert.equal(h.current().state.status, "cancelling");
+  await h.render("b");
+  await React.act(async () => b.resolve({ downloaded: false }));
+  await h.emit({ type: "complete", model: "a", sequence: 10 });
+  await h.settle({ success: true, downloaded: true });
+  await React.act(async () => {
+    ack.resolve({ success: true });
+    await cancel;
+  });
+  assert.equal(h.current().state.status, "idle");
+  assert.equal(h.calls.filter(([kind]) => kind === "cancel").length, 1);
+  assert.deepEqual(
+    h.calls.filter(([kind]) => kind === "download"),
+    [["download", "a"]]
+  );
+  await React.act(async () => h.current().start());
+  assert.deepEqual(
+    h.calls.filter(([kind]) => kind === "download"),
+    [
+      ["download", "a"],
+      ["download", "b"],
+    ]
+  );
+});
+
+test("accepted cancellation with failed cleanup preserves main bytes/unknown instead of saying nothing was kept", async (t) => {
+  for (const keptBytes of [400, null]) {
+    const h = await mount(t);
+    const a = deferred();
+    h.status.set("a", a);
+    await h.render("a");
+    await React.act(async () => a.resolve({ downloaded: false }));
+    await React.act(async () => h.current().start());
+    await h.emit({
+      type: "progress",
+      model: "a",
+      percentage: 40,
+      downloaded_bytes: 400,
+      total_bytes: 1000,
+    });
+    await React.act(async () => h.current().cancel());
+    await h.emit({
+      type: "error",
+      model: "a",
+      code: "DOWNLOAD_CANCELLED",
+      error: "Download cancelled",
+      keptBytes,
+      cleanupFailed: true,
+    });
+    await h.settle({
+      success: false,
+      error: "Download cancelled",
+      code: "DOWNLOAD_CANCELLED",
+      keptBytes,
+      cleanupFailed: true,
+    });
+    assert.equal(h.current().state.status, "error");
+    assert.equal(h.current().state.message, "setupFlow.download.cleanupFailed");
+    assert.equal(h.current().state.progressKept, keptBytes === null ? null : true);
+    await h.unmount();
+  }
 });

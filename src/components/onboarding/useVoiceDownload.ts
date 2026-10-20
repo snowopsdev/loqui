@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModelDownload } from "../../hooks/useModelDownload";
 import {
@@ -51,6 +52,8 @@ export function useVoiceDownload(modelId: string | null): {
   >({});
   const observedTransfers = useRef(new Set<string>());
   const startingTransfers = useRef(new Set<string>());
+  const { t } = useTranslation();
+  const [cleanupFailures, setCleanupFailures] = useState<Record<string, boolean>>({});
   const [keptBytes, setKeptBytes] = useState<Record<string, number | null>>({});
   const [cancelled, setCancelled] = useState<Record<string, boolean>>({});
   const lastPercentRef = useRef<Record<string, number | null>>({});
@@ -94,9 +97,13 @@ export function useVoiceDownload(modelId: string | null): {
           progressSequences.current[data.model] = data.sequence;
         }
         if (data.type === "error") {
+          setCleanupFailures((previous) => ({
+            ...previous,
+            [data.model]: data.cleanupFailed === true,
+          }));
           setKeptBytes((previous) => ({
             ...previous,
-            [data.model]: Number.isFinite(data.keptBytes) ? (data.keptBytes as number) : 0,
+            [data.model]: Number.isFinite(data.keptBytes) ? (data.keptBytes as number) : null,
           }));
         } else if (data.type === "progress") {
           setKeptBytes((previous) => ({ ...previous, [data.model]: null }));
@@ -164,7 +171,11 @@ export function useVoiceDownload(modelId: string | null): {
       forModel(pendingCancel, modelId, false) ||
       (modelId ? download.isCancellingModel(modelId) : false),
     cancelled: modelId ? (cancelled[modelId] ?? false) : false,
-    error: modelId ? (download.downloadErrors[modelId] ?? null) : null,
+    error: modelId
+      ? cleanupFailures[modelId]
+        ? t("setupFlow.download.cleanupFailed")
+        : (download.downloadErrors[modelId] ?? null)
+      : null,
     lastPercent: modelId ? (lastPercentRef.current[modelId] ?? null) : null,
     keptBytes: modelId ? (keptBytes[modelId] ?? null) : null,
     samples: modelId ? (samples[modelId] ?? []) : [],
@@ -176,6 +187,7 @@ export function useVoiceDownload(modelId: string | null): {
     if (!id || Object.keys(download.downloads).length > 0 || cancelPendingRef.current.has(id))
       return;
     setSamples((previous) => ({ ...previous, [id]: [] }));
+    setCleanupFailures((previous) => ({ ...previous, [id]: false }));
     setKeptBytes((previous) => ({ ...previous, [id]: null }));
     setCancelled((previous) => ({ ...previous, [id]: false }));
     lastPercentRef.current[id] = null;

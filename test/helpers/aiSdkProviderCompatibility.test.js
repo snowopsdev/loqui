@@ -3,6 +3,27 @@ const assert = require("node:assert/strict");
 const { createRequire } = require("node:module");
 const { createModel } = require("../../src/helpers/personalInference");
 
+function expectLegacyImageWarning(t) {
+  const warnings = [];
+  t.mock.method(process, "emitWarning", (message, options) => warnings.push({ message, options }));
+  t.after(() => {
+    const deprecated = warnings.filter((entry) => entry.options?.type === "DeprecationWarning");
+    assert.equal(deprecated.length, 1, "exactly one supported legacy image conversion warning");
+    const suffix =
+      'Deprecated: ""image" content part". The "image" content part type is deprecated. Use a "file" part with mediaType: \'image\' (or a more specific image/* subtype) instead.';
+    assert.ok(deprecated[0].message.startsWith("AI SDK Warning"));
+    assert.ok(deprecated[0].message.endsWith(suffix), deprecated[0].message);
+    const other = warnings.filter((entry) => entry !== deprecated[0]);
+    assert.ok(other.length <= 1);
+    for (const entry of other)
+      assert.deepEqual(entry, {
+        message:
+          "AI SDK Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.",
+        options: { type: "Warning" },
+      });
+  });
+}
+
 const pngBase64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6hGAAAAAASUVORK5CYII=";
 const pngUrl = `data:image/png;base64,${pngBase64}`;
@@ -72,6 +93,7 @@ const imageCases = [
 // checking only model discovery, text generation, or a mock model misses this.
 for (const scenario of imageCases) {
   test(`${scenario.provider} preserves screenshot bytes through the SDK and application model factory`, async (t) => {
+    expectLegacyImageWarning(t);
     const { generateText } = await import("ai");
     const bodies = [];
     t.mock.method(globalThis, "fetch", async (input, init) => {
@@ -115,6 +137,7 @@ for (const scenario of imageCases) {
 }
 
 test("Tinfoil's resolved adapter supports the installed SDK message protocol", async (t) => {
+  expectLegacyImageWarning(t);
   const { generateText } = await import("ai");
   // Resolve the exact adapter used by Tinfoil, including a nested dependency.
   // This checks SDK compatibility only. SecureClient's enclave attestation is

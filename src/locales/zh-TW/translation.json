@@ -4209,7 +4209,9 @@
       "announcePercent": "語音模型下載已完成百分之{{percent}}。",
       "announceReady": "語音模型已就緒",
       "checking": "正在檢查語音模型…",
-      "voiceModel": "語音模型"
+      "voiceModel": "語音模型",
+      "stoppedUnknown": "已在 {{percent}}% 處停止。無法檢查保留的下載資料大小。",
+      "cleanupFailed": "下載已停止，但部分下載檔案無法刪除。"
     },
     "brand": "Loqui 設定",
     "back": "返回",
@@ -4387,7 +4389,9 @@
         "final": "提醒我午餐前把草稿寄出去。"
       },
       "readyTitle": "準備好了。說點什麼吧。",
-      "readyBody": "你的語音模型在此裝置上。"
+      "readyBody": "你的語音模型在此裝置上。",
+      "carouselRole": "輪播",
+      "slideRole": "投影片"
     },
     "cleanupAuthority": {
       "unavailable": "原本的文字整理已無法使用。原始文字已保留。",
@@ -4472,7 +4476,8 @@
         "needsKey": "在設定中加入你的 {{provider}} 金鑰即可啟用文字整理。在此之前，你的話會原樣保留。",
         "needsConnection": "在上方連接 ChatGPT 即可啟用文字整理。在此之前，你的話會原樣保留。",
         "needsModel": "此裝置上還沒有本機文字整理模型。請在「設定 → 語言模型」中下載（1.3 GB）。",
-        "unreachable": "Loqui 目前無法連接 {{provider}}。你的話會原樣保留。"
+        "unreachable": "Loqui 目前無法連接 {{provider}}。你的話會原樣保留。",
+        "review": "請檢視此變更，然後選擇「套用」。"
       },
       "reuse": "其他文字功能也使用此選擇",
       "exampleInProgress": "請求執行期間顯示範例文字。只有文字整理成功後，才會顯示你的結果。",
@@ -4552,7 +4557,8 @@
           "needsModel": "在設定中下載本機模型",
           "unreachable": "無法連接 {{provider}}",
           "configured": "已設定 {{name}}",
-          "configuredNetwork": "已在 {{provider}} 設定 {{name}}"
+          "configuredNetwork": "已在 {{provider}} 設定 {{name}}",
+          "review": "請檢視此變更，然後選擇「套用」。"
         }
       },
       "dictateNote": "在筆記中語音輸入",

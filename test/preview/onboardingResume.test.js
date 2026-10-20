@@ -51,7 +51,7 @@ test("actual BrowserPreview and Flow restart the same step with a new demo lifet
  import BrowserPreview from '/preview/BrowserPreview.tsx';
  import '/components/OnboardingFlow.tsx';
  installBrowserPreview();
- const api=globalThis.window.electronAPI;
+ const api=globalThis.globalThis.window.electronAPI;
  const begin=api.beginOnboardingDemo,end=api.endOnboardingDemo;
  api.beginOnboardingDemo=async(session)=>{globalThis.__previewBegins.push(session.id);const accepted=await begin(session);if(accepted)globalThis.__previewAccepted.add(session.id);return accepted;};
  api.endOnboardingDemo=(id)=>{globalThis.__previewEnds.push(id);return end(id);};
@@ -78,12 +78,14 @@ test("actual BrowserPreview and Flow restart the same step with a new demo lifet
     const current = globalThis.__previewBegins.at(-1);
     assert.ok(globalThis.__previewEnds.includes(prior), "old original demo was released");
     assert.equal(
-      await globalThis.window.electronAPI.toggleOnboardingDemo(prior, null),
+      await globalThis.globalThis.window.electronAPI.toggleOnboardingDemo(prior, null),
       false,
       "old callbacks cannot operate the replacement"
     );
     const events = [];
-    const unsubscribe = globalThis.window.electronAPI.onDictationHotkeyEvent((e) => events.push(e));
+    const unsubscribe = globalThis.globalThis.window.electronAPI.onDictationHotkeyEvent((e) =>
+      events.push(e)
+    );
     await React.act(async () => {
       globalThis.window.loquiPreviewBridge.simulateHotkey("down");
       globalThis.window.loquiPreviewBridge.simulateHotkey("up");
@@ -95,11 +97,41 @@ test("actual BrowserPreview and Flow restart the same step with a new demo lifet
       "new original shortcut reservation really forwards presses"
     );
     assert.equal(
-      await globalThis.window.electronAPI.toggleOnboardingDemo(current, null),
+      await globalThis.globalThis.window.electronAPI.toggleOnboardingDemo(current, null),
       false,
       "shortcut remains recording free"
     );
     prior = current;
   }
+  const shortcut = ui.findAll(
+    (node) => node.tagName === "BUTTON" && node.textContent === "Hold shortcut"
+  )[0];
+  const phases = [];
+  const off = globalThis.window.electronAPI.onDictationHotkeyEvent((event) =>
+    phases.push(event.phase)
+  );
+  await ui.press(shortcut, " ");
+  await React.act(async () => ui.props(shortcut).onBlur());
+  // Space→Tab→keyup elsewhere: blur already released this keyboard owner.
+  await React.act(async () => globalThis.window.dispatchEvent(new Event("blur")));
+  assert.deepEqual(phases.splice(0), ["down", "up"]);
+  await ui.press(shortcut, " ");
+  await React.act(async () => ui.props(shortcut).onKeyUp({ key: " ", preventDefault() {} }));
+  assert.deepEqual(phases.splice(0), ["down", "up"]);
+  await React.act(async () =>
+    ui.props(shortcut).onPointerDown({ pointerId: 1, currentTarget: { setPointerCapture() {} } })
+  );
+  await React.act(async () => ui.props(shortcut).onBlur());
+  assert.deepEqual(
+    phases.splice(0),
+    ["down"],
+    "unowned keyboard blur cannot release a pointer hold"
+  );
+  await React.act(async () => ui.props(shortcut).onPointerUp());
+  assert.deepEqual(phases.splice(0), ["up"]);
+  await ui.press(shortcut, "Enter");
+  await ui.unmount();
+  assert.deepEqual(phases, ["down", "up"], "unmount releases its keyboard owner once");
+  off();
   assert.equal(ui.storage.getItem("onboardingCompleted"), "true");
 });

@@ -87,7 +87,7 @@ test("state precedence: a running entry, then cancelling, then installed, then e
     assert.equal(
       deriveVoiceDownloadState(facts({ error: "HTTP 404", lastPercent: 42, keptBytes }))
         .progressKept,
-      false
+      keptBytes === null ? null : false
     );
   }
   assert.deepEqual(

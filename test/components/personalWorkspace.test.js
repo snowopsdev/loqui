@@ -23,7 +23,10 @@ async function harness(t, module, options = {}) {
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
   });
-  installBrowserGlobals(t, { window: { electronAPI: options.api ?? {} } });
+  installBrowserGlobals(t, {
+    initialStorage: require("../lib/routeStateFixture").MIGRATED_STORAGE,
+    window: { electronAPI: options.api ?? {} },
+  });
   const container = installHookDom(t);
   const vite = await createRendererServer(
     t,
@@ -199,6 +202,12 @@ test("a key save clears the draft only after main acknowledges it", async (t) =>
 
 // change-driving review R2: profile draft is separate from acknowledged readiness.
 test("Bedrock profile typing remains editable during pending persistence and retains a failed draft", async (t) => {
+  const diagnostics = require("../lib/scopedDiagnostics").captureDiagnostics(t);
+  t.after(() =>
+    assert.deepEqual(diagnostics, [
+      ["warn", "[WARN][settings] Failed to persist Bedrock profile", {}],
+    ])
+  );
   const first = deferred();
   const second = deferred();
   const third = deferred();

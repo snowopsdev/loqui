@@ -34,12 +34,12 @@ async function tour(t, reducedMotion) {
 
 const visibleSlides = (ui) =>
   ui
-    .byAttr("aria-roledescription", "slide")
+    .byAttr("aria-roledescription", "setupFlow.tour.slideRole")
     .filter((slide) => slide.attributes["aria-hidden"] !== "true");
 
 test("the tour is a labelled carousel with one visible slide, arrows and dots", async (t) => {
   const ui = await tour(t, false);
-  const [carousel] = ui.byAttr("aria-roledescription", "carousel");
+  const [carousel] = ui.byAttr("aria-roledescription", "setupFlow.tour.carouselRole");
   assert.equal(carousel.attributes["aria-label"], "setupFlow.tour.label");
   assert.equal(visibleSlides(ui).length, 1);
   assert.ok(visibleSlides(ui)[0].textContent.includes("setupFlow.tour.shortcut.title"));
@@ -58,7 +58,7 @@ test("reduced motion never auto-advances", async (t) => {
 test("Skip tour leaves a quiet line instead of the carousel", async (t) => {
   const ui = await tour(t, false);
   await ui.click("setupFlow.tour.skip");
-  assert.equal(ui.byAttr("aria-roledescription", "carousel").length, 0);
+  assert.equal(ui.byAttr("aria-roledescription", "setupFlow.tour.carouselRole").length, 0);
   expectKey(ui, "setupFlow.tour.skipped");
 });
 
@@ -125,7 +125,7 @@ test("a voice that is already installed shows the trial with no pop-in", async (
   assert.equal(ui.byAttr("data-arrived").length, 0);
 });
 
-const carousel = (ui) => ui.byAttr("aria-roledescription", "carousel")[0];
+const carousel = (ui) => ui.byAttr("aria-roledescription", "setupFlow.tour.carouselRole")[0];
 const activeTitle = (ui) => visibleSlides(ui)[0]?.textContent;
 const tick = (t, ms) => React.act(async () => t.mock.timers.tick(ms));
 

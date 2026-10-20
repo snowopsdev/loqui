@@ -72,9 +72,11 @@ export function VoiceDownloadPanel({
         <p>
           {state.percent !== null
             ? t(
-                state.progressKept
-                  ? "setupFlow.download.stoppedKept"
-                  : "setupFlow.download.stoppedRestart",
+                state.progressKept === null
+                  ? "setupFlow.download.stoppedUnknown"
+                  : state.progressKept
+                    ? "setupFlow.download.stoppedKept"
+                    : "setupFlow.download.stoppedRestart",
                 { percent: state.percent }
               )
             : null}{" "}

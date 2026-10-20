@@ -28,8 +28,11 @@ const codexCatalog = {
   data: [{ model: "codex-fixture-b" }, { model: "codex-fixture-a", isDefault: true }],
 };
 const catalog = {
-  owns: (provider, model) => provider === "openai" && model.startsWith("gpt-"),
-  defaultModel: (provider) => (provider === "openai" ? "gpt-fixture" : ""),
+  owns: (provider, model) =>
+    provider === "openai"
+      ? model.startsWith("gpt-")
+      : provider === "codex" && model.startsWith("codex-"),
+  defaultModel: (provider) => (provider === "openai" ? "gpt-fixture" : "codex-fixture-a"),
 };
 
 // The harness mirrors OnboardingFlow: every pick bumps a counter and a result
@@ -48,6 +51,17 @@ function createChooser({ settings, bridge }) {
         bridge,
         catalog,
         setStatus: (status) => statuses.push(status),
+        requestPatch: async (patch) => {
+          Object.assign(settings.state, {
+            ...(patch.useCleanupModel !== undefined
+              ? { useCleanupModel: patch.useCleanupModel }
+              : {}),
+            ...(patch.cleanupMode !== undefined ? { mode: patch.cleanupMode } : {}),
+            ...(patch.cleanupProvider !== undefined ? { provider: patch.cleanupProvider } : {}),
+            ...(patch.cleanupModel !== undefined ? { model: patch.cleanupModel } : {}),
+          });
+          return "ready";
+        },
         isCurrent: () => latest === request,
       });
     },
@@ -92,7 +106,7 @@ test("a slow local model load cannot activate cleanup after the user picked anot
   load.resolve({ success: true });
   await slow;
   assert.equal(settings.state.useCleanupModel, false);
-  assert.equal(settings.state.provider, "openai");
+  assert.equal(settings.state.provider, "local", "unavailable choice preserves committed route");
   assert.equal(chooser.statuses.at(-1), "failed");
   assert.deepEqual(credentialRefs, ["openai"]);
 });
@@ -231,19 +245,22 @@ test("a Codex model the account already serves is kept", async () => {
   assert.equal(settings.state.model, "codex-fixture-b");
 });
 
-test("Codex without a usable model list is reported as needing attention", async () => {
-  for (const codexModels of [
-    async () => ({ data: [] }),
-    async () => Promise.reject(new Error("offline")),
-  ]) {
-    const settings = createSettings({ model: "qwen3.5-2b-q4_k_m" });
-    const chooser = createChooser({
-      settings,
-      bridge: { personalInference: { codexStatus: async () => signedIn, codexModels } },
-    });
-    await chooser.choose("codex");
-    assert.equal(settings.state.useCleanupModel, false);
-    assert.equal(settings.state.model, "qwen3.5-2b-q4_k_m");
-    assert.equal(chooser.statuses.at(-1), "failed");
-  }
+test("Codex selection uses the shipped catalog and never starts model discovery", async () => {
+  const settings = createSettings({ model: "qwen3.5-2b-q4_k_m" });
+  let discovery = 0;
+  const chooser = createChooser({
+    settings,
+    bridge: {
+      personalInference: {
+        codexStatus: async () => signedIn,
+        codexModels: async () => {
+          discovery++;
+          throw new Error("must never discover");
+        },
+      },
+    },
+  });
+  await chooser.choose("codex");
+  assert.equal(settings.state.model, "codex-fixture-a");
+  assert.equal(discovery, 0);
 });

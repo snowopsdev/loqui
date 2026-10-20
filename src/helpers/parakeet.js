@@ -282,6 +282,7 @@ class ParakeetManager {
       modelName: model,
       language: options.language,
       signal: options.signal,
+      private: options.private === true,
     });
     const elapsed = Date.now() - startTime;
 
@@ -460,9 +461,26 @@ class ParakeetManager {
       return { model: modelName, downloaded: true, path: modelPath, success: true };
     } catch (error) {
       if (error.isAbort) {
-        await fsPromises.unlink(archivePath).catch(() => {});
+        let archiveBytes = 0;
+        let cleanupFailed = error.cleanupFailed === true;
+        try {
+          await fsPromises.unlink(archivePath);
+        } catch (unlinkError) {
+          if (unlinkError.code !== "ENOENT") {
+            cleanupFailed = true;
+            archiveBytes = await fsPromises.stat(archivePath).then(
+              (stats) => stats.size,
+              (statError) => (statError.code === "ENOENT" ? 0 : null)
+            );
+          }
+        }
         throw Object.assign(new Error("Download interrupted by user"), {
           code: "DOWNLOAD_CANCELLED",
+          keptBytes:
+            Number.isFinite(error.keptBytes) && archiveBytes !== null
+              ? error.keptBytes + archiveBytes
+              : null,
+          cleanupFailed,
         });
       }
       throw error;

@@ -83,10 +83,9 @@ export function ReadyStep(props: ReadyStepProps) {
         <div className="onb-ready__note">
           <p className="onb-reco__meta">
             <RouteDestinationChip route={note} />
-            <span>
-              {note.status === "checking"
-                ? t("setupFlow.ready.noteChecking")
-                : note.locality === "device"
+            {note.status === "checking" ? null : (
+              <span>
+                {note.locality === "device"
                   ? t("setupFlow.ready.noteLocal")
                   : t(
                       note.locality === "network"
@@ -94,7 +93,8 @@ export function ReadyStep(props: ReadyStepProps) {
                         : "setupFlow.ready.noteSends",
                       { provider: noteProviderLabel }
                     )}
-            </span>
+              </span>
+            )}
           </p>
           <div className="onb-ready__actions">
             <Button

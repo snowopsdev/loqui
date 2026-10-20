@@ -111,7 +111,15 @@ for (const [label, api] of Object.entries({
   unsupported: { getHotkeyModeInfo: async () => ({ supportsPushToTalk: false }) },
 })) {
   test(`capability ${label} never authorizes push`, async (t) => {
+    const { captureDiagnostics } = require("../lib/scopedDiagnostics");
+    const diagnostics = captureDiagnostics(t);
     const h = await hook(t, api, "mode");
+    if (label === "reject") {
+      assert.equal(diagnostics.length, 1);
+      assert.equal(diagnostics[0][0], "error");
+      assert.equal(diagnostics[0][1], "[ERROR][dictation] Failed to check hotkey mode");
+      assert.equal(diagnostics[0][2].error.message, "fixture rejection");
+    } else assert.deepEqual(diagnostics, []);
     assert.equal(h.value().loaded && h.value().supportsPushToTalk, false);
   });
 }

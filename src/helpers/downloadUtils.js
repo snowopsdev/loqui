@@ -269,12 +269,27 @@ async function downloadFile(url, destPath, options = {}) {
 
   const tempPath = `${destPath}.tmp`;
 
+  const remainingBytes = () =>
+    fsPromises.stat(tempPath).then(
+      (stats) => stats.size,
+      (error) => (error.code === "ENOENT" ? 0 : null)
+    );
+  const discardPartial = async () => {
+    try {
+      await fsPromises.unlink(tempPath);
+      return { keptBytes: 0, cleanupFailed: false };
+    } catch (error) {
+      if (error.code === "ENOENT") return { keptBytes: 0, cleanupFailed: false };
+      return { keptBytes: await remainingBytes(), cleanupFailed: true };
+    }
+  };
+
   const discardCancelledDownload = async (error) => {
     // downloadAttempt rejects only after its writer closes. Never unlink earlier.
-    await fsPromises.unlink(tempPath).catch(() => {});
+    const retained = await discardPartial();
     throw Object.assign(error?.isAbort ? error : new Error("Download cancelled"), {
       isAbort: true,
-      keptBytes: 0,
+      ...retained,
     });
   };
 
@@ -343,13 +358,9 @@ async function downloadFile(url, destPath, options = {}) {
       if (!isRetryable(error) || attempt >= maxRetries) {
         // Network failures preserve resumable bytes; HTTP, TLS and size failures drop them.
         if (isRetryable(error)) {
-          error.keptBytes = await fsPromises.stat(tempPath).then(
-            (stats) => stats.size,
-            () => 0
-          );
+          error.keptBytes = await remainingBytes();
         } else {
-          await fsPromises.unlink(tempPath).catch(() => {});
-          error.keptBytes = 0;
+          Object.assign(error, await discardPartial());
         }
         // The retained-byte stat (or discard) also yields to an accepted Stop.
         if (signal?.aborted) return discardCancelledDownload(error);

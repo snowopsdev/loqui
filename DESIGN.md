@@ -851,3 +851,13 @@ standard unit symbols are not untranslated prose. Local resource checks do not
 certify native fluency. Native-speaker spot-checks for Arabic, Japanese and
 Traditional Chinese remain required before a PR, alongside Task 21's rendered
 locale and accessibility matrix. No human language review is claimed here.
+
+### Setup route and operation ownership (Plan05 final fixes)
+
+Setup voice and cleanup choices use the existing Plan03 route planner. Availability checks propose one patch without changing the committed route. New off-device recipients or payloads wait in the shared Apply/Discard bar; available local changes retain immediate application and the shared Undo. Opting into reuse includes every empty text scope in that same review and exact reverse patch. Selection, review and Apply make no provider request. A failed or superseded availability check preserves committed settings and the original trial text.
+
+A synchronous monotonic renderer admission revision tracks meaningful cleanup settings, explicit choices and accepted trial sentences. It revokes old consent through an A→B→A round trip even before React renders. Capture, dispatch and result publication check that revision as well as the original main-owned credential and enterprise generations. Retry reuses its original admission and cannot renew consent. The in-memory preview also enforces main's five-minute captured-operation lifetime on entry and after asynchronous work; this is fixture fidelity, not a new authority.
+
+Private multi-segment audio is decoded segment by segment through FFmpeg stdin/stdout and combined as PCM16 mono 16 kHz WAV in memory. The actual Parakeet decoder uses that same pipe path for private WebM without complete PCM, while valid PCM WAV bypasses conversion. Public conversion keeps its existing file path. Conversion failure retains every original segment on the admitted recording owner and reports failure. Streaming captures one adapter, identity and immutable options before its first await; sends, finalization, cancellation and exactly-once teardown keep that owner despite later settings changes. These repairs do not supply Plan04 session, hold or Undo contracts or a Sealed attestation.
+
+Download failure and cancellation report actual remaining bytes, or an explicit unknown when cleanup cannot be verified. A failed unlink is never represented as zero bytes or “nothing kept.” The preview shortcut releases only its keyboard-owned hold on blur, focus loss and unmount. Ordinary retained Settings returns preserve the selected section, subtab and draft; a new explicit activation is consumed once. Tour role descriptions use localized setup copy, and Ready exposes one stable described status for an unknown destination.

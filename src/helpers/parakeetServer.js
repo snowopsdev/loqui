@@ -8,6 +8,7 @@ const {
   parseWavFormat,
   isPcm16Mono16kWav,
   convertToWav,
+  convertPrivateBufferToWav,
   wavToFloat32Samples,
   computeFloat32RMS,
 } = require("./ffmpegUtils");
@@ -81,8 +82,14 @@ class ParakeetServerManager {
     );
   }
 
-  async _ensureWav(audioBuffer) {
+  async _ensureWav(audioBuffer, options = {}) {
     if (isPcm16Mono16kWav(audioBuffer)) return { wavBuffer: audioBuffer, filesToCleanup: [] };
+    if (options.private === true) {
+      return {
+        wavBuffer: await convertPrivateBufferToWav(audioBuffer, options),
+        filesToCleanup: [],
+      };
+    }
     const format = parseWavFormat(audioBuffer);
     if (format) debugLogger.debug("WAV input needs normalization", { format });
 
@@ -131,7 +138,10 @@ class ParakeetServerManager {
     // An already-cancelled upload skips the ffmpeg conversion entirely.
     throwIfAborted();
 
-    const { wavBuffer, filesToCleanup } = await this._ensureWav(audioBuffer);
+    const { wavBuffer, filesToCleanup } = await this._ensureWav(audioBuffer, {
+      private: options.private === true,
+      signal,
+    });
     try {
       throwIfAborted();
       const runtime = getModelRuntime(modelName);

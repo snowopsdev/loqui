@@ -16,7 +16,7 @@ export type VoiceDownloadState =
   | { status: "cancelling" }
   | { status: "cancelled" }
   | { status: "ready" }
-  | { status: "error"; message: string; percent: number | null; progressKept: boolean };
+  | { status: "error"; message: string; percent: number | null; progressKept: boolean | null };
 
 export interface RateSample {
   atMs: number;
@@ -85,7 +85,7 @@ export function deriveVoiceDownloadState(facts: DownloadFacts): VoiceDownloadSta
       status: "error",
       message: facts.error,
       percent: facts.lastPercent,
-      progressKept: (facts.keptBytes ?? 0) > 0,
+      progressKept: facts.keptBytes === null ? null : facts.keptBytes > 0,
     };
   }
   if (facts.cancelled) return { status: "cancelled" };

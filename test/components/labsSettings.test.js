@@ -6,23 +6,21 @@ const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
+
 const repoRoot = path.join(__dirname, "../..");
 
 async function renderLabs(t, state) {
   installBrowserGlobals(t);
   globalThis.__labsState = state;
   t.after(() => delete globalThis.__labsState);
-  const vite = await createRendererServer(t, {
-    cachePrefix: "loqui-labs-settings-test-",
-    mockModules: {
-      "/stores/settingsStore": `
-        export const useSettingsStore = (selector) => selector(globalThis.__labsState);
-      `,
-      "react-i18next": `
-        export const useTranslation = () => ({ t: (key) => key });
-      `,
-    },
-  });
+  // Inline react-i18next so Vite applies the key mock to every dependency too.
+  const vite = await createRendererServer(
+    t,
+    rendererOptions("loqui-labs-settings-test-", {
+      "/stores/settingsStore": `export const useSettingsStore = (selector) => selector(globalThis.__labsState);`,
+    })
+  );
   const mod = await vite.ssrLoadModule("/components/settings/LabsSettings.tsx");
   return renderToStaticMarkup(createElement(mod.default));
 }

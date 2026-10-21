@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useContainerChat } from "../../hooks/useContainerChat";
+import { useContainerChat, type ContainerConversationItem } from "../../hooks/useContainerChat";
 import type { NoteItem, SpaceItem } from "../../types/electron";
 import { buildBoardContext, parseRefKey, pinSelection, type TableCardModel } from "./tableModel";
 import type { Point } from "./tableGeometry";
 import type { useTableBoard } from "./useTableBoard";
 import { useTableRoute } from "./useTableRoute";
+
+import { useTablePaintState, type TablePublication } from "./tablePublication";
 
 const NO_NOTES: NoteItem[] = [];
 interface Scope {
@@ -30,10 +32,18 @@ interface Options {
   selection: string[];
   resultPoint: () => Point;
   board: ReturnType<typeof useTableBoard>;
+  publication?: TablePublication;
 }
 
 /** Table owns unadmitted intent; the existing sender owns admitted requests. */
-export function useTableChat({ space, cards, selection, resultPoint, board }: Options) {
+export function useTableChat({
+  space,
+  cards,
+  selection,
+  resultPoint,
+  board,
+  publication,
+}: Options) {
   const { place, link, reload, read, readCards } = board;
   const destination = useTableRoute();
   const [askOpen, setAskOpen] = useState(false);
@@ -51,11 +61,24 @@ export function useTableChat({ space, cards, selection, resultPoint, board }: Op
       ),
     [space.name, cards]
   );
+  const [, setConversations, conversations] = useTablePaintState<ContainerConversationItem[]>(
+    [],
+    publication
+  );
+  const conversationList = useMemo(
+    () => ({
+      read: () => conversations.current,
+      set: setConversations,
+    }),
+    [conversations, setConversations]
+  );
   const chat = useContainerChat({
     space,
     folder: null,
     notes: NO_NOTES,
     contextOverride: pinned?.context ?? boardContext,
+    conversationList: publication ? conversationList : undefined,
+    initializeIdleConversation: !!publication,
   });
   const latest = useRef({ chat, destination });
   latest.current = { chat, destination };

@@ -398,6 +398,19 @@ export function useTableBoard(spaceId: number, publication?: TablePublication) {
     };
     return cards;
   }, [liveState]);
+  const edgeProjection = useRef<{
+    board: TableState["board"];
+    edges: ReturnType<typeof deriveEdges>;
+  } | null>(null);
+  const readEdges = useCallback(() => {
+    const board = liveState.current.board;
+    if (edgeProjection.current?.board !== board)
+      edgeProjection.current = {
+        board,
+        edges: deriveEdges(readCards(), board?.links ?? [], parseEntityHref),
+      };
+    return edgeProjection.current!.edges;
+  }, [liveState, readCards]);
   const read = useCallback(() => liveState.current, [liveState]);
   const readStatus = useCallback(() => liveStatus.current, [liveStatus]);
   return {
@@ -415,5 +428,6 @@ export function useTableBoard(spaceId: number, publication?: TablePublication) {
     subscribe,
     readStatus,
     readCards,
+    readEdges,
   };
 }

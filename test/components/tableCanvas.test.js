@@ -1802,3 +1802,180 @@ for (const native of [true, false]) {
     );
   });
 }
+
+test("final fix: cold canonical connectors exist before wheel returns without an unrelated render", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const { connectorPath } = await import("../../src/components/table/tableGeometry.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  let cards = Array.from({ length: 50 }, (_, i) => ({
+    ...card(`note:${i + 1}`, "note", 32 + i * 304, 32),
+    fixedH: 150,
+  }));
+  let edges = [{ a: "note:49", b: "note:50" }];
+  let viewport = { x: 0, y: 0, scale: 1 };
+  let notify;
+  const m = await mount(t, {
+    cards,
+    edges,
+    selection: [],
+    publication,
+    subscribe: (listener) => {
+      notify = listener;
+      return () => {
+        notify = null;
+      };
+    },
+    read: () => ({ cards, edges, viewport, selection: [], focused: null }),
+    onViewport: (v) => {
+      viewport = v;
+      notify();
+    },
+  });
+  const paths = () => m.tree.find((n) => n.attributes.class === "table-connectors").childNodes;
+  assert.equal(m.cardEl("note:50"), null);
+  const commits = m.commits.length;
+  let immediate;
+  await React.act(() => {
+    m.listeners.get("wheel")({
+      deltaX: 14900,
+      deltaY: 0,
+      ctrlKey: false,
+      metaKey: false,
+      clientX: 100,
+      clientY: 100,
+      preventDefault() {},
+    });
+    immediate = {
+      a: !!m.cardEl("note:49"),
+      b: !!m.cardEl("note:50"),
+      paths: paths().length,
+      d: paths()[0]?.getAttribute("d"),
+      commits: m.commits.length,
+    };
+  });
+  for (let i = 0; i < 8 && m.frames.size; i++) await m.flush();
+  const warmed = paths().length;
+  await m.render({ viewport }); // Control: this must not be what creates the relationship.
+  assert.deepEqual(immediate, {
+    a: true,
+    b: true,
+    paths: 1,
+    d: connectorPath(cards[48].rect, cards[49].rect),
+    commits,
+  });
+  assert.equal(warmed, 1);
+  assert.equal(paths().length, 1);
+  const retainedPath = paths()[0];
+  cards = cards.map((c) => (c.key === "note:50" ? { ...c, rect: { ...c.rect, h: 260 } } : c));
+  await React.act(() => notify());
+  assert.equal(paths()[0], retainedPath);
+  assert.equal(retainedPath.getAttribute("d"), connectorPath(cards[48].rect, cards[49].rect));
+  edges = [];
+  await React.act(() => notify());
+  assert.equal(paths().length, 0, "canonical edge removal is synchronous too");
+  edges = [{ a: "note:49", b: "note:50" }];
+  await React.act(() => notify());
+  assert.equal(paths().length, 1, "canonical insertion needs no React commit");
+  cards = cards.filter((c) => c.key !== "note:50");
+  await React.act(() => notify());
+  assert.equal(paths().length, 0, "missing endpoint retires its path");
+  edges = [];
+  await m.render({ gestureScope: 2, edges });
+  for (let i = 0; i < 8 && m.frames.size; i++) await m.flush();
+  assert.equal(paths().length, 0, "old scope warming cannot restore a connector");
+});
+
+for (const end of ["up", "cancel", "blur", "scope", "unmount"]) {
+  test(`final fix: only the owned lasso prevents native selection through ${end}`, async (t) => {
+    const m = await mount(t, { selection: [] });
+    let cleared = 0;
+    globalThis.window.getSelection = () => ({
+      removeAllRanges() {
+        cleared++;
+      },
+    });
+    let prevented = 0;
+    const preventDefault = () => prevented++;
+    await m.event("onPointerDown", m.canvas(), { shiftKey: true, preventDefault });
+    assert.equal(prevented, 1, "Shift press must not extend native selection from other chrome");
+    assert.equal(cleared, 1);
+    await m.event("onPointerMove", m.canvas(), { pointerId: 2, preventDefault });
+    assert.equal(prevented, 1, "second pointer is not owned");
+    await m.event("onPointerMove", m.canvas(), { clientX: 500, clientY: 400, preventDefault });
+    assert.equal(prevented, 2);
+    const oldCanvas = m.canvas();
+    if (end === "up") await m.event("onPointerUp");
+    if (end === "cancel") await m.event("onPointerCancel");
+    if (end === "blur") await React.act(() => m.windowListeners.get("blur")());
+    if (end === "scope") await m.render({ gestureScope: 2 });
+    if (end === "unmount") await m.unmount();
+    if (end !== "unmount") {
+      await m.event("onPointerMove", m.canvas(), { preventDefault });
+      assert.equal(prevented, 2, "selection suppression ends with ownership");
+      await m.event("onPointerDown", m.canvas(), { preventDefault });
+      assert.equal(prevented, 2, "ordinary focus/click stays native");
+    }
+    assert.notEqual(oldCanvas.style.userSelect, "none", "no persistent CSS selection prohibition");
+    assert.equal(m.captures.size, end === "unmount" ? 0 : 1);
+  });
+}
+
+test("final fix: cold natural linked endpoints use their synchronous measured geometry", async (t) => {
+  const { createTablePublication } = await import("../../src/components/table/tablePublication.ts");
+  const { connectorPath } = await import("../../src/components/table/tableGeometry.ts");
+  const publication = createTablePublication();
+  t.after(() => publication.dispose());
+  let cards = Array.from({ length: 50 }, (_, i) => ({
+    ...card(`note:${i + 1}`, "note", 32 + i * 304, 32),
+    fixedH: i < 48 ? 150 : null,
+  }));
+  const edges = [{ a: "note:49", b: "note:50" }];
+  let viewport = { x: 0, y: 0, scale: 1 },
+    notify;
+  const m = await mount(
+    t,
+    {
+      cards,
+      edges,
+      viewport,
+      selection: [],
+      publication,
+      read: () => ({ cards, edges, viewport, selection: [], focused: null }),
+      subscribe: (fn) => {
+        notify = fn;
+        return () => {
+          notify = null;
+        };
+      },
+      onViewport: (v) => {
+        viewport = v;
+        notify();
+      },
+      onMeasure: (key, h) => {
+        cards = cards.map((c) =>
+          c.key === key && c.rect.h !== h ? { ...c, rect: { ...c.rect, h } } : c
+        );
+      },
+    },
+    { "note:49": 184, "note:50": 626 }
+  );
+  assert.equal(m.cardEl("note:49"), null);
+  assert.equal(m.cardEl("note:50"), null);
+  const commits = m.commits.length;
+  await React.act(() => {
+    m.listeners.get("wheel")({
+      deltaX: 14900,
+      deltaY: 0,
+      ctrlKey: false,
+      metaKey: false,
+      clientX: 100,
+      clientY: 100,
+      preventDefault() {},
+    });
+    const path = m.tree.find((n) => n.attributes.class === "table-connectors").childNodes[0];
+    assert.equal(path.getAttribute("d"), connectorPath(cards[48].rect, cards[49].rect));
+    assert.equal(path.style.display, "");
+    assert.equal(m.commits.length, commits);
+  });
+});

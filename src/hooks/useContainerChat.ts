@@ -17,6 +17,13 @@ interface UseContainerChatOptions {
   folder: FolderItem | null;
   notes: NoteItem[];
   contextOverride?: string | null;
+  /** Opt-in hosts already mount an empty, idle conversation. */
+  initializeIdleConversation?: boolean;
+  /** Optional host-owned list publication; admission/history remain in this hook. */
+  conversationList?: {
+    read: () => ContainerConversationItem[];
+    set: (items: ContainerConversationItem[]) => void;
+  };
 }
 
 export interface ContainerConversationItem {
@@ -50,6 +57,8 @@ export function useContainerChat({
   folder,
   notes,
   contextOverride = null,
+  conversationList,
+  initializeIdleConversation,
 }: UseContainerChatOptions): UseContainerChatReturn {
   const [sending, setSending] = useState(false);
   const [conversations, setConversations] = useState<ContainerConversationItem[]>([]);
@@ -75,6 +84,7 @@ export function useContainerChat({
   );
 
   const streaming = useChatStreaming({
+    initializeIdleConversation,
     conversationId: persistence.conversationId,
     messages: persistence.messages,
     setMessages: persistence.setMessages,
@@ -90,9 +100,9 @@ export function useContainerChat({
       } catch {
         list = [];
       }
-      if (!isStale?.()) setConversations(list);
+      if (!isStale?.()) (conversationList?.set ?? setConversations)(list);
     },
-    [space.id, folderId]
+    [space.id, folderId, conversationList]
   );
 
   useEffect(() => {
@@ -149,7 +159,7 @@ export function useContainerChat({
     agentState: streaming.agentState,
     sendMessage,
     cancelStream: streaming.cancelStream,
-    conversations,
+    conversations: conversationList ? conversationList.read() : conversations,
     activeConversationId: conversationId,
     conversationGeneration: persistence.conversationGeneration,
     canSend: !sending && streaming.agentState === "idle",

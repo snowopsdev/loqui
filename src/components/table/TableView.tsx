@@ -57,6 +57,7 @@ export default function TableView({
     subscribe,
     readStatus,
     readCards,
+    readEdges,
   } = board;
   const zoomLabel = useRef<HTMLSpanElement>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -114,6 +115,7 @@ export default function TableView({
     selection: state.selection,
     resultPoint: belowSelection,
     board,
+    publication,
   });
   const {
     chat,
@@ -389,6 +391,7 @@ export default function TableView({
             const live = read();
             return {
               cards: readCards(),
+              edges: readEdges(),
               viewport: live.viewport,
               selection: live.selection,
               focused: live.focused,

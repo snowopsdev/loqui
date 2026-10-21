@@ -106,7 +106,13 @@ export function useChatMessageSender({
             optimisticId = userMessage.id;
             await persistence.saveUserMessage(text, convId);
             reachedConversation = true;
-            options?.onAccepted?.(convId);
+            try {
+              options?.onAccepted?.(convId);
+            } catch (error) {
+              // Acceptance is already durable. An observer cannot veto inference
+              // or turn these saved words into a retryable submission.
+              console.error("Chat acceptance observer failed after the message was saved", error);
+            }
             // A saved A message must not change the state of a newly selected B composer.
             if (isCurrent()) {
               await onMessagePersisted?.({

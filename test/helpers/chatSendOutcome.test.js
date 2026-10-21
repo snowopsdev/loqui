@@ -29,7 +29,7 @@ async function makeSender(t, { createConversation, saveUserMessage, sendToAI }) 
     return null;
   }
   renderToStaticMarkup(React.createElement(Harness));
-  return { send: (text) => send(text), thread };
+  return { send: (text, options) => send(text, options), thread };
 }
 
 test("a failure before the conversation exists rejects, with nothing dispatched", async (t) => {
@@ -73,4 +73,28 @@ test("once the message is saved, a later failure still reports it as sent", asyn
 test("a provider error rendered in the thread counts as sent", async (t) => {
   const s = await makeSender(t, { sendToAI: async () => {} });
   assert.equal(await s.send("hello"), true);
+});
+
+test("final fix: a throwing acceptance observer reports its error and still infers exactly once", async (t) => {
+  const saved = [],
+    inferred = [];
+  const error = new Error("intentional acceptance observer failure");
+  const s = await makeSender(t, {
+    saveUserMessage: async (...args) => saved.push(args),
+    sendToAI: async (...args) => inferred.push(args),
+  });
+  assert.equal(
+    await s.send("accepted words", {
+      onAccepted(id) {
+        assert.equal(id, 1);
+        throw error;
+      },
+    }),
+    true
+  );
+  assert.deepEqual(saved, [["accepted words", 1]]);
+  assert.equal(s.thread.length, 1);
+  assert.equal(inferred.length, 1);
+  assert.equal(inferred[0][0], "accepted words");
+  assert.equal(inferred[0][2].owner.conversationId, 1);
 });

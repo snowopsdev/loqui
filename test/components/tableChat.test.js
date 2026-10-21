@@ -68,11 +68,14 @@ const MOCKS = {
   "/ui/useToast": TOAST_MOCK,
   "/useVoiceDraft": `export const useVoiceDraft=()=>({status:'idle',start(){},stop(){},cancel(){},elapsed:0,readLevel:()=>0});`,
   "/chat/ChatMessages": `import React from 'react';export const ChatMessages=({messages})=>React.createElement('div',null,messages.map(m=>React.createElement('p',{key:m.id},m.content)));`,
-  "/ConversationPicker": `import React from 'react';export const ConversationPicker=({onNewChat,onSwitchConversation})=>React.createElement('div',null,React.createElement('button',{onClick:onNewChat},'NEW'),React.createElement('button',{onClick:()=>onSwitchConversation(8)},'SWITCH B'));`,
+  "/ConversationPicker": `import React from 'react';export const ConversationPicker=({onNewChat,onSwitchConversation,conversations=[]})=>React.createElement('div',null,conversations.map(c=>React.createElement('span',{key:c.id},c.title)),React.createElement('button',{onClick:onNewChat},'NEW'),React.createElement('button',{onClick:()=>onSwitchConversation(8)},'SWITCH B'));`,
   "/routing/RouteChips": `import React from 'react';export const RouteDestinationChip=({route})=>React.createElement('span',{'data-destination':route.providerId},route.providerId);export const RouteStateChip=({state})=>React.createElement('span',null,state.status);`,
   "/utils/logger": `export default {error(...args){globalThis.__tableDiagnostics.push(args);},warn(){},debug(){},info(){}};`,
 };
-async function setup(t, { api = {}, creation, write, stream, board, spaceId = 3 } = {}) {
+async function setup(
+  t,
+  { api = {}, creation, write, stream, board, spaceId = 3, manualFrames = false } = {}
+) {
   let root;
   t.after(async () => {
     if (root) await act(() => root.unmount());
@@ -193,7 +196,18 @@ async function setup(t, { api = {}, creation, write, stream, board, spaceId = 3 
     onOpenNote() {},
     viewSwitch: React.createElement("span", null, "LIST"),
   };
-  const render = () => act(() => root.render(React.createElement(View, { ...props })));
+  const commits = [];
+  const renderTree = () =>
+    React.createElement(
+      React.Profiler,
+      { id: "table", onRender: (...args) => commits.push(args) },
+      React.createElement(View, { ...props })
+    );
+  const render = () =>
+    (manualFrames ? React.act : act)(async () => {
+      root.render(renderTree());
+      await new Promise((r) => setTimeout(r, 0));
+    });
   await render();
   const node = (pred) => tree.find(pred);
   const button = (label) =>
@@ -224,6 +238,7 @@ async function setup(t, { api = {}, creation, write, stream, board, spaceId = 3 
   const value = () => tree.props(node((n) => n.tagName === "TEXTAREA"))?.value;
   return {
     tree,
+    commits,
     store,
     vite,
     render,
@@ -231,7 +246,7 @@ async function setup(t, { api = {}, creation, write, stream, board, spaceId = 3 
       root.unmount();
       root = null;
     },
-    rawRender: () => root.render(React.createElement(View, { ...props })),
+    rawRender: () => root.render(renderTree()),
     saved,
     creates,
     places,
@@ -1022,4 +1037,85 @@ test("same numeric Space and dictation IDs keep distinct canvas and detail owner
     diagnostics.filter((message) => message.includes("same key")),
     []
   );
+});
+
+test("final fix: Table board and asynchronous conversation entry share one frame publication", async (t) => {
+  const boardRead = deferred(),
+    listRead = deferred();
+  const c = await setup(t, {
+    manualFrames: true,
+    api: {
+      getTableBoard: () => boardRead.promise,
+      getConversationsForContainer: () => listRead.promise,
+    },
+  });
+  const initial = c.commits.length;
+  await React.act(async () => {
+    boardRead.resolve({
+      spaceId: 3,
+      cards: [item(1)],
+      inbox: [],
+      links: [],
+      viewport: null,
+      truncated: false,
+    });
+  });
+  assert.ok(
+    c.tree.find((n) => n.attributes["data-card-key"] === "note:1"),
+    "canonical content is immediate before its React publication"
+  );
+  await React.act(async () => {
+    listRead.resolve([{ id: 7, title: "Loaded original history" }]);
+  });
+  assert.equal(
+    c.commits.length,
+    initial,
+    "chat initialization must not create an independent pre-frame commit"
+  );
+  for (let i = 0; paintFrames.size && i < 10; i++) {
+    const callbacks = [...paintFrames.values()];
+    paintFrames.clear();
+    const before = c.commits.length;
+    await React.act(async () => callbacks.forEach((f) => f()));
+    assert.ok(
+      c.commits.length - before <= 1,
+      "every recorded frame includes all commits, including no-op replays"
+    );
+  }
+  assert.equal(c.commits.length, initial + 1, "all actual entry publications share a commit");
+  await c.click("table.ask.open");
+  assert.ok(c.button("SWITCH B"), "picker remains usable after entry");
+});
+
+test("final fix: opening Ask sees the current conversation list before its queued publication", async (t) => {
+  const listRead = deferred();
+  const c = await setup(t, {
+    manualFrames: true,
+    api: { getConversationsForContainer: () => listRead.promise },
+  });
+  const initial = c.commits.length;
+  await React.act(() => listRead.resolve([{ id: 7, title: "Current original history" }]));
+  assert.equal(c.commits.length, initial);
+  await React.act(() => c.tree.props(c.button("table.ask.open")).onClick());
+  assert.match(c.tree.text(), /Current original history/);
+  const opened = c.commits.length;
+  await act(() => {});
+  assert.equal(
+    c.commits.length,
+    opened,
+    "ancestor covered current board and list; no stale or no-op tail"
+  );
+});
+
+test("final fix: a retired Table entry ignores a delayed conversation list", async (t) => {
+  const listRead = deferred();
+  const c = await setup(t, {
+    manualFrames: true,
+    api: { getConversationsForContainer: () => listRead.promise },
+  });
+  await React.act(() => c.rawUnmount());
+  const retired = c.commits.length;
+  await act(() => listRead.resolve([{ id: 7, title: "Retired history" }]));
+  assert.equal(c.commits.length, retired);
+  assert.equal(paintFrames.size, 0);
 });

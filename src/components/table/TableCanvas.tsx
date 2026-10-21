@@ -97,7 +97,8 @@ export interface TableCanvasProps {
   gestureScope?: number;
   publication?: TablePublication;
   subscribe?: (listener: () => void) => () => void;
-  read?: () => Pick<TableCanvasProps, "cards" | "viewport" | "selection" | "focused">;
+  read?: () => Pick<TableCanvasProps, "cards" | "viewport" | "selection" | "focused"> &
+    Partial<Pick<TableCanvasProps, "edges">>;
 }
 
 export function TableCanvas(props: TableCanvasProps) {
@@ -184,7 +185,18 @@ export function TableCanvas(props: TableCanvasProps) {
     () => () => semanticCards.dispose(),
     [semanticCards, props.gestureScope, props.publication]
   );
+  const connectorRoot = useRef<SVGSVGElement>(null);
   const paths = useRef(new Map<string, SVGPathElement>());
+  const semanticPaths = useRef(new Map<string, SVGPathElement>());
+  useLayoutEffect(() => {
+    const owned = semanticPaths.current;
+    const geometry = pathGeometry.current;
+    return () => {
+      for (const path of owned.values()) path.parentNode?.removeChild(path);
+      owned.clear();
+      geometry.clear();
+    };
+  }, [props.gestureScope, props.publication]);
   const pathGeometry = useRef(new Map<string, [Rect, Rect]>());
   const pathElements = useRef(new Map<string, { d: string; element: ReactElement }>());
   const gestureRef = useRef<Gesture>({ kind: "idle" });
@@ -436,21 +448,6 @@ export function TableCanvas(props: TableCanvasProps) {
 
         entry.node.setAttribute("tabindex", "-1");
       }
-    const cardsByKey = byKeyNow;
-    const equalRect = (a: Rect, b: Rect) =>
-      a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
-    for (const [key, path] of paths.current) {
-      const [a, b] = key.split("|");
-      const ar = cardsByKey.get(a)?.rect,
-        br = cardsByKey.get(b)?.rect;
-      const previous = pathGeometry.current.get(key);
-      if (ar && br && (!previous || !equalRect(ar, previous[0]) || !equalRect(br, previous[1]))) {
-        path.setAttribute("d", connectorPath(ar, br));
-        pathGeometry.current.set(key, [ar, br]);
-      }
-      const display = visibleNow.has(a) && visibleNow.has(b) ? "" : "none";
-      if (path.style.display !== display) path.style.display = display;
-    }
     for (const key of painted.current.keys())
       if (!nodes.current.has(key)) painted.current.delete(key);
     for (const card of live.cards) {
@@ -532,16 +529,90 @@ export function TableCanvas(props: TableCanvasProps) {
     );
     // New/reflowed natural nodes need an actual bound now, not an optional RAF.
     // Batch these reads after all geometry/content writes, alongside overflow.
+    let measuredNatural = false;
     for (const card of live.cards) {
       const entry = nodes.current.get(card.key);
       if (
         card.fixedH == null &&
         entry &&
         (naturalHeight(card) == null || overflowUpdates.has(entry.overflow))
-      )
+      ) {
         onMeasure(card.key, entry.node.offsetHeight);
+        measuredNatural = true;
+      }
     }
     for (const paint of overflowPaints) paint();
+    // Natural bounds become authoritative during the reads above. Relationships
+    // consume those bounds in this same callback, before any observer/RAF tail.
+    const edgeLive = current();
+    const cardsByKey =
+      edgeLive.cards === live.cards
+        ? byKeyNow
+        : new Map(edgeLive.cards.map((card) => [card.key, card]));
+    const edgeVisible = measuredNatural
+      ? visibleIds(
+          visibilityRects(edgeLive.cards),
+          edgeLive.viewport,
+          liveSize.current,
+          [
+            ...edgeLive.selection,
+            ...(edgeLive.focused ? [edgeLive.focused] : []),
+            ...liveDragging.current,
+          ],
+          paintMargin(edgeLive.viewport, liveSize.current)
+        )
+      : visibleNow;
+    const endpoint = (key: string) => {
+      const card = cardsByKey.get(key);
+      if (!card) return undefined;
+      const h = card.fixedH == null ? naturalHeight(card) : undefined;
+      return h != null && h !== card.rect.h ? { ...card.rect, h } : card.rect;
+    };
+    const equalRect = (a: Rect, b: Rect) =>
+      a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+    // Like semantic cards, current canonical relationships cannot wait for a
+    // React render after a cold wheel, ACK or removal. React owns only this SVG
+    // shell in publication mode; retention is bounded by current canonical edges.
+    if (live.publication && connectorRoot.current) {
+      const canonical = new Set<string>();
+      for (const edge of edgeLive.edges) {
+        if (!cardsByKey.has(edge.a) || !cardsByKey.has(edge.b)) continue;
+        const key = `${edge.a}|${edge.b}`;
+        canonical.add(key);
+        if (
+          !semanticPaths.current.has(key) &&
+          retention.current.keys.has(edge.a) &&
+          retention.current.keys.has(edge.b)
+        ) {
+          const path = connectorRoot.current.ownerDocument.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path"
+          );
+          semanticPaths.current.set(key, path);
+          pathGeometry.current.delete(key);
+          connectorRoot.current.appendChild(path);
+        }
+      }
+      for (const [key, path] of semanticPaths.current) {
+        if (!canonical.has(key)) {
+          path.parentNode?.removeChild(path);
+          semanticPaths.current.delete(key);
+          pathGeometry.current.delete(key);
+        }
+      }
+    }
+    for (const [key, path] of live.publication ? semanticPaths.current : paths.current) {
+      const [a, b] = key.split("|");
+      const ar = endpoint(a),
+        br = endpoint(b);
+      const previous = pathGeometry.current.get(key);
+      if (ar && br && (!previous || !equalRect(ar, previous[0]) || !equalRect(br, previous[1]))) {
+        path.setAttribute("d", connectorPath(ar, br));
+        pathGeometry.current.set(key, [ar, br]);
+      }
+      const display = ar && br && edgeVisible.has(a) && edgeVisible.has(b) ? "" : "none";
+      if (path.style.display !== display) path.style.display = display;
+    }
   };
   useLayoutEffect(paintGeometry);
   const paintRef = useRef(paintGeometry);
@@ -667,6 +738,12 @@ export function TableCanvas(props: TableCanvasProps) {
         ? { [resizeCard.key]: { w: resizeCard.rect.w, h: resizeCard.rect.h } }
         : undefined,
     });
+    if (gestureRef.current.kind === "lasso") {
+      // Shift must not extend a prior native text selection into toolbar/inbox
+      // copy. This applies only to this pointer-owned canvas gesture.
+      event.preventDefault();
+      window.getSelection()?.removeAllRanges();
+    }
     rootRef.current?.setPointerCapture(event.pointerId);
   };
 
@@ -714,6 +791,7 @@ export function TableCanvas(props: TableCanvasProps) {
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerId !== pointerIdRef.current) return;
+    if (gestureRef.current.kind === "lasso") event.preventDefault();
     latestPoint.current = local(event);
     if (frameRef.current === null) {
       const owner = frameOwner.current.revision;
@@ -934,33 +1012,34 @@ export function TableCanvas(props: TableCanvasProps) {
           transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.scale})`,
         }}
       >
-        <svg className="table-connectors" aria-hidden="true">
-          {edges
-            .filter(
-              (edge) =>
-                byKey.has(edge.a) &&
-                byKey.has(edge.b) &&
-                retained.has(edge.a) &&
-                retained.has(edge.b)
-            )
-            .map((edge) => {
-              const key = `${edge.a}|${edge.b}`;
-              const d = connectorPath(byKey.get(edge.a)!.rect, byKey.get(edge.b)!.rect);
-              const old = pathElements.current.get(key);
-              if (old?.d === d) return old.element;
-              const element = (
-                <path
-                  key={key}
-                  d={d}
-                  ref={(node) => {
-                    if (node) paths.current.set(key, node);
-                    else paths.current.delete(key);
-                  }}
-                />
-              );
-              pathElements.current.set(key, { d, element });
-              return element;
-            })}
+        <svg ref={connectorRoot} className="table-connectors" aria-hidden="true">
+          {!props.publication &&
+            edges
+              .filter(
+                (edge) =>
+                  byKey.has(edge.a) &&
+                  byKey.has(edge.b) &&
+                  retained.has(edge.a) &&
+                  retained.has(edge.b)
+              )
+              .map((edge) => {
+                const key = `${edge.a}|${edge.b}`;
+                const d = connectorPath(byKey.get(edge.a)!.rect, byKey.get(edge.b)!.rect);
+                const old = pathElements.current.get(key);
+                if (old?.d === d) return old.element;
+                const element = (
+                  <path
+                    key={key}
+                    d={d}
+                    ref={(node) => {
+                      if (node) paths.current.set(key, node);
+                      else paths.current.delete(key);
+                    }}
+                  />
+                );
+                pathElements.current.set(key, { d, element });
+                return element;
+              })}
         </svg>
         {props.publication ? (
           <div ref={semanticRoot} className="table-card-plane" />

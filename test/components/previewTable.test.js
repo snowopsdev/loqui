@@ -2,7 +2,10 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 // Exercises helpers/database via the isolated DB harness (native test-runner group).
 const { createDb } = require("../helpers/harness/db");
-const load = () => import("../../src/preview/previewTable.ts");
+// Scoped CommonJS transform avoids Node's ambiguous-package ESM reparse, without
+// installing the global ESM loader worker beside the native SQLite binding.
+const { require: requireTS } = require("tsx/cjs/api");
+const load = () => requireTS("../../src/preview/previewTable.ts", __filename);
 
 async function fixture(t) {
   const { createPreviewTable } = await load();

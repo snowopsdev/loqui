@@ -962,3 +962,27 @@ test("Task10 fix5: immediate child layout measurement retires an already covered
     "later semantic snapshots preserve the measurement"
   );
 });
+
+test("final fix: live canonical edges change before the deferred React board snapshot", async (t) => {
+  let canonical = data([entity(1), entity(2)]);
+  const f = await mount(t, { getTableBoard: async () => structuredClone(canonical) }, 1, true);
+  await f.flush();
+  const count = f.commits.length;
+  assert.deepEqual(f.h.readEdges(), []);
+  canonical.links = [{ a: { type: "note", id: 1 }, b: { type: "note", id: 2 } }];
+  await act(() => f.h.reload());
+  assert.equal(f.commits.length, count);
+  assert.deepEqual(
+    f.h.readEdges().map((e) => [e.a, e.b]),
+    [["note:1", "note:2"]]
+  );
+  const edges = f.h.readEdges();
+  await act(() => f.h.dispatch({ type: "moved", positions: { "note:1": { x: 80, y: 90 } } }));
+  assert.equal(f.h.readEdges(), edges, "geometry-only updates retain canonical edge identity");
+  canonical.links = [];
+  await act(() => f.h.reload());
+  assert.deepEqual(f.h.readEdges(), []);
+  assert.equal(f.commits.length, count);
+  await f.flush();
+  assert.deepEqual(f.h.edges, []);
+});

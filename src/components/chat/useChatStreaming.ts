@@ -45,6 +45,8 @@ function estimateModelSizeB(modelId: string): number {
 type ChatStreamingScope = "chatIntelligence" | "dictationAgent";
 
 interface UseChatStreamingOptions {
+  /** Table opt-in: the mounted empty conversation already has idle UI state. */
+  initializeIdleConversation?: boolean;
   getPinnedContext?: () => Promise<PinnedContext>;
   /** Display owner; changing threads clears activity without redirecting an admitted request. */
   conversationId?: number | null;
@@ -134,6 +136,7 @@ function transformLastUserMessage(
 
 export function useChatStreaming({
   conversationId,
+  initializeIdleConversation = false,
   getPinnedContext,
   setMessages,
   inferenceScope = "chatIntelligence",
@@ -148,7 +151,12 @@ export function useChatStreaming({
   const [toolStatus, setToolStatus] = useState("");
   const [activeToolName, setActiveToolName] = useState("");
   const mountedRef = useRef(true);
-  const activeConversationRef = useRef<number | null | undefined>(undefined);
+  // Avoid enqueueing redundant mount resets for frame-owned hosts. Even eager
+  // no-op updates can leave a lower-priority replay behind a synchronous paint.
+  // Omitted options preserve the existing initialization of every other host.
+  const activeConversationRef = useRef<number | null | undefined>(
+    initializeIdleConversation ? conversationId : undefined
+  );
   const noteContextRef = useRef(externalNoteContext);
   noteContextRef.current = externalNoteContext;
   const searchScopeRef = useRef(searchScope);

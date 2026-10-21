@@ -8,6 +8,7 @@ import { LevelBars } from "../ui/LevelBars";
 import { GRADIENT_CIRCLE } from "../ui/gradientCircle";
 import { GLASS_SURFACE } from "../ui/glass";
 import { notify } from "../ui/notices";
+import { useNoticeBottomBoundary } from "../ui/useNoticePlacement";
 import { formatMmSs } from "../../utils/formatDuration";
 import { useVoiceDraft } from "./useVoiceDraft";
 import { composerHeight, resolveComposerKey } from "./chatInputKeys";
@@ -91,6 +92,9 @@ export function ChatInput({
 
   const [inputText, setInputText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Workspace notices stay above a docked composer's mic and Send (M2).
+  const rootRef = useRef<HTMLDivElement>(null);
+  useNoticeBottomBoundary(rootRef);
   const activeRef = useRef(active);
   activeRef.current = active;
   useEffect(() => {
@@ -274,7 +278,7 @@ export function ChatInput({
   }, [active, isIdle]);
 
   return (
-    <div className={cn("shrink-0", className ?? "px-3 pb-3 pt-1")}>
+    <div ref={rootRef} className={cn("shrink-0", className ?? "px-3 pb-3 pt-1")}>
       <div
         className={cn(
           "flex items-end gap-2 min-h-11 ps-4 pe-1.5 py-1.5 rounded-[22px]",

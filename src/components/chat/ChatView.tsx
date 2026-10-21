@@ -47,6 +47,7 @@ import ConversationList from "./ConversationList";
 import EmptyChatState from "./EmptyChatState";
 import { ConfirmDialog } from "../ui/dialog";
 import { PAGE_CONTENT_WIDTH_CLASS } from "../ui/pageWidth";
+import { useNoticeBottomBoundary } from "../ui/useNoticePlacement";
 import { useDialogs } from "../../hooks/useDialogs";
 import { seedForRequest, type ChatViewRequest, type ComposerSeed } from "./chatRequest";
 export type { ChatViewRequest } from "./chatRequest";
@@ -408,6 +409,8 @@ export default function ChatView({
 
   const hasActiveChat =
     activeConversationId !== null || persistence.messages.length > 0 || isNewChat;
+  // Notices stay above the whole composer area, including Add context and the rail toggle.
+  useNoticeBottomBoundary(composerAreaRef, hasActiveChat);
 
   return (
     <>

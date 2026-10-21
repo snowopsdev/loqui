@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import { SendIcon } from "../ui/SendIcon";
 import { GLASS_SURFACE } from "../ui/glass";
+import { useNoticeBottomBoundary } from "../ui/useNoticePlacement";
 
 // While recording, the bar sits over the live streaming transcript, and every
 // partial would force backdrop-blur to re-blur the strip; the capsule trades
@@ -36,6 +37,8 @@ export default function NoteBottomBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasText = inputText.trim().length > 0;
+  // Notices stay above the Ask capsule; a hidden capsule yields to the chat panel's composer.
+  useNoticeBottomBoundary(containerRef, !hideInput);
 
   const handleSubmit = useCallback(() => {
     const text = inputText.trim();

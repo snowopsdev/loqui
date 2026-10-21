@@ -641,6 +641,15 @@ export function navigateToContainer(spaceId: number, folderId: number | null): v
   revealContainer(spaceId, null);
 }
 
+/**
+ * A deliberate Space or folder overview (tree row, palette, Insights) stays the
+ * overview when Notes mounts afterwards, from Home or Chat as from Notes.
+ * Selecting or opening a note releases it.
+ */
+export function holdContainerOverview(): void {
+  if (useNoteStore.getState().activeNoteId == null) landOnOverview = true;
+}
+
 export function setActiveFolderId(id: number | null): void {
   const folder = id != null ? useNoteStore.getState().folders.find((f) => f.id === id) : undefined;
   if (folder) {

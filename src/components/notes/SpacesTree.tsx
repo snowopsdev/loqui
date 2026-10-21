@@ -6,6 +6,7 @@ import {
   createFolder,
   deleteFolder,
   folderContainerKey,
+  holdContainerOverview,
   navigateToContainer,
   renameFolder,
   setActiveNoteId,
@@ -232,6 +233,7 @@ export default function SpacesTree({
             const changed =
               activeNoteId != null || context?.spaceId !== space.id || context?.folderId != null;
             if (changed) navigateToContainer(space.id, null);
+            holdContainerOverview();
             setContainerExpanded(rootKey, true);
             onNavigate?.();
           }}
@@ -288,6 +290,7 @@ export default function SpacesTree({
                         context?.spaceId !== space.id ||
                         context?.folderId !== folder.id;
                       if (changed) navigateToContainer(space.id, folder.id);
+                      holdContainerOverview();
                       setContainerExpanded(key, true);
                       onNavigate?.();
                     }}

@@ -64,6 +64,7 @@ import {
   invalidatePendingNoteNavigation,
   openNoteById,
   restoreLaunchNote,
+  holdContainerOverview,
   navigateToContainer,
   setActiveFolderId,
   setActiveNoteId,
@@ -797,6 +798,7 @@ export default function ControlPanel({
       openFolder: (spaceId, folderId) => {
         setActiveView("personal-notes");
         navigateToContainer(spaceId, folderId);
+        holdContainerOverview();
       },
       openTranscript: (id) => {
         requestTranscriptFocus(id);

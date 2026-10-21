@@ -658,3 +658,34 @@ for (const folder of [2, null]) {
     });
   }
 }
+
+// Full-app M1: a container jump lands on its overview on every surface, even
+// when Notes mounts after it (from Home or Chat), as it does from inside Notes.
+for (const from of ["home", "chat"]) {
+  for (const folder of [null, 2]) {
+    test(`openFolder from ${from} lands on the ${folder === null ? "Space" : "folder"} overview after Notes mounts`, async (t) => {
+      const h = await mount(t, {
+        realNotes: true,
+        api: {
+          getSpaces: async () => [{ id: 1, kind: "private", name: "Personal" }],
+          getFolders: async () => [{ id: 2, space_id: 1, name: "Work", is_default: 1 }],
+          getNotes: async (_type, _limit, folderId) => [
+            { ...fixtureNote(folderId === null ? 2 : 1), folder_id: folderId },
+          ],
+        },
+      });
+      await React.act(async () => h.notes.initializeNotesTree());
+      assert.equal(h.notes.getActiveNoteIdValue(), 1, "ordinary startup still selects first note");
+      await React.act(async () => h.navigation().openView(from));
+      await React.act(async () => h.navigation().openFolder(1, folder));
+      await h.mountNotes();
+      assert.equal(h.view(), "personal-notes");
+      assert.equal(h.notes.getActiveNoteIdValue(), null, "the overview, not a first note");
+      assert.equal(h.notes.getActiveFolderIdValue(), folder);
+      // Opening a note afterwards releases the overview hold.
+      await React.act(async () => h.notes.setActiveNoteId(1));
+      await React.act(async () => h.notes.initializeNotesTree());
+      assert.equal(h.notes.getActiveNoteIdValue(), 1);
+    });
+  }
+}

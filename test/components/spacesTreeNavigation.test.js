@@ -168,3 +168,62 @@ test("sidebar activation delegates an already selected note to workspace navigat
   );
   assert.match(sidebar, /onOpenNote=\{navigation\.openNote\}/);
 });
+
+// Full-app M1: the same Space or folder row click from Home or Chat (Notes not
+// mounted yet) shows the overview once Notes initialises, as it does from Notes.
+for (const row of ["notes.spaces.personal", "Work"]) {
+  test(`sidebar ${row === "Work" ? "folder" : "Space"} row lands on the overview when Notes mounts afterwards`, async (t) => {
+    let root;
+    t.after(async () => {
+      if (root) await React.act(async () => root.unmount());
+    });
+    installBrowserGlobals(t, {
+      window: {
+        electronAPI: {
+          getSpaces: async () => [{ id: 1, kind: "private" }],
+          getFolders: async () => [{ id: 2, space_id: 1, name: "Work" }],
+          getFolderNoteCounts: async () => [],
+          getNotes: async (_type, _limit, folderId) => [
+            { id: folderId === 2 ? 9 : 8, title: "Note", folder_id: folderId, space_id: 1 },
+          ],
+        },
+      },
+    });
+    const container = installHookDom(t);
+    const vite = await createRendererServer(t, {
+      noExternal: ["react-i18next"],
+      mockModules: {
+        "react-i18next":
+          'const t = key => key; export const useTranslation = () => ({ t, i18n: { dir: () => "ltr" } });',
+      },
+    });
+    const notes = await vite.ssrLoadModule("/stores/noteStore.ts");
+    await notes.initializeNotesTree();
+    assert.ok(notes.getActiveNoteIdValue() != null, "a note is open before the click");
+    const { default: SpacesTree } = await vite.ssrLoadModule("/components/notes/SpacesTree.tsx");
+    let navigated = 0;
+    let tree;
+    function Probe() {
+      tree = SpacesTree({
+        onDeleteNote() {},
+        onMoveNote: async () => {},
+        onCreateFolderAndMove() {},
+        onNewNote() {},
+        onNavigate: () => navigated++,
+      });
+      return null;
+    }
+    root = createRoot(container);
+    await React.act(async () => root.render(React.createElement(Probe)));
+    await React.act(async () => {
+      const button = find(tree, (n) => n.type === "button" && text(n) === row);
+      assert.ok(button, "expected production tree row");
+      await button.props.onClick();
+    });
+    assert.equal(navigated, 1);
+    // PersonalNotesView mounts and initialises the tree (the Home/Chat path).
+    await notes.initializeNotesTree();
+    assert.equal(notes.getActiveNoteIdValue(), null, "the overview, not the first note");
+    assert.equal(notes.getActiveFolderIdValue(), row === "Work" ? 2 : null);
+  });
+}

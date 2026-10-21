@@ -189,6 +189,7 @@ const BOOLEAN_SETTINGS = new Set([
   "keepTranscriptionInClipboard",
   "dataRetentionEnabled",
   "saveDiscardedTranscriptions",
+  "labsTable",
   "noteFilesEnabled",
   "showTranscriptionPreview",
   "cleanupDisableThinking",
@@ -764,6 +765,8 @@ export interface SettingsState
   showMeetingRecorderOnScreen: boolean;
   dictationCueSet: DictationCueSet;
   dictationCueVolume: DictationCueVolume;
+  // Labs prototype (Plan 08). Off by default; off means today's behaviour exactly.
+  labsTable: boolean;
   pauseMediaOnDictation: boolean;
   floatingIconAutoHide: boolean;
   startMinimized: boolean;
@@ -1076,6 +1079,7 @@ export interface SettingsState
   setDataRetentionEnabled: (value: boolean) => void;
   setSaveDiscardedTranscriptions: (value: boolean) => void;
   setShowMeetingRecorderOnScreen: (enabled: boolean) => void;
+  setLabsTable: (value: boolean) => void;
   setAudioCuesEnabled: (value: boolean) => void;
   setDictationCueSet: (value: DictationCueSet) => void;
   setDictationCueVolume: (value: DictationCueVolume) => void;
@@ -1826,6 +1830,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   dataRetentionEnabled: readBoolean("dataRetentionEnabled", true),
   saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),
   showMeetingRecorderOnScreen: readBoolean("showMeetingRecorderOnScreen", true),
+  labsTable: readBoolean("labsTable", false),
   audioCuesEnabled: readBoolean("audioCuesEnabled", true),
   dictationCueSet: normalizeCueSet(readString("dictationCueSet", "soft")),
   dictationCueVolume: normalizeCueVolume(readString("dictationCueVolume", "medium")),
@@ -2447,6 +2452,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
   setSaveDiscardedTranscriptions: createBooleanSetter("saveDiscardedTranscriptions"),
   setShowMeetingRecorderOnScreen: createBooleanSetter("showMeetingRecorderOnScreen"),
+  setLabsTable: createBooleanSetter("labsTable"),
   setAudioCuesEnabled: createBooleanSetter("audioCuesEnabled"),
   setDictationCueSet: (value) => {
     const dictationCueSet = normalizeCueSet(value);

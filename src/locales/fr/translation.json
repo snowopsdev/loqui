@@ -2208,6 +2208,14 @@
       "title": "Revoir la configuration de la dictée",
       "description": "Revenez à l'assistant de configuration sans modifier vos notes ni vos identifiants.",
       "action": "Ouvrir la configuration"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "Des prototypes encore en chantier. Vous pouvez les désactiver à tout moment.",
+      "table": {
+        "label": "La Table",
+        "description": "Un canevas pour un espace : étalez notes, dictées et réponses, puis reliez-les. Les positions restent sur cet appareil ; Résumer et Demander utilisent votre fournisseur de chat."
+      }
     }
   },
   "models": {
@@ -5005,5 +5013,67 @@
     "error": "Impossible de charger cet élément.",
     "retry": "Réessayer",
     "pickerLabel": "Mentionner un élément"
+  },
+  "table": {
+    "view": {
+      "label": "Vue",
+      "list": "Liste",
+      "table": "Table"
+    },
+    "canvasLabel": "Canevas : {{space}}",
+    "canvasRole": "canevas",
+    "zoomIn": "Zoom avant",
+    "zoomOut": "Zoom arrière",
+    "resetView": "Réinitialiser la vue",
+    "zoomLevel": "{{percent}} %",
+    "hint": "Faites glisser les cartes ou le fond. Maj + glisser pour sélectionner. Ctrl ou ⌘ avec la molette pour zoomer. Les flèches passent d’une carte à l’autre ; avec Maj, elles la déplacent.",
+    "kind": {
+      "note": "Note",
+      "meeting": "Réunion",
+      "dictation": "Dictée",
+      "chat": "Réponse"
+    },
+    "card": {
+      "label": "{{kind}} : {{title}}",
+      "untitled": "Sans titre",
+      "answerPending": "En attente de la réponse…"
+    },
+    "inbox": {
+      "title": "Boîte de réception",
+      "description": "Captures récentes et jusqu’à 50 éléments récemment retirés de chaque type. Faites-en glisser un sur la table ou appuyez sur Entrée. Tout le contenu reste disponible dans Historique et Liste.",
+      "empty": "Rien de nouveau"
+    },
+    "selection": {
+      "count": "Sélection : {{count}}",
+      "summarise": "Résumer",
+      "ask": "Poser une question",
+      "group": "Regrouper dans une note",
+      "remove": "Retirer de la table",
+      "summarisePrompt": "Résume les éléments sélectionnés en quelques phrases.",
+      "limit": "Les actions d’IA portent sur {{limit}} cartes au maximum.",
+      "busy": "Une autre action est en cours."
+    },
+    "groupedNote": {
+      "title": "Regroupé depuis la table"
+    },
+    "status": {
+      "full": "La table contient au plus 500 cartes. Retirez-en d’abord.",
+      "truncated": "Affichage de 500 cartes au maximum, avec les cartes disposées en premier. D’autres contenus sont disponibles dans Liste et Historique.",
+      "saveFailed": "Impossible d’enregistrer cette modification. Votre contenu est conservé."
+    },
+    "ask": {
+      "open": "Demander",
+      "close": "Fermer",
+      "pinned": "Cartes épinglées : {{count}}",
+      "wholeTable": "Questions sur toute la table",
+      "sendFailed": "Votre message n’a pas été envoyé. Le texte et les sources restent ci-dessous ; réessayez quand tout sera prêt.",
+      "invalidated": "La destination a changé. Votre message n’a pas été envoyé ; vérifiez la destination avant de réessayer.",
+      "retry": "Réessayer avec ces sources"
+    },
+    "detail": {
+      "close": "Fermer le texte intégral",
+      "loading": "Chargement du texte intégral…",
+      "failed": "Impossible de charger le texte intégral. Fermez puis rouvrez pour réessayer."
+    }
   }
 }

@@ -18,6 +18,7 @@ export interface ChatPersistence {
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   conversationId: number | null;
+  conversationGeneration: number;
   createConversation: (
     title: string,
     noteId?: number | null,
@@ -47,6 +48,7 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
   const conversationIdRef = useRef(conversationId);
 
   const selectionGeneration = useRef(0);
+  const [conversationGeneration, setConversationGeneration] = useState(0);
   const captureSelection = useCallback((): ChatSelection => {
     const generation = selectionGeneration.current;
     return { isCurrent: () => generation === selectionGeneration.current };
@@ -90,6 +92,7 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
   const loadConversation = useCallback(
     async (id: number) => {
       selectionGeneration.current += 1;
+      setConversationGeneration(selectionGeneration.current);
       const selection = captureSelection();
       // Invalidate the old request immediately, before the history read completes.
       conversationIdRef.current = id;
@@ -167,6 +170,7 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
 
   const handleNewChat = useCallback(() => {
     selectionGeneration.current += 1;
+    setConversationGeneration(selectionGeneration.current);
     setMessages([]);
     conversationIdRef.current = null;
     setConversationId(null);
@@ -176,6 +180,7 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
     messages,
     setMessages,
     conversationId,
+    conversationGeneration,
     createConversation,
     captureSelection,
     loadConversation,

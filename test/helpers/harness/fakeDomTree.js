@@ -20,6 +20,17 @@ function installTree({ trackFocusRemoval = false } = {}) {
       },
       childNodes: [],
       parentNode: null,
+      cloneNode(deep = false) {
+        const clone = make(node.nodeType, {
+          nodeName: node.nodeName,
+          tagName: node.tagName,
+          namespaceURI: node.namespaceURI,
+          ...(node.nodeType === 3 ? { data: node.data } : {}),
+        });
+        clone.attributes = { ...node.attributes };
+        if (deep) for (const child of node.childNodes) clone.appendChild(child.cloneNode(true));
+        return clone;
+      },
       appendChild(child) {
         node.insertBefore(child, null);
         return child;

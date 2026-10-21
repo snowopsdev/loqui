@@ -51,6 +51,8 @@ function estimateModelSizeB(modelId: string): number {
 type ChatStreamingScope = "chatIntelligence" | "dictationAgent";
 
 interface UseChatStreamingOptions {
+  /** Table opt-in: the mounted empty conversation already has idle UI state. */
+  initializeIdleConversation?: boolean;
   getPinnedContext?: () => Promise<PinnedContext>;
   /** Display owner; changing threads clears activity without redirecting an admitted request. */
   conversationId?: number | null;
@@ -89,6 +91,8 @@ export interface SendToAIOptions {
   /** Renderer-local first response handler; never included in provider/IPC payloads. */
   onResponseContent?: () => void;
   operation?: DictationOperation;
+  /** Frozen Table context for this submission, captured with inference at admission. */
+  contextOverride?: string;
   /** Request ownership survives navigation and unmount; completion persists to its admitted conversation. */
   owner?: {
     conversationId: number;
@@ -154,6 +158,7 @@ function transformLastUserMessage(
 
 export function useChatStreaming({
   conversationId,
+  initializeIdleConversation = false,
   getPinnedContext,
   setMessages,
   inferenceScope = "chatIntelligence",
@@ -168,7 +173,12 @@ export function useChatStreaming({
   const [toolStatus, setToolStatus] = useState("");
   const [activeToolName, setActiveToolName] = useState("");
   const mountedRef = useRef(true);
-  const activeConversationRef = useRef<number | null | undefined>(undefined);
+  // Avoid enqueueing redundant mount resets for frame-owned hosts. Even eager
+  // no-op updates can leave a lower-priority replay behind a synchronous paint.
+  // Omitted options preserve the existing initialization of every other host.
+  const activeConversationRef = useRef<number | null | undefined>(
+    initializeIdleConversation ? conversationId : undefined
+  );
   const noteContextRef = useRef(externalNoteContext);
   noteContextRef.current = externalNoteContext;
   const searchScopeRef = useRef(searchScope);
@@ -292,7 +302,7 @@ export function useChatStreaming({
         settings,
         operation: options?.operation,
         sentRoute,
-        noteContext: noteContextRef.current,
+        noteContext: options?.contextOverride ?? noteContextRef.current,
         searchScope: searchScopeRef.current ? { ...searchScopeRef.current } : undefined,
         inference: { ...inference, config: { ...config } },
         webSearch: options?.operation

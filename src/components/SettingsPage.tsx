@@ -6,6 +6,7 @@ import { useRouteChange, useRouteCommit } from "./settings/routing/useRouteChang
 import { RouteSwitch } from "./settings/routing/RouteSwitch";
 import { StorageList } from "./settings/StorageList";
 import UpdateSettings from "./settings/UpdateSettings";
+import LabsSettings from "./settings/LabsSettings";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -2795,6 +2796,7 @@ EOF`,
         return (
           <div className="space-y-6">
             <UpdateSettings />
+            <LabsSettings />
             <SettingsPanel>
               <SettingsPanelRow>
                 <SettingsRow label={t("settingsPage.general.updates.currentVersion")}>

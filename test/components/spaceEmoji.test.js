@@ -20,6 +20,9 @@ async function renderOverview(t, space) {
   const vite = await createRendererServer(t, {
     cachePrefix: "loqui-space-emoji-",
     mockModules: {
+      "/stores/settingsStore": `export const useSettingsStore = (sel) => sel({ labsTable: false });`,
+      "/chat/chatRouteKey": `export const useChatRouteKey = () => "fixture-route";`,
+      "/table/TableView": `export default function TableView() { return null; }`,
       "/stores/noteStore": `
         export const useNotes = () => [];
         export const useNotesByContainer = () => ({});

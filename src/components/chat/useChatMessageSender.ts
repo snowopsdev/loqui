@@ -7,6 +7,13 @@ import {
 } from "./chatRequestPresentation";
 import type { Message } from "./types";
 
+export interface ChatMessageSendOptions extends SendToAIOptions {
+  /** Last synchronous admission guard; false leaves the words with the caller. */
+  canAdmit?: () => boolean;
+  /** Saved-user acceptance, including a request whose display owner navigated away. */
+  onAccepted?: (conversationId: number) => void;
+}
+
 interface PersistedMessageContext {
   conversationId: number;
   text: string;
@@ -58,7 +65,10 @@ export function useChatMessageSender({
   onSendingChange,
   onAdmissionPresentation,
   onAdmissionResponse,
-}: UseChatMessageSenderOptions): (text: string, options?: SendToAIOptions) => Promise<boolean> {
+}: UseChatMessageSenderOptions): (
+  text: string,
+  options?: ChatMessageSendOptions
+) => Promise<boolean> {
   const submissionLockRef = useRef<MessageSubmissionLock | null>(null);
   if (submissionLockRef.current === null) {
     submissionLockRef.current = createMessageSubmissionLock();
@@ -68,13 +78,14 @@ export function useChatMessageSender({
   useEffect(() => () => presentationCleanupRef.current?.(), []);
 
   return useCallback(
-    async (text: string, options?: SendToAIOptions) => {
+    async (text: string, options?: ChatMessageSendOptions) => {
       // true: the user's message reached the conversation (shown and saved),
       // even if the reply then failed; useChatStreaming renders reply errors
       // in the thread. false: another send held the lock. A rejection:
       // nothing reached the conversation (creating it or saving failed), so
       // the optimistic message is taken out and the caller keeps the words.
       // The voice-command path relies on false meaning "busy, retry".
+      if (options?.canAdmit?.() === false) return false;
       let reachedConversation = false;
       let optimisticId: string | null = null;
       try {
@@ -132,6 +143,13 @@ export function useChatMessageSender({
             optimisticId = userMessage.id;
             await persistence.saveUserMessage(text, convId);
             reachedConversation = true;
+            try {
+              options?.onAccepted?.(convId);
+            } catch (error) {
+              // Acceptance is already durable. An observer cannot veto inference
+              // or turn these saved words into a retryable submission.
+              console.error("Chat acceptance observer failed after the message was saved", error);
+            }
             // A saved A message must not change the state of a newly selected B composer.
             if (isCurrent()) {
               await onMessagePersisted?.({

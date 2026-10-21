@@ -36,10 +36,12 @@ export function SessionRow({
           {formatClockTime(entry.at, i18n.language)}
         </span>
         <span className="text-ui text-foreground">
-          {t("home.history.session", {
-            count: entry.items.length,
-            duration: formatElapsed(entry.durationMs),
-          })}
+          {entry.durationMs == null
+            ? t("home.history.sessionNoDuration", { count: entry.items.length })
+            : t("home.history.session", {
+                count: entry.items.length,
+                duration: formatElapsed(entry.durationMs),
+              })}
         </span>
         <span className="flex items-center gap-1 text-caption text-link">
           {t(expanded ? "home.history.collapse" : "home.history.expand")}

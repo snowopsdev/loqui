@@ -4978,6 +4978,8 @@
       "dayCount_other": "{{count}} dictations",
       "words_other": "{{count}} words",
       "session_other": "Session · {{count}} captures · {{duration}}",
+      "sessionNoDuration_one": "Session · {{count}} capture",
+      "sessionNoDuration_other": "Session · {{count}} captures",
       "loadFailed": "Could not load that dictation. Try again."
     }
   },

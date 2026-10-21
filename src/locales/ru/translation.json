@@ -5098,6 +5098,10 @@
       "dayCount_other": "{{count}} диктанта",
       "words_other": "{{count}} слова",
       "session_other": "Сессия · {{count}} записи · {{duration}}",
+      "sessionNoDuration_one": "Сессия · {{count}} запись",
+      "sessionNoDuration_few": "Сессия · {{count}} записи",
+      "sessionNoDuration_many": "Сессия · {{count}} записей",
+      "sessionNoDuration_other": "Сессия · {{count}} записи",
       "loadFailed": "Не удалось загрузить эту диктовку. Попробуйте ещё раз."
     }
   },

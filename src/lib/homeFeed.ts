@@ -14,7 +14,8 @@ export type HomeEntry =
       at: number;
       items: TranscriptionItem[];
       words: number;
-      durationMs: number;
+      /** Null when any capture's audio length is unknown; never a false zero. */
+      durationMs: number | null;
     }
   | { kind: "note"; key: string; at: number; note: NoteItem }
   | { kind: "meeting"; key: string; at: number; note: NoteItem };
@@ -68,6 +69,16 @@ const matches = (haystacks: Array<string | null | undefined>, needle: string) =>
   !needle || haystacks.some((text) => text?.toLocaleLowerCase().includes(needle));
 
 type Flat = Exclude<HomeEntry, { kind: "session" }>;
+
+// Lengths are saved only with audio; retention, expiry and deletion null them.
+function sessionDuration(items: readonly TranscriptionItem[]): number | null {
+  let total = 0;
+  for (const item of items) {
+    if (item.audio_duration_ms == null) return null;
+    total += item.audio_duration_ms;
+  }
+  return total;
+}
 
 export function buildHomeFeed(input: {
   transcriptions: TranscriptionItem[];
@@ -156,7 +167,7 @@ export function buildHomeFeed(input: {
           at: parseDbTimestamp(merged[0].timestamp),
           items: merged,
           words: merged.reduce((sum, item) => sum + countWords(item.text), 0),
-          durationMs: merged.reduce((sum, item) => sum + (item.audio_duration_ms ?? 0), 0),
+          durationMs: sessionDuration(merged),
         };
         entryTimelineIndices[entryTimelineIndices.length - 1] = timelineIndex;
         continue;

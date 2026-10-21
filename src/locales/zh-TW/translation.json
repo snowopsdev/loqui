@@ -4939,6 +4939,7 @@
       "dayCount_other": "{{count}} 則聽寫",
       "words_other": "{{count}} 個詞",
       "session_other": "工作階段 · {{count}} 段錄音 · {{duration}}",
+      "sessionNoDuration_other": "工作階段 · {{count}} 段錄音",
       "loadFailed": "無法載入這則聽寫。請再試一次。"
     }
   },

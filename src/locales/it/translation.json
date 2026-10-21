@@ -4993,6 +4993,9 @@
       "dayCount_many": "{{count}} dettature",
       "words_many": "{{count}} parole",
       "session_many": "Sessione · {{count}} registrazioni · {{duration}}",
+      "sessionNoDuration_one": "Sessione · {{count}} registrazione",
+      "sessionNoDuration_other": "Sessione · {{count}} registrazioni",
+      "sessionNoDuration_many": "Sessione · {{count}} registrazioni",
       "loadFailed": "Impossibile caricare questa dettatura. Riprova."
     }
   },

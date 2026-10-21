@@ -79,3 +79,25 @@ test("clock times are not zero-padded", async () => {
   assert.equal(formatClockTime(new Date(2026, 9, 14, 7, 51).getTime(), "en-US"), "7:51 AM");
   assert.doesNotMatch(formatClockTime(new Date(2026, 9, 14, 7, 51).getTime(), "en-US"), /^0/);
 });
+
+// Full-app M5: an unknown session length is left out, never shown as 0:00.
+test("a session with an unknown length names its size only", async () => {
+  const { SessionRow } = await load();
+  const entry = {
+    kind: "session",
+    key: "session-2",
+    at: Date.UTC(2026, 9, 14, 14, 9),
+    items: [tx(2, null), tx(1, null)],
+    words: 4,
+    durationMs: null,
+  };
+  const html = renderStatic(SessionRow, { entry, expanded: false, onToggle: () => {} });
+  assert.match(html, />Session · 2 captures</);
+  assert.doesNotMatch(html, /0:00|·\s*</);
+  const zero = renderStatic(SessionRow, {
+    entry: { ...entry, durationMs: 0 },
+    expanded: false,
+    onToggle: () => {},
+  });
+  assert.match(zero, /Session · 2 captures · 0:00/, "a real zero is still shown");
+});

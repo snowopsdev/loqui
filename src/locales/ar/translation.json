@@ -5242,6 +5242,12 @@
       "dayCount_other": "{{count}} إملاء",
       "words_other": "{{count}} كلمة",
       "session_other": "جلسة · {{count}} تسجيل · {{duration}}",
+      "sessionNoDuration_zero": "جلسة · {{count}} تسجيل",
+      "sessionNoDuration_one": "جلسة · {{count}} تسجيل",
+      "sessionNoDuration_two": "جلسة · {{count}} تسجيلان",
+      "sessionNoDuration_few": "جلسة · {{count}} تسجيلات",
+      "sessionNoDuration_many": "جلسة · {{count}} تسجيلًا",
+      "sessionNoDuration_other": "جلسة · {{count}} تسجيل",
       "loadFailed": "تعذّر تحميل هذا الإملاء. حاول مرة أخرى."
     }
   },

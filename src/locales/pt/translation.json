@@ -4993,6 +4993,9 @@
       "dayCount_many": "{{count}} ditados",
       "words_many": "{{count}} palavras",
       "session_many": "Sessão · {{count}} gravações · {{duration}}",
+      "sessionNoDuration_one": "Sessão · {{count}} gravação",
+      "sessionNoDuration_other": "Sessão · {{count}} gravações",
+      "sessionNoDuration_many": "Sessão · {{count}} gravações",
       "loadFailed": "Não foi possível carregar esse ditado. Tente novamente."
     }
   },

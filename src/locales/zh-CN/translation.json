@@ -4939,6 +4939,7 @@
       "dayCount_other": "{{count}} 条听写",
       "words_other": "{{count}} 个词",
       "session_other": "会话 · {{count}} 段录音 · {{duration}}",
+      "sessionNoDuration_other": "会话 · {{count}} 段录音",
       "loadFailed": "无法加载这条听写。请重试。"
     }
   },

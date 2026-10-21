@@ -341,3 +341,24 @@ test("history locality comes only from a recorded provider", async () => {
     providerId: null,
   });
 });
+
+// Full-app M5: a session's length is unknown when any capture's audio length is
+// unknown (no saved audio, expired or deleted audio). It is never a false zero.
+test("a session with any unknown audio length has no duration; real lengths still add up", async () => {
+  const { buildHomeFeed } = await load();
+  const session = (durations) =>
+    buildHomeFeed({
+      transcriptions: durations.map((ms, i) =>
+        dictation(10 - i, `2026-10-14 14:0${i}:00`, `Thought ${i}.`, { audio_duration_ms: ms })
+      ),
+      notes: [],
+      filter: "all",
+      query: "",
+    }).groups[0].entries[0];
+  const unknown = session([null, 4000]);
+  assert.equal(unknown.kind, "session");
+  assert.equal(unknown.durationMs, null);
+  assert.equal(session([undefined, undefined]).durationMs, null);
+  assert.equal(session([3000, 4000]).durationMs, 7000);
+  assert.equal(session([0, 0]).durationMs, 0, "a genuine zero stays possible");
+});

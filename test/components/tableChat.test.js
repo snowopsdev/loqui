@@ -74,7 +74,7 @@ const MOCKS = {
 };
 async function setup(
   t,
-  { api = {}, creation, write, stream, board, spaceId = 3, manualFrames = false } = {}
+  { api = {}, creation, write, stream, board, spaceId = 3, manualFrames = false, space } = {}
 ) {
   let root;
   t.after(async () => {
@@ -194,7 +194,7 @@ async function setup(
   const { default: View } = await vite.ssrLoadModule("/components/table/TableView.tsx");
   root = createRoot(tree.container);
   const props = {
-    space: { id: spaceId, name: "Original space", kind: "private" },
+    space: space ?? { id: spaceId, name: "Original space", kind: "private" },
     onOpenNote() {},
     viewSwitch: React.createElement("span", null, "LIST"),
   };
@@ -1177,4 +1177,17 @@ test("integration: setup preserves the Table queue and admitted request owner", 
       [7, "queued before setup"],
     ]
   );
+});
+
+// Full-app M6: the canvas's accessible name uses the workspace's localized
+// Space name; the private Space's stored "Personal" is an English literal.
+const canvasLabel = (h) =>
+  h.tree.find((n) => n.attributes?.role === "listbox")?.attributes["aria-label"] ?? "";
+test("canvas label names the private Space in the UI language", async (t) => {
+  const h = await setup(t, { space: { id: 3, name: "Personal", kind: "private" } });
+  assert.equal(canvasLabel(h), "table.canvasLabel(space=notes.spaces.personal)");
+});
+test("canvas label names a team Space by its own name", async (t) => {
+  const h = await setup(t, { space: { id: 3, name: "Design team", kind: "team" } });
+  assert.equal(canvasLabel(h), "table.canvasLabel(space=Design team)");
 });

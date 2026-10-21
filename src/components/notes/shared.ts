@@ -1,5 +1,5 @@
 import { cn } from "../lib/utils";
-import type { FolderItem } from "../../types/electron";
+import type { FolderItem, SpaceItem } from "../../types/electron";
 
 export const DEFAULT_FOLDER_NAME = "Personal";
 export const MEETINGS_FOLDER_NAME = "Meetings";
@@ -18,6 +18,14 @@ export function defaultFolderDisplayName(
   if (!folder.is_default) return folder.name;
   const key = DEFAULT_FOLDER_LABEL_KEYS[folder.name];
   return key ? t(key) : folder.name;
+}
+
+/** The private Space is stored as the English literal "Personal"; show it in the UI language. */
+export function spaceDisplayName(
+  space: Pick<SpaceItem, "kind" | "name">,
+  t: (key: string) => string
+): string {
+  return space.kind === "private" ? t("notes.spaces.personal") : space.name;
 }
 
 // Command search accepts either the presented label or the canonical stored

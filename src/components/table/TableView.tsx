@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { SpaceItem } from "../../types/electron";
 import type { TableEntityRef } from "../../types/table";
 import { OverviewAskSection } from "../notes/overview/OverviewAskSection";
+import { spaceDisplayName } from "../notes/shared";
 import { RouteDestinationChip, RouteStateChip } from "../settings/routing/RouteChips";
 import { Button } from "../ui/button";
 import { TableCanvas } from "./TableCanvas";
@@ -369,7 +370,7 @@ export default function TableView({
           selection={state.selection}
           focused={state.focused}
           expanded={null}
-          label={t("table.canvasLabel", { space: space.name })}
+          label={t("table.canvasLabel", { space: spaceDisplayName(space, t) })}
           onViewport={board.setViewport}
           onMove={onMove}
           onDrop={onDrop}

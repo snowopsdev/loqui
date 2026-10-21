@@ -5169,6 +5169,7 @@
   },
   "micCard": {
     "ready": "جاهز",
+    "setUp": "إعداد الإملاء",
     "listening": "جارٍ الاستماع",
     "listeningFor": "جارٍ الاستماع {{time}}",
     "cleaningUp": "جارٍ التنقيح…",
@@ -5187,6 +5188,7 @@
     "ready": {
       "region": "حالة الإملاء",
       "ready": "جاهز",
+      "setUp": "إعداد الإملاء",
       "listening": "جارٍ الاستماع",
       "listeningFor": "جارٍ الاستماع {{time}}",
       "cleaningUp": "جارٍ التنقيح…",

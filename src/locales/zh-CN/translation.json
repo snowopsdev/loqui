@@ -4886,6 +4886,7 @@
   },
   "micCard": {
     "ready": "就绪",
+    "setUp": "设置听写",
     "listening": "正在聆听",
     "listeningFor": "正在聆听 {{time}}",
     "cleaningUp": "正在润色…",
@@ -4904,6 +4905,7 @@
     "ready": {
       "region": "语音输入状态",
       "ready": "就绪",
+      "setUp": "设置听写",
       "listening": "正在聆听",
       "listeningFor": "正在聆听 {{time}}",
       "cleaningUp": "正在整理…",

@@ -4932,6 +4932,7 @@
   },
   "micCard": {
     "ready": "Prêt",
+    "setUp": "Configurer la dictée",
     "listening": "À l’écoute",
     "listeningFor": "À l’écoute {{time}}",
     "cleaningUp": "Retouche en cours…",
@@ -4950,6 +4951,7 @@
     "ready": {
       "region": "État de la dictée",
       "ready": "Prêt",
+      "setUp": "Configurer la dictée",
       "listening": "À l’écoute",
       "listeningFor": "À l’écoute {{time}}",
       "cleaningUp": "Nettoyage…",

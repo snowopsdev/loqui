@@ -4886,6 +4886,7 @@
   },
   "micCard": {
     "ready": "準備完了",
+    "setUp": "音声入力を設定",
     "listening": "聞き取り中",
     "listeningFor": "聞き取り中 {{time}}",
     "cleaningUp": "文章を整えています…",
@@ -4904,6 +4905,7 @@
     "ready": {
       "region": "音声入力の状態",
       "ready": "準備完了",
+      "setUp": "音声入力を設定",
       "listening": "聞き取り中",
       "listeningFor": "聞き取り中 {{time}}",
       "cleaningUp": "整形中…",

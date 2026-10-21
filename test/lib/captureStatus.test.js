@@ -159,3 +159,45 @@ test("rail smoothing attacks quickly, releases slowly, and clamps input", async 
   assert.equal(railLevelStep(Number.NaN, 0.5), railLevelStep(0, 0.5));
   assert.equal(railLevelStep(0, 3), 0.65);
 });
+
+// Full-app I1: the idle headline also needs the speech route (§5.1 rule 1).
+test("an idle mic reads Ready only over a ready speech route", async () => {
+  const { resolveCaptureStatus, captureHeadline } = await load();
+  const idle = resolveCaptureStatus(facts());
+  assert.equal(captureHeadline(idle, { status: "ready" }), "ready");
+  assert.equal(captureHeadline(idle, { status: "unknown" }), "checking");
+  assert.equal(captureHeadline(idle, null), "checking", "no route fact is unknown, not ready");
+  for (const status of ["needsModel", "needsKey", "needsUrl", "unreachable", "off"])
+    assert.equal(captureHeadline(idle, { status }), "setUp", status);
+});
+
+test("recording, processing and permission keep priority over any route state", async () => {
+  const { resolveCaptureStatus, captureHeadline } = await load();
+  const states = ["ready", "unknown", "needsModel", "needsKey", "needsUrl", "unreachable"];
+  const cases = [
+    [facts({ dictationState: "recording", dictationStartedAt: 1 }), "listening"],
+    [
+      facts({ meeting: { isRecording: true, startedAt: 1, micCaptureStatus: "active" } }),
+      "listening",
+    ],
+    [facts({ dictationState: "processing" }), "processing"],
+    [facts({ micGranted: false }), "offline"],
+    [
+      facts({ meeting: { isRecording: true, startedAt: 1, micCaptureStatus: "unavailable" } }),
+      "offline",
+    ],
+  ];
+  for (const [input, kind] of cases)
+    for (const status of states)
+      assert.equal(captureHeadline(resolveCaptureStatus(input), { status }), kind, status);
+});
+
+test("§5.7: cancelled and unknown lifecycle still map to ready capture before the route", async () => {
+  const { resolveCaptureStatus, captureHeadline } = await load();
+  for (const dictationState of ["cancelled", "mystery", null]) {
+    const status = resolveCaptureStatus(facts({ dictationState }));
+    assert.equal(status.kind, "ready", String(dictationState));
+    assert.equal(captureHeadline(status, { status: "ready" }), "ready");
+    assert.equal(captureHeadline(status, { status: "needsModel" }), "setUp");
+  }
+});

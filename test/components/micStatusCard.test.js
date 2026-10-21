@@ -453,10 +453,51 @@ test("every locale has translated next-capture copy and preserves elapsed interp
     const copy = JSON.parse(
       fs.readFileSync(path.join(__dirname, `../../src/locales/${lang}/translation.json`), "utf8")
     ).micCard;
-    assert.equal(Object.keys(copy).length, 9);
+    assert.equal(Object.keys(copy).length, 10);
     assert.equal(Object.keys(copy.role).length, 4);
     assert.match(copy.listeningFor, /\{\{time\}\}/);
     assert.ok(copy.nextCapture.length);
+    assert.ok(copy.setUp.length);
     if (lang !== "en") assert.notEqual(copy.nextCapture, "Next capture");
+    if (lang !== "en") assert.notEqual(copy.setUp, "Set up dictation");
   }
+});
+
+// Full-app I1: the card headline agrees with its own route line.
+test("an idle card reads Checking… or Set up dictation unless the speech route is ready", async () => {
+  const { MicStatusCard } = await load();
+  const route = (state) => ({ ...base.route, state });
+  const checking = renderStatic(MicStatusCard, {
+    ...base,
+    route: route({ status: "unknown" }),
+    status: st("ready"),
+  });
+  assert.match(checking, /data-state="checking"/);
+  assert.match(checking, /role="status"[^>]*>Checking…</);
+  assert.doesNotMatch(checking, />Ready<|>Fn<|bg-success/);
+  for (const state of [
+    { status: "needsModel", sizeBytes: 631_000_000 },
+    { status: "needsKey", provider: "OpenAI" },
+    { status: "needsUrl" },
+    { status: "unreachable" },
+  ]) {
+    for (const compact of [false, true]) {
+      const html = renderStatic(MicStatusCard, {
+        ...base,
+        compact,
+        route: route(state),
+        status: st("ready"),
+      });
+      assert.match(html, /data-state="setUp"/, state.status);
+      assert.match(html, /Set up dictation/, state.status);
+      assert.doesNotMatch(html, />Ready<|>Fn<|bg-success/, state.status);
+    }
+  }
+  const listening = renderStatic(MicStatusCard, {
+    ...base,
+    route: route({ status: "needsModel" }),
+    status: st("listening", { source: "dictation", startedAt: 3_000 }),
+  });
+  assert.match(listening, /data-state="listening"/);
+  assert.match(listening, /Listening 0:07/);
 });

@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { useLiveClock, type CaptureStatusModel } from "../hooks/useCaptureStatus";
 import { useNow } from "../hooks/useNow";
 import { nextUpcomingEvent, startMeetingNotes } from "../lib/upcomingEvents";
+import { captureRouteIds } from "../lib/captureStatus";
+import { useResolvedRoute } from "../lib/routes";
 import { ReadyStrip } from "./home/ReadyStrip";
 import { useUiLocale } from "../hooks/useUiLocale";
 import { useUpcomingEvents } from "../hooks/useUpcomingEvents";
@@ -86,6 +88,8 @@ export default function HistoryView({
   const tick = useLiveClock(capture.kind === "listening");
   const nowMs = capture.kind === "listening" ? tick : now.getTime();
   const holdToTalk = useSettingsStore((s) => s.activationMode === "push");
+  // The same configured speech route the sidebar card names (Plan 03 facts).
+  const speechRoute = useResolvedRoute(captureRouteIds(capture).speech);
   const next = useMemo(() => nextUpcomingEvent(events, now), [events, now]);
 
   const { filter, query, focusTranscriptId, focusNonce } = useHomeViewStore();
@@ -254,6 +258,8 @@ export default function HistoryView({
     <div ref={rootRef} className={cn(PAGE_CONTENT_WIDTH_CLASS, "@container px-6 pt-4 pb-6")}>
       <ReadyStrip
         status={capture}
+        routeState={speechRoute.state}
+        onSetUp={() => onOpenSettings(speechRoute.settingsPath)}
         now={nowMs}
         hotkeyLabel={formatHotkeyLabel(parseHotkeyList(hotkey)[0])}
         holdToTalk={holdToTalk}

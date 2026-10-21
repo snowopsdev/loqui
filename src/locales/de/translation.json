@@ -4921,6 +4921,7 @@
   },
   "micCard": {
     "ready": "Bereit",
+    "setUp": "Diktat einrichten",
     "listening": "Hört zu",
     "listeningFor": "Hört zu {{time}}",
     "cleaningUp": "Wird überarbeitet…",
@@ -4939,6 +4940,7 @@
     "ready": {
       "region": "Diktierstatus",
       "ready": "Bereit",
+      "setUp": "Diktat einrichten",
       "listening": "Hört zu",
       "listeningFor": "Hört zu {{time}}",
       "cleaningUp": "Wird bereinigt…",

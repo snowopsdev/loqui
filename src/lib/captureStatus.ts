@@ -1,3 +1,5 @@
+import type { RouteState } from "./routeGraph";
+
 // WS-R3 C: shared vocabulary for capture state across the workspace shell.
 export type CaptureStatusKind = "ready" | "listening" | "processing" | "offline";
 export type MicCaptureStatus = "inactive" | "active" | "reconnecting" | "unavailable";
@@ -44,6 +46,24 @@ export function resolveCaptureStatus(facts: CaptureFacts): CaptureStatus {
     return status("processing", "dictation", null, null, inputKind);
   if (facts.micGranted === false) return status("offline", null, null, "permission");
   return status("ready");
+}
+
+/** What the workspace headline says: capture state, refined by the speech route when idle. */
+export type CaptureHeadline = CaptureStatusKind | "checking" | "setUp";
+
+/**
+ * An idle, permitted mic reads Ready only while the speech route is ready
+ * (§5.1 rule 1: unknown is never shown as ready). Unknown reads Checking…;
+ * any other route state asks the person to set dictation up. Recording,
+ * processing and permission keep their priority over the route.
+ */
+export function captureHeadline(
+  status: Pick<CaptureStatus, "kind">,
+  speechRoute: Pick<RouteState, "status"> | null | undefined
+): CaptureHeadline {
+  if (status.kind !== "ready") return status.kind;
+  if (!speechRoute || speechRoute.status === "unknown") return "checking";
+  return speechRoute.status === "ready" ? "ready" : "setUp";
 }
 
 export type CaptureRole = "dictation" | "meeting" | "assistant" | "translation";

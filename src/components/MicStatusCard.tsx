@@ -1,10 +1,13 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Loader2 } from "lucide-react";
+import { CircleAlert, Clock } from "./icons";
 import { RouteDestinationChip, RouteStateChip } from "./settings/routing/RouteChips";
 import {
+  captureHeadline,
   formatElapsed,
   railLevelStep,
+  type CaptureHeadline,
   type CaptureRole,
   type CaptureStatus,
 } from "../lib/captureStatus";
@@ -47,16 +50,29 @@ function RouteLine({
   );
 }
 
-const LABEL_KEY = {
+const LABEL_KEY: Record<CaptureHeadline, string> = {
   ready: "micCard.ready",
+  checking: "routes.state.checking",
+  setUp: "micCard.setUp",
   listening: "micCard.listening",
   processing: "micCard.cleaningUp",
   offline: "micCard.offline",
-} as const;
+};
 
 // Static glyphs. The live meter belongs to the Capture button and the edge
 // rail; Plan 01's motion rule allows at most two focal motions at once.
-export function CaptureGlyph({ status }: { status: CaptureStatus }) {
+// Green is reserved for a ready route; Checking and Set up stay neutral.
+export function CaptureGlyph({
+  status,
+  headline = status.kind,
+}: {
+  status: CaptureStatus;
+  headline?: CaptureHeadline;
+}) {
+  if (headline === "checking")
+    return <Clock size={12} aria-hidden className="shrink-0 text-muted-foreground" />;
+  if (headline === "setUp")
+    return <CircleAlert size={12} aria-hidden className="shrink-0 text-muted-foreground" />;
   if (status.kind === "listening")
     return <span aria-hidden className="size-2 shrink-0 rounded-full bg-link dark:bg-live" />;
   if (status.kind === "processing")
@@ -89,11 +105,12 @@ export function MicStatusCard({
   onOpenSettings,
 }: MicStatusCardProps) {
   const { t } = useTranslation();
+  const headline = captureHeadline(status, route?.state);
   const elapsed =
     status.kind === "listening" && status.startedAt != null
       ? formatElapsed(now - status.startedAt)
       : null;
-  const label = elapsed ? t("micCard.listeningFor", { time: elapsed }) : t(LABEL_KEY[status.kind]);
+  const label = elapsed ? t("micCard.listeningFor", { time: elapsed }) : t(LABEL_KEY[headline]);
   const detail =
     status.kind === "offline"
       ? t(status.offlineReason === "device" ? "micCard.offlineDevice" : "micCard.offlinePermission")
@@ -111,12 +128,12 @@ export function MicStatusCard({
       <button
         type="button"
         onClick={onOpenSettings}
-        data-state={status.kind}
+        data-state={headline}
         data-compact="true"
         title={label}
         className="mx-auto flex size-10 items-center justify-center rounded-md hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <CaptureGlyph status={status} />
+        <CaptureGlyph status={status} headline={headline} />
         <span className="sr-only" role="status" aria-live="polite">
           {label}
         </span>
@@ -128,12 +145,12 @@ export function MicStatusCard({
     <button
       type="button"
       onClick={onOpenSettings}
-      data-state={status.kind}
+      data-state={headline}
       data-elapsed={elapsed ?? undefined}
       className="mx-2 mb-1 flex w-[calc(100%-1rem)] min-w-0 flex-col gap-1 rounded-lg border border-border/70 bg-background/60 px-2.5 py-2 text-start hover:bg-background dark:border-white/10 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="flex items-center gap-2">
-        <CaptureGlyph status={status} />
+        <CaptureGlyph status={status} headline={headline} />
         <span
           role="status"
           aria-live="polite"
@@ -141,7 +158,7 @@ export function MicStatusCard({
         >
           {label}
         </span>
-        {status.kind === "ready" && (
+        {headline === "ready" && (
           <kbd dir="ltr" className="rounded-md bg-surface-3 px-1.5 text-micro text-foreground">
             {hotkeyLabel}
           </kbd>

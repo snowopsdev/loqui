@@ -32,6 +32,8 @@ const base = {
   holdToTalk: true,
   next: { title: "Product catch-up", start: { kind: "minutes", minutes: 12 } },
   onTakeNotes: () => {},
+  routeState: { status: "ready" },
+  onSetUp: () => {},
 };
 
 test("Ready says how to start, in words and with the key", async () => {
@@ -92,5 +94,65 @@ test("shared glyphs use accessible ink on the strip's light tints", async () => 
       renderStatic(ReadyStrip, { ...base, status: st(kind) }),
       /text-warning-foreground dark:text-warning/
     );
+  }
+});
+
+// Full-app I1: green Ready and the hotkey need a ready dictation route.
+test("an unconfirmed route reads Checking…, neutral and without the hotkey", async () => {
+  const { ReadyStrip } = await load();
+  for (const routeState of [{ status: "unknown" }, null]) {
+    const html = renderStatic(ReadyStrip, { ...base, routeState, status: st("ready") });
+    assert.match(html, /data-state="checking"/);
+    assert.match(html, /role="status"[^>]*>Checking…</);
+    assert.doesNotMatch(html, />Ready</);
+    assert.doesNotMatch(html, /to dictate/);
+    assert.doesNotMatch(html, /bg-success|border-warning|text-destructive/);
+  }
+});
+
+test("a route that needs setup asks for it, names why and links its settings", async () => {
+  const { ReadyStrip } = await load();
+  const cases = [
+    [{ status: "needsModel", sizeBytes: 631_000_000 }, /Download 631 MB/],
+    [{ status: "needsModel" }, /Choose a model/],
+    [{ status: "needsKey", provider: "OpenAI" }, /Add API key/],
+    [{ status: "needsUrl" }, /Add server URL/],
+    [{ status: "unreachable" }, /Can(?:'|&#x27;)t reach the server/],
+    [{ status: "off" }, />Off</],
+  ];
+  for (const [routeState, reason] of cases) {
+    const html = renderStatic(ReadyStrip, { ...base, routeState, status: st("ready") });
+    assert.match(html, /data-state="setUp"/, routeState.status);
+    assert.match(html, /<button[^>]*>Set up dictation<\/button>/, routeState.status);
+    assert.match(html, reason, routeState.status);
+    assert.doesNotMatch(html, />Ready</, routeState.status);
+    assert.doesNotMatch(html, /to dictate/, routeState.status);
+    assert.doesNotMatch(html, /bg-success|border-live|border-warning/, routeState.status);
+  }
+});
+
+test("listening, processing and offline ignore the route state", async () => {
+  const { ReadyStrip } = await load();
+  for (const status of [{ status: "unknown" }, { status: "needsModel" }]) {
+    const listening = renderStatic(ReadyStrip, {
+      ...base,
+      routeState: status,
+      status: st("listening", { startedAt: 3_000 }),
+    });
+    assert.match(listening, /Listening 0:07/);
+    const cleaning = renderStatic(ReadyStrip, {
+      ...base,
+      routeState: status,
+      status: st("processing"),
+    });
+    assert.match(cleaning, /Cleaning up…/);
+    const offline = renderStatic(ReadyStrip, {
+      ...base,
+      routeState: status,
+      status: st("offline"),
+    });
+    assert.match(offline, /Mic offline/);
+    for (const html of [listening, cleaning, offline])
+      assert.doesNotMatch(html, /Set up dictation|Checking…/);
   }
 });

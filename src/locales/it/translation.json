@@ -4932,6 +4932,7 @@
   },
   "micCard": {
     "ready": "Pronto",
+    "setUp": "Configura la dettatura",
     "listening": "In ascolto",
     "listeningFor": "In ascolto {{time}}",
     "cleaningUp": "Revisione in corso…",
@@ -4950,6 +4951,7 @@
     "ready": {
       "region": "Stato della dettatura",
       "ready": "Pronto",
+      "setUp": "Configura la dettatura",
       "listening": "In ascolto",
       "listeningFor": "In ascolto {{time}}",
       "cleaningUp": "Pulizia in corso…",

@@ -55,7 +55,7 @@ import { isExplicitSpeakerCount, resolveExpectedSpeakerCount } from "../../utils
 import ActionManagerDialog from "./ActionManagerDialog";
 import ActionPicker from "./ActionPicker";
 import { NotesActionsHint } from "./NotesActionsHint";
-import { notesActionsDisabledByRoute } from "./notesActionsHint";
+import { notesActionsDisabledByRoute } from "./notesActionsHintModel";
 import AddNotesToFolderDialog from "./AddNotesToFolderDialog";
 
 import { handleMeetingRecordingRequest } from "../../helpers/meetingRecordingRequest";

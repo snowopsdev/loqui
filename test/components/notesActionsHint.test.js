@@ -13,7 +13,7 @@ const {
 const { makeRoute } = require("../lib/routeFixtures");
 
 const root = path.join(__dirname, "../..");
-const loadPure = () => import("../../src/components/notes/notesActionsHint.ts");
+const loadPure = () => import("../../src/components/notes/notesActionsHintModel.ts");
 const K = "notes.actionsModelHint";
 const cases = [
   [{ status: "ready" }, null],
@@ -433,7 +433,7 @@ test("supplemental guard covers the new hint and local picker presentation witho
   const { scanFiles } = require("../helpers/workspaceTokenGuard");
   assert.deepEqual(
     scanFiles([
-      "src/components/notes/notesActionsHint.ts",
+      "src/components/notes/notesActionsHintModel.ts",
       "src/components/notes/NotesActionsHint.tsx",
       "src/components/notes/ActionPicker.tsx",
     ]),

@@ -3,7 +3,7 @@ import { X } from "../icons";
 import { cn } from "../lib/utils";
 import { providerDisplayLabel } from "../../lib/locality";
 import type { ResolvedRoute } from "../../lib/routes";
-import { notesActionsHint } from "./notesActionsHint";
+import { notesActionsHint } from "./notesActionsHintModel";
 
 export function NotesActionsHint({
   route,

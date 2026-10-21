@@ -262,6 +262,7 @@ export default function ControlPanel({
       const interaction = interactionEpoch.current;
       const setup = workspaceActivationEpoch?.current;
       void handleNewNote({
+        focusTitle: true,
         canActivate: () =>
           activeRef.current &&
           interactionEpoch.current === interaction &&

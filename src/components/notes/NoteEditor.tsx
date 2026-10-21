@@ -19,6 +19,7 @@ import {
 } from "../icons";
 
 import { useSpaces } from "../../stores/noteStore";
+import { takeNoteTitleFocus } from "../../stores/noteFocusRequest";
 
 import type { Editor } from "@tiptap/react";
 import type { ActionProcessingState } from "../../hooks/useActionProcessing";
@@ -369,6 +370,11 @@ export default function NoteEditor({
 
     return cancelScheduledUpdate;
   }, [actionProcessingState, scheduleUiUpdate]);
+
+  // The after-setup hand-off opens a new note; its title takes keyboard focus.
+  useEffect(() => {
+    if (takeNoteTitleFocus(note.id)) titleRef.current?.focus({ preventScroll: true });
+  }, [note.id]);
 
   useEffect(() => {
     if (note.id !== prevNoteIdRef.current) {

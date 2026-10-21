@@ -27,9 +27,10 @@ const trialState = (patch = {}) => ({
   ...patch,
 });
 
-async function view(t, patch = {}) {
+async function view(t, patch = {}, mountOptions = {}) {
   const calls = [];
   const ui = await mountComponent(t, "/components/onboarding/HotkeyTrial.tsx", {
+    ...mountOptions,
     exportName: "HotkeyTrial",
     props: {
       platform: "darwin",
@@ -718,4 +719,63 @@ test("rich discarded UI names all recipients and only offers Undo in a live wind
   assert.equal(ui.text().includes("setupFlow.try.undo"), false);
   await ui.rerender({ nowMs: 1000, undoAvailable: false });
   assert.equal(ui.text().includes("setupFlow.try.undo"), false);
+});
+
+// Full-app M3: the activated button unmounts; keyboard focus must not fall to <body>.
+// Nodes are compared by identity and described by tag/text only: node:assert would
+// otherwise inspect the whole fake DOM and React fiber graph on failure.
+const focusMessage = (expected) => {
+  const active = globalThis.document.activeElement;
+  const actual = active
+    ? `${active.tagName ?? "?"} "${String(active.textContent ?? "").slice(0, 40)}"`
+    : "null";
+  return `focus should be ${expected}; it is ${actual}`;
+};
+test("Discard moves focus to Undo, and Undo or its expiry moves focus to the field", async (t) => {
+  const { ui } = await view(
+    t,
+    { trial: trialState({ phase: "recording", heardVoice: true }) },
+    { trackFocusRemoval: true }
+  );
+  const card = ui.find((n) => n.attributes?.class === "onb-trial__card");
+  const button = (key) => ui.find((n) => n.tagName === "BUTTON" && n.textContent === key);
+  const focusOn = async (node) => {
+    node.focus();
+    await React.act(async () => ui.props(card).onFocus?.({ target: node }));
+  };
+  const held = { paused: false, undoUntil: 5000, sessionId: "s" };
+  await focusOn(button("setupFlow.try.cancel"));
+  await ui.rerender({ trial: trialState({ phase: "cancelled", cancelled: held }), nowMs: 1000 });
+  assert.ok(
+    globalThis.document.activeElement === button("setupFlow.try.undo"),
+    focusMessage("Undo")
+  );
+
+  await ui.rerender({ trial: trialState({ phase: "processing", text: "Remind me" }) });
+  const field = ui.find((n) => n.attributes?.class === "onb-field");
+  assert.equal(field.attributes.tabindex, "-1");
+  assert.ok(globalThis.document.activeElement === field, focusMessage("after Undo, the field"));
+
+  await ui.rerender({ trial: trialState({ phase: "cancelled", cancelled: held }), nowMs: 1000 });
+  await focusOn(button("setupFlow.try.undo"));
+  await ui.rerender({ nowMs: 6000 });
+  assert.ok(button("setupFlow.try.undo") === null, "the Undo window expired");
+  assert.ok(globalThis.document.activeElement === field, focusMessage("expired Undo, the field"));
+});
+
+test("focus that already moved elsewhere is never pulled back into the trial", async (t) => {
+  const { ui } = await view(
+    t,
+    { trial: trialState({ phase: "recording", heardVoice: true }) },
+    { trackFocusRemoval: true }
+  );
+  const card = ui.find((n) => n.attributes?.class === "onb-trial__card");
+  const discard = ui.find(
+    (n) => n.tagName === "BUTTON" && n.textContent === "setupFlow.try.cancel"
+  );
+  await React.act(async () => ui.props(card).onFocus?.({ target: discard }));
+  const elsewhere = { focus() {} };
+  globalThis.document.activeElement = elsewhere;
+  await ui.rerender({ trial: trialState({ phase: "cancelled" }), nowMs: 1000 });
+  assert.ok(globalThis.document.activeElement === elsewhere, focusMessage("unchanged"));
 });

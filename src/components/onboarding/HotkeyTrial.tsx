@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, CircleAlert } from "../icons";
 import { Button } from "../ui/button";
@@ -38,6 +38,23 @@ export function HotkeyTrial(props: HotkeyTrialProps) {
   const { trial, platform, hotkeyLabel, activationMode } = props;
   const [buttonMode, setButtonMode] = useState(false);
   const recording = trial.phase === "recording";
+  const cardRef = useRef<HTMLDivElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const focusedRef = useRef<Element | null>(null);
+  // Discard, Undo and an expiring Undo each unmount the focused button. Keep
+  // keyboard focus in the trial: the Undo that replaced Discard, else the field.
+  useLayoutEffect(() => {
+    const focused = focusedRef.current;
+    const card = cardRef.current;
+    if (!focused || !card || card.contains(focused)) return;
+    focusedRef.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    const next = undoRef.current ?? fieldRef.current;
+    next?.focus({ preventScroll: true });
+    focusedRef.current = next;
+  });
   const key = { key: hotkeyLabel };
   const openSound = {
     label: t("setupFlow.hello.openSound"),
@@ -112,14 +129,27 @@ export function HotkeyTrial(props: HotkeyTrialProps) {
           ]}
         />
       ) : null}
-      <div className="onb-trial__card" data-phase={trial.phase}>
+      <div
+        ref={cardRef}
+        className="onb-trial__card"
+        data-phase={trial.phase}
+        onFocus={(event) => {
+          focusedRef.current = event.target;
+        }}
+      >
         <LiveKeycap
           label={hotkeyLabel}
           sublabel={t(`setupFlow.try.keycap.${activationMode}`)}
           pressed={props.keycap.pressed || recording}
           flashKey={props.keycap.presses}
         />
-        <div className="onb-field" data-state={trial.phase} aria-live="polite">
+        <div
+          ref={fieldRef}
+          className="onb-field"
+          data-state={trial.phase}
+          aria-live="polite"
+          tabIndex={-1}
+        >
           {trial.phase === "idle" ? (
             <p className="onb-field__hint">{t(`setupFlow.try.idle.${activationMode}`, key)}</p>
           ) : null}
@@ -145,7 +175,7 @@ export function HotkeyTrial(props: HotkeyTrialProps) {
                   : ""}
               </p>
               {props.undoAvailable && canUndo(trial, props.nowMs) ? (
-                <Button size="sm" variant="ghost" onClick={props.onUndo}>
+                <Button ref={undoRef} size="sm" variant="ghost" onClick={props.onUndo}>
                   {t("setupFlow.try.undo")}
                 </Button>
               ) : null}

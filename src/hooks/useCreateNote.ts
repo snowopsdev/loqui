@@ -7,6 +7,7 @@ import {
   setActiveNoteId,
   useActiveContext,
 } from "../stores/noteStore";
+import { requestNoteTitleFocus } from "../stores/noteFocusRequest";
 import type { NoteItem } from "../types/electron";
 
 import { isMeetingAutoEndEligible } from "../helpers/meetingRecordingSession";
@@ -31,6 +32,8 @@ export interface CreateNoteOptions {
   record?: boolean;
   /** Saving still completes; only the caller's optional UI/automatic-start activation expires. */
   canActivate?: () => boolean;
+  /** Hand keyboard focus to the opened note's title (the after-setup hand-off). */
+  focusTitle?: boolean;
 }
 
 /**
@@ -64,6 +67,7 @@ export function useCreateNote() {
         setActiveContext(result.note.space_id, result.note.folder_id);
         revealContainer(result.note.space_id, result.note.folder_id);
         setActiveNoteId(result.note.id);
+        if (options.focusTitle) requestNoteTitleFocus(result.note.id);
         // Read live state after saving; another capture may have started during the await.
         if (record && !useMeetingRecordingStore.getState().isRecording)
           activation = startRecordingForNote(result.note);

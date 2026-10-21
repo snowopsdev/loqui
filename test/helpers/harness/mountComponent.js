@@ -54,6 +54,7 @@ async function mountComponent(
     reducedMotion = false,
     windowProps = {},
     beforeImport,
+    trackFocusRemoval = false,
   } = {}
 ) {
   let root = null;
@@ -78,7 +79,7 @@ async function mountComponent(
     },
   });
   installHookDom(t);
-  const tree = installTree();
+  const tree = installTree({ trackFocusRemoval });
   beforeImport?.();
   const vite = await createRendererServer(t, rendererOptions("loqui-onboarding-ui-test-", mocks));
   const Component = (await vite.ssrLoadModule(modulePath))[exportName];

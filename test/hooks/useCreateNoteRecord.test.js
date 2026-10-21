@@ -46,6 +46,7 @@ async function mount(t, saveNote = async () => ({ success: true, note })) {
   root = createRoot(container);
   await React.act(async () => root.render(React.createElement(Probe)));
   return {
+    vite,
     hook: () => hook,
     saves,
     meeting,
@@ -165,4 +166,17 @@ test("createNoteIn also defaults to recording and a rejected save releases admis
   assert.equal(h.meeting.starts.length, 1);
   assert.equal(h.saves.length, 2);
   assert.equal(h.saves[1][6], 3);
+});
+
+// Full-app M3: only a caller that hands focus to the new note asks for it.
+test("focusTitle asks the opened note to focus its title; plain creation does not", async (t) => {
+  const h = await mount(t);
+  await h.hook().createNote({ record: false });
+  const focus = await h.vite.ssrLoadModule("/stores/noteFocusRequest.ts");
+  assert.equal(focus.takeNoteTitleFocus(9), false);
+  await h.hook().createNote({ record: false, focusTitle: true });
+  assert.equal(focus.takeNoteTitleFocus(8), false, "only the created note");
+  assert.equal(focus.takeNoteTitleFocus(9), true);
+  await h.hook().createNote({ record: false, focusTitle: true, canActivate: () => false });
+  assert.equal(focus.takeNoteTitleFocus(9), false, "an expired hand-off asks for nothing");
 });

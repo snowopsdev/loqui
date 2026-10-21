@@ -6,6 +6,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Search, FileText, Mic, Folder, MessageSquare, ChevronDown, Sparkles } from "./icons";
 import { cn } from "./lib/utils";
 import { useDismissGuard } from "./ui/useDismissGuard";
+import { useDialogReturnFocus } from "./ui/dialogReturnFocus";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -368,6 +369,7 @@ export default function CommandSearch({
 
   const hasResults = rowCount > 0;
   const { registerContent, shouldBlockDismiss } = useDismissGuard<HTMLDivElement>();
+  const returnFocus = useDialogReturnFocus();
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -375,6 +377,13 @@ export default function CommandSearch({
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm duration-(--motion-base) motion-reduce:animate-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           ref={registerContent}
+          // Remember the invoker before focus moves into the palette, then focus the query.
+          onOpenAutoFocus={(e) => {
+            returnFocus.remember();
+            e.preventDefault();
+            inputRef.current?.focus();
+          }}
+          onCloseAutoFocus={returnFocus.restore}
           onInteractOutside={(e) => {
             // The filter dropdown makes this panel inert while it is open, so
             // the click that closes it lands on the overlay — see useDismissGuard.
@@ -456,7 +465,6 @@ export default function CommandSearch({
               placeholder={
                 isConversationsMode ? t("chat.search") : t("commandSearch.placeholderAll")
               }
-              autoFocus
               className="min-w-0 flex-1 text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
               style={{
                 background: "transparent",

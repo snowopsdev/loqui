@@ -7,6 +7,7 @@ import { X } from "../icons";
 import { InfoBox } from "./InfoBox";
 import { SettingsLayoutProvider } from "./useSettingsLayout";
 import { useDismissGuard } from "./useDismissGuard";
+import { useDialogReturnFocus } from "./dialogReturnFocus";
 
 import { SettingsNav, type SidebarItem } from "./SettingsNav";
 export type { SidebarItem } from "./SettingsNav";
@@ -52,6 +53,7 @@ export default function SidebarModal<T extends string>({
   const workspaceActive = useWorkspaceActive();
   const { t } = useTranslation();
   const { registerContent, shouldBlockDismiss } = useDismissGuard<HTMLDivElement>();
+  const returnFocus = useDialogReturnFocus();
 
   const [isCompact, setIsCompact] = React.useState(false);
   const observerRef = React.useRef<ResizeObserver | null>(null);
@@ -84,9 +86,11 @@ export default function SidebarModal<T extends string>({
           // Radix focuses the first tabbable on open, which is the close button;
           // focus the dialog itself so the X doesn't open wearing a focus ring.
           onOpenAutoFocus={(e) => {
+            returnFocus.remember();
             e.preventDefault();
             (e.currentTarget as HTMLElement).focus();
           }}
+          onCloseAutoFocus={returnFocus.restore}
           onEscapeKeyDown={(e) => {
             if (dialogEscapeClaimed(document)) e.preventDefault();
           }}

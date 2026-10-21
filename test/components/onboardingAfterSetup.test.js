@@ -157,6 +157,10 @@ for (const kind of ["dictate-note", "open-settings"]) {
         );
         if (!live) assert.equal(state.recordings[0].noteId, 99);
         assert.equal(ui.byAttr("data-notes-view", "true").length, 1);
+        // Full-app M3: the hand-off asks the opened note to take focus, not <body>.
+        const focus = await ui.vite.ssrLoadModule("/stores/noteFocusRequest.ts");
+        assert.equal(focus.takeNoteTitleFocus(99), true, "the created note's title takes focus");
+        assert.equal(focus.takeNoteTitleFocus(99), false, "the request is consumed once");
       } else {
         assert.equal(ui.byAttr("data-settings-path", "stt/noteRecording").length, 1);
         assert.equal(state.saves.length, 0);

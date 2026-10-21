@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const Module = require("node:module");
+const { ipcDownloaderLeaf } = require("./harness/ipcDownloaderLeaf");
 
 const handlersModulePath = require.resolve("../../src/helpers/ipcHandlers");
 const originalLoad = Module._load;
@@ -19,7 +20,10 @@ const electronStub = {
     requestSingleInstanceLock: () => true,
   },
   ipcMain: {
-    handle: (channel, fn) => handlers.set(channel, fn),
+    handle: (channel, fn) => {
+      assert.equal(handlers.has(channel), false, `duplicate IPC handler: ${channel}`);
+      handlers.set(channel, fn);
+    },
     on: () => {},
     removeHandler: () => {},
   },
@@ -46,6 +50,8 @@ const electronStub = {
   MessageChannelMain: class {},
 };
 Module._load = function loadWithMocks(request, parent, isMain) {
+  const leaf = ipcDownloaderLeaf(request, parent);
+  if (leaf) return leaf;
   if (request === "electron") return electronStub;
   if (parent?.filename === handlersModulePath) {
     if (request === "./cortiTranscription") return { transcribeAudio: async () => ({ text: "" }) };

@@ -100,6 +100,7 @@ const WORKSPACE_GUARDED_FILES = [
   "src/components/notes/UploadAudioView.tsx",
   "src/components/notes/UploadDropZone.tsx",
   ...dir("src/components/chat"),
+  ...dir("src/components/table"),
   ...dir("src/components/home"),
   ...dir("src/components/insights"),
   ...dir("src/components/ui/editor"),

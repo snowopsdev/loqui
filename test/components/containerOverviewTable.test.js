@@ -10,7 +10,7 @@ const {
   installBrowserGlobals,
   installHookDom,
 } = require("../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
 const { installTree } = require("../helpers/harness/fakeDomTree");
 
 // Frozen byte-for-byte from 98f1710b:src/components/notes/overview/ContainerOverview.tsx.
@@ -105,7 +105,7 @@ async function setup(t, { labsTable = false, storedView, realTable = false } = {
       "__overviewDiagnostics",
       "__overviewNotes",
       "__overviewAsk",
-      "__toasts",
+      "__notices",
     ])
       delete globalThis[k];
   });
@@ -116,7 +116,7 @@ async function setup(t, { labsTable = false, storedView, realTable = false } = {
     "/services/ReasoningService": `export default {async *processTextStreamingAI(...args){globalThis.__overviewRequests.push(args);yield {type:'content',text:'Fixture answer'};},cancelActiveStream(){}};`,
     "/services/tools": `export const createToolRegistry=(o)=>{globalThis.__overviewScopes.push(o.searchScope);return {getAll:()=>[],toAISDKFormat:()=>({})};};`,
     "/utils/logger": `export default {error(...a){globalThis.__overviewDiagnostics.push(a);},warn(){},debug(){},info(){}};`,
-    "/ui/useToast": TOAST_MOCK,
+    "/ui/notices": `export const notify=(notice)=>{(globalThis.__notices??=[]).push(notice);};`,
     "/OverviewAskSection": `import React from 'react';export function OverviewAskSection(p){globalThis.__overviewAsk=p;return React.createElement('section',{'data-queue-key':p.queueKey},p.messages?.map(m=>React.createElement('p',{key:m.id},m.content)));}`,
     "/OverviewNoteList": `import React from 'react';export const OverviewNoteList=({notes})=>React.createElement('div',null,notes.map(n=>React.createElement('p',{key:n.id},n.title)));`,
     "/OverviewExplainerBanner": `export const OverviewExplainerBanner=()=>null;`,
@@ -224,7 +224,14 @@ test("real mounted consumer makes no Table IPC when off; toggling off restores B
       sent = await globalThis.__overviewAsk.onTextSubmit("Explain fixture");
     });
     assert.equal(sent, true);
-    const result = structuredClone({
+    // Keep renderer-local settings setter identities; clone the mutable payload data.
+    const snapshot = (value) =>
+      Array.isArray(value)
+        ? value.map(snapshot)
+        : value && typeof value === "object"
+          ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, snapshot(item)]))
+          : value;
+    const result = snapshot({
       calls: c.calls,
       sendCalls: c.calls.slice(initialCallCount),
       requests: c.requests,

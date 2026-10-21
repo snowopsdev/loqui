@@ -9,7 +9,7 @@ const {
 } = require("../lib/rendererTestHarness");
 const { createDb } = require("../helpers/harness/db");
 const DatabaseManager = require("../../src/helpers/database");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
 const { installTree } = require("../helpers/harness/fakeDomTree");
 const paintFrames = new Map();
 let nextPaintFrame = 0;
@@ -65,7 +65,7 @@ const MOCKS = {
   "/lib/routes": `export const useResolvedRoute=()=>globalThis.__tableRoute;export const resolveRoute=()=>globalThis.__tableRoute;export const routeSnapshotFromSettings=()=>({});`,
   "/services/ReasoningService": `export default {processTextStreamingAI(...args){return globalThis.__tableStream(...args);},cancelActiveStream(){}};`,
   "/services/tools": `export const createToolRegistry=(options)=>{globalThis.__tableToolScopes.push(options.searchScope);return {getAll:()=>[],toAISDKFormat:()=>({})};};`,
-  "/ui/useToast": TOAST_MOCK,
+  "/ui/notices": `export const notify=(notice)=>{(globalThis.__notices??=[]).push(notice);};`,
   "/useVoiceDraft": `export const useVoiceDraft=()=>({status:'idle',start(){},stop(){},cancel(){},elapsed:0,readLevel:()=>0});`,
   "/chat/ChatMessages": `import React from 'react';export const ChatMessages=({messages})=>React.createElement('div',null,messages.map(m=>React.createElement('p',{key:m.id},m.content)));`,
   "/ConversationPicker": `import React from 'react';export const ConversationPicker=({onNewChat,onSwitchConversation,conversations=[]})=>React.createElement('div',null,conversations.map(c=>React.createElement('span',{key:c.id},c.title)),React.createElement('button',{onClick:onNewChat},'NEW'),React.createElement('button',{onClick:()=>onSwitchConversation(8)},'SWITCH B'));`,
@@ -177,7 +177,7 @@ async function setup(
       "__tableStream",
       "__tableDiagnostics",
       "__tableToolScopes",
-      "__toasts",
+      "__notices",
     ])
       delete globalThis[k];
   });
@@ -189,6 +189,8 @@ async function setup(
     chatAgentModel: "fixture-model",
     isSignedIn: false,
   });
+  const { WorkspaceActivity } = await vite.ssrLoadModule("/hooks/useWorkspaceActive.ts");
+  let workspaceActive = true;
   const { default: View } = await vite.ssrLoadModule("/components/table/TableView.tsx");
   root = createRoot(tree.container);
   const props = {
@@ -201,7 +203,11 @@ async function setup(
     React.createElement(
       React.Profiler,
       { id: "table", onRender: (...args) => commits.push(args) },
-      React.createElement(View, { ...props })
+      React.createElement(
+        WorkspaceActivity.Provider,
+        { value: workspaceActive },
+        React.createElement(View, { ...props })
+      )
     );
   const render = () =>
     (manualFrames ? React.act : act)(async () => {
@@ -242,6 +248,10 @@ async function setup(
     store,
     vite,
     render,
+    setWorkspaceActive: async (active) => {
+      workspaceActive = active;
+      await render();
+    },
     rawUnmount: () => {
       root.unmount();
       root = null;
@@ -1118,4 +1128,53 @@ test("final fix: a retired Table entry ignores a delayed conversation list", asy
   await act(() => listRead.resolve([{ id: 7, title: "Retired history" }]));
   assert.equal(c.commits.length, retired);
   assert.equal(paintFrames.size, 0);
+});
+
+test("integration: setup blocks fresh Table summary admission without replaying it", async (t) => {
+  const c = await setup(t);
+  await c.select();
+  await c.setWorkspaceActive(false);
+  await c.click("table.selection.summarise");
+  assert.deepEqual(c.saved, []);
+  assert.deepEqual(c.requests, []);
+  await c.setWorkspaceActive(true);
+  assert.deepEqual(c.saved, [], "suspended summary does not replay on return");
+  await c.click("table.selection.summarise");
+  assert.equal(c.saved.filter((m) => m.role === "user").length, 1);
+  assert.equal(c.requests.length, 1);
+});
+
+test("integration: setup preserves the Table queue and admitted request owner", async (t) => {
+  const end = deferred();
+  let calls = 0;
+  const c = await setup(t, {
+    stream: async function* () {
+      yield { type: "content", text: "reply" };
+      if (++calls === 1) await end.promise;
+    },
+  });
+  await c.select();
+  await c.click("table.selection.summarise");
+  await c.type("queued before setup");
+  await c.enter();
+  assert.match(c.tree.text(), /agentMode.input.queued/);
+  await c.setWorkspaceActive(false);
+  await act(() => end.resolve());
+  assert.equal(c.requests.length, 1, "suspension does not drain the queue");
+  assert.deepEqual(
+    c.saved.map((m) => [m.id, m.role]),
+    [
+      [7, "user"],
+      [7, "assistant"],
+    ]
+  );
+  await c.setWorkspaceActive(true);
+  assert.equal(c.requests.length, 2, "same-destination queue resumes once");
+  assert.deepEqual(
+    c.saved.filter((m) => m.role === "user").map((m) => [m.id, m.content]),
+    [
+      [7, "table.selection.summarisePrompt"],
+      [7, "queued before setup"],
+    ]
+  );
 });

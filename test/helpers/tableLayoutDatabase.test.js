@@ -802,3 +802,56 @@ for (const [operation, invoke] of [
     assert.equal(db.db.prepare("SELECT count(*) AS n FROM note_layout").get().n, 0);
   });
 }
+
+test("integration: an existing accepted 04+05+06 database gains Table without losing content", (t) => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const os = require("node:os");
+  const Sqlite = require("better-sqlite3");
+  const { setUserDataDir } = require("./harness/electronStub");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-table-seed-upgrade-"));
+  let db;
+  t.after(() => {
+    db?.db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  setUserDataDir(dir);
+  const filename =
+    process.env.NODE_ENV === "development" ? "transcriptions-dev.db" : "transcriptions.db";
+  const prior = new Sqlite(path.join(dir, filename));
+  prior.exec(
+    fs.readFileSync(path.join(__dirname, "../fixtures/tableIntegrationSeedSchema.sql"), "utf8")
+  );
+  prior
+    .prepare(
+      "INSERT INTO spaces (id,client_space_id,kind,name,sort_order) VALUES (1,'seed-private','private','Personal',0)"
+    )
+    .run();
+  prior
+    .prepare(
+      "INSERT INTO notes (id,title,content,note_type,space_id) VALUES (1,'Seed note','Unchanged original words','personal',1)"
+    )
+    .run();
+  assert.deepEqual(
+    prior.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'note_layout%'").all(),
+    []
+  );
+  prior.close();
+  db = new DatabaseManager();
+  assert.equal(db.getNote(1).content, "Unchanged original words");
+  assert.equal(db.getTableBoard(1).cards.length, 1);
+  assert.equal(db.placeTableCards(1, [{ type: "note", id: 1, x: 40, y: 80 }]).success, true);
+  db.hideTableCards(1, [{ type: "note", id: 1 }]);
+  assert.equal(
+    db.getNote(1).content,
+    "Unchanged original words",
+    "D12 Remove preserves seed content"
+  );
+  db.db.close();
+  db = new DatabaseManager();
+  assert.equal(db.getNote(1).content, "Unchanged original words");
+  assert.equal(
+    db.getTableBoard(1).inbox.some((e) => e.ref.type === "note" && e.ref.id === 1),
+    true
+  );
+});

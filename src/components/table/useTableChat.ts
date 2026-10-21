@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useWorkspaceActive } from "../../hooks/useWorkspaceActive";
 import { useContainerChat, type ContainerConversationItem } from "../../hooks/useContainerChat";
 import type { NoteItem, SpaceItem } from "../../types/electron";
 import { buildBoardContext, parseRefKey, pinSelection, type TableCardModel } from "./tableModel";
@@ -44,6 +45,7 @@ export function useTableChat({
   board,
   publication,
 }: Options) {
+  const workspaceActive = useWorkspaceActive();
   const { place, link, reload, read, readCards } = board;
   const destination = useTableRoute();
   const [askOpen, setAskOpen] = useState(false);
@@ -80,8 +82,8 @@ export function useTableChat({
     conversationList: publication ? conversationList : undefined,
     initializeIdleConversation: !!publication,
   });
-  const latest = useRef({ chat, destination });
-  latest.current = { chat, destination };
+  const latest = useRef({ chat, destination, workspaceActive });
+  latest.current = { chat, destination, workspaceActive };
   const recover = useCallback((pending: Intent, text: string, reason: Recovery["reason"]) => {
     if (mounted.current) setRecovery({ text, scope: pending.scope, reason });
   }, []);
@@ -157,6 +159,7 @@ export function useTableChat({
       pending.text = text;
       const eligible = () =>
         mounted.current &&
+        latest.current.workspaceActive &&
         pending.generation === generation.current &&
         latest.current.destination.canAdmit(pending.destination) &&
         latest.current.chat.canSend &&
@@ -206,7 +209,7 @@ export function useTableChat({
     setQueued(text ? pending : null);
   };
   const startFromSelection = (text: string | null) => {
-    if (!destination.canAdmit(destination.destinationKey)) return;
+    if (!workspaceActive || !destination.canAdmit(destination.destinationKey)) return;
     const pin = pinSelection(
       space.name,
       (readCards ? readCards() : cards)
@@ -217,12 +220,14 @@ export function useTableChat({
     start({ ...pin, at: { ...resultPoint() } }, text);
   };
   useEffect(() => {
-    if (!queued || queued !== intent.current || queued.phase !== "queued") return;
+    if (!workspaceActive || !queued || queued !== intent.current || queued.phase !== "queued")
+      return;
     // The reset has rendered; admit once or retain a visible manual recovery.
     setQueued(null);
     void submit(queued.text!);
-  }, [queued, submit]);
+  }, [workspaceActive, queued, submit]);
   const onQueue = () => {
+    if (!workspaceActive) return;
     intent.current = makeIntent(freeze(), null, "prepared");
   };
   const newChat = () => {
@@ -243,14 +248,19 @@ export function useTableChat({
     chat.cancelStream();
   };
   const retry = () => {
-    if (recovery && destination.canAdmit(destination.destinationKey) && chat.canSend)
+    if (
+      workspaceActive &&
+      recovery &&
+      destination.canAdmit(destination.destinationKey) &&
+      chat.canSend
+    )
       start(recovery.scope, recovery.text);
   };
   const queueKey = `table|${space.id}|${generation.current}|${chat.conversationGeneration}|${chat.activeConversationId ?? "new"}|${destination.destinationKey}`;
   return {
     chat,
     route: destination.route,
-    ready: destination.canAdmit(destination.destinationKey),
+    ready: workspaceActive && destination.canAdmit(destination.destinationKey),
     askOpen,
     setAskOpen,
     pinned,

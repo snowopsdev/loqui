@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { NoticeChip } from "./NoticeChip";
 import { WordsFirstCard } from "./WordsFirstCard";
 import { noticeLayout, raiseNotice, staggerIndex, useNotices, wordsNotices } from "./notices";
+import { registerPanelNoticeStack } from "./useNoticePlacement";
 
 // Public API keeps the size selector beside its stack; it is also consumed by App.
 // eslint-disable-next-line react-refresh/only-export-components
@@ -45,6 +46,7 @@ export function NoticeStack({
   if (!card && chips.length === 0) return null;
   return (
     <div
+      ref={placement === "panel" ? registerPanelNoticeStack : undefined}
       style={placement === "panel" && bottomInset ? { bottom: bottomInset + 12 } : undefined}
       className="notice-stack"
       data-placement={placement}

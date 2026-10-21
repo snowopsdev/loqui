@@ -123,7 +123,7 @@ async function fixture(t) {
     React.act(async () => {
       for (const cb of listeners.get(name) ?? []) cb();
     });
-  return { ui, render, composers, viewport, event, bounds, observers, listeners };
+  return { ui, render, composers, viewport, event, bounds, observers, listeners, notify };
 }
 
 for (const kind of ["chat", "note"]) {
@@ -156,8 +156,10 @@ test("a composer mid-page or scrolled out of the window leaves notices in place"
   await f.render(f.composers.chat());
   const root = f.ui.container.childNodes[0];
   assert.equal(f.viewport().style.bottom, "68px");
-  // The overview Ask, mid-page: notices at the bottom corner do not cover it.
-  f.bounds.set(root, { top: 300, width: 600, height: 56 });
+  // The overview Ask, mid-page, with this one-card stack: the stack's default box
+  // (y 724-780) does not reach the composer (y 300-356), so nothing is reserved.
+  f.bounds.set(f.viewport(), { top: 724, height: 56, left: 860, right: 1260, width: 400 });
+  f.bounds.set(root, { top: 300, height: 56, left: 456, right: 1056, width: 600 });
   await f.event("scroll");
   assert.equal(f.viewport().style.bottom ?? "", "");
   // Scrolled above the window: never push notices off screen.
@@ -168,6 +170,44 @@ test("a composer mid-page or scrolled out of the window leaves notices in place"
   f.bounds.set(root, { top: 700, width: 600, height: 80 });
   await f.event("scroll");
   assert.equal(f.viewport().style.bottom, "112px");
+});
+
+// Scoped review R1: a mid-page composer is protected whenever the real stack
+// would reach it, not only when it sits in the bottom band.
+const TALL_STACK = { top: 548, height: 232, left: 860, right: 1260, width: 400 };
+const MID_PAGE = { top: 600, height: 56, left: 456, right: 1056, width: 600 };
+
+test("a tall three-item stack lifts above a mid-page composer it would cover", async (t) => {
+  const f = await fixture(t);
+  await React.act(async () => {
+    f.notify({ kind: "receipt", title: "Copied", persistent: true });
+    f.notify({ kind: "receipt", title: "Saved", persistent: true });
+  });
+  await f.render(f.composers.chat());
+  const root = f.ui.container.childNodes[0];
+  f.bounds.set(f.viewport(), TALL_STACK);
+  f.bounds.set(root, MID_PAGE);
+  await f.event("scroll");
+  assert.equal(f.viewport().style.bottom, "212px", "800 - 600 + 12: the stack ends above it");
+  // The same composer clear of the notice column (inline-start) reserves nothing.
+  f.bounds.set(root, { ...MID_PAGE, left: 0, right: 400 });
+  await f.event("scroll");
+  assert.equal(f.viewport().style.bottom ?? "", "");
+});
+
+test("a stack that grows into a mid-page composer re-measures without a scroll", async (t) => {
+  const f = await fixture(t);
+  await f.render(f.composers.chat());
+  const root = f.ui.container.childNodes[0];
+  f.bounds.set(root, MID_PAGE);
+  f.bounds.set(f.viewport(), { ...TALL_STACK, top: 724, height: 56 });
+  await f.event("scroll");
+  assert.equal(f.viewport().style.bottom ?? "", "", "one card stays below the composer");
+  f.bounds.set(f.viewport(), TALL_STACK);
+  await React.act(async () => {
+    for (const observer of f.observers) if (observer.targets.has(f.viewport())) observer.cb([]);
+  });
+  assert.equal(f.viewport().style.bottom, "212px", "the stack's own resize re-measures");
 });
 
 test("the Chat view reserves its whole composer area, chips row included", () => {

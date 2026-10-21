@@ -4352,7 +4352,6 @@
   "notices": {
     "messageDetails": "Message and actions",
     "dismiss": "Dismiss",
-    "moreActions": "More actions",
     "wordsCard": {
       "copy": "Copy",
       "copied": "Copied",
@@ -4645,8 +4644,7 @@
           "name": "Live, more languages",
           "description": "Words appear as you speak, in 15 languages including Japanese, Arabic and Hindi."
         }
-      },
-      "commitToTry": "Choose and apply a local voice before trying dictation."
+      }
     },
     "tour": {
       "label": "While that downloads",

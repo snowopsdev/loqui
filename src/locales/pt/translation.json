@@ -4360,7 +4360,6 @@
   "notices": {
     "messageDetails": "Mensagem e ações",
     "dismiss": "Dispensar",
-    "moreActions": "Mais ações",
     "wordsCard": {
       "copy": "Copiar",
       "copied": "Copiado",
@@ -4655,8 +4654,7 @@
           "name": "Em direto, em mais idiomas",
           "description": "As palavras aparecem enquanto falas, em 15 idiomas, incluindo japonês, árabe e hindi."
         }
-      },
-      "commitToTry": "Escolhe e aplica uma voz local antes de experimentares o ditado."
+      }
     },
     "tour": {
       "label": "Enquanto a transferência decorre",

@@ -4360,7 +4360,6 @@
   "notices": {
     "messageDetails": "Messaggio e azioni",
     "dismiss": "Chiudi",
-    "moreActions": "Altre azioni",
     "wordsCard": {
       "copy": "Copia",
       "copied": "Copiato",
@@ -4655,8 +4654,7 @@
           "name": "In tempo reale, in più lingue",
           "description": "Le parole appaiono mentre parli, in 15 lingue tra cui giapponese, arabo e hindi."
         }
-      },
-      "commitToTry": "Scegli e applica una voce locale prima di provare la dettatura."
+      }
     },
     "tour": {
       "label": "Durante il download",

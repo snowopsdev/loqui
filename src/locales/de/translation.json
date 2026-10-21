@@ -4352,7 +4352,6 @@
   "notices": {
     "messageDetails": "Nachricht und Aktionen",
     "dismiss": "Schließen",
-    "moreActions": "Weitere Aktionen",
     "wordsCard": {
       "copy": "Kopieren",
       "copied": "Kopiert",
@@ -4645,8 +4644,7 @@
           "name": "Live, mit mehr Sprachen",
           "description": "Der Text erscheint beim Sprechen, in 15 Sprachen, darunter Japanisch, Arabisch und Hindi."
         }
-      },
-      "commitToTry": "Wähle eine lokale Stimme aus und wende sie an, bevor du das Diktieren ausprobierst."
+      }
     },
     "tour": {
       "label": "Während des Downloads",

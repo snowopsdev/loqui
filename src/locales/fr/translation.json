@@ -4360,7 +4360,6 @@
   "notices": {
     "messageDetails": "Message et actions",
     "dismiss": "Fermer",
-    "moreActions": "Autres actions",
     "wordsCard": {
       "copy": "Copier",
       "copied": "Copié",
@@ -4655,8 +4654,7 @@
           "name": "En direct, dans plus de langues",
           "description": "Les mots apparaissent pendant que vous parlez, dans 15 langues, dont le japonais, l’arabe et l’hindi."
         }
-      },
-      "commitToTry": "Choisissez et appliquez une voix locale avant d’essayer la dictée."
+      }
     },
     "tour": {
       "label": "Pendant le téléchargement",

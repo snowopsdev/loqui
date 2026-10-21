@@ -4324,7 +4324,6 @@
   "notices": {
     "messageDetails": "訊息與操作",
     "dismiss": "關閉",
-    "moreActions": "更多操作",
     "wordsCard": {
       "copy": "複製",
       "copied": "已複製",
@@ -4615,8 +4614,7 @@
           "name": "即時辨識，支援更多語言",
           "description": "支援日文、阿拉伯文及印地文等 15 種語言，邊說邊顯示文字。"
         }
-      },
-      "commitToTry": "請先選擇並套用本機語音模型，再嘗試語音輸入。"
+      }
     },
     "tour": {
       "label": "等待下載時",

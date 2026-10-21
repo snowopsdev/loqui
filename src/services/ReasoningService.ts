@@ -58,8 +58,14 @@ class ReasoningService extends BaseReasoningService {
     if (!PROVIDER_REGISTRY[provider])
       throw new Error(`Unsupported reasoning provider: ${provider}`);
     if (!model.trim() && provider === "lan") model = "default";
-    if (!model.trim()) throw new Error("No reasoning model selected");
     const inferenceScope = config.inferenceScope || "dictationCleanup";
+    if (!model.trim()) {
+      // Cleanup notices read messageKey; other scopes keep their own no-model copy.
+      throw Object.assign(
+        new Error("No reasoning model selected"),
+        inferenceScope === "dictationCleanup" ? { messageKey: "notices.cleanupFailed.noModel" } : {}
+      );
+    }
     const custom = provider === "custom" || provider === "lan";
     return {
       requestId: crypto.randomUUID(),

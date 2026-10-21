@@ -4324,7 +4324,6 @@
   "notices": {
     "messageDetails": "消息和操作",
     "dismiss": "关闭",
-    "moreActions": "更多操作",
     "wordsCard": {
       "copy": "复制",
       "copied": "已复制",
@@ -4615,8 +4614,7 @@
           "name": "实时识别，支持更多语言",
           "description": "支持日语、阿拉伯语和印地语等 15 种语言，边说边显示文字。"
         }
-      },
-      "commitToTry": "请先选择并应用本地语音模型，再尝试听写。"
+      }
     },
     "tour": {
       "label": "等待下载时",

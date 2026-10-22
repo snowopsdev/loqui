@@ -1,3 +1,4 @@
+const egressGate = require("./privacy/egressGate");
 const { registerSettingsLinkIpc } = require("./settingsLinks");
 const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
 const {
@@ -357,9 +358,9 @@ class IPCHandlers {
     liveSpeakerIdentifier.setDiarizationManager(this.diarizationManager);
     this._setupTextEditMonitor();
     this._setupRetentionCleanup();
-    this._logDetectedGpus();
+    Promise.resolve(this._logDetectedGpus()).catch(() => {});
     // Warm the OS default mic answer before the first hotkey press (~2s on Windows).
-    resolveSystemDefaultMicrophone();
+    Promise.resolve(resolveSystemDefaultMicrophone()).catch(() => {});
     this.credentials = createCredentialAuthority({
       env: this.environmentManager,
       codexHome: path.join(app.getPath("userData"), "codex"),
@@ -1030,6 +1031,11 @@ class IPCHandlers {
 
   _runRetentionCleanup() {
     const { audioRetentionDays, transcriptRetentionDays } = this._retentionSettings;
+    // Keep ledger policy consistent on first sync and every six-hour sweep,
+    // independently of an unrelated transcript/audio cleanup failure.
+    const recorder = egressGate.getRecorder();
+    recorder?.setPersistence(this._retentionSettings.dataRetentionEnabled !== false);
+    recorder?.prune({ retentionDays: transcriptRetentionDays });
     try {
       if (transcriptRetentionDays > 0) {
         const { ids, analyticsPurged } =
@@ -1665,6 +1671,7 @@ class IPCHandlers {
         getOwner: () => this.windowManager.mainWindow?.webContents,
         hasSynced: () => this._retentionSettingsSynced,
         onSettingsChanged: (settings) => {
+          egressGate.getRecorder()?.setPersistence(settings.dataRetentionEnabled !== false);
           this._retentionSettings = settings;
           this._retentionSettingsSynced = true;
           this._runRetentionCleanup();
@@ -3381,6 +3388,7 @@ class IPCHandlers {
     // Under `npm run dev` the Vite server dies with Electron, so a relaunched dev
     // instance would have no renderer: just quit there.
     ipcMain.handle("relaunch-app", async () => {
+      if (egressGate.isSealed()) throw new Error("NATIVE_BOUNDARY_UNAVAILABLE");
       if (process.env.NODE_ENV === "development") return app.quit();
       const { launcherPath, args } = getRelaunchOptions({
         argv: process.argv,

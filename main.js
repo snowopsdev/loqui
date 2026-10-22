@@ -6,15 +6,6 @@ const product = require("./src/config/product.json");
 const { XWAYLAND_FLAG, shouldForceXWayland } = require("./src/helpers/xwayland");
 const { createHotkeyRepeatGate } = require("./src/helpers/hotkeyRepeatGate");
 
-if (shouldForceXWayland(process.argv)) {
-  const { spawn } = require("child_process");
-  spawn(process.execPath, [...process.argv.slice(1), XWAYLAND_FLAG], {
-    stdio: "inherit",
-    detached: true,
-  }).unref();
-  process.exit(0);
-}
-
 const {
   app,
   desktopCapturer,
@@ -25,24 +16,10 @@ const {
   shell,
   session,
   systemPreferences,
+  utilityProcess,
 } = require("electron");
 const path = require("path");
-const tls = require("tls");
 require("dotenv").config({ path: path.join(__dirname, ".env"), quiet: true });
-
-// Extend Node's TLS trust with the OS store so ws and https.get see corporate
-// CAs that Chromium already trusts.
-try {
-  const currentCAs = tls.getCACertificates();
-  const systemCAs = tls.getCACertificates("system");
-  if (systemCAs?.length) {
-    tls.setDefaultCACertificates([...currentCAs, ...systemCAs]);
-  }
-} catch (err) {
-  require("./src/helpers/debugLogger").warn("System CA merge failed; using existing CA list", {
-    error: err?.message,
-  });
-}
 
 const VALID_CHANNELS = new Set(["development", "staging", "production"]);
 const BASE_WINDOWS_APP_ID = product.appId;
@@ -95,6 +72,43 @@ require("dotenv").config({
   override: false,
   quiet: true,
 });
+
+// Read intent from the selected profile before any transport/helper captures.
+const privacyBoot = require("./src/helpers/privacy/privacyBoot");
+const childRegistry = require("./src/helpers/privacy/childRegistry");
+const privacy = privacyBoot.bootEgressGuards({
+  app,
+  profile: app.getPath("userData"),
+  getDefaultSession: () => session.defaultSession,
+  utilityProcess,
+});
+
+// Chromium already chose a backend. A sealed startup refuses self-relaunch;
+// continue with the selected backend rather than opening an unconfined child.
+if (shouldForceXWayland(process.argv) && !privacy.state.isSealed()) {
+  const { spawn } = require("child_process");
+  spawn(process.execPath, [...process.argv.slice(1), XWAYLAND_FLAG], {
+    stdio: "inherit",
+    detached: true,
+  }).unref();
+  process.exit(0);
+}
+
+const tls = require("tls");
+
+// Extend Node's TLS trust with the OS store so ws and https.get see corporate
+// CAs that Chromium already trusts.
+try {
+  const currentCAs = tls.getCACertificates();
+  const systemCAs = tls.getCACertificates("system");
+  if (systemCAs?.length) {
+    tls.setDefaultCACertificates([...currentCAs, ...systemCAs]);
+  }
+} catch (err) {
+  require("./src/helpers/debugLogger").warn("System CA merge failed; using existing CA list", {
+    error: err?.message,
+  });
+}
 
 // Chromium's Windows-only occlusion tracker misclassifies the always-on-top
 // transparent pill as occluded, throttling its renderer and jittering animations.
@@ -295,6 +309,7 @@ function wasLaunchedAtLoginHidden() {
 }
 
 function initializeCoreManagers() {
+  let inference = null;
   setupProductionPath();
 
   debugLogger = require("./src/helpers/debugLogger");
@@ -308,6 +323,7 @@ function initializeCoreManagers() {
   windowManager = new WindowManager();
   hotkeyManager = windowManager.hotkeyManager;
   databaseManager = new DatabaseManager();
+  privacy.recorder.attachDatabase(databaseManager.db);
   clipboardManager = new ClipboardManager();
   whisperManager = new WhisperManager();
   if (process.platform !== "darwin") {
@@ -421,6 +437,7 @@ function initializeCoreManagers() {
     getQdrantManager: () => qdrantManager,
     getTrayManager: () => trayManager,
     getPersonalInference: () => inference,
+    isSealed: () => privacy.state.isSealed(),
   });
   ipcMain.handle("get-search-model-status", () => ({
     downloaded: require("./src/helpers/localEmbeddings").isAvailable(),
@@ -434,7 +451,7 @@ function initializeCoreManagers() {
       return { success: false, error: error.message };
     }
   });
-  const inference = require("./src/helpers/personalInference").registerPersonalInferenceIPC({
+  inference = require("./src/helpers/personalInference").registerPersonalInferenceIPC({
     ipcMain,
     userDataPath: app.getPath("userData"),
     credentials: ipcHandlers.credentials,
@@ -507,6 +524,9 @@ function initializeCoreManagers() {
     ipcMain,
     BrowserWindow,
     updater: require("electron-updater").autoUpdater,
+    assertRestartAllowed: () => {
+      if (privacy.state.isSealed()) throw new Error("NATIVE_BOUNDARY_UNAVAILABLE");
+    },
     activity: updateActivity,
     busy: () =>
       updateActivity.busy() ||
@@ -525,6 +545,47 @@ function initializeCoreManagers() {
       updateExit = true;
     },
   });
+
+  const sealTransition = privacyBoot.createSealTransition({
+    state: privacy.state,
+    bootedAt: privacy.bootedAt,
+    bootFailures: privacy.bootFailures,
+    getUpdateManager: () => updateManager,
+    getInference: () => inference,
+    getCalendars: () => [googleCalendarManager, microsoftCalendarManager, appleCalendarManager],
+    children: childRegistry,
+    nativeBoundary: privacy.nativeBoundary,
+  });
+  const trustedSender = require("./src/helpers/privacy/trustedSender");
+  require("./src/helpers/privacy/privacyIPC").attachPrivacyIPC({
+    ipcMain,
+    BrowserWindow,
+    dialog,
+    state: privacy.state,
+    recorder: privacy.recorder,
+    transition: sealTransition,
+    attest: privacyBoot.createAttestor({
+      state: privacy.state,
+      transition: sealTransition,
+      getInference: () => inference,
+      children: childRegistry,
+      nativeBoundary: privacy.nativeBoundary,
+    }),
+    isTrustedSender: trustedSender.createTrustedSender({
+      getWindows: () => [windowManager.mainWindow, windowManager.controlPanelWindow],
+      appUrlPrefixes: () => trustedSender.appUrlPrefixes(),
+    }),
+    confirm: privacyBoot.createConfirmations({
+      dialog,
+      BrowserWindow,
+      t: (key, params) => i18nMain.t(key, params),
+    }),
+  });
+  if (privacy.state.isSealed())
+    void sealTransition.apply(true).catch(() => {
+      privacy.bootFailures.push("startupBarrierUnavailable");
+      sealTransition.recheck();
+    });
 
   sidecarRegistry.register("codex", () => inference.dispose());
   require("./src/helpers/modelImportIpc").registerModelImportHandlers({
@@ -593,9 +654,11 @@ function initializeDeferredManagers() {
     });
   }
 
-  googleCalendarManager.start();
-  microsoftCalendarManager.start();
-  appleCalendarManager.start();
+  if (!privacy.state.isSealed()) {
+    googleCalendarManager.start();
+    microsoftCalendarManager.start();
+    appleCalendarManager.start();
+  }
   meetingDetectionEngine.start();
 }
 
@@ -605,9 +668,16 @@ async function startApp() {
     userDataPath: app.getPath("userData"),
     development: process.env.NODE_ENV === "development",
   });
-  // Await so a stale sidecar is confirmed dead before new ones can spawn and
-  // contend for its port or storage lock.
-  await reapStaleSidecars();
+  // Consume failure-preserving PID evidence before any native manager work.
+  // Root death never proves that descendants stopped (A23).
+  const { unresolved } = await reapStaleSidecars();
+  for (const record of unresolved) childRegistry.recordUnresolved(record);
+  const startupChildDiagnostics = childRegistry.diagnostics();
+  privacy.bootFailures.push(
+    ...startupChildDiagnostics.unresolved.map(
+      (record) => `child:${record.kind}:${record.pid ?? "unknown"}:${record.reason}`
+    )
+  );
 
   // Phase 1: Core managers + IPC handlers before windows
   initializeCoreManagers();

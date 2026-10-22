@@ -122,6 +122,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () => ipcRenderer.removeListener("personal-inference:event", listener);
     },
   },
+  privacy: {
+    getSealed: () => ipcRenderer.invoke("privacy:get-sealed"),
+    setSealed: (sealed) => ipcRenderer.invoke("privacy:set-sealed", sealed),
+    getAttestation: () => ipcRenderer.invoke("privacy:attestation"),
+    onSealedChange: registerListener(
+      "privacy:sealed-changed",
+      (cb) => (_event, sealed) => cb(sealed)
+    ),
+    onAttestation: registerListener(
+      "privacy:attestation",
+      (cb) => (_event, attestation) => cb(attestation)
+    ),
+    listEgress: (options) => ipcRenderer.invoke("privacy:egress-list", options),
+    egressSummary: (options) => ipcRenderer.invoke("privacy:egress-summary", options),
+    clearEgress: () => ipcRenderer.invoke("privacy:egress-clear"),
+    exportEgressCsv: () => ipcRenderer.invoke("privacy:egress-export"),
+    onEgress: registerListener("privacy:egress-event", (cb) => (_event, notice) => cb(notice)),
+    onEgressCleared: registerListener("privacy:egress-cleared", (cb) => () => cb()),
+  },
+
   keyring: {
     list: (options) => ipcRenderer.invoke("keyring-list", options),
     routeHealth: (options) => ipcRenderer.invoke("keyring-route-health", options),

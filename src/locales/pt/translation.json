@@ -4464,6 +4464,23 @@
       "availableTitle": "Gravações prontas para recuperar",
       "transcribe": "Transcrever gravações",
       "discard": "Descartar gravações"
+    },
+    "confirmUnseal": {
+      "title": "Desativar o modo selado?",
+      "message": "As rotas na nuvem, os downloads, as atualizações e os calendários poderão usar a rede novamente.",
+      "detail": "O Loqui pede confirmação aqui, fora da janela do aplicativo, para que só você possa desativar o modo selado.",
+      "keep": "Manter selado",
+      "turnOff": "Desativar o modo selado"
+    },
+    "confirmClear": {
+      "title": "Limpar o registro de conexões?",
+      "message": "Isso exclui o histórico de conexões neste computador.",
+      "detail": "{{count}} registros serão excluídos. Isso não afeta o que um provedor já recebeu.",
+      "keep": "Manter registros",
+      "clear": "Limpar histórico",
+      "detail_one": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu.",
+      "detail_many": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu.",
+      "detail_other": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu."
     }
   },
   "setupFlow": {

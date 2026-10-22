@@ -4454,6 +4454,22 @@
       "availableTitle": "Aufnahmen können wiederhergestellt werden",
       "transcribe": "Aufnahmen transkribieren",
       "discard": "Aufnahmen verwerfen"
+    },
+    "confirmUnseal": {
+      "title": "Abgeschotteten Modus ausschalten?",
+      "message": "Cloud-Verbindungen, Downloads, Updates und Kalender können dann wieder das Netzwerk nutzen.",
+      "detail": "Loqui fragt hier außerhalb des App-Fensters nach, damit nur du den abgeschotteten Modus ausschalten kannst.",
+      "keep": "Abgeschottet bleiben",
+      "turnOff": "Abgeschotteten Modus ausschalten"
+    },
+    "confirmClear": {
+      "title": "Verbindungsprotokoll löschen?",
+      "message": "Dadurch wird das Verbindungsprotokoll auf diesem Computer gelöscht.",
+      "detail": "Anzahl der zu löschenden Einträge: {{count}}. Bereits von einem Anbieter empfangene Daten sind davon nicht betroffen.",
+      "keep": "Einträge behalten",
+      "clear": "Verlauf löschen",
+      "detail_one": "Anzahl der zu löschenden Einträge: {{count}}. Bereits von einem Anbieter empfangene Daten sind davon nicht betroffen.",
+      "detail_other": "Anzahl der zu löschenden Einträge: {{count}}. Bereits von einem Anbieter empfangene Daten sind davon nicht betroffen."
     }
   },
   "setupFlow": {

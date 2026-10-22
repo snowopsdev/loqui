@@ -4464,6 +4464,23 @@
       "availableTitle": "Enregistrements prêts à être récupérés",
       "transcribe": "Transcrire les enregistrements",
       "discard": "Supprimer les enregistrements"
+    },
+    "confirmUnseal": {
+      "title": "Désactiver le mode scellé ?",
+      "message": "Les connexions au cloud, les téléchargements, les mises à jour et les calendriers pourront à nouveau utiliser le réseau.",
+      "detail": "Loqui demande confirmation ici, en dehors de la fenêtre de l’application, pour que vous seul puissiez désactiver le mode scellé.",
+      "keep": "Rester en mode scellé",
+      "turnOff": "Désactiver le mode scellé"
+    },
+    "confirmClear": {
+      "title": "Effacer le journal des connexions ?",
+      "message": "Cette action supprime l’historique des connexions sur cet ordinateur.",
+      "detail": "{{count}} entrées seront supprimées. Les données déjà reçues par un fournisseur ne sont pas concernées.",
+      "keep": "Conserver les entrées",
+      "clear": "Effacer l’historique",
+      "detail_one": "Nombre d’entrées à supprimer : {{count}}. Les données déjà reçues par un fournisseur ne sont pas concernées.",
+      "detail_many": "Nombre d’entrées à supprimer : {{count}}. Les données déjà reçues par un fournisseur ne sont pas concernées.",
+      "detail_other": "Nombre d’entrées à supprimer : {{count}}. Les données déjà reçues par un fournisseur ne sont pas concernées."
     }
   },
   "setupFlow": {

@@ -4454,6 +4454,22 @@
       "availableTitle": "Recordings ready to recover",
       "transcribe": "Transcribe recordings",
       "discard": "Discard recordings"
+    },
+    "confirmUnseal": {
+      "title": "Turn off Sealed mode?",
+      "message": "Cloud routes, downloads, updates and calendars will be able to use the network again.",
+      "detail": "Loqui asks here, outside the app window, so that only you can turn Sealed mode off.",
+      "keep": "Keep sealed",
+      "turnOff": "Turn off Sealed mode"
+    },
+    "confirmClear": {
+      "title": "Clear the flight recorder?",
+      "message": "This deletes the flight recorder history on this computer.",
+      "detail": "{{count}} records will be deleted. Nothing a provider already received is affected.",
+      "keep": "Keep records",
+      "clear": "Clear history",
+      "detail_one": "{{count}} record will be deleted. Nothing a provider already received is affected.",
+      "detail_other": "{{count}} records will be deleted. Nothing a provider already received is affected."
     }
   },
   "setupFlow": {

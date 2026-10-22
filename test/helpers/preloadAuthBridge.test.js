@@ -247,3 +247,61 @@ test("the control panel capture bridge strips events and supports unsubscribe", 
   assert.equal(listeners.has("dictation-lifecycle-changed"), false);
   assert.equal(listeners.has("dictation-level-changed"), false);
 });
+
+test("privacy bridge exposes the Sealed mode contract", async () => {
+  const { api, invocations, listeners } = loadPreloadApi();
+  await api.privacy.getSealed();
+  await api.privacy.setSealed(true);
+  await api.privacy.getAttestation();
+  await api.privacy.listEgress({ since: 5 });
+  await api.privacy.egressSummary({ since: 5 });
+  await api.privacy.clearEgress();
+  await api.privacy.exportEgressCsv();
+  assert.deepEqual(invocations, [
+    ["privacy:get-sealed"],
+    ["privacy:set-sealed", true],
+    ["privacy:attestation"],
+    ["privacy:egress-list", { since: 5 }],
+    ["privacy:egress-summary", { since: 5 }],
+    ["privacy:egress-clear"],
+    ["privacy:egress-export"],
+  ]);
+  const seen = [];
+  const off = api.privacy.onSealedChange((sealed) => seen.push(sealed));
+  listeners.get("privacy:sealed-changed")({}, true);
+  off();
+  assert.deepEqual(seen, [true]);
+  assert.equal(listeners.has("privacy:sealed-changed"), false);
+  const attestations = [];
+  api.privacy.onAttestation((a) => attestations.push(a.version));
+  listeners.get("privacy:attestation")({}, { version: 3 });
+  assert.deepEqual(attestations, [3]);
+  const notices = [];
+  api.privacy.onEgress((n) => notices.push(n));
+  listeners.get("privacy:egress-event")(
+    {},
+    { phase: "dispatched", task: "chat", targetId: "groq" }
+  );
+  assert.deepEqual(notices, [{ phase: "dispatched", task: "chat", targetId: "groq" }]);
+});
+
+test("every privacy event strips Electron identity and unsubscribes", () => {
+  const { api, listeners } = loadPreloadApi();
+  for (const [method, channel] of [
+    ["onSealedChange", "privacy:sealed-changed"],
+    ["onAttestation", "privacy:attestation"],
+    ["onEgress", "privacy:egress-event"],
+    ["onEgressCleared", "privacy:egress-cleared"],
+  ]) {
+    let args;
+    const off = api.privacy[method]((...values) => {
+      args = values;
+    });
+    const payload = { value: 1 };
+    listeners.get(channel)({ sender: "secret-electron-event" }, payload);
+    assert.equal(args.length, method === "onEgressCleared" ? 0 : 1);
+    if (args.length) assert.equal(args[0], payload);
+    off();
+    assert.equal(listeners.has(channel), false);
+  }
+});

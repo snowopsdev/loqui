@@ -4424,6 +4424,21 @@
       "availableTitle": "錄音已可復原",
       "transcribe": "轉錄錄音",
       "discard": "捨棄錄音"
+    },
+    "confirmUnseal": {
+      "title": "關閉封閉模式？",
+      "message": "雲端連線、下載、更新和行事曆將能夠再次使用網路。",
+      "detail": "Loqui 在應用程式視窗之外的此對話框中要求確認，以確保只有你能關閉封閉模式。",
+      "keep": "保持封閉",
+      "turnOff": "關閉封閉模式"
+    },
+    "confirmClear": {
+      "title": "清除通訊記錄？",
+      "message": "這將刪除此電腦上的通訊歷史記錄。",
+      "detail": "將刪除 {{count}} 筆記錄。服務供應商已收到的內容不受影響。",
+      "keep": "保留記錄",
+      "clear": "清除歷史記錄",
+      "detail_other": "將刪除 {{count}} 筆記錄。服務供應商已收到的內容不受影響。"
     }
   },
   "setupFlow": {

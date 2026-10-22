@@ -4424,6 +4424,21 @@
       "availableTitle": "录音已可恢复",
       "transcribe": "转写录音",
       "discard": "丢弃录音"
+    },
+    "confirmUnseal": {
+      "title": "关闭封闭模式？",
+      "message": "云端连接、下载、更新和日历将能够再次使用网络。",
+      "detail": "Loqui 在应用窗口之外的此对话框中请求确认，以确保只有你能关闭封闭模式。",
+      "keep": "保持封闭",
+      "turnOff": "关闭封闭模式"
+    },
+    "confirmClear": {
+      "title": "清空通信记录？",
+      "message": "这将删除此计算机上的通信历史记录。",
+      "detail": "将删除 {{count}} 条记录。服务提供商已收到的内容不会受到影响。",
+      "keep": "保留记录",
+      "clear": "清空历史记录",
+      "detail_other": "将删除 {{count}} 条记录。服务提供商已收到的内容不会受到影响。"
     }
   },
   "setupFlow": {

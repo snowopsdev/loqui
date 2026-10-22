@@ -4464,6 +4464,23 @@
       "availableTitle": "Registrazioni pronte per il recupero",
       "transcribe": "Trascrivi registrazioni",
       "discard": "Elimina registrazioni"
+    },
+    "confirmUnseal": {
+      "title": "Disattivare la modalità sigillata?",
+      "message": "I collegamenti al cloud, i download, gli aggiornamenti e i calendari potranno usare di nuovo la rete.",
+      "detail": "Loqui chiede conferma qui, fuori dalla finestra dell’app, affinché solo tu possa disattivare la modalità sigillata.",
+      "keep": "Mantieni sigillato",
+      "turnOff": "Disattiva la modalità sigillata"
+    },
+    "confirmClear": {
+      "title": "Cancellare il registro delle connessioni?",
+      "message": "Questa operazione elimina la cronologia delle connessioni su questo computer.",
+      "detail": "Verranno eliminate {{count}} voci. I dati già ricevuti da un fornitore non subiranno modifiche.",
+      "keep": "Conserva le voci",
+      "clear": "Cancella cronologia",
+      "detail_one": "Verrà eliminata {{count}} voce. I dati già ricevuti da un fornitore non subiranno modifiche.",
+      "detail_many": "Verranno eliminate {{count}} voci. I dati già ricevuti da un fornitore non subiranno modifiche.",
+      "detail_other": "Verranno eliminate {{count}} voci. I dati già ricevuti da un fornitore non subiranno modifiche."
     }
   },
   "setupFlow": {

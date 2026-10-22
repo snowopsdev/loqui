@@ -954,12 +954,8 @@ declare global {
     electronAPI: {
       getSearchModelStatus: () => Promise<{ downloaded: boolean }>;
       downloadSearchModel: () => Promise<{ success: boolean; error?: string }>;
-      // Sealed mode (spec §5.4, Plan 07). Optional until Plan 07 ships the
-      // preload namespace; src/stores/sealedStore.ts is its only reader.
-      privacy?: {
-        getSealed: () => Promise<boolean>;
-        onSealedChange: (callback: (sealed: boolean) => void) => (() => void) | void;
-      };
+      // Main-owned privacy and metadata recorder (Plan 07).
+      privacy: import("./privacy").PrivacyAPI;
 
       updates: import("./updates").UpdatesAPI;
       personalInference: import("../services/ai/personalInferenceTypes").PersonalInferenceAPI;

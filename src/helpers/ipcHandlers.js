@@ -1,5 +1,6 @@
 const egressGate = require("./privacy/egressGate");
-const { guardMetered } = require("./privacy/gatedFetch");
+const { guardMetered, gatedNetFetch } = require("./privacy/gatedFetch");
+const { buildMultipartBody, postMultipart } = require("./sttTransport");
 const { effectiveEndpoint } = require("./privacy/providerEndpoints");
 const { isSealedModeError, sealedPhaseOf } = require("./privacy/egressPolicy");
 const { registerSettingsLinkIpc } = require("./settingsLinks");
@@ -52,6 +53,14 @@ const serializeIpcError =
     try {
       return await fn(...args);
     } catch (error) {
+      // Sealed mode stays typed: a refusal sent nothing, an interruption may have.
+      if (isSealedModeError(error))
+        return {
+          error: error.message,
+          code: "SEALED_MODE",
+          messageKey: error.messageKey,
+          phase: sealedPhaseOf(error),
+        };
       return { error: error.message, code: error.code, messageKey: error.messageKey };
     }
   };
@@ -80,8 +89,8 @@ const { focusWindowsHotkeyCaptureWindow } = require("./hotkeyCaptureFocus");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
 const { getTinfoilChatModels } = require("./tinfoilCatalog");
-const { transcribeWithTinfoil } = require("./tinfoilTranscription");
-const { transcribeWithGemini } = require("./geminiTranscription");
+const { transcribeWithTinfoil, TINFOIL_TRANSCRIPTION_TARGET } = require("./tinfoilTranscription");
+const { transcribeWithGemini, GEMINI_INTERACTIONS_URL } = require("./geminiTranscription");
 const AudioStorageManager = require("./audioStorage");
 const LocalModelDownloadStatus = require("./localModelDownloadStatus");
 const AgentStreamRequestRegistry = require("./agentStreamRequestRegistry");
@@ -158,6 +167,27 @@ const MEETING_SYSTEM_VAD_THRESHOLD = 0.3;
 const MISTRAL_TRANSCRIPTION_URL = "https://api.mistral.ai/v1/audio/transcriptions";
 
 const XAI_STT_URL = "https://api.x.ai/v1/stt";
+const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
+// Sealed mode: the recipient a speech route's first request goes to, checked
+// before any credential is read or any audio is converted. Unknown is remote.
+const speechDispatchTarget = (route) => {
+  if (route.provider === "corti")
+    return ["eu", "us"].includes(route.cortiEnvironment)
+      ? `https://api.${route.cortiEnvironment}.corti.app/v2`
+      : null;
+  if (route.provider === "tinfoil") return TINFOIL_TRANSCRIPTION_TARGET;
+  if (route.provider === "gemini") return GEMINI_INTERACTIONS_URL;
+  if (route.provider === "xai") return XAI_STT_URL;
+  if (route.provider === "mistral") return MISTRAL_TRANSCRIPTION_URL;
+  return route.endpoint || null;
+};
+// Canonical egress target: the provider id, or host:<host> for the user's own
+// (custom or self-hosted) endpoint.
+const speechProvider = (route) =>
+  route.provider === "custom" || route.provider === "self-hosted" ? null : route.provider || null;
+// Sealed-mode envelope fields for handlers that return { success: false, ... }.
+const sealedEnvelope = (error) =>
+  isSealedModeError(error) ? { code: "SEALED_MODE", phase: sealedPhaseOf(error) } : {};
 
 // Debounce delay: wait for user to stop typing before processing corrections
 const AUTO_LEARN_DEBOUNCE_MS = 1500;
@@ -219,64 +249,6 @@ function resolveAllowedAudioPath(filePath) {
     return real;
   }
   return null;
-}
-
-function buildMultipartBody(fileBuffer, fileName, contentType, fields = {}) {
-  const boundary = `----OpenWhispr${Date.now()}`;
-  const parts = [];
-
-  parts.push(
-    `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-      `Content-Type: ${contentType}\r\n\r\n`
-  );
-  parts.push(fileBuffer);
-  parts.push("\r\n");
-
-  for (const [name, value] of Object.entries(fields)) {
-    for (const item of Array.isArray(value) ? value : [value]) {
-      if (item == null) continue;
-      parts.push(
-        `--${boundary}\r\n` +
-          `Content-Disposition: form-data; name="${name}"\r\n\r\n` +
-          `${item}\r\n`
-      );
-    }
-  }
-
-  parts.push(`--${boundary}--\r\n`);
-
-  const bodyParts = parts.map((p) => (typeof p === "string" ? Buffer.from(p) : p));
-  return { body: Buffer.concat(bodyParts), boundary };
-}
-
-async function postMultipart(
-  url,
-  body,
-  boundary,
-  headers = {},
-  { signal, session: fetchSession } = {}
-) {
-  const response = await (fetchSession ?? net).fetch(url.toString(), {
-    method: "POST",
-    headers: {
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
-      ...headers,
-    },
-    body,
-    useSessionCookies: false,
-    signal,
-  });
-  const text = await response.text();
-  try {
-    return { statusCode: response.status, data: JSON.parse(text) };
-  } catch {
-    // Vercel platform errors (413 payload cap, 504 timeout) return non-JSON bodies.
-    throw Object.assign(new Error(`Server error ${response.status}: ${text.slice(0, 120)}`), {
-      code: "SERVER_ERROR",
-      statusCode: response.status,
-    });
-  }
 }
 
 // Cleanup toast wording for replies the main-process providers reject; mirror
@@ -1288,6 +1260,17 @@ class IPCHandlers {
     const handleGated = (channel, meta, fn) =>
       ipcMain.handle(channel, (event, ...args) =>
         egressGate.guard(meta(...args), () => fn(event, ...args))
+      );
+    // Speech and legacy proxy channels run inside their egress task and
+    // correlation context, so every transport they reach (multipart, Corti,
+    // Gemini, Tinfoil, proxies) is attributed and gated by main.
+    const handleSpeech = (channel, { task, correlationId = () => null }, fn) =>
+      ipcMain.handle(channel, (event, ...args) =>
+        egressGate.withTask(typeof task === "function" ? task(...args) : task, () =>
+          egressGate.withContext({ correlationId: correlationId(...args) }, () =>
+            fn(event, ...args)
+          )
+        )
       );
     // Legacy enterprise channels carry their configuration from the renderer.
     // The target is that configuration's endpoint; the backstop records the
@@ -4190,9 +4173,11 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle(
+    handleSpeech(
       "proxy-xai-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, language, keyterms }) => {
+        egressGate.assertAllowed({ target: XAI_STT_URL });
         const apiKey = this.environmentManager.getXaiKey();
         if (!apiKey) {
           throw new Error("xAI API key not configured");
@@ -4212,11 +4197,15 @@ class IPCHandlers {
           }
         }
 
-        const response = await proxyFetch(XAI_STT_URL, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
-          body: formData,
-        });
+        const response = await gatedNetFetch(
+          XAI_STT_URL,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}` },
+            body: formData,
+          },
+          { payload: "audio", provider: "xai" }
+        );
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -4227,9 +4216,11 @@ class IPCHandlers {
       })
     );
 
-    ipcMain.handle(
+    handleSpeech(
       "proxy-mistral-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, model, language, contextBias }) => {
+        egressGate.assertAllowed({ target: MISTRAL_TRANSCRIPTION_URL });
         const apiKey = this.environmentManager.getMistralKey();
         if (!apiKey) {
           throw new Error("Mistral API key not configured");
@@ -4248,13 +4239,17 @@ class IPCHandlers {
           }
         }
 
-        const response = await proxyFetch(MISTRAL_TRANSCRIPTION_URL, {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
+        const response = await gatedNetFetch(
+          MISTRAL_TRANSCRIPTION_URL,
+          {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey,
+            },
+            body: formData,
           },
-          body: formData,
-        });
+          { payload: "audio", provider: "mistral" }
+        );
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -4281,9 +4276,13 @@ class IPCHandlers {
       this._acknowledgedSave("corti:speech", "clientSecret", key)
     );
 
-    ipcMain.handle(
+    handleSpeech(
       "proxy-corti-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, language, environment, tenant }) => {
+        egressGate.assertAllowed({
+          target: speechDispatchTarget({ provider: "corti", cortiEnvironment: environment }),
+        });
         const clientId = this.environmentManager.getCortiClientId();
         const clientSecret = this.environmentManager.getCortiClientSecret();
         if (!clientId || !clientSecret) {
@@ -4307,9 +4306,11 @@ class IPCHandlers {
     });
 
     // Enclave attestation is Node-only, so batch transcription is proxied through main.
-    ipcMain.handle(
+    handleSpeech(
       "proxy-tinfoil-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, language, prompt }) => {
+        egressGate.assertAllowed({ target: TINFOIL_TRANSCRIPTION_TARGET });
         return await transcribeWithTinfoil({
           audioBuffer: Buffer.from(audioBuffer),
           fileName: "audio.webm",
@@ -4323,9 +4324,11 @@ class IPCHandlers {
 
     // Gemini's Interactions API takes JSON with inline base64 audio, not
     // OpenAI-compatible multipart, so batch transcription is proxied through main.
-    ipcMain.handle(
+    handleSpeech(
       "proxy-gemini-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, model, language, keyterms }) => {
+        egressGate.assertAllowed({ target: GEMINI_INTERACTIONS_URL });
         return await transcribeWithGemini({
           audioBuffer: Buffer.from(audioBuffer),
           model,
@@ -5043,10 +5046,12 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle(
+    handleSpeech(
       "process-anthropic-reasoning",
+      { task: "dictationCleanup" },
       async (event, text, modelId, _agentName, config) => {
         try {
+          egressGate.assertAllowed({ target: ANTHROPIC_MESSAGES_URL });
           const apiKey = this.environmentManager.getAnthropicKey();
 
           if (!apiKey) {
@@ -5086,15 +5091,19 @@ class IPCHandlers {
             ...(useTemperature ? { temperature: config?.temperature ?? 0.3 } : {}),
           };
 
-          const response = await proxyFetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-Key": apiKey,
-              "anthropic-version": "2023-06-01",
+          const response = await gatedNetFetch(
+            ANTHROPIC_MESSAGES_URL,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-API-Key": apiKey,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify(requestBody),
             },
-            body: JSON.stringify(requestBody),
-          });
+            { payload: screenContext ? "image" : "text", provider: "anthropic" }
+          );
 
           if (!response.ok) {
             const errorText = await response.text();
@@ -5126,7 +5135,12 @@ class IPCHandlers {
           return { success: true, text: outputText };
         } catch (error) {
           debugLogger.error("Anthropic reasoning error:", error);
-          return { success: false, error: error.message, messageKey: error.messageKey };
+          return {
+            success: false,
+            error: error.message,
+            messageKey: error.messageKey,
+            ...sealedEnvelope(error),
+          };
         }
       }
     );
@@ -5678,7 +5692,9 @@ class IPCHandlers {
       });
     });
 
-    const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
+    // Sealed mode: realtime token requests go through the gate. Their task comes
+    // from the caller's context (Task 9a attributes the streaming callers).
+    const proxyFetch = (url, init = {}) => gatedNetFetch(url, init);
     const resolveEnterpriseRuntime = async (_event, provider, model, config = {}) => {
       await this.vertexAuthSourceReady;
       const enterprise = require("./enterpriseProviderErrors").pickEnterpriseConfig(config);
@@ -5694,7 +5710,7 @@ class IPCHandlers {
       };
     };
 
-    ipcMain.handle("retry-transcription", async (event, id, settings) => {
+    handleSpeech("retry-transcription", { task: "dictationStt" }, async (event, id, settings) => {
       const buffer = this.audioStorageManager.getAudioBuffer(id);
       if (!buffer) return { success: false, error: "Audio file not found" };
       try {
@@ -5722,6 +5738,10 @@ class IPCHandlers {
           if (route.messageKey) err.messageKey = route.messageKey;
           throw err;
         }
+        // Sealed mode: refuse a remote recipient before any credential read or
+        // re-encode. The stored audio and its History row stay untouched.
+        if (route.transport !== "local")
+          egressGate.assertAllowed({ target: speechDispatchTarget(route) });
 
         if (route.transport === "http-batch" && route.provider === "self-hosted") {
           const formData = new FormData();
@@ -5733,10 +5753,11 @@ class IPCHandlers {
             formData.append("language", route.language);
           }
 
-          const response = await proxyFetch(route.endpoint, {
-            method: "POST",
-            body: formData,
-          });
+          const response = await gatedNetFetch(
+            route.endpoint,
+            { method: "POST", body: formData },
+            { payload: "audio" }
+          );
           if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`Self-hosted API Error: ${response.status} ${errorText}`);
@@ -5881,7 +5902,11 @@ class IPCHandlers {
             }
           }
 
-          const response = await proxyFetch(endpoint, { method: "POST", headers, body: formData });
+          const response = await gatedNetFetch(
+            endpoint,
+            { method: "POST", headers, body: formData },
+            { payload: "audio", provider: speechProvider(route) }
+          );
           if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`${provider} API Error: ${response.status} ${errorText}`);
@@ -5928,9 +5953,15 @@ class IPCHandlers {
           "audio-storage"
         );
         if (error.code) {
-          return { success: false, error: error.message, code: error.code, ...error };
+          return {
+            success: false,
+            error: error.message,
+            code: error.code,
+            ...error,
+            ...sealedEnvelope(error),
+          };
         }
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...sealedEnvelope(error) };
       }
     });
 
@@ -8465,8 +8496,18 @@ class IPCHandlers {
       return { success: this._uploadCancelRegistry.cancel(requestId) > 0 };
     });
 
-    ipcMain.handle(
+    // Captured dictation audio is dictationStt; a chosen file is uploadStt. The
+    // dictation session id correlates the request (Plan 04 §5.4), else the
+    // upload's own requestId does.
+    const validCorrelation = (value) =>
+      typeof value === "string" && value && value.length <= 100 ? value : null;
+    handleSpeech(
       "transcribe-audio-file-byok",
+      {
+        task: (request) => (request?.audioBuffer !== undefined ? "dictationStt" : "uploadStt"),
+        correlationId: (request) =>
+          validCorrelation(request?.correlationId) ?? validCorrelation(request?.requestId),
+      },
       async (
         event,
         {
@@ -8574,6 +8615,9 @@ class IPCHandlers {
               messageKey: route.messageKey,
             };
           }
+          // Sealed mode: refuse a remote recipient before any credential read or
+          // conversion. The caller keeps the recording or file.
+          egressGate.assertAllowed({ target: speechDispatchTarget(route) });
 
           if (prompt) {
             const { dictionaryPromptLimit, trimDictionaryPrompt } =
@@ -8613,7 +8657,7 @@ class IPCHandlers {
               body,
               boundary,
               {},
-              { signal: job.signal }
+              { signal: job.signal, provider: speechProvider(route) }
             );
             if (data.statusCode !== 200) {
               throw new Error(
@@ -8768,7 +8812,10 @@ class IPCHandlers {
                 : { Authorization: `Bearer ${apiKey}` }
             : undefined;
           handOff();
-          const data = await postMultipart(url, body, boundary, headers, { signal: job.signal });
+          const data = await postMultipart(url, body, boundary, headers, {
+            signal: job.signal,
+            provider: speechProvider(route),
+          });
 
           if (data.statusCode === 401) {
             return { success: false, error: "Invalid API key. Check your key in Settings." };
@@ -8832,6 +8879,7 @@ class IPCHandlers {
             error: error.message,
             code: error.code,
             messageKey: error.messageKey,
+            ...sealedEnvelope(error),
           };
         } finally {
           cleanupUpload?.();

@@ -4,6 +4,9 @@ const Module = require("node:module");
 
 const transcriptionModulePath = require.resolve("../../src/helpers/tinfoilTranscription.js");
 const originalLoad = Module._load;
+// The request now runs in an egress ticket (Task 9); these cases model an
+// unsealed main. Sealed refusal is covered by sttTransportSealed.test.js.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 
 function loadTranscription(fetchImpl) {
   delete require.cache[transcriptionModulePath];

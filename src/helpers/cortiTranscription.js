@@ -1,17 +1,23 @@
-const { net } = require("electron");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
 const crypto = require("crypto");
 const debugLogger = require("./debugLogger");
 const { getCortiToken } = require("./cortiAuth");
 
-async function request(token, tenant, url, options = {}) {
-  const response = await net.fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Tenant-Name": tenant,
-      ...options.headers,
+// Sealed mode: every Corti request is gated. Only the recording upload carries
+// audio; the task and correlation come from the calling handler's context.
+async function request(token, tenant, url, options = {}, payload = "metadata") {
+  const response = await gatedNetFetch(
+    url,
+    {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Tenant-Name": tenant,
+        ...options.headers,
+      },
     },
-  });
+    { payload, provider: "corti" }
+  );
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
     throw new Error(`Corti API Error: ${response.status} ${errorText}`.trim());
@@ -19,8 +25,8 @@ async function request(token, tenant, url, options = {}) {
   return response;
 }
 
-async function requestJson(token, tenant, url, options) {
-  return (await request(token, tenant, url, options)).json();
+async function requestJson(token, tenant, url, options, payload) {
+  return (await request(token, tenant, url, options, payload)).json();
 }
 
 // Corti's WSS /transcribe endpoint is a strictly real-time engine — replaying a
@@ -67,7 +73,8 @@ async function transcribeAudio({
         signal,
         headers: { "Content-Type": "application/octet-stream" },
         body: Buffer.from(audioBuffer),
-      }
+      },
+      "audio"
     );
 
     const transcript = await requestJson(
@@ -86,14 +93,16 @@ async function transcribeAudio({
   } finally {
     // Dictation audio must not persist on Corti's servers — deleting the
     // interaction cascades to its recordings and transcripts.
-    request(token, tenant, `${base}/interactions/${interactionId}`, { method: "DELETE" }).catch(
-      (error) =>
+    // Reading the reply settles its egress ticket.
+    request(token, tenant, `${base}/interactions/${interactionId}`, { method: "DELETE" })
+      .then((response) => response.arrayBuffer())
+      .catch((error) =>
         debugLogger.error(
           "Failed to delete Corti interaction",
           { interactionId, error: error.message },
           "transcription"
         )
-    );
+      );
   }
 }
 

@@ -170,6 +170,7 @@ src/helpers/qdrantManager.js
 src/helpers/realtimeTokenProviders.js
 src/helpers/selfHostedProbe.js
 src/helpers/streamingHandOff.js
+src/helpers/sttTransport.js
 src/helpers/textOperationCapture.js
 src/helpers/tinfoilCatalog.js
 src/helpers/tinfoilRealtimeStreaming.js
@@ -365,3 +366,36 @@ rejects `CODEX_STOP_FAILED`; `codexRunning` is true until that exit. Root exit i
 not whole-tree proof: the child registry keeps descendant coverage unresolved.
 None of this is native isolation; the Codex app-server is a native child that
 07a refuses to start while sealed. 07b/D14–D16 remain open.
+
+## Task 9: batch speech, retry and legacy proxies (07a)
+
+`sttTransport.js` holds the multipart helpers moved unchanged from
+`ipcHandlers.js`. `postMultipart` runs one egress ticket over a metered, tagged
+Electron request and the body read: `bytesOut` is the exact multipart body
+length, receipts are `dispatched` just before the transport and `delivered` when
+the response arrives, the caller's signal (upload cancel) composes with the
+ticket's, and sealing it mid-flight rejects as interrupted, never "nothing was
+sent". The Corti token and REST requests, the Gemini Interactions request and
+the legacy xAI, Mistral and Anthropic proxies use `gatedNetFetch`; only Corti's
+recording upload, Gemini's request and the speech proxies carry `audio` (the
+Anthropic proxy carries `text`, or `image` with screen context). The Tinfoil
+batch request and its attestation run inside one ticket. Injected `fetchImpl`
+overrides (Verify's metered transport, unit tests) are unchanged.
+
+`transcribe-audio-file-byok` runs as `dictationStt` for captured audio and
+`uploadStt` for a file, correlated by the dictation session id, else the
+upload's `requestId`. `retry-transcription` and the `proxy-*-transcription`
+channels run as `dictationStt`, and `process-anthropic-reasoning` as
+`dictationCleanup`. Each checks the route's recipient after Plan 03's route
+resolution and before any credential read, temporary MP3/WAV conversion or
+transport, so a sealed refusal writes one `blocked` row and the recording, file
+or stored History audio is kept. The canonical target is the provider id, or
+`host:<host>` for custom and self-hosted endpoints. A user-owned loopback
+endpoint stays usable; any native conversion it would need is still refused by
+the spawn guard (retry then uploads the stored container, as on any conversion
+failure). Handlers that return an envelope add `code: "SEALED_MODE"` and the
+`phase`; the error text keeps its `[SEALED_MODE]`/`[SEALED_MODE:interrupted]`
+marker. Realtime token requests (`proxyFetch`) are gated with their caller's
+task; attributing the streaming callers is Task 9a. A sealed Corti dictation
+cannot delete its interaction afterwards (that request is also refused).
+None of this is native isolation. 07b/D14–D16 remain open.

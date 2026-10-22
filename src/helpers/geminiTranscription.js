@@ -1,4 +1,4 @@
-const { net } = require("electron");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
 const debugLogger = require("./debugLogger");
 
 // gemini-3.5-transcribe is only served by the Interactions API; there is no
@@ -66,7 +66,11 @@ async function transcribeWithGemini(
     "transcription"
   );
 
-  const doFetch = fetchImpl || ((url, init) => net.fetch(url, init));
+  // Sealed mode: the default transport is gated; the task and correlation come
+  // from the calling handler's egress context.
+  const doFetch =
+    fetchImpl ||
+    ((url, init) => gatedNetFetch(url, init, { payload: "audio", provider: "gemini" }));
   const response = await doFetch(GEMINI_INTERACTIONS_URL, {
     method: "POST",
     signal,
@@ -112,4 +116,4 @@ async function transcribeWithGemini(
   return { text: extractText(data), model: resolvedModel };
 }
 
-module.exports = { transcribeWithGemini };
+module.exports = { transcribeWithGemini, GEMINI_INTERACTIONS_URL };

@@ -118,6 +118,16 @@ function authorityHost(authority) {
   return normalizeHost(raw);
 }
 
+function sameHostAddress(left, right) {
+  if (left === right) return true;
+  if (net.isIP(left) !== 6 || net.isIP(right) !== 6) return false;
+  const leftWords = ipv6Words(left);
+  const rightWords = ipv6Words(right);
+  return (
+    !!leftWords && !!rightWords && leftWords.every((word, index) => word === rightWords[index])
+  );
+}
+
 function hostOf(target) {
   if (target instanceof URL) {
     const authority = target.href.match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i)?.[1];
@@ -130,10 +140,16 @@ function hostOf(target) {
   if (typeof target !== "string") return null;
   const match = target.match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i);
   if (!match) return null;
+  // WHATWG treats backslashes as separators for special URLs and strips some
+  // ASCII controls during parsing. Reject these raw authority spellings so
+  // validation cannot authorize a different destination than the transport.
+  if (/[\\\u0000-\u0020\u007f]/.test(match[1])) return null;
   const host = authorityHost(match[1]);
   if (!host) return null;
   try {
     const parsed = new URL(target);
+    const parsedHost = normalizeHost(parsed.hostname);
+    if (!parsedHost || !sameHostAddress(parsedHost, host)) return null;
     // Do not let URL's permissive legacy IPv4 parser turn malformed raw
     // numeric hosts into a loopback address.
     if (
@@ -144,7 +160,7 @@ function hostOf(target) {
       )
     )
       return null;
-    return host;
+    return parsedHost;
   } catch {
     return null;
   }
@@ -234,8 +250,12 @@ function sealedPhaseOf(error, depth = 0) {
   const message = messageOf(error);
   if (message.includes(`[${SEALED_MODE}:interrupted]`)) return "interrupted";
   if (message.includes(`[${SEALED_MODE}]`)) return "refused";
+  // Prefer explicit phase evidence anywhere in the bounded cause chain over
+  // a wrapper's code-only fallback, which cannot distinguish interruption.
+  const causePhase = sealedPhaseOf(error.cause, depth + 1);
+  if (causePhase) return causePhase;
   if (error.code === SEALED_MODE) return "refused";
-  return sealedPhaseOf(error.cause, depth + 1);
+  return null;
 }
 
 module.exports = {

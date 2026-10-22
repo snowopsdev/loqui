@@ -46,6 +46,8 @@ test("hostOf reduces valid targets to a bare lowercase host", () => {
     "api.openai.com"
   );
   assert.equal(policy.hostOf(new URL("http://[::1]:8080/v1")), "::1");
+  assert.equal(policy.hostOf("http://[0:0:0:0:0:0:0:1]/"), "::1");
+  assert.equal(policy.hostOf("http://[::ffff:127.0.0.1]/"), "::ffff:7f00:1");
   assert.equal(policy.hostOf({ hostname: "Example.COM." }), "example.com");
   assert.equal(policy.hostOf({ host: "example.com:443" }), "example.com");
   for (const malformed of [
@@ -59,6 +61,24 @@ test("hostOf reduces valid targets to a bare lowercase host", () => {
   assert.equal(policy.hostOf(undefined), null);
   assert.equal(policy.hostOf({ host: "user@127.0.0.1/path?x" }), null);
   assert.equal(policy.hostOf({ hostname: "example.com" }), "example.com");
+});
+
+test("hostOf rejects authorities whose raw spelling disagrees with WHATWG URL parsing", () => {
+  const ambiguous = [
+    String.raw`https://remote.invalid\@localhost/`,
+    "https://remote.invalid\n@localhost/",
+    "https://remote.invalid\t@localhost/",
+  ];
+  for (const target of ambiguous) {
+    assert.equal(policy.hostOf(target), null, target);
+    assert.deepEqual(policy.decideEgress({ sealed: true, target }), {
+      allow: false,
+      host: "unknown",
+      loopback: false,
+      reason: "sealed",
+    });
+  }
+  assert.equal(policy.hostOf("https://user:pw@localhost:8080/path"), "localhost");
 });
 
 test("loopback classification covers canonical IPv6 and mapped IPv4 127/8 only", () => {
@@ -156,6 +176,27 @@ test("interrupted phase survives wrappers and never claims nothing was sent", ()
   );
   assert.equal(policy.sealedPhaseOf(new Error("timeout")), null);
   assert.equal(policy.sealedPhaseOf(new Error("outer", { cause: cut })), "interrupted");
+  const codeOnlyWrapper = Object.assign(new Error("request failed", { cause: cut }), {
+    code: policy.SEALED_MODE,
+  });
+  assert.equal(policy.sealedPhaseOf(codeOnlyWrapper), "interrupted");
+  const explicitRefusalWrapper = Object.assign(new Error("outer [SEALED_MODE]", { cause: cut }), {
+    code: policy.SEALED_MODE,
+  });
+  assert.equal(policy.sealedPhaseOf(explicitRefusalWrapper), "refused");
+  const tooDeep = new Error("outer", {
+    cause: new Error("middle", {
+      cause: new Error("inner", {
+        cause: new Error("deep", {
+          cause: Object.assign(new Error("wrapper"), {
+            code: policy.SEALED_MODE,
+            cause: cut,
+          }),
+        }),
+      }),
+    }),
+  });
+  assert.equal(policy.sealedPhaseOf(tooDeep), null);
   assert.equal(
     policy.sealedPhaseOf(
       new Error("outer", { cause: new Error("middle", { cause: new Error(`ipc ${cut.message}`) }) })

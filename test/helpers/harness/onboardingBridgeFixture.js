@@ -37,7 +37,7 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
       {
         module,
         exports: module.exports,
-        process,
+        process: { ...process, isMainFrame: true },
         Date,
         setTimeout,
         clearTimeout,
@@ -127,6 +127,7 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
     load("preload.js", {
       electron: {
         contextBridge: {
+          executeInMainWorld: () => {},
           exposeInMainWorld: (_, value) => {
             exposed = value;
           },

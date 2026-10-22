@@ -81,11 +81,12 @@ async function fixture(t, { private: isPrivate = true } = {}) {
   // binary, profile, keychain, filesystem-backed credential or provider is used.
   let api;
   vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, "../../preload.js"), "utf8"), {
-    process,
+    process: { ...process, isMainFrame: true },
     require: (name) => {
       assert.equal(name, "electron");
       return {
         contextBridge: {
+          executeInMainWorld: () => {},
           exposeInMainWorld: (_, value) => {
             api = value;
           },

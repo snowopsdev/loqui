@@ -223,6 +223,7 @@ function mainFixture(t, { DeepgramStreaming = null } = {}) {
         assert.equal(name, "electron");
         return {
           contextBridge: {
+            executeInMainWorld: () => {},
             exposeInMainWorld(_name, value) {
               api = value;
             },
@@ -243,7 +244,7 @@ function mainFixture(t, { DeepgramStreaming = null } = {}) {
           webUtils: {},
         };
       },
-      process,
+      process: { ...process, isMainFrame: true },
     });
     return api;
   }

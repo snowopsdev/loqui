@@ -23,6 +23,7 @@ function loadPreloadApi(invokeResult) {
   };
   const electron = {
     contextBridge: {
+      executeInMainWorld: () => {},
       exposeInMainWorld: (_name, api) => {
         exposedApi = api;
       },
@@ -36,7 +37,7 @@ function loadPreloadApi(invokeResult) {
       if (specifier === "electron") return electron;
       throw new Error(`Unexpected preload dependency: ${specifier}`);
     },
-    process,
+    process: { ...process, isMainFrame: true },
   });
   return { api: exposedApi, invocations, listeners, sends };
 }

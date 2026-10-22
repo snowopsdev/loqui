@@ -71,7 +71,39 @@ const invokeTextOperation = async (channel, input) => {
   return result.value;
 };
 
-contextBridge.exposeInMainWorld("electronAPI", {
+// BEGIN sealed-mode: WebRTC removal (Plan 07 Task 7a; the egress ratchet allows this block)
+// Loqui never uses WebRTC, and Chromium's webRequest cannot see its traffic,
+// so remove the constructors before page scripts run in every frame. The
+// all-frame preload is enabled by nodeIntegrationInSubFrames in windowConfig.
+contextBridge.executeInMainWorld({
+  func: () => {
+    for (const name of [
+      "RTCPeerConnection",
+      "webkitRTCPeerConnection",
+      "RTCDataChannel",
+      "RTCRtpSender",
+      "RTCRtpReceiver",
+      "RTCIceCandidate",
+      "RTCSessionDescription",
+    ]) {
+      try {
+        Object.defineProperty(globalThis, name, {
+          value: undefined,
+          writable: false,
+          configurable: false,
+        });
+      } catch {
+        // Already non-configurable in this context: leave it.
+      }
+    }
+  },
+});
+// END sealed-mode: WebRTC removal
+
+const exposeElectronAPI = (...args) =>
+  process.isMainFrame && contextBridge.exposeInMainWorld(...args);
+
+exposeElectronAPI("electronAPI", {
   getSearchModelStatus: () => ipcRenderer.invoke("get-search-model-status"),
   downloadSearchModel: () => ipcRenderer.invoke("download-search-model"),
   updates: {

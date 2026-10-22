@@ -185,6 +185,7 @@ const MAIN_WINDOW_CONFIG = {
     nodeIntegration: false,
     contextIsolation: true,
     sandbox: true,
+    nodeIntegrationInSubFrames: true,
     // The hotkey shows this window from hidden right as the entrance animation
     // and resize mask run; a throttled renderer stutters them for seconds.
     backgroundThrottling: false,
@@ -223,14 +224,11 @@ const CONTROL_PANEL_CONFIG = {
     preload: path.join(__dirname, "..", "..", "preload.js"),
     nodeIntegration: false,
     contextIsolation: true,
-    // sandbox: false is required because the preload script bridges IPC
-    // between the renderer and main process.
-    sandbox: false,
-    // webSecurity: false disables same-origin policy. Required because in
-    // production the renderer loads from a file:// origin but makes
-    // cross-origin fetch calls to Better Auth, Gemini, OpenAI, and Groq APIs
-    // directly from the browser. These would be blocked by CORS otherwise.
-    webSecurity: false,
+    // The preload only uses contextBridge/ipcRenderer, and the renderer makes
+    // no network requests of its own, so neither the sandbox nor same-origin
+    // policy is relaxed.
+    sandbox: true,
+    nodeIntegrationInSubFrames: true,
     spellcheck: false,
     backgroundThrottling: false,
   },
@@ -279,6 +277,7 @@ const NOTIFICATION_WINDOW_CONFIG = {
     nodeIntegration: false,
     contextIsolation: true,
     sandbox: true,
+    nodeIntegrationInSubFrames: true,
   },
   visibleOnAllWorkspaces: process.platform !== "win32",
   type: OVERLAY_WINDOW_TYPES.notification,

@@ -1,3 +1,5 @@
+// Provider transports are gated (Sealed mode, Plan 07); these tests run unsealed.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 const { ipcDownloaderLeaf } = require("./harness/ipcDownloaderLeaf");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -125,6 +127,7 @@ test("Corti speech verification mints a token with the stored client credentials
     },
   };
   fakeThis._mintStoredCortiToken = Ctor.prototype._mintStoredCortiToken.bind(fakeThis);
+  fakeThis._providerConnectionTestBody = Ctor.prototype._providerConnectionTestBody.bind(fakeThis);
   const result = await Ctor.prototype._runProviderConnectionTest.call(
     fakeThis,
     testConfigFor("corti:speech", { cortiEnvironment: "eu", cortiTenant: "acme" })

@@ -90,6 +90,8 @@ function anything() {
 }
 
 let sealed = false;
+// Production reads one sealed state for the keyring predicate and the gate.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => sealed });
 let ipc;
 const enterpriseCalls = [];
 let enterpriseImpl = async () => ({});
@@ -961,7 +963,10 @@ test("FIX1: overall timeout cancels an in-flight ADC exchange without retry", as
     );
     assert.equal(cancelled, true);
     // baseline assertion added after original RED: one signal covers file and transport.
-    assert.equal(exchangeSignal, readSignal);
+    // Sealed mode composes the egress ticket into the transport signal (A3/A4),
+    // so the transport follows the same overall deadline rather than being it.
+    assert.equal(readSignal.aborted, true);
+    assert.equal(exchangeSignal.reason, readSignal.reason);
     await fix1Drain();
     assert.equal(exchanges, 1, "no credential retry after abort");
     assert.equal(fixture.dispatched(), 0);

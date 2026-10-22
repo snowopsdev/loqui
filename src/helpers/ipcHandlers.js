@@ -1,4 +1,7 @@
 const egressGate = require("./privacy/egressGate");
+const { guardMetered } = require("./privacy/gatedFetch");
+const { effectiveEndpoint } = require("./privacy/providerEndpoints");
+const { isSealedModeError, sealedPhaseOf } = require("./privacy/egressPolicy");
 const { registerSettingsLinkIpc } = require("./settingsLinks");
 const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
 const {
@@ -165,7 +168,7 @@ const byokSizeCapError = (sizeCapBytes) =>
   `File too large. Maximum size for bring-your-own-key is ${Math.floor(sizeCapBytes / (1024 * 1024))} MB.`;
 
 const CONNECTION_TEST_MAX_OUTPUT_TOKENS = 16;
-const { testProviderConnection } = require("./providerConnectionTest");
+const { testProviderConnection, connectionTestTarget } = require("./providerConnectionTest");
 const { createUploadCancelRegistry } = require("./uploadCancelRegistry");
 
 const {
@@ -426,7 +429,25 @@ class IPCHandlers {
     }
   }
 
+  // Sealed mode: one providerCheck ticket for the whole test, admitted at the
+  // effective endpoint before any stored credential is read. Every transport
+  // inside is metered; Corti's Electron request is tagged for the backstop.
   async _runProviderConnectionTest(config, captured = null, requestEnvironment) {
+    return guardMetered(
+      {
+        task: "providerCheck",
+        target: connectionTestTarget(config, requestEnvironment),
+        provider: typeof config?.provider === "string" ? config.provider : null,
+      },
+      (ticket) => this._providerConnectionTestBody(config, captured, requestEnvironment, ticket)
+    );
+  }
+
+  async _providerConnectionTestBody(config, captured, requestEnvironment, ticket) {
+    const nodeFetch = egressGate.meteredFetch(ticket, (...args) => fetch(...args));
+    const electronFetch = egressGate.meteredFetch(ticket, (url, init) => net.fetch(url, init), {
+      tag: true,
+    });
     const stored = (field, read) => (captured ? captured[field] || "" : read());
     config = { ...config };
     const customSlots = {
@@ -465,15 +486,17 @@ class IPCHandlers {
               clientId,
               clientSecret,
             },
-            captured ? (url, init) => net.fetch(url, { ...init, redirect: "error" }) : undefined
+            captured
+              ? (url, init) => electronFetch(url, { ...init, redirect: "error" })
+              : electronFetch
           );
         } else if (captured) {
           throw new Error("Invalid Corti client credentials");
         } else {
-          await this._mintStoredCortiToken({
-            environment: config.environment,
-            tenant: config.tenant,
-          });
+          await this._mintStoredCortiToken(
+            { environment: config.environment, tenant: config.tenant },
+            electronFetch
+          );
         }
         return { success: true };
       } catch (error) {
@@ -507,7 +530,7 @@ class IPCHandlers {
     }
     return testProviderConnection(
       config,
-      captured ? (url, init) => fetch(url, { ...init, redirect: "error" }) : undefined,
+      captured ? (url, init) => nodeFetch(url, { ...init, redirect: "error" }) : nodeFetch,
       requestEnvironment
     );
   }
@@ -517,7 +540,20 @@ class IPCHandlers {
       admit();
       return this._enterpriseVerificationExecutor(input);
     }
-    const signal = AbortSignal.timeout(input.timeoutMs);
+    // Sealed mode: gated at the captured executor's endpoint (A6). The SDK,
+    // ADC token exchange and profile reads all run inside this one ticket.
+    return guardMetered(
+      {
+        task: "providerCheck",
+        target: effectiveEndpoint(input.provider, { enterprise: input.enterprise }),
+        provider: input.provider,
+      },
+      (ticket) => this._enterpriseVerificationBody(input, admit, ticket)
+    );
+  }
+
+  async _enterpriseVerificationBody(input, admit, ticket) {
+    const signal = AbortSignal.any([AbortSignal.timeout(input.timeoutMs), ticket.signal]);
     const execution = { signal, deadlineAt: Date.now() + input.timeoutMs };
     const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
     let onAbort;
@@ -533,7 +569,7 @@ class IPCHandlers {
           input.apiKey,
           input.enterprise,
           undefined,
-          undefined,
+          egressGate.meteredFetch(ticket),
           execution
         ),
         aborted,
@@ -1205,7 +1241,7 @@ class IPCHandlers {
 
   // Mints a Corti access token from stored BYOK credentials. Shared by the
   // dictation streaming handlers and the meeting realtime-token resolver.
-  async _mintStoredCortiToken(options = {}) {
+  async _mintStoredCortiToken(options = {}, fetchImpl) {
     const clientId = this.environmentManager.getCortiClientId();
     const clientSecret = this.environmentManager.getCortiClientSecret();
     if (!clientId || !clientSecret) {
@@ -1215,7 +1251,7 @@ class IPCHandlers {
     }
     const environment = options.environment || "us";
     const tenant = (options.tenant || "").trim() || "base";
-    const token = await getCortiToken({ environment, tenant, clientId, clientSecret });
+    const token = await getCortiToken({ environment, tenant, clientId, clientSecret }, fetchImpl);
     return { token, environment, tenant };
   }
 
@@ -1247,6 +1283,41 @@ class IPCHandlers {
   }
 
   setupHandlers() {
+    // Sealed mode: registers a channel whose whole body runs inside one egress
+    // ticket, admitted before the handler reads any runtime or credential.
+    const handleGated = (channel, meta, fn) =>
+      ipcMain.handle(channel, (event, ...args) =>
+        egressGate.guard(meta(...args), () => fn(event, ...args))
+      );
+    // Legacy enterprise channels carry their configuration from the renderer.
+    // The target is that configuration's endpoint; the backstop records the
+    // host actually contacted, and an unresolvable one is unknown (remote).
+    const legacyEnterpriseMeta = (task, provider, config, payload = "metadata", plane) => {
+      const region = /^[a-z0-9-]+$/i.test(config?.bedrockRegion || "us-east-1")
+        ? config?.bedrockRegion || "us-east-1"
+        : null;
+      const suffix = region?.startsWith("cn-") ? "amazonaws.com.cn" : "amazonaws.com";
+      const bedrockBaseURL =
+        plane === "control"
+          ? (process.env.AWS_ENDPOINT_URL_BEDROCK ??
+            process.env.AWS_ENDPOINT_URL ??
+            (region && `https://bedrock.${region}.${suffix}`))
+          : (process.env.AWS_ENDPOINT_URL_BEDROCK_RUNTIME ??
+            process.env.AWS_ENDPOINT_URL ??
+            (region && `https://bedrock-runtime.${region}.${suffix}`));
+      return {
+        task,
+        provider: ["azure", "bedrock", "vertex"].includes(provider) ? provider : null,
+        payload,
+        target: effectiveEndpoint(provider, {
+          enterprise: {
+            azureEndpoint: config?.azureEndpoint,
+            bedrockBaseURL,
+            vertexLocation: config?.vertexLocation || "us-central1",
+          },
+        }),
+      };
+    };
     this.onboardingCleanup = require("./onboardingCleanupRelay").createOnboardingCleanupRelay({
       getSession: () => this.windowManager._onboardingDemoSession,
       getSetup: () => this.windowManager.controlPanelWindow?.webContents,
@@ -4430,80 +4501,93 @@ class IPCHandlers {
     });
 
     // Enterprise provider test connection
-    ipcMain.handle("test-enterprise-connection", async (event, provider, config) => {
-      const {
-        mapEnterpriseError,
-        runAbortableOperation,
-        runBedrockRequest,
-        validateEnterpriseEndpoint,
-      } = require("./enterpriseProviderErrors");
-      let runtime;
-      try {
-        const { generateText } = require("ai");
-        const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
+    handleGated(
+      "test-enterprise-connection",
+      (provider, config) => legacyEnterpriseMeta("providerCheck", provider, config),
+      async (event, provider, config) => {
+        const {
+          mapEnterpriseError,
+          runAbortableOperation,
+          runBedrockRequest,
+          validateEnterpriseEndpoint,
+        } = require("./enterpriseProviderErrors");
+        let runtime;
+        try {
+          const { generateText } = require("ai");
+          const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
 
-        const resolveModel = (abortSignal) =>
-          runAbortableOperation(async () => {
-            runtime = await resolveEnterpriseRuntime(
-              event,
-              provider,
-              config?.model || "test",
-              config
-            );
-            abortSignal?.throwIfAborted();
-            validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
-            return getEnterpriseAIModel(
-              runtime.provider,
-              runtime.model,
-              runtime.apiKey,
-              runtime.enterprise
-            );
-          }, abortSignal);
+          const resolveModel = (abortSignal) =>
+            runAbortableOperation(async () => {
+              runtime = await resolveEnterpriseRuntime(
+                event,
+                provider,
+                config?.model || "test",
+                config
+              );
+              abortSignal?.throwIfAborted();
+              validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
+              return getEnterpriseAIModel(
+                runtime.provider,
+                runtime.model,
+                runtime.apiKey,
+                runtime.enterprise
+              );
+            }, abortSignal);
 
-        if (provider === "bedrock") {
-          await runBedrockRequest(async () => {
-            const abortSignal = AbortSignal.timeout(config?.timeoutMs || 30_000);
-            const model = await resolveModel(abortSignal);
-            return generateText({
+          if (provider === "bedrock") {
+            await runBedrockRequest(async () => {
+              const abortSignal = AbortSignal.timeout(config?.timeoutMs || 30_000);
+              const model = await resolveModel(abortSignal);
+              return generateText({
+                model,
+                prompt: "Say hello in one word.",
+                maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
+                abortSignal,
+                maxRetries: 0,
+              });
+            });
+          } else {
+            const model = await resolveModel();
+            await generateText({
               model,
               prompt: "Say hello in one word.",
               maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
-              abortSignal,
-              maxRetries: 0,
             });
-          });
-        } else {
-          const model = await resolveModel();
-          await generateText({
-            model,
-            prompt: "Say hello in one word.",
-            maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
-          });
+          }
+
+          return { success: true };
+        } catch (err) {
+          const mappingConfig =
+            runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
+              ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
+              : config;
+          const mapped = mapEnterpriseError(provider, err, mappingConfig);
+          return {
+            success: false,
+            error: mapped.message,
+            messageKey: mapped.messageKey,
+            messageParams: mapped.messageParams,
+            action: mapped.action,
+            actionKey: mapped.actionKey,
+            copyCommand: mapped.copyCommand,
+            retryable: mapped.retryable,
+            technicalDetails: mapped.technicalDetails,
+          };
         }
-
-        return { success: true };
-      } catch (err) {
-        const mappingConfig =
-          runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
-            ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
-            : config;
-        const mapped = mapEnterpriseError(provider, err, mappingConfig);
-        return {
-          success: false,
-          error: mapped.message,
-          messageKey: mapped.messageKey,
-          messageParams: mapped.messageParams,
-          action: mapped.action,
-          actionKey: mapped.actionKey,
-          copyCommand: mapped.copyCommand,
-          retryable: mapped.retryable,
-          technicalDetails: mapped.technicalDetails,
-        };
       }
-    });
+    );
 
-    ipcMain.handle(
+    handleGated(
       "process-enterprise-reasoning",
+      (_text, _modelId, _agentName, config) =>
+        legacyEnterpriseMeta(
+          config?.inferenceScope
+            ? require("./privacy/egressPolicy").taskForScope(config.inferenceScope)
+            : "dictationCleanup",
+          config?.provider,
+          config,
+          "text"
+        ),
       async (event, text, modelId, _agentName, config) => {
         const {
           isEnterpriseProvider,
@@ -4631,83 +4715,87 @@ class IPCHandlers {
     // Runs doStream for the renderer's enterprise chat model shim; parts are
     // relayed verbatim over enterprise-stream-part, ending with {done}/{error}.
     this.enterpriseStreamAborts = new Map();
-    ipcMain.handle("enterprise-stream-start", async (event, payload) => {
-      const {
-        isEnterpriseProvider,
-        mapEnterpriseError,
-        validateEnterpriseEndpoint,
-      } = require("./enterpriseProviderErrors");
-      const { streamId, provider, modelId, config, options } = payload || {};
-      let runtime;
-      const send = (message) => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send("enterprise-stream-part", { streamId, ...message });
-        }
-      };
-      const abortController = new AbortController();
-      this.enterpriseStreamAborts.set(streamId, abortController);
-      // isDestroyed() stays false across reload/navigation, which wipes the
-      // renderer listeners — abort so the provider request isn't billed for
-      // a generation nobody receives.
-      const abortOnGone = (_event, _url, isInPlace, isMainFrame) => {
-        if (isMainFrame && !isInPlace) abortController.abort();
-      };
-      const abortOnDestroyed = () => abortController.abort();
-      event.sender.on("did-start-navigation", abortOnGone);
-      event.sender.once("destroyed", abortOnDestroyed);
-      try {
-        if (!streamId || !isEnterpriseProvider(provider)) {
-          throw new Error(`Unsupported enterprise provider: ${provider}`);
-        }
-        runtime = await resolveEnterpriseRuntime(event, provider, modelId, config || {});
-        if (!runtime.model) throw new Error("No model specified for enterprise streaming");
-        validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
-
-        const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
-        const model = await getEnterpriseAIModel(
-          runtime.provider,
-          runtime.model,
-          runtime.apiKey,
-          runtime.enterprise
-        );
-
-        const { stream } = await model.doStream({
-          ...options,
-          abortSignal: abortController.signal,
-        });
-        const reader = stream.getReader();
-        try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (event.sender.isDestroyed()) {
-              abortController.abort();
-              break;
-            }
-            send({ part: value });
+    handleGated(
+      "enterprise-stream-start",
+      (payload) => legacyEnterpriseMeta("chat", payload?.provider, payload?.config, "text"),
+      async (event, payload) => {
+        const {
+          isEnterpriseProvider,
+          mapEnterpriseError,
+          validateEnterpriseEndpoint,
+        } = require("./enterpriseProviderErrors");
+        const { streamId, provider, modelId, config, options } = payload || {};
+        let runtime;
+        const send = (message) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send("enterprise-stream-part", { streamId, ...message });
           }
+        };
+        const abortController = new AbortController();
+        this.enterpriseStreamAborts.set(streamId, abortController);
+        // isDestroyed() stays false across reload/navigation, which wipes the
+        // renderer listeners — abort so the provider request isn't billed for
+        // a generation nobody receives.
+        const abortOnGone = (_event, _url, isInPlace, isMainFrame) => {
+          if (isMainFrame && !isInPlace) abortController.abort();
+        };
+        const abortOnDestroyed = () => abortController.abort();
+        event.sender.on("did-start-navigation", abortOnGone);
+        event.sender.once("destroyed", abortOnDestroyed);
+        try {
+          if (!streamId || !isEnterpriseProvider(provider)) {
+            throw new Error(`Unsupported enterprise provider: ${provider}`);
+          }
+          runtime = await resolveEnterpriseRuntime(event, provider, modelId, config || {});
+          if (!runtime.model) throw new Error("No model specified for enterprise streaming");
+          validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
+
+          const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
+          const model = await getEnterpriseAIModel(
+            runtime.provider,
+            runtime.model,
+            runtime.apiKey,
+            runtime.enterprise
+          );
+
+          const { stream } = await model.doStream({
+            ...options,
+            abortSignal: abortController.signal,
+          });
+          const reader = stream.getReader();
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (event.sender.isDestroyed()) {
+                abortController.abort();
+                break;
+              }
+              send({ part: value });
+            }
+          } finally {
+            reader.releaseLock();
+          }
+          send({ done: true });
+          return { success: true };
+        } catch (err) {
+          debugLogger.error("Enterprise stream error:", err);
+          const mappingConfig =
+            runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
+              ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
+              : config || {};
+          const mapped = mapEnterpriseError(provider, err, mappingConfig);
+          send({ error: mapped.message });
+          return { success: false, error: mapped.message };
         } finally {
-          reader.releaseLock();
-        }
-        send({ done: true });
-        return { success: true };
-      } catch (err) {
-        debugLogger.error("Enterprise stream error:", err);
-        const mappingConfig =
-          runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
-            ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
-            : config || {};
-        const mapped = mapEnterpriseError(provider, err, mappingConfig);
-        send({ error: mapped.message });
-        return { success: false, error: mapped.message };
-      } finally {
-        this.enterpriseStreamAborts.delete(streamId);
-        if (!event.sender.isDestroyed()) {
-          event.sender.removeListener("did-start-navigation", abortOnGone);
-          event.sender.removeListener("destroyed", abortOnDestroyed);
+          this.enterpriseStreamAborts.delete(streamId);
+          if (!event.sender.isDestroyed()) {
+            event.sender.removeListener("did-start-navigation", abortOnGone);
+            event.sender.removeListener("destroyed", abortOnDestroyed);
+          }
         }
       }
-    });
+    );
 
     ipcMain.handle("enterprise-stream-cancel", async (event, streamId) => {
       this.enterpriseStreamAborts.get(streamId)?.abort();
@@ -4716,66 +4804,70 @@ class IPCHandlers {
 
     // Lists the text models the account serves in the selected region,
     // resolved to invocable IDs (bare on-demand or geo-scoped profile IDs).
-    ipcMain.handle("bedrock-list-models", async (event, config) => {
-      const { mapEnterpriseError } = require("./enterpriseProviderErrors");
-      try {
-        const runtime = await resolveEnterpriseRuntime(
-          event,
-          "bedrock",
-          config?.model || "test",
-          config
-        );
-        const {
-          BedrockClient,
-          ListFoundationModelsCommand,
-          paginateListInferenceProfiles,
-        } = require("@aws-sdk/client-bedrock");
-        const { normalizeBedrockCatalog } = require("./bedrockCatalog");
+    handleGated(
+      "bedrock-list-models",
+      (config) => legacyEnterpriseMeta("providerCheck", "bedrock", config, "metadata", "control"),
+      async (event, config) => {
+        const { mapEnterpriseError } = require("./enterpriseProviderErrors");
+        try {
+          const runtime = await resolveEnterpriseRuntime(
+            event,
+            "bedrock",
+            config?.model || "test",
+            config
+          );
+          const {
+            BedrockClient,
+            ListFoundationModelsCommand,
+            paginateListInferenceProfiles,
+          } = require("@aws-sdk/client-bedrock");
+          const { normalizeBedrockCatalog } = require("./bedrockCatalog");
 
-        const region = runtime.enterprise.bedrockRegion || "us-east-1";
-        let credentials;
-        if (runtime.enterprise.managedCredentialProvider) {
-          credentials = runtime.enterprise.managedCredentialProvider;
-        } else if (runtime.enterprise.bedrockProfile) {
-          const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
-          credentials = fromNodeProviderChain({ profile: runtime.enterprise.bedrockProfile });
-        } else if (
-          runtime.enterprise.bedrockAccessKeyId &&
-          runtime.enterprise.bedrockSecretAccessKey
-        ) {
-          credentials = {
-            accessKeyId: runtime.enterprise.bedrockAccessKeyId,
-            secretAccessKey: runtime.enterprise.bedrockSecretAccessKey,
-            sessionToken: runtime.enterprise.bedrockSessionToken || undefined,
+          const region = runtime.enterprise.bedrockRegion || "us-east-1";
+          let credentials;
+          if (runtime.enterprise.managedCredentialProvider) {
+            credentials = runtime.enterprise.managedCredentialProvider;
+          } else if (runtime.enterprise.bedrockProfile) {
+            const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
+            credentials = fromNodeProviderChain({ profile: runtime.enterprise.bedrockProfile });
+          } else if (
+            runtime.enterprise.bedrockAccessKeyId &&
+            runtime.enterprise.bedrockSecretAccessKey
+          ) {
+            credentials = {
+              accessKeyId: runtime.enterprise.bedrockAccessKeyId,
+              secretAccessKey: runtime.enterprise.bedrockSecretAccessKey,
+              sessionToken: runtime.enterprise.bedrockSessionToken || undefined,
+            };
+          }
+          const client = new BedrockClient({ region, ...(credentials ? { credentials } : {}) });
+
+          const [foundationModels, profileSummaries] = await Promise.all([
+            client.send(new ListFoundationModelsCommand({ byOutputModality: "TEXT" })),
+            (async () => {
+              const summaries = [];
+              const paginator = paginateListInferenceProfiles(
+                { client },
+                { typeEquals: "SYSTEM_DEFINED" }
+              );
+              for await (const page of paginator) {
+                summaries.push(...(page.inferenceProfileSummaries || []));
+              }
+              return summaries;
+            })(),
+          ]);
+
+          return {
+            success: true,
+            models: normalizeBedrockCatalog(foundationModels.modelSummaries, profileSummaries),
           };
+        } catch (err) {
+          debugLogger.error("Bedrock model listing error:", err);
+          const mapped = mapEnterpriseError("bedrock", err, config || {});
+          return { success: false, error: mapped.message };
         }
-        const client = new BedrockClient({ region, ...(credentials ? { credentials } : {}) });
-
-        const [foundationModels, profileSummaries] = await Promise.all([
-          client.send(new ListFoundationModelsCommand({ byOutputModality: "TEXT" })),
-          (async () => {
-            const summaries = [];
-            const paginator = paginateListInferenceProfiles(
-              { client },
-              { typeEquals: "SYSTEM_DEFINED" }
-            );
-            for await (const page of paginator) {
-              summaries.push(...(page.inferenceProfileSummaries || []));
-            }
-            return summaries;
-          })(),
-        ]);
-
-        return {
-          success: true,
-          models: normalizeBedrockCatalog(foundationModels.modelSummaries, profileSummaries),
-        };
-      } catch (err) {
-        debugLogger.error("Bedrock model listing error:", err);
-        const mapped = mapEnterpriseError("bedrock", err, config || {});
-        return { success: false, error: mapped.message };
       }
-    });
+    );
 
     ipcMain.handle("get-dictation-key", async () => {
       return this.environmentManager.getDictationKey();
@@ -4918,6 +5010,14 @@ class IPCHandlers {
           : await localReasoning().processText(text, modelId, config);
         return { success: true, text: result };
       } catch (error) {
+        if (config?.textOperationToken && isSealedModeError(error))
+          // Typed, with its phase: the native refusal sent nothing.
+          return {
+            success: false,
+            error: "Cleanup failed. Your original words are preserved.",
+            code: "SEALED_MODE",
+            phase: sealedPhaseOf(error),
+          };
         if (config?.textOperationToken)
           return {
             success: false,

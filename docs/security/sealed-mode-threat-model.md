@@ -164,6 +164,7 @@ src/helpers/privacy/egressBackstop.js
 src/helpers/privacy/egressGate.js
 src/helpers/privacy/childRegistry.js
 src/helpers/privacy/egressPolicy.js
+src/helpers/privacy/gatedFetch.js
 src/helpers/providerConnectionTest.js
 src/helpers/qdrantManager.js
 src/helpers/realtimeTokenProviders.js
@@ -263,6 +264,7 @@ src/helpers/menuManager.js
 src/helpers/oauthLoopbackFlow.js
 src/helpers/onnxWorkerClient.js
 src/helpers/parakeetWsServer.js
+src/helpers/personalInference.js
 src/helpers/processListCache.js
 src/helpers/privacy/childRegistry.js
 src/helpers/qdrantManager.js
@@ -321,3 +323,42 @@ forms are rejected. Private conversion remains buffer/pipe based. This restricti
 and the ONNX worker's first-statement Node lock are defense in depth only; neither
 authorizes a sealed native launch. The worker can load native ONNX code when
 unsealed; its JS lock does not confine that native code. 07b/D14–D16 remain open.
+
+## Task 8: provider inference, provider checks and Codex (07a)
+
+`personalInference.js` admits every text, vision, search, cleanup, note and
+translation request through one egress ticket before any credential or SDK is
+touched. The target is the captured or resolved effective endpoint
+(`privacy/providerEndpoints.js` `effectiveEndpoint`): the captured executor for
+Plan 04 operations, the user's URL for custom/LAN/local, the SDK base-URL
+snapshot for OpenAI/Anthropic, and the resolved Azure/Bedrock/Vertex executor.
+Enterprise requests that are not yet captured are refused while sealed before
+main reads their configuration; an unresolved recipient is unknown, which is
+remote. The task is the request's disclosure task, else its scope's task, and
+notices carry the original correlation id, so Plan 04's tracker keeps the same
+session evidence. Factory slot 8 is the metered fetch composed over any injected
+transport; slot 9 keeps the captured operation's liveness. Sealing aborts the
+ticket with an interrupted `SealedModeError`, which the request reports; it is
+never "nothing was sent". Captured operations return a typed `SEALED_MODE`
+envelope with its phase, which preload rebuilds; cancel and retire stay usable.
+
+Model discovery is gated after recipient-token validation and before credential
+capture; the Tinfoil catalog, every provider Verify/connection test (ordinary,
+Corti token, enterprise SDK and ADC exchange) and the four legacy enterprise
+channels are gated as `providerCheck` or their scope task. Metered exchanges
+that sent nothing (a cached answer or local validation failure) write no row.
+`gatedFetch.js` provides the per-request `gatedNetFetch`/`gatedNodeFetch` and the
+whole-exchange `guardMetered` helper.
+
+Codex status, login, logout, models, model catalog and rate limits refuse while
+sealed before the app-server could start; cancel-login stays usable. The
+production server refuses before its native executable probe and again
+immediately before the app-server spawn; release verification is a metered
+`codex` request to GitHub. Each app-server process is one opaque session row
+(`codex`, chatgpt.com, no byte counts) authorized before the launch, so the spawn
+guard reuses it; only its observed exit settles it. `stopCodex` cancels a pending
+start and resolves only after the process exits (SIGTERM, then SIGKILL), else
+rejects `CODEX_STOP_FAILED`; `codexRunning` is true until that exit. Root exit is
+not whole-tree proof: the child registry keeps descendant coverage unresolved.
+None of this is native isolation; the Codex app-server is a native child that
+07a refuses to start while sealed. 07b/D14–D16 remain open.

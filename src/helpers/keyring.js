@@ -406,6 +406,10 @@ function createKeyring({
         if (error?.code === "RECIPIENT_CHANGED") return result("recipientChanged");
         response = { success: false, errorCode: "network" };
       }
+      // Sealing can end a test as an ordinary transport failure (a severed
+      // socket) before the typed error arrives. That says nothing about the
+      // credential: never record a verdict from a failure while sealed.
+      if (response?.success !== true && isSealed()) return result("sealed");
       const meta = metadata(identity);
       const current = fixedSnapshot(identity, options);
       if (
@@ -617,7 +621,7 @@ function createKeyring({
       if (error?.code === "RECIPIENT_CHANGED") return changedResult;
       if (error?.code === "UNSUPPORTED_AUTH_SOURCE")
         return { success: false, errorCode: "unsupportedAuthSource" };
-      if (isSealedRefusal(error)) return { success: false, errorCode: "sealed" };
+      if (isSealedRefusal(error) || isSealed()) return { success: false, errorCode: "sealed" };
       if (error?.name === "AbortError" || error?.name === "TimeoutError")
         return { success: false, errorCode: "timeout" };
       const status = Number.isInteger(error?.statusCode)

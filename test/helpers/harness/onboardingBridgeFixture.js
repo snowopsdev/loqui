@@ -100,6 +100,8 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
     electron,
     "./onboardingInputPolicy": policy,
     "./onboardingCleanupRelay": require("../../../src/helpers/onboardingCleanupRelay"),
+    // Real pure policy: an inert stand-in would make every error look sealed.
+    "./privacy/egressPolicy": require("../../../src/helpers/privacy/egressPolicy"),
     "./onboardingDemoAdmission": {
       createOnboardingDemoAdmission: (options) =>
         require("../../../src/helpers/onboardingDemoAdmission").createOnboardingDemoAdmission({

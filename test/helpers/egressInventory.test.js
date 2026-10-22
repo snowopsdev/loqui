@@ -419,6 +419,9 @@ test("intentional injected, SDK, native and OS boundaries remain inventoried", (
     "src/helpers/realtimeTokenProviders.js",
     "src/helpers/providerConnectionTest.js",
     "src/helpers/codexCli.js",
+    "src/helpers/privacy/gatedFetch.js",
+    "src/helpers/personalInference.js",
+    "src/helpers/tinfoilCatalog.js",
     "src/models/tinfoilModels.ts",
     "src/services/ai/chatRequestBody.ts",
     "src/components/ui/MarkdownRenderer.tsx",
@@ -445,6 +448,9 @@ test("intentional injected, SDK, native and OS boundaries remain inventoried", (
     "src/helpers/gnomeGlobalShortcutsPortal.js",
     "src/helpers/kdeShortcut.js",
     "src/helpers/sidecarReaper.js",
+    // Task 8: the Codex app-server launch runs inside its opaque session.
+    "src/helpers/codexAppServer.js",
+    "src/helpers/personalInference.js",
   ])
     assert.ok(block("spawn-sites").has(file), `retain semantic launch site: ${file}`);
 });

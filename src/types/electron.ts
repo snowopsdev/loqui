@@ -1685,6 +1685,7 @@ declare global {
         text?: string;
         error?: string;
         code?: string;
+        phase?: "refused" | "interrupted";
         details?: Record<string, unknown>;
       }>;
       checkLocalReasoningAvailable: () => Promise<boolean>;

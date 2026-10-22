@@ -64,6 +64,20 @@ const registerListener = (channel, handlerFactory) => {
 
 const invokeTextOperation = async (channel, input) => {
   const result = await ipcRenderer.invoke(channel, input);
+  if (result?.code === "SEALED_MODE") {
+    // Keep Sealed mode typed: a refusal sent nothing, an interruption may have.
+    const interrupted = result.phase === "interrupted";
+    throw Object.assign(
+      new Error(
+        interrupted ? "[SEALED_MODE:interrupted] Sealed mode" : "[SEALED_MODE] Sealed mode"
+      ),
+      {
+        code: "SEALED_MODE",
+        messageKey: interrupted ? "sealedMode.interrupted.generic" : "sealedMode.blocked.generic",
+        details: { phase: interrupted ? "interrupted" : "refused" },
+      }
+    );
+  }
   if (!result?.ok)
     throw Object.assign(new Error(result?.code || "CLEANUP_FAILED"), {
       code: result?.code || "CLEANUP_FAILED",

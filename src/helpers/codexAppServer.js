@@ -91,6 +91,10 @@ class CodexAppServer extends EventEmitter {
     platform = process.platform,
     resolveExecutable = resolveCodexExecutable,
     verifyRelease = verifyOfficialCodex,
+    // Sealed mode: beforeSpawn throws to refuse a native launch (the version
+    // probe and the app-server); onSpawn receives each spawned process.
+    beforeSpawn = () => {},
+    onSpawn = () => {},
   } = {}) {
     super();
     this.home = path.join(userDataPath, "codex");
@@ -104,6 +108,13 @@ class CodexAppServer extends EventEmitter {
     this.platform = platform;
     this.resolveExecutable = resolveExecutable;
     this.verifyRelease = verifyRelease;
+    this.beforeSpawn = beforeSpawn;
+    this.onSpawn = onSpawn;
+    // Bumped by stopAndWait(); a start that began earlier must not spawn.
+    this.generation = 0;
+    // Spawned processes whose exit has not been observed. stop() clears
+    // this.child before the process is gone; this set does not.
+    this.liveChildren = new Set();
     this.verifiedReleases = new Map();
     this.pending = new Map();
     this.turns = new Map();
@@ -156,6 +167,10 @@ class CodexAppServer extends EventEmitter {
   }
 
   async _start() {
+    const generation = this.generation;
+    // Refuse before any native probe: resolving shims and --version launch
+    // processes too (Sealed mode has no native boundary in this build).
+    this.beforeSpawn();
     // The version probe and server both run with an isolated profile and no
     // inherited provider credentials. Resolve shims before probing the binary.
     await fs.mkdir(this.home, { recursive: true, mode: 0o700 });
@@ -211,6 +226,10 @@ class CodexAppServer extends EventEmitter {
     const args = ["app-server", "--stdio"];
     for (const [key, value] of Object.entries(RESTRICTED_CONFIG))
       args.push("-c", `${key}=${JSON.stringify(value)}`);
+    if (generation !== this.generation)
+      throw failure("Codex start was cancelled.", "CODEX_DISCONNECTED");
+    // Sealed mode re-checks here: the version probe and release check above can take a while.
+    this.beforeSpawn();
     const child = this.spawnProcess(executable, args, {
       cwd: this.workspace,
       env,
@@ -218,6 +237,8 @@ class CodexAppServer extends EventEmitter {
       windowsHide: true,
     });
     this.child = child;
+    this._trackLiveChild(child);
+    this.onSpawn(child);
     this.buffer = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => this._consume(chunk));
@@ -574,6 +595,38 @@ class CodexAppServer extends EventEmitter {
     const child = this.child;
     this._disconnect(failure("Codex stopped.", "CODEX_DISCONNECTED"));
     child?.kill();
+  }
+  _trackLiveChild(child) {
+    this.liveChildren.add(child);
+    const forget = () => this.liveChildren.delete(child);
+    child.once("exit", forget);
+    // A process that never started emits error and close, but no exit.
+    child.once("close", forget);
+    child.on("error", () => {
+      if (!child.pid) forget();
+    });
+  }
+  // True while a start is pending or any spawned process has not exited. stop()
+  // clears this.child before the process is gone, so callers that must know
+  // whether Codex can still reach the network use this.
+  alive() {
+    return !!this.starting || this.liveChildren.size > 0;
+  }
+  // Cancel a pending start, stop the process and wait for it to exit,
+  // escalating to SIGKILL. Rejects if a process is still alive afterwards.
+  // Only an observed exit counts; a signal sent is not evidence of a stop.
+  async stopAndWait() {
+    this.generation++;
+    this.stop();
+    await this.starting?.catch(() => {});
+    await Promise.all([...this.liveChildren].map((child) => this._waitForExit(child)));
+    for (const child of this.liveChildren) {
+      try {
+        child.kill("SIGKILL");
+      } catch {} // A failed signal leaves the child in liveChildren.
+    }
+    await Promise.all([...this.liveChildren].map((child) => this._waitForExit(child)));
+    if (this.liveChildren.size > 0) throw failure("Codex did not stop.", "CODEX_STOP_FAILED");
   }
   // Device erasure: the ChatGPT sign-in lives in this private CODEX_HOME, so
   // stop the process that holds it and remove the profile and its workspace.

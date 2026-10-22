@@ -42,9 +42,17 @@ let config = { isSealed: () => true, recorder: null, now: Date.now };
 let active = new Map();
 let byTag = new Map();
 let nextId = 1;
+// Receipt IDs are public numeric disclosure keys. Keep this allocator separate
+// from operation IDs and do not reset it between test/session generations.
+let nextReceiptId = 1;
 let tally = freshTally();
 let bypass = false;
 let generation = 0;
+
+function allocateReceiptId() {
+  if (!Number.isSafeInteger(nextReceiptId)) throw new RangeError("Egress receipt IDs exhausted");
+  return nextReceiptId++;
+}
 
 function configureEgress({ isSealed, recorder = config.recorder, now = Date.now }) {
   if (typeof isSealed !== "function") throw new TypeError("isSealed must be a function");
@@ -232,6 +240,7 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
   let manualDispatch = false;
   let connections = 0;
   const evidence = new Map();
+  const receiptIds = new Map();
   let pendingSettlement = null;
   let remote = !loopback;
   const id = nextId++;
@@ -445,8 +454,9 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
     if (previous === "delivered") return;
     evidence.set(evidenceKey, phase);
     announced.add(key);
+    if (!receiptIds.has(evidenceKey)) receiptIds.set(evidenceKey, allocateReceiptId());
     events.emit(phase, {
-      ticketId: attemptId ?? id,
+      ticketId: receiptIds.get(evidenceKey),
       operationId: id,
       attemptId,
       task,

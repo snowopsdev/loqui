@@ -243,6 +243,56 @@ test("dispatched, then delivered; a connect failure is undelivered, never delive
   refused.discard();
 });
 
+test("notice receipt ids are numeric, unique across operations, and stable across each receipt", async (t) => {
+  setup(t);
+  const seen = notices();
+  const metered = gate.authorize({ task: "chat", target: "https://api.groq.com" });
+  const manual = gate.authorize({ task: "calendar", target: "https://graph.microsoft.com" });
+
+  await gate.meteredFetch(
+    metered,
+    async () => new Response(null, { status: 204 })
+  )("https://first.invalid");
+  manual.markDelivered();
+  await assert.rejects(
+    gate.meteredFetch(metered, async () => {
+      throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } });
+    })("https://second.invalid")
+  );
+
+  assert.equal(
+    seen.every((notice) => Number.isSafeInteger(notice.ticketId)),
+    true
+  );
+  const receipts = seen.filter((notice) => notice.phase === "dispatched");
+  assert.equal(new Set(receipts.map((notice) => notice.ticketId)).size, 3);
+  for (const receipt of receipts) {
+    assert.equal(
+      seen
+        .filter((notice) => notice.ticketId === receipt.ticketId)
+        .every((notice) => {
+          return (
+            notice.attemptId === receipt.attemptId && notice.operationId === receipt.operationId
+          );
+        }),
+      true,
+      "each phase retains the receipt, attempt and operation identity"
+    );
+  }
+  assert.deepEqual(
+    seen.map((notice) => notice.phase),
+    ["dispatched", "delivered", "dispatched", "delivered", "dispatched", "undelivered"]
+  );
+  assert.deepEqual(
+    receipts.map((notice) => [notice.operationId, notice.attemptId]),
+    [
+      [metered.id, `${metered.id}.1`],
+      [manual.id, null],
+      [metered.id, `${metered.id}.2`],
+    ]
+  );
+});
+
 test("Node requests never carry the tag; Electron net requests do", async (t) => {
   setup(t);
   const ticket = gate.authorize({ task: "chat", target: "https://api.groq.com" });
@@ -922,17 +972,40 @@ test("concurrent attempts attribute socket host trails only to their own context
 test("a late transport result after reset cannot announce into the next session", async (t) => {
   setup(t);
   const transport = deferred();
+  const oldNotices = [];
+  gate.events.on("dispatched", (notice) => oldNotices.push(notice));
   const ticket = gate.authorize({ task: "chat", target: "https://api.groq.com" });
   const pending = gate.meteredFetch(ticket, () => transport.promise)("https://api.groq.com");
   const caught = assert.rejects(pending);
+  assert.equal(oldNotices.length, 1);
+  const oldReceiptId = oldNotices[0].ticketId;
   gate._resetForTests();
   const { recorder } = setup(t);
   const seen = notices();
+  const nextTicket = gate.authorize({ task: "chat", target: "https://api.groq.com" });
+  await gate.meteredFetch(
+    nextTicket,
+    async () => new Response(null, { status: 204 })
+  )("https://api.groq.com");
+  assert.equal(Number.isSafeInteger(seen[0].ticketId), true);
+  assert.notEqual(seen[0].ticketId, oldReceiptId);
+  const currentRows = recorder.list();
   transport.resolve(new Response("private"));
   await caught;
   await nextTurn();
-  assert.deepEqual(seen, []);
-  assert.deepEqual(recorder.list(), []);
+  assert.deepEqual(
+    seen.map((notice) => notice.phase),
+    ["dispatched", "delivered"]
+  );
+  assert.equal(
+    seen.every((notice) => notice.ticketId === seen[0].ticketId),
+    true
+  );
+  assert.deepEqual(
+    recorder.list(),
+    currentRows,
+    "the stale result cannot write into the new recorder"
+  );
 });
 
 test("a final refused redirect error cannot claim the dispatched first hop was unsent", async (t) => {
@@ -1145,9 +1218,9 @@ for (const uncertainFirst of [false, true]) {
     const dispatched = seen.filter((n) => n.phase === "dispatched");
     assert.equal(new Set(dispatched.map((n) => n.ticketId)).size, 2);
     for (const [index, notice] of dispatched.entries()) {
+      assert.equal(Number.isSafeInteger(notice.ticketId), true);
       assert.deepEqual(
         [
-          notice.ticketId,
           notice.attemptId,
           notice.operationId,
           notice.correlationId,
@@ -1156,7 +1229,6 @@ for (const uncertainFirst of [false, true]) {
           notice.payload,
         ],
         [
-          `${ticket.id}.${index + 1}`,
           `${ticket.id}.${index + 1}`,
           ticket.id,
           "review-session",

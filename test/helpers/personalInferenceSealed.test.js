@@ -371,22 +371,25 @@ test("sealed: every Codex handler that can start or use the app-server is refuse
   assert.ok(h.recorder.list().every((row) => row.host === "chatgpt.com"));
 });
 
-function codexChild(pid) {
+function codexChild(pid, results = {}) {
   const child = new EventEmitter();
   child.pid = pid;
+  child.received = [];
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
   child.kill = () => {
     setImmediate(() => child.emit("exit", null, "SIGTERM"));
     return true;
   };
+  const answers = { initialize: fixture.initialize, ...results };
   child.stdin = new Writable({
     write(bytes, _e, cb) {
       const m = JSON.parse(bytes.toString());
+      child.received.push(m.method);
       cb();
-      if (m.method === "initialize")
+      if (m.id !== undefined && Object.hasOwn(answers, m.method))
         queueMicrotask(() =>
-          child.stdout.write(JSON.stringify({ id: m.id, result: fixture.initialize }) + "\n")
+          child.stdout.write(JSON.stringify({ id: m.id, result: answers[m.method] }) + "\n")
         );
     },
   });
@@ -798,4 +801,134 @@ test("the real inference surface supplies Task 7's Codex hooks to the actual sea
     [row.task, row.opaque, row.outcome, row.errorClass],
     ["codex", true, "cancelled", "SEALED_MODE"]
   );
+});
+
+// Review I1: cancel-login must not start an app-server just to cancel.
+function realCodexIpc(t, { isSealed, recorder, results } = {}) {
+  gate._resetForTests();
+  childRegistry._resetForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-codex-cancel-"));
+  t.after(() => {
+    gate._resetForTests();
+    childRegistry._resetForTests();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  gate.configureEgress({ isSealed, recorder, now });
+  const executable = path.join(dir, "codex-fixture-binary");
+  fs.writeFileSync(executable, "fixture executable bytes");
+  const counts = { probes: 0, spawns: 0, opened: [] };
+  const children = [];
+  const codex = createCodexServer({
+    userDataPath: dir,
+    platform: "linux",
+    resolveExecutable: async () => {
+      counts.probes++;
+      return executable;
+    },
+    runFile: async () => {
+      counts.probes++;
+      return { stdout: fixture.version };
+    },
+    spawnProcess: () => {
+      counts.spawns++;
+      const child = codexChild(950 + counts.spawns, results);
+      children.push(child);
+      return child;
+    },
+  });
+  const { createHash } = require("node:crypto");
+  const cpu = { x64: "x86_64", arm64: "aarch64" }[process.arch];
+  codex.verifiedReleases.set(
+    `0.154.0-${cpu}-unknown-linux-musl`,
+    createHash("sha256").update(fs.readFileSync(executable)).digest("hex")
+  );
+  const handlers = new Map();
+  const api = registerPersonalInferenceIPC({
+    ipcMain: { handle: (c, fn) => handlers.set(c, fn), removeHandler: (c) => handlers.delete(c) },
+    userDataPath: dir,
+    openExternal: async (url) => {
+      counts.opened.push(url);
+    },
+    codex,
+  });
+  t.after(() => api.dispose());
+  const sender = Object.assign(new EventEmitter(), {
+    id: 1,
+    isDestroyed: () => false,
+    send() {},
+  });
+  const invoke = (name, ...args) => handlers.get(`personal-inference:${name}`)({ sender }, ...args);
+  return { dir, codex, api, invoke, counts, children };
+}
+
+test("sealed: production cancel-login after the seal stopped Codex resolves without a probe, spawn or row", async (t) => {
+  const { SealedState } = require("../../src/helpers/privacy/sealedState");
+  const { createSealTransition } = require("../../src/helpers/privacy/privacyBoot");
+  const recorder = new FlightRecorder({ now });
+  let state = null;
+  const h = realCodexIpc(t, {
+    isSealed: () => state.isSealed(),
+    recorder,
+    results: {
+      "account/login/start": {
+        type: "chatgpt",
+        loginId: "login-1",
+        authUrl: "https://auth.openai.com/fixture",
+      },
+      "account/login/cancel": { status: "canceled" },
+    },
+  });
+  state = new SealedState({ profile: h.dir });
+
+  // Unsealed with the app-server running: unchanged, the cancel goes to it.
+  assert.deepEqual(await h.invoke("codex-login"), { loginId: "login-1" });
+  assert.deepEqual(await h.invoke("codex-cancel-login", "login-1"), { status: "canceled" });
+  assert.deepEqual([h.counts.probes, h.counts.spawns], [2, 1]);
+  assert.ok(h.children[0].received.includes("account/login/cancel"));
+
+  // A second sign-in is pending when the user turns Sealed mode on.
+  assert.deepEqual(await h.invoke("codex-login"), { loginId: "login-1" });
+  const transition = createSealTransition({
+    state,
+    getInference: () => h.api,
+    getCalendars: () => [],
+    children: childRegistry,
+    waitMs: 50,
+    sleep: () => new Promise((r) => setImmediate(r)),
+  });
+  await transition.apply(true);
+  assert.equal(state.isSealed(), true);
+  assert.equal(h.api.codexRunning(), false, "the seal stopped the app-server");
+  const rows = recorder.list().map((row) => [row.task, row.host, row.outcome]);
+  const cancelsSent = h.children[0].received.filter((m) => m === "account/login/cancel").length;
+
+  // Cancel, twice: each click resolves locally and leaves no trace.
+  for (let click = 0; click < 2; click++)
+    assert.deepEqual(await h.invoke("codex-cancel-login", "login-1"), {
+      appServerStopped: true,
+    });
+  assert.deepEqual([h.counts.probes, h.counts.spawns], [2, 1], "no probe or spawn while sealed");
+  assert.equal(h.codex.alive(), false);
+  assert.deepEqual(
+    recorder.list().map((row) => [row.task, row.host, row.outcome]),
+    rows,
+    "no ledger row, blocked or otherwise"
+  );
+  assert.equal(rows.filter(([, , outcome]) => outcome === "blocked").length, 0);
+  assert.equal(
+    h.children[0].received.filter((m) => m === "account/login/cancel").length,
+    cancelsSent,
+    "nothing was sent to the stopped process"
+  );
+});
+
+test("sealed: cancel-login on a never-started production server resolves with no probe, spawn or row", async (t) => {
+  const recorder = new FlightRecorder({ now });
+  const h = realCodexIpc(t, { isSealed: () => true, recorder });
+  assert.deepEqual(await h.invoke("codex-cancel-login", "login-1"), { appServerStopped: true });
+  assert.deepEqual([h.counts.probes, h.counts.spawns], [0, 0]);
+  assert.deepEqual(recorder.list(), []);
+  // The gated handlers still refuse (and record) as before.
+  await assert.rejects(h.invoke("codex-status"), isSealedModeError);
+  assert.deepEqual([h.counts.probes, h.counts.spawns], [0, 0]);
 });

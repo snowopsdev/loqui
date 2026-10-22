@@ -76,7 +76,8 @@ export interface PersonalInferenceAPI {
     code?: string;
   }>;
   codexLogin(): Promise<{ loginId: string }>;
-  codexCancelLogin(loginId: string): Promise<unknown>;
+  /** `appServerStopped`: the sign-in ended with its app-server; nothing was started. */
+  codexCancelLogin(loginId: string): Promise<{ appServerStopped?: boolean } | null | undefined>;
   codexLogout(): Promise<unknown>;
   codexModels(): Promise<{ data: CodexModel[]; nextCursor: string | null }>;
   /** Passive main-RAM snapshot from explicit discovery in this account/session. */

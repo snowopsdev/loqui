@@ -501,7 +501,8 @@ function registerPersonalInferenceIPC({
     await openExternal(url.href);
     return { loginId: login.loginId };
   });
-  // Cancel stays usable while sealed; it never needs a new connection.
+  // Cancel stays usable while sealed; it never needs a new connection. With no
+  // app-server running or starting it resolves without starting one.
   handle("codex-cancel-login", (_event, loginId) => codex.cancelLogin(loginId));
   handle("codex-logout", () => {
     assertCodexAllowed();

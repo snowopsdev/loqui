@@ -157,9 +157,12 @@ export default function CodexConnection({
             variant="outline"
             disabled={busy}
             onClick={() =>
-              void action(async () => {
-                await api.codexCancelLogin(loginId);
+              void run(async () => {
+                const result = await api.codexCancelLogin(loginId);
                 setLoginId(null);
+                // The sign-in ended with its app-server (Sealed mode may have
+                // stopped it). A status read would start a new one, so skip it.
+                if (!result?.appServerStopped) await refresh();
               })
             }
           >

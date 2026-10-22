@@ -351,8 +351,11 @@ that sent nothing (a cached answer or local validation failure) write no row.
 whole-exchange `guardMetered` helper.
 
 Codex status, login, logout, models, model catalog and rate limits refuse while
-sealed before the app-server could start; cancel-login stays usable. The
-production server refuses before its native executable probe and again
+sealed before the app-server could start; cancel-login stays usable. With no
+app-server running or starting (for example, after the seal stopped it), the
+sign-in ended with that process, so cancel-login resolves `appServerStopped`
+without a probe, spawn or row, and Settings clears its waiting state without a
+status read. The production server refuses before its native executable probe and again
 immediately before the app-server spawn; release verification is a metered
 `codex` request to GitHub. Each app-server process is one opaque session row
 (`codex`, chatgpt.com, no byte counts) authorized before the launch, so the spawn

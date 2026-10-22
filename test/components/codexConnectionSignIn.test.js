@@ -160,3 +160,50 @@ test("only the newest status read can report an account change", async (t) => {
   await React.act(async () => pending.reads[0](signedIn));
   assert.deepEqual(changes, [], "the older read finished last but is superseded");
 });
+
+// Review I1: Cancel clears the waiting state. When main reports that the
+// sign-in ended with its app-server, no status read follows (it would start one).
+async function mountWaiting(t, cancelResult) {
+  const { mountComponent } = require("../helpers/harness/mountComponent");
+  const ui = await mountComponent(t, "/components/CodexConnection.tsx", {
+    api: {
+      personalInference: {
+        codexStatus: async () => signedOut,
+        codexRateLimits: async () => ({}),
+        codexLogin: async () => ({ loginId: "login-1" }),
+        codexCancelLogin: async () => cancelResult,
+        onTextEvent: () => () => {},
+      },
+    },
+  });
+  const button = (key) =>
+    ui.find((node) => node.tagName === "BUTTON" && node.textContent.includes(key));
+  const statusReads = () => ui.calls.filter(([name]) => name === "personalInference.codexStatus");
+  await ui.clickNode(button("codexConnection.connect"));
+  assert.ok(ui.text().includes("codexConnection.waiting"));
+  const before = statusReads().length;
+  await ui.clickNode(button("codexConnection.cancel"));
+  await React.act(async () => new Promise((resolve) => setImmediate(resolve)));
+  return { ui, button, statusReadsAfterCancel: statusReads().length - before };
+}
+
+test("Cancel after the app-server stopped leaves the waiting state without a status read", async (t) => {
+  const { ui, button, statusReadsAfterCancel } = await mountWaiting(t, { appServerStopped: true });
+  assert.ok(
+    ui.calls.some(([name, id]) => name === "personalInference.codexCancelLogin" && id === "login-1")
+  );
+  assert.equal(ui.text().includes("codexConnection.waiting"), false);
+  assert.ok(button("codexConnection.connect"), "Connect is offered again");
+  assert.equal(statusReadsAfterCancel, 0);
+  assert.equal(
+    ui.findAll((node) => node.attributes?.role === "alert").length,
+    0,
+    "no error is shown"
+  );
+});
+
+test("Cancel with the app-server running still refreshes status afterwards", async (t) => {
+  const { ui, statusReadsAfterCancel } = await mountWaiting(t, { status: "canceled" });
+  assert.equal(ui.text().includes("codexConnection.waiting"), false);
+  assert.equal(statusReadsAfterCancel, 1);
+});

@@ -434,21 +434,20 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
       cleanup();
     };
   }
-  // Plan 04 groups notices by ticketId; delivered is final. attemptId refines
-  // correlation without changing that grouping. A retry must never retract it.
+  // Plan 04 keys each independently withdrawable receipt by ticketId. Attempts
+  // need distinct receipts; operationId keeps their shared ledger identity.
   function announce(phase, attemptId, attemptHost = host, local = loopback) {
     if (local || epoch !== generation) return;
     const key = `${attemptId ?? "ticket"}:${phase}`;
     if (announced.has(key)) return;
     const evidenceKey = attemptId ?? "ticket";
     const previous = evidence.get(evidenceKey);
-    if (previous !== "delivered") evidence.set(evidenceKey, phase);
-    // An uncertain earlier dispatch is evidence too. Plan 04's operation-wide
-    // withdrawal is valid only when *all* dispatched attempts were undelivered.
-    if (phase === "undelivered" && [...evidence.values()].some((p) => p !== "undelivered")) return;
+    if (previous === "delivered") return;
+    evidence.set(evidenceKey, phase);
     announced.add(key);
     events.emit(phase, {
-      ticketId: id,
+      ticketId: attemptId ?? id,
+      operationId: id,
       attemptId,
       task,
       targetId: targetIdFor(provider, attemptHost),
@@ -871,7 +870,10 @@ function meteredFetch(
       refused.settle({ outcome: "blocked", errorClass: "SEALED_MODE" });
       throw new SealedModeError({ task: ticket.task, host: decision.host });
     }
-    const signal = init.signal ? AbortSignal.any([init.signal, ticket.signal]) : ticket.signal;
+    // Fetch inherits Request.signal for an omitted/undefined init signal;
+    // explicit null clears that inheritance, while ticket cancellation remains.
+    const callerSignal = init.signal === undefined ? input?.signal : init.signal;
+    const signal = callerSignal ? AbortSignal.any([callerSignal, ticket.signal]) : ticket.signal;
     const headers = new Headers(init.headers ?? input?.headers ?? {});
     headers.delete(EGRESS_TAG_HEADER);
     if (signal.aborted) throw signal.reason;
@@ -881,7 +883,11 @@ function meteredFetch(
     attempt.markDispatched();
     try {
       const pending = runWithTicket(ticket, () =>
-        attemptContext.run(attempt, () => baseFetch(input, { ...init, headers, signal }))
+        attemptContext.run(attempt, () => {
+          // Notice observers may synchronously cancel before transport hand-off.
+          signal.throwIfAborted();
+          return baseFetch(input, { ...init, headers, signal });
+        })
       );
       const response = await abortable(
         Promise.resolve(pending).then((value) => {

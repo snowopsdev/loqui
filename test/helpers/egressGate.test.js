@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const gate = require("../../src/helpers/privacy/egressGate");
+const { createDisclosureTracker } = require("../../src/helpers/dictationDisclosure");
 const { FlightRecorder } = require("../../src/helpers/privacy/flightRecorder");
 const { isSealedModeError, sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
 
@@ -130,8 +131,8 @@ test("two requests in one operation are two rows; a failed retry never withdraws
   assert.equal(rows[0].operationId, rows[1].operationId);
   assert.deepEqual(
     seen.map((n) => n.phase),
-    ["dispatched", "delivered", "dispatched"],
-    "no undelivered after a delivery"
+    ["dispatched", "delivered", "dispatched", "undelivered"],
+    "only the failed attempt is withdrawn"
   );
   assert.equal(recorder.summary({ since: 0 }).observed, 2);
 });
@@ -886,8 +887,9 @@ test("a failed retry cannot retract an earlier uncertain dispatch", async (t) =>
   );
   assert.deepEqual(
     seen.map((n) => n.phase),
-    ["dispatched", "dispatched"]
+    ["dispatched", "dispatched", "undelivered"]
   );
+  assert.notEqual(seen[0].ticketId, seen[2].ticketId);
 });
 
 test("concurrent attempts attribute socket host trails only to their own context", async (t) => {
@@ -1096,5 +1098,300 @@ test("a one-host remote redirect trail still proves an earlier dispatched hop", 
   assert.deepEqual(
     [recorder.list()[0]?.outcome, recorder.list()[0]?.bytesOut],
     ["cancelled", null]
+  );
+});
+
+for (const uncertainFirst of [false, true]) {
+  test(`real Plan 04 tracker keeps both recipients and withdraws only failed retries (uncertain=${uncertainFirst})`, async (t) => {
+    const { recorder } = setup(t);
+    const seen = notices();
+    const tracker = createDisclosureTracker({
+      session: { id: "review-session" },
+      privacyApi: {
+        onEgress(listener) {
+          const listeners = ["dispatched", "delivered", "undelivered"].map((phase) => {
+            const forward = (notice) => listener({ phase, ...notice });
+            gate.events.on(phase, forward);
+            return [phase, forward];
+          });
+          return () => listeners.forEach(([phase, listener]) => gate.events.off(phase, listener));
+        },
+      },
+      dispatchApi: {},
+    });
+    t.after(() => tracker.dispose());
+    const ticket = gate.withContext({ correlationId: "review-session" }, () =>
+      gate.authorize({
+        task: "dictationStt",
+        target: "https://first.invalid",
+        payload: "audio",
+      })
+    );
+    const success = gate.meteredFetch(ticket, async () => new Response(null, { status: 204 }));
+    const fail = (code) =>
+      gate.meteredFetch(ticket, async () => {
+        throw Object.assign(new TypeError("fetch failed"), { cause: { code } });
+      });
+    if (uncertainFirst) await assert.rejects(fail("ECONNRESET")("https://first.invalid"));
+    else await success("https://first.invalid");
+    await success("https://second.invalid");
+    const expected = {
+      target: uncertainFirst ? "host:second.invalid" : "host:first.invalid",
+      payload: "audio",
+      evidence: uncertainFirst ? "dispatched" : "attested",
+      alsoSentTo: [uncertainFirst ? "host:first.invalid" : "host:second.invalid"],
+    };
+    assert.deepEqual(tracker.get(), expected);
+    const dispatched = seen.filter((n) => n.phase === "dispatched");
+    assert.equal(new Set(dispatched.map((n) => n.ticketId)).size, 2);
+    for (const [index, notice] of dispatched.entries()) {
+      assert.deepEqual(
+        [
+          notice.ticketId,
+          notice.attemptId,
+          notice.operationId,
+          notice.correlationId,
+          notice.task,
+          notice.targetId,
+          notice.payload,
+        ],
+        [
+          `${ticket.id}.${index + 1}`,
+          `${ticket.id}.${index + 1}`,
+          ticket.id,
+          "review-session",
+          "dictationStt",
+          `host:${index ? "second" : "first"}.invalid`,
+          "audio",
+        ]
+      );
+    }
+    for (const host of ["first", "second", "third"]) {
+      await assert.rejects(fail("ECONNREFUSED")(`https://${host}.invalid`));
+      assert.deepEqual(tracker.get(), expected, "a failed retry removes only its own receipt");
+      const last = seen.at(-1);
+      assert.equal(last.phase, "undelivered");
+      assert.equal(last.ticketId, seen.at(-2).ticketId);
+      assert.equal(
+        dispatched.some((n) => n.ticketId === last.ticketId),
+        false
+      );
+    }
+    // A subsequent delivery strengthens the first recipient without hiding either target.
+    await success("https://first.invalid");
+    assert.deepEqual(tracker.get(), {
+      target: "host:first.invalid",
+      payload: "audio",
+      evidence: "attested",
+      alsoSentTo: ["host:second.invalid"],
+    });
+    ticket.settle({ outcome: "ok" });
+    assert.equal(recorder.list().length, 6);
+    assert.equal(
+      recorder.list().every((r) => r.kind === "request" && r.operationId === ticket.id),
+      true
+    );
+  });
+}
+
+test("delivered receipt cannot be downgraded by its own later undelivered notice", (t) => {
+  setup(t);
+  const seen = notices();
+  const ticket = gate.authorize({
+    task: "dictationStt",
+    target: "https://first.invalid",
+    payload: "audio",
+  });
+  const attempt = ticket.beginAttempt("first.invalid");
+  attempt.markDelivered();
+  attempt.markUndelivered();
+  ticket.markDelivered();
+  ticket.markUndelivered();
+  assert.deepEqual(
+    seen.map((n) => n.phase),
+    ["dispatched", "delivered", "dispatched", "delivered"]
+  );
+  assert.notEqual(seen[0].ticketId, seen[2].ticketId);
+  ticket.discard();
+});
+
+for (const init of [undefined, { signal: undefined }]) {
+  test("review reproduction: an already-aborted Request rejects before transport without a phantom row", async (t) => {
+    const { recorder } = setup(t);
+    const seen = notices();
+    const ticket = gate.authorize({ task: "chat", target: "https://cancelled.invalid" });
+    const caller = new AbortController();
+    caller.abort(new DOMException("fixture cancellation", "AbortError"));
+    const input = new Request("https://cancelled.invalid", { signal: caller.signal });
+    let calls = 0;
+    await assert.rejects(
+      gate.meteredFetch(ticket, async (_input, options) => {
+        calls++;
+        options.signal.throwIfAborted();
+        return new Response(null, { status: 204 });
+      })(input, init),
+      (error) => error === caller.signal.reason
+    );
+    assert.equal(calls, 0);
+    assert.equal(ticket.attemptCount(), 0);
+    assert.deepEqual(recorder.list(), []);
+    assert.deepEqual(seen, []);
+    ticket.discard();
+  });
+}
+
+for (const duringBody of [false, true]) {
+  test(`inherited Request signal cancels once during ${duringBody ? "stalled body" : "transport"}`, async (t) => {
+    const { recorder } = setup(t);
+    const ticket = gate.authorize({ task: "chat", target: "https://cancelled.invalid" });
+    const caller = new AbortController();
+    const input = new Request("https://cancelled.invalid", { signal: caller.signal });
+    let aborts = 0;
+    let cancels = 0;
+    const pending = gate.meteredFetch(ticket, async (_input, options) => {
+      options.signal.addEventListener("abort", () => aborts++, { once: true });
+      if (!duringBody) return new Promise(() => {});
+      return new Response(
+        new ReadableStream({
+          pull() {
+            return new Promise(() => {});
+          },
+          cancel() {
+            cancels++;
+          },
+        })
+      );
+    })(input);
+    const reading = duringBody ? (await pending).text() : pending;
+    const outcome = reading.then(
+      () => "resolved",
+      (error) => error
+    );
+    caller.abort(new DOMException("fixture cancellation", "AbortError"));
+    assert.equal(
+      await Promise.race([outcome, nextTurn().then(() => "still pending")]),
+      caller.signal.reason
+    );
+    ticket.abort();
+    ticket.settle({ outcome: "cancelled" });
+    await nextTurn();
+    assert.equal(aborts, 1);
+    assert.equal(cancels, duringBody ? 1 : 0);
+    assert.equal(recorder.list().length, 1);
+    assert.deepEqual(
+      [recorder.list()[0].outcome, recorder.list()[0].errorClass],
+      ["cancelled", "ABORTED"]
+    );
+  });
+}
+
+for (const override of ["signal", "null"]) {
+  test(`explicit init ${override} overrides an aborted Request signal and still composes ticket cancellation`, async (t) => {
+    const { recorder } = setup(t);
+    const ticket = gate.authorize({ task: "chat", target: "https://cancelled.invalid" });
+    const explicit = new AbortController();
+    const input = new Request("https://cancelled.invalid", { signal: AbortSignal.abort() });
+    let calls = 0;
+    let signal;
+    const response = await gate.meteredFetch(ticket, async (_input, options) => {
+      calls++;
+      signal = options.signal;
+      signal.throwIfAborted();
+      return new Response(
+        new ReadableStream({
+          pull() {
+            return new Promise(() => {});
+          },
+        })
+      );
+    })(input, { signal: override === "null" ? null : explicit.signal });
+    const reading = response.text();
+    const rejected = assert.rejects(reading);
+    if (override === "signal") explicit.abort();
+    else ticket.abort();
+    await rejected;
+    assert.equal(calls, 1);
+    assert.equal(signal.aborted, true);
+    assert.equal(recorder.list().length, 1);
+  });
+}
+
+test("an already-aborted explicit init signal overrides a live Request before transport", async (t) => {
+  const { recorder } = setup(t);
+  const ticket = gate.authorize({ task: "chat", target: "https://cancelled.invalid" });
+  let calls = 0;
+  await assert.rejects(
+    gate.meteredFetch(ticket, async () => {
+      calls++;
+    })(new Request("https://cancelled.invalid"), { signal: AbortSignal.abort() }),
+    { name: "AbortError" }
+  );
+  assert.equal(calls, 0);
+  assert.equal(ticket.attemptCount(), 0);
+  assert.deepEqual(recorder.list(), []);
+});
+
+for (const tag of [false, true]) {
+  test(`Request method, body and headers survive signal composition and init overrides (tag=${tag})`, async (t) => {
+    const { recorder } = setup(t);
+    const ticket = gate.authorize({ task: "chat", target: "https://request.invalid" });
+    const fetch = gate.meteredFetch(
+      ticket,
+      async (input, init) => {
+        const effective = new Request(input, init);
+        assert.equal(effective.method, init.method ?? "POST");
+        assert.equal(effective.headers.get("x-fixture"), init.method ? "override" : "original");
+        assert.equal(effective.headers.has(gate.EGRESS_TAG_HEADER), tag);
+        if (tag)
+          assert.equal(
+            gate.ticketByTag(effective.headers.get(gate.EGRESS_TAG_HEADER)).ticket,
+            ticket
+          );
+        assert.equal(await effective.text(), init.body ?? "original body");
+        return new Response(null, { status: 204 });
+      },
+      { tag }
+    );
+    const request = () =>
+      new Request("https://request.invalid", {
+        method: "POST",
+        body: "original body",
+        headers: { "x-fixture": "original", [gate.EGRESS_TAG_HEADER]: "stale" },
+      });
+    await fetch(request());
+    await fetch(request(), {
+      method: "PUT",
+      body: "override body",
+      headers: { "x-fixture": "override" },
+    });
+    ticket.settle({ outcome: "ok" });
+    assert.deepEqual(
+      recorder
+        .list()
+        .reverse()
+        .map((r) => r.bytesOut),
+      [null, 13]
+    );
+  });
+}
+
+test("cancellation at the dispatch notice prevents transport invocation", async (t) => {
+  const { recorder } = setup(t);
+  const caller = new AbortController();
+  const ticket = gate.authorize({ task: "chat", target: "https://cancelled.invalid" });
+  gate.events.once("dispatched", () => caller.abort());
+  let calls = 0;
+  await assert.rejects(
+    gate.meteredFetch(ticket, async () => {
+      calls++;
+      return new Response(null, { status: 204 });
+    })(new Request("https://cancelled.invalid", { signal: caller.signal })),
+    { name: "AbortError" }
+  );
+  assert.equal(calls, 0);
+  assert.equal(recorder.list().length, 1);
+  assert.deepEqual(
+    [recorder.list()[0].outcome, recorder.list()[0].errorClass],
+    ["cancelled", "ABORTED"]
   );
 });

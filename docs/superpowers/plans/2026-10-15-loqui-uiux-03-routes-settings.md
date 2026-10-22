@@ -79,6 +79,22 @@ This answers Codex's second review (`plan-03-codex-r2.md`, pinned at `c912d19`).
 | **R2-9** Apply accepts unusable off-device routes | Fixed | **Tasks 6, 7, 8, 9.** `routeBlocker` returns null only for device and off routes. Any changed, enabled, off-device route that is not `ready` blocks Apply, including Codex and enterprise `needsKey`, and `needsModel` with or without a size. The two earlier null-blocker tests are reversed. Setup happens inside the staged editor without committing: a registry-only model radiogroup or typed id; Codex Connect; enterprise fields through `stageDraftSetup`, which joins the draft and writes nothing until Apply. Blocked copy: "Sign in to X first", "Choose a model first". Open question 1's default changes to match. Tests: staged Azure is `needsUrl` until the endpoint is set, then Apply writes once and Undo restores; staged Codex stays blocked until sign-in. | none |
 | **R2-10** (Minor) Dictionary actions use the default transition timing | Fixed | **Task 17.** Both `DictionaryHeaderActions` class strings carry `duration-[var(--motion-fast)]`. A source guard requires one `--motion` duration per `transition` utility and bans raw `duration-<n>`. | none |
 
+## Round-3 review response
+
+This answers Codex's third review (`plan-03-codex-r3.md`, pinned at `4d26752`) and the accepted spec §5.1 clarification CCR-7 (Plan 07 R3-I4). The repair landed in `be12d04`; this entry records where each finding lives and what verifies it. The application modules remain unbuilt; the extracted plan checks run during this review are recorded below.
+
+| Finding | Status | Where, and the test that proves it |
+|---|---|---|
+| **R3-1** (Critical) Saving or removing a Vertex key moves the recipient | Fixed in plan | **Tasks 1, 2, 3, 6, 9.** Non-secret `vertexAuthSource` (`adc` or `apiKey`) selects the host. It is migrated once before renderer admission (Task 2), planned like the other enterprise keys (Task 6), and honoured by the executor. A key save, removal or Undo changes readiness only. Mounted active-Vertex save/remove/Undo cases in Task 9 assert the committed host never moves before review; Task 1's SDK agreement matrix covers both sources. |
+| **R3-2** (Critical) Reset misses the independent `.env` writer | Fixed in plan | **Task 2.** The reset fence sits beneath every `environment.js` persistence entry point, invalidates queued `envWriteQueue` jobs and drains the active write. `saveAllKeysToEnvFile` refuses during the fence and skips `dotenv.config` when invalidated. The deferred real `save-all-keys-to-env` race in `credentialAuthorityRealEnv.test.js` asserts no file and no in-memory key after reset. |
+| **R3-3** (Important) Bedrock access-key ID alone is `ready` | Fixed in plan | **Task 1.** Readiness is a supported profile or the complete committed pair; a partial pair is `needsKey`. Task 1's tests cover ID-only, secret-only, complete pair and profile against the real factory. |
+| **R3-4** (Important) Verify can send to a new region under the old host label | Fixed in plan | **Tasks 11, 12.** Each disclosure is bound to its options snapshot. A pending description hides the old host and refuses Verify and Verify all, and a region change during the save wait cancels the admitted snapshot. Two Task 12 tests compare the visible host with the captured request URL. |
+| **R3-5** (Important) Production Keyring tests erase their fixtures first | Fixed in plan | **Task 11.** `keyringProduction.test.js` captures the restore callback from `realCredentialEnv` in `test.before` and calls it from the top-level `test.after`, after the keyring is stopped. It registers no hook from inside `before`. |
+| **R3-6** (Important) Plan 07 drops the committed credential capture | Fixed here; Plan 07 already carries it | Plan 03 calls `runTest(config, captured.values)` and the constructor adapter forwards `captured`. Task 18's handoff step 4 states both. Plan 07 Task 11a step 2 now reads `result = await runTest(config, captured.values);`. Nothing further is required of Plan 07 beyond keeping that argument when the two plans merge. |
+| **CCR-7** (accepted, spec §5.1) Configured loopback endpoints keep their `host` | Applied | **Task 1.** `endpointDestination` returns `host: urlHost(url)` for a valid loopback endpoint, and `resolveRoute` projects `dest.host` unchanged. Built-in engines keep `host: null`, and invalid endpoints report no host. The stale null-host assertions are replaced in the custom/self-hosted speech and text tests. **Task 3** adds a settings → `buildRouteSnapshot` → `resolveRoute` test: a built-in engine stays `null`, and self-hosted speech, custom speech and self-hosted text on loopback keep their host, also while sealed. Plan 07's D15 pre-flight test builds its routes the same way (P07 Task 11a), so the producer and consumer are tested against one chain. |
+
+**Limitations.** (1) These are plan revisions. The new builder → resolver test and both changed Task 1 tests passed against exact extracted planned modules on Node 24. Full application integration and native isolation were not exercised. (2) Plan 01's merged `isLoopbackUrl` accepts `localhost`, `127.0.0.1`, `::1` and `*.localhost`. Plan 03's CCR-7 tests use those. The wider `127.0.0.0/8` rule (spec §5, Plan 07 CCR-5) arrives with Plan 07 Task 11a, whose D15 test uses `127.0.0.2`. (3) A loopback host is preserved as `URL.host` (port included, IPv6 bracketed), so Plan 07 uses host nullability to preserve configured-endpoint identity; required native dependencies and their availability still come from the selected-engine mapping and acknowledged main attestation.
+
 ## Review response (round 1)
 
 Every Critical and Important finding is closed. One finding is narrowed with evidence (I1, model-only changes). Nothing is rejected outright.
@@ -165,6 +181,8 @@ Consumer impact (also in §5.1 rule 1): Plans 04, 05 and 06 render `unknown` as 
 **§5.3, notices (owned by Plan 04).** Plan 03 merges before Plan 04 (spec §3), so it keeps the existing toast API and calls no `notify()`.
 
 **Plan 01 tokens.** No request remains. The light `--color-ring` `#E84E16` already shipped in Plan 01 (`f7d53e4`). Task 5 verifies it and adds both-theme composited contrast tests.
+
+**§5.1, configured loopback endpoints keep their host (Plan 07 CCR-7).** **Accepted in spec §5.1 (cd2dc3e).** `ResolvedRoute.host` is the normalized effective endpoint `host[:port]` of any user-configured endpoint, loopback included. It is `null` for Loqui's built-in engines and for invalid endpoints. This preserves the identity of a server the user configures. Host nullability alone does not identify required native children or attest that they are paused. Plan 07 Task 13 step 4a still maps each selected engine to its native dependencies and projects acknowledged main availability into graph state; dictation pre-flight consumes `nativePaused`, `nativePending` or required `unknown` from that projection. Task 1 preserves the endpoint host, and Task 3 tests the real builder → resolver chain.
 
 ## Plan 01 review items (folded in, unchanged from revision 1)
 
@@ -918,6 +936,7 @@ test("speech readiness agrees with the batch executor for custom endpoints", asy
   ).dictationStt;
   assert.equal(loopback.locality, "device");
   assert.equal(loopback.providerId, null);
+  assert.equal(loopback.host, "localhost:9000", "CCR-7: a configured loopback endpoint keeps its host");
   const hosted = (
     await routesOf({
       stt: {
@@ -947,7 +966,11 @@ test("self-hosted speech: LAN is the network, loopback is the device, invalid ne
   assert.deepEqual(lan.state, { status: "ready" });
   assert.equal(lan.model, "whisper-1");
   assert.equal(lan.sends, "your audio");
-  assert.equal((await at("http://localhost:9000/v1")).locality, "device");
+  const loopbackServer = await at("http://127.0.0.1:9000/v1");
+  assert.equal(loopbackServer.locality, "device");
+  assert.equal(loopbackServer.providerId, null);
+  assert.equal(loopbackServer.host, "127.0.0.1:9000", "CCR-7: not Loqui's own engine, so the host stays");
+  assert.deepEqual(loopbackServer.state, { status: "ready" });
   for (const url of [
     "",
     "http://stt.example.com/v1",
@@ -7053,6 +7076,68 @@ test("the Corti host follows the selected region", async (t) => {
     routes.resolveRoute(routes.buildRouteSnapshot(corti, facts, copy, false), "dictationStt").host,
     "api.eu.corti.app"
   );
+});
+
+test("settings → builder → resolver keeps a configured loopback host and leaves built-in engines null (CCR-7)", async (t) => {
+  // Host nullability preserves configured-endpoint identity. Plan 07 separately
+  // maps selected-engine dependencies and projects acknowledged availability. This
+  // goes through the real builder and resolver, so a producer that nulls the host
+  // anywhere between the store and ResolvedRoute fails here, not in Plan 07.
+  const { routes, copy, base } = await load(t);
+  const resolve = (fields, id) =>
+    routes.resolveRoute(routes.buildRouteSnapshot({ ...base, ...fields }, FACTS, copy, false), id);
+  const dictation = (fields) => resolve({ useLocalWhisper: false, ...fields }, "dictationStt");
+
+  const builtIn = dictation({ transcriptionMode: "local", localTranscriptionProvider: "whisper", whisperModel: "base" });
+  assert.equal(builtIn.locality, "device");
+  assert.equal(builtIn.host, null, "a built-in engine has no endpoint host");
+
+  for (const [url, host] of [
+    ["http://127.0.0.1:8178/v1", "127.0.0.1:8178"],
+    ["http://localhost:9000/v1", "localhost:9000"],
+    ["http://[::1]:9000/v1", "[::1]:9000"],
+  ]) {
+    const selfHosted = dictation({ transcriptionMode: "self-hosted", remoteTranscriptionUrl: url, remoteTranscriptionModel: "whisper-1" });
+    assert.equal(selfHosted.locality, "device", url);
+    assert.equal(selfHosted.providerId, null, url);
+    assert.equal(selfHosted.host, host, `self-hosted speech keeps ${host}`);
+    assert.deepEqual(selfHosted.state, { status: "ready" }, url);
+
+    const customStt = dictation({
+      transcriptionMode: "providers",
+      cloudTranscriptionProvider: "custom",
+      cloudTranscriptionBaseUrl: url,
+    });
+    assert.equal(customStt.locality, "device", url);
+    assert.equal(customStt.host, host, `custom speech keeps ${host}`);
+
+    const chat = resolve(
+      { chatAgentMode: "self-hosted", chatAgentRemoteUrl: url, chatAgentModel: "llama3" },
+      "chat"
+    );
+    assert.equal(chat.locality, "device", url);
+    assert.equal(chat.host, host, `self-hosted text keeps ${host}`);
+  }
+
+  // Still no loopback shortcut for an invalid URL: it is never the device and has no host.
+  const invalid = dictation({ transcriptionMode: "self-hosted", remoteTranscriptionUrl: "http://lmstudio.localhost/v1" });
+  assert.notEqual(invalid.locality, "device");
+  assert.equal(invalid.host, null);
+  assert.deepEqual(invalid.state, { status: "needsUrl" });
+
+  // Sealing keeps the user's loopback endpoint on the device and its host intact.
+  const sealed = routes.resolveRoute(
+    routes.buildRouteSnapshot(
+      { ...base, useLocalWhisper: false, transcriptionMode: "self-hosted", remoteTranscriptionUrl: "http://127.0.0.1:8178/v1" },
+      FACTS,
+      copy,
+      true
+    ),
+    "dictationStt"
+  );
+  assert.equal(sealed.locality, "device");
+  assert.equal(sealed.host, "127.0.0.1:8178");
+  assert.deepEqual(sealed.state, { status: "ready" });
 });
 
 test("Corti text routes disclose the API-key host, whatever the region", async (t) => {
@@ -34947,6 +35032,7 @@ Write `/tmp/plan03-pr-body.md` (not committed):
   >   - For `"bedrock" | "azure" | "vertex"`, main ignores `options`. It reads its committed enterprise configuration through the same `EnvironmentManager` getters that `main.js` `getEnterpriseConfig` uses (`:447-457`), plus Task 1's `enterpriseRouteFacts(process.env)`: `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`/`AWS_ENDPOINT_URL` replace the Bedrock host (`hosts: []` when unusable), and `GOOGLE_VERTEX_API_KEY` puts Vertex in express mode (`aiplatform.googleapis.com`, `fields: ["environmentKey"]`) when no key is stored.
   >   - Task 9's enterprise "Test connection" button takes its host label from this call. It re-asks when the committed endpoint, region, profile, project or location changes, and on `credentials-changed`. The button is disabled while main names no host.
   >   - When Plan 07 gates these sends, the host the button names must stay the host the gated request reaches.
+  > - **Configured loopback hosts (CCR-7, spec §5.1).** A valid user-configured loopback endpoint (self-hosted speech, custom speech, self-hosted or custom text) resolves `locality: "device"`, `providerId: null` and a non-null `host` (`URL.host`, for example `127.0.0.1:8178` or `[::1]:9000`). Only Loqui's built-in engines resolve `device` with `host: null`; an invalid URL is never `device` and has no host. The fix is in Task 1's `endpointDestination` and `resolveRoute`, with no new field. Task 3's "settings → builder → resolver" test covers the chain Plan 07's D15 pre-flight consumes. Plan 07 Task 13 step 4a must retain its selected-engine dependency mapping and acknowledged main availability projection. The host distinction identifies a configured endpoint; it does not determine required children or prove a pause. Pre-flight consumes the projected graph state (`nativePaused`, `nativePending` or required `unknown`) without a second URL heuristic. Run the Plan 07 test with `127.0.0.2` once Task 11a widens `isLoopbackUrl` to `127.0.0.0/8` (Plan 03's tests stay on `127.0.0.1`, `localhost` and `::1`, which Plan 01 already accepts).
   > - **Enterprise route facts (R2-1).** Bedrock, Azure and Vertex routes resolve `unknown` until `RouteFacts.enterpriseMain` is non-null. Task 3's loader fills it after syncing the four settings from main and reading the `enterprise-route-facts` IPC, which returns hosts and booleans only. A Node test that builds `RouteFacts` or a snapshot by hand must supply `enterprise`, `credentialFields` and `enterpriseMain`. Use `makeSnapshot` (`test/lib/routeFixtures.js`), which already does.
 
 Get the owner's explicit OK before `git push` or `gh pr create`. Publishing is outward-facing.

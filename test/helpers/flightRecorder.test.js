@@ -238,6 +238,99 @@ test("a failed flush keeps pending rows in memory and reports a code without exp
   assert.equal(recorder.list().length, 1);
 });
 
+test("pending flushes share the insert cap cadence and roll back with a failed sweep", (t) => {
+  const manager = createDb(t);
+  if (!manager) return;
+  manager.db
+    .prepare(
+      `INSERT INTO egress_events (ts, ended_at, task, host, hosts, outcome, attributed, opaque, kind)
+       VALUES (?, ?, 'chat', 'api.groq.com', 'api.groq.com', 'ok', 1, 0, 'request')`
+    )
+    .run(1, 1);
+  const insertSeed = manager.db.prepare(
+    `INSERT INTO egress_events (ts, ended_at, task, host, hosts, outcome, attributed, opaque, kind)
+     VALUES (?, ?, 'chat', 'api.groq.com', 'api.groq.com', 'ok', 1, 0, 'request')`
+  );
+  const seed = manager.db.transaction(() => {
+    for (let i = 1; i < 100499; i++) insertSeed.run(i + 1, i + 1);
+  });
+  seed();
+
+  const recorder = new FlightRecorder({ now: () => 200000 });
+  recorder.attachDatabase(manager.db);
+  for (let i = 0; i < 500; i++) recorder.record({ ...base, ts: 200000 + i });
+  manager.db.exec(
+    "CREATE TRIGGER reject_egress_cap BEFORE DELETE ON egress_events BEGIN SELECT RAISE(ABORT, 'blocked'); END;"
+  );
+  recorder.setPersistence(true);
+
+  assert.equal(rowCount(manager.db), 100499, "the failed sweep rolls back the pending inserts");
+  assert.equal(
+    recorder.list({ since: 200000, limit: 1000 }).length,
+    500,
+    "pending evidence stays in memory"
+  );
+  assert.equal(recorder.persistError, "SQLITE_CONSTRAINT_TRIGGER");
+
+  manager.db.exec("DROP TRIGGER reject_egress_cap;");
+  recorder.setPersistence(true);
+  assert.equal(rowCount(manager.db), 100000, "the retry sweeps at the shared 500-write boundary");
+  assert.equal(
+    recorder.list({ since: 200000, limit: 1000 }).length,
+    500,
+    "a committed flush has no memory duplicates"
+  );
+  assert.equal(recorder.persistError, null);
+});
+
+test("successful reads do not clear unresolved pending write failures", () => {
+  let failInsert = true;
+  let failRead = false;
+  const failingDb = {
+    prepare: (sql) => ({
+      run: () => {
+        if (sql.startsWith("INSERT") && failInsert)
+          throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" });
+        return { lastInsertRowid: 1, changes: 0 };
+      },
+      all: () => {
+        if (sql.startsWith("SELECT") && failRead) throw new Error("read failed");
+        return [];
+      },
+      get: () => ({ n: 0 }),
+    }),
+    transaction: (fn) => () => fn(),
+  };
+  const recorder = new FlightRecorder({ now: () => 5 });
+  recorder.attachDatabase(failingDb);
+  recorder.setPersistence(true);
+  recorder.record(base);
+  assert.equal(recorder.persistError, "SQLITE_FULL");
+
+  failRead = true;
+  assert.equal(recorder.list().length, 1);
+  assert.equal(
+    recorder.persistError,
+    "SQLITE_FULL",
+    "the pending write failure remains visible during a read failure"
+  );
+  failRead = false;
+  assert.equal(recorder.list().length, 1);
+  assert.equal(
+    recorder.persistError,
+    "SQLITE_FULL",
+    "read recovery retains the unresolved write error"
+  );
+
+  failInsert = false;
+  recorder.prune({ retentionDays: 0 });
+  assert.equal(
+    recorder.persistError,
+    null,
+    "a successful pending flush resolves the write failure"
+  );
+});
+
 test("a transactional pending flush can retry without losing or duplicating its row", (t) => {
   const manager = createDb(t);
   if (!manager) return;

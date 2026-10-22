@@ -114,16 +114,14 @@ class FlightRecorder extends EventEmitter {
     this.memory = [];
     this.nextMemoryId = -1;
     this.writesSinceCap = 0;
-    this._persistError = null;
+    this._pendingPersistError = null;
+    this._writePersistError = null;
+    this._readPersistError = null;
     if (db) this.attachDatabase(db);
   }
 
   get persistError() {
-    return this._persistError;
-  }
-
-  set persistError(value) {
-    this._persistError = value;
+    return this._pendingPersistError || this._writePersistError || this._readPersistError;
   }
 
   attachDatabase(db) {
@@ -158,15 +156,26 @@ class FlightRecorder extends EventEmitter {
     if (pending.length === 0) return true;
     try {
       const insert = this.insert;
+      const capRows = this.db.prepare(
+        "DELETE FROM egress_events WHERE id NOT IN (SELECT id FROM egress_events ORDER BY ts DESC, id DESC LIMIT ?)"
+      );
+      let writesSinceCap = this.writesSinceCap;
       this.db.transaction(() => {
-        for (const { id: _id, scope: _scope, ...row } of pending) insert.run(row);
+        for (const { id: _id, scope: _scope, ...row } of pending) {
+          insert.run(row);
+          if (++writesSinceCap >= CAP_CHECK_EVERY) {
+            capRows.run(MAX_ROWS);
+            writesSinceCap = 0;
+          }
+        }
       })();
       const flushed = new Set(pending);
       this.memory = this.memory.filter((row) => !flushed.has(row));
-      this.persistError = null;
+      this.writesSinceCap = writesSinceCap;
+      if (!this.memory.some((row) => row.scope === "pending")) this._pendingPersistError = null;
       return true;
     } catch (error) {
-      this.persistError = safePersistError(error);
+      this._pendingPersistError = safePersistError(error);
       return false;
     }
   }
@@ -216,7 +225,7 @@ class FlightRecorder extends EventEmitter {
         if (++this.writesSinceCap >= CAP_CHECK_EVERY) this.capRows();
       } catch (error) {
         // The insert itself failed; a cap-sweep failure after insert is handled separately.
-        this.persistError = safePersistError(error);
+        this._pendingPersistError = safePersistError(error);
         id = this.remember(row, "pending");
       }
     } else {
@@ -235,9 +244,9 @@ class FlightRecorder extends EventEmitter {
         fromDb = this.db
           .prepare("SELECT * FROM egress_events WHERE ts >= ? ORDER BY ts DESC, id DESC LIMIT ?")
           .all(since, lim);
-        if (this.persistError === "READ_ERROR") this.persistError = null;
+        this._readPersistError = null;
       } catch {
-        this.persistError = "READ_ERROR";
+        this._readPersistError = "READ_ERROR";
       }
     }
     const fromMemory = this.memory.filter((row) => row.ts >= since);
@@ -274,10 +283,12 @@ class FlightRecorder extends EventEmitter {
     try {
       if (this.db) this.db.prepare("DELETE FROM egress_events").run();
       this.memory = [];
-      this.persistError = null;
+      this._pendingPersistError = null;
+      this._writePersistError = null;
+      this._readPersistError = null;
       this.emit("cleared");
     } catch (error) {
-      this.persistError = safePersistError(error);
+      this._writePersistError = safePersistError(error);
     }
   }
 
@@ -291,10 +302,10 @@ class FlightRecorder extends EventEmitter {
           "DELETE FROM egress_events WHERE id NOT IN (SELECT id FROM egress_events ORDER BY ts DESC, id DESC LIMIT ?)"
         )
         .run(cap).changes;
-      if (!this.memory.some((row) => row.scope === "pending")) this.persistError = null;
+      if (!this.memory.some((row) => row.scope === "pending")) this._writePersistError = null;
       return deleted;
     } catch (error) {
-      this.persistError = safePersistError(error);
+      this._writePersistError = safePersistError(error);
       return 0;
     }
   }
@@ -321,10 +332,10 @@ class FlightRecorder extends EventEmitter {
         return removed;
       })();
       this.writesSinceCap = 0;
-      if (!this.memory.some((row) => row.scope === "pending")) this.persistError = null;
+      if (!this.memory.some((row) => row.scope === "pending")) this._writePersistError = null;
       return { deleted };
     } catch (error) {
-      this.persistError = safePersistError(error);
+      this._writePersistError = safePersistError(error);
       return { deleted: 0 };
     }
   }

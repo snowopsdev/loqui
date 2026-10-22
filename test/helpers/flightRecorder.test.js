@@ -6,6 +6,15 @@ const { FlightRecorder, toCsv, MEMORY_LIMIT } = require("../../src/helpers/priva
 const DAY = 24 * 60 * 60 * 1000;
 const base = { task: "chat", host: "api.groq.com", outcome: "ok", bytesOut: 3100, bytesIn: 9800 };
 const rowCount = (db) => db.prepare("SELECT COUNT(*) AS n FROM egress_events").get().n;
+function seedNearCap(db, rows = 100499) {
+  const insert = db.prepare(
+    `INSERT INTO egress_events (ts, ended_at, task, host, hosts, outcome, attributed, opaque, kind)
+     VALUES (?, ?, 'chat', 'api.groq.com', 'api.groq.com', 'ok', 1, 0, 'request')`
+  );
+  db.transaction(() => {
+    for (let i = 1; i <= rows; i++) insert.run(i, i);
+  })();
+}
 
 function persistent(t, now) {
   const manager = createDb(t);
@@ -281,6 +290,54 @@ test("pending flushes share the insert cap cadence and roll back with a failed s
     "a committed flush has no memory duplicates"
   );
   assert.equal(recorder.persistError, null);
+});
+
+test("small pending flushes start from the existing database cap baseline", (t) => {
+  const manager = createDb(t);
+  if (!manager) return;
+  seedNearCap(manager.db);
+
+  const recorder = new FlightRecorder({ now: () => 200000 });
+  recorder.attachDatabase(manager.db);
+  recorder.record({ ...base, ts: 200000 });
+  recorder.record({ ...base, ts: 200001 });
+  recorder.setPersistence(true);
+  assert.equal(
+    rowCount(manager.db),
+    100002,
+    "100,499 existing rows are swept before a two-row flush"
+  );
+  assert.ok(rowCount(manager.db) <= 100000 + 500);
+
+  for (const batchSize of [1, 499]) {
+    const next = new FlightRecorder({ now: () => 300000 });
+    next.attachDatabase(manager.db);
+    for (let i = 0; i < batchSize; i++) next.record({ ...base, ts: 300000 + i });
+    next.setPersistence(true);
+    assert.ok(
+      rowCount(manager.db) <= 100000 + 500,
+      `${batchSize}-row pending flush remains within MAX_ROWS + CAP_CHECK_EVERY`
+    );
+    assert.ok(next.persisting);
+    assert.equal(next.persistError, null);
+    assert.equal(rowCount(manager.db), 100000 + batchSize);
+  }
+});
+
+test("the first direct insert after attach and after recorder restart caps an existing table", (t) => {
+  const manager = createDb(t);
+  if (!manager) return;
+  seedNearCap(manager.db);
+
+  for (let pass = 0; pass < 2; pass++) {
+    const recorder = new FlightRecorder({ now: () => 400000 + pass });
+    recorder.attachDatabase(manager.db);
+    recorder.setPersistence(true);
+    recorder.record({ ...base, ts: 400000 + pass });
+    recorder.record({ ...base, ts: 400001 + pass });
+    assert.equal(rowCount(manager.db), 100002, `pass ${pass + 1} starts from a swept baseline`);
+    assert.ok(rowCount(manager.db) <= 100000 + 500);
+  }
 });
 
 test("successful reads do not clear unresolved pending write failures", () => {

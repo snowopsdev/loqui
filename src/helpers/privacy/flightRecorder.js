@@ -114,6 +114,7 @@ class FlightRecorder extends EventEmitter {
     this.memory = [];
     this.nextMemoryId = -1;
     this.writesSinceCap = 0;
+    this.capBaselineReady = false;
     this._pendingPersistError = null;
     this._writePersistError = null;
     this._readPersistError = null;
@@ -133,6 +134,8 @@ class FlightRecorder extends EventEmitter {
     );
     this.db = db;
     this.insert = insert;
+    this.capBaselineReady = false;
+    this.writesSinceCap = 0;
     return this;
   }
 
@@ -152,6 +155,7 @@ class FlightRecorder extends EventEmitter {
 
   flushPending() {
     if (!this.db || this.mode !== "persist") return false;
+    if (!this.ensureCapBaseline()) return false;
     const pending = this.memory.filter((row) => row.scope === "pending");
     if (pending.length === 0) return true;
     try {
@@ -176,6 +180,23 @@ class FlightRecorder extends EventEmitter {
       return true;
     } catch (error) {
       this._pendingPersistError = safePersistError(error);
+      return false;
+    }
+  }
+
+  ensureCapBaseline() {
+    if (!this.db || this.capBaselineReady) return Boolean(this.db);
+    try {
+      const capRows = this.db.prepare(
+        "DELETE FROM egress_events WHERE id NOT IN (SELECT id FROM egress_events ORDER BY ts DESC, id DESC LIMIT ?)"
+      );
+      this.db.transaction(() => capRows.run(MAX_ROWS))();
+      this.writesSinceCap = 0;
+      this.capBaselineReady = true;
+      this._writePersistError = null;
+      return true;
+    } catch (error) {
+      this._writePersistError = safePersistError(error);
       return false;
     }
   }
@@ -220,13 +241,27 @@ class FlightRecorder extends EventEmitter {
     const row = this.normalize(event);
     let id;
     if (this.mode === "persist" && this.db) {
-      try {
-        id = Number(this.insert.run(row).lastInsertRowid);
-        if (++this.writesSinceCap >= CAP_CHECK_EVERY) this.capRows();
-      } catch (error) {
-        // The insert itself failed; a cap-sweep failure after insert is handled separately.
-        this._pendingPersistError = safePersistError(error);
+      if (!this.ensureCapBaseline()) {
+        this._pendingPersistError = this.persistError;
         id = this.remember(row, "pending");
+      } else {
+        try {
+          const nextWritesSinceCap = this.writesSinceCap + 1;
+          id = this.db.transaction(() => {
+            const insertedId = Number(this.insert.run(row).lastInsertRowid);
+            if (nextWritesSinceCap >= CAP_CHECK_EVERY)
+              this.db
+                .prepare(
+                  "DELETE FROM egress_events WHERE id NOT IN (SELECT id FROM egress_events ORDER BY ts DESC, id DESC LIMIT ?)"
+                )
+                .run(MAX_ROWS);
+            return insertedId;
+          })();
+          this.writesSinceCap = nextWritesSinceCap >= CAP_CHECK_EVERY ? 0 : nextWritesSinceCap;
+        } catch (error) {
+          this._pendingPersistError = safePersistError(error);
+          id = this.remember(row, "pending");
+        }
       }
     } else {
       id = this.remember(row, this.mode === "memory" ? "memory" : "pending");
@@ -283,6 +318,8 @@ class FlightRecorder extends EventEmitter {
     try {
       if (this.db) this.db.prepare("DELETE FROM egress_events").run();
       this.memory = [];
+      this.writesSinceCap = 0;
+      this.capBaselineReady = Boolean(this.db);
       this._pendingPersistError = null;
       this._writePersistError = null;
       this._readPersistError = null;

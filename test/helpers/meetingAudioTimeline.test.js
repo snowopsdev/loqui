@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const { createRequire } = require("node:module");
 const createWatchdog = require("../../src/helpers/meetingSystemAudioWatchdog");
 const micGate = require("../../src/helpers/meetingMicGate");
+const { fixtureRecording } = require("./harness/realtimeRecording");
 
 // Execute the real IPC closures with only their native/network boundaries replaced.
 const ipcPath = path.join(__dirname, "../../src/helpers/ipcHandlers.js");
@@ -78,6 +79,8 @@ function harness({ native = true, local = false } = {}) {
     meetingReconnectAudioBytes: { mic: 0, system: 0 },
     meetingReconnectReplaySources: new Set(),
     MEETING_RECONNECT_BUFFER_MAX_BYTES: 24000 * 2 * 30,
+    // Task 9a: the meeting recording's live realtime handle.
+    meetingRecording: fixtureRecording(),
     capture,
   };
   vm.createContext(context);
@@ -360,7 +363,8 @@ test("recovery silence plus AssemblyAI's pending partial packet stays within its
   const streaming = new AssemblyAiStreaming();
   const frames = [];
   streaming.ws = { readyState: 1, send: (frame) => frames.push(frame) };
-  const send = (buffer) => streaming.sendAudio(buffer);
+  const recording = fixtureRecording();
+  const send = (buffer) => streaming.sendAudio(buffer, recording);
   timeline.write(Buffer.alloc(960, 1), send); // 20ms, below the provider's flush threshold.
   assert.equal(frames.length, 0);
   timeline.markRestart();

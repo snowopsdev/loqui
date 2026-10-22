@@ -1,7 +1,18 @@
 // Main-only, per-adapter content authority. Meeting adapters remain ungated;
 // dictation adapters get a closed gate before any async setup can run.
+const { admitRealtimeFrame, markRealtimeDispatched } = require("./sttTransport");
 const STATE = Symbol("dictationFirstFrame");
 const BORROWED = Symbol("borrowedAudio");
+// Buffered audio (cold-start, pre-config, replay, aggregation) keeps the
+// recording it was captured for, so a later flush is attributed to that
+// recording and never to whichever recording owns the adapter at flush time.
+const HELD = new WeakMap();
+function holdFrame(frame, recording) {
+  if (frame && typeof frame === "object" && recording) HELD.set(frame, recording);
+  return frame;
+}
+const heldRecording = (frame) =>
+  frame && typeof frame === "object" ? (HELD.get(frame) ?? null) : null;
 function firstFrameHandOff(sender, correlationId, owns = () => true) {
   if (typeof correlationId !== "string" || !correlationId || correlationId.length > 100)
     return null;
@@ -54,14 +65,19 @@ function discardPendingAudio(adapter) {
   // completion (ordinary transmission, close or failure) erases that copy.
 }
 
-function sendContentFrame(adapter, data) {
+// The actual content hand-off (Task 9a): a frame leaves only for a live
+// recording handle passed with it, and is attributed to that handle only after
+// the socket accepted it.
+function sendContentFrame(adapter, data, recording) {
   if (!egressOpen(adapter)) {
     discardPendingAudio(adapter);
     return false;
   }
+  if (!admitRealtimeFrame(adapter, recording)) return false;
   if (!ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer)) {
     if (!contentFrameLeaving(adapter)) return false;
     adapter.ws.send(data);
+    markRealtimeDispatched(adapter, recording, Buffer.byteLength(String(data)));
     return true;
   }
   const copy = Buffer.from(
@@ -84,6 +100,7 @@ function sendContentFrame(adapter, data) {
     done();
     throw error;
   }
+  markRealtimeDispatched(adapter, recording, copy.byteLength);
   return true;
 }
 module.exports = {
@@ -95,4 +112,6 @@ module.exports = {
   zeroAudio,
   discardPendingAudio,
   sendContentFrame,
+  holdFrame,
+  heldRecording,
 };

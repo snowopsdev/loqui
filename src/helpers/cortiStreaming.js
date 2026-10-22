@@ -3,7 +3,10 @@ const {
   discardPendingAudio,
   zeroAudio,
   sendContentFrame,
+  holdFrame,
+  heldRecording,
 } = require("./streamingHandOff");
+const { openRealtimeSocket } = require("./sttTransport");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -126,7 +129,17 @@ class CortiStreaming {
         reject(new Error("Corti WebSocket connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      const socket = (this.ws = new WebSocket(url));
+      let socket;
+      try {
+        socket = this.ws = openRealtimeSocket(this, url, () => new WebSocket(url));
+      } catch (error) {
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+        this.pendingResolve = null;
+        this.pendingReject = null;
+        reject(error);
+        return;
+      }
       socket.on("open", () => {
         if (this.ws !== socket || !this._lifecycleOpen()) return;
         debugLogger.debug("Corti WebSocket connected, sending config");
@@ -230,7 +243,16 @@ class CortiStreaming {
         reject(new Error("Corti warmup connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      const socket = new WebSocket(url);
+      let socket;
+      try {
+        // A warm socket is a connection resource with no recording (Task 9a).
+        socket = openRealtimeSocket(this, url, () => new WebSocket(url));
+      } catch (error) {
+        clearTimeout(warmupTimeout);
+        settled = true;
+        reject(error);
+        return;
+      }
       this.warmConnection = socket;
       // A replaced warm socket's late events must not touch its successor.
       const isCurrent = () => this.warmConnection === socket;
@@ -436,7 +458,7 @@ class CortiStreaming {
       bytes: this.preConfigBufferSize,
     });
     for (const frame of this.preConfigBuffer) {
-      sendContentFrame(this, frame);
+      sendContentFrame(this, frame, heldRecording(frame));
       zeroAudio(frame);
       this.audioBytesSent += frame.length;
     }
@@ -444,7 +466,8 @@ class CortiStreaming {
     this.preConfigBufferSize = 0;
   }
 
-  sendAudio(pcmBuffer) {
+  // recording: the immutable realtime recording handle this audio belongs to.
+  sendAudio(pcmBuffer, recording) {
     if (!this._egressOpen()) {
       this.discardPendingAudio();
       return false;
@@ -456,7 +479,7 @@ class CortiStreaming {
     if (!this.configAccepted) {
       // Corti rejects audio sent before it acks config; cap the handshake buffer at ~3s.
       if (this.preConfigBufferSize < 3 * this.sampleRate * 2) {
-        const copy = Buffer.from(pcmBuffer);
+        const copy = holdFrame(Buffer.from(pcmBuffer), recording);
         this.preConfigBuffer.push(copy);
         this.preConfigBufferSize += copy.length;
       }
@@ -464,7 +487,7 @@ class CortiStreaming {
     }
 
     this.audioBytesSent += pcmBuffer.length;
-    sendContentFrame(this, pcmBuffer);
+    sendContentFrame(this, pcmBuffer, recording);
     return true;
   }
 

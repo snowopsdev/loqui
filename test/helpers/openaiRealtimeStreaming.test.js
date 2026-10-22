@@ -3,6 +3,12 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const WS = require("ws");
 
+const { fixtureRecording } = require("./harness/realtimeRecording");
+const REC = fixtureRecording();
+
+// Task 9a: this fixture models an unsealed main; its sockets are ordinary connections.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+
 const load = () => import("../../src/helpers/openaiRealtimeStreaming.js");
 
 function makeFakeSocket(readyState) {
@@ -69,7 +75,7 @@ test("sendAudio buffers frames arriving before the socket exists (token-fetch wi
   streaming.beginConnecting();
   assert.equal(streaming.ws, null, "socket not created yet, mirrors the token-fetch window");
 
-  const sent = streaming.sendAudio(Buffer.from([1, 2, 3, 4]));
+  const sent = streaming.sendAudio(Buffer.from([1, 2, 3, 4]), REC);
 
   assert.equal(sent, false);
   assert.equal(streaming.coldStartBuffer.length, 1);
@@ -80,7 +86,7 @@ test("sendAudio drops frames when no connection attempt is in flight (idle/dead 
   const OpenAIRealtimeStreaming = (await load()).default;
   const streaming = new OpenAIRealtimeStreaming();
 
-  const sent = streaming.sendAudio(Buffer.from([1, 2, 3, 4]));
+  const sent = streaming.sendAudio(Buffer.from([1, 2, 3, 4]), REC);
 
   assert.equal(sent, false);
   assert.equal(
@@ -96,10 +102,10 @@ test("sendAudio stops buffering once COLD_START_BUFFER_MAX is reached", async ()
   streaming.beginConnecting();
 
   const chunk = Buffer.alloc(50000, 1);
-  streaming.sendAudio(chunk); // size 0 -> 50000
-  streaming.sendAudio(chunk); // size 50000 -> 100000
-  streaming.sendAudio(chunk); // size 100000 -> 150000 (still under cap when checked)
-  streaming.sendAudio(chunk); // size 150000, over the 144000 cap: dropped
+  streaming.sendAudio(chunk, REC); // size 0 -> 50000
+  streaming.sendAudio(chunk, REC); // size 50000 -> 100000
+  streaming.sendAudio(chunk, REC); // size 100000 -> 150000 (still under cap when checked)
+  streaming.sendAudio(chunk, REC); // size 150000, over the 144000 cap: dropped
 
   assert.equal(
     streaming.coldStartBuffer.length,
@@ -114,11 +120,11 @@ test("sendAudio flushes buffered audio in order once the socket opens, then send
   const streaming = new OpenAIRealtimeStreaming();
   streaming.beginConnecting();
 
-  streaming.sendAudio(Buffer.from("first"));
-  streaming.sendAudio(Buffer.from("second"));
+  streaming.sendAudio(Buffer.from("first"), REC);
+  streaming.sendAudio(Buffer.from("second"), REC);
 
   streaming.ws = makeFakeSocket(WS.OPEN);
-  const sent = streaming.sendAudio(Buffer.from("third"));
+  const sent = streaming.sendAudio(Buffer.from("third"), REC);
 
   assert.equal(sent, true);
   assert.equal(streaming.ws.sent.length, 3);
@@ -136,7 +142,7 @@ test("connect() preserves audio buffered during beginConnecting() instead of wip
   const streaming = new OpenAIRealtimeStreaming();
 
   streaming.beginConnecting();
-  streaming.sendAudio(Buffer.from("pre-token-fetch audio"));
+  streaming.sendAudio(Buffer.from("pre-token-fetch audio"), REC);
   assert.equal(streaming.coldStartBuffer.length, 1);
 
   const socket = makeFakeSocket(WS.CONNECTING);
@@ -152,7 +158,7 @@ test("connect() preserves audio buffered during beginConnecting() instead of wip
   socket.emit("message", JSON.stringify({ type: "session.created" }));
   await connected;
 
-  streaming.sendAudio(Buffer.from("live"));
+  streaming.sendAudio(Buffer.from("live"), REC);
   const payloads = streaming.ws.sent.map((raw) => JSON.parse(raw).audio);
   assert.deepEqual(payloads, [
     Buffer.from("pre-token-fetch audio").toString("base64"),
@@ -169,7 +175,7 @@ test("sendAudio upsamples 16kHz capture to the 24kHz session rate", async () => 
   streaming.ws = makeFakeSocket(WS.OPEN);
 
   const pcm = new Int16Array([0, 100, 200, 300]);
-  streaming.sendAudio(Buffer.from(pcm.buffer));
+  streaming.sendAudio(Buffer.from(pcm.buffer), REC);
 
   const raw = Buffer.from(JSON.parse(streaming.ws.sent[0]).audio, "base64");
   const out = new Int16Array(raw.buffer, raw.byteOffset, raw.length / 2);
@@ -185,7 +191,7 @@ test("cleanup() resets bufferingAudio so a dead instance stops buffering", async
   streaming.cleanup();
 
   assert.equal(streaming.bufferingAudio, false);
-  const sent = streaming.sendAudio(Buffer.from([1, 2, 3]));
+  const sent = streaming.sendAudio(Buffer.from([1, 2, 3]), REC);
   assert.equal(sent, false);
   assert.equal(streaming.coldStartBuffer.length, 0);
 });
@@ -425,7 +431,7 @@ test("zero audio loss during reactive reconnect (session_expired at 60min)", asy
   const old = new OpenAIRealtimeStreaming();
   old.isConnected = true;
   old.ws = makeFakeSocket(WS.OPEN);
-  for (let i = 0; i < 100; i++) old.sendAudio(CHUNK);
+  for (let i = 0; i < 100; i++) old.sendAudio(CHUNK, REC);
   assert.equal(old.ws.sent.length, 100, "all chunks sent to old ws");
   const oldSent = old.ws.sent;
 
@@ -440,7 +446,7 @@ test("zero audio loss during reactive reconnect (session_expired at 60min)", asy
   assert.equal(expiredFired, true);
   old.cleanup();
   assert.equal(
-    old.sendAudio(CHUNK),
+    old.sendAudio(CHUNK, REC),
     false,
     "dead instance drops audio, but the swap already happened"
   );
@@ -449,18 +455,18 @@ test("zero audio loss during reactive reconnect (session_expired at 60min)", asy
   // beginConnecting() arms the pre-connect buffer for the fetch window.
   const fresh = new OpenAIRealtimeStreaming();
   fresh.beginConnecting();
-  for (let i = 0; i < 50; i++) fresh.sendAudio(CHUNK);
+  for (let i = 0; i < 50; i++) fresh.sendAudio(CHUNK, REC);
   assert.equal(fresh.coldStartBuffer.length, 50, "pre-connect buffer caught all chunks");
   assert.equal(fresh.coldStartBufferSize, 50 * 480);
 
   // Phase 4: token received, socket still connecting.
   fresh.ws = makeFakeSocket(WS.CONNECTING);
-  for (let i = 0; i < 20; i++) fresh.sendAudio(CHUNK);
+  for (let i = 0; i < 20; i++) fresh.sendAudio(CHUNK, REC);
   assert.equal(fresh.coldStartBuffer.length, 70, "buffer holds pre-connect + connecting chunks");
 
   // Phase 5: socket opens, next sendAudio flushes everything.
   fresh.ws = makeFakeSocket(WS.OPEN);
-  fresh.sendAudio(CHUNK);
+  fresh.sendAudio(CHUNK, REC);
   assert.equal(fresh.coldStartBuffer.length, 0, "buffer flushed");
   assert.equal(fresh.ws.sent.length, 71, "all buffered + live chunks sent to new ws");
 
@@ -475,21 +481,21 @@ test("zero audio loss during proactive reconnect (timer before the limit)", asyn
   const old = new OpenAIRealtimeStreaming();
   old.isConnected = true;
   old.ws = makeFakeSocket(WS.OPEN);
-  for (let i = 0; i < 100; i++) old.sendAudio(CHUNK);
+  for (let i = 0; i < 100; i++) old.sendAudio(CHUNK, REC);
 
   // Audio dispatched between the timer firing and the instance swap still
   // reaches the old, healthy connection.
-  for (let i = 0; i < 10; i++) old.sendAudio(CHUNK);
+  for (let i = 0; i < 10; i++) old.sendAudio(CHUNK, REC);
   assert.equal(old.ws.sent.length, 110, "audio still flows to old instance during token fetch");
 
   // References swapped; new instance buffers until its socket opens.
   const fresh = new OpenAIRealtimeStreaming();
   fresh.beginConnecting();
-  for (let i = 0; i < 30; i++) fresh.sendAudio(CHUNK);
+  for (let i = 0; i < 30; i++) fresh.sendAudio(CHUNK, REC);
   assert.equal(fresh.coldStartBuffer.length, 30);
 
   fresh.ws = makeFakeSocket(WS.OPEN);
-  fresh.sendAudio(CHUNK);
+  fresh.sendAudio(CHUNK, REC);
   assert.equal(fresh.ws.sent.length, 31, "30 flushed + 1 live");
   assert.equal(fresh.coldStartBuffer.length, 0);
 
@@ -685,7 +691,7 @@ test("a final that lands during disconnect()'s commit window reaches onFinalTran
 
   const calls = [];
   streaming.onFinalTranscript = (text, timestamp) => calls.push({ text, timestamp });
-  streaming.sendAudio(Buffer.alloc(1600, 1)); // audioBytesSent > 0 so disconnect() commits
+  streaming.sendAudio(Buffer.alloc(1600, 1), REC); // audioBytesSent > 0 so disconnect() commits
 
   const disconnecting = streaming.disconnect();
   await new Promise((resolve) => setImmediate(resolve));
@@ -952,7 +958,7 @@ test("gpt-live-transcribe stop: disconnect() commits once, then consumes the .co
       JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta })
     );
   }
-  streaming.sendAudio(Buffer.alloc(4800, 1));
+  streaming.sendAudio(Buffer.alloc(4800, 1), REC);
 
   const disconnecting = streaming.disconnect();
   await new Promise((resolve) => setImmediate(resolve));
@@ -1004,7 +1010,7 @@ test("gpt-live-transcribe stop outlives the legacy 3 s commit budget; legacy kee
     const live = new OpenAIRealtimeStreaming();
     const liveSocket = makeFakeSocket(WS.CONNECTING);
     await connectByok(live, liveSocket, { model: "gpt-live-transcribe" });
-    live.sendAudio(Buffer.alloc(4800, 1));
+    live.sendAudio(Buffer.alloc(4800, 1), REC);
     let liveSettled = false;
     const liveDisconnect = live.disconnect().then((result) => {
       liveSettled = true;
@@ -1020,7 +1026,7 @@ test("gpt-live-transcribe stop outlives the legacy 3 s commit budget; legacy kee
     const legacy = new OpenAIRealtimeStreaming();
     const legacySocket = makeFakeSocket(WS.CONNECTING);
     await connectByok(legacy, legacySocket, { model: "gpt-4o-mini-transcribe" });
-    legacy.sendAudio(Buffer.alloc(4800, 1));
+    legacy.sendAudio(Buffer.alloc(4800, 1), REC);
     let legacySettled = false;
     const legacyDisconnect = legacy.disconnect().then(() => {
       legacySettled = true;
@@ -1050,7 +1056,7 @@ test("an empty or failed committed turn ends the stop wait at once instead of st
     streaming.onFinalTranscript = () => {
       finalCalled = true;
     };
-    streaming.sendAudio(Buffer.alloc(4800, 1));
+    streaming.sendAudio(Buffer.alloc(4800, 1), REC);
 
     const disconnecting = streaming.disconnect();
     await new Promise((resolve) => setImmediate(resolve));
@@ -1071,7 +1077,7 @@ test("a socket that closes during the commit wait ends the stop at once with the
   const streaming = new OpenAIRealtimeStreaming();
   const socket = makeFakeSocket(WS.CONNECTING);
   await connectByok(streaming, socket, { model: "gpt-live-transcribe" });
-  streaming.sendAudio(Buffer.alloc(4800, 1));
+  streaming.sendAudio(Buffer.alloc(4800, 1), REC);
 
   const disconnecting = streaming.disconnect();
   await new Promise((resolve) => setImmediate(resolve));
@@ -1149,8 +1155,8 @@ for (const failure of [null, "socket", "handoff"])
       };
       if (queued) {
         adapter.beginConnecting();
-        adapter.sendAudio(caller);
-        adapter.sendAudio(caller);
+        adapter.sendAudio(caller, REC);
+        adapter.sendAudio(caller, REC);
         aliases.push(...adapter.coldStartBuffer);
       }
       adapter.ws = makeFakeSocket(WS.OPEN);
@@ -1163,8 +1169,8 @@ for (const failure of [null, "socket", "handoff"])
           throw Error("Synthetic handoff failure");
         });
       try {
-        if (failure) assert.throws(() => adapter.sendAudio(caller), /Synthetic/);
-        else assert.equal(adapter.sendAudio(caller), true);
+        if (failure) assert.throws(() => adapter.sendAudio(caller, REC), /Synthetic/);
+        else assert.equal(adapter.sendAudio(caller, REC), true);
         assert.ok(aliases.length >= 2);
         for (const bytes of aliases)
           assert.equal(

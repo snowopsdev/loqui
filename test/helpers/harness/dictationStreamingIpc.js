@@ -28,6 +28,9 @@ function sender(id) {
   return wc;
 }
 function mainFixture(t, { DeepgramStreaming = null } = {}) {
+  // Task 9a: the real authority admits realtime sockets through the egress
+  // gate, which defaults to sealed. These fixtures model an unsealed main.
+  require("../../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
   const source = fs.readFileSync(
     path.resolve(__dirname, "../../../src/helpers/ipcHandlers.js"),
     "utf8"

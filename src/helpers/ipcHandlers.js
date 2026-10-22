@@ -1,6 +1,17 @@
 const egressGate = require("./privacy/egressGate");
 const { guardMetered, gatedNetFetch } = require("./privacy/gatedFetch");
-const { buildMultipartBody, postMultipart } = require("./sttTransport");
+const {
+  buildMultipartBody,
+  postMultipart,
+  realtimeProviderId,
+  realtimeTarget,
+  admitRealtimeConnection,
+  bindRealtimeEgress,
+  beginRealtimeRecording,
+  finishRealtimeRecording,
+  realtimeSealedFields,
+  realtimeFailureFields,
+} = require("./sttTransport");
 const { effectiveEndpoint } = require("./privacy/providerEndpoints");
 const { isSealedModeError, sealedPhaseOf } = require("./privacy/egressPolicy");
 const { registerSettingsLinkIpc } = require("./settingsLinks");
@@ -6379,9 +6390,16 @@ class IPCHandlers {
       meetingReconnectReplaySources = new Set();
     };
 
-    const sendMeetingStreamingAudio = (streaming, buffer, capturedAt = null) => {
+    // Sealed mode (Task 9a): every meeting frame carries the meeting
+    // recording's immutable handle, including replayed reconnect audio.
+    const sendMeetingStreamingAudio = (
+      streaming,
+      buffer,
+      capturedAt = null,
+      recording = meetingRecording
+    ) => {
       const firstSampleAt = streaming.audioBytesSent === 0 ? capturedAt : null;
-      const sent = streaming.sendAudio(buffer);
+      const sent = streaming.sendAudio(buffer, recording);
       if (
         sent &&
         streaming.isConnected &&
@@ -6399,7 +6417,7 @@ class IPCHandlers {
       if (!meetingReconnectReplaySources.has(source)) return;
       const copy = Buffer.from(buffer);
       const queue = meetingReconnectAudioBuffers[source];
-      queue.push({ buffer: copy, capturedAt });
+      queue.push({ buffer: copy, capturedAt, recording: meetingRecording });
       meetingReconnectAudioBytes[source] += copy.length;
       while (
         meetingReconnectAudioBytes[source] > MEETING_RECONNECT_BUFFER_MAX_BYTES &&
@@ -6412,8 +6430,8 @@ class IPCHandlers {
     const replayMeetingReconnectAudio = (source, streaming) => {
       if (!meetingReconnectReplaySources.has(source)) return true;
       const queue = meetingReconnectAudioBuffers[source];
-      const replayed = queue.every(({ buffer, capturedAt }) =>
-        sendMeetingStreamingAudio(streaming, buffer, capturedAt)
+      const replayed = queue.every(({ buffer, capturedAt, recording }) =>
+        sendMeetingStreamingAudio(streaming, buffer, capturedAt, recording)
       );
       debugLogger.info("Replayed meeting audio after reconnect", {
         source,
@@ -6462,10 +6480,13 @@ class IPCHandlers {
 
         try {
           const StreamingClass = getMeetingStreamingClient(options.provider);
-          newMic = new StreamingClass();
+          // Replacement sockets are new connections: refused while sealed
+          // before their token or socket.
+          admitRealtimeConnection({ task: MEETING_TASK, provider: options.provider, options });
+          newMic = bindMeetingStream(new StreamingClass(), options);
           attachMeetingStreamingHandlers(newMic, win, "mic");
           if (oldSystem) {
-            newSystem = new StreamingClass();
+            newSystem = bindMeetingStream(new StreamingClass(), options);
             attachMeetingStreamingHandlers(newSystem, win, "system");
           }
 
@@ -6488,7 +6509,7 @@ class IPCHandlers {
 
           let pairs;
           if (newSystem) {
-            const secrets = await fetchRealtimeToken(tokenEvent, options, { streams: 2 });
+            const secrets = await fetchMeetingRealtimeToken(tokenEvent, options, { streams: 2 });
             pairs = [
               { streaming: newMic, secret: secrets[0], source: "mic" },
               { streaming: newSystem, secret: secrets[1], source: "system" },
@@ -6497,7 +6518,7 @@ class IPCHandlers {
             pairs = [
               {
                 streaming: newMic,
-                secret: await fetchRealtimeToken(tokenEvent, options),
+                secret: await fetchMeetingRealtimeToken(tokenEvent, options),
                 source: "mic",
               },
             ];
@@ -6592,6 +6613,17 @@ class IPCHandlers {
         { streams }
       );
     };
+    // Meeting realtime streams are noteRecordingStt. Their token/auth requests
+    // and sockets are connection resources: metadata, never the recording's id.
+    const MEETING_TASK = "noteRecordingStt";
+    const fetchMeetingRealtimeToken = (event, options, extra) =>
+      egressGate.withTask(MEETING_TASK, () =>
+        egressGate.withContext({ provider: realtimeProviderId(options.provider) }, () =>
+          fetchRealtimeToken(event, options, extra)
+        )
+      );
+    const bindMeetingStream = (streaming, options) =>
+      bindRealtimeEgress(streaming, { task: MEETING_TASK, provider: options.provider });
 
     const getMeetingSystemAudioCapabilityMode = () => {
       if (this.audioTapManager?.isSupported()) return "native";
@@ -6641,6 +6673,8 @@ class IPCHandlers {
     const connectRealtimeStreaming = async (event, options) => {
       const connectionKey = getMeetingConnectionKey(options);
       const StreamingClass = getMeetingStreamingClient(options.provider);
+      // Sealed: refused before any token request, credential read or socket.
+      admitRealtimeConnection({ task: MEETING_TASK, provider: options.provider, options });
       if (this._meetingMicStreaming?.isConnected) {
         await this._meetingMicStreaming.disconnect();
       }
@@ -6664,7 +6698,7 @@ class IPCHandlers {
       const { mode: systemAudioMode } = await getMeetingSystemAudioPlan();
       let pairs;
       if (systemAudioMode !== "unsupported") {
-        const secrets = await fetchRealtimeToken(event, options, { streams: 2 });
+        const secrets = await fetchMeetingRealtimeToken(event, options, { streams: 2 });
         pairs = [
           { ref: "_meetingMicStreaming", secret: secrets[0], source: "mic" },
           { ref: "_meetingSystemStreaming", secret: secrets[1], source: "system" },
@@ -6673,14 +6707,14 @@ class IPCHandlers {
         pairs = [
           {
             ref: "_meetingMicStreaming",
-            secret: await fetchRealtimeToken(event, options),
+            secret: await fetchMeetingRealtimeToken(event, options),
             source: "mic",
           },
         ];
       }
 
       for (const { ref, source } of pairs) {
-        this[ref] = new StreamingClass();
+        this[ref] = bindMeetingStream(new StreamingClass(), options);
         attachMeetingStreamingHandlers(this[ref], win, source);
       }
 
@@ -6757,6 +6791,14 @@ class IPCHandlers {
     let meetingReconnectAudioBuffers = { mic: [], system: [] };
     let meetingReconnectAudioBytes = { mic: 0, system: 0 };
     let meetingReconnectReplaySources = new Set();
+    // The current meeting recording's immutable realtime handle (Task 9a).
+    let meetingRecording = null;
+    const endMeetingRecording = (outcome) => {
+      const fields = realtimeSealedFields(meetingRecording);
+      if (meetingRecording) finishRealtimeRecording(meetingRecording, outcome);
+      meetingRecording = null;
+      return fields;
+    };
 
     const fs = require("fs");
     let meetingDiarizationStream = null;
@@ -7625,6 +7667,7 @@ class IPCHandlers {
       await stopLiveSpeakerIdentification().catch(() => {});
       resetMeetingLocalState();
       await disconnectMeetingStreaming().catch(() => {});
+      endMeetingRecording("error");
       this.activeMeetingSpeakerConfig = null;
     };
 
@@ -7668,7 +7711,7 @@ class IPCHandlers {
           return { success: true };
         } catch (error) {
           debugLogger.error("Meeting transcription prepare error", { error: error.message });
-          return toPolicyFailure(error);
+          return { ...toPolicyFailure(error), ...realtimeFailureFields(error) };
         } finally {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           meetingTranscriptionPrepareInProgress = false;
@@ -7739,6 +7782,18 @@ class IPCHandlers {
       };
 
       try {
+        if (options.provider !== "local") {
+          // One distinct recording handle per meeting session, even when it
+          // reuses prepared (warm) sockets. Sealed: refused before any socket.
+          endMeetingRecording("cancelled");
+          meetingRecording = beginRealtimeRecording({
+            task: MEETING_TASK,
+            provider: options.provider,
+            target: realtimeTarget(options.provider, options),
+            correlationId: recordingSessionId,
+            sessionId: recordingSessionId,
+          });
+        }
         const systemAudioPlan = await getMeetingSystemAudioPlan({ refreshWindowsCapability: true });
         let { mode: systemAudioMode, strategy: systemAudioStrategy } = systemAudioPlan;
         const requestedConnectionKey = getMeetingConnectionKey(options);
@@ -7841,11 +7896,12 @@ class IPCHandlers {
           oneOnOneAttendee: meetingOneOnOneAttendee,
         });
       } catch (error) {
+        const failedRecording = meetingRecording;
         await rollbackMeetingTranscriptionStart();
         this.meetingDetectionEngine?.endRecordingSession(recordingSessionId);
         this.meetingDetectionEngine?.setUserRecording(false);
         debugLogger.error("Meeting transcription start error", { error: error.message });
-        return toPolicyFailure(error);
+        return { ...toPolicyFailure(error), ...realtimeFailureFields(error, failedRecording) };
       } finally {
         meetingTranscriptionStartInProgress = false;
       }
@@ -8178,6 +8234,8 @@ class IPCHandlers {
         }
 
         const results = await disconnectMeetingStreaming({ flushPending: true });
+        // After every stream's stop acknowledgement: settle only this recording.
+        const sealedFields = endMeetingRecording("ok");
         const { diarizationPcmPath, diarizationSegments, diarizationStartedAt, diarizedSource } =
           await captureMeetingDiarizationState();
         const transcript =
@@ -8201,10 +8259,10 @@ class IPCHandlers {
           diarizedSource
         );
 
-        return { success: true, transcript, diarizationSessionId };
+        return { success: true, transcript, diarizationSessionId, ...sealedFields };
       } catch (error) {
         debugLogger.error("Meeting transcription stop error", { error: error.message });
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...endMeetingRecording("error") };
       }
     };
 

@@ -222,7 +222,17 @@ const targetIdFor = (provider, host) =>
 
 // Operation identity and transport evidence have different lifetimes. Settling
 // JS work never forgets an attached socket or an explicit Chromium hold.
-function createTicket({ task, host, loopback, model, meter, payload, correlationId, provider }) {
+function createTicket({
+  task,
+  host,
+  loopback,
+  model,
+  meter,
+  kind: socketKind,
+  payload,
+  correlationId,
+  provider,
+}) {
   const epoch = generation;
   const recordOwned = (event) => {
     if (epoch === generation) record(event);
@@ -370,7 +380,7 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
           meter === "opaque"
             ? "session"
             : meter === "socket"
-              ? "stream"
+              ? (socketKind ?? "stream")
               : manualDispatch
                 ? "request"
                 : connections > 0
@@ -580,13 +590,26 @@ function authorize({
   meter = "body",
   payload = "metadata",
   correlationId = null,
+  kind = null,
 } = {}) {
   assertTask(task);
   if (!["body", "socket", "opaque"].includes(meter)) throw new TypeError("Unknown egress meter");
   if (!["audio", "text", "image", "metadata"].includes(payload))
     throw new TypeError("Unknown egress payload");
+  // A socket's ledger kind may be explicit: a realtime connection resource is
+  // not a recording stream (Task 9a). Neither adopts an ambient correlation,
+  // and a connection never carries one or any content payload.
+  if (kind !== null && (meter !== "socket" || !["stream", "connection"].includes(kind)))
+    throw new TypeError("Unknown egress kind");
+  if (kind === "connection" && payload !== "metadata")
+    throw new TypeError("A connection carries no content payload");
   const ctx = metaContext.getStore();
-  correlationId = correlationId ?? ctx?.correlationId ?? null;
+  correlationId =
+    kind === "connection"
+      ? null
+      : kind
+        ? correlationId
+        : (correlationId ?? ctx?.correlationId ?? null);
   provider = provider ?? ctx?.provider ?? null;
   const decision = decideEgress({ sealed: !bypass && isSealed(), target });
   if (!decision.allow) throw refuse({ task, host: decision.host, model });
@@ -596,6 +619,7 @@ function authorize({
     loopback: decision.loopback,
     model,
     meter,
+    kind,
     payload,
     correlationId,
     provider,

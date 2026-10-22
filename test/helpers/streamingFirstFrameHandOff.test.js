@@ -16,6 +16,10 @@ const ADAPTER_PATHS = new Set(
   ].map((name) => require.resolve(`../../src/helpers/${name}`))
 );
 const originalLoad = Module._load;
+// Task 9a: the real streaming authority admits realtime sockets through the
+// egress gate, which defaults to sealed. This suite models an unsealed main.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+const { fixtureRecording } = require("./harness/realtimeRecording");
 
 // One timeline for the whole exchange: each content frame that leaves on any
 // socket, and each hand-off main sends to the renderer.
@@ -683,7 +687,7 @@ test("binary transport borrows owned bytes only until its completion callback", 
     },
   };
   const original = Buffer.alloc(20, 3);
-  sendContentFrame(adapter, original.subarray(4, 12));
+  sendContentFrame(adapter, original.subarray(4, 12), fixtureRecording());
   assert.deepEqual([...borrowed], Array(8).fill(3));
   discardPendingAudio(adapter);
   assert.deepEqual([...borrowed], Array(8).fill(3), "do not corrupt a frame still borrowed by ws");

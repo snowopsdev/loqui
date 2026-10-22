@@ -396,6 +396,46 @@ the spawn guard (retry then uploads the stored container, as on any conversion
 failure). Handlers that return an envelope add `code: "SEALED_MODE"` and the
 `phase`; the error text keeps its `[SEALED_MODE]`/`[SEALED_MODE:interrupted]`
 marker. Realtime token requests (`proxyFetch`) are gated with their caller's
-task; attributing the streaming callers is Task 9a. A sealed Corti dictation
+task; Task 9a attributes the streaming callers (below). A sealed Corti dictation
 cannot delete its interaction afterwards (that request is also refused).
 None of this is native isolation. 07b/D14–D16 remain open.
+
+## Task 9a: realtime speech per recording and per connection (07a)
+
+Realtime speech (N9/N10) has two resources with different lifetimes. A socket
+is a **connection**: it may be warmed before any recording, replaced during one
+(Deepgram liveness reconnect, Gemini token re-mint, meeting reconnect) or serve
+one meeting source. A **recording** is an immutable handle
+(`sttTransport.beginRealtimeRecording`) owned by the existing dictation
+operation record or meeting session; there is no second ownership registry.
+
+- Every adapter socket is opened by `connectRealtime` inside its own ticket
+  (`kind: "connection"`, payload metadata, never a correlation id or content
+  receipt). It counts wire bytes on its own socket (attached at upgrade, and by
+  Layer B at connect) and settles only when that socket closes.
+- Every content frame carries its recording's handle through IPC identity, the
+  adapter and the actual `streamingHandOff.sendContentFrame` hand-off,
+  including cold-start, pre-config, replay and aggregation buffers (buffered
+  frames keep the handle they were captured for). A missing, copied, finished
+  or sealed handle refuses the frame. After the socket accepts a frame,
+  `markRealtimeDispatched` updates only that handle: one `kind: "stream"` row
+  per recording (content bytes its frames handed to a socket; inbound unknown)
+  and one audio `dispatched` receipt with exactly that recording's correlation
+  id and provider target. A warm socket with no frames has no audio receipt. A
+  recording is settled after its flush/stop acknowledgement, cancel, error or
+  owner loss; a recording that sent nothing writes no stream row.
+- Dictation streaming is `dictationStt`; meeting streams are
+  `noteRecordingStt`. Their token and auth requests (AssemblyAI token, Corti
+  auth) run in that task as connection metadata, never with a recording id.
+- While sealed, every warmup, start, prepare and replacement connection is
+  refused before its credential read, token request or socket (one `blocked`
+  row). Sealing mid-stream interrupts the recording (`cancelled`,
+  `SEALED_MODE`, its bytes and dispatched receipt kept) and closes the
+  connection separately; stop/start results carry `phase: "interrupted"`,
+  never "nothing was sent". A start cut off after admission is reported as
+  interrupted too.
+
+Loopback realtime endpoints stay usable while sealed and are not recorded.
+Eligibility of a local socket transport is not native-launch availability:
+native engines stay refused while sealed. None of this is native isolation.
+07b/D14–D16 remain open.

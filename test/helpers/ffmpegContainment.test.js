@@ -81,6 +81,167 @@ test("guard refuses unsafe FFmpeg argv and every shell form even unsealed", () =
   assert.equal(calls, 0);
 });
 
+test("filter sources and file-loading aliases reject before any native leaf", () => {
+  gate.configureEgress({ isSealed: () => false });
+  let calls = 0;
+  const leaf = Object.fromEntries(
+    ["spawn", "execFile", "spawnSync", "execFileSync"].map((name) => [
+      name,
+      () => {
+        calls++;
+        throw new Error("unsafe argv reached native leaf");
+      },
+    ])
+  );
+  registry.installSpawnGuard({ childProcess: leaf });
+  // No native execution in this matrix: even local file sources and source
+  // spellings the raw URL scan cannot recognize must fail closed.
+  const sources = [
+    "amovie='http\\://127.0.0.1\\:12345/synthetic.wav'[out]",
+    "movie='http\\://127.0.0.1\\:12345/synthetic.wav'[out]",
+    "amovie=filename='http\\\\://127.0.0.1\\\\:12345/synthetic.wav'[out]",
+    "amovie='http%3A%2F%2F127.0.0.1%3A12345/synthetic.wav'[out]",
+    "amov%69e='/synthetic.wav'[out]",
+    "amovie='file\\:/synthetic.wav'[out]",
+    "amovie='/synthetic.wav'[out]",
+    "amovie=pipe\\:0[out]",
+    "am\\ovie='/synthetic.wav'[out]",
+    "amovie@source='/synthetic.wav'[out]",
+    "[0:a]asendcmd=f=/synthetic.commands[out]",
+    "[0:a]afir=ir='/synthetic.wav'[out]",
+    "[0:v]drawtext=fontfile='/synthetic.font'[out]",
+    "[0:v]subtitles='/synthetic.srt'[out]",
+    "[0:a]azmq=bind_address='tcp\\://127.0.0.1\\:12345'[out]",
+    "[0:a]aresample=16000[out];amovie='/synthetic.wav'[extra]",
+  ];
+  const cases = sources.flatMap((source) =>
+    ["-filter_complex", "-lavfi", "-af", "-filter:a", "-vf", "-filter:v:0"].map((option) => [
+      "-v",
+      "error",
+      option,
+      source,
+      "-map",
+      "[out]",
+      "-f",
+      "null",
+      "-",
+    ])
+  );
+  cases.push(
+    ["-f", "lavfi", "-i", sources[0], "-f", "null", "-"],
+    ["-/filter_complex", "/synthetic.graph", "-f", "null", "-"],
+    ["-/af", "/synthetic.graph", "-f", "null", "-"],
+    ["-filter_script:a", "/synthetic.graph", "-f", "null", "-"],
+    ["-filter_complex_script", "/synthetic.graph", "-f", "null", "-"],
+    ["-filter_complex=amovie='/synthetic.wav'[out]", "-f", "null", "-"],
+    ["-af:0", "amovie='/synthetic.wav'", "-f", "null", "-"],
+    ["-filter_complex", "[0:a]anull[out]", "-f", "null", "-"],
+    ["-filter_complex", "", "-f", "null", "-"]
+  );
+  for (const args of cases.flatMap((args) => [
+    args,
+    ["-protocol_whitelist", "file,pipe", "-i", "synthetic.wav", ...args],
+  ])) {
+    assert.throws(
+      () => ff.localOnlyInputs(args),
+      { code: "FFMPEG_UNSAFE_INPUT" },
+      JSON.stringify(args)
+    );
+    for (const name of Object.keys(leaf))
+      assert.throws(() => leaf[name]("ffmpeg", args), { code: "FFMPEG_UNSAFE_INPUT" }, name);
+  }
+  assert.equal(calls, 0);
+});
+
+test("only the complete production audio merge grammar is accepted", () => {
+  const graph =
+    "[0:a]aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono[s0];" +
+    "[1:a]aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono[s1];" +
+    "[s0][s1]concat=n=2:v=0:a=1[out]";
+  const inputs = ["-i", "a.wav", "-i", "b.wav"];
+  assert.ok(ff.localOnlyInputs([...inputs, "-filter_complex", graph, "-map", "[out]", "out.wav"]));
+  for (const unsafe of [
+    graph + ";amovie='/synthetic.wav'[extra]",
+    graph.replace("aresample=16000", "amovie='/synthetic.wav'"),
+    graph.replace("sample_fmts=fltp", "sample_fmts=fltp:filename=/synthetic.wav"),
+    graph.replace("concat=n=2", "concat=n=3"),
+    graph + "\n",
+  ])
+    assert.throws(() => ff.localOnlyInputs([...inputs, "-filter_complex", unsafe, "out.wav"]), {
+      code: "FFMPEG_UNSAFE_INPUT",
+    });
+  assert.throws(() => ff.localOnlyInputs(["-filter_complex", graph, "out.wav"]), {
+    code: "FFMPEG_UNSAFE_INPUT",
+  });
+});
+
+test(
+  "escaped reviewer filter reaches only the owned fixture in the unguarded control",
+  { timeout: 10000 },
+  async (t) => {
+    gate.configureEgress({ isSealed: () => false });
+    const wav = pcm16Mono16kWav(Array.from({ length: 1600 }, () => 0));
+    let hits = 0;
+    const server = http.createServer((req, res) => {
+      assert.equal(req.url, "/synthetic.wav");
+      hits++;
+      res.writeHead(200, { "Content-Type": "audio/wav", "Content-Length": wav.length });
+      res.end(wav);
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const methods = Object.fromEntries(
+      ["spawn", "exec", "execFile", "fork", "spawnSync", "execSync", "execFileSync"].map((name) => [
+        name,
+        cp[name],
+      ])
+    );
+    const children = [];
+    t.after(async () => {
+      Object.assign(cp, methods);
+      for (const c of children) {
+        if (c.exitCode !== null || c.signalCode !== null) continue;
+        const closed = once(c, "close");
+        c.kill("SIGKILL");
+        await closed;
+      }
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    });
+    const binary = ff.getFFmpegPath();
+    assert.ok(binary && fs.existsSync(binary), "installed FFmpeg required; do not download");
+    const filter = `amovie='http\\://127.0.0.1\\:${server.address().port}/synthetic.wav'[out]`;
+    const args = ["-v", "error", "-filter_complex", filter, "-map", "[out]", "-f", "null", "-"];
+    const options = { stdio: ["ignore", "ignore", "pipe"], killSignal: "SIGKILL", timeout: 2500 };
+    // Deliberate negative control retains the preloaded safety leaf. Both URL
+    // colons are escaped, so FFmpeg addresses this listener's exact numeric port.
+    const control = methods.spawn(binary, args, options);
+    children.push(control);
+    let stderr = "";
+    control.stderr.on("data", (b) => {
+      stderr += b;
+    });
+    const [code, signal] = await once(control, "close");
+    assert.equal(code, 0, stderr);
+    assert.equal(signal, null);
+    assert.ok(hits > 0, "negative control must fetch the owned synthetic WAV");
+    const controlHits = hits;
+    let nativeCalls = 0;
+    cp.spawn = (...call) => {
+      nativeCalls++;
+      const c = methods.spawn(...call);
+      children.push(c);
+      return c;
+    };
+    registry.installSpawnGuard({ childProcess: cp });
+    assert.throws(() => cp.spawn(binary, args, options), { code: "FFMPEG_UNSAFE_INPUT" });
+    assert.equal(nativeCalls, 0, "real guard rejects before native launch");
+    assert.equal(hits, controlHits);
+    t.diagnostic(
+      `owned synthetic fixture: controlRequests=${controlHits}, guardedNativeCalls=${nativeCalls}, guardedRequests=${hits - controlHits}`
+    );
+  }
+);
+
 test(
   "installed FFmpeg executes all four restricted production launch sites and private cancellation",
   { timeout: 20000 },

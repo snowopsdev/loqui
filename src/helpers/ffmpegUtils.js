@@ -5,6 +5,18 @@ const path = require("path");
 const debugLogger = require("./debugLogger");
 const { createAbortError } = require("./abortError");
 
+// The only production filter graph: resample/format existing audio streams,
+// then concatenate them. No filter may open its own file, socket or script.
+function audioMergeFilter(inputCount) {
+  const inputs = Array.from(
+    { length: inputCount },
+    (_, index) =>
+      `[${index}:a]aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono[s${index}]`
+  );
+  const labels = Array.from({ length: inputCount }, (_, index) => `[s${index}]`).join("");
+  return [...inputs, `${labels}concat=n=${inputCount}:v=0:a=1[out]`].join(";");
+}
+
 // FFmpeg's per-input whitelist is defense in depth, never native isolation.
 // Reject alternate spellings/overrides and dynamic output protocols rather
 // than accepting a whitelist somewhere else in the command line.
@@ -15,9 +27,25 @@ function localOnlyInputs(args) {
     });
   };
   if (!Array.isArray(args) || args.some((a) => typeof a !== "string" || a.includes("\0"))) fail();
+  const inputCount = args.filter((arg) => arg === "-i").length;
   const out = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    // Input whitelists do not constrain filter-created inputs. Accept only
+    // our generated graph, before FFmpeg can interpret quotes/escapes/URLs.
+    // Reject aliases, stream suffixes, scripts and option values read from files.
+    if (/^-\//.test(arg)) fail();
+    if (/^-(?:filter|lavfi|[av]f(?:$|[:=]))/i.test(arg)) {
+      if (
+        arg !== "-filter_complex" ||
+        inputCount === 0 ||
+        args[i + 1] !== audioMergeFilter(inputCount)
+      )
+        fail();
+      out.push(arg, args[++i]);
+      continue;
+    }
+    if (/^-f[:=]/i.test(arg) || (arg === "-f" && /^lavfi$/i.test(args[i + 1] ?? ""))) fail();
     // Muxer/filter values can embed protocols without // (tee/udp, movie,
     // concat, etc.). Input restrictions must not become output authorization.
     if (
@@ -645,19 +673,11 @@ async function mergeAudioSegments(segments, options = {}) {
       return inputPath;
     });
 
-    const filters = inputPaths.map(
-      (_, index) =>
-        `[${index}:a]aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono[s${index}]`
-    );
-    filters.push(
-      `${inputPaths.map((_, index) => `[s${index}]`).join("")}concat=n=${inputPaths.length}:v=0:a=1[out]`
-    );
-
     await new Promise((resolve, reject) => {
       const args = inputPaths.flatMap((inputPath) => ["-i", inputPath]);
       args.push(
         "-filter_complex",
-        filters.join(";"),
+        audioMergeFilter(inputPaths.length),
         "-map",
         "[out]",
         "-c:a",

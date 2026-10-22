@@ -5,29 +5,42 @@ const { app } = require("electron");
 const SUBDIR = "sidecar-pids";
 // If an unresolved record cannot be copied, keep its original from being
 // overwritten/cleared by a manager. The registry still owns current children.
-const unpreserved = new Set();
+const protectedRecords = new Set();
+// Each failed name+PID copy is a separate obligation. An intact archive of
+// another PID must never unlock the only current record of a failed copy.
+const unpreserved = new Map();
 function pidDir() {
   return path.join(app.getPath("userData"), SUBDIR);
 }
 function pidPath(name) {
   return path.join(pidDir(), `${name}.pid`);
 }
+function isProtected(file) {
+  return protectedRecords.has(file) || unpreserved.has(file);
+}
 function write(name, pid) {
-  if (!Number.isInteger(pid) || pid <= 0 || unpreserved.has(pidPath(name))) return;
+  if (!Number.isInteger(pid) || pid <= 0 || isProtected(pidPath(name))) return;
   try {
     fs.mkdirSync(pidDir(), { recursive: true });
     fs.writeFileSync(pidPath(name), String(pid), "utf-8");
   } catch {} // Best effort; current children also belong to the registry.
 }
 function clear(name) {
-  if (unpreserved.has(pidPath(name))) return;
+  if (isProtected(pidPath(name))) return;
   try {
     fs.unlinkSync(pidPath(name));
   } catch {} // Already gone.
 }
 function preserve(name, pid) {
   const original = pidPath(name);
-  unpreserved.add(original);
+  const obligations = unpreserved.get(original) ?? new Set();
+  obligations.add(pid);
+  unpreserved.set(original, obligations);
+  const preserved = () => {
+    obligations.delete(pid);
+    if (obligations.size === 0) unpreserved.delete(original);
+    return true;
+  };
   try {
     const dir = path.join(pidDir(), "unresolved");
     fs.mkdirSync(dir, { recursive: true });
@@ -35,8 +48,7 @@ function preserve(name, pid) {
       encoding: "utf8",
       flag: "wx",
     });
-    unpreserved.delete(original);
-    return true;
+    return preserved();
   } catch (error) {
     // An earlier intact copy is sufficient; never erase/replace it here.
     if (error.code === "EEXIST") {
@@ -46,8 +58,7 @@ function preserve(name, pid) {
             .readFileSync(path.join(pidDir(), "unresolved", `${name}.${pid}.pid`), "utf8")
             .trim() === String(pid)
         ) {
-          unpreserved.delete(original);
-          return true;
+          return preserved();
         }
       } catch {}
     }
@@ -83,7 +94,7 @@ function readRecords(dir, preserved = false) {
         pid <= 0 ||
         (preserved && (!match || pid !== Number(match[2])))
       ) {
-        unpreserved.add(full);
+        protectedRecords.add(full);
         unresolved.push({
           kind: name,
           pid: null,
@@ -95,7 +106,7 @@ function readRecords(dir, preserved = false) {
       }
       entries.push({ name, pid });
     } catch {
-      unpreserved.add(full);
+      protectedRecords.add(full);
       unresolved.push({
         kind: name,
         pid: null,

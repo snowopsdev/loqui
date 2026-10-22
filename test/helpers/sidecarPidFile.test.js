@@ -123,3 +123,101 @@ test("failed preservation protects the original against manager write/clear", (t
   assert.deepEqual(readAll(), [{ name: "qdrant", pid: 1234 }]);
   assert.ok(readForReaping().unresolved.some((e) => e.reason === "PID_REGISTRY_UNREADABLE"));
 });
+
+for (const order of [
+  "failure-then-prior-success",
+  "prior-success-then-failure",
+  "failure-retry-success",
+]) {
+  test(`preservation obligations remain tied to their PID: ${order}`, (t) => {
+    const dir = createUserDataDir(t);
+    const { preserve, readForReaping } = require("../../src/helpers/sidecarPidFile");
+    write("qdrant", 1234);
+    assert.equal(preserve("qdrant", 1234), true);
+    write("qdrant", 5678);
+    assert.deepEqual(
+      readForReaping().entries,
+      [
+        { name: "qdrant", pid: 5678 },
+        { name: "qdrant", pid: 1234 },
+      ],
+      "normal reaper order visits the current record before the old archive"
+    );
+    const originalWrite = fs.writeFileSync;
+    fs.writeFileSync = (file, ...args) => {
+      if (file === path.join(dir, "unresolved", "qdrant.5678.pid"))
+        throw Object.assign(new Error("fixture disk full"), { code: "ENOSPC" });
+      return originalWrite(file, ...args);
+    };
+    t.after(() => {
+      fs.writeFileSync = originalWrite;
+    });
+    if (order === "prior-success-then-failure") assert.equal(preserve("qdrant", 1234), true);
+    assert.equal(preserve("qdrant", 5678), false);
+    assert.equal(preserve("qdrant", 1234), true, "old EEXIST success is not current preservation");
+    // Also exercise a newly written, different-PID archive after the failure.
+    assert.equal(preserve("qdrant", 2345), true);
+    write("qdrant", 9999);
+    clear("qdrant");
+    assert.deepEqual(readAll(), [{ name: "qdrant", pid: 5678 }]);
+    assert.equal(fs.readFileSync(path.join(dir, "qdrant.pid"), "utf8"), "5678");
+    assert.deepEqual(
+      readForReaping()
+        .entries.map((e) => e.pid)
+        .sort(),
+      [1234, 2345, 5678]
+    );
+
+    if (order === "failure-retry-success") {
+      fs.writeFileSync = originalWrite;
+      assert.equal(preserve("qdrant", 5678), true, "only the same PID success unlocks replacement");
+      write("qdrant", 9999);
+      assert.deepEqual(readAll(), [{ name: "qdrant", pid: 9999 }]);
+      clear("qdrant");
+      assert.deepEqual(readAll(), []);
+      assert.deepEqual(
+        readForReaping()
+          .entries.map((e) => e.pid)
+          .sort(),
+        [1234, 2345, 5678]
+      );
+    }
+  });
+}
+
+test("reordered preservation successes release only their own failed obligations", (t) => {
+  const dir = createUserDataDir(t);
+  const { preserve, readForReaping } = require("../../src/helpers/sidecarPidFile");
+  write("qdrant", 5678);
+  const failed = new Set([1234, 5678]);
+  const originalWrite = fs.writeFileSync;
+  fs.writeFileSync = (file, ...args) => {
+    if ([...failed].some((pid) => file === path.join(dir, "unresolved", `qdrant.${pid}.pid`)))
+      throw Object.assign(new Error("fixture disk full"), { code: "ENOSPC" });
+    return originalWrite(file, ...args);
+  };
+  t.after(() => {
+    fs.writeFileSync = originalWrite;
+  });
+  assert.equal(preserve("qdrant", 1234), false);
+  assert.equal(preserve("qdrant", 5678), false);
+  failed.delete(5678);
+  assert.equal(preserve("qdrant", 5678), true);
+  // A remaining older failure is still an obligation, even after the newer
+  // copy succeeds. Preserve conservatively until every exact copy succeeds.
+  write("qdrant", 9999);
+  clear("qdrant");
+  assert.deepEqual(readAll(), [{ name: "qdrant", pid: 5678 }]);
+  failed.clear();
+  assert.equal(preserve("qdrant", 1234), true);
+  write("qdrant", 9999);
+  assert.deepEqual(readAll(), [{ name: "qdrant", pid: 9999 }]);
+  clear("qdrant");
+  assert.deepEqual(readAll(), []);
+  assert.deepEqual(
+    readForReaping()
+      .entries.map((e) => e.pid)
+      .sort(),
+    [1234, 5678]
+  );
+});

@@ -83,16 +83,10 @@ function bootstrapElectron() {
       };
     }
   }
-  const instrumented = new WeakSet();
-  function watchSession(session) {
-    if (instrumented.has(session)) return;
-    instrumented.add(session);
-    session.webRequest.onBeforeRequest((details, callback) =>
-      callback({ cancel: inspect(details.url, "electron-session") })
-    );
-  }
-  electron.app.on("session-created", watchSession);
-  electron.app.whenReady().then(() => watchSession(electron.session.defaultSession));
+  // Electron keeps one listener per webRequest event; the backstop owns them.
+  require(path.join(repoRoot, "src/helpers/privacy/egressBackstop.js")).addObserver(
+    (event) => event.layer === "chromium" && inspect(event.url, "electron-session")
+  );
   require(path.join(repoRoot, "main.js"));
 }
 

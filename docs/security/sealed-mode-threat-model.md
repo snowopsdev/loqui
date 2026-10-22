@@ -105,6 +105,8 @@ Both fences are conservative **capability/review lists**. Imports, actual calls,
 
 - `src/helpers/privacy/egressGate.js` is Layer A's metered fetch factory (default Node fetch or an injected transport). It checks the actual attempt target before dispatch and records body completion/error/cancel metadata per attempt. It attributes Node work only through async ticket/attempt context and Chromium work only through the opaque tag; there is no host-wide lookup. Task 6 must strip tags and retain its actual transport evidence through close/completion even after a ticket settles. Its diagnostic hooks provide no native-isolation or seal attestation.
 
+- `src/helpers/privacy/egressBackstop.js` owns JavaScript socket/TLS/HTTP/fetch, DNS, UDP and Chromium session defenses. Localhost names are pinned to numeric loopback in Node; Chromium uses its localhost handling. It retains transport diagnostics until observed close/completion/error, including requests orphaned by destroyed webContents. Environment-proxy use remains an unresolved diagnostic hazard. These hooks do not establish native isolation or a verified seal.
+
 ```egress-sites
 main.js
 src/assets/fonts/noto-sans.css
@@ -158,6 +160,7 @@ src/helpers/openaiRealtimeStreaming.js
 src/helpers/parakeet.js
 src/helpers/parakeetWsServer.js
 src/helpers/personalInference.js
+src/helpers/privacy/egressBackstop.js
 src/helpers/privacy/egressGate.js
 src/helpers/privacy/egressPolicy.js
 src/helpers/providerConnectionTest.js

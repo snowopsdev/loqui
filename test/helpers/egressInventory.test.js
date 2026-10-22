@@ -107,6 +107,14 @@ function scan(code, file = "sample.js") {
         : ts.isVariableDeclaration(node.parent)
           ? node.parent.name
           : null;
+      if (ts.isImportDeclaration(node) && node.importClause?.name) {
+        electronNamespaces.add(node.importClause.name.text);
+        add(egress, "Electron network/resource/OS binding");
+      }
+      if (binding && ts.isNamespaceImport(binding)) {
+        electronNamespaces.add(binding.name.text);
+        add(egress, "Electron network/resource/OS binding");
+      }
       const names =
         binding && (ts.isObjectBindingPattern(binding) || ts.isNamedImports(binding))
           ? binding.elements.map((element) => name(element.propertyName || element.name))
@@ -128,7 +136,27 @@ function scan(code, file = "sample.js") {
   // Arbitrary dataflow remains a review obligation, not a firewall proof.
   const netAliases = new Set(NETWORK_CALLS);
   const spawnAliases = new Set(SPAWN_CALLS);
+  const electronNamespaces = new Set();
+  const electronNetAliases = new Set();
+  const isElectronNamespace = (expression) =>
+    ts.isIdentifier(expression) && electronNamespaces.has(expression.text);
+  const isElectronModule = (expression) =>
+    ts.isCallExpression(expression) &&
+    expression.expression.kind === ts.SyntaxKind.Identifier &&
+    expression.expression.text === "require" &&
+    ts.isStringLiteralLike(expression.arguments[0]) &&
+    expression.arguments[0].text === "electron";
   function aliases(node) {
+    if (
+      ts.isImportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteralLike(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === "electron"
+    ) {
+      const bindings = node.importClause?.namedBindings;
+      if (node.importClause?.name) electronNamespaces.add(node.importClause.name.text);
+      if (bindings && ts.isNamespaceImport(bindings)) electronNamespaces.add(bindings.name.text);
+    }
     if (ts.isImportSpecifier(node)) {
       const original = name(node.propertyName || node.name);
       if (netAliases.has(original) || NETWORK_MEMBERS.has(original)) netAliases.add(node.name.text);
@@ -142,6 +170,13 @@ function scan(code, file = "sample.js") {
           netAliases.add(node.name.text);
         if (spawnAliases.has(original) || SPAWN_MEMBERS.has(original))
           spawnAliases.add(node.name.text);
+        if (
+          ts.isPropertyAccessExpression(node.initializer) &&
+          node.initializer.name.text === "net" &&
+          (isElectronNamespace(node.initializer.expression) ||
+            isElectronModule(node.initializer.expression))
+        )
+          electronNetAliases.add(node.name.text);
       } else if (ts.isObjectBindingPattern(node.name)) {
         for (const element of node.name.elements) {
           const original = name(element.propertyName || element.name);
@@ -182,7 +217,9 @@ function scan(code, file = "sample.js") {
       if (
         ts.isPropertyAccessExpression(node.expression) &&
         called === "request" &&
-        name(node.expression.expression) === "net"
+        (name(node.expression.expression) === "net" ||
+          (ts.isIdentifier(node.expression.expression) &&
+            electronNetAliases.has(node.expression.expression.text)))
       )
         add(egress, "Electron net.request");
       if (
@@ -277,6 +314,9 @@ test("scan recognises aliases, injected/SDK transports and renderer resources", 
     "runEnterpriseTest(config, admit)",
     'const { net: transport } = require("electron"); transport.request(url)',
     'import { net as transport } from "electron"',
+    'import * as electron from "electron"; const transport = electron.net; transport.request(url)',
+    'const transport = require("electron").net; transport.request(url)',
+    'import electron from "electron"; const transport = electron.net; transport.request(url)',
     'require("@ai-sdk/azure").createAzure(config)',
     'await import("tinfoil")',
     'require("@aws-sdk/credential-providers")',

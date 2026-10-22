@@ -162,6 +162,7 @@ src/helpers/parakeetWsServer.js
 src/helpers/personalInference.js
 src/helpers/privacy/egressBackstop.js
 src/helpers/privacy/egressGate.js
+src/helpers/privacy/childRegistry.js
 src/helpers/privacy/egressPolicy.js
 src/helpers/providerConnectionTest.js
 src/helpers/qdrantManager.js
@@ -263,6 +264,7 @@ src/helpers/oauthLoopbackFlow.js
 src/helpers/onnxWorkerClient.js
 src/helpers/parakeetWsServer.js
 src/helpers/processListCache.js
+src/helpers/privacy/childRegistry.js
 src/helpers/qdrantManager.js
 src/helpers/selectionManager.js
 src/helpers/sidecarReaper.js
@@ -284,3 +286,38 @@ src/utils/process.js
 ```
 
 Later owning tasks must extend both fences for new helpers (including privacy guards and STT transport), and retain intentional injected/SDK/native/OS entries even without primitive hits. The scanner self-tests exercise positive aliases/imports, callbacks, SDKs, resources, service activation and relaunch APIs, plus negative comments, declarations and RegExp.exec. Arbitrary computed imports, callback renaming/dataflow and native dependency internals still require source review and executed production-wiring tests. A passing ratchet is inventory evidence only.
+
+## Task 6a: native refusal and unresolved evidence (07a)
+
+`childRegistry.installSpawnGuard` refuses every child_process launch, including
+Sync APIs, self launches, shell commands and utilityProcess.fork, while the gate
+is sealed. Binary directories and command families classify intent only. There
+is no native-boundary approval seam that can succeed in this build. Task 7 must
+install guards before modules capture native APIs and consume startup diagnostics
+before admitting native managers; that startup wiring is not part of Task 6a.
+
+Unsealed asynchronous launches are tracked through actual end events. Stop signals
+and errors after start are not exits. Opaque sessions settle once at root end,
+with unknown byte counts; tree diagnostics persist separately. Detached group
+liveness and known-descendant snapshots are partial observations, never full-tree
+containment or acknowledged whole-tree stop. Unknown descendants remain named
+`DESCENDANTS_UNVERIFIED` after root/group exit. Local engines receive no stop
+exemption. Native inspection itself is refused sealed, without a ps/tasklist
+escape. No successful pause, native availability or completed seal is supplied.
+
+The startup reaper preserves saved PID records for failed/refused/unavailable
+inspection, positive PID reuse, root exit and unknown descendants. It returns
+`{ unresolved }` and records the same failure-only diagnostics in the registry;
+`sidecarPidFile.readForReaping` also distinguishes unreadable/invalid evidence
+from an absent registry. Durable unresolved PID copies survive a manager replacing
+or clearing its current PID; failed preservation protects the original. A reused
+PID is not signalled. Even a matched root that exits after escalation leaves its old descendant coverage unresolved. The sole
+record is not cleared; 07b must provide trustworthy resolution. Task 7 owns
+consumption before native-manager work.
+
+All four FFmpeg sites, including private pipe decoding, apply exact file,pipe
+input restrictions. Unsafe overrides, shell execution and dynamic output protocol
+forms are rejected. Private conversion remains buffer/pipe based. This restriction
+and the ONNX worker's first-statement Node lock are defense in depth only; neither
+authorizes a sealed native launch. The worker can load native ONNX code when
+unsealed; its JS lock does not confine that native code. 07b/D14–D16 remain open.

@@ -1,4 +1,12 @@
 const test = require("node:test");
+const cp = require("node:child_process");
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+const spawnLeaf = cp.spawn;
+cp.spawn = (command, args, options) =>
+  spawnLeaf(command, args, { ...options, killSignal: "SIGKILL", timeout: 5000 });
+test.after(() => {
+  cp.spawn = spawnLeaf;
+});
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -57,18 +65,22 @@ function makeTempDir(t) {
 
 function writeFixture(dir, ext, encoderArgs, extraInputs = []) {
   const file = path.join(dir, `fixture.${ext}`);
-  execFileSync(ffmpegPath, [
-    "-loglevel",
-    "error",
-    ...extraInputs,
-    "-f",
-    "lavfi",
-    "-i",
-    `sine=frequency=440:duration=${FIXTURE_SECONDS}`,
-    ...encoderArgs,
-    "-y",
-    file,
-  ]);
+  execFileSync(
+    ffmpegPath,
+    [
+      "-loglevel",
+      "error",
+      ...extraInputs,
+      "-f",
+      "lavfi",
+      "-i",
+      `sine=frequency=440:duration=${FIXTURE_SECONDS}`,
+      ...encoderArgs,
+      "-y",
+      file,
+    ],
+    { killSignal: "SIGKILL", timeout: 5000 }
+  );
   return file;
 }
 

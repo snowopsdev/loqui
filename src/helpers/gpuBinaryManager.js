@@ -68,7 +68,9 @@ class GpuBinaryManager {
   }
 
   get binDir() {
-    return path.join(this.binRoot, this.config.dirName);
+    const dir = path.join(this.binRoot, this.config.dirName);
+    require("./privacy/childRegistry").registerLocalBinaryDir(dir);
+    return dir;
   }
 
   _getAssetConfig() {

@@ -61,3 +61,65 @@ test("valid PID entries still round-trip through write, read, and clear", (t) =>
   clear("whisper");
   assert.deepEqual(readAll(), []);
 });
+
+test("startup reader exposes unreadable and invalid evidence without deleting it", (t) => {
+  const dir = createUserDataDir(t);
+  fs.mkdirSync(dir);
+  fs.mkdirSync(path.join(dir, "broken.pid"));
+  fs.writeFileSync(path.join(dir, "invalid.pid"), "not-a-pid");
+  write("qdrant", 1234);
+  const { readForReaping } = require("../../src/helpers/sidecarPidFile");
+  assert.deepEqual(readForReaping(), {
+    entries: [{ name: "qdrant", pid: 1234 }],
+    unresolved: [
+      {
+        kind: "broken",
+        pid: null,
+        reason: "PID_RECORD_UNREADABLE",
+        rootExited: false,
+        source: "sidecar-pid-file",
+      },
+      {
+        kind: "invalid",
+        pid: null,
+        reason: "PID_RECORD_INVALID",
+        rootExited: false,
+        source: "sidecar-pid-file",
+      },
+    ],
+  });
+  assert.equal(fs.existsSync(path.join(dir, "broken.pid")), true);
+  assert.equal(fs.existsSync(path.join(dir, "invalid.pid")), true);
+});
+test("startup reader distinguishes a missing registry from unreadable registry", (t) => {
+  const dir = createUserDataDir(t);
+  const { readForReaping } = require("../../src/helpers/sidecarPidFile");
+  assert.deepEqual(readForReaping(), { entries: [], unresolved: [] });
+  fs.writeFileSync(dir, "not a directory");
+  assert.ok(readForReaping().unresolved.length > 0);
+  assert.ok(readForReaping().unresolved.every((e) => e.reason === "PID_REGISTRY_UNREADABLE"));
+});
+
+test("preserved legacy evidence survives a manager replacing/clearing its current PID", (t) => {
+  createUserDataDir(t);
+  const { preserve, readForReaping } = require("../../src/helpers/sidecarPidFile");
+  write("qdrant", 1234);
+  assert.equal(preserve("qdrant", 1234), true);
+  assert.deepEqual(readForReaping().entries, [{ name: "qdrant", pid: 1234 }]);
+  write("qdrant", 5678);
+  clear("qdrant");
+  assert.deepEqual(readAll(), [], "compatibility reader describes current manager records only");
+  assert.deepEqual(readForReaping().entries, [{ name: "qdrant", pid: 1234 }]);
+});
+
+test("failed preservation protects the original against manager write/clear", (t) => {
+  const dir = createUserDataDir(t);
+  const { preserve, readForReaping } = require("../../src/helpers/sidecarPidFile");
+  write("qdrant", 1234);
+  fs.writeFileSync(path.join(dir, "unresolved"), "not a directory");
+  assert.equal(preserve("qdrant", 1234), false);
+  write("qdrant", 5678);
+  clear("qdrant");
+  assert.deepEqual(readAll(), [{ name: "qdrant", pid: 1234 }]);
+  assert.ok(readForReaping().unresolved.some((e) => e.reason === "PID_REGISTRY_UNREADABLE"));
+});

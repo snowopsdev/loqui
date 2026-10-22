@@ -1,4 +1,6 @@
-const { execFileSync } = require("child_process");
+const childProcess = require("node:child_process");
+const gate = require("./privacy/egressGate");
+const registry = require("./privacy/childRegistry");
 const debugLogger = require("./debugLogger");
 const sidecarPidFile = require("./sidecarPidFile");
 
@@ -22,27 +24,34 @@ function isProcessAlive(pid) {
     process.kill(pid, 0);
     return true;
   } catch (err) {
-    return err.code === "EPERM";
+    return err.code !== "ESRCH";
   }
 }
 
 function processCommand(pid) {
+  if (gate.isSealed()) return { status: "refused-sealed" };
   try {
     if (process.platform === "win32") {
-      const out = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
-        stdio: ["ignore", "pipe", "ignore"],
-        windowsHide: true,
-      }).toString();
+      const out = childProcess
+        .execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
+          stdio: ["ignore", "pipe", "ignore"],
+          windowsHide: true,
+          timeout: 2000,
+        })
+        .toString();
       const match = out.match(/^"([^"]+)"/);
-      return match ? match[1] : "";
+      return match ? { status: "inspected", command: match[1] } : { status: "unavailable" };
     }
-    return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-      stdio: ["ignore", "pipe", "ignore"],
-    })
+    const command = childProcess
+      .execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 2000,
+      })
       .toString()
       .trim();
-  } catch {
-    return "";
+    return command ? { status: "inspected", command } : { status: "unavailable" };
+  } catch (error) {
+    return { status: error.code === "SEALED_MODE" ? "refused-sealed" : "failed" };
   }
 }
 
@@ -87,20 +96,38 @@ async function reapStaleSidecars({
   sigtermGraceMs = SIGTERM_GRACE_MS,
   sigkillGraceMs = SIGKILL_GRACE_MS,
 } = {}) {
-  const entries = sidecarPidFile.readAll();
-  await Promise.all(
-    entries.map(async ({ name, pid }) => {
-      const fragments = EXPECTED_BINARY_FRAGMENTS[name];
-      if (fragments && isProcessAlive(pid)) {
-        const command = processCommand(pid);
-        if (fragments.some((fragment) => command.includes(fragment))) {
-          const dead = await killStaleSidecar(name, pid, { sigtermGraceMs, sigkillGraceMs });
-          if (!dead) return;
-        }
+  const { entries, unresolved: unreadable } = sidecarPidFile.readForReaping();
+  const unresolved = unreadable.map((entry) => registry.recordUnresolved(entry));
+  for (const { name, pid } of entries) {
+    if (!sidecarPidFile.preserve(name, pid))
+      unresolved.push(
+        registry.recordUnresolved({
+          kind: name,
+          pid,
+          reason: "PID_RECORD_PRESERVATION_FAILED",
+          source: "sidecar-pid-file-preservation",
+        })
+      );
+    let rootExited = !isProcessAlive(pid);
+    let reason = rootExited ? "ROOT_EXITED_DESCENDANTS_UNKNOWN" : "INSPECTION_UNAVAILABLE";
+    if (!rootExited) {
+      const inspection = processCommand(pid);
+      if (inspection.status === "refused-sealed") reason = "INSPECTION_REFUSED_SEALED";
+      else if (inspection.status === "failed") reason = "INSPECTION_FAILED";
+      else if (inspection.status === "inspected") {
+        const fragments = EXPECTED_BINARY_FRAGMENTS[name];
+        if (fragments && fragments.some((fragment) => inspection.command.includes(fragment))) {
+          rootExited = await killStaleSidecar(name, pid, { sigtermGraceMs, sigkillGraceMs });
+          reason = rootExited ? "ROOT_EXITED_DESCENDANTS_UNKNOWN" : "ROOT_STOP_FAILED";
+        } else reason = "PID_REUSED_DESCENDANTS_UNKNOWN";
       }
-      sidecarPidFile.clear(name);
-    })
-  );
+    }
+    // The on-disk record contains no creation-time descendant coverage. Even
+    // positive PID reuse or root death cannot establish exit of that old tree.
+    // 07b owns trustworthy resolution; 07a never deletes this only evidence.
+    unresolved.push(registry.recordUnresolved({ kind: name, pid, reason, rootExited }));
+  }
+  return { unresolved };
 }
 
 module.exports = { reapStaleSidecars, waitForExit };

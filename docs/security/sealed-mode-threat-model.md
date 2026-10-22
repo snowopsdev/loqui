@@ -101,6 +101,7 @@ Both fences are conservative **capability/review lists**. Imports, actual calls,
 - N9 includes actual `streamingHandOff.js` frame sends, adapter buffers/reconnect and meeting/replacement streams. `codexAppServer.js` is opaque native egress even without a network import. `calendarSyncInterval.js` triggers manager callbacks. Worker native code is unknown capability, never proven network-free.
 - N25 includes implicit Markdown images, `ModelCardList.tsx:154` model.icon, `ProviderIcon.tsx:27`, `MeetingNotificationCard.tsx:71`, `LoquiBrand.tsx:30,36,44`, `IntegrationsView.tsx:43` (under `src/components/`, UI files under `ui/`), bundled font URLs and CSS imports. Bundled relative assets are local; dynamic nonlocal values/future URLs still need session enforcement. Chromium processes are separate from application native helpers.
 - Fresh supplemental sites: `vectorIndex.js` uses strict-loopback Qdrant SDK; `processListCache.js:30` imports ps-list for native enumeration; freedesktop notifications, GNOME portals/shortcuts, KDE and Hyprland import D-Bus session clients. D-Bus opens local IPC and may activate host services: not a proven remote request or tracked child tree. Planned admission must deny unaudited delegated service capabilities sealed; a TCP-only backstop cannot prove closure.
+- `src/helpers/privacy/egressPolicy.js` imports `node:net` only for pure address syntax classification (`isIP`); it performs no DNS lookup or socket operation. The conservative egress fence records this import for review, not as an observed transport.
 
 ```egress-sites
 main.js
@@ -155,6 +156,7 @@ src/helpers/openaiRealtimeStreaming.js
 src/helpers/parakeet.js
 src/helpers/parakeetWsServer.js
 src/helpers/personalInference.js
+src/helpers/privacy/egressPolicy.js
 src/helpers/providerConnectionTest.js
 src/helpers/qdrantManager.js
 src/helpers/realtimeTokenProviders.js

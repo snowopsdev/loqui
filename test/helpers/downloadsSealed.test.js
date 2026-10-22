@@ -212,6 +212,42 @@ test("sealing keeps the partial file; the next run resumes and counts only its o
   );
 });
 
+// Fix round 1 (M1): the optional diarization VAD model. A sealed interruption
+// fails the download like a required model would, keeps the partial for a
+// later resume, and never reports "complete".
+test("sealing the optional diarization VAD download fails it and keeps its partial", async () => {
+  const DiarizationManager = require("../../src/helpers/diarization");
+  const dir = path.dirname(tmpDest());
+  const manager = new DiarizationManager();
+  manager.getModelsDir = () => dir;
+  manager.getBundledModelsDir = () => null;
+  // The required models are present, so only the optional VAD downloads.
+  fs.mkdirSync(path.join(dir, "sherpa-onnx-pyannote-segmentation-3-0"));
+  fs.writeFileSync(path.join(dir, "sherpa-onnx-pyannote-segmentation-3-0", "model.onnx"), "seg");
+  fs.writeFileSync(path.join(dir, "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx"), "emb");
+  respond = serve({
+    status: 200,
+    headers: { "content-length": "8" },
+    chunks: [Buffer.from("abcd")],
+    stall: true,
+  });
+  const events = [];
+  const pending = manager.downloadModels((event) => events.push(event.type));
+  await tick(30);
+  assert.equal(requests.length, 1);
+  seal();
+  const outcome = await pending.catch((e) => e);
+  assert.equal(sealedPhaseOf(outcome), "interrupted", "a failure, never a success");
+  assert.equal(events.includes("complete"), false);
+  assert.equal(events.at(-1), "error");
+  assert.equal(fs.readFileSync(path.join(dir, "silero_vad.onnx.tmp"), "utf8"), "abcd");
+  assert.equal(fs.existsSync(path.join(dir, "silero_vad.onnx")), false);
+  assert.deepEqual(
+    rows.map((r) => [r.task, r.outcome, r.errorClass]),
+    [["modelDownload", "cancelled", "SEALED_MODE"]]
+  );
+});
+
 test("an ordinary user cancel still deletes the partial file and is not a seal", async () => {
   const dest = tmpDest();
   const { signal, abort } = createDownloadSignal();

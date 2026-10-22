@@ -469,6 +469,22 @@ session to `github.com`, settled at the process's exit, not at the caller's
 timeout; a failed start writes no session. Both run detached on POSIX and are
 registered with the child registry; `ytDlpControl` is a view over it, and in
 07a its `alive()` stays true after a root exits (descendants unverified).
+The bundled yt-dlp is a PyInstaller one-file build whose bootloader root runs
+the real program as a child, so a seal, timeout or cancel of the self-update
+signals the whole POSIX process group (`childRegistry.signalGroup`), not just
+the root. The registry signals a group while its root is unreaped, and after
+the root exits only while the group provably still exists as ours: probed at
+the root's exit notification, then every 100 ms; a failed or thrown probe, or
+a gap over 400 ms, ends that for good, because the id may then be reused.
+That relies on the kernel's cyclic pid allocation, not on identity proof, and
+it never resolves the tree. Windows keeps the root-only kill (`taskkill` is
+refused while sealed; 07b).
+
+A seal that interrupts the optional MTP drafter or diarization VAD download
+fails the whole download (never reported complete) and keeps that file's
+`.tmp`. A URL import re-checks for a seal or cancel after resolving the OS
+proxy, before any DNS lookup or request, and a cancelled request starts no
+attempt.
 
 App updates (N16): `UpdateManager` reads main's live seal state. A scheduled
 check is skipped while sealed without advancing `lastCheck`; a manual check is

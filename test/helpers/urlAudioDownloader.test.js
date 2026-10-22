@@ -1339,8 +1339,9 @@ function sealedCacheBinary({ throttle = false } = {}) {
 
 // A child the test drives. It starts like a real one ("spawn" on the next
 // tick) unless `start: false`, and only ends when the test says so.
-function fakeChild({ start = true } = {}) {
+function fakeChild({ start = true, pid = undefined } = {}) {
   const child = new EventEmitter();
+  if (pid !== undefined) child.pid = pid;
   child.signals = [];
   child.kill = (signal) => {
     child.signals.push(signal);
@@ -1484,6 +1485,137 @@ sealedTest("while sealed, a self-update is not even attempted", async () => {
   assert.equal(sealedSpawned.length, 0);
   assert.deepEqual(rows, []);
 });
+
+// Fix round 1 (I1). The bundled yt-dlp is a PyInstaller one-file build: the
+// bootloader root runs the real program as its child, and SIGKILL cannot be
+// forwarded. Every stop must reach the whole detached group. All process facts
+// are fakes: the group id is beyond every kernel's pid range, and the
+// registry's killGroup/groupAlive leaves only record.
+const FAKE_GROUP_PID = 4_206_649;
+function fakeGroupFacts() {
+  const facts = { alive: false, kills: [] };
+  registry._setSystemForTests({
+    groupAlive: (pid) => {
+      assert.equal(pid, FAKE_GROUP_PID);
+      return facts.alive;
+    },
+    killGroup: (pid, signal) => facts.kills.push([pid, signal]),
+  });
+  return facts;
+}
+const groupTest = (name, fn) =>
+  test(
+    name,
+    {
+      timeout: 10000,
+      skip: process.platform === "win32" && "process groups are POSIX-only (Windows is 07b)",
+    },
+    fn
+  );
+
+groupTest(
+  "sealing a self-update kills its whole process group, and the barrier still reaches the group after the root exits",
+  async () => {
+    const facts = fakeGroupFacts();
+    sealedCacheBinary();
+    let child;
+    sealedLeaf = () => (child = fakeChild({ pid: FAKE_GROUP_PID }));
+    const update = downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 60000 });
+    await tick();
+    assert.equal(sealedSpawned[0].options.detached, true, "the root leads its own group");
+    seal();
+    await update;
+    assert.deepEqual(facts.kills, [[FAKE_GROUP_PID, "SIGKILL"]], "the group, not just the root");
+    assert.deepEqual(child.signals, []);
+    assert.equal(rows.length, 0, "a signal is not an exit");
+
+    // The root is gone, but the group still exists at its exit: the payload
+    // survived. The seal barrier's stop must still reach that group.
+    facts.alive = true;
+    child.end(null, "SIGKILL");
+    assert.deepEqual(
+      rows.map((r) => [r.task, r.outcome, r.errorClass]),
+      [["runtimeDownload", "cancelled", "SEALED_MODE"]]
+    );
+    await assert.rejects(
+      registry.stopAll({ termGraceMs: 20, killGraceMs: 20 }),
+      (e) => e.code === "CHILD_STOP_FAILED" && e.kinds.includes("yt-dlp")
+    );
+    assert.deepEqual(facts.kills.slice(1), [
+      [FAKE_GROUP_PID, "SIGTERM"],
+      [FAKE_GROUP_PID, "SIGKILL"],
+    ]);
+    assert.equal(downloader.ytDlpControl.alive(), true, "still unresolved: no success claim");
+
+    // Once the group is observed gone, its id may be reused: never signal it again.
+    facts.alive = false;
+    await assert.rejects(downloader.ytDlpControl.stop({ termGraceMs: 5, killGraceMs: 5 }), {
+      code: "CHILD_STOP_FAILED",
+    });
+    assert.equal(facts.kills.length, 3);
+    const [fact] = registry.diagnostics().unresolved.filter((e) => e.kind === "yt-dlp");
+    assert.deepEqual([fact.reason, fact.rootExited], ["DESCENDANTS_UNVERIFIED", true]);
+  }
+);
+
+groupTest("a self-update that times out is killed as a whole group", async () => {
+  const facts = fakeGroupFacts();
+  sealedCacheBinary();
+  let child;
+  sealedLeaf = () => (child = fakeChild({ pid: FAKE_GROUP_PID }));
+  await downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 20 });
+  assert.deepEqual(facts.kills, [[FAKE_GROUP_PID, "SIGKILL"]]);
+  assert.deepEqual(child.signals, []);
+  child.end(null, "SIGKILL");
+  assert.deepEqual(
+    rows.map((r) => [r.outcome, r.errorClass]),
+    [["error", "TIMEOUT"]]
+  );
+});
+
+groupTest(
+  "a cancelled self-update is killed as a whole group, mid-flight or pre-aborted",
+  async () => {
+    const facts = fakeGroupFacts();
+    sealedCacheBinary();
+    const children = [];
+    sealedLeaf = () => {
+      const child = fakeChild({ pid: FAKE_GROUP_PID });
+      children.push(child);
+      return child;
+    };
+    const controller = new AbortController();
+    const update = downloader.maybeUpdateYtDlp({
+      force: true,
+      abortSignal: controller.signal,
+      timeoutMs: 60000,
+    });
+    await tick();
+    controller.abort();
+    await update;
+    assert.deepEqual(facts.kills, [[FAKE_GROUP_PID, "SIGKILL"]]);
+    children[0].end(null, "SIGKILL");
+
+    await downloader.maybeUpdateYtDlp({
+      force: true,
+      abortSignal: AbortSignal.abort(),
+      timeoutMs: 60000,
+    });
+    assert.deepEqual(facts.kills, [
+      [FAKE_GROUP_PID, "SIGKILL"],
+      [FAKE_GROUP_PID, "SIGKILL"],
+    ]);
+    for (const child of children) assert.deepEqual(child.signals, []);
+    children[1].end(null, "SIGKILL");
+    assert.deepEqual(
+      rows.map((r) => [r.outcome, r.errorClass]),
+      [
+        ["cancelled", "ABORTED"],
+        ["cancelled", "ABORTED"],
+      ]
+    );
+  }
+);
 
 // ------------------------------------------------------------- URL import
 
@@ -1667,6 +1799,92 @@ sealedTest(
     );
   }
 );
+
+// Fix round 1 (M5): a seal that lands while the OS proxy is being resolved
+// stops the import there, before any DNS lookup, request or attempt.
+sealedTest(
+  "sealing during proxy resolution stops the import before DNS, a request or an attempt",
+  async () => {
+    const origLookup = dns.lookup;
+    let lookups = 0;
+    dns.lookup = (host, options, callback) => {
+      lookups++;
+      (typeof options === "function" ? options : callback)(new Error("fixture: no DNS"));
+    };
+    const proxied = [];
+    downloader._setElectronNetForTests({
+      request(options) {
+        proxied.push(options.url);
+        throw new Error("must not be called");
+      },
+    });
+    try {
+      await withMeteredHttps(
+        () => ({ headers: { "content-type": "audio/mpeg" } }),
+        async (calls) => {
+          for (const resolved of ["PROXY 127.0.0.1:9", "DIRECT"]) {
+            flags.sealed = false;
+            let answer;
+            proxyAnswer = new Promise((resolve) => (answer = resolve));
+            const pending = downloader.download("https://media.example.com/talk.mp3", null, null);
+            await tick(5);
+            seal();
+            answer(resolved);
+            const error = await pending.catch((e) => e);
+            assert.equal(isSealedModeError(error), true, resolved);
+          }
+          assert.equal(calls.length, 0, "no direct request");
+        }
+      );
+    } finally {
+      dns.lookup = origLookup;
+      downloader._setElectronNetForTests(null);
+    }
+    assert.equal(lookups, 0, "no DNS lookup for the proxy pre-flight");
+    assert.deepEqual(proxied, []);
+    assert.deepEqual(
+      rows.filter((r) => r.kind === "request"),
+      [],
+      "no attempt was dispatched"
+    );
+    assert.equal(gate.activeRemoteCount(), 0);
+  }
+);
+
+sealedTest("a direct hop after a seal is never requested nor marked dispatched", async () => {
+  const dispatched = [];
+  const onDispatched = (event) => dispatched.push(event.operationId);
+  gate.events.on("dispatched", onDispatched);
+  try {
+    await withMeteredHttps(
+      (parsed) => {
+        if (parsed.pathname === "/old.mp3") {
+          seal(); // lands while the first HEAD is answered
+          return { statusCode: 302, headers: { location: "https://93.184.216.35/new.mp3" } };
+        }
+        return { headers: { "content-type": "audio/mpeg" } };
+      },
+      async (calls) => {
+        const error = await downloader
+          .download("https://93.184.216.34/old.mp3", null, null)
+          .catch((e) => e);
+        assert.equal(isSealedModeError(error), true);
+        assert.deepEqual(
+          calls.map((c) => [c.method, c.url]),
+          [["HEAD", "https://93.184.216.34/old.mp3"]]
+        );
+      }
+    );
+  } finally {
+    gate.events.off("dispatched", onDispatched);
+  }
+  assert.deepEqual(
+    rows.filter((r) => r.kind === "request").map((r) => [r.host, r.outcome, r.errorClass]),
+    [["93.184.216.34", "cancelled", "SEALED_MODE"]],
+    "only the request that actually went out has an attempt"
+  );
+  assert.equal(dispatched.length, 1, "the cancelled hop never announced a dispatch");
+});
 
 // YouTube: every yt-dlp run of one import is in one opaque session.
 function youtubeLeaf(children) {

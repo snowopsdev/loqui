@@ -11,6 +11,7 @@ const { convertToWav } = require("./ffmpegUtils");
 const { getSafeTempDir } = require("./safeTempDir");
 const { applyConfirmedSpeaker } = require("./speakerAssignmentPolicy");
 const sidecarPidFile = require("./sidecarPidFile");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 const {
   transcriptsOverlap,
   transcriptsLooselyOverlap,
@@ -228,6 +229,10 @@ class DiarizationManager {
           if (error.isAbort) {
             throw new Error("Download interrupted by user");
           }
+          // The VAD model is optional, but a sealed interruption is not a
+          // completed download: fail like the required models (the partial
+          // `.tmp` stays for a later resume) and never report "complete".
+          if (isSealedModeError(error)) throw error;
           debugLogger.warn("Silero VAD model download failed", {
             error: error.message,
             modelsDir,

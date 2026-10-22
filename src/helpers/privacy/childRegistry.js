@@ -124,8 +124,91 @@ const defaults = () => ({
   pidAlive,
   groupAlive: (pid) => pidAlive(-pid),
   killGroup: (pid, signal) => process.kill(-pid, signal),
+  now: () => Date.now(),
+  every: (fn, ms) => {
+    const timer = setInterval(fn, ms);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  },
 });
 let system = defaults();
+let groupWatches = new Set();
+
+// A detached POSIX child leads its own process group, whose id is the root's
+// pid. Signalling that group is safe only while the id provably still names
+// OUR group:
+// - While the root is unreaped (alive or a zombie), its pid cannot be reused,
+//   so the group id is ours. This is the strict case.
+// - Once the root is reaped, the id stays ours only while the group keeps at
+//   least one member: POSIX and the Linux/XNU allocators never hand out a pid
+//   still in use as a process group id. When the last member leaves, the id
+//   may later be reused by an unrelated process that then leads a new group.
+//   Node exposes no pidfd, so continuity is observed: probed in the same turn
+//   as the root's exit notification, then every GROUP_WATCH_MS. A probe that
+//   fails, throws, or comes more than GROUP_CONTINUITY_GAP_MS after the last
+//   one ends continuity for good, and the group is never signalled again.
+//   Reuse inside that gap would need the kernel's cyclic pid allocator to wrap
+//   the whole pid space within it (Linux pid_max: 32768 by default, 4194304
+//   under systemd; macOS: 99999). That is an allocator argument, not identity
+//   proof.
+// None of this resolves the tree: a signal, a root exit or an absent group is
+// never evidence that descendants ended (A2/A23), and the entry stays
+// DESCENDANTS_UNVERIFIED.
+const GROUP_WATCH_MS = 100;
+const GROUP_CONTINUITY_GAP_MS = 400;
+const posixGroup = (entry) =>
+  entry.group && process.platform !== "win32" && Number.isInteger(entry.pid) && entry.pid > 0;
+function rootUnreaped(entry) {
+  const child = entry.child;
+  return !entry.exited && !!child && child.exitCode == null && child.signalCode == null;
+}
+function endGroupContinuity(entry, state) {
+  entry.groupContinuity = { state };
+  entry.stopGroupWatch?.();
+  return false;
+}
+// Re-observes a reaped root's group. True only when continuity still holds.
+function groupStillOurs(entry) {
+  const continuity = entry.groupContinuity;
+  if (continuity?.state !== "observed") return false;
+  const at = system.now();
+  if (!(at - continuity.seenAt <= GROUP_CONTINUITY_GAP_MS))
+    return endGroupContinuity(entry, "lost");
+  let exists;
+  try {
+    exists = system.groupAlive(entry.pid) === true;
+  } catch {
+    return endGroupContinuity(entry, "lost");
+  }
+  if (!exists) return endGroupContinuity(entry, "ended");
+  continuity.seenAt = at;
+  return true;
+}
+function observeGroupAtRootExit(entry) {
+  if (!posixGroup(entry)) return;
+  entry.groupContinuity = { state: "observed", seenAt: system.now() };
+  if (!groupStillOurs(entry)) return;
+  let stop = null;
+  let stopped = false;
+  entry.stopGroupWatch = () => {
+    stopped = true;
+    if (!stop) return;
+    groupWatches.delete(stop);
+    stop();
+    stop = null;
+  };
+  const watch = system.every(() => groupStillOurs(entry), GROUP_WATCH_MS);
+  if (stopped) return watch();
+  stop = watch;
+  groupWatches.add(stop);
+}
+// Signals the entry's whole group when that is provably still its group.
+function signalEntryGroup(entry, sig) {
+  if (!posixGroup(entry)) return false;
+  if (!rootUnreaped(entry) && !groupStillOurs(entry)) return false;
+  system.killGroup(entry.pid, sig);
+  return true;
+}
 function refreshTree(entry) {
   if (!entry.tree || entry.exited || !entry.started || entry.listing) return;
   if (gate.isSealed()) {
@@ -180,6 +263,8 @@ function register(child, { kind, group = false, tree = false, local = false } = 
     entry.exited = true;
     entry.started ||= !detail.failedToStart;
     entry.child = null; // Retain failure metadata, never ended-child streams/payload closures.
+    // Same turn as the root's exit notification: does its group outlive it?
+    if (entry.started) observeGroupAtRootExit(entry);
   });
   return entry;
 }
@@ -249,13 +334,27 @@ function diagnostics() {
   };
 }
 function signal(entry, sig) {
-  // Never signal a PID recovered from disk or a root that already exited.
-  // Known descendants are liveness diagnostics only (PID identity may change).
+  // Never signal a PID recovered from disk or a root that already exited. A
+  // detached root's group is signalled after the root exits only while it is
+  // provably still that group (see signalEntryGroup). Known descendants are
+  // liveness diagnostics only (PID identity may change).
   try {
-    if (entry.group && process.platform !== "win32" && entry.pid && !entry.exited)
-      system.killGroup(entry.pid, sig);
+    if (posixGroup(entry)) signalEntryGroup(entry, sig);
     else if (!entry.exited) entry.child.kill(sig);
   } catch {} // Sending/throwing a signal is never evidence of exit.
+}
+// For owners that stop their own detached child (abort, timeout, cancel): the
+// whole POSIX group, under the same ownership rules as the barrier's stop.
+// Returns false when it did not signal (Windows, no group, not provably ours);
+// the caller then falls back to its own root-only kill.
+function signalGroup(child, sig) {
+  const entry = children.get(child);
+  if (!entry) return false;
+  try {
+    return signalEntryGroup(entry, sig);
+  } catch {
+    return false;
+  }
 }
 async function waitUntil(targets, ms) {
   const deadline = Date.now() + ms;
@@ -478,6 +577,8 @@ function _resetForTests() {
   sessions = new WeakSet();
   legacy = new Map();
   nextSyncRecord = 0;
+  for (const stop of groupWatches) stop();
+  groupWatches = new Set();
   system = defaults();
   localBinaryDirs = new Set(initialDirs());
 }
@@ -490,6 +591,7 @@ module.exports = {
   register,
   alive,
   stopAll,
+  signalGroup,
   onChildEnd,
   classify,
   kindOf,

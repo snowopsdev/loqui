@@ -419,3 +419,147 @@ test("known descendant PID liveness changes without resolving unknown coverage",
   assert.deepEqual(registry.diagnostics().unresolved[0].observedLiveDescendantPids, []);
   assert.equal(registry.diagnostics().unresolved[0].reason, "DESCENDANTS_UNVERIFIED");
 });
+
+// --- Process groups after the root exits (Task 10 fix round 1, I1) ---
+//
+// Every process fact below is a fake: the group id is beyond every kernel's
+// pid range (Linux PID_MAX_LIMIT 4194304, macOS 99999), and killGroup,
+// groupAlive, the clock and the continuity watch are all injected. Nothing is
+// probed or signalled for real.
+const FAKE_GROUP = 4_206_649;
+const posixGroups = {
+  skip: process.platform === "win32" && "process groups are POSIX-only (Windows is 07b)",
+};
+function groupFacts({ alive = true } = {}) {
+  const facts = { alive, now: 0, kills: [], probes: 0, watches: [] };
+  registry._setSystemForTests({
+    groupAlive: (pid) => {
+      assert.equal(pid, FAKE_GROUP);
+      facts.probes++;
+      return facts.alive;
+    },
+    killGroup: (pid, signal) => facts.kills.push([pid, signal]),
+    now: () => facts.now,
+    every: (fn) => {
+      facts.watches.push(fn);
+      return () => (facts.watches = facts.watches.filter((watch) => watch !== fn));
+    },
+  });
+  facts.tick = (ms) => {
+    facts.now += ms;
+    for (const watch of [...facts.watches]) watch();
+  };
+  return facts;
+}
+
+test(
+  "signalGroup signals a live detached root's whole group, and nothing it does not own",
+  posixGroups,
+  () => {
+    const facts = groupFacts();
+    const root = child(FAKE_GROUP);
+    registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+    assert.equal(registry.signalGroup(root, "SIGKILL"), true);
+    assert.deepEqual(facts.kills, [[FAKE_GROUP, "SIGKILL"]]);
+    assert.deepEqual(root.signals, [], "the group signal already reaches the root");
+
+    assert.equal(registry.signalGroup(child(FAKE_GROUP), "SIGKILL"), false, "unregistered");
+    const rootOnly = child(FAKE_GROUP);
+    registry.register(rootOnly, { kind: "fixture", tree: true });
+    assert.equal(registry.signalGroup(rootOnly, "SIGKILL"), false, "not its own group");
+    const unstarted = child();
+    unstarted.pid = undefined;
+    registry.register(unstarted, { kind: "yt-dlp", group: true, tree: true });
+    assert.equal(registry.signalGroup(unstarted, "SIGKILL"), false, "no pid, no group");
+    assert.equal(facts.kills.length, 1);
+  }
+);
+
+test(
+  "a group that outlives its root is still stopped, and stays unresolved",
+  posixGroups,
+  async () => {
+    const facts = groupFacts();
+    const root = child(FAKE_GROUP);
+    registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+    root.emit("exit", null, "SIGKILL"); // the bootloader root died; its payload did not
+    facts.tick(100);
+    facts.tick(100);
+    await assert.rejects(registry.stopAll({ termGraceMs: 1, killGraceMs: 1 }), {
+      code: "CHILD_STOP_FAILED",
+    });
+    assert.deepEqual(facts.kills, [
+      [FAKE_GROUP, "SIGTERM"],
+      [FAKE_GROUP, "SIGKILL"],
+    ]);
+    assert.deepEqual(root.signals, []);
+    assert.equal(registry.alive().length, 1, "a signal and a root exit are not whole-tree proof");
+    const [fact] = registry.diagnostics().unresolved;
+    assert.deepEqual([fact.reason, fact.rootExited], ["DESCENDANTS_UNVERIFIED", true]);
+  }
+);
+
+test("a group already gone when its root exits is never signalled later", posixGroups, async () => {
+  const facts = groupFacts({ alive: false });
+  const root = child(FAKE_GROUP);
+  registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+  root.emit("exit", 0, null);
+  assert.equal(facts.watches.length, 0, "nothing left to watch");
+  facts.alive = true; // the same id now names someone else's group
+  await assert.rejects(registry.stopAll({ termGraceMs: 1, killGraceMs: 1 }), {
+    code: "CHILD_STOP_FAILED",
+  });
+  assert.deepEqual(facts.kills, []);
+  assert.equal(registry.alive().length, 1);
+});
+
+test("a watch that sees the group gone ends continuity for good", posixGroups, async () => {
+  const facts = groupFacts();
+  const root = child(FAKE_GROUP);
+  registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+  root.emit("exit", 0, null);
+  assert.equal(facts.watches.length, 1);
+  facts.alive = false;
+  facts.tick(100);
+  assert.equal(facts.watches.length, 0, "the watch stops once the group is gone");
+  facts.alive = true; // a reused id
+  facts.tick(100);
+  await assert.rejects(registry.stopAll({ termGraceMs: 1, killGraceMs: 1 }), {
+    code: "CHILD_STOP_FAILED",
+  });
+  assert.deepEqual(facts.kills, []);
+});
+
+test(
+  "observations too far apart break continuity: the group is not signalled",
+  posixGroups,
+  async () => {
+    const facts = groupFacts();
+    const root = child(FAKE_GROUP);
+    registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+    root.emit("exit", 0, null);
+    facts.now += 10_000; // the event loop stalled; the group may have ended and its id been reused
+    await assert.rejects(registry.stopAll({ termGraceMs: 1, killGraceMs: 1 }), {
+      code: "CHILD_STOP_FAILED",
+    });
+    assert.deepEqual(facts.kills, []);
+    assert.equal(facts.watches.length, 0);
+    assert.equal(registry.alive().length, 1);
+  }
+);
+
+test("a thrown group probe at root exit never authorizes a later signal", posixGroups, async () => {
+  const facts = groupFacts();
+  registry._setSystemForTests({
+    groupAlive: () => {
+      throw Object.assign(new Error("probe failed"), { code: "EINVAL" });
+    },
+  });
+  const root = child(FAKE_GROUP);
+  registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+  root.emit("exit", 0, null);
+  await assert.rejects(registry.stopAll({ termGraceMs: 1, killGraceMs: 1 }), {
+    code: "CHILD_STOP_FAILED",
+  });
+  assert.deepEqual(facts.kills, []);
+});

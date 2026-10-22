@@ -538,6 +538,19 @@ function maybeUpdateYtDlp({ force, abortSignal, timeoutMs } = {}) {
       if (child.stdout) child.stdout.on("data", () => {});
       if (child.stderr) child.stderr.on("data", () => {});
 
+      // The bundled yt-dlp is a PyInstaller one-file build: its bootloader root
+      // runs the real program as a child and cannot forward SIGKILL. On POSIX
+      // the root leads its own group (detached above), so stop the whole group
+      // through the registry, which signals it only while it is provably ours.
+      // Windows keeps the root-only kill: taskkill is a native launch, refused
+      // while sealed; whole-tree stop there is 07b.
+      const killUpdate = () => {
+        if (childRegistry.signalGroup(child, "SIGKILL")) return;
+        try {
+          child.kill("SIGKILL");
+        } catch {}
+      };
+
       // Bounded kill timer so a stalled -U network request can never hang.
       const limit = typeof timeoutMs === "number" ? timeoutMs : UPDATE_TIMEOUT_MS;
       let killTimer = null;
@@ -559,23 +572,17 @@ function maybeUpdateYtDlp({ force, abortSignal, timeoutMs } = {}) {
 
       killTimer = setTimeout(() => {
         timedOut = true;
-        try {
-          child.kill("SIGKILL");
-        } catch {}
+        killUpdate();
         finish("yt-dlp -U timed out");
       }, limit);
 
       if (abortSignal) {
         if (abortSignal.aborted) {
-          try {
-            child.kill("SIGKILL");
-          } catch {}
+          killUpdate();
           return finish(null);
         }
         onAbort = () => {
-          try {
-            child.kill("SIGKILL");
-          } catch {}
+          killUpdate();
           finish(null);
         };
         abortSignal.addEventListener("abort", onAbort, { once: true });
@@ -1141,8 +1148,20 @@ function settleAttempt(attempt, error) {
   );
 }
 
+// An import whose signal was already aborted (a seal or a cancel) starts no
+// further request or attempt; download() reports a seal as interrupted.
+function throwIfCancelled(signal) {
+  if (signal?.aborted)
+    throw Object.assign(new Error("Download cancelled"), { code: "DOWNLOAD_CANCELLED" });
+}
+
 function httpRequest(parsed, options) {
   const mod = parsed.protocol === "https:" ? https : http;
+  try {
+    throwIfCancelled(options.signal); // never a dispatched attempt for a cancelled request
+  } catch (error) {
+    return Promise.reject(error);
+  }
   // Node requests never carry an egress tag: the socket backstop attributes
   // them by context instead (Task 6).
   const attempt = beginImportAttempt(parsed.href);
@@ -1341,6 +1360,7 @@ const REDIRECT_RESTART = "REDIRECT_RESTART";
 async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0) {
   const net = getElectronNet();
 
+  throwIfCancelled(abortSignal); // before the pre-flight's DNS lookup
   await assertPublicHost(new URL(url).hostname);
 
   const settledResponse = await new Promise((resolve, reject) => {
@@ -1574,6 +1594,9 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
   // Electron net.request instead; keep the airtight node-https + ssrfSafeLookup path
   // as the default for the common no-proxy case.
   const proxyUrl = await resolveProxyForUrl(url);
+  // Sealing (or a cancel) may land while the proxy is resolved: stop here,
+  // before any DNS lookup, request or attempt.
+  throwIfCancelled(abortSignal);
   if (proxyUrl) {
     return downloadViaProxy(url, onProgress, abortSignal, redirectCount);
   }

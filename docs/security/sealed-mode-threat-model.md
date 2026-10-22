@@ -103,6 +103,8 @@ Both fences are conservative **capability/review lists**. Imports, actual calls,
 - Fresh supplemental sites: `vectorIndex.js` uses strict-loopback Qdrant SDK; `processListCache.js:30` imports ps-list for native enumeration; freedesktop notifications, GNOME portals/shortcuts, KDE and Hyprland import D-Bus session clients. D-Bus opens local IPC and may activate host services: not a proven remote request or tracked child tree. Planned admission must deny unaudited delegated service capabilities sealed; a TCP-only backstop cannot prove closure.
 - `src/helpers/privacy/egressPolicy.js` imports `node:net` only for pure address syntax classification (`isIP`); it performs no DNS lookup or socket operation. The conservative egress fence records this import for review, not as an observed transport.
 
+- `src/helpers/privacy/egressGate.js` is Layer A's metered fetch factory (default Node fetch or an injected transport). It checks the actual attempt target before dispatch and records body completion/error/cancel metadata per attempt. It attributes Node work only through async ticket/attempt context and Chromium work only through the opaque tag; there is no host-wide lookup. Task 6 must strip tags and retain its actual transport evidence through close/completion even after a ticket settles. Its diagnostic hooks provide no native-isolation or seal attestation.
+
 ```egress-sites
 main.js
 src/assets/fonts/noto-sans.css
@@ -156,6 +158,7 @@ src/helpers/openaiRealtimeStreaming.js
 src/helpers/parakeet.js
 src/helpers/parakeetWsServer.js
 src/helpers/personalInference.js
+src/helpers/privacy/egressGate.js
 src/helpers/privacy/egressPolicy.js
 src/helpers/providerConnectionTest.js
 src/helpers/qdrantManager.js

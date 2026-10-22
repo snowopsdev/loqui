@@ -377,3 +377,93 @@ test("actual startApp gives IPCHandlers a live isSealed predicate over boot stat
   assert.equal(managers.isSealed(), true, "the predicate reads live state");
   assert.equal(gate.isSealed(), true, "the gate reads the same state");
 });
+
+test("actual startApp hands attachUpdateIPC main's live seal state (Task 10)", async (t) => {
+  gate._resetForTests();
+  registry._resetForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-startup-updates-"));
+  t.after(() => {
+    gate._resetForTests();
+    registry._resetForTests();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const marker = new Error("STOP_AT_UPDATE_IPC");
+  const soft = () =>
+    new Proxy(function () {}, {
+      get: (_, key) =>
+        key === "then"
+          ? undefined
+          : key === Symbol.iterator
+            ? function* () {}
+            : key === Symbol.toPrimitive
+              ? () => ""
+              : soft(),
+      apply: () => soft(),
+      construct: () => soft(),
+    });
+  let selected;
+  let options;
+  const app = new Proxy(
+    Object.assign(new EventEmitter(), {
+      isPackaged: false,
+      getPath: (name) => (name === "userData" ? selected : dir),
+      setName() {},
+      setPath: (_, p) => {
+        selected = p;
+      },
+      requestSingleInstanceLock: () => false,
+      whenReady: () => new Promise(() => {}),
+      exit() {},
+      commandLine: { appendSwitch() {} },
+    }),
+    { get: (target, key) => (key in target ? target[key] : soft()) }
+  );
+  const context = {
+    __dirname: path.join(__dirname, "../.."),
+    setTimeout,
+    clearTimeout,
+    setInterval: () => soft(),
+    clearInterval() {},
+    process: {
+      env: { NODE_ENV: "development", LOQUI_PROFILE_DIR: dir },
+      platform: "linux",
+      argv: ["electron", "."],
+      execPath: "/electron",
+      on() {},
+    },
+    require: (name) => {
+      if (name === "electron") return { app, ipcMain: soft() };
+      if (name === "path") return path;
+      if (name === "dotenv") return { config() {} };
+      if (name === "tls") return { getCACertificates: () => [] };
+      if (name === "node:fs/promises") return {};
+      if (name === "./src/config/product.json") return require("../../src/config/product.json");
+      if (name === "./src/helpers/xwayland") return { shouldForceXWayland: () => false };
+      if (name === "./src/helpers/settingsProfile")
+        return { hasExistingSettingsProfile: async () => false };
+      if (name === "./src/helpers/sidecarReaper")
+        return { reapStaleSidecars: async () => ({ unresolved: [] }) };
+      if (name === "./src/helpers/privacy/privacyBoot") return boot;
+      if (name === "./src/helpers/privacy/childRegistry") return registry;
+      if (name === "./src/helpers/updateIPC")
+        return {
+          trackUpdateActivity: () => soft(),
+          attachUpdateIPC: (received) => {
+            options = received;
+            throw marker;
+          },
+        };
+      return soft();
+    },
+  };
+  vm.runInNewContext(
+    main + "\nglobalThis.start = startApp; globalThis.bootPrivacy = privacy;",
+    context
+  );
+  await assert.rejects(context.start(), (e) => e === marker);
+  assert.equal(typeof options.sealed, "function", "the manager is not left on a default");
+  assert.equal(options.sealed(), false);
+  context.bootPrivacy.state.set(true);
+  assert.equal(options.sealed(), true, "the predicate reads main's live state");
+  assert.equal(gate.isSealed(), true, "the gate reads the same state");
+});

@@ -5,6 +5,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const { UpdateManager, DAY } = require("../../src/helpers/updateManager");
+// These tests describe unsealed behaviour. The gate fails closed until main
+// configures it, so configure it unsealed here (Sealed: updateManagerSealed).
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 function setup(t, options = {}) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-updates-"));
   const updater = new EventEmitter();

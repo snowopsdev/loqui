@@ -34,6 +34,8 @@ function attachUpdateIPC({
   busy,
   activity,
   teardown,
+  // Main's live seal state; the default is the gate's own fail-closed predicate.
+  sealed = () => require("./privacy/egressGate").isSealed(),
   assertRestartAllowed = () => {
     if (require("./privacy/egressGate").isSealed()) throw new Error("NATIVE_BOUNDARY_UNAVAILABLE");
   },
@@ -103,6 +105,7 @@ function attachUpdateIPC({
       (process.platform === "darwin" || (process.platform === "linux" && !!process.env.APPIMAGE)),
     busy,
     prepare,
+    sealed,
     install: async () => {
       assertRestartAllowed();
       await teardown();

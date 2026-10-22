@@ -440,6 +440,10 @@ test("intentional injected, SDK, native and OS boundaries remain inventoried", (
     "src/helpers/externalUrlOpener.js",
     "src/helpers/windowManager.js",
     "src/index.html",
+    // Task 10: gated model/runtime downloads, URL import and app updates.
+    "src/helpers/downloadUtils.js",
+    "src/helpers/urlAudioDownloader.js",
+    "src/helpers/updateManager.js",
   ])
     assert.ok(block("egress-sites").has(file), `retain semantic egress site: ${file}`);
   for (const file of [
@@ -461,6 +465,10 @@ test("intentional injected, SDK, native and OS boundaries remain inventoried", (
     // Task 8: the Codex app-server launch runs inside its opaque session.
     "src/helpers/codexAppServer.js",
     "src/helpers/personalInference.js",
+    // Task 10: yt-dlp runs inside its import or self-update session; archive
+    // extraction (unzip/tar/PowerShell) is refused sealed by the spawn guard.
+    "src/helpers/urlAudioDownloader.js",
+    "src/helpers/downloadUtils.js",
   ])
     assert.ok(block("spawn-sites").has(file), `retain semantic launch site: ${file}`);
 });

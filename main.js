@@ -524,6 +524,7 @@ function initializeCoreManagers() {
     ipcMain,
     BrowserWindow,
     updater: require("electron-updater").autoUpdater,
+    sealed: () => privacy.state.isSealed(),
     assertRestartAllowed: () => {
       if (privacy.state.isSealed()) throw new Error("NATIVE_BOUNDARY_UNAVAILABLE");
     },

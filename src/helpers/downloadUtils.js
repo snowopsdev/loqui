@@ -6,6 +6,8 @@ const { execFile } = require("child_process");
 const { pipeline } = require("stream");
 const debugLogger = require("./debugLogger");
 const { runSystemTar } = require("./systemTar");
+const egress = require("./privacy/egressGate");
+const { hostOf, isSealedModeError } = require("./privacy/egressPolicy");
 
 const USER_AGENT = "io.github.snowopsdev.loqui/0.1";
 const PROGRESS_THROTTLE_MS = 100;
@@ -55,12 +57,36 @@ function backoffDelay(attempt) {
   return Math.min(1000 * Math.pow(2, attempt), MAX_BACKOFF_MS);
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// The retry backoff ends early when the download is cancelled or sealed, so a
+// seal never waits out a 30-second backoff before the caller hears of it.
+function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    let timer = null;
+    const wake = () => {
+      clearTimeout(timer);
+      if (signal && signal.onAbort === wake) signal.onAbort = null;
+      resolve();
+    };
+    if (signal?.aborted) return resolve();
+    timer = setTimeout(wake, ms);
+    if (signal) signal.onAbort = wake;
+  });
+}
+
+// A bounded ledger category for a failed attempt, never its message.
+function errorClassOf(error) {
+  if (error?.isTlsError || isTlsError(error ?? {})) return "TLS";
+  const code = error?.code;
+  if (code === "ETIMEDOUT") return "TIMEOUT";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "DNS";
+  if (["ECONNRESET", "ECONNREFUSED", "EPIPE"].includes(code)) return "CONNECTION";
+  if (code === "ERR_DOWNLOAD_INCOMPLETE" || code === "ERR_STREAM_PREMATURE_CLOSE")
+    return "PROTOCOL";
+  return "OTHER";
 }
 
 function downloadAttempt(url, tempPath, options) {
-  const { onProgress, signal, startOffset = 0, expectedSize = 0 } = options;
+  const { onProgress, signal, startOffset = 0, expectedSize = 0, ticket = null } = options;
 
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -68,10 +94,17 @@ function downloadAttempt(url, tempPath, options) {
       return;
     }
 
+    // One ledger row per actual request, including the redirects Chromium
+    // follows inside it. Its bytes are this request's body only, so a resumed
+    // or retried download never recounts what an earlier attempt received.
+    const attempt = ticket ? ticket.beginAttempt(hostOf(url)) : null;
     const headers = { "User-Agent": USER_AGENT };
     if (startOffset > 0) {
       headers["Range"] = `bytes=${startOffset}-`;
     }
+    // The session backstop attributes the request to this attempt and strips
+    // the tag before it leaves (Task 6).
+    if (attempt) headers[egress.EGRESS_TAG_HEADER] = attempt.tag;
 
     let request = null;
     let activeFile = null;
@@ -108,6 +141,15 @@ function downloadAttempt(url, tempPath, options) {
       if (settled) return;
       settled = true;
       if (signal) signal.onAbort = null;
+      // A sealed ticket overrides this with cancelled/SEALED_MODE; an
+      // unfinished body stays unknown (null), never a partial count.
+      attempt?.settle(
+        error.isAbort
+          ? { outcome: "cancelled", errorClass: "ABORTED" }
+          : error.isHttpError
+            ? {}
+            : { outcome: "error", errorClass: errorClassOf(error) }
+      );
       cleanup().then(() => reject(error));
     };
 
@@ -124,7 +166,16 @@ function downloadAttempt(url, tempPath, options) {
       request.setHeader(name, value);
     }
 
+    // Chromium follows redirects inside this request; record each hop's host.
+    request.on("redirect", (_statusCode, _method, redirectUrl) => {
+      attempt?.markDelivered();
+      const next = hostOf(redirectUrl);
+      if (next) attempt?.addHost(next);
+    });
+
     request.on("response", (response) => {
+      attempt?.noteStatus(response.statusCode);
+      attempt?.markDelivered();
       if (signal?.aborted) {
         response.resume();
         fail(Object.assign(new Error("Download cancelled"), { isAbort: true }));
@@ -161,6 +212,8 @@ function downloadAttempt(url, tempPath, options) {
         return;
       }
 
+      if (attempt) attempt.openBodies++;
+
       // Fall back to caller-provided expected size when Content-Length is missing
       if (totalSize <= 0 && expectedSize > 0) {
         totalSize = expectedSize;
@@ -185,6 +238,7 @@ function downloadAttempt(url, tempPath, options) {
           return;
         }
         downloadedSize += chunk.length;
+        attempt?.addBytes({ in: chunk.length });
         resetStallTimer();
         emitProgress();
       });
@@ -196,6 +250,11 @@ function downloadAttempt(url, tempPath, options) {
           stallTimer = null;
         }
         if (signal) signal.onAbort = null;
+        if (!err && attempt) {
+          // The body ended: what this request received is now an exact count.
+          attempt.openBodies--;
+          attempt.addBytes({ in: 0 });
+        }
         if (err) {
           if (signal?.aborted) {
             fail(Object.assign(new Error("Download cancelled"), { isAbort: true }));
@@ -211,6 +270,7 @@ function downloadAttempt(url, tempPath, options) {
           );
         } else {
           settled = true;
+          attempt?.settle({ outcome: "ok" });
           resolve({ downloadedSize, totalSize });
         }
       });
@@ -231,6 +291,7 @@ function downloadAttempt(url, tempPath, options) {
       }
     });
 
+    attempt?.markDispatched();
     request.end();
 
     function emitProgress() {
@@ -247,25 +308,90 @@ function downloadAttempt(url, tempPath, options) {
   });
 }
 
+// Model manifests and runtime release lookups (threat model N12/N13). One
+// gated ticket spans the request and the JSON read; the request is metered and
+// tagged so the session backstop attributes it (and any redirect) to it.
 async function fetchJson(url, options = {}) {
-  const { headers, ...init } = options;
-  const response = await net.fetch(url, {
-    method: "GET",
-    useSessionCookies: false,
-    ...init,
-    headers: { "User-Agent": USER_AGENT, ...(headers || {}) },
+  const { headers, egressTask = "modelDownload", ...init } = options;
+  return egress.guard({ task: egressTask, target: url }, async (ticket) => {
+    const response = await egress.meteredFetch(ticket, (u, i) => net.fetch(u, i), { tag: true })(
+      url,
+      {
+        method: "GET",
+        useSessionCookies: false,
+        ...init,
+        headers: { "User-Agent": USER_AGENT, ...(headers || {}) },
+      }
+    );
+    if (!response.ok) {
+      const err = new Error(`HTTP ${response.status} fetching ${url}`);
+      err.isHttpError = true;
+      err.statusCode = response.status;
+      throw err;
+    }
+    return response.json();
   });
-  if (!response.ok) {
-    const err = new Error(`HTTP ${response.status} fetching ${url}`);
-    err.isHttpError = true;
-    err.statusCode = response.status;
-    throw err;
-  }
-  return response.json();
 }
 
+// Every model and runtime download goes through here (threat model N12/N13).
+// `egressTask` is "modelDownload" (default) or "runtimeDownload".
+//
+// Sealing aborts the ticket, which cancels the download through its signal
+// and keeps `<dest>.tmp`, so the next unsealed run resumes it with Range. A
+// user cancel still discards it. The caller hears of the seal only after the
+// transport was aborted and the temp writer closed, and as interrupted: the
+// server may have received the request, so it is never "nothing was sent".
 async function downloadFile(url, destPath, options = {}) {
-  const { onProgress, maxRetries = DEFAULT_MAX_RETRIES, signal, expectedSize = 0 } = options;
+  const { egressTask = "modelDownload", ...rest } = options;
+  const ticket = egress.authorize({ task: egressTask, target: url });
+  const own = rest.signal ? null : createDownloadSignal();
+  const signal = rest.signal ?? own.signal;
+  const sealedAbort = () => ticket.signal.aborted && isSealedModeError(ticket.signal.reason);
+  // downloadAttempt understands createDownloadSignal()'s { aborted, onAbort }.
+  const onTicketAbort = () => {
+    if (own) return own.abort();
+    signal.aborted = true;
+    if (typeof signal.onAbort === "function") signal.onAbort();
+  };
+  ticket.signal.addEventListener("abort", onTicketAbort, { once: true });
+  try {
+    const result = await egress.runWithTicket(ticket, () =>
+      downloadFileUngated(url, destPath, {
+        ...rest,
+        signal,
+        ticket,
+        keepPartialOnAbort: sealedAbort,
+      })
+    );
+    ticket.settle({ outcome: "ok" });
+    return result;
+  } catch (error) {
+    if (sealedAbort()) {
+      ticket.settle({ outcome: "cancelled" });
+      const interrupted = ticket.signal.reason;
+      if (Number.isFinite(error?.keptBytes)) interrupted.keptBytes = error.keptBytes;
+      throw interrupted;
+    }
+    ticket.settle(
+      error?.isAbort
+        ? { outcome: "cancelled", errorClass: "ABORTED" }
+        : { outcome: "error", errorClass: error?.isHttpError ? null : errorClassOf(error) }
+    );
+    throw error;
+  } finally {
+    ticket.signal.removeEventListener("abort", onTicketAbort);
+  }
+}
+
+async function downloadFileUngated(url, destPath, options = {}) {
+  const {
+    onProgress,
+    maxRetries = DEFAULT_MAX_RETRIES,
+    signal,
+    expectedSize = 0,
+    ticket = null,
+    keepPartialOnAbort = () => false,
+  } = options;
 
   const tempPath = `${destPath}.tmp`;
 
@@ -286,7 +412,11 @@ async function downloadFile(url, destPath, options = {}) {
 
   const discardCancelledDownload = async (error) => {
     // downloadAttempt rejects only after its writer closes. Never unlink earlier.
-    const retained = await discardPartial();
+    // Sealing interrupts but keeps the partial file so the download can resume
+    // with Range later; a user cancel still discards it.
+    const retained = keepPartialOnAbort()
+      ? { keptBytes: await remainingBytes(), cleanupFailed: false }
+      : await discardPartial();
     throw Object.assign(error?.isAbort ? error : new Error("Download cancelled"), {
       isAbort: true,
       ...retained,
@@ -316,7 +446,8 @@ async function downloadFile(url, destPath, options = {}) {
     if (attempt > 0) {
       const delay = backoffDelay(attempt - 1);
       debugLogger.info("Retrying download", { attempt, delay, startOffset });
-      await sleep(delay);
+      await sleep(delay, signal);
+      if (signal?.aborted) return discardCancelledDownload();
 
       // Update startOffset from temp file in case partial data was written
       try {
@@ -333,6 +464,7 @@ async function downloadFile(url, destPath, options = {}) {
         signal,
         startOffset,
         expectedSize,
+        ticket,
       });
 
       // Atomic move to final path

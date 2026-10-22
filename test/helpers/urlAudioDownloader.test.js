@@ -16,11 +16,16 @@ const Module = require("node:module");
 const downloaderPath = require.resolve("../../src/helpers/urlAudioDownloader");
 const ownedTemp = fs.mkdtempSync(path.join(os.tmpdir(), "ow-downloader-unit-"));
 const originalLoad = Module._load;
+let fixtureFfmpegPath = null;
+let proxyAnswer = "DIRECT";
 Module._load = function (request, parent, isMain) {
   if (parent?.filename === downloaderPath) {
     if (request === "./debugLogger") return new Proxy({}, { get: () => () => {} });
     if (request === "./safeTempDir") return { getSafeTempDir: () => ownedTemp };
-    if (request === "./ffmpegUtils") return { getFFmpegPath: () => null };
+    if (request === "./ffmpegUtils") return { getFFmpegPath: () => fixtureFfmpegPath };
+    // resolveProxyForUrl's only Electron use; DIRECT unless a test sets a proxy.
+    if (request === "electron")
+      return { session: { defaultSession: { resolveProxy: async () => proxyAnswer } } };
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -38,6 +43,71 @@ const {
   ssrfSafeLookup,
   maybeUpdateYtDlp,
 } = downloader;
+
+// --- Sealed mode (Task 10): shared production wiring for every test here ---
+//
+// The safety chain admits the real downloader only from this exact file, so
+// the sealed URL-import and yt-dlp tests live here. Every test runs with the
+// real gate (unsealed unless a test seals it), an in-memory recorder, the real
+// child registry with terminal process facts, and the production spawn guard
+// over a leaf that never starts a real program. Tests that assign
+// childProcess.spawn directly replace the guard for their duration, as before.
+const { PassThrough } = require("stream");
+const vm = require("node:vm");
+const sealedSpawned = [];
+let sealedLeaf = () => {
+  throw Object.assign(new Error("no fixture child"), { code: "EACCES" });
+};
+const savedSpawnLeaf = childProcess.spawn;
+childProcess.spawn = (command, args, options) => {
+  sealedSpawned.push({ command, args, options });
+  return sealedLeaf(command, args, options);
+};
+const registry = require("../../src/helpers/privacy/childRegistry");
+registry.installSpawnGuard({ childProcess });
+const guardedSpawn = childProcess.spawn;
+const gate = require("../../src/helpers/privacy/egressGate");
+const { FlightRecorder } = require("../../src/helpers/privacy/flightRecorder");
+const {
+  SealedModeError,
+  isSealedModeError,
+  sealedPhaseOf,
+} = require("../../src/helpers/privacy/egressPolicy");
+test.after(() => {
+  childProcess.spawn = savedSpawnLeaf;
+  Module.syncBuiltinESMExports();
+});
+// Terminal process facts: nothing is listed, probed or signalled for real.
+const FAKE_SYSTEM = {
+  listProcesses: () => [],
+  pidAlive: () => false,
+  groupAlive: () => false,
+  killGroup: () => {},
+};
+const flags = { sealed: false };
+let rows = [];
+test.beforeEach(() => {
+  flags.sealed = false;
+  proxyAnswer = "DIRECT";
+  fixtureFfmpegPath = null;
+  sealedSpawned.length = 0;
+  childProcess.spawn = guardedSpawn;
+  let clock = 0;
+  const recorder = new FlightRecorder({ now: () => ++clock });
+  rows = [];
+  recorder.on("event", (row) => rows.push(row));
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => flags.sealed, recorder, now: () => ++clock });
+  registry._resetForTests();
+  registry._setSystemForTests(FAKE_SYSTEM);
+});
+test.afterEach(() => {
+  gate._resetForTests();
+  registry._resetForTests();
+  fs.rmSync(YT_DLP_TEST_CACHE_DIR, { recursive: true, force: true });
+});
+// Bounded: a regression must fail, never hang on a fake transport.
+const sealedTest = (name, fn) => test(name, { timeout: 10000 }, fn);
 
 test("detectUrlType returns youtube for standard watch URL", () => {
   assert.equal(detectUrlType("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "youtube");
@@ -1240,4 +1310,522 @@ test("looksLikeYouTubeBlock matches bot checks, 403s, and login walls but not or
   assert.equal(block("Video unavailable"), false);
   assert.equal(block("This video is private"), false);
   assert.equal(block(""), false);
+});
+
+// --- Sealed mode (Task 10): yt-dlp self-update, URL import and IPC envelope ---
+
+function seal() {
+  flags.sealed = true;
+  gate.abortAllRemote();
+}
+const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+async function until(predicate, label) {
+  for (let i = 0; i < 200; i++) {
+    if (predicate()) return;
+    await tick(5);
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+function sealedCacheBinary({ throttle = false } = {}) {
+  const name = `yt-dlp-${process.platform}-${process.arch}${process.platform === "win32" ? ".exe" : ""}`;
+  fs.mkdirSync(YT_DLP_TEST_CACHE_DIR, { recursive: true });
+  fs.writeFileSync(path.join(YT_DLP_TEST_CACHE_DIR, name), "#!/bin/sh\n");
+  fs.chmodSync(path.join(YT_DLP_TEST_CACHE_DIR, name), 0o755);
+  downloader._recordCacheChecksum();
+  // A fresh stamp throttles the background self-update after a download.
+  if (throttle) fs.writeFileSync(path.join(YT_DLP_TEST_CACHE_DIR, ".last-update"), "now");
+}
+
+// A child the test drives. It starts like a real one ("spawn" on the next
+// tick) unless `start: false`, and only ends when the test says so.
+function fakeChild({ start = true } = {}) {
+  const child = new EventEmitter();
+  child.signals = [];
+  child.kill = (signal) => {
+    child.signals.push(signal);
+    return true;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.end = (code = 0, signal = null) => {
+    child.emit("exit", code, signal);
+    child.emit("close", code, signal);
+  };
+  if (start) process.nextTick(() => child.emit("spawn"));
+  return child;
+}
+
+// ---------------------------------------------------------------- self-update
+
+sealedTest(
+  "sealing kills an in-flight yt-dlp self-update; its opaque session ends only at exit",
+  async () => {
+    sealedCacheBinary();
+    let child;
+    sealedLeaf = () => (child = fakeChild());
+    const update = downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 60000 });
+    await tick();
+    assert.equal(sealedSpawned.length, 1);
+    assert.equal(sealedSpawned[0].options.detached, process.platform !== "win32");
+    assert.equal(downloader.ytDlpControl.alive(), true);
+    assert.equal(gate.activeRemoteCount(), 1);
+    seal();
+    await update; // the caller's promise resolves; the process is another matter
+    assert.deepEqual(child.signals, ["SIGKILL"]);
+    assert.equal(downloader.ytDlpControl.alive(), true, "a kill signal is not an exit");
+    assert.equal(rows.length, 0, "the session is not settled before the exit");
+    assert.equal(gate.activeRemoteCount(), 1, "the session stays represented");
+    await assert.rejects(
+      downloader.ytDlpControl.stop({ termGraceMs: 20, killGraceMs: 20 }),
+      (e) => e.code === "CHILD_STOP_FAILED" && e.kinds.includes("yt-dlp")
+    );
+    child.end(null, "SIGKILL");
+    assert.equal(rows.length, 1, "exactly one row: the guard did not open a second session");
+    const [row] = rows;
+    assert.deepEqual(
+      [row.task, row.host, row.kind, row.opaque, row.bytesIn, row.bytesOut, row.outcome],
+      ["runtimeDownload", "github.com", "session", true, null, null, "cancelled"]
+    );
+    assert.equal(row.errorClass, "SEALED_MODE");
+    assert.equal(gate.activeRemoteCount(), 0);
+    // 07a: a root exit is not whole-tree proof. Coverage stays unresolved.
+    assert.equal(downloader.ytDlpControl.alive(), true);
+    const [fact] = registry.diagnostics().unresolved.filter((e) => e.kind === "yt-dlp");
+    assert.deepEqual([fact.reason, fact.rootExited], ["DESCENDANTS_UNVERIFIED", true]);
+  }
+);
+
+sealedTest(
+  "a self-update that times out is still running until it exits, and is recorded then",
+  async () => {
+    sealedCacheBinary();
+    let child;
+    sealedLeaf = () => (child = fakeChild());
+    await downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 20 }); // the kill timer fires
+    assert.deepEqual(child.signals, ["SIGKILL"]);
+    assert.equal(downloader._isYtDlpUpdateInFlight(), false, "the existing throttle flag clears");
+    assert.equal(rows.length, 0, "a timed-out child is not a stopped one");
+    assert.equal(gate.activeRemoteCount(), 1);
+    child.end(null, "SIGKILL");
+    assert.deepEqual(
+      rows.map((r) => [r.task, r.outcome, r.errorClass]),
+      [["runtimeDownload", "error", "TIMEOUT"]]
+    );
+    assert.equal(gate.activeRemoteCount(), 0);
+  }
+);
+
+sealedTest(
+  "a self-update that fails to spawn left nothing running and writes no session",
+  async () => {
+    sealedCacheBinary();
+    sealedLeaf = () => {
+      throw Object.assign(new Error("spawn EACCES"), { code: "EACCES" });
+    };
+    await downloader.maybeUpdateYtDlp({ force: true });
+    assert.equal(sealedSpawned.length, 1);
+    assert.equal(downloader.ytDlpControl.alive(), false);
+    assert.equal(gate.activeRemoteCount(), 0);
+    assert.deepEqual(rows, [], "nothing started, so no session to GitHub is claimed");
+  }
+);
+
+sealedTest(
+  "an asynchronous spawn failure discards the session; an error after start does not",
+  async () => {
+    sealedCacheBinary();
+    let child;
+    sealedLeaf = () => (child = fakeChild({ start: false }));
+    // 1. EACCES after spawn() returned: no pid, no "spawn", "error" then "close".
+    const failing = downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 60000 });
+    child.emit("error", Object.assign(new Error("spawn EACCES"), { code: "EACCES" }));
+    child.emit("close", -13, null);
+    await failing;
+    assert.equal(gate.activeRemoteCount(), 0, "no immortal ticket");
+    assert.deepEqual(rows, []);
+
+    // 2. An error after a successful start: still running until it exits.
+    sealedLeaf = () => (child = fakeChild());
+    const running = downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 60000 });
+    await tick();
+    child.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    await running; // best effort: the caller is released
+    assert.equal(gate.activeRemoteCount(), 1);
+    assert.equal(rows.length, 0);
+    child.end(1, null);
+    assert.equal(gate.activeRemoteCount(), 0);
+    assert.deepEqual(
+      rows.map((r) => [r.outcome, r.errorClass]),
+      [["error", "CHILD_EXIT"]]
+    );
+  }
+);
+
+sealedTest("a self-update that exits 0 is one ok session with unknown bytes", async () => {
+  sealedCacheBinary();
+  let child;
+  sealedLeaf = () => (child = fakeChild());
+  const update = downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 60000 });
+  await tick();
+  child.end(0, null);
+  await update;
+  assert.deepEqual(
+    rows.map((r) => [r.task, r.kind, r.outcome, r.bytesIn, r.bytesOut]),
+    [["runtimeDownload", "session", "ok", null, null]]
+  );
+});
+
+sealedTest("while sealed, a self-update is not even attempted", async () => {
+  sealedCacheBinary();
+  flags.sealed = true;
+  sealedLeaf = () => fakeChild();
+  await downloader.maybeUpdateYtDlp({ force: true });
+  assert.equal(sealedSpawned.length, 0);
+  assert.deepEqual(rows, []);
+});
+
+// ------------------------------------------------------------- URL import
+
+sealedTest(
+  "sealed: direct and YouTube imports are refused before any transport or child",
+  async () => {
+    flags.sealed = true;
+    const origRequest = https.request;
+    let httpsCalls = 0;
+    https.request = () => {
+      httpsCalls++;
+      throw new Error("must not be called");
+    };
+    try {
+      for (const url of [
+        "https://93.184.216.34/talk.mp3",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      ]) {
+        const error = await downloader
+          .download(url, () => {}, new AbortController().signal)
+          .catch((e) => e);
+        assert.equal(sealedPhaseOf(error), "refused", url);
+      }
+    } finally {
+      https.request = origRequest;
+    }
+    assert.equal(httpsCalls, 0);
+    assert.equal(sealedSpawned.length, 0);
+    assert.deepEqual(
+      rows.map((r) => [r.task, r.host, r.outcome, r.bytesOut]),
+      [
+        ["urlImport", "93.184.216.34", "blocked", 0],
+        ["urlImport", "www.youtube.com", "blocked", 0],
+      ]
+    );
+  }
+);
+
+// Fake node https: handler(parsed, options) returns { statusCode, headers, body?, stall? }.
+async function withMeteredHttps(handler, fn) {
+  const orig = https.request;
+  const calls = [];
+  https.request = (parsed, options, callback) => {
+    calls.push({ method: options.method, url: parsed.href, headers: options.headers });
+    const req = new EventEmitter();
+    req.destroy = () => {};
+    req.end = () => {
+      setImmediate(() => {
+        const {
+          statusCode = 200,
+          headers = {},
+          body = null,
+          stall = false,
+        } = handler(parsed, options);
+        const res = new PassThrough();
+        res.statusCode = statusCode;
+        res.headers = headers;
+        callback(res);
+        if (body != null) res.write(Buffer.from(body));
+        if (!stall) res.end();
+        options.signal?.addEventListener("abort", () => res.destroy(new Error("aborted")));
+      });
+    };
+    return req;
+  };
+  try {
+    return await fn(calls);
+  } finally {
+    https.request = orig;
+  }
+}
+
+sealedTest(
+  "a direct import records each actual request with its own bytes, and never tags Node requests",
+  async () => {
+    const body = "audiodata";
+    const headers = { "content-type": "audio/mpeg", "content-length": String(body.length) };
+    let tempPath;
+    await withMeteredHttps(
+      (parsed, options) => (options.method === "HEAD" ? { headers } : { headers, body }),
+      async (calls) => {
+        const result = await downloader.download("https://93.184.216.34/interview.mp3", null, null);
+        tempPath = result.tempPath;
+        assert.equal(fs.readFileSync(tempPath, "utf8"), body);
+        assert.deepEqual(
+          calls.map((c) => c.method),
+          ["HEAD", "GET"]
+        );
+        for (const call of calls)
+          assert.equal(
+            Object.keys(call.headers).some((h) => h.toLowerCase() === gate.EGRESS_TAG_HEADER),
+            false
+          );
+      }
+    );
+    fs.unlinkSync(tempPath);
+    assert.deepEqual(
+      rows.map((r) => [r.task, r.kind, r.outcome, r.status, r.bytesIn, r.bytesOut]),
+      [
+        ["urlImport", "request", "ok", 200, null, null],
+        ["urlImport", "request", "ok", 200, body.length, null],
+      ]
+    );
+    assert.equal(rows[0].operationId, rows[1].operationId);
+    assert.equal(gate.activeRemoteCount(), 0);
+  }
+);
+
+sealedTest(
+  "sealing a direct import mid-body interrupts it; it is never 'nothing sent'",
+  async () => {
+    const headers = { "content-type": "audio/mpeg", "content-length": "100" };
+    await withMeteredHttps(
+      (parsed, options) =>
+        options.method === "HEAD" ? { headers } : { headers, body: "part", stall: true },
+      async () => {
+        const pending = downloader.download("https://93.184.216.34/long.mp3", null, null);
+        await until(() => rows.length === 1, "HEAD row");
+        await tick(20);
+        seal();
+        const error = await pending.catch((e) => e);
+        assert.equal(sealedPhaseOf(error), "interrupted");
+      }
+    );
+    assert.deepEqual(
+      rows.map((r) => [r.outcome, r.errorClass, r.bytesIn]),
+      [
+        ["ok", null, null],
+        ["cancelled", "SEALED_MODE", null],
+      ]
+    );
+    assert.equal(gate.activeRemoteCount(), 0);
+  }
+);
+
+sealedTest(
+  "a proxied import tags each Electron request with its own attempt and counts its body",
+  async () => {
+    proxyAnswer = "PROXY 127.0.0.1:9";
+    const tags = [];
+    const body = "proxied!";
+    downloader._setElectronNetForTests({
+      request(options) {
+        const req = new EventEmitter();
+        req.setHeader = (name, value) => {
+          if (name.toLowerCase() === gate.EGRESS_TAG_HEADER) tags.push(gate.ticketByTag(value));
+        };
+        req.abort = () => {};
+        req.end = () =>
+          setImmediate(() => {
+            if (options.url.endsWith("/old.mp3")) {
+              req.emit("redirect", 302, "GET", "https://93.184.216.35/new.mp3");
+              return;
+            }
+            const response = Readable.from([Buffer.from(body)]);
+            response.statusCode = 200;
+            response.headers = {
+              "content-type": "audio/mpeg",
+              "content-length": String(body.length),
+            };
+            req.emit("response", response);
+          });
+        return req;
+      },
+    });
+    try {
+      const result = await downloader.download("https://93.184.216.34/old.mp3", null, null);
+      fs.unlinkSync(result.tempPath);
+    } finally {
+      downloader._setElectronNetForTests(null);
+    }
+    assert.equal(tags.length, 2);
+    assert.ok(tags.every((owner) => owner?.ticket));
+    assert.equal(tags[0].ticket, tags[1].ticket);
+    assert.deepEqual(
+      rows.map((r) => [r.task, r.host, r.status, r.outcome, r.bytesIn]),
+      [
+        ["urlImport", "93.184.216.34", 302, "ok", null],
+        ["urlImport", "93.184.216.35", 200, "ok", body.length],
+      ]
+    );
+  }
+);
+
+// YouTube: every yt-dlp run of one import is in one opaque session.
+function youtubeLeaf(children) {
+  fixtureFfmpegPath = "/fixture/bin/ffmpeg";
+  return (command, args) => {
+    const child = fakeChild();
+    child.args = args;
+    children.push(child);
+    return child;
+  };
+}
+function finishMetadata(child) {
+  child.stdout.emit("data", Buffer.from(JSON.stringify({ title: "Talk", duration: 60 })));
+  child.end(0);
+}
+function finishExtraction(child) {
+  const template = child.args[child.args.indexOf("-o") + 1];
+  fs.writeFileSync(template.replace("%(ext)s", "m4a"), "audio");
+  child.stdout.emit("data", Buffer.from("[download] 100.0% of 1MiB\n"));
+  child.end(0);
+}
+const YOUTUBE = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
+sealedTest("a YouTube import is one opaque urlImport session across its yt-dlp runs", async () => {
+  sealedCacheBinary({ throttle: true });
+  const children = [];
+  sealedLeaf = youtubeLeaf(children);
+  const pending = downloader.download(YOUTUBE, null, null);
+  await until(() => children.length === 1, "metadata child");
+  assert.equal(children[0].args.includes("--dump-single-json"), true);
+  finishMetadata(children[0]);
+  await until(() => children.length === 2, "extraction child");
+  assert.equal(rows.length, 0, "still running");
+  finishExtraction(children[1]);
+  const result = await pending;
+  fs.unlinkSync(result.tempPath);
+  assert.equal(rows.length, 1, "one session row, no guard-owned duplicates");
+  assert.deepEqual(
+    [rows[0].task, rows[0].host, rows[0].kind, rows[0].opaque, rows[0].bytesIn, rows[0].bytesOut],
+    ["urlImport", "www.youtube.com", "session", true, null, null]
+  );
+  assert.equal(rows[0].outcome, "ok");
+  assert.equal(gate.activeRemoteCount(), 0);
+});
+
+sealedTest(
+  "a YouTube session outlives a caller released early until its child actually exits",
+  async () => {
+    sealedCacheBinary({ throttle: true });
+    const children = [];
+    sealedLeaf = youtubeLeaf(children);
+    const pending = downloader.download(YOUTUBE, null, null);
+    await until(() => children.length === 1, "metadata child");
+    finishMetadata(children[0]);
+    await until(() => children.length === 2, "extraction child");
+    await tick();
+    // An error after start rejects the caller at once; the process may still run.
+    children[1].emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    await assert.rejects(pending);
+    assert.equal(rows.length, 0, "the session is not settled before the exit");
+    assert.equal(gate.activeRemoteCount(), 1);
+    children[1].end(1);
+    assert.deepEqual(
+      rows.map((r) => [r.task, r.kind, r.outcome]),
+      [["urlImport", "session", "error"]]
+    );
+    assert.equal(gate.activeRemoteCount(), 0);
+  }
+);
+
+sealedTest(
+  "sealing a YouTube import signals yt-dlp and records the session only at exit",
+  async () => {
+    sealedCacheBinary({ throttle: true });
+    const children = [];
+    sealedLeaf = youtubeLeaf(children);
+    let settled = false;
+    const pending = downloader
+      .download(YOUTUBE, null, new AbortController().signal)
+      .finally(() => (settled = true));
+    await until(() => children.length === 1, "metadata child");
+    finishMetadata(children[0]);
+    await until(() => children.length === 2, "extraction child");
+    await tick();
+    seal();
+    assert.deepEqual(children[1].signals, ["SIGTERM"]);
+    await tick(10);
+    assert.equal(settled, false, "the import waits for yt-dlp's actual exit");
+    assert.equal(rows.length, 0);
+    children[1].end(null, "SIGTERM");
+    const error = await pending.catch((e) => e);
+    assert.equal(sealedPhaseOf(error), "interrupted");
+    assert.deepEqual(
+      rows.map((r) => [r.task, r.kind, r.outcome, r.errorClass, r.bytesIn]),
+      [["urlImport", "session", "cancelled", "SEALED_MODE", null]]
+    );
+    assert.equal(gate.activeRemoteCount(), 0);
+  }
+);
+
+sealedTest("a YouTube import that never started yt-dlp claims no session", async () => {
+  sealedCacheBinary({ throttle: true });
+  sealedLeaf = youtubeLeaf([]);
+  const error = await downloader
+    .download("https://www.youtube.com/playlist?list=PL123", null, null)
+    .catch((e) => e);
+  assert.equal(error.code, "PLAYLIST_URL");
+  assert.equal(sealedSpawned.length, 0);
+  assert.deepEqual(rows, []);
+  assert.equal(gate.activeRemoteCount(), 0);
+});
+
+// --------------------------------------------------------- IPC envelope
+
+sealedTest("the download-url-audio handler returns a typed SEALED_MODE envelope", async () => {
+  const handlers = new Map();
+  const module = { exports: {} };
+  const inert = () =>
+    new Proxy(function () {}, {
+      get: (_, key) => (key === "then" ? undefined : inert()),
+      apply: () => inert(),
+      construct: () => inert(),
+    });
+  let failure;
+  vm.runInNewContext(
+    fs.readFileSync(path.resolve(__dirname, "../../src/helpers/ipcHandlers.js"), "utf8"),
+    {
+      module,
+      exports: module.exports,
+      process,
+      Date,
+      setTimeout,
+      clearTimeout,
+      AbortController,
+      require: (name) => {
+        if (name === "electron")
+          return { ipcMain: { handle: (n, fn) => handlers.set(n, fn), on() {} } };
+        if (name === "./privacy/egressPolicy")
+          return require("../../src/helpers/privacy/egressPolicy");
+        if (name === "./urlAudioDownloader")
+          return {
+            sweepStaleTempArtifacts() {},
+            download: async () => {
+              throw failure;
+            },
+          };
+        return inert();
+      },
+    }
+  );
+  const context = new Proxy({}, { get: (target, key) => (key in target ? target[key] : inert()) });
+  module.exports.prototype.setupHandlers.call(context);
+  const sender = { isDestroyed: () => false, send() {} };
+  for (const phase of ["refused", "interrupted"]) {
+    failure = new SealedModeError({ task: "urlImport", host: "www.youtube.com", phase });
+    const result = await handlers.get("download-url-audio")({ sender }, YOUTUBE, "dl-1");
+    assert.equal(result.success, false);
+    assert.equal(result.code, "SEALED_MODE");
+    assert.equal(result.phase, phase);
+    assert.equal(isSealedModeError(new Error(result.error)), true, "the marker survives IPC");
+  }
 });

@@ -439,3 +439,44 @@ Loopback realtime endpoints stay usable while sealed and are not recorded.
 Eligibility of a local socket transport is not native-launch availability:
 native engines stay refused while sealed. None of this is native isolation.
 07b/D14–D16 remain open.
+
+## Task 10: downloads, URL import, yt-dlp and updates (07a)
+
+Model and runtime downloads (N12/N13) go through `downloadUtils`.
+`downloadFile` and `fetchJson` take `egressTask` (`modelDownload` by default;
+the GPU manager, shared by the CUDA/Vulkan whisper and Vulkan llama packs,
+passes `runtimeDownload`). While sealed they are refused before
+`net.request`/`net.fetch` (one `blocked` row). Unsealed, every actual Electron
+request, including each retry, is its own tagged attempt row: Chromium's
+redirect hops join its host trail, `bytesIn` counts that request's body only
+(so a resumed download never recounts earlier bytes), an unfinished body is
+`null`, and request bytes of a bodyless GET are `null`. Sealing mid-download
+aborts the request and any retry backoff, keeps `<dest>.tmp` for a later
+`Range` resume and rejects as interrupted; a user cancel still deletes it.
+Archive extraction launches `unzip`/`tar`/PowerShell, which the spawn guard
+refuses while sealed.
+
+URL import (N14) is refused while sealed before any DNS, socket or child.
+Direct imports keep their SSRF checks and record one row per HEAD, GET and
+redirect hop (Node requests untagged, Electron proxy requests tagged). A
+YouTube import runs yt-dlp: one opaque `urlImport` session (no byte counts) that
+is settled only when the import has returned and every yt-dlp it started has
+exited, even if the caller was released earlier by an error event; an import
+that never started yt-dlp claims no session. Sealing signals yt-dlp through the
+session and rejects as interrupted once it exits. The yt-dlp self-update (N15)
+is not attempted while sealed; unsealed it is its own opaque `runtimeDownload`
+session to `github.com`, settled at the process's exit, not at the caller's
+timeout; a failed start writes no session. Both run detached on POSIX and are
+registered with the child registry; `ytDlpControl` is a view over it, and in
+07a its `alive()` stays true after a root exits (descendants unverified).
+
+App updates (N16): `UpdateManager` reads main's live seal state. A scheduled
+check is skipped while sealed without advancing `lastCheck`; a manual check is
+refused (`blocked`, typed `SEALED_MODE`). One `appUpdate` ticket spans the
+check and any download it starts; its tag rides electron-updater's own request
+headers for the session backstop. `pauseForSeal` cancels a download, publishes
+idle without counting a failure, and a check that answers after sealing never
+starts a download; "available" and "ready" are kept. Turning automatic updates
+on while sealed keeps "available" and `resumeAfterSeal` fetches it (D13).
+Restart/install is refused while sealed in the manager as well as in
+`updateIPC`. None of this is native isolation. 07b/D14–D16 remain open.

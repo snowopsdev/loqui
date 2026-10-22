@@ -2513,7 +2513,12 @@ class IPCHandlers {
         return { success: true, ...result };
       } catch (error) {
         debugLogger.error("URL audio download error", { error: error.message, code: error.code });
-        return { success: false, error: error.message, code: error.code || "DOWNLOAD_FAILED" };
+        return {
+          success: false,
+          error: error.message,
+          code: error.code || "DOWNLOAD_FAILED",
+          ...sealedEnvelope(error),
+        };
       } finally {
         if (activeUrlDownloads.get(id) === abortController) {
           activeUrlDownloads.delete(id);

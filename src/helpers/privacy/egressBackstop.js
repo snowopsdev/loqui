@@ -66,10 +66,18 @@ function notify(event) {
   return veto;
 }
 
+// Retained tags/ALS can outlive JS settlement for existing transport evidence.
+// They are not fresh authority: validate only when acquiring a new owner, never
+// when retiring a socket/request that already captured one.
+function liveOwner(owner) {
+  const ticket = owner?.ticket ?? owner;
+  return owner && !owner.settled && !ticket.settled && !ticket.signal.aborted ? owner : null;
+}
+
 const block = (host) =>
   gate.recordBackstopBlock({
     host: isLoopbackHost(host) ? "unknown" : (normalizeHost(String(host ?? "")) ?? "unknown"),
-    ticket: gate.currentTicket(),
+    ticket: liveOwner(gate.currentTicket()),
   });
 const isPinnedName = (host) => !!host && (host === "localhost" || host.endsWith(".localhost"));
 
@@ -136,7 +144,7 @@ function installSocketHook() {
       notify({ layer: "node", host, allowed: true });
       return originalConnect.apply(this, isPinnedName(host) ? pinLocal(args, target, host) : args);
     }
-    const ticket = gate.currentTicket();
+    const ticket = liveOwner(gate.currentTicket());
     if (gate.isSealed()) {
       const error = gate.recordBackstopBlock({ host, ticket });
       notify({ layer: "node", host, allowed: false });
@@ -306,7 +314,7 @@ function installFetchHook() {
   globalThis.fetch = async function egressAwareFetch(input, init = {}) {
     // Following ourselves ensures a seal between hops is checked before the
     // next dispatch, even when bundled undici bypasses public net exports.
-    const ticket = gate.currentTicket();
+    const ticket = liveOwner(gate.currentTicket());
     const initialTarget = typeof input === "string" || input instanceof URL ? input : input?.url;
     if (gate.isSealed() && !isLoopbackHost(hostOf(initialTarget))) {
       notify({ layer: "node", host: hostOf(initialTarget) ?? "unknown", allowed: false });
@@ -706,8 +714,8 @@ function watchSession(session) {
     const tags = [...new Set(names.map((name) => requestHeaders[name]))];
     for (const name of names) delete requestHeaders[name];
     const entry = chromiumInFlight.get(key(details));
-    const owner = tags.length === 1 ? gate.ticketByTag(tags[0]) : null;
-    if (entry && owner && !entry.ticket && (owner.ticket || !owner.settled)) {
+    const owner = tags.length === 1 ? liveOwner(gate.ticketByTag(tags[0])) : null;
+    if (entry && owner && !entry.ticket) {
       const ticket = owner.ticket ?? owner;
       // Never interpret the public numeric receipt as an operation/tag ID.
       // Retain the exact attempt owner through JS cancellation/settlement.
@@ -735,7 +743,10 @@ function watchSession(session) {
     const entry = chromiumInFlight.get(key(details));
     if (!entry) return;
     // The redirect response is delivery evidence for the previous hop only.
-    if (Number.isInteger(details.statusCode)) entry.attempt?.noteStatus(details.statusCode);
+    if (Number.isInteger(details.statusCode)) {
+      entry.attempt?.noteStatus(details.statusCode);
+      entry.attempt?.markDelivered();
+    }
     const next = hostOf(details.redirectURL) ?? "unknown";
     if (!entry.hosts.includes(next) && entry.hosts.length < 8) entry.hosts.push(next);
   });

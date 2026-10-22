@@ -1073,6 +1073,241 @@ test("Chromium observed aborts are cancelled and error events preserve an availa
   assert.equal(row.errorClass, "HTTP_5XX");
 });
 
+for (const state of ["settled", "discarded", "aborted"])
+  test(`fresh sockets in a ${state} ALS continuation are independently recorded through close`, async () => {
+    const ticket = ticketFor();
+    let resume;
+    let oldSocket;
+    const continuation = gate.runWithTicket(ticket, async () => {
+      oldSocket = connectFixture({ host: "old-owner.invalid", port: 443 });
+      await new Promise((r) => {
+        resume = r;
+      });
+      return connectFixture({ host: "fresh-owner.invalid", port: 443 });
+    });
+    if (state === "settled") ticket.settle();
+    else if (state === "discarded") ticket.discard();
+    else ticket.abort();
+    const originalRows = recorder.list().length;
+    resume();
+    const fresh = await continuation;
+    const during = {
+      sockets: backstop.status().openRemoteSockets,
+      active: gate.activeRemoteCount(),
+      ownedSockets: ticket.socketCount(),
+      hosts: [...ticket.hosts],
+      rows: recorder.list().length,
+    };
+    fresh.emit("close", false);
+    const afterFresh = gate.activeRemoteCount();
+    const rows = recorder.list().filter((row) => row.host === "fresh-owner.invalid");
+    ticket.settle();
+    oldSocket.emit("close", false);
+    assert.deepEqual(during, {
+      sockets: 2,
+      active: 1,
+      ownedSockets: 1,
+      hosts: ["api.example", "old-owner.invalid"],
+      rows: originalRows,
+    });
+    assert.equal(afterFresh, 1, "the original socket hold survives the fresh socket's close");
+    assert.equal(rows.length, 1);
+    assert.deepEqual(
+      [
+        rows[0].task,
+        rows[0].attributed,
+        rows[0].kind,
+        rows[0].outcome,
+        rows[0].bytesOut,
+        rows[0].bytesIn,
+      ],
+      ["unattributed", false, "connection", "ok", 3, 2]
+    );
+    assert.equal(backstop.status().openRemoteSockets, 0);
+    assert.equal(gate.activeRemoteCount(), 0);
+  });
+
+test("fresh sealed transports in settled ALS are refused with independent evidence before any leaf", async () => {
+  const ticket = ticketFor();
+  ticket.settle();
+  flags.sealed = true;
+  const start = recorder.list().length;
+  const errors = await gate.runWithTicket(ticket, async () => {
+    const socket = connectFixture({ host: "fresh-denied.invalid", port: 443 });
+    await new Promise((r) => process.nextTick(r));
+    const request = https.request("https://fresh-denied.invalid/");
+    const requestError = once(request, "error");
+    request.end();
+    let fetchError;
+    try {
+      await fetch("https://fresh-denied.invalid/");
+    } catch (error) {
+      fetchError = error;
+    }
+    return [socket.reason, await requestError, fetchError];
+  });
+  assert.ok(errors.every(isSealedModeError));
+  assert.ok(errors.every((error) => sealedPhaseOf(error) === "refused"));
+  assert.equal(leaves.length, 0);
+  const rows = recorder.list().filter((row) => row.host === "fresh-denied.invalid");
+  assert.equal(recorder.list().length, start + 3);
+  assert.equal(rows.length, 3);
+  assert.ok(
+    rows.every((row) => row.attributed === false && row.outcome === "blocked" && row.bytesOut === 0)
+  );
+});
+
+for (const state of [
+  "settled-ticket",
+  "settled-attempt",
+  "settled-operation",
+  "settled-both",
+  "aborted",
+])
+  test(`Chromium retained ${state} tags cannot acquire a distinct request`, () => {
+    const s = session();
+    const ticket = ticketFor();
+    const owner = state === "settled-ticket" ? ticket : ticket.beginAttempt("api.example");
+    const first = before(s, "https://api.example/old").id;
+    headers(s, first, { [gate.EGRESS_TAG_HEADER]: owner.tag });
+    if (state === "settled-attempt" || state === "settled-both")
+      owner.settle({ outcome: "cancelled" });
+    if (["settled-ticket", "settled-operation", "settled-both"].includes(state)) ticket.settle();
+    if (state === "aborted") ticket.abort();
+    assert.equal(gate.ticketByTag(owner.tag), owner, "old request retains exact owner lookup");
+    const notices = [];
+    gate.events.on("dispatched", (notice) => notices.push(notice));
+    const fresh = before(s, "https://fresh-request.invalid/new").id;
+    const stripped = headers(s, fresh, { "X-Loqui-Egress": owner.tag, Accept: "*/*" });
+    const pending = backstop.status().chromiumInFlightRemote;
+    s.listeners.onCompleted({ id: fresh, statusCode: 201 });
+    const retained = gate.ticketByTag(owner.tag);
+    const active = gate.activeRemoteCount();
+    const rows = recorder.list().filter((row) => row.host === "fresh-request.invalid");
+    // An existing request keeps its owner even when its headers are seen again.
+    headers(s, first, { [gate.EGRESS_TAG_HEADER]: owner.tag });
+    s.listeners.onCompleted({ id: first, statusCode: 200 });
+    if (owner.ticket) owner.settle();
+    ticket.settle();
+    assert.deepEqual(stripped, { requestHeaders: { Accept: "*/*" } });
+    assert.equal(pending, 2);
+    assert.equal(retained, owner);
+    assert.equal(active, 1, "completion of fresh work must not release the old hold");
+    assert.equal(notices.length, 0, "a stale tag creates no new attributed disclosure");
+    assert.equal(rows.length, 1);
+    assert.deepEqual(
+      [rows[0].task, rows[0].attributed, rows[0].status, rows[0].outcome, rows[0].bytesOut],
+      ["unattributed", false, 201, "ok", null]
+    );
+    assert.equal(gate.activeRemoteCount(), 0);
+    assert.equal(gate.ticketByTag(owner.tag), null);
+    assert.equal(backstop.status().chromiumInFlightRemote, 0);
+  });
+
+for (const tagKind of ["ticket", "attempt"])
+  for (const end of ["onCompleted", "onErrorOccurred"])
+    test(`Chromium ${tagKind} redirect response preserves its delivered receipt through ${end} cancellation`, () => {
+      const s = session();
+      const ticket = ticketFor({
+        target: "https://first-review.invalid/a",
+        payload: "audio",
+        correlationId: "redirect-session",
+      });
+      const owner = tagKind === "attempt" ? ticket.beginAttempt("first-review.invalid") : ticket;
+      const notices = [];
+      for (const phase of ["dispatched", "delivered", "undelivered"])
+        gate.events.on(phase, (notice) => notices.push({ phase, ...notice }));
+      const id = before(s, "https://first-review.invalid/a").id;
+      headers(s, id, { [gate.EGRESS_TAG_HEADER]: owner.tag });
+      const dispatched = notices[0];
+      // Operation settlement is not the end of the already captured request.
+      ticket.settle();
+      s.listeners.onBeforeRedirect({
+        id,
+        url: "https://first-review.invalid/a",
+        statusCode: 302,
+        redirectURL: "https://next-review.invalid/b",
+      });
+      const afterResponse = notices.map((n) => ({ ...n }));
+      flags.sealed = true;
+      const denied = before(s, "https://next-review.invalid/b", id).cancel;
+      const beforeEnd = {
+        active: gate.activeRemoteCount(),
+        requests: backstop.status().chromiumInFlightRemote,
+        rows: recorder.list().length,
+      };
+      if (tagKind === "attempt") owner.settle({ outcome: "cancelled", errorClass: "SEALED_MODE" });
+      s.listeners[end]({ id, statusCode: 200, error: "net::ERR_BLOCKED_BY_CLIENT" });
+      s.listeners.onErrorOccurred({ id, error: "net::ERR_ABORTED" });
+      assert.equal(denied, true);
+      assert.deepEqual(beforeEnd, { active: 1, requests: 1, rows: 0 });
+      assert.deepEqual(
+        afterResponse.map((n) => n.phase),
+        ["dispatched", "delivered"]
+      );
+      assert.ok(Number.isSafeInteger(dispatched.ticketId));
+      assert.deepEqual(afterResponse[1], { ...dispatched, phase: "delivered" });
+      assert.deepEqual(
+        [
+          dispatched.operationId,
+          dispatched.task,
+          dispatched.host,
+          dispatched.targetId,
+          dispatched.payload,
+          dispatched.correlationId,
+        ],
+        [
+          ticket.id,
+          "chat",
+          "first-review.invalid",
+          "host:first-review.invalid",
+          "audio",
+          "redirect-session",
+        ]
+      );
+      assert.equal(notices.length, 2, "no retraction or delivery to the refused next recipient");
+      const [row] = recorder.list();
+      assert.equal(recorder.list().length, 1);
+      assert.deepEqual(
+        [
+          row.operationId,
+          row.status,
+          row.outcome,
+          row.errorClass,
+          row.bytesOut,
+          row.bytesIn,
+          row.hosts,
+        ],
+        [
+          ticket.id,
+          302,
+          "cancelled",
+          "SEALED_MODE",
+          null,
+          null,
+          ["first-review.invalid", "next-review.invalid"],
+        ]
+      );
+      assert.equal(gate.activeRemoteCount(), 0);
+      assert.equal(backstop.status().chromiumInFlightRemote, 0);
+    });
+
+test("Chromium cancellation acknowledgement alone cannot manufacture delivery", () => {
+  const s = session();
+  const ticket = ticketFor();
+  const delivered = [];
+  gate.events.on("delivered", (notice) => delivered.push(notice));
+  const id = before(s, "https://api.example/a").id;
+  headers(s, id, { [gate.EGRESS_TAG_HEADER]: ticket.tag });
+  flags.sealed = true;
+  assert.equal(before(s, "https://next.example/b", id).cancel, true);
+  s.listeners.onCompleted({ id, statusCode: 200 });
+  ticket.settle();
+  assert.equal(delivered.length, 0);
+  assert.equal(recorder.list()[0].outcome, "cancelled");
+  assert.equal(recorder.list()[0].bytesOut, null);
+});
+
 test.after(() => {
   const state = backstop.status();
   assert.equal(state.openRemoteSockets, 0, "all actual or simulated remote sockets observed close");

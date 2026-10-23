@@ -13,6 +13,7 @@ const {
 const { withI18nMock } = require("../lib/i18nTestMock");
 const { deferred } = require("../helpers/harness/deferred");
 const { resolveTokens } = require("../helpers/harness/cssTokens");
+const { createHash } = require("node:crypto");
 
 // Renders key(name=value,...) so nested, counted strings stay readable.
 const T =
@@ -207,13 +208,56 @@ const PREVIEW = {
   },
 };
 
+// Main's model inventory identity: the downloaded set only, never download progress.
+const modelsIdentity = ({ whisper, parakeet, llm }) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify([
+        ...(whisper?.models ?? []).filter((m) => m?.downloaded).map((m) => ["whisper", m.model]),
+        ...(parakeet?.models ?? []).filter((m) => m?.downloaded).map((m) => ["parakeet", m.model]),
+        ...(Array.isArray(llm) ? llm : []).filter((m) => m?.isDownloaded).map((m) => ["llm", m.id]),
+      ])
+    )
+    .digest("hex");
+
 function fakeApi({ storage = {}, sealed = false, ...rest } = {}) {
   const calls = [];
   const main = { sealed };
-  const disk = { whisper: true, llm: true };
+  const disk = { whisper: true, parakeet: false, llm: true };
+  // Stands in for main's storage-preview-models/storage-delete-models: one read of
+  // the three family lists with its identity, and a delete that refuses a changed set.
+  const previewModels = async () => {
+    const [whisper, parakeet, llm] = await Promise.all([
+      api.listWhisperModels(),
+      api.listParakeetModels(),
+      api.modelGetAll(),
+    ]);
+    return { whisper, parakeet, llm, modelsIdentity: modelsIdentity({ whisper, parakeet, llm }) };
+  };
   const api = {
     storage: {
       preview: async () => PREVIEW,
+      previewModels,
+      deleteModels: async (expected) => {
+        calls.push(["deleteModels", expected]);
+        const current = await previewModels();
+        if (current.modelsIdentity !== expected.modelsIdentity) {
+          return { ok: false, remaining: null, errors: ["stale"], families: null };
+        }
+        const families = {};
+        for (const [family, erase] of [
+          ["whisper", api.deleteAllWhisperModels],
+          ["parakeet", api.deleteAllParakeetModels],
+          ["llm", api.modelDeleteAll],
+        ]) {
+          try {
+            families[family] = await erase();
+          } catch (error) {
+            families[family] = { success: false, error: error.message };
+          }
+        }
+        return { ok: true, errors: [], families };
+      },
       deleteAudio: async (expected) => {
         calls.push(["deleteAudio", expected]);
         return { ok: true, deleted: 214, failed: 0, readable: true, remaining: 0, errors: [] };
@@ -240,7 +284,12 @@ function fakeApi({ storage = {}, sealed = false, ...rest } = {}) {
       success: true,
       models: [{ model: "base", downloaded: disk.whisper, size_bytes: 147_951_465 }],
     }),
-    listParakeetModels: async () => ({ success: true, models: [] }),
+    listParakeetModels: async () => ({
+      success: true,
+      models: [
+        { model: "parakeet-tdt-0.6b-v3", downloaded: disk.parakeet, size_bytes: 640_000_000 },
+      ],
+    }),
     modelGetAll: async () => [
       { id: "qwen3.5-2b-q4_k_m", isDownloaded: disk.llm, downloadedSize: 1_329_766_560 },
     ],
@@ -249,7 +298,10 @@ function fakeApi({ storage = {}, sealed = false, ...rest } = {}) {
       disk.whisper = false;
       return { success: true };
     },
-    deleteAllParakeetModels: async () => ({ success: true }),
+    deleteAllParakeetModels: async () => {
+      disk.parakeet = false;
+      return { success: true };
+    },
     modelDeleteAll: async () => {
       disk.llm = false;
       return { success: true };
@@ -266,7 +318,7 @@ function fakeApi({ storage = {}, sealed = false, ...rest } = {}) {
     },
     ...rest,
   };
-  return { api, calls, main };
+  return { api, calls, main, disk };
 }
 
 async function mount(t, api) {
@@ -694,6 +746,40 @@ test("[change-driving] models: selections are cleared only when every model file
   assert.deepEqual(
     h.notices.map((x) => x.title),
     ["storage.models.done(count=2)"]
+  );
+});
+
+// change-driving (Codex P2): the models confirmation named a set main never rechecked.
+test("[change-driving] models: a model added after review is refused as stale and nothing is deleted", async (t) => {
+  const { api, calls, disk } = fakeApi();
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onDelete("models"));
+  assert.equal(h.dialog().snapshot.count, 2);
+  disk.parakeet = true; // a background download finishes before the user confirms
+  await React.act(async () => h.dialog().onConfirm());
+  await settle();
+  assert.deepEqual(disk, { whisper: true, parakeet: true, llm: true }, "nothing was deleted");
+  assert.deepEqual(calls, [
+    ["deleteModels", { count: 2, modelsIdentity: h.dialog().last.snapshot.modelsIdentity }],
+  ]);
+  const d = h.dialog();
+  assert.equal(d.phase, "review");
+  assert.equal(d.snapshot.count, 3, "the new model is shown for review");
+  assert.notEqual(d.snapshot.modelsIdentity, d.last.snapshot.modelsIdentity);
+  assert.deepEqual(d.last.outcome.errors, ["stale"]);
+  const html = renderToStaticMarkup(React.createElement(h.s.CountedDeleteContent, d));
+  assert.ok(html.includes("storage.failed.stale"));
+  assert.ok(html.includes("storage.models.confirmTitle(count=3)"));
+  assert.equal(h.store.getState().cleanupModel, "qwen3.5-2b-q4_k_m", "selections stay");
+  assert.deepEqual(h.notices, []);
+  // Confirming the refreshed review deletes the set the user saw.
+  await React.act(async () => h.dialog().onConfirm());
+  await settle();
+  assert.equal(h.dialog(), null);
+  assert.deepEqual(disk, { whisper: false, parakeet: false, llm: false });
+  assert.deepEqual(
+    h.notices.map((x) => x.title),
+    ["storage.models.done(count=3)"]
   );
 });
 

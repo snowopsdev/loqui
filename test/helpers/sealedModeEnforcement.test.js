@@ -3055,7 +3055,9 @@ const DECLARED = {
     "stop-window-drag",
     "storage-delete-audio",
     "storage-delete-history",
+    "storage-delete-models",
     "storage-preview",
+    "storage-preview-models",
     // T12-m4: same detector start as meeting-detection-set-preferences.
     "sync-notification-preferences",
     "sync-startup-preferences",

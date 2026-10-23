@@ -381,6 +381,8 @@ exposeElectronAPI("electronAPI", {
     preview: () => ipcRenderer.invoke("storage-preview"),
     deleteAudio: (expected) => ipcRenderer.invoke("storage-delete-audio", expected),
     deleteHistory: (expected) => ipcRenderer.invoke("storage-delete-history", expected),
+    previewModels: () => ipcRenderer.invoke("storage-preview-models"),
+    deleteModels: (expected) => ipcRenderer.invoke("storage-delete-models", expected),
   },
   syncRetentionSettings: (settings) => ipcRenderer.send("retention-settings-changed", settings),
   retryTranscription: (id, settings) => ipcRenderer.invoke("retry-transcription", id, settings),

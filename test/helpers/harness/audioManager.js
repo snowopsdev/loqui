@@ -28,15 +28,22 @@ const defaultMockModules = (settingsKey) => ({
   "/utils/permissions": "export const isAccessibilitySkipped = () => false;",
 });
 
+// node:test keeps every hook until the file ends. Built outside
+// loadAudioManager, the hook cannot share its scope and pin AudioManager (and
+// with it the whole evaluated renderer graph) after the test.
+function clearSettingsSlot(settingsKey) {
+  return () => {
+    delete globalThis[settingsKey];
+  };
+}
+
 async function loadAudioManager(t, { cachePrefix, settingsKey, settings, mockModules = {} } = {}) {
   const { window } = installBrowserGlobals(t);
   const vite = await createRendererServer(t, {
     cachePrefix,
     mockModules: { ...defaultMockModules(settingsKey), ...mockModules },
   });
-  t.after(() => {
-    delete globalThis[settingsKey];
-  });
+  t.after(clearSettingsSlot(settingsKey));
   globalThis[settingsKey] = settings ?? {};
 
   const AudioManager = (await vite.ssrLoadModule("/helpers/audioManager.js")).default;

@@ -100,18 +100,38 @@ function pinnedLoopbackLookup(_hostname, options, callback) {
   else process.nextTick(callback, null, wanted[0].address, wanted[0].family);
 }
 
-// net.connect()/tls.connect() call Socket#connect with one normalised
-// [options, callback] array; direct callers pass (options | port | path, ...).
+// Node's own marker for an argument array it has already normalized. Socket#
+// connect uses such an array as is; any other arguments it normalizes itself.
+const NORMALIZED_ARGS =
+  typeof net._normalizeArgs === "function"
+    ? (Object.getOwnPropertySymbols(net._normalizeArgs([])).find(
+        (symbol) => String(symbol) === "Symbol(normalizedArgs)"
+      ) ?? null)
+    : null;
+
+// Reads Socket#connect arguments exactly as Node does (Task 18 T18-01): a
+// pre-normalized array only when it carries Node's symbol, otherwise Node's
+// own normalizer, so a port string such as "0x50" or " 443" or an array that
+// merely looks normalized is read as the TCP target Node will connect to.
+// A shape that cannot be classified is { unknown: true }: refused sealed.
 function connectTarget(args) {
-  const normalized = Array.isArray(args[0]);
-  const first = normalized ? args[0][0] : args[0];
-  if (first && typeof first === "object") {
-    if (first.path) return { local: true };
-    return { host: first.host ?? "localhost", options: first };
+  let normalized;
+  if (NORMALIZED_ARGS && Array.isArray(args[0]) && args[0][NORMALIZED_ARGS] === true)
+    normalized = args[0];
+  else {
+    try {
+      normalized = net._normalizeArgs(args);
+    } catch {
+      return { unknown: true };
+    }
   }
-  if (typeof first === "string" && !/^\d+$/.test(first)) return { local: true };
-  const host = normalized ? undefined : args[1];
-  return { host: typeof host === "string" ? host : "localhost" };
+  const options = normalized?.[0];
+  if (!options || typeof options !== "object") return { unknown: true };
+  // Node: a truthy path is a pipe; it must then be a string.
+  if (options.path) return typeof options.path === "string" ? { local: true } : { unknown: true };
+  const host = options.host || "localhost";
+  if (typeof host !== "string") return { unknown: true };
+  return { host, options, callback: normalized[1] ?? null };
 }
 
 function pinOptions(options, host) {
@@ -124,14 +144,12 @@ function pinOptions(options, host) {
     ...(options.servername === undefined ? { servername: host } : {}),
   };
 }
-function pinLocal(args, target, host) {
-  if (target.options) {
-    const options = pinOptions(target.options, host);
-    if (Array.isArray(args[0])) return [[options, ...args[0].slice(1)], ...args.slice(1)];
-    return [options, ...args.slice(1)];
-  }
-  const callback = args.find((a) => typeof a === "function");
-  return [pinOptions({ port: Number(args[0]) }, host), ...(callback ? [callback] : [])];
+// Hands Node one normalized [options, callback] array carrying its symbol, so
+// Node uses the pinned options instead of re-reading the array as options.
+function pinLocal(target, host) {
+  const normalized = [pinOptions(target.options, host), target.callback];
+  if (NORMALIZED_ARGS) normalized[NORMALIZED_ARGS] = true;
+  return [normalized];
 }
 
 function installSocketHook() {
@@ -139,10 +157,10 @@ function installSocketHook() {
   net.Socket.prototype.connect = function egressAwareConnect(...args) {
     const target = connectTarget(args);
     if (target.local) return originalConnect.apply(this, args);
-    const host = normalizeHost(String(target.host)) ?? "unknown";
+    const host = target.unknown ? "unknown" : (normalizeHost(target.host) ?? "unknown");
     if (isLoopbackHost(host)) {
       notify({ layer: "node", host, allowed: true });
-      return originalConnect.apply(this, isPinnedName(host) ? pinLocal(args, target, host) : args);
+      return originalConnect.apply(this, isPinnedName(host) ? pinLocal(target, host) : args);
     }
     const ticket = liveOwner(gate.currentTicket());
     if (gate.isSealed()) {
@@ -190,8 +208,31 @@ function installSocketHook() {
 }
 
 // A local proxy forwards to another machine, so a loopback socket is not proof
-// that nothing leaves. Refuse CONNECT tunnels and absolute-form requests that
-// name a remote host while sealed.
+// that nothing leaves. While sealed, a request to a loopback server is refused
+// when it names another host: a CONNECT tunnel, an absolute-form or any other
+// non-origin-form request target (one-slash "http:/host", scheme-relative
+// "//host", a bare "host/path"), or a Host header for a non-loopback host.
+// This covers requests Node's HTTP client builds (http/https.request, .get and
+// new http.ClientRequest). Raw socket writes, SOCKS and clients with their own
+// HTTP stack (undici's proxy agents) are not inspected (threat model, Task 18).
+function headerHost(headers) {
+  if (Array.isArray(headers)) {
+    for (let i = 0; i + 1 < headers.length; i += 2)
+      if (String(headers[i]).toLowerCase() === "host") return String(headers[i + 1]);
+    return null;
+  }
+  if (!headers || typeof headers !== "object") return null;
+  for (const [name, value] of Object.entries(headers))
+    if (name.toLowerCase() === "host")
+      return Array.isArray(value) ? String(value[0]) : String(value);
+  return null;
+}
+// The host a non-origin-form request target names, read with the policy's
+// strict parser. Anything it cannot read is "unknown", which is never loopback.
+function requestTargetHost(requestPath) {
+  const target = requestPath.startsWith("//") ? `http:${requestPath}` : requestPath;
+  return hostOf(target) ?? "unknown";
+}
 function forwardTarget(args) {
   let options = {};
   if (typeof args[0] === "string" || args[0] instanceof URL) {
@@ -211,9 +252,45 @@ function forwardTarget(args) {
   const requestPath = String(options.path ?? "/");
   if (method === "CONNECT")
     return { host, forwarding: true, forwardTo: normalizeHost(requestPath) };
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(requestPath))
-    return { host, forwarding: true, forwardTo: hostOf(requestPath) };
+  const origin = requestPath === "*" || /^\/(?!\/)/.test(requestPath) || requestPath === "/";
+  if (!origin) return { host, forwarding: true, forwardTo: requestTargetHost(requestPath) };
+  const named = headerHost(options.headers);
+  if (named !== null) return { host, forwarding: true, forwardTo: normalizeHost(named) };
   return { host, forwardTo: null };
+}
+// The host a sealed request would reach, or null when it stays on loopback.
+function sealedForwardRefusal(args) {
+  let target;
+  try {
+    target = forwardTarget(args);
+  } catch {
+    target = {};
+  }
+  const host = !isLoopbackHost(target.host)
+    ? target.host
+    : target.forwarding
+      ? target.forwardTo
+      : target.host;
+  if (isLoopbackHost(target.host) && isLoopbackHost(host)) return null;
+  return { host: host ?? "unknown" };
+}
+// A Host header set after the request exists names the forwarded host too.
+function guardLateHost(req) {
+  const setHeader = req?.setHeader;
+  if (typeof setHeader !== "function") return req;
+  req.setHeader = function egressAwareSetHeader(name, value) {
+    if (gate.isSealed() && String(name).toLowerCase() === "host") {
+      const named = normalizeHost(Array.isArray(value) ? String(value[0]) : String(value));
+      if (!isLoopbackHost(named)) {
+        notify({ layer: "node", host: named ?? "unknown", allowed: false });
+        const error = block(named);
+        process.nextTick(() => req.destroy(error));
+        return req;
+      }
+    }
+    return setHeader.call(this, name, value);
+  };
+  return req;
 }
 
 function rejectedRequest(error) {
@@ -235,21 +312,12 @@ function installProxyHook() {
     const original = client.request;
     const request = function egressAwareRequest(...args) {
       if (gate.isSealed()) {
-        let target;
-        try {
-          target = forwardTarget(args);
-        } catch {
-          target = {};
+        const refusal = sealedForwardRefusal(args);
+        if (refusal) {
+          notify({ layer: "node", host: refusal.host, allowed: false });
+          return rejectedRequest(block(refusal.host));
         }
-        const host = !isLoopbackHost(target.host)
-          ? target.host
-          : target.forwarding
-            ? target.forwardTo
-            : target.host;
-        if (!isLoopbackHost(target.host) || !isLoopbackHost(host)) {
-          notify({ layer: "node", host: host ?? "unknown", allowed: false });
-          return rejectedRequest(block(host));
-        }
+        return guardLateHost(original.apply(this, args));
       }
       return original.apply(this, args);
     };
@@ -260,6 +328,23 @@ function installProxyHook() {
       return req;
     };
   }
+  // Constructing a ClientRequest directly never calls http.request (T18-03).
+  // https has no ClientRequest of its own; https.request builds this class.
+  const OriginalClientRequest = http.ClientRequest;
+  function ClientRequest(...args) {
+    if (gate.isSealed()) {
+      const refusal = sealedForwardRefusal(args);
+      if (refusal) {
+        notify({ layer: "node", host: refusal.host, allowed: false });
+        return rejectedRequest(block(refusal.host));
+      }
+    }
+    const req = Reflect.construct(OriginalClientRequest, args, new.target ?? ClientRequest);
+    return gate.isSealed() ? guardLateHost(req) : req;
+  }
+  ClientRequest.prototype = OriginalClientRequest.prototype;
+  Object.setPrototypeOf(ClientRequest, OriginalClientRequest);
+  http.ClientRequest = ClientRequest;
   installed.http = true;
 }
 
@@ -597,6 +682,20 @@ function judge(url) {
     protocol = new URL(url).protocol;
   } catch {
     return { cancel: gate.isSealed(), remote: false };
+  }
+  if (protocol === "file:") {
+    // A file: URL that names a host (not localhost) is a network fetch: SMB on
+    // Windows (Task 18 T18-05). It is remote and refused while sealed.
+    let fileHost = "";
+    try {
+      fileHost = new URL(url).hostname.toLowerCase();
+    } catch {}
+    if (fileHost && fileHost !== "localhost") {
+      const host = normalizeHost(fileHost) ?? "unknown";
+      if (!gate.isSealed()) return { cancel: false, remote: false };
+      notify({ layer: "chromium", host, url, allowed: false });
+      return { cancel: true, remote: true, host };
+    }
   }
   if (LOCAL_SCHEMES.has(protocol)) return { cancel: false, remote: false };
   if (!NETWORK_SCHEMES.has(protocol)) return { cancel: gate.isSealed(), remote: false };

@@ -563,3 +563,60 @@ test("a thrown group probe at root exit never authorizes a later signal", posixG
   });
   assert.deepEqual(facts.kills, []);
 });
+
+// Task 18 T18-04: every child_process API funnels through
+// ChildProcess.prototype.spawn, and process.execve replaces the process. Both
+// get the same sealed check as the module functions.
+function chokePointLeaf() {
+  const cp = leaf();
+  cp.protoCalls = [];
+  cp.ChildProcess = class extends EventEmitter {
+    spawn(options) {
+      cp.protoCalls.push(options);
+      this.pid = 41010;
+      return undefined;
+    }
+  };
+  // Node's own spawn builds a ChildProcess and calls its spawn method.
+  cp.spawn = (command, args = []) => {
+    const c = new cp.ChildProcess();
+    c.spawn({ file: command, args: [command, ...args] });
+    return c;
+  };
+  return cp;
+}
+test("ChildProcess.prototype.spawn and process.execve are refused while sealed", () => {
+  const cp = chokePointLeaf();
+  const execveCalls = [];
+  const processObject = { execve: (...args) => execveCalls.push(args) };
+  registry.installSpawnGuard({ childProcess: cp, processObject });
+  sealed = true;
+  assert.throws(
+    () => new cp.ChildProcess().spawn({ file: "curl", args: ["curl", "https://x.invalid"] }),
+    { code: "SEALED_MODE" }
+  );
+  assert.throws(() => processObject.execve("/bin/sh", ["sh", "-c", "curl x"]), {
+    code: "SEALED_MODE",
+  });
+  assert.deepEqual(cp.protoCalls, []);
+  assert.deepEqual(execveCalls, []);
+  sealed = false;
+  const direct = new cp.ChildProcess();
+  direct.spawn({ file: "curl", args: ["curl"] });
+  assert.equal(cp.protoCalls.length, 1);
+  assert.deepEqual(
+    registry.alive().map((e) => e.kind),
+    ["curl"]
+  );
+  processObject.execve("/bin/true", ["true"]);
+  assert.equal(execveCalls.length, 1);
+});
+test("a guarded module launch through ChildProcess.prototype.spawn is one session, not two", () => {
+  const cp = chokePointLeaf();
+  registry.installSpawnGuard({ childProcess: cp, processObject: {} });
+  const c = cp.spawn("curl", ["fixture"]);
+  assert.equal(cp.protoCalls.length, 1);
+  assert.equal(registry.alive().length, 1);
+  c.emit("exit", 0, null);
+  assert.equal(rows.filter((r) => r.kind === "session").length, 1);
+});

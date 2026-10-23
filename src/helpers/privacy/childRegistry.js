@@ -495,6 +495,7 @@ function callNative(original, receiver, args, intent) {
 function installSpawnGuard({
   childProcess = require("node:child_process"),
   utilityProcess = null,
+  processObject = process,
 } = {}) {
   for (const name of [
     "spawn",
@@ -563,6 +564,44 @@ function installSpawnGuard({
     };
     guarded.add(wrapper);
     utilityProcess.fork = wrapper;
+  }
+  // Every child_process API (and anything holding the class) launches through
+  // ChildProcess.prototype.spawn (Task 18 T18-04). A launch that a guarded
+  // module function already checked runs under its launch intent and is
+  // registered there; a direct call is checked and registered here.
+  const proto = childProcess.ChildProcess?.prototype;
+  if (proto && typeof proto.spawn === "function" && !guarded.has(proto.spawn)) {
+    const original = proto.spawn;
+    const wrapper = function (options, ...rest) {
+      if (launchIntent !== null) return original.call(this, options, ...rest);
+      const file = options?.file;
+      check(file, Array.isArray(options?.args) ? options.args.slice(1) : [], options ?? {});
+      const result = callNative(original, this, [options, ...rest], file);
+      register(this, {
+        kind: kindOf(file),
+        group: options?.detached === true,
+        tree: true,
+        local: SIDECAR.test(baseName(file)),
+      });
+      opaqueSession(this, kindOf(file));
+      return result;
+    };
+    guarded.add(wrapper);
+    proto.spawn = wrapper;
+  }
+  // process.execve replaces Loqui itself with another program: a launch too.
+  if (
+    processObject &&
+    typeof processObject.execve === "function" &&
+    !guarded.has(processObject.execve)
+  ) {
+    const original = processObject.execve;
+    const wrapper = function (file, ...rest) {
+      check(file, Array.isArray(rest[0]) ? rest[0] : [], {});
+      return original.call(this, file, ...rest);
+    };
+    guarded.add(wrapper);
+    processObject.execve = wrapper;
   }
   if (childProcess === require("node:child_process")) syncBuiltinESMExports();
 }

@@ -22,7 +22,7 @@ const socketLeaf = net.Socket.prototype.connect;
 const socketDestinations = new Map();
 net.Socket.prototype.connect = function (...args) {
   const options = Array.isArray(args[0]) ? args[0][0] : args[0];
-  leaves.push({ kind: "socket", options });
+  leaves.push({ kind: "socket", options, args });
   if (
     this instanceof net.Socket &&
     socketDestinations.has(Number(options?.port)) &&
@@ -1316,4 +1316,151 @@ test.after(() => {
   assert.equal(state.chromiumUnresolvedAfterDestroy, 0);
   assert.equal(socketDestinations.size, 0);
   assert.equal(udpPorts.size, 0);
+});
+
+// Task 18 T18-01: the socket hook reads Socket#connect arguments exactly as
+// Node does. Node treats any string first argument that Number() reads as a
+// non-negative number as a port, and an array as pre-normalized arguments
+// only when it carries Node's own normalized-args symbol.
+const NORMALIZED_ARGS = Object.getOwnPropertySymbols(net._normalizeArgs([]))[0];
+test("Socket#connect port strings and look-alike arrays that Node connects remotely are refused sealed", async () => {
+  flags.sealed = true;
+  const forms = ["0x50", " 443", "80.0", "1e2", "0b1010000", "0o120", "+80"].map((port) => [
+    port,
+    "remote.invalid",
+  ]);
+  const lookAlike = [{ path: "/nonexistent-loqui.sock" }];
+  lookAlike.host = "remote.invalid";
+  lookAlike.port = 80;
+  forms.push([lookAlike]);
+  for (const args of forms) {
+    // Node's own reading of each form is a remote TCP target.
+    const [options] = net._normalizeArgs(args);
+    assert.equal(options.path, undefined, JSON.stringify(args));
+    assert.equal(options.host, "remote.invalid");
+    const socket = new SocketFixture();
+    net.Socket.prototype.connect.apply(socket, args);
+    await new Promise((r) => process.nextTick(r));
+    assert.ok(isSealedModeError(socket.reason), JSON.stringify(args));
+  }
+  assert.equal(leaves.length, 0);
+  assert.equal(recorder.list().length, forms.length);
+});
+
+test("Socket#connect argument shapes the hook cannot classify fail closed sealed", async () => {
+  flags.sealed = true;
+  for (const args of [[{ host: { toString: () => "127.0.0.1" }, port: 80 }], [{ path: 42 }]]) {
+    const socket = new SocketFixture();
+    net.Socket.prototype.connect.apply(socket, args);
+    await new Promise((r) => process.nextTick(r));
+    assert.ok(isSealedModeError(socket.reason), String(args[0]?.path ?? "host object"));
+  }
+  assert.equal(leaves.length, 0);
+});
+
+test("pinned localhost connects hand Node arguments it treats as already normalized", () => {
+  flags.sealed = true;
+  const s = new SocketFixture();
+  net.Socket.prototype.connect.call(
+    s,
+    net._normalizeArgs([{ host: "app.localhost", port: 12345 }])
+  );
+  net.Socket.prototype.connect.call(s, 12345, "localhost", () => {});
+  for (const leaf of leaves) {
+    assert.equal(Array.isArray(leaf.args[0]), true);
+    assert.equal(leaf.args[0][NORMALIZED_ARGS], true);
+    assert.equal(leaf.args[0][0].host, "127.0.0.1");
+    assert.equal(leaf.args[0][0].port, 12345);
+  }
+  assert.equal(leaves.length, 2);
+  assert.equal(typeof leaves[1].args[0][1], "function");
+});
+
+// Task 18 T18-03: a loopback forwarder must not carry a request for another
+// host while sealed, whichever client built the request.
+test(
+  "http.request refuses one-slash, scheme-relative and non-loopback Host forwarding sealed",
+  { timeout: 5000 },
+  async () => {
+    flags.sealed = true;
+    for (const options of [
+      { host: "127.0.0.2", path: "http:/api.example/a" },
+      { host: "127.0.0.2", path: "//api.example/a" },
+      { host: "127.0.0.2", path: "api.example/a" },
+      { host: "127.0.0.2", path: "/", headers: { Host: "api.example" } },
+      { host: "127.0.0.2", path: "/", headers: { hOsT: "api.example:443" } },
+      { host: "127.0.0.2", path: "/", headers: ["Host", "api.example"] },
+    ]) {
+      const req = http.request(options);
+      const error = once(req, "error");
+      req.end();
+      assert.ok(isSealedModeError(await error), JSON.stringify(options));
+    }
+    assert.equal(leaves.length, 0);
+    // A loopback Host header and an origin-form path are ordinary local requests.
+    http.request({ host: "127.0.0.2", path: "/v1/models", headers: { Host: "127.0.0.2:8080" } });
+    assert.equal(leaves.length, 1);
+    // A Host header set after the request exists is checked too.
+    const late = http.request({ host: "127.0.0.2", path: "/" });
+    const lateError = once(late, "error");
+    late.setHeader("Host", "api.example");
+    assert.ok(isSealedModeError(await lateError));
+  }
+);
+
+test(
+  "new http.ClientRequest gets the same forwarding refusal as http.request",
+  { timeout: 5000 },
+  async () => {
+    flags.sealed = true;
+    let connections = 0;
+    const createConnection = () => {
+      connections++;
+      const { Duplex } = require("node:stream");
+      return new Duplex({ read() {}, write: (_c, _e, done) => done() });
+    };
+    for (const options of [
+      { host: "127.0.0.2", port: 3128, method: "CONNECT", path: "api.example:443" },
+      { host: "127.0.0.2", port: 3128, path: "http://api.example/a" },
+      { host: "127.0.0.2", port: 3128, path: "//api.example/a" },
+      { host: "127.0.0.2", port: 3128, path: "/", headers: { Host: "api.example" } },
+      { host: "remote.invalid", port: 80, path: "/" },
+    ]) {
+      const req = new http.ClientRequest({ ...options, createConnection });
+      const error = once(req, "error");
+      req.end?.();
+      assert.ok(isSealedModeError(await error), JSON.stringify(options));
+    }
+    assert.equal(connections, 0);
+    assert.equal(
+      new http.ClientRequest({ host: "127.0.0.2", createConnection }) instanceof http.ClientRequest,
+      true
+    );
+  }
+);
+
+// Task 18 T18-05: a file: URL that names a host other than localhost is a
+// network fetch (SMB/UNC on Windows), so it is remote for the Chromium judge.
+test("Chromium judge treats a file: URL with a remote host as remote", () => {
+  const s = session();
+  backstop.watchSession(s);
+  flags.sealed = true;
+  assert.equal(before(s, "file://remote.invalid/share/x.png").cancel, true);
+  assert.equal(before(s, "file://192.168.1.5/share/x.png").cancel, true);
+  assert.equal(before(s, "file:///tmp/fixture").cancel, false);
+  assert.equal(before(s, "file://localhost/tmp/fixture").cancel, false);
+  assert.deepEqual(
+    recorder
+      .list()
+      .map((row) => row.host)
+      .sort(),
+    ["192.168.1.5", "remote.invalid"]
+  );
+  assert.equal(
+    recorder.list().every((row) => row.outcome === "blocked"),
+    true
+  );
+  assert.equal(backstop.judgeChromiumRequest("file://remote.invalid/x").cancel, true);
+  flags.sealed = false;
+  assert.equal(backstop.judgeChromiumRequest("file:///tmp/fixture").cancel, false);
 });

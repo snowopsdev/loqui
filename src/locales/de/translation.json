@@ -4495,7 +4495,8 @@
       "dictationKept": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Die Aufnahme ist im Verlauf gespeichert, sodass du sie transkribieren kannst, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
       "dictationNotKept": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Die Aufnahme wurde nicht behalten.",
       "dictationHeld": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Loqui hält die Aufnahme nur im Arbeitsspeicher, bis zu 30 Minuten oder bis du die App beendest. Transkribiere sie, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
-      "generic": "Der abgeschottete Modus ist aktiv, daher hat Loqui dies nicht gesendet. Es wurde nichts gesendet."
+      "generic": "Der abgeschottete Modus ist aktiv, daher hat Loqui dies nicht gesendet. Es wurde nichts gesendet.",
+      "chat": "Der abgeschottete Modus ist aktiv, daher hat Loqui diese Nachricht nicht gesendet. Es wurde nichts gesendet. Deine Nachricht bleibt hier erhalten."
     },
     "paused": {
       "dictationPreflightDetail": "Der abgeschottete Modus hat Loquis lokale Sprach-Engine vor dem Start pausiert. Es wurde nichts aufgenommen. Schalte den abgeschotteten Modus aus, um damit zu diktieren."
@@ -4506,7 +4507,22 @@
       "dictationHeld": "Der abgeschottete Modus wurde eingeschaltet, während dieses Diktat gesendet wurde, daher wurde es gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten. Loqui hält die Aufnahme nur im Arbeitsspeicher, bis zu 30 Minuten oder bis du die App beendest.",
       "dictationPartial": "Der abgeschottete Modus wurde während dieses Diktats eingeschaltet. Die bereits angekommenen Wörter bleiben erhalten. Der Anbieter hat möglicherweise einen Teil der Aufnahme erhalten.",
       "cortiRetained": "Corti hat möglicherweise noch einen Teil dieses Diktats: Loqui kann Corti im abgeschotteten Modus nicht um das Löschen bitten und wird Corti auch später nicht kontaktieren, um es zu löschen.",
-      "generic": "Der abgeschottete Modus hat dies während des Sendens gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten."
+      "generic": "Der abgeschottete Modus hat dies während des Sendens gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten.",
+      "chat": "Der abgeschottete Modus hat diese Antwort gestoppt, während die Anfrage gesendet wurde. Der Anbieter hat möglicherweise einen Teil der Unterhaltung erhalten. Deine Nachricht bleibt hier erhalten."
+    },
+    "markdown": {
+      "imageBlocked": "Bild nicht geladen: Der abgeschottete Modus ist aktiv",
+      "imageBlockedNamed": "Bild nicht geladen: Der abgeschottete Modus ist aktiv ({{alt}})",
+      "imageChecking": "Bild nicht geladen, während Loqui den abgeschotteten Modus prüft",
+      "imageCheckingNamed": "Bild nicht geladen, während Loqui den abgeschotteten Modus prüft ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Verbinden ist im abgeschotteten Modus nicht möglich",
+      "connectRefused": "Zum Verbinden dieses Kalenders wird das Internet benötigt, und der abgeschottete Modus blockiert das. Es wurde nichts gesendet. Schalte den abgeschotteten Modus aus, um zu verbinden.",
+      "connectInterrupted": "Der abgeschottete Modus wurde während der Anmeldung eingeschaltet, daher wurde sie gestoppt. Der Anbieter hat möglicherweise einen Teil der Anmeldung erhalten. Es wurde kein Konto verbunden.",
+      "appleUnavailable": "Dieser Build kann das lokale Hilfsprogramm von Apple Kalender im abgeschotteten Modus nicht ausführen. Schalte den abgeschotteten Modus aus, um zu verbinden.",
+      "googleGrantKept": "Der abgeschottete Modus war aktiv, daher konnte Loqui Google nicht bitten, den Kalenderzugriff zu widerrufen. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält Loquis Zugriff, bis du ihn in deinem Google-Konto entfernst. Loqui wird Google später nicht deswegen kontaktieren.",
+      "restartNow": "Loqui neu starten"
     }
   },
   "setupFlow": {

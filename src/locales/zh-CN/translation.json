@@ -4464,7 +4464,8 @@
       "dictationKept": "封闭模式在发送前阻止了这次听写。未发送任何内容。录音已保存在历史记录中，关闭封闭模式后即可转写。",
       "dictationNotKept": "封闭模式在发送前阻止了这次听写。未发送任何内容。录音未保留。",
       "dictationHeld": "封闭模式在发送前阻止了这次听写。未发送任何内容。Loqui 仅在内存中保留这段录音，最长 30 分钟或直到你退出应用。请在关闭封闭模式后转写。",
-      "generic": "封闭模式已开启，因此 Loqui 没有发送此内容。未发送任何内容。"
+      "generic": "封闭模式已开启，因此 Loqui 没有发送此内容。未发送任何内容。",
+      "chat": "封闭模式已开启，因此 Loqui 没有发送这条消息。未发送任何内容。你的消息保留在这里。"
     },
     "paused": {
       "dictationPreflightDetail": "封闭模式在 Loqui 的本地语音引擎启动前将其暂停。未录制任何内容。关闭封闭模式即可使用它听写。"
@@ -4475,7 +4476,22 @@
       "dictationHeld": "这次听写发送期间封闭模式被开启，因此已停止。服务提供商可能已收到其中一部分。Loqui 仅在内存中保留这段录音，最长 30 分钟或直到你退出应用。",
       "dictationPartial": "这次听写期间封闭模式被开启。已收到的文字会保留。服务提供商可能已收到部分录音。",
       "cortiRetained": "Corti 可能仍保留着这次听写的一部分：封闭模式开启时，Loqui 无法请求 Corti 删除它，之后也不会联系 Corti 删除它。",
-      "generic": "封闭模式在发送过程中停止了此操作。服务提供商可能已收到其中一部分。"
+      "generic": "封闭模式在发送过程中停止了此操作。服务提供商可能已收到其中一部分。",
+      "chat": "封闭模式在请求发送过程中停止了此回复。服务提供商可能已收到部分对话。你的消息保留在这里。"
+    },
+    "markdown": {
+      "imageBlocked": "图片未加载：封闭模式已开启",
+      "imageBlockedNamed": "图片未加载：封闭模式已开启（{{alt}}）",
+      "imageChecking": "Loqui 检查封闭模式期间不加载图片",
+      "imageCheckingNamed": "Loqui 检查封闭模式期间不加载图片（{{alt}}）"
+    },
+    "calendar": {
+      "connectTitle": "封闭模式开启时无法连接",
+      "connectRefused": "连接此日历需要互联网，而封闭模式会阻止这样做。未发送任何内容。关闭封闭模式即可连接。",
+      "connectInterrupted": "登录期间封闭模式被开启，因此登录已停止。服务提供商可能已收到部分登录信息。未连接任何账户。",
+      "appleUnavailable": "此版本在封闭模式开启时无法运行 Apple 日历的本地辅助程序。关闭封闭模式即可连接。",
+      "googleGrantKept": "封闭模式当时已开启，因此 Loqui 无法请求 Google 撤销其日历访问权限。Loqui 已删除自己保存的登录信息，但在你于 Google 账号中移除之前，Google 仍会保留 Loqui 的访问权限。Loqui 之后不会为此联系 Google。",
+      "restartNow": "重启 Loqui"
     }
   },
   "setupFlow": {

@@ -4506,7 +4506,8 @@
       "dictationKept": "El modo sellado bloqueó este dictado antes de enviarlo. No se envió nada. La grabación está guardada en el historial, así que puedes transcribirla después de desactivar el modo sellado.",
       "dictationNotKept": "El modo sellado bloqueó este dictado antes de enviarlo. No se envió nada. La grabación no se conservó.",
       "dictationHeld": "El modo sellado bloqueó este dictado antes de enviarlo. No se envió nada. Loqui conserva la grabación solo en memoria, durante 30 minutos como máximo o hasta que salgas de la app. Transcríbela después de desactivar el modo sellado.",
-      "generic": "El modo sellado está activado, así que Loqui no envió esto. No se envió nada."
+      "generic": "El modo sellado está activado, así que Loqui no envió esto. No se envió nada.",
+      "chat": "El modo sellado está activado, así que Loqui no envió este mensaje. No se envió nada. Tu mensaje se conserva aquí."
     },
     "paused": {
       "dictationPreflightDetail": "El modo sellado pausó el motor de voz local de Loqui antes de que se iniciara. No se grabó nada. Desactiva el modo sellado para dictar con él."
@@ -4517,7 +4518,22 @@
       "dictationHeld": "El modo sellado se activó mientras se enviaba este dictado, así que se detuvo. Es posible que el proveedor haya recibido una parte. Loqui conserva la grabación solo en memoria, durante 30 minutos como máximo o hasta que salgas de la app.",
       "dictationPartial": "El modo sellado se activó durante este dictado. Las palabras que llegaron se conservan. Es posible que el proveedor haya recibido una parte de la grabación.",
       "cortiRetained": "Es posible que Corti aún conserve una parte de este dictado: Loqui no puede pedirle a Corti que lo elimine mientras el modo sellado está activado, y no contactará con Corti más tarde para eliminarlo.",
-      "generic": "El modo sellado detuvo esto mientras se enviaba. Es posible que el proveedor haya recibido una parte."
+      "generic": "El modo sellado detuvo esto mientras se enviaba. Es posible que el proveedor haya recibido una parte.",
+      "chat": "El modo sellado detuvo esta respuesta mientras se enviaba la solicitud. Es posible que el proveedor haya recibido una parte de la conversación. Tu mensaje se conserva aquí."
+    },
+    "markdown": {
+      "imageBlocked": "Imagen no cargada: el modo sellado está activado",
+      "imageBlockedNamed": "Imagen no cargada: el modo sellado está activado ({{alt}})",
+      "imageChecking": "Imagen no cargada mientras Loqui comprueba el modo sellado",
+      "imageCheckingNamed": "Imagen no cargada mientras Loqui comprueba el modo sellado ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "No se puede conectar con el modo sellado activado",
+      "connectRefused": "Conectar este calendario requiere internet, y el modo sellado lo bloquea. No se envió nada. Desactiva el modo sellado para conectarlo.",
+      "connectInterrupted": "El modo sellado se activó durante el inicio de sesión, así que se detuvo. Es posible que el proveedor haya recibido una parte del inicio de sesión. No se conectó ninguna cuenta.",
+      "appleUnavailable": "Esta versión no puede ejecutar el asistente local de Calendario de Apple con el modo sellado activado. Desactiva el modo sellado para conectarlo.",
+      "googleGrantKept": "El modo sellado estaba activado, así que Loqui no pudo pedirle a Google que revocara su acceso al calendario. Loqui eliminó su propia copia de tu inicio de sesión, pero Google mantiene el acceso de Loqui hasta que lo quites en tu cuenta de Google. Loqui no contactará con Google por esto más tarde.",
+      "restartNow": "Reiniciar Loqui"
     }
   },
   "setupFlow": {

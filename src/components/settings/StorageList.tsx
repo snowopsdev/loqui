@@ -58,7 +58,13 @@ type DialogState = {
   phase: DeletePhase;
   last: Last | null;
 };
-type ResetState = { owner: ResetIntent; phase: ResetPhase; typed: string; errors: string[] };
+type ResetState = {
+  owner: ResetIntent;
+  phase: ResetPhase;
+  typed: string;
+  errors: string[];
+  googleGrantKept?: boolean;
+};
 
 const LOADING: Rows = {
   audio: { status: "loading" },
@@ -346,6 +352,9 @@ export interface ResetProps {
   typed: string;
   confirmDisabled: boolean;
   errors: string[];
+  // T11-M5: Sealed mode kept Loqui from revoking the Google grant.
+  googleGrantKept?: boolean;
+  onRestart?: () => void;
   onTypedChange: (value: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -368,6 +377,18 @@ export function ResetContent({
         <Description role="status" className="text-sm text-foreground">
           {t("storage.reset.done")}
         </Description>
+        {props.googleGrantKept && (
+          <>
+            <p data-google-grant-kept="" className="text-sm text-foreground">
+              {t("sealedMode.calendar.googleGrantKept")}
+            </p>
+            <div className="flex justify-end">
+              <Button type="button" onClick={props.onRestart}>
+                {t("sealedMode.calendar.restartNow")}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -660,7 +681,7 @@ export function StorageList() {
     resetBusy.current = true;
     const typed = reset.typed;
     publishReset(owner, { phase: "running", typed, errors: [] });
-    let result: { ok: boolean; errors: string[] };
+    let result: { ok: boolean; errors: string[]; googleGrantKept?: true };
     try {
       result = resetOutcome(await call(window.electronAPI?.cleanupApp));
     } catch (error) {
@@ -670,6 +691,11 @@ export function StorageList() {
     if (result.ok === false) {
       resetBusy.current = false;
       publishReset(owner, { phase: "failed", typed, errors: result.errors });
+      return;
+    }
+    if (result.googleGrantKept) {
+      // The user reads why Google still has access, then restarts.
+      publishReset(owner, { phase: "done", typed, errors: [], googleGrantKept: true });
       return;
     }
     publishReset(owner, { phase: "done", typed, errors: [] });
@@ -739,6 +765,8 @@ export function StorageList() {
           phase={reset.phase}
           typed={reset.typed}
           errors={reset.errors}
+          googleGrantKept={reset.googleGrantKept === true}
+          onRestart={() => void window.electronAPI?.relaunchApp?.()}
           confirmDisabled={
             reset.phase === "running" ||
             reset.phase === "done" ||

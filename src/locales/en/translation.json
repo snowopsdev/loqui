@@ -4495,7 +4495,8 @@
       "dictationKept": "Sealed mode blocked this dictation before it was sent. Nothing was sent. The recording is saved in History, so you can transcribe it after you turn off Sealed mode.",
       "dictationNotKept": "Sealed mode blocked this dictation before it was sent. Nothing was sent. The recording wasn't kept.",
       "dictationHeld": "Sealed mode blocked this dictation before it was sent. Nothing was sent. Loqui is holding the recording in memory only, for up to 30 minutes or until you quit. Transcribe it after you turn off Sealed mode.",
-      "generic": "Sealed mode is on, so Loqui didn't send this. Nothing was sent."
+      "generic": "Sealed mode is on, so Loqui didn't send this. Nothing was sent.",
+      "chat": "Sealed mode is on, so Loqui didn't send this message. Nothing was sent. Your message is kept here."
     },
     "paused": {
       "dictationPreflightDetail": "Sealed mode paused Loqui's local speech engine before it started. Nothing was recorded. Turn off Sealed mode to dictate with it."
@@ -4506,7 +4507,22 @@
       "dictationHeld": "Sealed mode was turned on while this dictation was being sent, so it stopped. The provider may have received part of it. Loqui is holding the recording in memory only, for up to 30 minutes or until you quit.",
       "dictationPartial": "Sealed mode was turned on during this dictation. The words that arrived are kept. The provider may have received part of the recording.",
       "cortiRetained": "Corti may still hold part of this dictation: Loqui can't ask Corti to delete it while Sealed mode is on, and won't contact Corti later to delete it.",
-      "generic": "Sealed mode stopped this while it was being sent. The provider may have received part of it."
+      "generic": "Sealed mode stopped this while it was being sent. The provider may have received part of it.",
+      "chat": "Sealed mode stopped this reply while the request was being sent. The provider may have received part of the conversation. Your message is kept here."
+    },
+    "markdown": {
+      "imageBlocked": "Image not loaded: Sealed mode is on",
+      "imageBlockedNamed": "Image not loaded: Sealed mode is on ({{alt}})",
+      "imageChecking": "Image not loaded while Loqui checks Sealed mode",
+      "imageCheckingNamed": "Image not loaded while Loqui checks Sealed mode ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Can't connect while Sealed mode is on",
+      "connectRefused": "Connecting this calendar needs the internet, and Sealed mode blocks that. Nothing was sent. Turn off Sealed mode to connect.",
+      "connectInterrupted": "Sealed mode was turned on during sign-in, so it stopped. The provider may have received part of the sign-in. No account was connected.",
+      "appleUnavailable": "This build can't run Apple Calendar's local helper while Sealed mode is on. Turn off Sealed mode to connect.",
+      "googleGrantKept": "Sealed mode was on, so Loqui couldn't ask Google to revoke its calendar access. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account. Loqui won't contact Google about it later.",
+      "restartNow": "Restart Loqui"
     }
   },
   "setupFlow": {

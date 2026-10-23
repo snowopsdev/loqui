@@ -97,14 +97,22 @@ class GoogleCalendarManager {
     return result;
   }
 
+  // Returns how many grants Sealed mode kept Loqui from revoking. Those stay
+  // valid at Google; nothing revokes them automatically later (Plan 03: no
+  // automatic provider calls), so the caller tells the user (T11-M5).
   async revokeAllTokens() {
+    let sealedRefused = 0;
     try {
       const allTokens = this.databaseManager.getAllGoogleTokens();
-      await Promise.allSettled(allTokens.map((t) => this.oauth.revokeToken(t.access_token)));
+      const results = await Promise.allSettled(
+        allTokens.map((t) => this.oauth.revokeToken(t.access_token))
+      );
+      sealedRefused = results.filter((r) => r.status === "fulfilled" && r.value?.sealed).length;
     } catch (err) {
       debugLogger.error("Error revoking Google tokens", { error: err.message }, "gcal");
     }
     this.disconnect();
+    return { sealedRefused };
   }
 
   disconnect(email) {

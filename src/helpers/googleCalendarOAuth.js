@@ -1,3 +1,4 @@
+const { isSealedModeError } = require("./privacy/egressPolicy");
 const { gatedNetFetch } = require("./privacy/gatedFetch");
 const { runOAuthLoopbackFlow, OAuthFlowError } = require("./oauthLoopbackFlow");
 
@@ -142,12 +143,16 @@ class GoogleCalendarOAuth {
     return tokens.access_token;
   }
 
+  // Best-effort: the token may already be revoked or the network down. The
+  // result says whether Sealed mode stopped the request (T11-M5), so the
+  // caller can tell the user the grant stays valid at Google.
   async revokeToken(token) {
     const body = new URLSearchParams({ token }).toString();
     try {
       await this._httpsPost("https://oauth2.googleapis.com/revoke", body);
-    } catch {
-      // Best-effort — token may already be revoked or network unavailable
+      return { revoked: true, sealed: false };
+    } catch (error) {
+      return { revoked: false, sealed: isSealedModeError(error) };
     }
   }
 

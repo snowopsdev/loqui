@@ -1525,12 +1525,18 @@ row({
   // Task 11: the refusal is swallowed by the best-effort revoke, so the erase
   // reports an ordinary, error-free result; the typed refusal is the blocked
   // calendar row at the revoke endpoint (asserted with the rest below).
-  accept: (o) =>
-    o.value?.success === true &&
-    o.value.message === "Cleanup completed" &&
-    Array.isArray(o.value.errors) &&
-    o.value.errors.length === 0,
+  accept: (o) => {
+    eraseRun.lastValue = o.value;
+    return (
+      o.value?.success === true &&
+      o.value.message === "Cleanup completed" &&
+      Array.isArray(o.value.errors) &&
+      o.value.errors.length === 0
+    );
+  },
   check: () => {
+    // T11-M5 (Task 13): the erase says the grant stays valid at Google.
+    assert.equal(eraseRun.lastValue?.googleGrantKept, true, "the refused revoke is surfaced");
     const [revoke] = recorder.list();
     assert.deepEqual(
       [revoke.task, revoke.host, revoke.outcome, revoke.errorClass, revoke.bytesOut],

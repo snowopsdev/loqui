@@ -4506,7 +4506,8 @@
       "dictationKept": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. A gravação está salva no histórico, então você pode transcrevê-la depois de desativar o modo selado.",
       "dictationNotKept": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. A gravação não foi mantida.",
       "dictationHeld": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. O Loqui mantém a gravação apenas na memória, por até 30 minutos ou até você sair do app. Transcreva-a depois de desativar o modo selado.",
-      "generic": "O modo selado está ativado, então o Loqui não enviou isto. Nada foi enviado."
+      "generic": "O modo selado está ativado, então o Loqui não enviou isto. Nada foi enviado.",
+      "chat": "O modo selado está ativado, então o Loqui não enviou esta mensagem. Nada foi enviado. Sua mensagem continua aqui."
     },
     "paused": {
       "dictationPreflightDetail": "O modo selado pausou o mecanismo de voz local do Loqui antes que ele iniciasse. Nada foi gravado. Desative o modo selado para ditar com ele."
@@ -4517,7 +4518,22 @@
       "dictationHeld": "O modo selado foi ativado enquanto este ditado era enviado, então ele foi interrompido. O provedor pode ter recebido parte dele. O Loqui mantém a gravação apenas na memória, por até 30 minutos ou até você sair do app.",
       "dictationPartial": "O modo selado foi ativado durante este ditado. As palavras que chegaram foram mantidas. O provedor pode ter recebido parte da gravação.",
       "cortiRetained": "A Corti ainda pode ter parte deste ditado: o Loqui não pode pedir à Corti que o exclua enquanto o modo selado estiver ativado e não entrará em contato com a Corti depois para excluí-lo.",
-      "generic": "O modo selado interrompeu isto durante o envio. O provedor pode ter recebido parte dele."
+      "generic": "O modo selado interrompeu isto durante o envio. O provedor pode ter recebido parte dele.",
+      "chat": "O modo selado interrompeu esta resposta enquanto a solicitação era enviada. O provedor pode ter recebido parte da conversa. Sua mensagem continua aqui."
+    },
+    "markdown": {
+      "imageBlocked": "Imagem não carregada: o modo selado está ativado",
+      "imageBlockedNamed": "Imagem não carregada: o modo selado está ativado ({{alt}})",
+      "imageChecking": "Imagem não carregada enquanto o Loqui verifica o modo selado",
+      "imageCheckingNamed": "Imagem não carregada enquanto o Loqui verifica o modo selado ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Não é possível conectar com o modo selado ativado",
+      "connectRefused": "Conectar este calendário exige internet, e o modo selado bloqueia isso. Nada foi enviado. Desative o modo selado para conectar.",
+      "connectInterrupted": "O modo selado foi ativado durante o login, então ele foi interrompido. O provedor pode ter recebido parte do login. Nenhuma conta foi conectada.",
+      "appleUnavailable": "Esta versão não consegue executar o assistente local do Calendário da Apple com o modo selado ativado. Desative o modo selado para conectar.",
+      "googleGrantKept": "O modo selado estava ativado, então o Loqui não pôde pedir ao Google que revogasse o acesso ao calendário. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google. O Loqui não entrará em contato com o Google sobre isso depois.",
+      "restartNow": "Reiniciar o Loqui"
     }
   },
   "setupFlow": {

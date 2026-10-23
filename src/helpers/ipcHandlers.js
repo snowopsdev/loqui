@@ -3564,9 +3564,13 @@ class IPCHandlers {
         errors.push(`Codex profile: ${e.message}`);
       }
 
-      // Revoke Google OAuth tokens before DB is closed
+      // Revoke Google OAuth tokens before DB is closed. While sealed the
+      // revoke is refused; the local tokens are still deleted, and the result
+      // says the grant stays valid at Google (T11-M5).
+      let googleGrantKept = false;
       try {
-        await this.googleCalendarManager?.revokeAllTokens();
+        const revoked = await this.googleCalendarManager?.revokeAllTokens();
+        googleGrantKept = (revoked?.sealedRefused ?? 0) > 0;
       } catch (e) {
         errors.push(`GCal revoke: ${e.message}`);
       }
@@ -3696,7 +3700,12 @@ class IPCHandlers {
         debugLogger.warn("Cleanup completed with errors", { errors }, "cleanup");
       }
 
-      return { success: errors.length === 0, message: "Cleanup completed", errors };
+      return {
+        success: errors.length === 0,
+        message: "Cleanup completed",
+        errors,
+        ...(googleGrantKept ? { googleGrantKept: true } : {}),
+      };
     });
 
     ipcMain.handle("update-hotkey", async (event, hotkey) => {

@@ -4506,7 +4506,8 @@
       "dictationKept": "Le mode scellé a bloqué cette dictée avant son envoi. Rien n'a été envoyé. L'enregistrement est conservé dans l'historique : vous pourrez le transcrire après avoir désactivé le mode scellé.",
       "dictationNotKept": "Le mode scellé a bloqué cette dictée avant son envoi. Rien n'a été envoyé. L'enregistrement n'a pas été conservé.",
       "dictationHeld": "Le mode scellé a bloqué cette dictée avant son envoi. Rien n'a été envoyé. Loqui garde l'enregistrement uniquement en mémoire, pendant 30 minutes au maximum ou jusqu'à ce que vous quittiez l'app. Transcrivez-le après avoir désactivé le mode scellé.",
-      "generic": "Le mode scellé est activé, Loqui n'a donc pas envoyé ceci. Rien n'a été envoyé."
+      "generic": "Le mode scellé est activé, Loqui n'a donc pas envoyé ceci. Rien n'a été envoyé.",
+      "chat": "Le mode scellé est activé, Loqui n'a donc pas envoyé ce message. Rien n'a été envoyé. Votre message est conservé ici."
     },
     "paused": {
       "dictationPreflightDetail": "Le mode scellé a mis en pause le moteur vocal local de Loqui avant son démarrage. Rien n'a été enregistré. Désactivez le mode scellé pour dicter avec lui."
@@ -4517,7 +4518,22 @@
       "dictationHeld": "Le mode scellé a été activé pendant l'envoi de cette dictée, qui s'est donc arrêtée. Le fournisseur en a peut-être reçu une partie. Loqui garde l'enregistrement uniquement en mémoire, pendant 30 minutes au maximum ou jusqu'à ce que vous quittiez l'app.",
       "dictationPartial": "Le mode scellé a été activé pendant cette dictée. Les mots déjà reçus sont conservés. Le fournisseur a peut-être reçu une partie de l'enregistrement.",
       "cortiRetained": "Corti conserve peut-être encore une partie de cette dictée : Loqui ne peut pas demander à Corti de la supprimer tant que le mode scellé est activé, et ne contactera pas Corti plus tard pour la supprimer.",
-      "generic": "Le mode scellé a arrêté ceci pendant l'envoi. Le fournisseur en a peut-être reçu une partie."
+      "generic": "Le mode scellé a arrêté ceci pendant l'envoi. Le fournisseur en a peut-être reçu une partie.",
+      "chat": "Le mode scellé a arrêté cette réponse pendant l'envoi de la requête. Le fournisseur a peut-être reçu une partie de la conversation. Votre message est conservé ici."
+    },
+    "markdown": {
+      "imageBlocked": "Image non chargée : le mode scellé est activé",
+      "imageBlockedNamed": "Image non chargée : le mode scellé est activé ({{alt}})",
+      "imageChecking": "Image non chargée pendant que Loqui vérifie le mode scellé",
+      "imageCheckingNamed": "Image non chargée pendant que Loqui vérifie le mode scellé ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Connexion impossible tant que le mode scellé est activé",
+      "connectRefused": "La connexion de ce calendrier nécessite Internet, et le mode scellé le bloque. Rien n'a été envoyé. Désactivez le mode scellé pour le connecter.",
+      "connectInterrupted": "Le mode scellé a été activé pendant la connexion, qui s'est donc arrêtée. Le fournisseur a peut-être reçu une partie de la connexion. Aucun compte n'a été connecté.",
+      "appleUnavailable": "Cette version ne peut pas exécuter l'assistant local de Calendrier Apple tant que le mode scellé est activé. Désactivez le mode scellé pour le connecter.",
+      "googleGrantKept": "Le mode scellé était activé, Loqui n'a donc pas pu demander à Google de révoquer son accès au calendrier. Loqui a supprimé sa propre copie de votre connexion, mais Google conserve l'accès de Loqui jusqu'à ce que vous le retiriez dans votre compte Google. Loqui ne contactera pas Google à ce sujet plus tard.",
+      "restartNow": "Redémarrer Loqui"
     }
   },
   "setupFlow": {

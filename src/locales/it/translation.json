@@ -4506,7 +4506,8 @@
       "dictationKept": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. La registrazione è salvata nella cronologia, quindi puoi trascriverla dopo aver disattivato la modalità sigillata.",
       "dictationNotKept": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. La registrazione non è stata conservata.",
       "dictationHeld": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. Loqui conserva la registrazione solo in memoria, per un massimo di 30 minuti o finché non chiudi l'app. Trascrivila dopo aver disattivato la modalità sigillata.",
-      "generic": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo contenuto. Non è stato inviato nulla."
+      "generic": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo contenuto. Non è stato inviato nulla.",
+      "chat": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo messaggio. Non è stato inviato nulla. Il tuo messaggio resta qui."
     },
     "paused": {
       "dictationPreflightDetail": "La modalità sigillata ha messo in pausa il motore vocale locale di Loqui prima dell'avvio. Non è stato registrato nulla. Disattiva la modalità sigillata per dettare con esso."
@@ -4517,7 +4518,22 @@
       "dictationHeld": "La modalità sigillata è stata attivata mentre questa dettatura veniva inviata, quindi si è interrotta. Il provider potrebbe averne ricevuto una parte. Loqui conserva la registrazione solo in memoria, per un massimo di 30 minuti o finché non chiudi l'app.",
       "dictationPartial": "La modalità sigillata è stata attivata durante questa dettatura. Le parole già arrivate vengono conservate. Il provider potrebbe aver ricevuto una parte della registrazione.",
       "cortiRetained": "Corti potrebbe ancora conservare una parte di questa dettatura: Loqui non può chiedere a Corti di eliminarla mentre la modalità sigillata è attiva, e non contatterà Corti in seguito per eliminarla.",
-      "generic": "La modalità sigillata ha interrotto questo invio. Il provider potrebbe averne ricevuto una parte."
+      "generic": "La modalità sigillata ha interrotto questo invio. Il provider potrebbe averne ricevuto una parte.",
+      "chat": "La modalità sigillata ha interrotto questa risposta durante l'invio della richiesta. Il provider potrebbe aver ricevuto una parte della conversazione. Il tuo messaggio resta qui."
+    },
+    "markdown": {
+      "imageBlocked": "Immagine non caricata: la modalità sigillata è attiva",
+      "imageBlockedNamed": "Immagine non caricata: la modalità sigillata è attiva ({{alt}})",
+      "imageChecking": "Immagine non caricata mentre Loqui verifica la modalità sigillata",
+      "imageCheckingNamed": "Immagine non caricata mentre Loqui verifica la modalità sigillata ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Impossibile connettersi con la modalità sigillata attiva",
+      "connectRefused": "Per connettere questo calendario serve internet, e la modalità sigillata lo blocca. Non è stato inviato nulla. Disattiva la modalità sigillata per connetterlo.",
+      "connectInterrupted": "La modalità sigillata è stata attivata durante l'accesso, quindi si è interrotto. Il provider potrebbe aver ricevuto una parte dell'accesso. Nessun account è stato connesso.",
+      "appleUnavailable": "Questa versione non può eseguire l'helper locale di Calendario di Apple con la modalità sigillata attiva. Disattiva la modalità sigillata per connetterlo.",
+      "googleGrantKept": "La modalità sigillata era attiva, quindi Loqui non ha potuto chiedere a Google di revocare il suo accesso al calendario. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google. Loqui non contatterà Google per questo in seguito.",
+      "restartNow": "Riavvia Loqui"
     }
   },
   "setupFlow": {

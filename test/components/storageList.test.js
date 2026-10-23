@@ -1150,3 +1150,31 @@ test("R1 I2 integration: admitted reset retires tree selection and failure prese
   assert.equal(store.getNoteFromStore(8)?.content, "Fixture content", "loaded page survives");
   assert.deepEqual(calls, [], "failed cleanup never relaunches");
 });
+
+// T11-M5 (Plan 07 Task 13): Sealed mode refused the Google revoke during the
+// erase. The done state says the grant stays valid at Google, and the app
+// waits for the user to restart instead of relaunching under them.
+test("a sealed-refused Google revoke is surfaced, and the user restarts when ready", async (t) => {
+  const { api, calls } = fakeApi({
+    cleanupApp: async () => ({
+      success: true,
+      message: "Cleanup completed",
+      errors: [],
+      googleGrantKept: true,
+    }),
+  });
+  const h = await mount(t, api);
+  await React.act(async () => h.view().onReset());
+  await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+  await React.act(async () => h.reset().onConfirm());
+  await settle();
+  assert.equal(h.reset().phase, "done");
+  assert.equal(h.reset().googleGrantKept, true);
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.ok(html.includes("sealedMode.calendar.googleGrantKept"));
+  assert.ok(html.includes("sealedMode.calendar.restartNow"));
+  await wait(1100);
+  assert.deepEqual(calls, [], "no automatic relaunch while the note is unread");
+  await React.act(async () => h.reset().onRestart());
+  assert.deepEqual(calls, [["relaunch"]]);
+});

@@ -320,3 +320,33 @@ test("unsealing prefers a calendar's resumeAfterSeal over start", async (t) => {
   assert.deepEqual(log, ["a.resume", "b.start"]);
   assert.equal(transition.snapshot().phase, "open");
 });
+
+// Final review I1 / T12-m4: meeting detection polls OS tools (pactl, ps). The
+// seal stops both detectors; unsealing starts them again. A failing hook is a
+// named failure.
+test("the seal stops meeting detection and unsealing resumes it", async (t) => {
+  const h = harness(t);
+  const log = [];
+  const meeting = {
+    pauseForSeal: () => log.push("meeting.pause"),
+    resumeAfterSeal: () => log.push("meeting.resume"),
+  };
+  const transition = createSealTransition({
+    state: h.state,
+    children,
+    getInference: () => h.inference,
+    getUpdateManager: () => h.updates,
+    getMeetingDetection: () => meeting,
+    waitMs: 1,
+    sleep: () => new Promise((r) => setImmediate(r)),
+  });
+  await transition.apply(true);
+  assert.deepEqual(log, ["meeting.pause"]);
+  await transition.apply(false);
+  assert.deepEqual(log, ["meeting.pause", "meeting.resume"]);
+  meeting.pauseForSeal = () => {
+    throw new Error("fixture");
+  };
+  await transition.apply(true);
+  assert.ok(transition.snapshot().failures.includes("meetingDetectionPause"));
+});

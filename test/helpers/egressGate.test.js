@@ -1491,3 +1491,74 @@ test("cancellation at the dispatch notice prevents transport invocation", async 
     ["cancelled", "ABORTED"]
   );
 });
+
+// Final review I1: a refused program start is not a request. It has its own
+// task, is attributed, never enters blockedSinceSealed or the unexplained
+// summary, and is recorded at most once per program per seal.
+test("a refused native launch is one nativeLaunch row per program per seal, outside the blocked count", (t) => {
+  const { recorder, tick } = setup(t, { sealed: true });
+  gate.onSealChanged(true);
+  for (let i = 0; i < 20; i++) {
+    for (const program of ["pactl", "ps"]) {
+      const error = gate.refuseNativeLaunch(program);
+      assert.equal(error.code, "SEALED_MODE");
+      assert.equal(sealedPhaseOf(error), "refused");
+      assert.equal(error.details.task, "nativeLaunch");
+    }
+    tick(3000);
+  }
+  const rows = recorder.list();
+  assert.deepEqual(
+    rows.map((row) => [row.task, row.host, row.kind, row.outcome, row.attributed]).sort(),
+    [
+      ["nativeLaunch", "native-pactl", "operation", "blocked", true],
+      ["nativeLaunch", "native-ps", "operation", "blocked", true],
+    ]
+  );
+  assert.equal(gate.counters().blockedSinceSealed, 0);
+  const summary = recorder.summary();
+  assert.deepEqual(
+    [summary.unattributed, summary.unattributedHosts, summary.blocked, summary.nativeRefused],
+    [0, [], 0, 2]
+  );
+  // A new seal starts a new epoch: each program is recorded once again.
+  gate.onSealChanged(true);
+  gate.refuseNativeLaunch("pactl");
+  gate.refuseNativeLaunch("pactl");
+  assert.equal(recorder.list().length, 3);
+  // Program names are bounded to a hostname-safe label.
+  gate.onSealChanged(true);
+  gate.refuseNativeLaunch("../../Weird Name!.exe");
+  gate.refuseNativeLaunch("");
+  assert.deepEqual(
+    recorder
+      .list()
+      .slice(0, 2)
+      .map((row) => row.host)
+      .sort(),
+    ["native-unknown", "native-weird-name-exe"]
+  );
+});
+
+test("blockedSinceSealed counts refusals only, never an interruption", (t) => {
+  const { recorder } = setup(t, { sealed: false });
+  const ticket = gate.authorize({ task: "chat", target: "https://api.groq.com/x" });
+  const attempt = ticket.beginAttempt("api.groq.com");
+  attempt.markDispatched();
+  const cut = gate.recordBackstopBlock({
+    host: "next.invalid",
+    hosts: ["api.groq.com", "next.invalid"],
+    ticket: attempt,
+  });
+  assert.equal(sealedPhaseOf(cut), "interrupted");
+  const unowned = gate.recordBackstopBlock({
+    host: "next.invalid",
+    hosts: ["first.invalid", "next.invalid"],
+  });
+  assert.equal(sealedPhaseOf(unowned), "interrupted");
+  assert.equal(gate.counters().blockedSinceSealed, 0);
+  gate.recordBackstopBlock({ host: "remote.invalid" });
+  assert.equal(gate.counters().blockedSinceSealed, 1);
+  ticket.settle({ outcome: "cancelled" });
+  assert.ok(recorder.list().length >= 2);
+});

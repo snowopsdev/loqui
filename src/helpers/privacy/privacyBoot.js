@@ -49,6 +49,9 @@ function createSealTransition({
   getUpdateManager = () => null,
   getInference = () => null,
   getCalendars = () => [],
+  // Meeting detection polls OS tools (pactl, ps): paused while sealed. Absent
+  // in a build without the engine; a failing hook is a named failure.
+  getMeetingDetection = () => null,
   // Cancels sign-ins in progress (Task 11). Runs synchronously with the seal.
   cancelPending = () => 0,
   children = childRegistry,
@@ -146,6 +149,17 @@ function createSealTransition({
       operations.push(failure);
     }
   }
+  async function meetingDetection(name, failure) {
+    let owner;
+    try {
+      owner = getMeetingDetection();
+    } catch {
+      operations.push(failure);
+      return;
+    }
+    if (owner == null) return;
+    await hook(() => owner, name, failure);
+  }
   async function calendars(name) {
     let list;
     try {
@@ -194,6 +208,7 @@ function createSealTransition({
         state.set(false);
         await calendars("start");
         if (!state.isSealed()) await hook(getUpdateManager, "resumeAfterSeal", "updatesResume");
+        if (!state.isSealed()) await meetingDetection("resumeAfterSeal", "meetingDetectionResume");
         if (state.isSealed()) {
           recheck();
           return;
@@ -204,6 +219,7 @@ function createSealTransition({
       state.set(true);
       recheck();
       await hook(getUpdateManager, "pauseForSeal", "updatesPause");
+      await meetingDetection("pauseForSeal", "meetingDetectionPause");
       await calendars("stop");
       await Promise.all([
         hook(getInference, "stopCodex", "codexStop"),

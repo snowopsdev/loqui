@@ -1,6 +1,7 @@
 const path = require("node:path");
 const { syncBuiltinESMExports } = require("node:module");
 const { promisify } = require("node:util");
+const { performance } = require("node:perf_hooks");
 const gate = require("./egressGate");
 
 // Classification describes intent only. 07a has no native launch capability.
@@ -124,7 +125,8 @@ const defaults = () => ({
   pidAlive,
   groupAlive: (pid) => pidAlive(-pid),
   killGroup: (pid, signal) => process.kill(-pid, signal),
-  now: () => Date.now(),
+  // Monotonic: a wall-clock jump must not end or stretch group continuity (T10-m1).
+  now: () => performance.now(),
   every: (fn, ms) => {
     const timer = setInterval(fn, ms);
     timer.unref?.();
@@ -135,7 +137,7 @@ let system = defaults();
 let groupWatches = new Set();
 
 // A detached POSIX child leads its own process group, whose id is the root's
-// pid. Signalling that group is safe only while the id provably still names
+// pid. Signalling that group is safe only while the id, observed continuously, still names
 // OUR group:
 // - While the root is unreaped (alive or a zombie), its pid cannot be reused,
 //   so the group id is ours. This is the strict case.
@@ -202,7 +204,7 @@ function observeGroupAtRootExit(entry) {
   stop = watch;
   groupWatches.add(stop);
 }
-// Signals the entry's whole group when that is provably still its group.
+// Signals the entry's whole group while continuity still holds (observed, not proven).
 function signalEntryGroup(entry, sig) {
   if (!posixGroup(entry)) return false;
   if (!rootUnreaped(entry) && !groupStillOurs(entry)) return false;
@@ -336,7 +338,7 @@ function diagnostics() {
 function signal(entry, sig) {
   // Never signal a PID recovered from disk or a root that already exited. A
   // detached root's group is signalled after the root exits only while it is
-  // provably still that group (see signalEntryGroup). Known descendants are
+  // still that group, as observed continuously (see signalEntryGroup). Known descendants are
   // liveness diagnostics only (PID identity may change).
   try {
     if (posixGroup(entry)) signalEntryGroup(entry, sig);
@@ -345,7 +347,7 @@ function signal(entry, sig) {
 }
 // For owners that stop their own detached child (abort, timeout, cancel): the
 // whole POSIX group, under the same ownership rules as the barrier's stop.
-// Returns false when it did not signal (Windows, no group, not provably ours);
+// Returns false when it did not signal (Windows, no group, continuity not observed);
 // the caller then falls back to its own root-only kill.
 function signalGroup(child, sig) {
   const entry = children.get(child);
@@ -460,10 +462,8 @@ function syncLaunch(original, receiver, args, command, name) {
 }
 function check(command, args, options, shellLine = null) {
   // The refusal precedes even FFmpeg validation: no category has a capability.
-  if (gate.isSealed())
-    throw gate.recordBackstopBlock({
-      host: `native-${kindOf(command).replace(/[^a-z0-9-]/g, "-") || "unknown"}`,
-    });
+  // A refused start is recorded as a nativeLaunch operation, not a request.
+  if (gate.isSealed()) throw gate.refuseNativeLaunch(kindOf(command));
   const ffmpeg = /^ffmpeg/.test(baseName(command));
   const shellArgs =
     /^(?:sh|bash|dash|zsh|cmd(?:\.exe)?|powershell(?:\.exe)?)$/.test(baseName(command)) &&

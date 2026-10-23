@@ -25,9 +25,10 @@ test("task ids: the 11 route ids first, then the non-route purposes", () => {
     "appUpdate",
     "codex",
     "calendar",
+    "nativeLaunch",
     "unattributed",
   ]);
-  assert.equal(policy.EGRESS_TASKS.length, 19);
+  assert.equal(policy.EGRESS_TASKS.length, 20);
   assert.ok(policy.EGRESS_TASKS.includes("unattributed"));
 });
 

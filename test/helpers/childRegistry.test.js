@@ -62,8 +62,12 @@ for (const name of ["spawn", "exec", "execFile", "fork", "spawnSync", "execSync"
       assert.throws(() => cp[name](command, args), { code: "SEALED_MODE" });
     }
     assert.equal(cp.calls.length, 0);
-    assert.equal(rows.length, 10);
-    assert.ok(rows.every((r) => r.outcome === "blocked" && r.bytesOut === 0));
+    // One nativeLaunch row per refused program per seal (final review I1):
+    // the two "helper" launches share a row, and fork always starts Node.
+    assert.equal(rows.length, name === "fork" ? 1 : 9);
+    assert.ok(
+      rows.every((r) => r.task === "nativeLaunch" && r.outcome === "blocked" && r.bytesOut === 0)
+    );
   });
 }
 test("utility guard installs independently and idempotently, and worker paths confer no admission", () => {
@@ -619,4 +623,58 @@ test("a guarded module launch through ChildProcess.prototype.spawn is one sessio
   assert.equal(registry.alive().length, 1);
   c.emit("exit", 0, null);
   assert.equal(rows.filter((r) => r.kind === "session").length, 1);
+});
+
+// Final review I1: sealed periodic pollers (meeting detection's pactl and ps)
+// write at most one row per program per seal, through the real spawn guard,
+// and none of it is an unexplained request or a blocked request.
+test("sealed polling of refused programs yields one attributed row per program", () => {
+  const { FlightRecorder } = require("../../src/helpers/privacy/flightRecorder");
+  const recorder = new FlightRecorder({ now: () => 5 });
+  recorder.setPersistence(false);
+  gate.configureEgress({ isSealed: () => sealed, recorder });
+  const cp = leaf();
+  registry.installSpawnGuard({ childProcess: cp, processObject: {} });
+  sealed = true;
+  gate.onSealChanged(true);
+  for (let tick = 0; tick < 30; tick++) {
+    assert.throws(() => cp.execFile("pactl", ["list"], () => {}), { code: "SEALED_MODE" });
+    assert.throws(() => cp.spawn("ps", ["-A"]), { code: "SEALED_MODE" });
+    assert.throws(() => cp.exec("pactl subscribe"), { code: "SEALED_MODE" });
+  }
+  assert.deepEqual(cp.calls, []);
+  const rows = recorder.list();
+  assert.deepEqual(rows.map((row) => row.host).sort(), ["native-pactl", "native-ps"]);
+  assert.ok(rows.every((row) => row.task === "nativeLaunch" && row.attributed));
+  const summary = recorder.summary();
+  assert.deepEqual(summary.unattributedHosts, []);
+  assert.equal(summary.blocked, 0);
+  assert.equal(gate.counters().blockedSinceSealed, 0);
+});
+
+// T10-m1: the group-continuity window is measured on a monotonic clock, so a
+// wall-clock jump neither ends continuity early nor stretches it.
+test("group continuity is measured on a monotonic clock, not the wall clock", (t) => {
+  const realNow = Date.now;
+  t.after(() => {
+    Date.now = realNow;
+  });
+  const kills = [];
+  registry._resetForTests();
+  registry._setSystemForTests({
+    listProcesses: () => [],
+    pidAlive: () => false,
+    groupAlive: () => true,
+    killGroup: (pid, sig) => kills.push([pid, sig]),
+    every: () => () => {},
+  });
+  for (const jump of [3600000, -3600000]) {
+    const c = child(41020 + kills.length);
+    registry.register(c, { kind: "fixture", group: true });
+    c.emit("exit", 0, null);
+    Date.now = () => realNow() + jump;
+    assert.equal(registry.signalGroup(c, "SIGTERM"), true, `jump ${jump}`);
+    Date.now = realNow;
+  }
+  assert.equal(kills.length, 2);
 });

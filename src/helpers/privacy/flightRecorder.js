@@ -301,6 +301,9 @@ class FlightRecorder extends EventEmitter {
 
   summary({ since = 0 } = {}) {
     const rows = this.list({ since, limit: MAX_ROWS });
+    // A refused program start is not a request (final review I1): counted on
+    // its own, never as a blocked request or an unexplained one.
+    const nativeRefused = rows.filter((row) => row.task === "nativeLaunch");
     const sent = rows.filter((row) => row.outcome !== "blocked" && row.kind !== "operation");
     const observed = sent.filter((row) => row.kind === "request" || row.kind === "stream");
     const connections = sent.filter((row) => row.kind === "connection");
@@ -311,7 +314,9 @@ class FlightRecorder extends EventEmitter {
         observed.length + connections.length + sent.filter((row) => row.kind === "session").length,
       observed: observed.length,
       connections: connections.length,
-      blocked: rows.filter((row) => row.outcome === "blocked").length,
+      blocked: rows.filter((row) => row.outcome === "blocked" && row.task !== "nativeLaunch")
+        .length,
+      nativeRefused: nativeRefused.length,
       unattributed: unexplained.length,
       unattributedHosts: [...new Set(unexplained.map((row) => row.host))],
       bytesOut: sum("bytesOut"),

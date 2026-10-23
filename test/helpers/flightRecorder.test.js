@@ -538,6 +538,7 @@ test("summary counts measured request rows separately and preserves unknown byte
     observed: 3,
     connections: 1,
     blocked: 1,
+    nativeRefused: 0,
     unattributed: 2,
     unattributedHosts: ["x.example.com", "y.example.com"],
     bytesOut: 6200,

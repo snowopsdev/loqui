@@ -47,6 +47,8 @@ let nextId = 1;
 // from operation IDs and do not reset it between test/session generations.
 let nextReceiptId = 1;
 let tally = freshTally();
+// Programs whose refused start is already recorded in this seal epoch.
+let nativeRefusals = new Set();
 let bypass = false;
 let generation = 0;
 
@@ -207,6 +209,41 @@ function refuse({ task, host, hosts = null, model = null, attributed = true }) {
     attributed,
   });
   return new SealedModeError({ task, host });
+}
+
+// A program start refused while sealed (final review I1). It is not a
+// request: the row is an attributed nativeLaunch operation naming the program
+// as native-<name>, recorded once per program per seal epoch so periodic
+// pollers cannot flood the ledger, and it never enters blockedSinceSealed.
+function nativeLaunchHost(program) {
+  const label = String(program ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/, "");
+  return normalizeHost(`native-${label || "unknown"}`) ?? "native-unknown";
+}
+function refuseNativeLaunch(program) {
+  const host = nativeLaunchHost(program);
+  if (!nativeRefusals.has(host)) {
+    nativeRefusals.add(host);
+    const ts = config.now();
+    record({
+      ts,
+      endedAt: ts,
+      task: "nativeLaunch",
+      host,
+      hosts: [host],
+      kind: "operation",
+      bytesOut: 0,
+      bytesIn: 0,
+      outcome: "blocked",
+      errorClass: "SEALED_MODE",
+      attributed: true,
+    });
+  }
+  return new SealedModeError({ task: "nativeLaunch", host });
 }
 
 const meterAccumulator = () => ({ total: 0, measured: false, unknown: false });
@@ -1030,14 +1067,14 @@ function recordBackstopBlock({ host, hosts = null, ticket: owner = null }) {
     }
     for (const seen of hosts ?? [host]) owner.addHost(seen);
     owner.addHost(host);
-    tally.blockedSinceSealed++;
+    // An interruption may have sent part of the request: not a refusal, so
+    // not in blockedSinceSealed (final review I1).
     const error = new SealedModeError({ task: ticket.task, host, phase: "interrupted" });
     owner.abort(error);
     return error;
   }
   const prefix = hosts?.at(-1) === host && hosts.length > 1 ? hosts.slice(0, -1) : hosts;
   if (prefix?.some((h) => !isLoopbackHost(h))) {
-    tally.blockedSinceSealed++;
     const error = new SealedModeError({ task: "unattributed", host, phase: "interrupted" });
     recordUnattributed({
       host: hosts[0],
@@ -1053,7 +1090,10 @@ function recordBackstopBlock({ host, hosts = null, ticket: owner = null }) {
 }
 
 function onSealChanged(sealed) {
-  if (sealed === true) tally.blockedSinceSealed = 0;
+  if (sealed === true) {
+    tally.blockedSinceSealed = 0;
+    nativeRefusals = new Set();
+  }
 }
 const counters = () => ({ ...tally });
 
@@ -1075,6 +1115,7 @@ function _resetForTests() {
   byTag = new Map();
   nextId = 1;
   tally = freshTally();
+  nativeRefusals = new Set();
   bypass = false;
   events.removeAllListeners();
 }
@@ -1106,6 +1147,7 @@ module.exports = {
   activeRemoteCount,
   recordUnattributed,
   recordBackstopBlock,
+  refuseNativeLaunch,
   onSealChanged,
   counters,
   events,

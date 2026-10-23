@@ -21,6 +21,9 @@ const PURPOSE_TASKS = Object.freeze([
   "appUpdate",
   "codex",
   "calendar",
+  // A program start main refused while sealed. Not a request: nothing was
+  // sent, and the row names the program, not a host (final review I1).
+  "nativeLaunch",
   "unattributed",
 ]);
 const EGRESS_TASKS = Object.freeze([...ROUTE_TASKS, ...PURPOSE_TASKS]);

@@ -408,7 +408,9 @@ function initializeCoreManagers() {
       () => meetingProcessDetector.getDetectedProcesses().length > 0
     ),
     windowManager,
-    databaseManager
+    databaseManager,
+    // Detectors poll OS tools; none of them start while sealed (I1, T12-m4).
+    { isSealed: () => privacy.state.isSealed() }
   );
   windowManager.meetingDetectionEngine = meetingDetectionEngine;
   calendarReminderScheduler.meetingDetectionEngine = meetingDetectionEngine;
@@ -581,6 +583,7 @@ function initializeCoreManagers() {
     getUpdateManager: () => updateManager,
     getInference: () => inference,
     getCalendars: calendars,
+    getMeetingDetection: () => meetingDetectionEngine,
     cancelPending: () => calendarGuard.cancelPending(),
     children: childRegistry,
     nativeBoundary: privacy.nativeBoundary,
@@ -680,6 +683,8 @@ function initializeDeferredManagers() {
   }
 
   // Sealed: nothing starts; unsealing re-arms the schedules (seal transition).
+  // The meeting detectors stay stopped while sealed (the engine reads the
+  // state); unsealing resumes them through the seal transition.
   calendarGuard.start(calendars());
   meetingDetectionEngine.start();
 }

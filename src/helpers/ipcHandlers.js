@@ -1,5 +1,5 @@
 const egressGate = require("./privacy/egressGate");
-const { guardMetered, gatedNetFetch } = require("./privacy/gatedFetch");
+const { guardMetered, gatedNetFetch, gatedNodeFetch } = require("./privacy/gatedFetch");
 const {
   buildMultipartBody,
   postMultipart,
@@ -1422,8 +1422,13 @@ class IPCHandlers {
       return true;
     });
 
+    // Sealed mode: a providerCheck. Loopback stays testable while sealed; any
+    // other address is refused before a socket opens and answers "sealed".
     ipcMain.handle("probe-self-hosted", (_event, baseUrl) =>
-      require("./selfHostedProbe").probeSelfHosted(baseUrl)
+      require("./selfHostedProbe").probeSelfHosted(
+        baseUrl,
+        gatedNodeFetch("providerCheck", { provider: "custom" })
+      )
     );
 
     ipcMain.handle("test-provider-connection", (_event, config) =>

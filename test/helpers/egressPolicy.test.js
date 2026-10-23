@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const policy = require("../../src/helpers/privacy/egressPolicy");
+const cases = require("../fixtures/loopbackCases.json");
 
 test("task ids: the 11 route ids first, then the non-route purposes", () => {
   assert.deepEqual(policy.ROUTE_TASKS, [
@@ -82,33 +83,14 @@ test("hostOf rejects authorities whose raw spelling disagrees with WHATWG URL pa
 });
 
 test("loopback classification covers canonical IPv6 and mapped IPv4 127/8 only", () => {
-  for (const host of [
-    "localhost",
-    "LOCALHOST.",
-    "app.localhost",
-    "127.0.0.2",
-    "127.255.255.254",
-    "::1",
-    "0:0:0:0:0:0:0:1",
-    "::ffff:127.0.0.1",
-    "0:0:0:0:0:ffff:127.0.0.1",
-    "::ffff:7f00:1",
-    "0:0:0:0:0:ffff:7f00:1",
-    "::ffff:7f00:ffff",
-  ])
-    assert.equal(policy.isLoopbackHost(host), true, host);
-  for (const host of [
-    "192.168.1.5",
-    "localhost.evil.example",
-    "127.0.0.1.nip.io",
-    "0.0.0.0",
-    "::",
-    "::ffff:10.0.0.1",
-    "::ffff:a00:1",
-    "2001:db8::1",
-    "127.0.0.1:bad",
-  ])
+  // The one shared table (Task 11a): the renderer's route graph reads it too.
+  for (const host of cases.hosts.loopback) assert.equal(policy.isLoopbackHost(host), true, host);
+  for (const host of cases.hosts.notLoopback)
     assert.equal(policy.isLoopbackHost(host), false, host);
+  for (const url of cases.urls.loopback)
+    assert.equal(policy.isLoopbackHost(policy.hostOf(url)), true, url);
+  for (const url of cases.urls.notLoopback)
+    assert.equal(policy.isLoopbackHost(policy.hostOf(url)), false, url);
   assert.equal(policy.isLoopbackHost(null), false);
   assert.equal(policy.isLoopbackHost(""), false);
 });

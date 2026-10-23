@@ -3,6 +3,8 @@ import type { ElementType, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { clearMissingLocalModelSelections } from "../../stores/settingsStore";
 import { invalidatePendingNoteNavigation } from "../../stores/noteStore";
+import { getSealedSnapshot } from "../../stores/sealedStore";
+import { isSealedModeError } from "../../utils/sealedModeError";
 import { formatDecimalBytes } from "../../utils/formatBytes";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
@@ -42,6 +44,10 @@ export const RESET_RELAUNCH_DELAY_MS = 1000;
 
 export type DeletePhase = "review" | "running" | "failed";
 export type ResetPhase = "review" | "running" | "failed" | "done";
+// Why a finished reset can't restart Loqui by itself: main refuses
+// relaunch-app while sealed (it would launch a native waiter), or the
+// relaunch failed for another reason. Either way, the user quits and reopens.
+export type ResetRestartBlocked = "sealed" | "failed";
 type T = ReturnType<typeof useTranslation>["t"];
 type Api = Window["electronAPI"] | undefined;
 type Rows = {
@@ -64,6 +70,7 @@ type ResetState = {
   typed: string;
   errors: string[];
   googleGrantKept?: boolean;
+  restartBlocked?: ResetRestartBlocked;
 };
 
 const LOADING: Rows = {
@@ -354,7 +361,9 @@ export interface ResetProps {
   errors: string[];
   // T11-M5: Sealed mode kept Loqui from revoking the Google grant.
   googleGrantKept?: boolean;
-  onRestart?: () => void;
+  // Plan 07 fix round 1 (I2): Loqui can't restart itself; there is no button
+  // for an action main would refuse, only honest instructions.
+  restartBlocked?: ResetRestartBlocked;
   onTypedChange: (value: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -375,19 +384,18 @@ export function ResetContent({
           {t("storage.reset.confirmTitle")}
         </Title>
         <Description role="status" className="text-sm text-foreground">
-          {t("storage.reset.done")}
+          {t(
+            props.restartBlocked === "sealed"
+              ? "storage.reset.doneSealed"
+              : props.restartBlocked === "failed"
+                ? "storage.reset.restartFailed"
+                : "storage.reset.done"
+          )}
         </Description>
         {props.googleGrantKept && (
-          <>
-            <p data-google-grant-kept="" className="text-sm text-foreground">
-              {t("sealedMode.calendar.googleGrantKept")}
-            </p>
-            <div className="flex justify-end">
-              <Button type="button" onClick={props.onRestart}>
-                {t("sealedMode.calendar.restartNow")}
-              </Button>
-            </div>
-          </>
+          <p data-google-grant-kept="" className="text-sm text-foreground">
+            {t("sealedMode.calendar.googleGrantKept")}
+          </p>
         )}
       </div>
     );
@@ -693,14 +701,40 @@ export function StorageList() {
       publishReset(owner, { phase: "failed", typed, errors: result.errors });
       return;
     }
-    if (result.googleGrantKept) {
-      // The user reads why Google still has access, then restarts.
-      publishReset(owner, { phase: "done", typed, errors: [], googleGrantKept: true });
+    const googleGrantKept = result.googleGrantKept === true ? { googleGrantKept: true } : {};
+    // Plan 07 fix round 1 (I2): main refuses relaunch-app while sealed. A
+    // revoke refused by the seal, or the sole store's known seal, means Loqui
+    // can't restart itself: say so instead of "restarting", and try nothing.
+    if (result.googleGrantKept || getSealedSnapshot().sealed === true) {
+      publishReset(owner, {
+        phase: "done",
+        typed,
+        errors: [],
+        ...googleGrantKept,
+        restartBlocked: "sealed",
+      });
       return;
     }
-    publishReset(owner, { phase: "done", typed, errors: [] });
+    publishReset(owner, { phase: "done", typed, errors: [], ...googleGrantKept });
     setTimeout(() => {
-      if (owns(owner)) void window.electronAPI?.relaunchApp?.();
+      if (!owns(owner)) return;
+      // A refusal (sealed in the meantime) or any other failure is handled
+      // and explained; it never becomes an unhandled rejection.
+      Promise.resolve()
+        .then(() => call(window.electronAPI?.relaunchApp))
+        .catch((error: unknown) => {
+          const sealed =
+            getSealedSnapshot().sealed === true ||
+            isSealedModeError(error) ||
+            /NATIVE_BOUNDARY_UNAVAILABLE/.test(errorText(error));
+          publishReset(owner, {
+            phase: "done",
+            typed,
+            errors: [],
+            ...googleGrantKept,
+            restartBlocked: sealed ? "sealed" : "failed",
+          });
+        });
     }, RESET_RELAUNCH_DELAY_MS);
   };
 
@@ -766,7 +800,7 @@ export function StorageList() {
           typed={reset.typed}
           errors={reset.errors}
           googleGrantKept={reset.googleGrantKept === true}
-          onRestart={() => void window.electronAPI?.relaunchApp?.()}
+          restartBlocked={reset.restartBlocked}
           confirmDisabled={
             reset.phase === "running" ||
             reset.phase === "done" ||

@@ -178,3 +178,40 @@ test("erase: a sealed-refused Google revoke reaches the reset outcome (T11-M5)",
     /until you remove it in your Google Account/
   );
 });
+
+// Fix round 1 (I1, I2, M1, M2): the new copy exists in all 11 locales, never
+// implies that a local engine works or will work after a check, never says
+// Loqui is restarting while it can't, and claims no isolation.
+test("fix round 1 copy: present everywhere, settled and honest", () => {
+  const keys = [
+    "routes.state.nativeUnavailable",
+    "notes.actionsModelHint.nativeUnavailable",
+    "setupFlow.ready.noteBlocked.nativeUnavailable",
+    "setupFlow.ready.details.speech.nativeUnavailable",
+    "setupFlow.ready.details.cleanup.nativeUnavailable",
+    "setupFlow.cleanup.now.nativeUnavailable",
+    "sealedMode.blocked.nativeUnconfirmedTitle",
+    "sealedMode.blocked.nativeUnconfirmedDetail",
+    "sealedMode.recovery.stillSealedTitle",
+    "sealedMode.recovery.stillSealedDetail",
+    "sealedMode.recovery.evictedOldest",
+    "storage.reset.doneSealed",
+    "storage.reset.restartFailed",
+  ];
+  const missing = [];
+  for (const l of LOCALES)
+    for (const key of keys) {
+      const value = lookup(resources[l], key);
+      if (typeof value !== "string" || !value.trim()) missing.push(`${l}:${key}`);
+    }
+  assert.deepEqual(missing, []);
+  const en = Object.fromEntries(keys.map((key) => [key, lookup(resources.en, key)]));
+  for (const [key, value] of Object.entries(en)) {
+    assert.doesNotMatch(value, /verified|0 bytes|nothing leaves|is isolated|are isolated/i, key);
+    assert.doesNotMatch(value, /restarting|checking|will work|works/i, key);
+  }
+  for (const key of keys.filter((k) => k.includes("nativeUnavailable")))
+    assert.match(en[key], /Sealed mode/, `${key} names Sealed mode`);
+  assert.doesNotMatch(en["sealedMode.recovery.stillSealedDetail"], /nothing was recorded/i);
+  assert.equal(lookup(resources.en, "sealedMode.calendar.restartNow"), undefined, "no dead button");
+});

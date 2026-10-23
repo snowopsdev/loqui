@@ -9,13 +9,14 @@ import {
 import { canStartDictation } from "../utils/dictationReadiness";
 import * as sealedStore from "../stores/sealedStore";
 import {
+  isDictationNativeAttestedUnavailable,
   isDictationNativeUnavailable,
   isDictationPausedNative,
   isDictationSealed,
 } from "../lib/sealedMode";
 import {
   claimRecovery,
-  holdForRecovery,
+  holdForRecoveryWithEvictions,
   releaseRecovery,
   shouldHoldInMemory,
 } from "../lib/sealedRecovery";
@@ -1199,18 +1200,26 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         variant: "default",
       };
     if (isDictationNativeUnavailable(settings, snapshot)) {
-      const paused = isDictationPausedNative(settings, snapshot);
-      const titleKey = paused
-        ? "sealedMode.blocked.dictationPreflight"
-        : "sealedMode.blocked.nativeUnavailableTitle";
+      // Main's acknowledged pause (07b), main's attested "unavailable on this
+      // build" (07a), or no fresh claim at all. The engine never starts; the
+      // copy says only what main has actually told us (fix round 1, I1).
+      const [titleKey, messageKey] = isDictationPausedNative(settings, snapshot)
+        ? ["sealedMode.blocked.dictationPreflight", "sealedMode.paused.dictationPreflightDetail"]
+        : isDictationNativeAttestedUnavailable(settings, snapshot)
+          ? [
+              "sealedMode.blocked.nativeUnavailableTitle",
+              "sealedMode.blocked.nativeUnavailableDetail",
+            ]
+          : [
+              "sealedMode.blocked.nativeUnconfirmedTitle",
+              "sealedMode.blocked.nativeUnconfirmedDetail",
+            ];
       return {
         code: "SEALED_MODE",
         phase: "refused",
         titleKey,
         title: titleKey,
-        messageKey: paused
-          ? "sealedMode.paused.dictationPreflightDetail"
-          : "sealedMode.blocked.nativeUnavailableDetail",
+        messageKey,
         variant: "default",
       };
     }
@@ -1285,7 +1294,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const hold =
       Boolean(held.owned.blob) &&
       shouldHoldInMemory(error, { audioKept, privateTake: held.owned.private });
-    if (hold) holdForRecovery(held);
+    // Over RECOVERY_MAX the oldest hold is dropped; the notice says so (M2).
+    if (hold) error.recoveryEvicted = holdForRecoveryWithEvictions(held).evicted;
     else {
       // History acknowledged the audio, or there was none: close once.
       held.context?.release();
@@ -1305,6 +1315,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       title: "sealedMode.blocked.dictationTitle",
       messageKey: error.messageKey,
       recoveryHeld: error.recoveryHeld === true,
+      ...(error.recoveryEvicted > 0 ? { recoveryEvicted: error.recoveryEvicted } : {}),
       ...(error.providerRetained ? { providerRetained: error.providerRetained } : {}),
     };
   }
@@ -1347,19 +1358,36 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (!held) return { started: false, reason: "none" };
     const { owned, session, context, tracker } = held.operation;
     // Still sealed for this recording's own route: replaying would only be
-    // refused again. The hold stays for after unseal.
-    const refusal = this._sealedPreflight(session);
-    if (refusal) {
+    // refused again. The hold stays for after unseal. The pre-flight's copy
+    // ("Nothing was recorded") would be false for a recording that exists, so
+    // say that it is still held (fix round 1, M1). Information, not a failure.
+    if (this._sealedPreflight(session)) {
       releaseRecovery(held.id, { done: false });
-      this.onError?.(refusal);
+      this.onError?.({
+        code: "SEALED_MODE",
+        phase: "refused",
+        titleKey: "sealedMode.recovery.stillSealedTitle",
+        title: "sealedMode.recovery.stillSealedTitle",
+        messageKey: "sealedMode.recovery.stillSealedDetail",
+        variant: "default",
+      });
       return { started: false, reason: "sealed" };
     }
     this._recoveryReplay = held.id;
     let pipeline = null;
     try {
-      this.applySessionIntents(session, { context, tracker });
-      this._setOwnedAudio(owned.blob, { sessionId: owned.sessionId, private: owned.private });
-      pipeline = this._startProcessingPipeline();
+      try {
+        this.applySessionIntents(session, { context, tracker });
+        this._setOwnedAudio(owned.blob, { sessionId: owned.sessionId, private: owned.private });
+        pipeline = this._startProcessingPipeline();
+      } catch (error) {
+        // Fix round 1, M7: no pipeline exists to return the operation, so give
+        // the exact session, context and tracker back to the claimed entry
+        // here, before the finally unclaims it. Nothing of the hold's is
+        // released; anything the attach created in their place is.
+        this._returnEarlyReplayOperation(held.operation);
+        throw error;
+      }
       pipeline.recoveryId = held.id;
       this.isProcessing = true;
       this.onStateChange?.({ isRecording: false, isProcessing: true, isStreaming: false });
@@ -1376,6 +1404,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       releaseRecovery(held.id, { done: pipeline?.outcome === "success" });
     }
     return { started: true, succeeded: pipeline?.outcome === "success" };
+  }
+
+  /**
+   * A replay that failed before its pipeline existed (M7). Detaches only the
+   * hold's own session, if the manager still owns it, without releasing the
+   * hold's context or tracker; objects the failed attach created instead are
+   * the manager's and are closed. Drops the manager's reference to the held
+   * audio. Never touches a newer owner.
+   */
+  _returnEarlyReplayOperation({ owned, session, context, tracker }) {
+    if (session && this._activeSession === session) {
+      const detached = this._detachSessionOperation();
+      if (detached.context && detached.context !== context) detached.context.release();
+      if (detached.tracker && detached.tracker !== tracker) detached.tracker.dispose?.();
+    }
+    if (owned?.blob && this.lastAudioBlob === owned.blob) this._setOwnedAudio(null);
   }
 
   _readSealed() {

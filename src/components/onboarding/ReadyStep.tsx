@@ -83,7 +83,8 @@ export function ReadyStep(props: ReadyStepProps) {
         <div className="onb-ready__note">
           <p className="onb-reco__meta">
             <RouteDestinationChip route={note} />
-            {note.status === "checking" ? null : (
+            {/* An engine main attests can't run while sealed is not "transcribed on this device". */}
+            {note.status === "checking" || note.block === "nativeUnavailable" ? null : (
               <span>
                 {note.locality === "device"
                   ? t("setupFlow.ready.noteLocal")

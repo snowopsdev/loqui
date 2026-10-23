@@ -43,6 +43,7 @@ export function routeStateLabel(
       return t("routes.state.addUrl");
     case "unreachable":
       if (state.detail === "sealed") return t("routes.state.sealed");
+      if (state.detail === "nativeUnavailable") return t("routes.state.nativeUnavailable");
       if (state.detail === "retired") return t("routes.state.retired");
       if (state.detail === "unsupported") return t("routes.state.unsupported");
       return t("routes.state.cantReach");
@@ -72,7 +73,10 @@ function glyphStyle(state: RouteState): string {
     case "needsUrl":
       return "text-destructive";
     case "unreachable":
-      return state.detail === "sealed" ? "text-muted-foreground" : "text-destructive";
+      // Sealed mode's own outcomes are settled facts, not faults to fix.
+      return state.detail === "sealed" || state.detail === "nativeUnavailable"
+        ? "text-muted-foreground"
+        : "text-destructive";
   }
 }
 
@@ -92,7 +96,8 @@ function StateGlyph({ state }: { state: RouteState }) {
     case "needsUrl":
       return <Server className={cls} aria-hidden="true" />;
     case "unreachable":
-      if (state.detail === "sealed") return <Lock className={cls} aria-hidden="true" />;
+      if (state.detail === "sealed" || state.detail === "nativeUnavailable")
+        return <Lock className={cls} aria-hidden="true" />;
       if (state.detail === "retired" || state.detail === "unsupported")
         return <CircleAlert className={cls} aria-hidden="true" />;
       return <WifiOff className={cls} aria-hidden="true" />;

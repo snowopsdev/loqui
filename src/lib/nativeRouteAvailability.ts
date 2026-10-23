@@ -6,9 +6,11 @@
 //
 // 07a has no verified native boundary on any platform: main's attestation
 // always reports `isolation.selfTest: "unavailable"`, `nothingLeaves: false`
-// and `childDiagnostics.nativeBoundaryUnavailable`. A route that needs one of
-// Loqui's own engines is therefore "unknown" while sealed; nothing here can
-// produce "available". "paused" (main-acknowledged refusal or confirmed
+// and `childDiagnostics.nativeBoundaryUnavailable`. That is a positive,
+// settled answer (A14, fix round 1): a route that needs one of Loqui's own
+// engines is "unavailable" while sealed on this build. It claims no isolation
+// and no pause. Only a missing or stale attestation is "unknown". Nothing here
+// can produce "available". "paused" (main-acknowledged refusal or confirmed
 // whole-tree stop) and "pending" (a live draining tree) need 07b's lifecycle
 // facts and are not produced yet. An empty child list, a test fixture or a
 // self-test result is never evidence of availability.
@@ -20,22 +22,42 @@ import {
   type RouteId,
   type RouteSettingsSnapshot,
 } from "./routeGraph.ts";
+import { isAttestationFresh } from "./attestationFreshness.ts";
 import type { Attestation } from "../types/privacy";
 
 const NOT_REQUIRED: NativeRouteAvailability = Object.freeze({ status: "notRequired" });
-const UNVERIFIED: NativeRouteAvailability = Object.freeze({
-  status: "unknown",
+const UNKNOWN: NativeRouteAvailability = Object.freeze({ status: "unknown" });
+const UNAVAILABLE: NativeRouteAvailability = Object.freeze({
+  status: "unavailable",
   reason: "isolation",
 });
 
-// Availability of one engine kind from main's attestation. 07a: always
-// unverified, whatever the attestation says (including no attestation).
+// Main says, in a claim that is still fresh, that this build has no native
+// boundary. Either diagnostic is enough; neither can ever mean "available".
+function attestsNoNativeBoundary(attestation: Attestation | null): boolean {
+  if (!attestation || !isAttestationFresh(attestation)) return false;
+  return (
+    attestation.childDiagnostics?.nativeBoundaryUnavailable === true ||
+    attestation.isolation?.selfTest === "unavailable"
+  );
+}
+
+// Availability of one engine kind from main's attestation. 07a never yields
+// "available", whatever the attestation says.
 function engineAvailability(
   _engine: NativeEngine,
-  _attestation: Attestation | null
+  attestation: Attestation | null
 ): NativeRouteAvailability {
-  return UNVERIFIED;
+  return attestsNoNativeBoundary(attestation) ? UNAVAILABLE : UNKNOWN;
 }
+
+// A route is only as available as its least available required engine.
+const WORST_FIRST: readonly NativeRouteAvailability["status"][] = [
+  "paused",
+  "unavailable",
+  "pending",
+  "unknown",
+];
 
 export function nativeRouteAvailability(
   snapshot: RouteSettingsSnapshot,
@@ -48,11 +70,11 @@ export function nativeRouteAvailability(
       out[id] = NOT_REQUIRED;
       continue;
     }
-    // A route is only as available as its least available required engine.
     const each = engines.map((engine) => engineAvailability(engine, attestation));
     out[id] = each.every((a) => a.status === "available")
       ? each[0]
-      : (each.find((a) => a.status !== "available") ?? UNVERIFIED);
+      : (WORST_FIRST.map((status) => each.find((a) => a.status === status)).find(Boolean) ??
+        UNKNOWN);
   }
   return Object.freeze(out);
 }

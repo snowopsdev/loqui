@@ -59,3 +59,17 @@ export function isDictationNativeUnavailable(
   if (nativeEngineRequirements(s, "dictationStt").length === 0) return false;
   return s.facts.nativeAvailability?.dictationStt?.status !== "available";
 }
+
+// Main's fresh attestation says this build's engines do not run while sealed
+// (A14, fix round 1): the same fact the graph publishes as
+// unreachable/nativeUnavailable. False for a missing or stale claim, which the
+// route cards show as Checking… and the pre-flight still refuses.
+export function isDictationNativeAttestedUnavailable(
+  settings: Settings,
+  snapshot: SealedSnapshot
+): boolean {
+  if (snapshot.sealed !== true) return false;
+  const s = sealedDictation(settings, snapshot);
+  if (nativeEngineRequirements(s, "dictationStt").length === 0) return false;
+  return s.facts.nativeAvailability?.dictationStt?.status === "unavailable";
+}

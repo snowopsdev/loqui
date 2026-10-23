@@ -2856,7 +2856,8 @@
       "addUrl": "添加地址",
       "sealed": "密封模式开启时，操作会暂停",
       "unreachable": "操作无法连接到笔记模型",
-      "openSettings": "打开设置"
+      "openSettings": "打开设置",
+      "nativeUnavailable": "此版本在封闭模式下无法使用操作：本地模型尚无法隔离"
     },
     "slash": {
       "label": "插入块",
@@ -4019,7 +4020,8 @@
       "sealed": "已暂停 · 密封模式",
       "retired": "服务已停用 · 请重新选择",
       "unsupported": "此任务不可用",
-      "cantReach": "无法连接服务器"
+      "cantReach": "无法连接服务器",
+      "nativeUnavailable": "此版本在封闭模式下不可用"
     },
     "toast": {
       "local": "{{task}}现在在此设备上运行。",
@@ -4304,7 +4306,9 @@
       "word": "重置",
       "running": "正在重置…",
       "failed": "重置未完成，因此 Loqui 不会自动重启。以下步骤失败：",
-      "done": "重置完成。Loqui 正在重启…"
+      "done": "重置完成。Loqui 正在重启…",
+      "doneSealed": "重置完成。封闭模式开启时，Loqui 无法自行重启。请退出 Loqui 并重新打开以完成。",
+      "restartFailed": "重置完成，但 Loqui 无法自行重启。请退出 Loqui 并重新打开以完成。"
     }
   },
   "settingsSearch": {
@@ -4424,7 +4428,10 @@
       "availableTitle": "录音已可恢复",
       "transcribe": "转写录音",
       "discard": "丢弃录音",
-      "transcribeOne": "转写"
+      "transcribeOne": "转写",
+      "stillSealedTitle": "录音仍被保留",
+      "stillSealedDetail": "封闭模式仍处于开启状态，因此这段录音未被转写。Loqui 仍仅在内存中保留它，最长为听写后 30 分钟或直到你退出应用。请在关闭封闭模式后转写。",
+      "evictedOldest": "为腾出空间，Loqui 已丢弃它保留的最早一段录音。"
     },
     "confirmUnseal": {
       "title": "关闭封闭模式？",
@@ -4465,7 +4472,9 @@
       "dictationNotKept": "封闭模式在发送前阻止了这次听写。未发送任何内容。录音未保留。",
       "dictationHeld": "封闭模式在发送前阻止了这次听写。未发送任何内容。Loqui 仅在内存中保留这段录音，最长 30 分钟或直到你退出应用。请在关闭封闭模式后转写。",
       "generic": "封闭模式已开启，因此 Loqui 没有发送此内容。未发送任何内容。",
-      "chat": "封闭模式已开启，因此 Loqui 没有发送这条消息。未发送任何内容。你的消息保留在这里。"
+      "chat": "封闭模式已开启，因此 Loqui 没有发送这条消息。未发送任何内容。你的消息保留在这里。",
+      "nativeUnconfirmedTitle": "封闭模式下未启动本地听写",
+      "nativeUnconfirmedDetail": "封闭模式已开启，且 Loqui 无法确认其本地引擎的当前状态，因此未启动语音引擎。未录制任何内容。关闭封闭模式即可使用它听写。"
     },
     "paused": {
       "dictationPreflightDetail": "封闭模式在 Loqui 的本地语音引擎启动前将其暂停。未录制任何内容。关闭封闭模式即可使用它听写。"
@@ -4490,8 +4499,7 @@
       "connectRefused": "连接此日历需要互联网，而封闭模式会阻止这样做。未发送任何内容。关闭封闭模式即可连接。",
       "connectInterrupted": "登录期间封闭模式被开启，因此登录已停止。服务提供商可能已收到部分登录信息。未连接任何账户。",
       "appleUnavailable": "此版本在封闭模式开启时无法运行 Apple 日历的本地辅助程序。关闭封闭模式即可连接。",
-      "googleGrantKept": "封闭模式当时已开启，因此 Loqui 无法请求 Google 撤销其日历访问权限。Loqui 已删除自己保存的登录信息，但在你于 Google 账号中移除之前，Google 仍会保留 Loqui 的访问权限。Loqui 之后不会为此联系 Google。",
-      "restartNow": "重启 Loqui"
+      "googleGrantKept": "封闭模式当时已开启，因此 Loqui 无法请求 Google 撤销其日历访问权限。Loqui 已删除自己保存的登录信息，但在你于 Google 账号中移除之前，Google 仍会保留 Loqui 的访问权限。Loqui 之后不会为此联系 Google。"
     }
   },
   "setupFlow": {
@@ -4809,7 +4817,8 @@
         "needsModel": "此设备上还没有本地文本整理模型。请在“设置 → 语言模型”中下载（1.3 GB）。",
         "unreachable": "Loqui 目前无法连接 {{provider}}。你的话会原样保留。",
         "modelSetup": "已连接 ChatGPT。请获取模型列表，选择用于文本润色的模型。",
-        "review": "请查看此更改，然后选择“应用”。"
+        "review": "请查看此更改，然后选择“应用”。",
+        "nativeUnavailable": "此版本在封闭模式下无法使用本地清理：本地模型尚无法隔离。你的话会保持原样。"
       },
       "reuse": "其他文本功能也使用此选择",
       "exampleInProgress": "请求运行期间显示示例文本。只有文本整理成功后，才会显示你的结果。",
@@ -4861,7 +4870,8 @@
           "configured": "{{voice}}，尚未试用",
           "downloading": "仍在下载",
           "needsModel": "下载语音模型",
-          "unavailable": "在设置中完成配置"
+          "unavailable": "在设置中完成配置",
+          "nativeUnavailable": "此版本在封闭模式下不可用"
         },
         "microphone": {
           "heard": "工作正常",
@@ -4891,7 +4901,8 @@
           "configured": "已配置 {{name}}",
           "configuredNetwork": "已在 {{provider}} 配置 {{name}}",
           "modelSetup": "获取用于文本润色的 ChatGPT 模型列表",
-          "review": "请查看此更改，然后选择“应用”。"
+          "review": "请查看此更改，然后选择“应用”。",
+          "nativeUnavailable": "此版本在封闭模式下不可用"
         }
       },
       "dictateNote": "向笔记听写",
@@ -4906,7 +4917,8 @@
         "needsModel": "笔记录音需要此设备上的语音模型。",
         "needsKey": "笔记录音需要你的 {{provider}} 密钥。",
         "needsUrl": "笔记录音需要服务器地址。",
-        "unreachable": "Loqui 无法连接 {{provider}} 进行笔记录音。"
+        "unreachable": "Loqui 无法连接 {{provider}} 进行笔记录音。",
+        "nativeUnavailable": "此版本在封闭模式下无法录制笔记：本地引擎尚无法隔离。"
       },
       "fixNote": "修复此项",
       "noteNetwork": "笔记已设为向 {{provider}} 发送音频。"

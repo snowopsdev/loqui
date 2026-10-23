@@ -2857,7 +2857,8 @@
       "addUrl": "Adicionar o endereço",
       "sealed": "As ações estão pausadas enquanto o modo selado está ativado",
       "unreachable": "As ações não conseguem acessar o modelo de notas",
-      "openSettings": "Abrir configurações"
+      "openSettings": "Abrir configurações",
+      "nativeUnavailable": "As ações estão indisponíveis no modo selado nesta versão: os modelos locais ainda não podem ser isolados"
     },
     "slash": {
       "label": "Inserir bloco",
@@ -4024,7 +4025,8 @@
       "sealed": "Pausado · modo selado",
       "retired": "Serviço encerrado · escolha novamente",
       "unsupported": "Indisponível para esta tarefa",
-      "cantReach": "Não foi possível acessar o servidor"
+      "cantReach": "Não foi possível acessar o servidor",
+      "nativeUnavailable": "Indisponível no modo selado nesta versão"
     },
     "toast": {
       "local": "{{task}} agora é executada neste dispositivo.",
@@ -4338,7 +4340,9 @@
       "word": "redefinir",
       "running": "Redefinindo…",
       "failed": "A redefinição não terminou, por isso o Loqui não reiniciará automaticamente. Estas etapas falharam:",
-      "done": "Redefinição concluída. O Loqui está reiniciando…"
+      "done": "Redefinição concluída. O Loqui está reiniciando…",
+      "doneSealed": "Redefinição concluída. O Loqui não consegue reiniciar sozinho enquanto o modo selado está ativado. Saia do Loqui e abra-o novamente para concluir.",
+      "restartFailed": "Redefinição concluída, mas o Loqui não conseguiu reiniciar sozinho. Saia do Loqui e abra-o novamente para concluir."
     }
   },
   "settingsSearch": {
@@ -4464,7 +4468,10 @@
       "availableTitle": "Gravações prontas para recuperar",
       "transcribe": "Transcrever gravações",
       "discard": "Descartar gravações",
-      "transcribeOne": "Transcrever"
+      "transcribeOne": "Transcrever",
+      "stillSealedTitle": "A gravação continua guardada",
+      "stillSealedDetail": "O modo selado ainda está ativado, então esta gravação não foi transcrita. O Loqui continua mantendo-a apenas na memória, por até 30 minutos após o ditado ou até você sair do app. Transcreva-a depois de desativar o modo selado.",
+      "evictedOldest": "Para abrir espaço, o Loqui descartou a gravação mais antiga que estava guardando."
     },
     "confirmUnseal": {
       "title": "Desativar o modo selado?",
@@ -4507,7 +4514,9 @@
       "dictationNotKept": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. A gravação não foi mantida.",
       "dictationHeld": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. O Loqui mantém a gravação apenas na memória, por até 30 minutos ou até você sair do app. Transcreva-a depois de desativar o modo selado.",
       "generic": "O modo selado está ativado, então o Loqui não enviou isto. Nada foi enviado.",
-      "chat": "O modo selado está ativado, então o Loqui não enviou esta mensagem. Nada foi enviado. Sua mensagem continua aqui."
+      "chat": "O modo selado está ativado, então o Loqui não enviou esta mensagem. Nada foi enviado. Sua mensagem continua aqui.",
+      "nativeUnconfirmedTitle": "O ditado local não foi iniciado no modo selado",
+      "nativeUnconfirmedDetail": "O modo selado está ativado e o Loqui não conseguiu confirmar o estado atual dos seus mecanismos locais, então o mecanismo de voz não foi iniciado. Nada foi gravado. Desative o modo selado para ditar com ele."
     },
     "paused": {
       "dictationPreflightDetail": "O modo selado pausou o mecanismo de voz local do Loqui antes que ele iniciasse. Nada foi gravado. Desative o modo selado para ditar com ele."
@@ -4532,8 +4541,7 @@
       "connectRefused": "Conectar este calendário exige internet, e o modo selado bloqueia isso. Nada foi enviado. Desative o modo selado para conectar.",
       "connectInterrupted": "O modo selado foi ativado durante o login, então ele foi interrompido. O provedor pode ter recebido parte do login. Nenhuma conta foi conectada.",
       "appleUnavailable": "Esta versão não consegue executar o assistente local do Calendário da Apple com o modo selado ativado. Desative o modo selado para conectar.",
-      "googleGrantKept": "O modo selado estava ativado, então o Loqui não pôde pedir ao Google que revogasse o acesso ao calendário. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google. O Loqui não entrará em contato com o Google sobre isso depois.",
-      "restartNow": "Reiniciar o Loqui"
+      "googleGrantKept": "O modo selado estava ativado, então o Loqui não pôde pedir ao Google que revogasse o acesso ao calendário. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google. O Loqui não entrará em contato com o Google sobre isso depois."
     }
   },
   "setupFlow": {
@@ -4854,7 +4862,8 @@
         "needsModel": "O modelo de limpeza local ainda não está neste dispositivo. Transfere-o nas Definições → Modelos de linguagem (1,3 GB).",
         "unreachable": "O Loqui não consegue contactar {{provider}} neste momento. As tuas palavras ficam como as disseste.",
         "modelSetup": "O ChatGPT está ligado. Liste os modelos para escolher um para a revisão do texto.",
-        "review": "Revê esta alteração e escolhe «Aplicar»."
+        "review": "Revê esta alteração e escolhe «Aplicar».",
+        "nativeUnavailable": "A limpeza local está indisponível no modo selado nesta versão: os modelos locais ainda não podem ser isolados. Suas palavras ficam como você as disse."
       },
       "reuse": "Usar esta escolha também para outras funções de texto",
       "exampleInProgress": "Texto de exemplo enquanto o pedido decorre. O teu resultado só aparece se a limpeza for bem-sucedida.",
@@ -4908,7 +4917,8 @@
           "configured": "{{voice}}, ainda por experimentar",
           "downloading": "A transferência continua",
           "needsModel": "Transfere uma voz",
-          "unavailable": "Conclui a configuração nas Definições"
+          "unavailable": "Conclui a configuração nas Definições",
+          "nativeUnavailable": "Indisponível no modo selado nesta versão"
         },
         "microphone": {
           "heard": "A funcionar",
@@ -4938,7 +4948,8 @@
           "configured": "Configurada com {{name}}",
           "configuredNetwork": "Configurada em {{provider}} com {{name}}",
           "modelSetup": "Listar modelos do ChatGPT para a revisão",
-          "review": "Revê esta alteração e escolhe «Aplicar»."
+          "review": "Revê esta alteração e escolhe «Aplicar».",
+          "nativeUnavailable": "Indisponível no modo selado nesta versão"
         }
       },
       "dictateNote": "Ditar numa nota",
@@ -4953,7 +4964,8 @@
         "needsModel": "A gravação de notas precisa de um modelo de voz neste dispositivo.",
         "needsKey": "A gravação de notas precisa da tua chave {{provider}}.",
         "needsUrl": "A gravação de notas precisa de um endereço de servidor.",
-        "unreachable": "O Loqui não consegue contactar {{provider}} para gravar notas."
+        "unreachable": "O Loqui não consegue contactar {{provider}} para gravar notas.",
+        "nativeUnavailable": "A gravação de notas está indisponível no modo selado nesta versão: os mecanismos locais ainda não podem ser isolados."
       },
       "fixNote": "Resolver",
       "noteNetwork": "As notas estão configuradas para enviar áudio para {{provider}}.",

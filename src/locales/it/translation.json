@@ -2857,7 +2857,8 @@
       "addUrl": "Aggiungi l’indirizzo",
       "sealed": "Le azioni sono in pausa mentre la modalità sigillata è attiva",
       "unreachable": "Le azioni non riescono a raggiungere il modello delle note",
-      "openSettings": "Apri le impostazioni"
+      "openSettings": "Apri le impostazioni",
+      "nativeUnavailable": "Le azioni non sono disponibili in modalità sigillata in questa versione: i modelli locali non possono ancora essere isolati"
     },
     "slash": {
       "label": "Inserisci blocco",
@@ -4024,7 +4025,8 @@
       "sealed": "In pausa · modalità sigillata",
       "retired": "Servizio ritirato · scegli di nuovo",
       "unsupported": "Non disponibile per questa attività",
-      "cantReach": "Impossibile raggiungere il server"
+      "cantReach": "Impossibile raggiungere il server",
+      "nativeUnavailable": "Non disponibile in modalità sigillata in questa versione"
     },
     "toast": {
       "local": "{{task}} ora viene eseguita su questo dispositivo.",
@@ -4338,7 +4340,9 @@
       "word": "ripristina",
       "running": "Ripristino…",
       "failed": "Il ripristino non è terminato, quindi Loqui non si riavvierà automaticamente. Questi passaggi non sono riusciti:",
-      "done": "Ripristino completato. Loqui si sta riavviando…"
+      "done": "Ripristino completato. Loqui si sta riavviando…",
+      "doneSealed": "Ripristino completato. Loqui non può riavviarsi da solo mentre la modalità sigillata è attiva. Chiudi Loqui e riaprilo per completare.",
+      "restartFailed": "Ripristino completato, ma Loqui non è riuscito a riavviarsi da solo. Chiudi Loqui e riaprilo per completare."
     }
   },
   "settingsSearch": {
@@ -4464,7 +4468,10 @@
       "availableTitle": "Registrazioni pronte per il recupero",
       "transcribe": "Trascrivi registrazioni",
       "discard": "Elimina registrazioni",
-      "transcribeOne": "Trascrivi"
+      "transcribeOne": "Trascrivi",
+      "stillSealedTitle": "La registrazione è ancora conservata",
+      "stillSealedDetail": "La modalità sigillata è ancora attiva, quindi questa registrazione non è stata trascritta. Loqui la conserva ancora solo in memoria, per un massimo di 30 minuti dopo la dettatura o finché non chiudi l'app. Trascrivila dopo aver disattivato la modalità sigillata.",
+      "evictedOldest": "Per fare spazio, Loqui ha scartato la registrazione più vecchia che conservava."
     },
     "confirmUnseal": {
       "title": "Disattivare la modalità sigillata?",
@@ -4507,7 +4514,9 @@
       "dictationNotKept": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. La registrazione non è stata conservata.",
       "dictationHeld": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. Loqui conserva la registrazione solo in memoria, per un massimo di 30 minuti o finché non chiudi l'app. Trascrivila dopo aver disattivato la modalità sigillata.",
       "generic": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo contenuto. Non è stato inviato nulla.",
-      "chat": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo messaggio. Non è stato inviato nulla. Il tuo messaggio resta qui."
+      "chat": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo messaggio. Non è stato inviato nulla. Il tuo messaggio resta qui.",
+      "nativeUnconfirmedTitle": "La dettatura locale non è stata avviata in modalità sigillata",
+      "nativeUnconfirmedDetail": "La modalità sigillata è attiva e Loqui non ha potuto confermare lo stato attuale dei suoi motori locali, quindi il motore vocale non è stato avviato. Non è stato registrato nulla. Disattiva la modalità sigillata per dettare con esso."
     },
     "paused": {
       "dictationPreflightDetail": "La modalità sigillata ha messo in pausa il motore vocale locale di Loqui prima dell'avvio. Non è stato registrato nulla. Disattiva la modalità sigillata per dettare con esso."
@@ -4532,8 +4541,7 @@
       "connectRefused": "Per connettere questo calendario serve internet, e la modalità sigillata lo blocca. Non è stato inviato nulla. Disattiva la modalità sigillata per connetterlo.",
       "connectInterrupted": "La modalità sigillata è stata attivata durante l'accesso, quindi si è interrotto. Il provider potrebbe aver ricevuto una parte dell'accesso. Nessun account è stato connesso.",
       "appleUnavailable": "Questa versione non può eseguire l'helper locale di Calendario di Apple con la modalità sigillata attiva. Disattiva la modalità sigillata per connetterlo.",
-      "googleGrantKept": "La modalità sigillata era attiva, quindi Loqui non ha potuto chiedere a Google di revocare il suo accesso al calendario. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google. Loqui non contatterà Google per questo in seguito.",
-      "restartNow": "Riavvia Loqui"
+      "googleGrantKept": "La modalità sigillata era attiva, quindi Loqui non ha potuto chiedere a Google di revocare il suo accesso al calendario. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google. Loqui non contatterà Google per questo in seguito."
     }
   },
   "setupFlow": {
@@ -4854,7 +4862,8 @@
         "needsModel": "Il modello locale di correzione testo non è ancora su questo dispositivo. Scaricalo in Impostazioni → Modelli linguistici (1,3 GB).",
         "unreachable": "Loqui non riesce a raggiungere {{provider}} ora. Le tue parole restano come le hai dette.",
         "modelSetup": "ChatGPT è connesso. Elenca i suoi modelli per sceglierne uno per la revisione del testo.",
-        "review": "Controlla questa modifica, poi scegli «Applica»."
+        "review": "Controlla questa modifica, poi scegli «Applica».",
+        "nativeUnavailable": "La pulizia locale non è disponibile in modalità sigillata in questa versione: i modelli locali non possono ancora essere isolati. Le tue parole restano come le hai dette."
       },
       "reuse": "Usa questa scelta anche per le altre funzioni di testo",
       "exampleInProgress": "Testo di esempio durante la richiesta. Il risultato appare solo se la correzione testo riesce.",
@@ -4908,7 +4917,8 @@
           "configured": "{{voice}}, non ancora provata",
           "downloading": "Download ancora in corso",
           "needsModel": "Scarica una voce",
-          "unavailable": "Completa la configurazione nelle impostazioni"
+          "unavailable": "Completa la configurazione nelle impostazioni",
+          "nativeUnavailable": "Non disponibile in modalità sigillata in questa versione"
         },
         "microphone": {
           "heard": "Funziona",
@@ -4938,7 +4948,8 @@
           "configured": "Configurata con {{name}}",
           "configuredNetwork": "Configurata su {{provider}} con {{name}}",
           "modelSetup": "Elenca i modelli ChatGPT per la revisione",
-          "review": "Controlla questa modifica, poi scegli «Applica»."
+          "review": "Controlla questa modifica, poi scegli «Applica».",
+          "nativeUnavailable": "Non disponibile in modalità sigillata in questa versione"
         }
       },
       "dictateNote": "Detta in una nota",
@@ -4953,7 +4964,8 @@
         "needsModel": "La registrazione delle note richiede un modello vocale su questo dispositivo.",
         "needsKey": "La registrazione delle note richiede la chiave {{provider}}.",
         "needsUrl": "La registrazione delle note richiede un indirizzo del server.",
-        "unreachable": "Loqui non può raggiungere {{provider}} per la registrazione delle note."
+        "unreachable": "Loqui non può raggiungere {{provider}} per la registrazione delle note.",
+        "nativeUnavailable": "La registrazione delle note non è disponibile in modalità sigillata in questa versione: i motori locali non possono ancora essere isolati."
       },
       "fixNote": "Risolvi",
       "noteNetwork": "Le note sono configurate per inviare l’audio a {{provider}}.",

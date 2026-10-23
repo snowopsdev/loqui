@@ -3232,7 +3232,8 @@
       "addUrl": "Adresse hinzufügen",
       "sealed": "Aktionen sind pausiert, solange der versiegelte Modus aktiv ist",
       "unreachable": "Aktionen können das Notizmodell nicht erreichen",
-      "openSettings": "Einstellungen öffnen"
+      "openSettings": "Einstellungen öffnen",
+      "nativeUnavailable": "Aktionen sind im abgeschotteten Modus in diesem Build nicht verfügbar: Lokale Modelle können noch nicht isoliert werden"
     },
     "slash": {
       "label": "Block einfügen",
@@ -4021,7 +4022,8 @@
       "sealed": "Pausiert · versiegelter Modus",
       "retired": "Dienst eingestellt · erneut auswählen",
       "unsupported": "Für diese Aufgabe nicht verfügbar",
-      "cantReach": "Server nicht erreichbar"
+      "cantReach": "Server nicht erreichbar",
+      "nativeUnavailable": "Im abgeschotteten Modus in diesem Build nicht verfügbar"
     },
     "toast": {
       "local": "{{task}} läuft jetzt auf diesem Gerät.",
@@ -4331,7 +4333,9 @@
       "word": "zurücksetzen",
       "running": "Wird zurückgesetzt…",
       "failed": "Das Zurücksetzen wurde nicht abgeschlossen. Loqui startet daher nicht automatisch neu. Diese Schritte sind fehlgeschlagen:",
-      "done": "Zurücksetzen abgeschlossen. Loqui startet neu…"
+      "done": "Zurücksetzen abgeschlossen. Loqui startet neu…",
+      "doneSealed": "Zurücksetzen abgeschlossen. Loqui kann sich nicht selbst neu starten, solange der abgeschottete Modus aktiv ist. Beende Loqui und öffne es erneut, um den Vorgang abzuschließen.",
+      "restartFailed": "Zurücksetzen abgeschlossen, aber Loqui konnte sich nicht selbst neu starten. Beende Loqui und öffne es erneut, um den Vorgang abzuschließen."
     }
   },
   "settingsSearch": {
@@ -4454,7 +4458,10 @@
       "availableTitle": "Aufnahmen können wiederhergestellt werden",
       "transcribe": "Aufnahmen transkribieren",
       "discard": "Aufnahmen verwerfen",
-      "transcribeOne": "Transkribieren"
+      "transcribeOne": "Transkribieren",
+      "stillSealedTitle": "Die Aufnahme wird weiterhin gehalten",
+      "stillSealedDetail": "Der abgeschottete Modus ist noch aktiv, daher wurde diese Aufnahme nicht transkribiert. Loqui hält sie weiterhin nur im Arbeitsspeicher, bis zu 30 Minuten nach dem Diktat oder bis du die App beendest. Transkribiere sie, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
+      "evictedOldest": "Um Platz zu schaffen, hat Loqui die älteste gehaltene Aufnahme verworfen."
     },
     "confirmUnseal": {
       "title": "Abgeschotteten Modus ausschalten?",
@@ -4496,7 +4503,9 @@
       "dictationNotKept": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Die Aufnahme wurde nicht behalten.",
       "dictationHeld": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Loqui hält die Aufnahme nur im Arbeitsspeicher, bis zu 30 Minuten oder bis du die App beendest. Transkribiere sie, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
       "generic": "Der abgeschottete Modus ist aktiv, daher hat Loqui dies nicht gesendet. Es wurde nichts gesendet.",
-      "chat": "Der abgeschottete Modus ist aktiv, daher hat Loqui diese Nachricht nicht gesendet. Es wurde nichts gesendet. Deine Nachricht bleibt hier erhalten."
+      "chat": "Der abgeschottete Modus ist aktiv, daher hat Loqui diese Nachricht nicht gesendet. Es wurde nichts gesendet. Deine Nachricht bleibt hier erhalten.",
+      "nativeUnconfirmedTitle": "Lokales Diktat wurde im abgeschotteten Modus nicht gestartet",
+      "nativeUnconfirmedDetail": "Der abgeschottete Modus ist aktiv, und Loqui konnte den aktuellen Status seiner lokalen Engines nicht bestätigen, daher wurde die Sprach-Engine nicht gestartet. Es wurde nichts aufgenommen. Schalte den abgeschotteten Modus aus, um damit zu diktieren."
     },
     "paused": {
       "dictationPreflightDetail": "Der abgeschottete Modus hat Loquis lokale Sprach-Engine vor dem Start pausiert. Es wurde nichts aufgenommen. Schalte den abgeschotteten Modus aus, um damit zu diktieren."
@@ -4521,8 +4530,7 @@
       "connectRefused": "Zum Verbinden dieses Kalenders wird das Internet benötigt, und der abgeschottete Modus blockiert das. Es wurde nichts gesendet. Schalte den abgeschotteten Modus aus, um zu verbinden.",
       "connectInterrupted": "Der abgeschottete Modus wurde während der Anmeldung eingeschaltet, daher wurde sie gestoppt. Der Anbieter hat möglicherweise einen Teil der Anmeldung erhalten. Es wurde kein Konto verbunden.",
       "appleUnavailable": "Dieser Build kann das lokale Hilfsprogramm von Apple Kalender im abgeschotteten Modus nicht ausführen. Schalte den abgeschotteten Modus aus, um zu verbinden.",
-      "googleGrantKept": "Der abgeschottete Modus war aktiv, daher konnte Loqui Google nicht bitten, den Kalenderzugriff zu widerrufen. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält Loquis Zugriff, bis du ihn in deinem Google-Konto entfernst. Loqui wird Google später nicht deswegen kontaktieren.",
-      "restartNow": "Loqui neu starten"
+      "googleGrantKept": "Der abgeschottete Modus war aktiv, daher konnte Loqui Google nicht bitten, den Kalenderzugriff zu widerrufen. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält Loquis Zugriff, bis du ihn in deinem Google-Konto entfernst. Loqui wird Google später nicht deswegen kontaktieren."
     }
   },
   "setupFlow": {
@@ -4843,7 +4851,8 @@
         "needsModel": "Das lokale Modell zur Textbereinigung ist noch nicht auf diesem Gerät. Lade es in Einstellungen → Sprachmodelle herunter (1,3 GB).",
         "unreachable": "Loqui kann {{provider}} gerade nicht erreichen. Deine Worte bleiben unverändert.",
         "modelSetup": "ChatGPT ist verbunden. Rufe die Modelle ab, um eines für die Textkorrektur auszuwählen.",
-        "review": "Prüfe diese Änderung und wähle dann „Anwenden“."
+        "review": "Prüfe diese Änderung und wähle dann „Anwenden“.",
+        "nativeUnavailable": "Die lokale Bereinigung ist im abgeschotteten Modus in diesem Build nicht verfügbar: Lokale Modelle können noch nicht isoliert werden. Deine Worte bleiben so, wie du sie gesagt hast."
       },
       "reuse": "Diese Wahl auch für andere Textfunktionen verwenden",
       "exampleInProgress": "Beispieltext während deiner Anfrage. Dein Ergebnis erscheint erst nach erfolgreicher Textbereinigung.",
@@ -4897,7 +4906,8 @@
           "configured": "{{voice}}, noch nicht ausprobiert",
           "downloading": "Download läuft noch",
           "needsModel": "Stimme herunterladen",
-          "unavailable": "Einrichtung in den Einstellungen abschließen"
+          "unavailable": "Einrichtung in den Einstellungen abschließen",
+          "nativeUnavailable": "Im abgeschotteten Modus in diesem Build nicht verfügbar"
         },
         "microphone": {
           "heard": "Funktioniert",
@@ -4927,7 +4937,8 @@
           "configured": "Mit {{name}} eingerichtet",
           "configuredNetwork": "Bei {{provider}} mit {{name}} eingerichtet",
           "modelSetup": "ChatGPT-Modelle für die Textkorrektur abrufen",
-          "review": "Prüfe diese Änderung und wähle dann „Anwenden“."
+          "review": "Prüfe diese Änderung und wähle dann „Anwenden“.",
+          "nativeUnavailable": "Im abgeschotteten Modus in diesem Build nicht verfügbar"
         }
       },
       "dictateNote": "In eine Notiz diktieren",
@@ -4942,7 +4953,8 @@
         "needsModel": "Notizaufnahmen benötigen ein Sprachmodell auf diesem Gerät.",
         "needsKey": "Notizaufnahmen benötigen deinen {{provider}}-Schlüssel.",
         "needsUrl": "Notizaufnahmen benötigen eine Serveradresse.",
-        "unreachable": "Loqui kann {{provider}} für Notizaufnahmen nicht erreichen."
+        "unreachable": "Loqui kann {{provider}} für Notizaufnahmen nicht erreichen.",
+        "nativeUnavailable": "Notizaufnahmen sind im abgeschotteten Modus in diesem Build nicht verfügbar: Lokale Engines können noch nicht isoliert werden."
       },
       "fixNote": "Beheben",
       "noteNetwork": "Notizen sind zum Senden von Audio an {{provider}} eingerichtet."

@@ -154,6 +154,34 @@ test("Ready waits for a ready route: unknown reads Checking…, never ready (§5
   );
 });
 
+// Plan 07 fix round 1 (I1): Ready stays only for a ready dictation route; a
+// local engine main attests unavailable while sealed says so, with its fix.
+test("Sealed mode's attested native unavailability is pending with its own words, never ready", async () => {
+  const { summarizeReadiness } = await load();
+  const state = { status: "unreachable", detail: "nativeUnavailable" };
+  const summary = summarizeReadiness(
+    input({
+      speechRoute: route("dictationStt", { state }),
+      cleanupChoice: "local",
+      cleanupStatus: "ready",
+      cleanupRoute: route("dictationCleanup", { state }),
+    })
+  );
+  assert.deepEqual(
+    [summary.rows[0].status, summary.rows[0].detail, summary.rows[0].settingsPath, summary.proven],
+    ["pending", "speech.nativeUnavailable", "stt/dictation", false]
+  );
+  assert.deepEqual(
+    [summary.rows[3].status, summary.rows[3].detail],
+    ["pending", "cleanup.nativeUnavailable"]
+  );
+  const { cleanupSituation } = await import("../../src/utils/onboardingCleanupPreview.ts");
+  assert.equal(
+    cleanupSituation("local", "ready", route("dictationCleanup", { state })),
+    "nativeUnavailable"
+  );
+});
+
 test("a chosen but unavailable cleanup is pending with a real Settings destination (I05)", async () => {
   const { summarizeReadiness } = await load();
   const summary = summarizeReadiness(input({ cleanupChoice: "provider", cleanupStatus: "failed" }));
@@ -202,6 +230,14 @@ test("the note action follows its own route and the microphone (I06)", async () 
     "§5.1 rule 9: self-hosted notes"
   );
   assert.equal(note({ state: { status: "unreachable", detail: "sealed" } }).block, "sealed");
+  // Plan 07 fix round 1 (I1): main's settled "unavailable on this build", not Checking.
+  assert.deepEqual(
+    [
+      note({ state: { status: "unreachable", detail: "nativeUnavailable" } }).status,
+      note({ state: { status: "unreachable", detail: "nativeUnavailable" } }).block,
+    ],
+    ["blocked", "nativeUnavailable"]
+  );
   assert.deepEqual(
     [note({ state: { status: "unknown" } }).status, note({ state: { status: "unknown" } }).block],
     ["checking", null],

@@ -8,6 +8,8 @@ type RecordingError = {
   titleKey?: string;
   /** Sealed mode: a provider that may still hold part of the recording. */
   providerRetained?: string;
+  /** Sealed mode: older held recordings dropped to make room for this one. */
+  recoveryEvicted?: number;
   description?: string;
   messageKey?: string;
   /** Toast variant; defaults to destructive for genuine failures. */
@@ -54,10 +56,12 @@ export function getRecordingErrorDescription(error: RecordingError, t: TFunction
         : sealedGenericMessageKey({ ...error, message: error.description })
     );
     // T9-M1: Corti keeps an interaction until it is deleted, and the delete
-    // is refused while sealed.
-    return error.providerRetained === "corti"
-      ? `${body} ${t("sealedMode.interrupted.cortiRetained")}`
-      : body;
+    // is refused while sealed. Fix round 1, M2: a full hold dropped the oldest.
+    const extra = [
+      error.providerRetained === "corti" ? t("sealedMode.interrupted.cortiRetained") : null,
+      (error.recoveryEvicted ?? 0) > 0 ? t("sealedMode.recovery.evictedOldest") : null,
+    ].filter(Boolean);
+    return [body, ...extra].join(" ");
   }
   if (error.messageKey) return t(error.messageKey);
   return error.description ?? "";

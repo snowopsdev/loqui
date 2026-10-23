@@ -37,7 +37,9 @@ export type RouteState =
   | { status: "needsModel"; sizeBytes?: number }
   | { status: "needsKey"; provider: string }
   | { status: "needsUrl" }
-  | { status: "unreachable"; detail?: "sealed" | "retired" | "unsupported" }; // spec §5.1: literal union, not string
+  // spec §5.1: literal union, not string. Plan 07 (A14, fix round 1): "nativeUnavailable"
+  // is main's attested "local engines can't run while sealed on this build".
+  | { status: "unreachable"; detail?: "sealed" | "retired" | "unsupported" | "nativeUnavailable" };
 
 export interface ResolvedRoute {
   id: RouteId;
@@ -214,12 +216,16 @@ export interface RouteFacts {
   nativeAvailability?: Readonly<Partial<Record<RouteId, NativeRouteAvailability>>> | null;
 }
 
-// Spec §5.1 / D15. 07a produces only "notRequired" and "unknown": main has no
-// verified native boundary yet, so no built-in engine is available while
-// sealed. "available", "pending" and "paused" are reserved for 07b's verified
-// facts and never come from a test, an empty list or a self-test.
+// Spec §5.1 / D15. 07a produces only "notRequired", "unavailable" and
+// "unknown": main has no verified native boundary yet, so no built-in engine
+// is available while sealed. "unavailable" (A14, fix round 1) is main's fresh
+// attestation that this build has no native boundary, so its engines do not
+// run while sealed; it says nothing about isolation and is never a pause.
+// "unknown" is a missing or stale attestation. "available", "pending" and
+// "paused" are reserved for 07b's verified facts and never come from a test,
+// an empty list or a self-test.
 export interface NativeRouteAvailability {
-  status: "notRequired" | "available" | "pending" | "paused" | "unknown";
+  status: "notRequired" | "available" | "pending" | "paused" | "unavailable" | "unknown";
   reason?: "isolation" | "sessionBus";
 }
 
@@ -586,6 +592,7 @@ const NEEDS_URL: RouteState = { status: "needsUrl" };
 const UNSUPPORTED: RouteState = { status: "unreachable", detail: "unsupported" };
 const RETIRED: RouteState = { status: "unreachable", detail: "retired" };
 const SEALED: RouteState = { status: "unreachable", detail: "sealed" };
+const NATIVE_UNAVAILABLE: RouteState = { status: "unreachable", detail: "nativeUnavailable" };
 const CHOOSE_PROVIDER: RouteState = { status: "needsKey", provider: "" };
 
 interface Destination {
@@ -1162,6 +1169,14 @@ function nativeReadyWhileSealed(s: RouteSettingsSnapshot, id: RouteId): boolean 
   return s.facts.nativeAvailability?.[id]?.status === "available";
 }
 
+// Main's fresh attestation says this build's engines do not run while sealed.
+function nativeAttestedUnavailable(s: RouteSettingsSnapshot, id: RouteId): boolean {
+  return (
+    nativeEngineRequirements(s, id).length > 0 &&
+    s.facts.nativeAvailability?.[id]?.status === "unavailable"
+  );
+}
+
 export function resolveRoute(s: RouteSettingsSnapshot, id: RouteId): ResolvedRoute {
   const kind = ROUTE_KIND[id];
   const dest = routeDestination(s, id);
@@ -1177,8 +1192,13 @@ export function resolveRoute(s: RouteSettingsSnapshot, id: RouteId): ResolvedRou
     state = dest.state.status === "needsUrl" ? dest.state : SEALED;
   } else if (s.sealed && state.status === "ready" && !nativeReadyWhileSealed(s, id)) {
     // Native availability overlay (spec §5.1, D15): locality stays "device",
-    // but a built-in engine without main's verified availability is unknown.
-    state = UNKNOWN;
+    // but a built-in engine without main's verified availability is not
+    // ready. Main's attested unavailability is settled (A14, fix round 1);
+    // anything else, such as a missing or stale claim, is unknown.
+    state = nativeAttestedUnavailable(s, id) ? NATIVE_UNAVAILABLE : UNKNOWN;
+  } else if (s.sealed && state.status === "unknown" && nativeAttestedUnavailable(s, id)) {
+    // Readiness facts still loading cannot make the engine run while sealed.
+    state = NATIVE_UNAVAILABLE;
   }
 
   const parts = off || dest.locality === "device" ? [] : routePayloadParts(id, s);

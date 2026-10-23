@@ -32,7 +32,7 @@ test("[change-driving] route chips", async (t) => {
       "routes.state.chooseProvider"
     );
     assert.equal(chips.routeStateLabel({ status: "needsUrl" }, tr), "routes.state.addUrl");
-    for (const detail of ["sealed", "retired", "unsupported"])
+    for (const detail of ["sealed", "retired", "unsupported", "nativeUnavailable"])
       assert.equal(
         chips.routeStateLabel({ status: "unreachable", detail }, tr),
         `routes.state.${detail}`
@@ -55,6 +55,7 @@ test("[change-driving] route chips", async (t) => {
       { status: "unreachable", detail: "sealed" },
       { status: "unreachable", detail: "retired" },
       { status: "unreachable", detail: "unsupported" },
+      { status: "unreachable", detail: "nativeUnavailable" },
       { status: "unreachable" },
     ];
     for (const state of states) {
@@ -63,6 +64,19 @@ test("[change-driving] route chips", async (t) => {
       assert.match(html, /<svg/);
       assert.match(html, /routes\.state\./);
     }
+  });
+
+  // Plan 07 fix round 1 (I1): main's attested "unavailable on this build" is
+  // settled, so it never reads Checking…, and it is muted like Sealed.
+  await t.test("attested native unavailability is its own settled, muted state", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(chips.RouteStateChip, {
+        state: { status: "unreachable", detail: "nativeUnavailable" },
+      })
+    );
+    assert.match(html, /routes\.state\.nativeUnavailable/);
+    assert.doesNotMatch(html, /routes\.state\.(checking|ready)/);
+    assert.match(html, /<svg[^>]*class="[^"]*text-muted-foreground/);
   });
 
   await t.test("[change-driving] unknown reads Checking and does not claim readiness", () => {
@@ -86,6 +100,7 @@ test("[change-driving] route chips", async (t) => {
         { status: "unreachable", detail: "retired" },
         { status: "unreachable", detail: "unsupported" },
         { status: "unreachable", detail: "sealed" },
+        { status: "unreachable", detail: "nativeUnavailable" },
         { status: "unreachable" },
       ];
       for (const state of states) {

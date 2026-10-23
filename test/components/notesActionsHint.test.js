@@ -24,6 +24,8 @@ const cases = [
   [{ status: "needsKey", provider: "openai" }, ["needsKey", "addKey"]],
   [{ status: "needsUrl" }, ["needsUrl", "addUrl"]],
   [{ status: "unreachable", detail: "sealed" }, ["sealed", "openSettings"]],
+  // Plan 07 fix round 1 (I1): main attests local engines can't run sealed on this build.
+  [{ status: "unreachable", detail: "nativeUnavailable" }, ["nativeUnavailable", "openSettings"]],
   ...["retired", "unsupported", undefined].map((detail) => [
     { status: "unreachable", detail },
     ["unreachable", "openSettings"],

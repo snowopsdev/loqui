@@ -3233,7 +3233,8 @@
       "addUrl": "Ajouter l’adresse",
       "sealed": "Les actions sont en pause tant que le mode scellé est activé",
       "unreachable": "Les actions ne peuvent pas joindre le modèle de notes",
-      "openSettings": "Ouvrir les paramètres"
+      "openSettings": "Ouvrir les paramètres",
+      "nativeUnavailable": "Les actions sont indisponibles en mode scellé dans cette version : les modèles locaux ne peuvent pas encore être isolés"
     },
     "slash": {
       "label": "Insérer un bloc",
@@ -4024,7 +4025,8 @@
       "sealed": "En pause · mode scellé",
       "retired": "Service retiré · choisir à nouveau",
       "unsupported": "Indisponible pour cette tâche",
-      "cantReach": "Serveur inaccessible"
+      "cantReach": "Serveur inaccessible",
+      "nativeUnavailable": "Indisponible en mode scellé dans cette version"
     },
     "toast": {
       "local": "{{task}} s’exécute désormais sur cet appareil.",
@@ -4338,7 +4340,9 @@
       "word": "réinitialiser",
       "running": "Réinitialisation…",
       "failed": "La réinitialisation n’est pas terminée. Loqui ne redémarrera donc pas automatiquement. Ces étapes ont échoué :",
-      "done": "Réinitialisation terminée. Loqui redémarre…"
+      "done": "Réinitialisation terminée. Loqui redémarre…",
+      "doneSealed": "Réinitialisation terminée. Loqui ne peut pas redémarrer de lui-même tant que le mode scellé est activé. Quittez Loqui et rouvrez-le pour terminer.",
+      "restartFailed": "Réinitialisation terminée, mais Loqui n'a pas pu redémarrer de lui-même. Quittez Loqui et rouvrez-le pour terminer."
     }
   },
   "settingsSearch": {
@@ -4464,7 +4468,10 @@
       "availableTitle": "Enregistrements prêts à être récupérés",
       "transcribe": "Transcrire les enregistrements",
       "discard": "Supprimer les enregistrements",
-      "transcribeOne": "Transcrire"
+      "transcribeOne": "Transcrire",
+      "stillSealedTitle": "L'enregistrement est toujours conservé",
+      "stillSealedDetail": "Le mode scellé est toujours activé, cet enregistrement n'a donc pas été transcrit. Loqui le garde toujours uniquement en mémoire, pendant 30 minutes au maximum après la dictée ou jusqu'à ce que vous quittiez l'app. Transcrivez-le après avoir désactivé le mode scellé.",
+      "evictedOldest": "Pour faire de la place, Loqui a supprimé l'enregistrement le plus ancien qu'il conservait."
     },
     "confirmUnseal": {
       "title": "Désactiver le mode scellé ?",
@@ -4507,7 +4514,9 @@
       "dictationNotKept": "Le mode scellé a bloqué cette dictée avant son envoi. Rien n'a été envoyé. L'enregistrement n'a pas été conservé.",
       "dictationHeld": "Le mode scellé a bloqué cette dictée avant son envoi. Rien n'a été envoyé. Loqui garde l'enregistrement uniquement en mémoire, pendant 30 minutes au maximum ou jusqu'à ce que vous quittiez l'app. Transcrivez-le après avoir désactivé le mode scellé.",
       "generic": "Le mode scellé est activé, Loqui n'a donc pas envoyé ceci. Rien n'a été envoyé.",
-      "chat": "Le mode scellé est activé, Loqui n'a donc pas envoyé ce message. Rien n'a été envoyé. Votre message est conservé ici."
+      "chat": "Le mode scellé est activé, Loqui n'a donc pas envoyé ce message. Rien n'a été envoyé. Votre message est conservé ici.",
+      "nativeUnconfirmedTitle": "La dictée locale n'a pas démarré en mode scellé",
+      "nativeUnconfirmedDetail": "Le mode scellé est activé et Loqui n'a pas pu confirmer l'état actuel de ses moteurs locaux, le moteur vocal n'a donc pas démarré. Rien n'a été enregistré. Désactivez le mode scellé pour dicter avec lui."
     },
     "paused": {
       "dictationPreflightDetail": "Le mode scellé a mis en pause le moteur vocal local de Loqui avant son démarrage. Rien n'a été enregistré. Désactivez le mode scellé pour dicter avec lui."
@@ -4532,8 +4541,7 @@
       "connectRefused": "La connexion de ce calendrier nécessite Internet, et le mode scellé le bloque. Rien n'a été envoyé. Désactivez le mode scellé pour le connecter.",
       "connectInterrupted": "Le mode scellé a été activé pendant la connexion, qui s'est donc arrêtée. Le fournisseur a peut-être reçu une partie de la connexion. Aucun compte n'a été connecté.",
       "appleUnavailable": "Cette version ne peut pas exécuter l'assistant local de Calendrier Apple tant que le mode scellé est activé. Désactivez le mode scellé pour le connecter.",
-      "googleGrantKept": "Le mode scellé était activé, Loqui n'a donc pas pu demander à Google de révoquer son accès au calendrier. Loqui a supprimé sa propre copie de votre connexion, mais Google conserve l'accès de Loqui jusqu'à ce que vous le retiriez dans votre compte Google. Loqui ne contactera pas Google à ce sujet plus tard.",
-      "restartNow": "Redémarrer Loqui"
+      "googleGrantKept": "Le mode scellé était activé, Loqui n'a donc pas pu demander à Google de révoquer son accès au calendrier. Loqui a supprimé sa propre copie de votre connexion, mais Google conserve l'accès de Loqui jusqu'à ce que vous le retiriez dans votre compte Google. Loqui ne contactera pas Google à ce sujet plus tard."
     }
   },
   "setupFlow": {
@@ -4854,7 +4862,8 @@
         "needsModel": "Le modèle local de correction de texte n’est pas encore sur cet appareil. Téléchargez-le dans Réglages → Modèles de langage (1,3 Go).",
         "unreachable": "Loqui ne peut pas joindre {{provider}} pour le moment. Vos mots restent tels que vous les avez prononcés.",
         "modelSetup": "ChatGPT est connecté. Affichez ses modèles pour en choisir un pour la correction du texte.",
-        "review": "Vérifiez cette modification, puis choisissez « Appliquer »."
+        "review": "Vérifiez cette modification, puis choisissez « Appliquer ».",
+        "nativeUnavailable": "Le nettoyage local est indisponible en mode scellé dans cette version : les modèles locaux ne peuvent pas encore être isolés. Vos mots restent tels que vous les avez dits."
       },
       "reuse": "Utiliser aussi ce choix pour les autres fonctions de texte",
       "exampleInProgress": "Texte d’exemple pendant votre requête. Votre résultat n’apparaît que si la correction de texte réussit.",
@@ -4908,7 +4917,8 @@
           "configured": "{{voice}}, pas encore essayé",
           "downloading": "Téléchargement en cours",
           "needsModel": "Télécharger une voix",
-          "unavailable": "Terminer la configuration dans les réglages"
+          "unavailable": "Terminer la configuration dans les réglages",
+          "nativeUnavailable": "Indisponible en mode scellé dans cette version"
         },
         "microphone": {
           "heard": "Fonctionne",
@@ -4938,7 +4948,8 @@
           "configured": "Configurée avec {{name}}",
           "configuredNetwork": "Configurée sur {{provider}} avec {{name}}",
           "modelSetup": "Afficher les modèles ChatGPT pour la correction",
-          "review": "Vérifiez cette modification, puis choisissez « Appliquer »."
+          "review": "Vérifiez cette modification, puis choisissez « Appliquer ».",
+          "nativeUnavailable": "Indisponible en mode scellé dans cette version"
         }
       },
       "dictateNote": "Dicter dans une note",
@@ -4953,7 +4964,8 @@
         "needsModel": "L’enregistrement des notes nécessite un modèle vocal sur cet appareil.",
         "needsKey": "L’enregistrement des notes nécessite votre clé {{provider}}.",
         "needsUrl": "L’enregistrement des notes nécessite une adresse de serveur.",
-        "unreachable": "Loqui ne peut pas joindre {{provider}} pour l’enregistrement des notes."
+        "unreachable": "Loqui ne peut pas joindre {{provider}} pour l’enregistrement des notes.",
+        "nativeUnavailable": "L’enregistrement des notes est indisponible en mode scellé dans cette version : les moteurs locaux ne peuvent pas encore être isolés."
       },
       "fixNote": "Corriger",
       "noteNetwork": "Les notes sont configurées pour envoyer l’audio à {{provider}}.",

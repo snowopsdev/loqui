@@ -3232,7 +3232,8 @@
       "addUrl": "Add the address",
       "sealed": "Actions are paused while Sealed mode is on",
       "unreachable": "Actions can't reach the notes model",
-      "openSettings": "Open Settings"
+      "openSettings": "Open Settings",
+      "nativeUnavailable": "Actions are unavailable in Sealed mode on this build: local models can't be isolated yet"
     },
     "slash": {
       "label": "Insert block",
@@ -4021,7 +4022,8 @@
       "sealed": "Paused · Sealed mode",
       "retired": "Service retired · choose again",
       "unsupported": "Not available for this task",
-      "cantReach": "Can't reach the server"
+      "cantReach": "Can't reach the server",
+      "nativeUnavailable": "Unavailable in Sealed mode on this build"
     },
     "toast": {
       "local": "{{task}} now runs on this device.",
@@ -4331,7 +4333,9 @@
       "word": "reset",
       "running": "Resetting…",
       "failed": "Reset did not finish, so Loqui will not restart on its own. These steps failed:",
-      "done": "Reset complete. Loqui is restarting…"
+      "done": "Reset complete. Loqui is restarting…",
+      "doneSealed": "Reset complete. Loqui can't restart itself while Sealed mode is on. Quit Loqui and open it again to finish.",
+      "restartFailed": "Reset complete, but Loqui couldn't restart itself. Quit Loqui and open it again to finish."
     }
   },
   "settingsSearch": {
@@ -4454,7 +4458,10 @@
       "availableTitle": "Recordings ready to recover",
       "transcribe": "Transcribe recordings",
       "discard": "Discard recordings",
-      "transcribeOne": "Transcribe"
+      "transcribeOne": "Transcribe",
+      "stillSealedTitle": "The recording is still held",
+      "stillSealedDetail": "Sealed mode is still on, so this recording wasn't transcribed. Loqui is still holding it in memory only, for up to 30 minutes after the dictation or until you quit. Transcribe it after you turn off Sealed mode.",
+      "evictedOldest": "To make room, Loqui discarded the oldest recording it was holding."
     },
     "confirmUnseal": {
       "title": "Turn off Sealed mode?",
@@ -4496,7 +4503,9 @@
       "dictationNotKept": "Sealed mode blocked this dictation before it was sent. Nothing was sent. The recording wasn't kept.",
       "dictationHeld": "Sealed mode blocked this dictation before it was sent. Nothing was sent. Loqui is holding the recording in memory only, for up to 30 minutes or until you quit. Transcribe it after you turn off Sealed mode.",
       "generic": "Sealed mode is on, so Loqui didn't send this. Nothing was sent.",
-      "chat": "Sealed mode is on, so Loqui didn't send this message. Nothing was sent. Your message is kept here."
+      "chat": "Sealed mode is on, so Loqui didn't send this message. Nothing was sent. Your message is kept here.",
+      "nativeUnconfirmedTitle": "Local dictation didn't start in Sealed mode",
+      "nativeUnconfirmedDetail": "Sealed mode is on and Loqui couldn't confirm the current status of its local engines, so the speech engine didn't start. Nothing was recorded. Turn off Sealed mode to dictate with it."
     },
     "paused": {
       "dictationPreflightDetail": "Sealed mode paused Loqui's local speech engine before it started. Nothing was recorded. Turn off Sealed mode to dictate with it."
@@ -4521,8 +4530,7 @@
       "connectRefused": "Connecting this calendar needs the internet, and Sealed mode blocks that. Nothing was sent. Turn off Sealed mode to connect.",
       "connectInterrupted": "Sealed mode was turned on during sign-in, so it stopped. The provider may have received part of the sign-in. No account was connected.",
       "appleUnavailable": "This build can't run Apple Calendar's local helper while Sealed mode is on. Turn off Sealed mode to connect.",
-      "googleGrantKept": "Sealed mode was on, so Loqui couldn't ask Google to revoke its calendar access. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account. Loqui won't contact Google about it later.",
-      "restartNow": "Restart Loqui"
+      "googleGrantKept": "Sealed mode was on, so Loqui couldn't ask Google to revoke its calendar access. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account. Loqui won't contact Google about it later."
     }
   },
   "setupFlow": {
@@ -4843,7 +4851,8 @@
         "needsModel": "The local cleanup model isn't on this device yet. Download it in Settings, Language Models (1.3 GB).",
         "unreachable": "Loqui can't reach {{provider}} right now. Your words are kept as you said them.",
         "modelSetup": "ChatGPT is connected. List its models to choose one for cleanup.",
-        "review": "Review this change, then choose Apply."
+        "review": "Review this change, then choose Apply.",
+        "nativeUnavailable": "Local cleanup is unavailable in Sealed mode on this build: local models can't be isolated yet. Your words stay as you said them."
       },
       "reuse": "Also use this choice for other text features",
       "exampleInProgress": "Example text while your request runs. Your result appears only when cleanup succeeds.",
@@ -4897,7 +4906,8 @@
           "configured": "{{voice}}, not tried yet",
           "downloading": "Still downloading",
           "needsModel": "Download a voice",
-          "unavailable": "Finish setting it up in Settings"
+          "unavailable": "Finish setting it up in Settings",
+          "nativeUnavailable": "Unavailable in Sealed mode on this build"
         },
         "microphone": {
           "heard": "Working",
@@ -4927,7 +4937,8 @@
           "configured": "Set up with {{name}}",
           "configuredNetwork": "Set up at {{provider}} with {{name}}",
           "modelSetup": "List ChatGPT models for cleanup",
-          "review": "Review this change, then choose Apply."
+          "review": "Review this change, then choose Apply.",
+          "nativeUnavailable": "Unavailable in Sealed mode on this build"
         }
       },
       "dictateNote": "Dictate into a note",
@@ -4942,7 +4953,8 @@
         "needsModel": "Note recording needs a voice model on this device.",
         "needsKey": "Note recording needs your {{provider}} key.",
         "needsUrl": "Note recording needs a server address.",
-        "unreachable": "Loqui can't reach {{provider}} for note recording."
+        "unreachable": "Loqui can't reach {{provider}} for note recording.",
+        "nativeUnavailable": "Note recording is unavailable in Sealed mode on this build: local engines can't be isolated yet."
       },
       "fixNote": "Fix this",
       "noteNetwork": "Notes are set to send audio to {{provider}}."

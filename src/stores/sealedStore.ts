@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Attestation } from "../types/privacy";
+import { ATTESTATION_MAX_AGE_MS, isAttestationFresh } from "../lib/attestationFreshness";
 
 // The one renderer authority for Sealed mode (spec §5.4). Plan 03 created this
 // module and its shared API (useSealedStore, getSealed, ensureSealedSubscribed);
@@ -22,9 +23,8 @@ export function getSealed(): boolean {
 // Anything that makes a claim reads this: unknown is null, and claims nothing.
 export type SealedSnapshot = { sealed: boolean | null; attestation: Attestation | null };
 
-// Main re-broadcasts whenever the attestation changes; this bounds how old a
-// claim on screen can be if a broadcast is lost. Measured from main's `at`.
-export const ATTESTATION_MAX_AGE_MS = 30_000;
+// The freshness rule lives in a pure module shared with the route projection.
+export { ATTESTATION_MAX_AGE_MS, isAttestationFresh };
 
 let attestation: Attestation | null = null;
 // The newest version ever adopted or seen. It survives expiry and failed
@@ -56,14 +56,6 @@ const privacyApi = () => (typeof window === "undefined" ? undefined : window.ele
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
-
-// A claim is shown only while main's own timestamp is at most 30 s old. A
-// timestamp further in the future than that cannot be trusted either.
-export function isAttestationFresh(a: Attestation | null, now = Date.now()): boolean {
-  if (!a || !isFiniteNumber(a.at) || !isFiniteNumber(now)) return false;
-  const age = now - a.at;
-  return age <= ATTESTATION_MAX_AGE_MS && -age <= ATTESTATION_MAX_AGE_MS;
-}
 
 function clearTimer() {
   if (staleTimer) clearTimeout(staleTimer);

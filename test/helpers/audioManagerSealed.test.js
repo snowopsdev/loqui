@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { loadAudioManager } = require("./harness/audioManager");
 const { admitStreamingTransportFixture } = require("./harness/streamingTransport");
+const { fakePrivacy } = require("../hooks/fakePrivacy");
 
 // Plan 07 Task 13: the real AudioManager, the real sealed store, the real
 // recovery hold and Plan 04's real session/context factories. Only provider
@@ -434,7 +435,7 @@ test("replay: refused while busy, and only one replay at a time", async (t) => {
 
 test("replay while still sealed for that route is not attempted; the hold stays", async (t) => {
   const fixtures = await setup(t);
-  holdOne(fixtures, { id: "still-sealed" });
+  const { context } = holdOne(fixtures, { id: "still-sealed" });
   fixtures.store.useSealedStore.setState({ sealed: true, known: true });
   let calls = 0;
   const { manager, errors } = replayManager(fixtures.createManager, async () => {
@@ -443,8 +444,100 @@ test("replay while still sealed for that route is not attempted; the hold stays"
   });
   assert.deepEqual(await manager.transcribeRecovered(), { started: false, reason: "sealed" });
   assert.equal(calls, 0, "nothing was sent to be refused again");
-  assert.equal(errors[0].titleKey, "sealedMode.blocked.dictationPreflight");
+  // Fix round 1, M1: the recording exists and is still held, so the pre-flight's
+  // "Nothing was recorded" would be false here.
+  assert.equal(errors[0].code, "SEALED_MODE");
+  assert.equal(errors[0].titleKey, "sealedMode.recovery.stillSealedTitle");
+  assert.equal(errors[0].messageKey, "sealedMode.recovery.stillSealedDetail");
+  assert.equal(errors[0].variant, "default", "information, not a new failure");
+  const en = require("../../src/locales/en/translation.json").sealedMode.recovery;
+  assert.doesNotMatch(en.stillSealedDetail, /nothing was recorded/i);
+  assert.match(en.stillSealedDetail, /memory/i);
   assert.equal(fixtures.recovery.recoveryCount(), 1);
+  assert.equal(context.releaseCount, 0, "the hold keeps its press-time reads");
+});
+
+// Fix round 1, M7: a replay that throws before its pipeline exists hands the
+// exact session and context back to the claimed entry; nothing is released.
+for (const [label, breakAt] of [
+  ["applySessionIntents throws after attaching", "apply-after"],
+  ["applySessionIntents throws before attaching", "apply-before"],
+  ["_setOwnedAudio throws", "owned"],
+  ["_startProcessingPipeline throws", "pipeline"],
+]) {
+  test(`replay: ${label} before the pipeline exists; the hold keeps its own session and context`, async (t) => {
+    const fixtures = await setup(t);
+    const { session, context, blob } = holdOne(fixtures, { id: `early-${breakAt}` });
+    const { manager } = replayManager(fixtures.createManager, async () => ({
+      success: true,
+      text: "recovered",
+    }));
+    const restore = {};
+    const boom = () => {
+      throw new Error(`fixture: ${breakAt}`);
+    };
+    const patch = (name, fn) => {
+      restore[name] = manager[name];
+      manager[name] = fn;
+    };
+    if (breakAt === "apply-after")
+      patch("applySessionIntents", function (...args) {
+        restore.applySessionIntents.apply(this, args);
+        boom();
+      });
+    if (breakAt === "apply-before") patch("applySessionIntents", boom);
+    if (breakAt === "owned") patch("_setOwnedAudio", boom);
+    if (breakAt === "pipeline") patch("_startProcessingPipeline", boom);
+    await assert.rejects(manager.transcribeRecovered(), new RegExp(breakAt));
+    assert.equal(manager._activeSession ?? null, null, "the manager gave the session back");
+    assert.equal(manager._sessionContext === context, false);
+    assert.equal(manager._recoveryReplay ?? null, null);
+    assert.equal(context.releaseCount, 0, "the hold's context was not released");
+    assert.equal(fixtures.recovery.recoveryCount(), 1, "the entry is unclaimed for another try");
+    if (manager.lastAudioBlob === blob) assert.fail("the manager kept the held bytes");
+    // A later dictation must not release the hold's reads (the M7 failure).
+    const newer = manager.beginDictationSession({}, captured(fixtures, { id: "newer" }));
+    manager._endDictationSession(newer);
+    assert.equal(context.releaseCount, 0, "a newer session never releases the held context");
+    for (const [name, fn] of Object.entries(restore)) manager[name] = fn;
+    const seen = [];
+    manager.processWithOpenAIAPI = async (audio) => {
+      seen.push([
+        audio === blob,
+        manager._activeSession === session,
+        manager._sessionContext === context,
+      ]);
+      return { success: true, text: "recovered" };
+    };
+    assert.deepEqual(await manager.transcribeRecovered(), { started: true, succeeded: true });
+    assert.deepEqual(seen, [[true, true, true]], "the retry attached the very same objects");
+    assert.equal(context.releaseCount, 1, "closed exactly once, on success");
+  });
+}
+
+// Fix round 1, M2: a fourth hold drops the oldest, and the user is told so.
+test("a fourth sealed hold says the oldest held recording was discarded", async (t) => {
+  const fixtures = await setup(t);
+  const older = [1, 2, 3].map((n) => holdOne(fixtures, { id: `older-${n}` }));
+  const r = await batchSealedFailure(fixtures, {
+    retention: { dataRetentionEnabled: false, audioRetentionDays: 30 },
+    privateTake: false,
+    mode: "disabled",
+  });
+  const [error] = r.errors;
+  assert.equal(error.recoveryHeld, true);
+  assert.equal(error.recoveryEvicted, 1);
+  assert.equal(older[0].context.releaseCount, 1, "the oldest hold was closed once");
+  assert.equal(older[1].context.releaseCount, 0);
+  assert.equal(fixtures.recovery.recoveryCount(), fixtures.recovery.RECOVERY_MAX);
+  const { getRecordingErrorDescription } = await fixtures.vite.ssrLoadModule(
+    "/utils/recordingErrors.ts"
+  );
+  const text = getRecordingErrorDescription(error, (key) => `t:${key}`);
+  assert.match(text, /t:sealedMode\.blocked\.dictationHeld/);
+  assert.match(text, /t:sealedMode\.recovery\.evictedOldest/);
+  const plain = getRecordingErrorDescription({ ...error, recoveryEvicted: 0 }, (k) => `t:${k}`);
+  assert.doesNotMatch(plain, /evictedOldest/);
 });
 
 function streamingManager(fixtures, { stop, privateTake = false, partial = "" }) {
@@ -678,7 +771,18 @@ test("pre-flight: a built-in local engine while sealed is unavailable in 07a; no
     localTranscriptionProvider: "whisper",
     whisperModel: "base",
   });
+  // Fix round 1, I1: with no attestation from main yet, the engine still does
+  // not start, and the copy claims nothing about this build.
   fixtures.store.useSealedStore.setState({ sealed: true, known: true });
+  const unconfirmed = startManager(fixtures);
+  assert.equal(await unconfirmed.manager.startRecording(), false);
+  assert.deepEqual(unconfirmed.opened, []);
+  assert.equal(unconfirmed.errors[0].titleKey, "sealedMode.blocked.nativeUnconfirmedTitle");
+  assert.equal(unconfirmed.errors[0].messageKey, "sealedMode.blocked.nativeUnconfirmedDetail");
+  // Main's 07a attestation: local engines are unavailable on this build.
+  fixtures.window.electronAPI.privacy = fakePrivacy({ sealed: true }).api;
+  await fixtures.store.setSealedMode(true);
+  assert.equal(fixtures.store.getSealedSnapshot().attestation?.isolation.selfTest, "unavailable");
   const { manager, opened, errors } = startManager(fixtures);
   assert.equal(await manager.startRecording(), false);
   assert.deepEqual(opened, []);

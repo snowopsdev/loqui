@@ -131,3 +131,74 @@ test("recovery never touches disk or IPC", () => {
     /electronAPI|localStorage|sessionStorage|indexedDB|saveTranscription|caches\./
   );
 });
+
+// Fix round 1, M2: the 30-minute promise is kept by a timer, not only when a
+// later recovery call happens to look. No timer outlives its hold.
+test("a hold expires on its own timer: context closed and audio dropped without any recovery call", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const r = await load();
+  r.discardRecovery();
+  t.after(() => r.discardRecovery());
+  let notified = 0;
+  const off = r.subscribeRecovery(() => notified++);
+  t.after(off);
+  const op = operation("ttl", { privateTake: true });
+  r.holdForRecovery(op);
+  assert.equal(r._recoveryTimersForTests(), 1, "one timer per hold");
+  const before = notified;
+  t.mock.timers.tick(r.RECOVERY_TTL_MS - 1);
+  assert.equal(op.context.releaseCount, 0, "still within 30 minutes");
+  t.mock.timers.tick(2);
+  // Nothing has called hold, count or claim since: the timer did this.
+  assert.equal(op.context.releaseCount, 1, "expiry closed the press-time reads once");
+  assert.equal(op.tracker.disposed, 1);
+  assert.equal(notified, before + 1, "subscribers learn of the expiry");
+  assert.equal(r._recoveryTimersForTests(), 0, "the fired timer is gone");
+  assert.equal(r.recoveryCount(), 0, "the private audio is no longer held");
+  assert.equal(r.claimRecovery(), null);
+});
+
+test("a hold being replayed at expiry closes when the replay hands it back unfinished", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const r = await load();
+  r.discardRecovery();
+  t.after(() => r.discardRecovery());
+  const op = operation("claimed-at-expiry");
+  const id = r.holdForRecovery(op);
+  const claim = r.claimRecovery();
+  t.mock.timers.tick(r.RECOVERY_TTL_MS + 1);
+  assert.equal(op.context.releaseCount, 0, "never closed under a running replay");
+  assert.equal(r.recoveryCount(), 1);
+  r.releaseRecovery(claim.id, { done: false });
+  assert.equal(op.context.releaseCount, 1, "past its 30 minutes: closed once on return");
+  assert.equal(r.recoveryCount(), 0);
+  r.releaseRecovery(id, { done: false });
+  assert.equal(op.context.releaseCount, 1, "never twice");
+  assert.equal(r._recoveryTimersForTests(), 0);
+});
+
+test("eviction of the oldest is reported, and every terminal end clears its timer", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const r = await load();
+  r.discardRecovery();
+  t.after(() => r.discardRecovery());
+  const ops = [1, 2, 3, 4].map((n) => operation(n));
+  const results = ops.map((op) => r.holdForRecoveryWithEvictions(op));
+  assert.deepEqual(
+    results.map((x) => x.evicted),
+    [0, 0, 0, 1],
+    "the fourth hold reports that the oldest was dropped"
+  );
+  assert.equal(ops[0].context.releaseCount, 1);
+  assert.equal(r._recoveryTimersForTests(), r.RECOVERY_MAX, "the evicted hold's timer is cleared");
+  const claim = r.claimRecovery();
+  r.releaseRecovery(claim.id, { done: true });
+  assert.equal(r._recoveryTimersForTests(), r.RECOVERY_MAX - 1, "success clears its timer");
+  r.discardRecovery();
+  assert.equal(r._recoveryTimersForTests(), 0, "discard clears the rest");
+  t.mock.timers.tick(r.RECOVERY_TTL_MS * 2);
+  for (const op of ops) assert.equal(op.context.releaseCount, 1, "each closed exactly once");
+  assert.equal(typeof r.holdForRecovery(operation(5)), "number", "the brief's signature stays");
+  r.discardRecovery();
+  assert.equal(r._recoveryTimersForTests(), 0);
+});

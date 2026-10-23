@@ -1,0 +1,1244 @@
+#!/usr/bin/env node
+/**
+ * Sealed-mode acceptance run (Plan 07, Task 16), 07a edition.
+ *
+ * Launches the real app in Electron twice against two logging fixture servers
+ * and attacks it with every transport it ships: Electron `net`, Node `http`,
+ * `ws`, a renderer page (image and fetch), a redirect out of loopback and
+ * electron-updater. Run 1 is the unsealed control, then a toggle to sealed;
+ * run 2 boots sealed. The same file is the launcher (run with Node) and the
+ * Electron bootstrap, like scripts/smoke-electron.cjs. Unlike the smoke, it
+ * installs NO network blockers: the app's backstop and gate are the only things
+ * between the probes and the fixture.
+ *
+ * WHAT A RESULT MEANS IN 07a (A19, binding)
+ * - The remote fixture (scripts/lib/egressFixture.cjs) is the independent
+ *   observer of JS/Chromium-layer denial. Loqui's own recorder is not consulted.
+ * - That evidence is kept apart from the native boundary. 07a has no native
+ *   boundary on any platform (07b is absent): the report's `nativeBoundary` is
+ *   always "NOT VERIFIED" (D16 on macOS, D14/D15 on Linux), and main must keep
+ *   `nothingLeaves` false and `effectiveSince` null. Any other attestation is a
+ *   FAIL. The best possible outcome is status "NOT VERIFIED" (exit 3), an
+ *   explicit merge blocker. This script never reports a pass and never exits 0
+ *   after a run.
+ * - Child probes run only while unsealed; nothing native is launched sealed.
+ *
+ * STATUS AND EXIT CODES
+ *   not-run       exit 2  a prerequisite is missing; nothing was launched.
+ *   FAIL          exit 1  an observer check failed, or the run errored.
+ *   NOT VERIFIED  exit 3  every observer check held; native boundary absent.
+ *
+ * MANUAL RUN PROCEDURE (root/owner; not runnable in the 07a agent sandbox)
+ *   Prerequisites the launcher checks up front (else "NOT RUN: <reason>"):
+ *   - node_modules/electron/dist exists (the electron postinstall ran; this
+ *     script never requires the electron package from Node, because its
+ *     index.js downloads a missing binary).
+ *   - better-sqlite3 loads under Electron: `npm run native:electron` is
+ *     required before the run (an ABI-mismatched NODE_MODULE build is refused).
+ *   - A built renderer (`npm run build`), Playwright, and on Linux an X display
+ *     (`xvfb-run -a`; the app is started with --ozone-platform=x11).
+ *   Steps:
+ *     npm run native:electron
+ *     npm run build
+ *     npm run test:sealed-electron -- --output-dir /tmp/loqui-sealed-accept
+ *     npm run native:node            # restore the Node build for npm test
+ *   - Each launch gets a fresh temporary profile (LOQUI_PROFILE_DIR), home and
+ *     cache under the output directory. Never a personal profile.
+ *   - Both fixtures listen only on an ephemeral port of the exact numeric
+ *     loopback 127.0.0.1. The remote fixture is reached only through names
+ *     under *.loqui-fixture.test, mapped to it by Chromium's
+ *     --host-resolver-rules and by a `lookup` on Node sockets; every other name
+ *     is NOTFOUND to Chromium. Node DNS for other names is not redirected, so
+ *     run the whole command on a host without a route out, for example inside
+ *     a loopback-only network namespace:
+ *       unshare --user --map-root-user --net sh -c \
+ *         'ip link set lo up && xvfb-run -a npm run test:sealed-electron -- --output-dir DIR'
+ *   - Artifacts: DIR/report.json, DIR/netlog-<run>.json (Chromium netlog for
+ *     the Task 18 security review, not an assertion source), and the sandboxes.
+ *
+ * STILL PENDING after a run (also listed in every report's `pendingManual`):
+ *   Step 5 in-app leak drill, Step 5a native boundary (07b), and the checklist
+ *   items earlier reviews handed to Task 16: T7a frame timing, T7a-M2/T11-M7
+ *   window.open and will-navigate, T11a Chromium URL parsing, T9a-C5 Tinfoil
+ *   socket wire bytes, T10 Chromium redirects and the updater's egress tag.
+ *
+ * Usage: node scripts/sealed-acceptance.cjs [--output-dir DIR]
+ */
+/* global window, document -- only inside Playwright page.evaluate callbacks */
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const repoRoot = path.resolve(__dirname, "..");
+
+const REPORT_SCHEMA = "loqui-sealed-acceptance/07a";
+// Must equal privacyBoot's UNAVAILABLE failure; the test cross-checks it.
+const NATIVE_BOUNDARY_UNAVAILABLE = "NATIVE_BOUNDARY_UNAVAILABLE";
+const FIXTURE_DOMAIN = "loqui-fixture.test";
+// Every remote kind the control run must deliver to the fixture, or the sealed
+// result for it proves nothing. Preconnect and dns-prefetch hints are not
+// required to fire unsealed (Chromium may skip them); sealed, the connection
+// count covers them.
+const EXPECTED_REMOTE = [
+  "net-fetch",
+  "net-request",
+  "node-http",
+  "ws",
+  "after-redirect",
+  "img",
+  "renderer-fetch",
+  "updates",
+];
+// Probes that must be refused while sealed. Loopback must keep working, and the
+// renderer page's own load is from data: (its requests are judged by the fixture).
+const REMOTE_PROBES = ["netFetch", "netRequest", "nodeHttp", "ws", "redirect", "updater"];
+const PROBE_TIMEOUT_MS = 8000;
+const EXIT = Object.freeze({ FAIL: 1, NOT_RUN: 2, NOT_VERIFIED: 3 });
+const STATUSES = ["RUNNING", "not-run", "FAIL", "NOT VERIFIED"];
+const HOST_RESOLVER_RULES = `MAP *.${FIXTURE_DOMAIN} 127.0.0.1, MAP * ~NOTFOUND, EXCLUDE localhost`;
+const SCOPE =
+  "07a acceptance: an independent loopback fixture observes JS/Chromium-layer denial. " +
+  "It says nothing about native children; the native boundary is absent in 07a.";
+const OBSERVER_SCOPE =
+  "Independent fixture observer: requests and bare connections seen by the remote fixture. " +
+  "JS/Chromium-layer evidence only; not native isolation evidence.";
+const NATIVE_REASON =
+  "07a has no native boundary on any platform (07b absent). Main must keep nothingLeaves " +
+  "false and effectiveSince null; fixture evidence cannot change that.";
+// Loopback edge cases for the renderer parity spot check (T11a): Chromium's URL
+// parser must turn each into the same host as Node's WHATWG parser.
+const LOOPBACK_PARSE_CASES = [
+  "http://127.0.0.1/",
+  "http://127.1/",
+  "http://0x7f000001/",
+  "http://2130706433/",
+  "http://0177.0.0.1/",
+  "http://%31%32%37.0.0.1/",
+  "http://[::1]/",
+  "http://[::ffff:127.0.0.1]/",
+  "http://[::ffff:7f00:1]/",
+  "http://LOCALHOST./",
+  "http://a.localhost/",
+  "http://127.0.0.1.nip.io/",
+  "http://127.0.0.1:99999/",
+  "http://user@127.0.0.1@evil.test/",
+];
+const CHECKS = Object.freeze({
+  controlStartsOpen: "control: the app starts unsealed",
+  controlReached: "control: every remote probe reached the remote fixture while unsealed",
+  controlLoopback: "control: loopback reached the local fixture while unsealed",
+  controlUpdateTag:
+    "control: the app's own update check reached the fixture without Loqui's egress tag",
+  rendererFrames:
+    "renderer: WebRTC is absent in the page and in about:blank and srcdoc frames; frames get no IPC bridge",
+  rendererPopups:
+    "renderer: same-origin window.open popups are denied or lack WebRTC and the bridge",
+  rendererParsing: "renderer: Chromium and Node parse the loopback edge cases to the same host",
+  childUnsealed: "child probe: the app is unsealed before the stubborn child starts",
+  toggleNothingLeft: "toggle: the remote fixture saw no request and no connection after sealing",
+  toggleChildExited: "toggle: the stubborn child started unsealed has exited after sealing",
+  toggleAttestation:
+    "toggle: main attests 07a honestly (sealing, no effective date, native boundary unavailable, no nothing-leaves claim)",
+  toggleLoopback: "toggle: loopback still reached the local fixture",
+  toggleRefused: "toggle: every remote probe was refused; none reached or hung",
+  bootSetting: "boot: the app reports that the setting is on",
+  bootNothingLeft:
+    "boot: the remote fixture saw no request and no connection during the whole sealed run",
+  bootLoopback: "boot: loopback reached the local fixture",
+  bootAttestation:
+    "boot: main attests 07a honestly (sealing, no effective date, native boundary unavailable, no nothing-leaves claim)",
+  bootRefused: "boot: every remote probe was refused; none reached or hung",
+  bootLedger: "boot: the refused attempts are in the flight recorder as blocked",
+  noTagLeft: "all runs: no request reached a fixture carrying Loqui's internal egress tag",
+});
+// Step 5a: the native-boundary gate. Pending in 07a on every platform.
+const NATIVE_PENDING = [
+  {
+    id: "5a-1-D16",
+    platform: "darwin",
+    status: "NOT VERIFIED",
+    item:
+      "Kernel-enforced strict numeric loopback for TCP/UDP connect, bind and ingress, including " +
+      "descendants, with whisper/llama/Qdrant/Parakeet working; host-LAN, IPv4-mapped, wildcard " +
+      "listener and second-machine ingress controls; main validates before the launcher's " +
+      "pre-exec acknowledgement. No paused acknowledgement on Darwin.",
+  },
+  {
+    id: "5a-2-D14",
+    platform: "linux",
+    status: "NOT VERIFIED",
+    item:
+      "Exact packaged launcher: network namespace, private filesystem/Unix IPC, service bus, " +
+      "sanitized environment, inherited descriptors, socket stdio, manager IPC and whole-tree " +
+      "containment from process creation, including reparented and setsid descendants.",
+  },
+  {
+    id: "5a-3-D15",
+    platform: "linux",
+    status: "NOT VERIFIED",
+    item:
+      "Where isolation is unavailable: each native helper refused before it starts, or stopped " +
+      "only after confirmed whole-tree exit; live trees stay listed and keep the panel unverified.",
+  },
+  {
+    id: "5a-4-report",
+    platform: "all",
+    status: "NOT VERIFIED",
+    item:
+      "On this build the native boundary is reported NOT VERIFIED even with every other guard up " +
+      "and no native process running. A positive result needs the exact packaged adversarial run.",
+  },
+];
+// Items earlier reviews handed to Task 16, plus Steps 4, 5 and 5a. Automated
+// checks above cover parts of some; each stays listed until a person confirms
+// it on a real run and records the evidence.
+const MANUAL_CHECKLIST = [
+  {
+    id: "STEP-4",
+    source: "Task 16 Step 4",
+    check:
+      "Run the procedure in this file's header on macOS arm64 and Linux; keep report.json and " +
+      "the netlogs. Expected: observer checks hold, status NOT VERIFIED (exit 3).",
+  },
+  {
+    id: "STEP-5",
+    source: "Task 16 Step 5",
+    check:
+      "Leak drill in the app: comment out installNodeBackstop() in privacyBoot.bootEgressGuards, " +
+      "rerun; the toggle nothing-left check must FAIL on node-http or ws before any attestation " +
+      "wait. Restore the line. Record the failing output.",
+  },
+  {
+    id: "STEP-5A",
+    source: "Task 16 Step 5a",
+    check: "Native boundary D14-D16: pending 07b; see nativeBoundary.pending. Stays NOT VERIFIED.",
+  },
+  {
+    id: "T7a",
+    source: "Task 7a review",
+    check:
+      "Real all-frame preload timing: in the top page, an about:blank iframe and a srcdoc iframe, " +
+      "RTCPeerConnection is already absent when the first page script runs, and frames get no " +
+      "electronAPI bridge. The run checks absence after load; timing needs DevTools or a probe page.",
+  },
+  {
+    id: "T7a-M2",
+    source: "Task 7a review M2",
+    check:
+      "Same-origin window.open('') popup from the main, pill and notification windows: either " +
+      "denied, or the popup has no RTCPeerConnection and no bridge before any opener script runs.",
+  },
+  {
+    id: "T11-M7",
+    source: "Task 11 review M7",
+    check:
+      "Main, pill and notification windows: window.open and will-navigate to a remote URL are " +
+      "denied or routed through the guarded external opener; nothing loads in-app.",
+  },
+  {
+    id: "T11a",
+    source: "Task 11a review",
+    check:
+      "Renderer loopback parsing under Chromium's URL parser: the run compares hosts for the " +
+      "edge cases; also confirm the renderer's isLoopbackUrl verdicts match main's for them.",
+  },
+  {
+    id: "T9a-C5",
+    source: "Task 9a review C5",
+    check:
+      "Tinfoil SDK socket wire bytes: with an owner-approved account only, a realtime Tinfoil " +
+      "session's connection row shows measured bytes or null (never 0), and an attestation " +
+      "fetch is metered separately. Not automated: it needs a real provider.",
+  },
+  {
+    id: "T10",
+    source: "Task 10 report",
+    check:
+      "Real Chromium redirects (the redirect probe) and electron-updater carrying the egress tag " +
+      "through its own session, stripped before it leaves; the flight recorder row is " +
+      "attributed to appUpdate.",
+  },
+];
+
+// --- Pure helpers (exported for tests) ----------------------------------------------------------
+
+function bounded(operation, timeout, message) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(operation),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeout);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function errorLabel(error) {
+  const label = String(error?.code || error?.name || "error").slice(0, 60);
+  return label === "reached" || label === "timeout" ? `error:${label}` : label;
+}
+
+// A probe's outcome: "reached", an error code, or "timeout". A hang is never a pass.
+function settleWithin(promise, timeout = PROBE_TIMEOUT_MS) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).then(() => "reached", errorLabel),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), timeout);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function matchesKind(hit, kind) {
+  const target = String(hit?.path || "");
+  const host = String(hit?.host || "").toLowerCase();
+  return (
+    target === `/${kind}` ||
+    target.startsWith(`/${kind}-`) ||
+    target.startsWith(`/${kind}?`) ||
+    host.startsWith(`${kind}.`)
+  );
+}
+
+function probeKinds(hits) {
+  return EXPECTED_REMOTE.filter((kind) => hits.some((hit) => matchesKind(hit, kind)));
+}
+
+// The brief allows one exclusion: an updater that cannot be pointed at the
+// fixture on this platform. It is named in the report, never dropped silently.
+function expectedRemote(controlResults) {
+  const updater = controlResults?.updater;
+  if (typeof updater === "string" && updater.startsWith("setup:"))
+    return {
+      kinds: EXPECTED_REMOTE.filter((kind) => kind !== "updates"),
+      excluded: [{ probe: "updater", kind: "updates", reason: updater }],
+    };
+  return { kinds: [...EXPECTED_REMOTE], excluded: [] };
+}
+
+function refusalProblems(results, { excluded = [] } = {}) {
+  const problems = [];
+  for (const probe of REMOTE_PROBES) {
+    if (excluded.includes(probe)) continue;
+    const value = results?.[probe];
+    if (typeof value !== "string") problems.push({ probe, result: "missing" });
+    else if (value === "reached" || value === "timeout" || value.startsWith("setup:"))
+      problems.push({ probe, result: value });
+  }
+  return problems;
+}
+
+// What 07a main must say while sealed, on every platform.
+function evaluate07aAttestation(attestation) {
+  if (!attestation || typeof attestation !== "object") return ["attestation unreadable"];
+  const problems = [];
+  if (attestation.nothingLeaves !== false) problems.push("nothingLeaves is not false");
+  if (attestation.effectiveSince !== null) problems.push("effectiveSince is not null");
+  if (attestation.phase !== "sealing") problems.push(`phase is ${attestation.phase}, not sealing`);
+  const failures = Array.isArray(attestation.failures) ? attestation.failures : [];
+  if (!failures.includes(NATIVE_BOUNDARY_UNAVAILABLE))
+    problems.push(`failures lack ${NATIVE_BOUNDARY_UNAVAILABLE}`);
+  const mechanism = attestation.isolation?.mechanism;
+  if (attestation.isolation && mechanism !== "none")
+    problems.push(`isolation mechanism ${mechanism} claimed`);
+  return problems;
+}
+
+// The report keeps a projection, never the raw attestation fields.
+function summarizeAttestation(attestation) {
+  if (!attestation || typeof attestation !== "object") return { readable: false };
+  return {
+    readable: true,
+    sealed: attestation.sealed === true,
+    phase: String(attestation.phase ?? "").slice(0, 40),
+    effectiveSinceNull: attestation.effectiveSince === null,
+    claimsNothingLeaves: attestation.nothingLeaves !== false,
+    failures: (Array.isArray(attestation.failures) ? attestation.failures : [])
+      .slice(0, 40)
+      .map((failure) => String(failure).slice(0, 120)),
+  };
+}
+
+function nativeGate(platform) {
+  if (platform === "darwin") return "D16";
+  if (platform === "linux") return "D14/D15";
+  return "D14";
+}
+
+function finalizeStatus(report) {
+  if (report.notRun) return "not-run";
+  if (report.observer.failed.length || report.error) return "FAIL";
+  // Observer checks alone can never make a pass: the native boundary is absent.
+  return "NOT VERIFIED";
+}
+
+function exitCodeFor(status) {
+  if (status === "not-run") return EXIT.NOT_RUN;
+  if (status === "NOT VERIFIED") return EXIT.NOT_VERIFIED;
+  return EXIT.FAIL;
+}
+
+function honestyViolations(report) {
+  const violations = [];
+  const walk = (value, at) => {
+    if (typeof value === "string") {
+      const rest = value.replace(/\bnot verified\b|\bunverified\b/gi, "");
+      if (/verified/i.test(rest)) violations.push(`${at}: positive verification wording`);
+      if (/\b0 bytes\b/i.test(value)) violations.push(`${at}: a zero-byte claim`);
+      return;
+    }
+    if (Array.isArray(value)) return value.forEach((item, i) => walk(item, `${at}[${i}]`));
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "nothingLeaves" && item !== false)
+        violations.push(`${at}.${key}: must never be anything but false`);
+      if (/verified/i.test(key.replace(/^(not|un)verified/i, "")) && item === true)
+        violations.push(`${at}.${key}: a positive verification flag`);
+      if ((key === "isolated" || key === "networkFree") && item === true)
+        violations.push(`${at}.${key}: a native isolation claim`);
+      walk(item, `${at}.${key}`);
+    }
+  };
+  walk(report, "report");
+  if (!STATUSES.includes(report?.status)) violations.push("report.status: not an allowed status");
+  if (report?.nativeBoundary?.status !== "NOT VERIFIED")
+    violations.push("report.nativeBoundary.status: must stay NOT VERIFIED in 07a");
+  return violations;
+}
+
+// Writes report.json. A report that fails the honesty check is replaced by a
+// minimal FAIL report naming where the violation was, never written as-is.
+function writeReport(output, report) {
+  const violations = honestyViolations(report);
+  const written = violations.length
+    ? {
+        schema: REPORT_SCHEMA,
+        status: "FAIL",
+        error: "The run produced a report that failed the 07a honesty check; it was not written.",
+        violations,
+        nativeBoundary: { status: "NOT VERIFIED", gate: report?.nativeBoundary?.gate ?? null },
+      }
+    : report;
+  fs.writeFileSync(path.join(output, "report.json"), JSON.stringify(written, null, 2));
+  return written;
+}
+
+function createAcceptanceRecord({
+  output = null,
+  platform = process.platform,
+  arch = process.arch,
+  now = Date.now,
+  log = console.log,
+} = {}) {
+  const gate = nativeGate(platform);
+  const report = {
+    schema: REPORT_SCHEMA,
+    status: "RUNNING",
+    platform,
+    arch,
+    startedAt: now(),
+    finishedAt: null,
+    output,
+    scope: SCOPE,
+    notRun: null,
+    prerequisites: null,
+    fixtures: null,
+    observer: { evidence: OBSERVER_SCOPE, passed: [], failed: [] },
+    runs: {},
+    nativeBoundary: {
+      status: "NOT VERIFIED",
+      gate,
+      reason: NATIVE_REASON,
+      blocked: [],
+      pending: NATIVE_PENDING.filter(
+        (item) => item.platform === "all" || item.platform === platform
+      ),
+    },
+    pendingManual: MANUAL_CHECKLIST,
+    cleanupErrors: [],
+    error: null,
+  };
+  let remote = null;
+  const leaked = (since) => {
+    if (!remote) throw new Error("No remote fixture attached");
+    return remote.seenSince(since);
+  };
+  return {
+    report,
+    attachRemote(fixture) {
+      remote = fixture;
+    },
+    leaked,
+    nothingLeft(since) {
+      const seen = leaked(since);
+      return seen.requests.length === 0 && seen.connections === 0;
+    },
+    // An observer check. A failure is recorded and stops the run.
+    verify(name, condition, detail) {
+      if (!condition) {
+        report.observer.failed.push({ name, detail: detail ?? null });
+        throw new Error(`${name}${detail ? `: ${JSON.stringify(detail).slice(0, 2000)}` : ""}`);
+      }
+      report.observer.passed.push(name);
+      log(`PASS ${name}`);
+    },
+    // The native boundary is absent in 07a: every sealed run records the block.
+    recordNativeBlock(run, attestation) {
+      report.nativeBoundary.blocked.push({
+        run,
+        gate,
+        status: "NOT VERIFIED",
+        attestation: summarizeAttestation(attestation),
+      });
+      log(`BLOCKED ${run}: ${gate} native isolation is NOT VERIFIED (07b absent)`);
+    },
+    finalize() {
+      report.status = finalizeStatus(report);
+      report.finishedAt = now();
+      return report.status;
+    },
+  };
+}
+
+function createCleanup() {
+  const steps = [];
+  return {
+    add(label, step, timeout = 15000) {
+      steps.push({ label, step, timeout });
+    },
+    // Runs every step once, newest first; failures and hangs are collected.
+    async run() {
+      const errors = [];
+      while (steps.length) {
+        const { label, step, timeout } = steps.pop();
+        try {
+          await bounded(Promise.resolve().then(step), timeout, `cleanup step timed out: ${label}`);
+        } catch (error) {
+          errors.push({ label, error: String(error?.message || error).slice(0, 300) });
+        }
+      }
+      return errors;
+    },
+  };
+}
+
+function readModuleRegistration(buffer) {
+  const text = Buffer.from(buffer).toString("latin1");
+  const node = /node_register_module_v(\d+)/.exec(text);
+  if (node) return { kind: "node", version: Number(node[1]) };
+  const napi = /napi_register_module_v(\d+)/.exec(text);
+  if (napi) return { kind: "napi", version: Number(napi[1]) };
+  return null;
+}
+
+function hostLibc(platform) {
+  if (platform !== "linux" || process.platform !== "linux") return "glibc";
+  return process.report.getReport().header.glibcVersionRuntime ? "glibc" : "musl";
+}
+
+// Mirrors better-sqlite3 13's lib/binding.js: prebuild first, then node-gyp's
+// Debug and Release outputs. Nothing is loaded.
+function resolveSqliteBinding(root, { platform, arch, libc }) {
+  const dir = path.join(root, "node_modules", "better-sqlite3");
+  const candidates = [];
+  if (["linux", "darwin", "win32"].includes(platform) && ["x64", "arm64"].includes(arch)) {
+    const target = `${platform === "linux" && libc === "musl" ? "linuxmusl" : platform}-${arch}`;
+    candidates.push(path.join(dir, "prebuilds", `${target}.node`));
+  }
+  candidates.push(path.join(dir, "build", "Debug", "better_sqlite3.node"));
+  candidates.push(path.join(dir, "build", "Release", "better_sqlite3.node"));
+  return candidates.find((file) => fs.existsSync(file)) ?? null;
+}
+
+function readText(file) {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function isExecutable(file, platform) {
+  try {
+    const stat = fs.statSync(file);
+    return stat.isFile() && (platform === "win32" || (stat.mode & 0o111) !== 0);
+  } catch {
+    return false;
+  }
+}
+
+// Everything the launch needs, checked without loading Electron, Playwright or
+// the SQLite binding. Never requires the electron package: its index.js
+// downloads a missing binary.
+function inspectLaunchPrerequisites({
+  repoRoot: root = repoRoot,
+  env = process.env,
+  platform = process.platform,
+  arch = process.arch,
+  libc = hostLibc(platform),
+} = {}) {
+  const reasons = [];
+  const reason = (code, detail) => reasons.push({ code, detail });
+  const relative = (file) => (file ? path.relative(root, file).split(path.sep).join("/") : null);
+
+  const electronDir = path.join(root, "node_modules", "electron");
+  const binary = readText(path.join(electronDir, "path.txt"))?.trim() || null;
+  let executablePath = null;
+  if (env.ELECTRON_OVERRIDE_DIST_PATH)
+    executablePath = path.join(env.ELECTRON_OVERRIDE_DIST_PATH, binary || "electron");
+  else if (binary) executablePath = path.join(electronDir, "dist", binary);
+  if (!executablePath || !isExecutable(executablePath, platform))
+    reason(
+      "electron-binary-missing",
+      "node_modules/electron has no executable dist binary (npm ci --ignore-scripts skips the " +
+        "electron postinstall). Install it on the run host; this script never downloads it."
+    );
+  const abiText = readText(path.join(electronDir, "abi_version"))?.trim();
+  const abi = /^\d+$/.test(abiText ?? "") ? Number(abiText) : null;
+
+  const sqliteFile = resolveSqliteBinding(root, { platform, arch, libc });
+  let registration = null;
+  if (!sqliteFile)
+    reason(
+      "sqlite-binding-missing",
+      "No better-sqlite3 binding for this platform. Run npm run native:electron."
+    );
+  else {
+    registration = readModuleRegistration(fs.readFileSync(sqliteFile));
+    if (!registration)
+      reason(
+        "sqlite-abi-unknown",
+        `${relative(sqliteFile)} exports no module registration symbol; its ABI is unknown.`
+      );
+    else if (registration.kind === "node" && abi === null)
+      reason(
+        "electron-abi-unknown",
+        "node_modules/electron/abi_version is missing, so the SQLite binding cannot be matched."
+      );
+    else if (registration.kind === "node" && registration.version !== abi)
+      reason(
+        "sqlite-abi-mismatch",
+        `${relative(sqliteFile)} was built for NODE_MODULE_VERSION ${registration.version}; ` +
+          `Electron needs ${abi}. Run npm run native:electron (then npm run native:node after).`
+      );
+  }
+  if (!fs.existsSync(path.join(root, "src", "dist", "index.html")))
+    reason("renderer-not-built", "src/dist/index.html is missing. Run npm run build.");
+  if (!fs.existsSync(path.join(root, "node_modules", "playwright", "package.json")))
+    reason("playwright-missing", "node_modules/playwright is missing.");
+  if (platform === "linux" && !env.DISPLAY)
+    reason(
+      "display-missing",
+      "No X display. Run under xvfb-run -a (the app is started with --ozone-platform=x11)."
+    );
+  return {
+    ready: reasons.length === 0,
+    reasons,
+    electron: { executablePath, abi },
+    sqlite: { file: relative(sqliteFile), registration },
+  };
+}
+
+function nodeUrlHost(input) {
+  try {
+    return new URL(input).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function compareUrlParsing(cases, chromiumHosts, parse = nodeUrlHost) {
+  const rows = cases.map((input, i) => ({
+    input,
+    chromium:
+      Array.isArray(chromiumHosts) && i < chromiumHosts.length ? chromiumHosts[i] : "missing",
+    node: parse(input),
+  }));
+  return { rows, mismatches: rows.filter((row) => row.chromium !== row.node) };
+}
+
+// --- Electron bootstrap (runs inside the app's main process) -----------------------------------
+
+function bootstrapElectron() {
+  const electron = require("electron");
+  const sandbox = process.env.LOQUI_ACCEPT_SANDBOX;
+  const profile = process.env.LOQUI_PROFILE_DIR;
+  const port = Number(process.env.LOQUI_ACCEPT_PORT); // the remote fixture
+  const localPort = Number(process.env.LOQUI_ACCEPT_LOCAL_PORT); // the local fixture
+  const validPort = (value) => Number.isInteger(value) && value > 0 && value < 65536;
+  if (!sandbox || !profile || !validPort(port) || !validPort(localPort))
+    throw new Error("Acceptance bootstrap requires its sandbox.");
+  const temporaryHome = path.join(sandbox, "home");
+  fs.mkdirSync(temporaryHome, { recursive: true });
+  os.homedir = () => temporaryHome;
+  electron.app.setPath("home", temporaryHome);
+  electron.app.setAppPath(repoRoot);
+  electron.app.getVersion = () => require(path.join(repoRoot, "package.json")).version;
+  // Startup errors fail the run instead of waiting on a native modal.
+  electron.dialog.showErrorBox = (title, content) => {
+    fs.writeFileSync(path.join(sandbox, "startup-error.txt"), `${title}\n${content}`);
+    electron.app.exit(1);
+  };
+  // Chromium resolves the fixture names to the fixture and nothing else. Node
+  // does not read this switch; the Node probes pass their own lookup. This is
+  // name resolution for the test, not a blocker: the probes still go out.
+  electron.app.commandLine.appendSwitch("host-resolver-rules", HOST_RESOLVER_RULES);
+  electron.app
+    .whenReady()
+    .then(() => electron.netLog.startLogging(path.join(sandbox, "netlog.json")))
+    .catch(() => {});
+
+  const toFixture = (_host, options, callback) =>
+    options?.all
+      ? callback(null, [{ address: "127.0.0.1", family: 4 }])
+      : callback(null, "127.0.0.1", 4);
+  const url = (host, target) => `http://${host}.${FIXTURE_DOMAIN}:${port}${target}`;
+  const attempt = (start) => settleWithin(Promise.resolve().then(start), PROBE_TIMEOUT_MS);
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Every probe makes a real attempt and reports how it ended, within its own
+  // bound. The fixture log, not these results, decides whether anything left.
+  async function runProbes(label) {
+    const { net, BrowserWindow } = electron;
+    const http = require("node:http");
+    const WebSocket = require(path.join(repoRoot, "node_modules/ws"));
+    const results = {};
+    results.netFetch = await attempt(() => net.fetch(url("api", `/net-fetch-${label}`)));
+    results.netRequest = await attempt(
+      () =>
+        new Promise((resolve, reject) => {
+          const req = net.request(url("api", `/net-request-${label}`));
+          req.on("response", (res) => {
+            res.on("data", () => {});
+            resolve();
+          });
+          req.on("error", reject);
+          req.end();
+        })
+    );
+    results.nodeHttp = await attempt(
+      () =>
+        new Promise((resolve, reject) => {
+          const req = http.get(url("api", `/node-http-${label}`), { lookup: toFixture }, (res) => {
+            res.resume();
+            resolve();
+          });
+          req.on("error", reject);
+        })
+    );
+    results.ws = await attempt(
+      () =>
+        new Promise((resolve, reject) => {
+          const ws = new WebSocket(`ws://stream.${FIXTURE_DOMAIN}:${port}/ws-${label}`, {
+            lookup: toFixture,
+          });
+          ws.on("error", reject);
+          ws.on("unexpected-response", () => reject(new Error("unexpected response")));
+          ws.on("close", resolve);
+        })
+    );
+    // Out of loopback by redirect: the first hop is the local fixture and allowed.
+    results.redirect = await attempt(() => net.fetch(`http://127.0.0.1:${localPort}/redirect`));
+    // A renderer page: hints, an image and a fetch, in a fresh window of the default session.
+    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    try {
+      results.rendererLoad = await attempt(() =>
+        win.loadURL(
+          "data:text/html," +
+            encodeURIComponent(
+              `<link rel="preconnect" href="${url("preconnect", "/")}">` +
+                `<link rel="dns-prefetch" href="${url("prefetch", "/")}">` +
+                `<a href="${url("link", `/link-${label}`)}">link</a>` +
+                `<img src="${url("img", `/img-${label}.png`)}">` +
+                `<script>fetch("${url("api", `/renderer-fetch-${label}`)}").catch(()=>{})</script>`
+            )
+        )
+      );
+      await pause(1000);
+    } finally {
+      win.destroy();
+    }
+    // electron-updater's own request path, pointed at the fixture. This is the
+    // singleton the app's UpdateManager uses; the sandbox is disposable.
+    try {
+      const { autoUpdater: updater } = require(
+        path.join(repoRoot, "node_modules/electron-updater")
+      );
+      updater.autoDownload = false;
+      // Unpackaged, checkForUpdates() returns null without a request unless forced.
+      updater.forceDevUpdateConfig = true;
+      updater.setFeedURL({ provider: "generic", url: url("updates", "/") });
+      results.updater = await attempt(() => updater.checkForUpdates());
+    } catch (error) {
+      results.updater = `setup:${errorLabel(error)}`;
+    }
+    // Loopback must keep working.
+    results.loopback = await attempt(() =>
+      net.fetch(`http://127.0.0.1:${localPort}/loopback-${label}`).then((r) => r.text())
+    );
+    return results;
+  }
+
+  // A network-capable child registered like yt-dlp. It ignores SIGTERM, so the
+  // registry has to escalate and wait for the OS to report the exit. Child
+  // probes run only unsealed: refuse if the profile says sealed.
+  function startStubbornChild() {
+    const saved = readText(path.join(profile, "privacy.json"));
+    let sealed;
+    try {
+      sealed = saved !== null && JSON.parse(saved).sealed !== false;
+    } catch {
+      sealed = true;
+    }
+    if (sealed) throw new Error("Child probes run only unsealed.");
+    const { spawn } = require("node:child_process");
+    const child = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
+      { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: "ignore" }
+    );
+    require(path.join(repoRoot, "src/helpers/privacy/childRegistry.js")).register(child, {
+      kind: "yt-dlp",
+    });
+    return child.pid;
+  }
+
+  globalThis.__loquiAcceptance = { runProbes, startStubbornChild };
+  require(path.join(repoRoot, "main.js"));
+}
+
+// --- Launcher (plain Node): drives the app with Playwright ---------------------------------------
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+async function runElectronAcceptance({ record, output, root, baseEnv, executablePath, platform }) {
+  const { _electron } = require(path.join(root, "node_modules", "playwright"));
+  const { startEgressFixture } = require("./lib/egressFixture.cjs");
+  const { report, verify } = record;
+  const cleanup = createCleanup();
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  async function waitFor(read, predicate, message, timeout = 15000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const value = await bounded(read(), 5000, `read timed out: ${message}`).catch(() => null);
+      if (value !== null && predicate(value)) return value;
+      await pause(200);
+    }
+    throw new Error(`Timed out: ${message}`);
+  }
+  let remote = null;
+  let local = null;
+  const closed = new WeakSet();
+  async function closeApp(app) {
+    if (closed.has(app)) return;
+    closed.add(app);
+    try {
+      await bounded(app.close(), 10000, "Timed out closing the app");
+    } catch {
+      app.process()?.kill("SIGKILL");
+    }
+  }
+
+  async function launch(name, { bootSealed }) {
+    const sandbox = fs.mkdtempSync(path.join(output, `${name}-`));
+    const profile = path.join(sandbox, "profile");
+    fs.mkdirSync(profile);
+    if (bootSealed)
+      fs.writeFileSync(
+        path.join(profile, "privacy.json"),
+        JSON.stringify({ sealed: true, sealedSince: Date.now() }),
+        { mode: 0o600 }
+      );
+    const env = {
+      ...baseEnv,
+      NODE_ENV: "test",
+      LOQUI_PROFILE_DIR: profile,
+      LOQUI_ACCEPT_SANDBOX: sandbox,
+      LOQUI_ACCEPT_PORT: String(remote.port),
+      LOQUI_ACCEPT_LOCAL_PORT: String(local.port),
+      LOQUI_CACHE_ROOT: path.join(sandbox, "cache"),
+    };
+    delete env.ELECTRON_RUN_AS_NODE;
+    const args = ["--lang=en-US"];
+    if (platform === "linux") args.push("--ozone-platform=x11");
+    const app = await _electron.launch({
+      executablePath,
+      args: [...args, __filename],
+      cwd: root,
+      env,
+      timeout: 45000,
+    });
+    cleanup.add(`app ${name}`, () => closeApp(app));
+    cleanup.add(`netlog ${name}`, () => {
+      const netlog = path.join(sandbox, "netlog.json");
+      if (fs.existsSync(netlog)) fs.copyFileSync(netlog, path.join(output, `netlog-${name}.json`));
+    });
+    const panel = await waitFor(
+      async () => app.windows().find((page) => /[?&]panel=true(?:&|$)/.test(page.url())) ?? null,
+      Boolean,
+      "control panel page",
+      45000
+    );
+    await panel.waitForFunction(() => !!window.electronAPI?.privacy, null, { timeout: 30000 });
+    return { app, panel };
+  }
+  const attestation = (panel) => panel.evaluate(() => window.electronAPI.privacy.getAttestation());
+  const probe = (app, label) =>
+    bounded(
+      app.evaluate((_electron, l) => globalThis.__loquiAcceptance.runProbes(l), label),
+      PROBE_TIMEOUT_MS * 12,
+      `probes ${label} did not finish`
+    );
+
+  try {
+    remote = await startEgressFixture(); // only ever reached through fixture names
+    cleanup.add("remote fixture", () => remote.close());
+    local = await startEgressFixture({ redirectTo: `http://api.${FIXTURE_DOMAIN}:${remote.port}` });
+    cleanup.add("local fixture", () => local.close());
+    record.attachRemote(remote);
+    report.fixtures = {
+      remote: { host: remote.host, port: remote.port, names: `*.${FIXTURE_DOMAIN}` },
+      local: { host: local.host, port: local.port },
+    };
+
+    // Run 1: the control. Unsealed, every probe must reach the fixture, which
+    // proves each probe would be seen if it leaked. Then toggle to sealed.
+    {
+      const { app, panel } = await launch("open", { bootSealed: false });
+      const run = (report.runs.open = {});
+      const initial = await attestation(panel);
+      run.initial = summarizeAttestation(initial);
+      verify(
+        CHECKS.controlStartsOpen,
+        initial?.sealed === false && initial?.phase === "open",
+        run.initial
+      );
+      const since = Date.now();
+      run.probes = await probe(app, "open");
+      const expected = expectedRemote(run.probes);
+      run.excluded = expected.excluded;
+      const reached = probeKinds(record.leaked(since).requests);
+      verify(
+        CHECKS.controlReached,
+        expected.kinds.every((kind) => reached.includes(kind)),
+        {
+          reached,
+          missing: expected.kinds.filter((kind) => !reached.includes(kind)),
+        }
+      );
+      verify(CHECKS.controlLoopback, run.probes.loopback === "reached", run.probes);
+
+      // T10: the app's own update check (UpdateManager, now pointed at the
+      // fixture) tags its requests; the session backstop strips the tag.
+      const updateSince = Date.now();
+      run.appUpdateCheck = {
+        result: await settleWithin(panel.evaluate(() => window.electronAPI.updates.check())),
+      };
+      const updateHits = record
+        .leaked(updateSince)
+        .requests.filter((hit) => matchesKind(hit, "updates"));
+      run.appUpdateCheck.fixtureRequests = updateHits.length;
+      if (updateHits.length)
+        verify(
+          CHECKS.controlUpdateTag,
+          updateHits.every((hit) => !hit.egressTagged),
+          updateHits
+        );
+      else run.appUpdateCheck.note = "not exercised: nothing reached the fixture; T10 stays manual";
+
+      // C2-R2 / T7a: in the top page, and in frames the page creates for itself.
+      const frames = await panel.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const blank = document.createElement("iframe");
+            document.body.append(blank);
+            const viaBlank = typeof blank.contentWindow?.RTCPeerConnection;
+            const bridgeInFrame = typeof blank.contentWindow?.electronAPI;
+            const srcdoc = document.createElement("iframe");
+            srcdoc.srcdoc = "<p>x</p>";
+            const finish = (srcdocValue) => {
+              blank.remove();
+              srcdoc.remove();
+              resolve({
+                top: typeof RTCPeerConnection,
+                blank: viaBlank,
+                srcdoc: srcdocValue,
+                bridgeInFrame,
+              });
+            };
+            const timer = setTimeout(() => finish("no-load"), 5000);
+            srcdoc.addEventListener(
+              "load",
+              () => {
+                clearTimeout(timer);
+                finish(typeof srcdoc.contentWindow?.RTCPeerConnection);
+              },
+              { once: true }
+            );
+            document.body.append(srcdoc);
+          })
+      );
+      run.frames = frames;
+      verify(
+        CHECKS.rendererFrames,
+        Object.values(frames).every((value) => value === "undefined"),
+        frames
+      );
+
+      // T7a-M2 / T11-M7: a same-origin popup from every app window.
+      run.popups = [];
+      for (const page of app.windows()) {
+        const result = await bounded(
+          page.evaluate(() => {
+            let popup;
+            try {
+              popup = window.open("", "_blank");
+            } catch {
+              return { denied: true };
+            }
+            if (!popup) return { denied: true };
+            const value = {
+              denied: false,
+              webrtc: typeof popup.RTCPeerConnection,
+              bridge: typeof popup.electronAPI,
+            };
+            popup.close();
+            return value;
+          }),
+          5000,
+          "popup check timed out"
+        ).catch((error) => ({ error: errorLabel(error) }));
+        run.popups.push({ window: new URL(page.url()).search.slice(0, 80), ...result });
+      }
+      verify(
+        CHECKS.rendererPopups,
+        run.popups.every(
+          (entry) =>
+            entry.denied === true || (entry.webrtc === "undefined" && entry.bridge === "undefined")
+        ),
+        run.popups
+      );
+
+      // T11a: Chromium's URL parser against Node's for the loopback edge cases.
+      const chromiumHosts = await panel.evaluate(
+        (cases) =>
+          cases.map((input) => {
+            try {
+              return new URL(input).hostname;
+            } catch {
+              return null;
+            }
+          }),
+        LOOPBACK_PARSE_CASES
+      );
+      run.urlParsing = compareUrlParsing(LOOPBACK_PARSE_CASES, chromiumHosts);
+      verify(CHECKS.rendererParsing, run.urlParsing.mismatches.length === 0, run.urlParsing);
+
+      // Seal through the real preload and trusted IPC with a stubborn child
+      // running. The child is started only while unsealed.
+      const beforeChild = await attestation(panel);
+      verify(
+        CHECKS.childUnsealed,
+        beforeChild?.sealed === false && beforeChild?.phase === "open",
+        summarizeAttestation(beforeChild)
+      );
+      const pid = await app.evaluate(() => globalThis.__loquiAcceptance.startStubbornChild());
+      cleanup.add("stubborn child", () => {
+        if (pidAlive(pid)) process.kill(pid, "SIGKILL");
+      });
+      // setSealed resolves after main's sealing barrier ran. The leak probes
+      // run now, before and independently of any attestation read: the
+      // observer must not depend on the thing under test (Step 5 relies on it).
+      await bounded(
+        panel.evaluate(() => window.electronAPI.privacy.setSealed(true)),
+        30000,
+        "setSealed(true) did not resolve"
+      );
+      const sealedAt = Date.now();
+      run.toggledProbes = await probe(app, "toggled");
+      await pause(1500); // let late renderer, preconnect and updater traffic surface
+      verify(CHECKS.toggleNothingLeft, record.nothingLeft(sealedAt), record.leaked(sealedAt));
+      const exited = await waitFor(
+        async () => !pidAlive(pid),
+        Boolean,
+        "stubborn child exit",
+        20000
+      ).catch(() => false);
+      verify(CHECKS.toggleChildExited, exited === true, { pid });
+      const sealed = await waitFor(
+        () => attestation(panel),
+        (value) => value.sealed === true,
+        "sealed attestation",
+        20000
+      );
+      const problems = evaluate07aAttestation(sealed);
+      verify(CHECKS.toggleAttestation, problems.length === 0, {
+        problems,
+        attestation: summarizeAttestation(sealed),
+      });
+      record.recordNativeBlock("toggle", sealed);
+      verify(CHECKS.toggleLoopback, run.toggledProbes.loopback === "reached", run.toggledProbes);
+      const refusal = refusalProblems(run.toggledProbes, {
+        excluded: expected.excluded.map((entry) => entry.probe),
+      });
+      verify(CHECKS.toggleRefused, refusal.length === 0, { refusal, results: run.toggledProbes });
+      await closeApp(app);
+    }
+
+    // Run 2: sealed from boot. Nothing remote, from the first instruction. No
+    // child probe here: child probes run only unsealed.
+    {
+      const since = Date.now();
+      const { app, panel } = await launch("sealed", { bootSealed: true });
+      const run = (report.runs.sealed = {});
+      const setting = await waitFor(
+        () => attestation(panel),
+        (value) => value.sealed === true,
+        "sealed setting state"
+      );
+      verify(CHECKS.bootSetting, setting.sealed === true, summarizeAttestation(setting));
+      run.probes = await probe(app, "boot");
+      await pause(1500); // let late renderer and updater requests surface
+      verify(CHECKS.bootNothingLeft, record.nothingLeft(since), record.leaked(since));
+      verify(CHECKS.bootLoopback, run.probes.loopback === "reached", run.probes);
+      const current = await attestation(panel);
+      const problems = evaluate07aAttestation(current);
+      verify(CHECKS.bootAttestation, problems.length === 0, {
+        problems,
+        attestation: summarizeAttestation(current),
+      });
+      record.recordNativeBlock("boot", current);
+      const excluded = (report.runs.open?.excluded ?? []).map((entry) => entry.probe);
+      const refusal = refusalProblems(run.probes, { excluded });
+      verify(CHECKS.bootRefused, refusal.length === 0, { refusal, results: run.probes });
+      const ledger = await panel.evaluate(() =>
+        window.electronAPI.privacy.egressSummary({ since: 0 })
+      );
+      verify(CHECKS.bootLedger, ledger?.blocked > 0, { blocked: ledger?.blocked ?? null });
+      await closeApp(app);
+    }
+
+    const allHits = [...remote.hits, ...local.hits];
+    verify(
+      CHECKS.noTagLeft,
+      allHits.every((hit) => !hit.egressTagged),
+      allHits.filter((hit) => hit.egressTagged)
+    );
+  } finally {
+    report.cleanupErrors = await cleanup.run();
+    if (remote)
+      report.remoteLog = { requests: remote.hits, connections: remote.seenSince(0).connections };
+  }
+}
+
+async function main({
+  argv = process.argv.slice(2),
+  repoRoot: root = repoRoot,
+  env = process.env,
+  platform = process.platform,
+  arch = process.arch,
+  libc,
+  log = console.log,
+  error = console.error,
+} = {}) {
+  if (argv.includes("--help")) {
+    log("Usage: node scripts/sealed-acceptance.cjs [--output-dir DIR]");
+    return 0;
+  }
+  const outputIndex = argv.indexOf("--output-dir");
+  if (outputIndex !== -1 && !argv[outputIndex + 1]) {
+    error("--output-dir requires a directory");
+    return EXIT.FAIL;
+  }
+  const output =
+    outputIndex === -1
+      ? fs.mkdtempSync(path.join(os.tmpdir(), "loqui-sealed-accept-"))
+      : path.resolve(argv[outputIndex + 1]);
+  fs.mkdirSync(output, { recursive: true });
+  const record = createAcceptanceRecord({ output, platform, arch, log });
+  const prerequisites = inspectLaunchPrerequisites({
+    repoRoot: root,
+    env,
+    platform,
+    arch,
+    ...(libc ? { libc } : {}),
+  });
+  record.report.prerequisites = {
+    electronAbi: prerequisites.electron.abi,
+    sqliteBinding: prerequisites.sqlite.file,
+    sqliteRegistration: prerequisites.sqlite.registration,
+  };
+  if (!prerequisites.ready) {
+    record.report.notRun = { reasons: prerequisites.reasons };
+    record.finalize();
+    const written = writeReport(output, record.report);
+    error(
+      `NOT RUN: ${prerequisites.reasons.map((entry) => `${entry.code}: ${entry.detail}`).join("; ")}`
+    );
+    log(`Acceptance artifacts: ${output}`);
+    return exitCodeFor(written.status);
+  }
+  let written;
+  try {
+    await runElectronAcceptance({
+      record,
+      output,
+      root,
+      baseEnv: env,
+      executablePath: prerequisites.electron.executablePath,
+      platform,
+    });
+  } catch (failure) {
+    record.report.error = String(failure?.message || failure).slice(0, 2000);
+    error(failure?.stack || String(failure));
+  } finally {
+    record.finalize();
+    written = writeReport(output, record.report);
+    log(`${written.status}: native boundary NOT VERIFIED in 07a. Artifacts: ${output}`);
+  }
+  return exitCodeFor(written.status);
+}
+
+module.exports = {
+  CHECKS,
+  EXIT,
+  EXPECTED_REMOTE,
+  LOOPBACK_PARSE_CASES,
+  MANUAL_CHECKLIST,
+  NATIVE_BOUNDARY_UNAVAILABLE,
+  NATIVE_PENDING,
+  compareUrlParsing,
+  createAcceptanceRecord,
+  createCleanup,
+  evaluate07aAttestation,
+  exitCodeFor,
+  expectedRemote,
+  finalizeStatus,
+  honestyViolations,
+  inspectLaunchPrerequisites,
+  main,
+  nodeUrlHost,
+  probeKinds,
+  readModuleRegistration,
+  refusalProblems,
+  settleWithin,
+  summarizeAttestation,
+  writeReport,
+};
+
+if (process.versions.electron) bootstrapElectron();
+else if (require.main === module)
+  main().then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (failure) => {
+      console.error(failure?.stack || failure);
+      process.exitCode = EXIT.FAIL;
+    }
+  );

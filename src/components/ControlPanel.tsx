@@ -630,7 +630,7 @@ export default function ControlPanel({
                       title: t("notices.cleanupFailed.title"),
                       body: cleanupError.messageKey
                         ? t(cleanupError.messageKey)
-                        : cleanupError.message,
+                        : (sealedFailureMessage(cleanupError, t) ?? cleanupError.message),
                     });
                   },
                   onEmptyTranslate: () =>

@@ -825,9 +825,12 @@ function installDgramHook() {
 
 // Task 18 T18R-07: Node's deprecated process.binding() returns the raw native
 // bindings beneath every guarded spawn and transport API. While sealed, the
-// spawn, TCP, UDP and resolver bindings are refused. This is safe for Node and
-// Electron themselves: Node's own library uses internalBinding, and Electron's
-// uses process._linkedBinding; no shipped dependency asks for these names.
+// spawn, TCP, UDP and resolver bindings are refused. Node's own library uses
+// internalBinding, and no shipped dependency asks for these names. Whether
+// Electron's own code calls process.binding for them is NOT VERIFIED: Electron
+// was not run, and no Task 16 checklist row covers it yet. The name is read
+// once and the primitive
+// is passed on, so a toString that changes between reads cannot swap it.
 // A binding obtained before the seal (or before boot) is not taken back, so
 // this narrows the surface; it is not a boundary (threat model, Layer B).
 const SEALED_BINDINGS = new Set([
@@ -841,9 +844,10 @@ function installBindingGuard() {
   const original = process.binding;
   if (typeof original !== "function") return;
   process.binding = function egressAwareBinding(name) {
-    if (gate.isSealed() && SEALED_BINDINGS.has(String(name)))
-      throw new SealedModeError({ task: "processBinding", host: String(name) });
-    return original.call(this, name);
+    const key = String(name);
+    if (gate.isSealed() && SEALED_BINDINGS.has(key))
+      throw new SealedModeError({ task: "processBinding", host: key });
+    return original.call(this, key);
   };
   installed.binding = true;
 }

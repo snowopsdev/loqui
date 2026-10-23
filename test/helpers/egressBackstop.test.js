@@ -1476,6 +1476,32 @@ test("process.binding refuses the spawn and transport bindings while sealed", ()
   for (const name of guarded) assert.equal(typeof process.binding(name), "object", name);
 });
 
+// Fix-wave round 2, R2-m3: the guard reads the name once. An object whose
+// toString changes between reads must not pass the check as "util" and then
+// reach Node as "tcp_wrap" (check-then-use, the T18R-02 class).
+test("process.binding reads the name once: a flipping toString cannot swap the binding", () => {
+  const flipping = (...names) => {
+    let reads = 0;
+    return {
+      get reads() {
+        return reads;
+      },
+      toString() {
+        return names[Math.min(reads++, names.length - 1)];
+      },
+    };
+  };
+  flags.sealed = true;
+  const allowedFirst = flipping("util", "tcp_wrap");
+  const util = process.binding(allowedFirst);
+  assert.equal(typeof util, "object");
+  assert.equal(allowedFirst.reads, 1, "the name is read exactly once");
+  const refusedFirst = flipping("tcp_wrap", "util");
+  assert.throws(() => process.binding(refusedFirst), isSealedModeError);
+  assert.equal(refusedFirst.reads, 1);
+  flags.sealed = false;
+});
+
 // Task 18 T18-03: a loopback forwarder must not carry a request for another
 // host while sealed, whichever client built the request.
 test(

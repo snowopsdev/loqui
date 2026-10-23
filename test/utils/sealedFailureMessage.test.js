@@ -124,6 +124,29 @@ test("sealedFailureMessage: Codex list, engine envelopes and bare strings from m
   assert.equal(sealedFailureMessage(new Error("socket hang up"), t), null);
 });
 
+// Fix-wave round 2, R2-m1: the two sites the first sweep missed. The cleanup
+// step of a History translation retry rejects with an Error that carries main's
+// text (ReasoningService.inferenceFailure adds no messageKey), and the custom
+// endpoint's "List models" rejects with the IPC wrapper's text.
+test("sealedFailureMessage: translation-chain cleanup errors and the custom endpoint model list", async () => {
+  const { sealedFailureMessage } = await import("../../src/utils/sealedModeError.ts");
+  const blocked = "t:sealedMode.blocked.generic";
+  const interrupted = "t:sealedMode.interrupted.generic";
+  // inferenceFailure: new Error(main's text), code only when main sent one.
+  const cleanup = Object.assign(new Error(REFUSED), { code: undefined });
+  assert.equal(sealedFailureMessage(cleanup, t), blocked);
+  assert.equal(
+    sealedFailureMessage(Object.assign(new Error("x"), { code: "SEALED_MODE" }), t),
+    interrupted
+  );
+  const models =
+    "Error invoking remote method 'personal-inference:models': SealedModeError: [SEALED_MODE:interrupted] Sealed mode stopped customEndpoint mid-transfer";
+  assert.equal(sealedFailureMessage(new Error(models), t), interrupted);
+  // An ordinary cleanup or listing failure keeps its own text.
+  assert.equal(sealedFailureMessage(new Error("HTTP 401 Unauthorized"), t), null);
+  assert.equal(sealedFailureMessage(Object.assign(new Error("boom"), { code: "x" }), t), null);
+});
+
 // Source ratchet beside the executed tests above: every I6 surface consults
 // the helper (directly or through the two helpers built on it) before it
 // would show main's text.
@@ -147,8 +170,11 @@ test("every I6 surface checks for a sealed failure before showing main's text", 
     "src/components/chat/useVoiceDraft.ts":
       /sealedFailureMessage\(result, translate\)[\s\S]*sealedFailureMessage\(error, translate\)/,
     "src/components/ui/PromptStudio.tsx": /sealedFailureMessage\(error, t\)/,
+    // R2-m1: the cleanup notice (:633) joins the failure and result sites.
     "src/components/ControlPanel.tsx":
-      /sealedFailureMessage\(failure, t\)[\s\S]*sealedFailureMessage\(result, t\)/,
+      /sealedFailureMessage\(cleanupError, t\)[\s\S]*sealedFailureMessage\(failure, t\)[\s\S]*sealedFailureMessage\(result, t\)/,
+    "src/components/OpenAICompatiblePanel.tsx":
+      /const message = sealedFailureMessage\(error, t\) \?\? raw;/,
     "src/components/settings/routing/usePatchbayBoard.ts": /sealedFailureMessage\(error, t\)/,
     "src/components/MeetingRecordingMount.tsx": /sealedFailureMessage\(\{ error \}, t\)/,
     "src/stores/meetingRecordingStore.ts":

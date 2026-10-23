@@ -2,12 +2,17 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { notify, dismissNotice } from "./ui/notices";
 import type { GooglePendingRevokeEvent, GooglePendingRevokeStatus } from "../types/electron";
-import { GOOGLE_REVOKE_NOTICE_ID, googleRevokeNotice } from "./googleRevokeNotice";
+import {
+  GOOGLE_REVOKE_NOTICE_ID,
+  googleRevokeNotice,
+  startupRevokeEvent,
+} from "./googleRevokeNotice";
 
 // Owner decision D-1. Headless: mount once in the control panel. Main owns the
 // pending Google revoke (a sealed disconnect keeps one; main runs it after
 // unsealing). This only says what main reports (googleRevokeNotice). A
-// failure that happened before this window loaded is read once from main.
+// failure or an unreadable record from before this window loaded (including
+// a sealed start, when main runs nothing) is read once from main.
 export default function GoogleRevokeNoticeListener() {
   const { t } = useTranslation();
   useEffect(() => {
@@ -23,7 +28,8 @@ export default function GoogleRevokeNoticeListener() {
     });
     Promise.resolve(api?.gcalPendingRevokeStatus?.())
       .then((status: GooglePendingRevokeStatus | undefined) => {
-        if (live && status && status.failed > 0) show({ kind: "failed", status });
+        const event = startupRevokeEvent(status);
+        if (live && event) show(event);
       })
       .catch(() => {});
     return () => {

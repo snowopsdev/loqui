@@ -4690,6 +4690,9 @@
       "revokeFailed": "O Loqui não conseguiu fazer o Google remover o acesso dele à agenda, então esse acesso pode continuar ativo no Google. O Loqui guarda só o necessário para tentar de novo. Você também pode remover o acesso por conta própria na sua Conta do Google.",
       "revokeRetry": "Tentar de novo",
       "revokeOpenAccount": "Abrir Conta do Google",
+      "revokeUnreadableTitle": "O acesso do Google pode continuar ativo",
+      "revokeUnreadable": "O Loqui guardou o necessário para pedir ao Google que removesse o acesso dele à agenda, mas não consegue mais ler isso, então não pode pedir. Esse acesso pode continuar ativo no Google. Remova o acesso por conta própria na sua Conta do Google.",
+      "revokeUnreadableDismiss": "Entendi",
       "revokeUnsaved": "O modo selado está ativado, então o Loqui não pôde pedir ao Google que removesse o acesso dele à agenda, nem guardar com segurança o necessário para pedir depois. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google.",
       "googleRevokeFailedReset": "O Loqui não conseguiu fazer o Google remover o acesso dele à agenda antes da redefinição, então esse acesso pode continuar ativo no Google. O Loqui excluiu a própria cópia do seu login e não vai contatar o Google sobre isso depois. Remova o acesso na sua Conta do Google."
     },

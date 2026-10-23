@@ -365,7 +365,8 @@ export interface ResetProps {
   errors: string[];
   // T11-M5: Sealed mode kept Loqui from revoking the Google grant.
   googleGrantKept?: boolean;
-  // D-1: unsealed, a pending Google revoke failed before the erase.
+  // D-1: a pending Google revoke failed before the erase (unsealed), or its
+  // record could not be read (sealed or not, review I-1).
   googleRevokeFailed?: boolean;
   // Plan 07 fix round 1 (I2): Loqui can't restart itself; there is no button
   // for an action main would refuse, only honest instructions.
@@ -384,6 +385,15 @@ export function ResetContent({
   const running = props.phase === "running";
   const failed = props.phase === "failed";
   if (props.phase === "done") {
+    const googleAccountLink = (
+      <a
+        href={GOOGLE_ACCOUNT_PERMISSIONS_URL}
+        onClick={createExternalLinkHandler(GOOGLE_ACCOUNT_PERMISSIONS_URL)}
+        className="underline underline-offset-2"
+      >
+        {t("sealedMode.calendar.revokeOpenAccount")}
+      </a>
+    );
     return (
       <div className="space-y-3">
         <Title className="text-base font-semibold text-foreground">
@@ -402,19 +412,12 @@ export function ResetContent({
         </Description>
         {props.googleGrantKept && (
           <p data-google-grant-kept="" className="text-sm text-foreground">
-            {t("sealedMode.calendar.googleGrantKept")}
+            {t("sealedMode.calendar.googleGrantKept")} {googleAccountLink}
           </p>
         )}
         {props.googleRevokeFailed && !props.googleGrantKept && (
           <p data-google-revoke-failed="" className="text-sm text-foreground">
-            {t("sealedMode.calendar.googleRevokeFailedReset")}{" "}
-            <a
-              href={GOOGLE_ACCOUNT_PERMISSIONS_URL}
-              onClick={createExternalLinkHandler(GOOGLE_ACCOUNT_PERMISSIONS_URL)}
-              className="underline underline-offset-2"
-            >
-              {t("sealedMode.calendar.revokeOpenAccount")}
-            </a>
+            {t("sealedMode.calendar.googleRevokeFailedReset")} {googleAccountLink}
           </p>
         )}
       </div>
@@ -738,6 +741,9 @@ export function StorageList() {
       return;
     }
     const googleGrantKept = result.googleGrantKept === true ? { googleGrantKept: true } : {};
+    // Review I-1: a sealed reset can also report an unreadable pending revoke.
+    const googleRevokeFailed =
+      result.googleRevokeFailed === true ? { googleRevokeFailed: true } : {};
     // D-1: say plainly that Google may still allow Loqui's access, and stay
     // on screen instead of restarting.
     if (result.googleRevokeFailed === true && getSealedSnapshot().sealed !== true) {
@@ -759,6 +765,7 @@ export function StorageList() {
         typed,
         errors: [],
         ...googleGrantKept,
+        ...googleRevokeFailed,
         restartBlocked: "sealed",
       });
       return;

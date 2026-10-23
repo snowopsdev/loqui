@@ -34,7 +34,9 @@ export interface GooglePendingRevokeStatus {
   running: boolean;
 }
 export interface GooglePendingRevokeEvent {
-  kind: "queued" | "revoked" | "failed";
+  // unreadable: the kept record can't be decrypted, so the grant may remain;
+  // forgotten: the user was told and main removed that record.
+  kind: "queued" | "revoked" | "failed" | "unreadable" | "forgotten";
   revoked?: number;
   failed?: number;
   sealed?: boolean;
@@ -2492,6 +2494,7 @@ declare global {
         googleGrantKept?: true;
       }>;
       gcalPendingRevokeStatus?: () => Promise<GooglePendingRevokeStatus>;
+      gcalPendingRevokeForget?: () => Promise<{ removed: boolean }>;
       gcalPendingRevokeRetry?: () => Promise<{
         revoked: number;
         failed: number;

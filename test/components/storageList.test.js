@@ -1324,6 +1324,7 @@ test("a sealed-refused Google revoke is surfaced; the done state asks to quit an
   assert.equal("onRestart" in h.reset(), false, "no restart action is offered");
   const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
   assert.ok(html.includes("sealedMode.calendar.googleGrantKept"));
+  assert.ok(html.includes("https://myaccount.google.com/permissions"), "the manual route");
   assert.ok(html.includes("storage.reset.doneSealed"));
   assert.ok(!html.includes("storage.reset.done<"), "never says Loqui is restarting");
   assert.ok(!html.includes("restartNow"));
@@ -1335,6 +1336,39 @@ test("a sealed-refused Google revoke is surfaced; the done state asks to quit an
   const en = require("../../src/locales/en/translation.json").storage.reset;
   assert.doesNotMatch(en.doneSealed, /restarting/i);
   assert.match(en.doneSealed, /quit/i);
+});
+
+// Review I-1: a sealed reset whose pending revoke could not be read (main
+// reports googleRevokeFailed) still says the access may remain, with the link.
+test("a sealed reset with an unreadable pending Google revoke says the access may remain and links the Google Account page", async (t) => {
+  const rejections = unhandledRejections(t);
+  const { api, calls } = fakeApi({
+    sealed: true,
+    cleanupApp: async () => ({
+      success: true,
+      message: "Cleanup completed",
+      errors: [],
+      googleRevokeFailed: true,
+    }),
+  });
+  const h = await mount(t, api);
+  await runResetTo(h);
+  assert.equal(h.reset().phase, "done");
+  assert.equal(h.reset().googleRevokeFailed, true);
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.ok(html.includes("sealedMode.calendar.googleRevokeFailedReset"));
+  assert.ok(html.includes("https://myaccount.google.com/permissions"));
+  assert.ok(!html.includes("<button"), "no button that cannot work");
+  await wait(1100);
+  assert.deepEqual(calls, [], "no relaunch while the note must be read");
+  assert.deepEqual(rejections, []);
+  // With the renderer's sealed state known, the sealed done state keeps the note.
+  const sealedHtml = renderToStaticMarkup(
+    React.createElement(h.s.ResetContent, { ...h.reset(), restartBlocked: "sealed" })
+  );
+  assert.ok(sealedHtml.includes("storage.reset.doneSealed"));
+  assert.ok(sealedHtml.includes("sealedMode.calendar.googleRevokeFailedReset"));
+  assert.ok(sealedHtml.includes("https://myaccount.google.com/permissions"));
 });
 
 test("an automatic relaunch that main refuses because Sealed mode came on is caught and explained", async (t) => {

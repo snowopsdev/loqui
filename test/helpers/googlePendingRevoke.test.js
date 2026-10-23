@@ -278,3 +278,67 @@ test("Reset everything erases the record and reports how many grants may remain"
   assert.equal(fs.existsSync(file()), false);
   assert.equal(m.pendingRevoke.status().pending, 0);
 });
+
+// Review I-1: a kept record that can no longer be decrypted (for example the
+// Linux keyring's master key changed) is a revoke whose state is unknown,
+// never "nothing pending".
+const unreadableCipher = {
+  ...cipher,
+  decrypt: () => {
+    throw new Error("fixture: the master key changed");
+  },
+};
+function keptThenUnreadable() {
+  const first = manager();
+  first._loadAccounts();
+  assert.deepEqual(first.disconnectAccount(), { pendingRevoke: 1 });
+  first.stop();
+  sent.length = 0;
+  return manager(fakeDb([]), { pendingRevoke: { dir, crypto: unreadableCipher } });
+}
+
+test("Reset everything with an unreadable record says the grant may remain, unsealed and sealed", async () => {
+  for (const sealedAtReset of [false, true]) {
+    const m = keptThenUnreadable();
+    sealed = sealedAtReset;
+    assert.equal(m.pendingRevoke.status().unreadable, true);
+    assert.deepEqual(
+      await m.pendingRevoke.settleForReset(),
+      { googleRevokeFailed: true },
+      `sealed=${sealedAtReset}: the reset reports the grant that may remain`
+    );
+    assert.equal(revokeFetches().length, 0, "no token is usable, so nothing is sent");
+    assert.equal(fs.existsSync(file()), false, "erased with the reset, which reports it");
+    sealed = true;
+  }
+});
+
+test("an unreadable record at unseal says the grant may remain and is removed only after the user was told", async () => {
+  const m = keptThenUnreadable();
+  sealed = false;
+  m.resumeAfterSeal();
+  await settle(m);
+  assert.equal(revokeFetches().length, 0);
+  assert.deepEqual(
+    events().map((e) => [e.kind, e.status.unreadable]),
+    [["unreadable", true]],
+    "the window is told, so it can show the notice"
+  );
+  assert.ok(fs.existsSync(file()), "kept until the user was told");
+  // A restart (sealed or not) reads the same state for the window's startup read.
+  const restarted = manager(fakeDb([]), { pendingRevoke: { dir, crypto: unreadableCipher } });
+  assert.equal(restarted.pendingRevoke.status().unreadable, true);
+  // The user dismissed the notice: only now is the record removed.
+  assert.deepEqual(restarted.pendingRevoke.forgetUnreadable(), { removed: true });
+  assert.equal(fs.existsSync(file()), false);
+  assert.equal(restarted.pendingRevoke.status().unreadable, false);
+});
+
+test("forgetting an unreadable record never removes a readable one", () => {
+  const m = manager();
+  m._loadAccounts();
+  m.disconnectAccount();
+  assert.deepEqual(m.pendingRevoke.forgetUnreadable(), { removed: false });
+  assert.ok(fs.existsSync(file()));
+  assert.equal(m.pendingRevoke.status().pending, 1);
+});

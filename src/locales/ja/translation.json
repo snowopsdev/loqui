@@ -4638,6 +4638,9 @@
       "revokeFailed": "Loqui は Google にカレンダーへのアクセス権を削除させることができなかったため、そのアクセス権は Google 上でまだ有効な可能性があります。Loqui は再試行に必要なものだけを保持しています。Google アカウントでご自身でアクセス権を削除することもできます。",
       "revokeRetry": "再試行",
       "revokeOpenAccount": "Google アカウントを開く",
+      "revokeUnreadableTitle": "Google のアクセス権がまだ有効な可能性があります",
+      "revokeUnreadable": "Loqui はカレンダーへのアクセス権の削除を Google に依頼するために必要なものを保持していましたが、それを読み取れなくなったため、依頼できません。そのアクセス権は Google 上でまだ有効な可能性があります。Google アカウントでご自身でアクセス権を削除してください。",
+      "revokeUnreadableDismiss": "了解",
       "revokeUnsaved": "シールドモードがオンのため、Loqui は Google にカレンダーへのアクセス権の削除を依頼できず、後で依頼するために必要なものを安全に保持することもできませんでした。Loqui はサインイン情報の自身のコピーを削除しましたが、Google アカウントで削除するまで Google は Loqui のアクセス権を保持します。",
       "googleRevokeFailedReset": "Loqui はリセットの前に Google にカレンダーへのアクセス権を削除させることができなかったため、そのアクセス権は Google 上でまだ有効な可能性があります。Loqui はサインイン情報の自身のコピーを削除し、この件で後から Google に連絡することはありません。Google アカウントでアクセス権を削除してください。"
     },

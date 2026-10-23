@@ -4690,6 +4690,9 @@
       "revokeFailed": "Loqui non è riuscito a far rimuovere a Google il suo accesso al calendario, quindi quell'accesso potrebbe essere ancora attivo su Google. Loqui tiene solo ciò che serve per riprovare. Puoi anche rimuovere l'accesso tu stesso nel tuo account Google.",
       "revokeRetry": "Riprova",
       "revokeOpenAccount": "Apri account Google",
+      "revokeUnreadableTitle": "L'accesso Google potrebbe essere ancora attivo",
+      "revokeUnreadable": "Loqui aveva tenuto ciò che serve per chiedere a Google di rimuovere il suo accesso al calendario, ma non riesce più a leggerlo, quindi non può chiederlo. Quell'accesso potrebbe essere ancora attivo su Google. Rimuovi l'accesso tu stesso nel tuo account Google.",
+      "revokeUnreadableDismiss": "Ho capito",
       "revokeUnsaved": "La modalità sigillata è attiva, quindi Loqui non ha potuto chiedere a Google di rimuovere il suo accesso al calendario, né tenere in modo sicuro ciò che serve per chiederlo più tardi. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google.",
       "googleRevokeFailedReset": "Loqui non è riuscito a far rimuovere a Google il suo accesso al calendario prima del ripristino, quindi quell'accesso potrebbe essere ancora attivo su Google. Loqui ha eliminato la propria copia del tuo accesso e non contatterà Google in seguito per questo. Rimuovi l'accesso nel tuo account Google."
     },

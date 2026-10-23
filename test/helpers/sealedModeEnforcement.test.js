@@ -2868,6 +2868,7 @@ const DECLARED = {
     "gcal-disconnect",
     "gcal-get-calendars",
     "gcal-get-connection-status",
+    "gcal-pending-revoke-forget",
     "gcal-pending-revoke-status",
     "gcal-get-event",
     "gcal-get-upcoming-events",

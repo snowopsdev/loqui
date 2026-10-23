@@ -4679,6 +4679,9 @@
       "revokeFailed": "Loqui couldn't get Google to remove its calendar access, so that access may still be active at Google. Loqui keeps only what it needs to try again. You can also remove the access yourself in your Google Account.",
       "revokeRetry": "Try again",
       "revokeOpenAccount": "Open Google Account",
+      "revokeUnreadableTitle": "Google access may still be active",
+      "revokeUnreadable": "Loqui kept what it needed to ask Google to remove its calendar access, but it can no longer read it, so it can't ask. That access may still be active at Google. Remove the access yourself in your Google Account.",
+      "revokeUnreadableDismiss": "Got it",
       "revokeUnsaved": "Sealed mode is on, so Loqui couldn't ask Google to remove its calendar access, and it couldn't safely keep what it needs to ask later. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account.",
       "googleRevokeFailedReset": "Loqui couldn't get Google to remove its calendar access before the reset, so that access may still be active at Google. Loqui deleted its own copy of your sign-in and won't contact Google about it later. Remove the access in your Google Account."
     },

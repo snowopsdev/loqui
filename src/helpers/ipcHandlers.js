@@ -3611,18 +3611,12 @@ class IPCHandlers {
       let googleRevokeFailed = false;
       // D-1: a revoke kept from a sealed disconnect is erased with every other
       // credential, never silently. Unsealed, it is tried first; whatever is
-      // still pending afterwards is a grant that may remain at Google.
+      // still pending afterwards, or a record that can't be read, is a grant
+      // that may remain at Google (settleForReset).
       try {
-        const pending = this.googleCalendarManager?.pendingRevoke;
-        if (pending && pending.status().pending > 0) {
-          if (!egressGate.isSealed()) await pending.retry();
-          const left = pending.status();
-          if (left.pending > 0 || left.unreadable) {
-            if (egressGate.isSealed()) googleGrantKept = true;
-            else googleRevokeFailed = true;
-          }
-          pending.erase();
-        }
+        const settled = await this.googleCalendarManager?.pendingRevoke?.settleForReset();
+        googleGrantKept ||= settled?.googleGrantKept === true;
+        googleRevokeFailed ||= settled?.googleRevokeFailed === true;
       } catch (e) {
         errors.push(`GCal pending revoke: ${e.message}`);
       }
@@ -9333,6 +9327,11 @@ class IPCHandlers {
       const store = this.googleCalendarManager?.pendingRevoke;
       if (!store) return { revoked: 0, failed: 0, skipped: "none" };
       return store.retry();
+    });
+    // Review I-1: the user dismissed the "may still be active" notice for a
+    // record main can't read. Local only: removes that file, nothing else.
+    ipcMain.handle("gcal-pending-revoke-forget", async () => {
+      return this.googleCalendarManager?.pendingRevoke?.forgetUnreadable() ?? { removed: false };
     });
 
     ipcMain.handle("gcal-get-connection-status", async () => {

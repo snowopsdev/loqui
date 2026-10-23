@@ -4638,6 +4638,9 @@
       "revokeFailed": "Loqui 未能让 Google 移除其日历访问权限，因此该访问权限可能仍在 Google 生效。Loqui 只保留重试所需的内容。你也可以在你的 Google 账号中自行移除该访问权限。",
       "revokeRetry": "重试",
       "revokeOpenAccount": "打开 Google 账号",
+      "revokeUnreadableTitle": "Google 访问权限可能仍然有效",
+      "revokeUnreadable": "Loqui 保留了请求 Google 移除其日历访问权限所需的内容，但现在无法再读取，因此无法发出请求。该访问权限可能仍在 Google 生效。请在你的 Google 账号中自行移除该访问权限。",
+      "revokeUnreadableDismiss": "知道了",
       "revokeUnsaved": "封闭模式已开启，因此 Loqui 无法请求 Google 移除其日历访问权限，也无法安全保留稍后请求所需的内容。Loqui 已删除其保存的登录信息副本，但在你于 Google 账号中移除之前，Google 会保留 Loqui 的访问权限。",
       "googleRevokeFailedReset": "Loqui 在重置前未能让 Google 移除其日历访问权限，因此该访问权限可能仍在 Google 生效。Loqui 已删除其保存的登录信息副本，之后不会就此联系 Google。请在你的 Google 账号中移除该访问权限。"
     },

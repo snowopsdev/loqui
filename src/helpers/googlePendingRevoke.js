@@ -21,7 +21,14 @@ const debugLogger = require("./debugLogger");
 //
 // Reset everything erases this record with every other credential. It must
 // not do that silently: cleanup-app first tries the revoke when unsealed and
-// reports when a grant may remain (see ipcHandlers cleanup-app).
+// reports when a grant may remain (settleForReset).
+//
+// A record that can no longer be decrypted (for example the Linux keyring's
+// master key changed) is a revoke whose state is unknown, never "nothing
+// pending": no token is usable, so the grant may still be active. Every run
+// says so (kind "unreadable"), the window's startup read shows it, and the
+// record is removed only once the user was told (forgetUnreadable, when the
+// notice is dismissed) or with Reset everything, which reports it.
 
 const FILE = "google-pending-revoke.enc";
 
@@ -122,6 +129,7 @@ function createGooglePendingRevoke({
       list = load();
     } catch (error) {
       debugLogger.error("Pending Google revoke unreadable", { error: error.message }, "gcal");
+      publish({ kind: "unreadable" });
       return Promise.resolve({ skipped: "unreadable", revoked: 0, failed: 0 });
     }
     if (list.length === 0) return Promise.resolve({ skipped: "none", revoked: 0, failed: 0 });
@@ -166,6 +174,42 @@ function createGooglePendingRevoke({
     return running;
   }
 
+  // Reset everything: try once more when unsealed, then drop the record.
+  // Returns what the reset must tell the user: googleGrantKept when the seal
+  // kept a readable revoke from running, googleRevokeFailed (with the Google
+  // Account link) when Google did not accept it or the record is unreadable.
+  async function settleForReset() {
+    const before = status();
+    if (before.pending === 0 && !before.unreadable) return {};
+    if (!before.unreadable && !isSealed()) await run({ automatic: false });
+    const left = status();
+    const outcome = left.unreadable
+      ? { googleRevokeFailed: true }
+      : left.pending > 0
+        ? isSealed()
+          ? { googleGrantKept: true }
+          : { googleRevokeFailed: true }
+        : {};
+    erase();
+    return outcome;
+  }
+
+  // The user dismissed the "may still be active" notice for an unreadable
+  // record. Removes it only while it is still unreadable: a readable record
+  // is a revoke Loqui can still run.
+  function forgetUnreadable() {
+    if (!status().unreadable) return { removed: false };
+    try {
+      fs.rmSync(file, { force: true });
+    } catch (error) {
+      debugLogger.error("Unreadable Google revoke not removed", { error: error.message }, "gcal");
+      return { removed: false };
+    }
+    entries = null;
+    publish({ kind: "forgotten" });
+    return { removed: true };
+  }
+
   // Reset everything: drop the record (the caller reports what may remain).
   function erase() {
     const had = status().pending;
@@ -182,6 +226,8 @@ function createGooglePendingRevoke({
     runAutomatic: () => run({ automatic: true }),
     retry: () => run({ automatic: false }),
     erase,
+    settleForReset,
+    forgetUnreadable,
     file,
   };
 }

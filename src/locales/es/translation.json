@@ -4690,6 +4690,9 @@
       "revokeFailed": "Loqui no consiguió que Google quitara su acceso al calendario, así que ese acceso puede seguir activo en Google. Loqui solo guarda lo necesario para volver a intentarlo. También puedes quitar el acceso tú mismo en tu cuenta de Google.",
       "revokeRetry": "Reintentar",
       "revokeOpenAccount": "Abrir cuenta de Google",
+      "revokeUnreadableTitle": "Puede que el acceso de Google siga activo",
+      "revokeUnreadable": "Loqui guardó lo necesario para pedir a Google que quitara su acceso al calendario, pero ya no puede leerlo, así que no puede pedirlo. Ese acceso puede seguir activo en Google. Quita el acceso tú mismo en tu cuenta de Google.",
+      "revokeUnreadableDismiss": "Entendido",
       "revokeUnsaved": "El modo sellado está activado, así que Loqui no pudo pedirle a Google que quitara su acceso al calendario, ni pudo guardar de forma segura lo necesario para pedirlo más tarde. Loqui eliminó su propia copia de tu inicio de sesión, pero Google mantiene el acceso de Loqui hasta que lo quites en tu cuenta de Google.",
       "googleRevokeFailedReset": "Loqui no consiguió que Google quitara su acceso al calendario antes del restablecimiento, así que ese acceso puede seguir activo en Google. Loqui eliminó su propia copia de tu inicio de sesión y no volverá a contactar con Google por ello. Quita el acceso en tu cuenta de Google."
     },

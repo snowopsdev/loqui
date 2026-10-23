@@ -4679,6 +4679,9 @@
       "revokeFailed": "Loqui konnte Google nicht dazu bringen, seinen Kalenderzugriff zu entfernen, daher ist dieser Zugriff bei Google möglicherweise noch aktiv. Loqui behält nur, was es für einen neuen Versuch braucht. Du kannst den Zugriff auch selbst in deinem Google-Konto entfernen.",
       "revokeRetry": "Erneut versuchen",
       "revokeOpenAccount": "Google-Konto öffnen",
+      "revokeUnreadableTitle": "Google-Zugriff ist möglicherweise noch aktiv",
+      "revokeUnreadable": "Loqui hatte behalten, was es braucht, um Google um das Entfernen seines Kalenderzugriffs zu bitten, kann es aber nicht mehr lesen und daher nicht mehr fragen. Dieser Zugriff ist bei Google möglicherweise noch aktiv. Entferne den Zugriff selbst in deinem Google-Konto.",
+      "revokeUnreadableDismiss": "Verstanden",
       "revokeUnsaved": "Der abgeschottete Modus ist aktiv, daher konnte Loqui Google nicht bitten, seinen Kalenderzugriff zu entfernen, und konnte auch nicht sicher behalten, was es für eine spätere Anfrage braucht. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält den Zugriff von Loqui, bis du ihn in deinem Google-Konto entfernst.",
       "googleRevokeFailedReset": "Loqui konnte Google vor dem Zurücksetzen nicht dazu bringen, seinen Kalenderzugriff zu entfernen, daher ist dieser Zugriff bei Google möglicherweise noch aktiv. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht und wird Google später nicht deswegen kontaktieren. Entferne den Zugriff in deinem Google-Konto."
     },

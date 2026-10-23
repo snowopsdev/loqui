@@ -579,9 +579,19 @@ Reset everything, `cleanup-app`) still makes its best-effort revoke of the
 database tokens, refused while sealed. It erases the pending record with every
 other credential, never silently: unsealed it first retries the pending
 revoke and reports `googleRevokeFailed` if a grant may remain; sealed it
-reports `googleGrantKept`. Both say the grant may remain at Google and how to
-remove it. Tests: `googlePendingRevoke.test.js`, the N19
-`gcal-pending-revoke-retry` matrix row, `googleRevokeNotice.test.js` and
+reports `googleGrantKept`. Both say the grant may remain at Google and link
+the Google Account page. A record that can no longer be decrypted (for
+example the Linux keyring's master key changed) is a revoke whose state is
+unknown, never "nothing pending" (review I-1): no token is usable, so there
+is no Retry. Every run (after unsealing, at an unsealed start) broadcasts
+`unreadable`, and the window's startup read shows it too, including at a
+sealed start: a persistent notice says the access may still be active at
+Google, with the Google Account link. Main removes the record only once the
+user dismisses that notice (`gcal-pending-revoke-forget`, local, which never
+removes a readable record), or with Reset everything, which reports it as
+`googleRevokeFailed`, sealed or not. Tests: `googlePendingRevoke.test.js`
+(including an unreadable record at reset, at unseal and at a restart), the
+N19 `gcal-pending-revoke-retry` matrix row, `googleRevokeNotice.test.js` and
 `storageList.test.js`.
 
 Scheduling (N20): `main.js` starts, focus-syncs and wake-syncs Google,

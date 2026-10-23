@@ -4638,6 +4638,9 @@
       "revokeFailed": "Loqui 未能讓 Google 移除其日曆存取權，因此該存取權可能仍在 Google 生效。Loqui 只保留重試所需的內容。你也可以在你的 Google 帳戶中自行移除該存取權。",
       "revokeRetry": "重試",
       "revokeOpenAccount": "開啟 Google 帳戶",
+      "revokeUnreadableTitle": "Google 存取權可能仍然有效",
+      "revokeUnreadable": "Loqui 保留了請求 Google 移除其日曆存取權所需的內容，但現在無法再讀取，因此無法發出請求。該存取權可能仍在 Google 生效。請在你的 Google 帳戶中自行移除該存取權。",
+      "revokeUnreadableDismiss": "知道了",
       "revokeUnsaved": "封閉模式已開啟，因此 Loqui 無法要求 Google 移除其日曆存取權，也無法安全保留稍後提出要求所需的內容。Loqui 已刪除其保存的登入資訊副本，但在你於 Google 帳戶中移除之前，Google 會保留 Loqui 的存取權。",
       "googleRevokeFailedReset": "Loqui 在重設前未能讓 Google 移除其日曆存取權，因此該存取權可能仍在 Google 生效。Loqui 已刪除其保存的登入資訊副本，之後不會就此聯絡 Google。請在你的 Google 帳戶中移除該存取權。"
     },

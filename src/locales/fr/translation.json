@@ -4690,6 +4690,9 @@
       "revokeFailed": "Loqui n’a pas pu obtenir de Google qu’il retire son accès à l’agenda : cet accès est peut-être toujours actif chez Google. Loqui ne garde que ce qu’il lui faut pour réessayer. Vous pouvez aussi retirer l’accès vous-même dans votre compte Google.",
       "revokeRetry": "Réessayer",
       "revokeOpenAccount": "Ouvrir le compte Google",
+      "revokeUnreadableTitle": "L’accès Google est peut-être toujours actif",
+      "revokeUnreadable": "Loqui avait gardé ce qu’il lui fallait pour demander à Google de retirer son accès à l’agenda, mais il ne peut plus le lire, donc il ne peut plus le demander. Cet accès est peut-être toujours actif chez Google. Retirez l’accès vous-même dans votre compte Google.",
+      "revokeUnreadableDismiss": "J’ai compris",
       "revokeUnsaved": "Le mode scellé est activé, donc Loqui n’a pas pu demander à Google de retirer son accès à l’agenda, ni garder en sécurité ce qu’il lui faut pour le demander plus tard. Loqui a supprimé sa propre copie de votre connexion, mais Google conserve l’accès de Loqui jusqu’à ce que vous le retiriez dans votre compte Google.",
       "googleRevokeFailedReset": "Loqui n’a pas pu obtenir de Google qu’il retire son accès à l’agenda avant la réinitialisation : cet accès est peut-être toujours actif chez Google. Loqui a supprimé sa propre copie de votre connexion et ne contactera pas Google à ce sujet plus tard. Retirez l’accès dans votre compte Google."
     },

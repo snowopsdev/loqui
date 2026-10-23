@@ -1332,6 +1332,7 @@ exposeElectronAPI("electronAPI", {
   // D-1: counts only, never a token; Retry is the same ticketed revoke.
   gcalPendingRevokeStatus: () => ipcRenderer.invoke("gcal-pending-revoke-status"),
   gcalPendingRevokeRetry: () => ipcRenderer.invoke("gcal-pending-revoke-retry"),
+  gcalPendingRevokeForget: () => ipcRenderer.invoke("gcal-pending-revoke-forget"),
   gcalGetConnectionStatus: () => ipcRenderer.invoke("gcal-get-connection-status"),
   gcalGetCalendars: () => ipcRenderer.invoke("gcal-get-calendars"),
   gcalSetCalendarSelection: (calendarId, isSelected) =>

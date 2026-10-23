@@ -1,6 +1,7 @@
 // Pure helpers for Settings > Storage. Main owns audio and history counts
-// (src/helpers/storageOps.js); this module validates what main returns and
-// does the renderer-side model arithmetic. Nothing here turns an unknown
+// (src/helpers/storageOps.js) and the model inventory identity
+// (src/helpers/modelStorageOps.js); this module validates what main returns
+// and does the renderer-side model arithmetic. Nothing here turns an unknown
 // into zero or a failure into success. Audio success is Plan 02's rule
 // (spec §5.6): resolveClearAudioOutcome must say "cleared".
 import { resolveClearAudioOutcome } from "../../utils/audioDeletion.ts";
@@ -32,6 +33,7 @@ export interface ModelsSnapshot {
   count: number;
   bytes: number;
   directory: string | null;
+  modelsIdentity: string;
 }
 export type StorageSnapshot = AudioSnapshot | HistorySnapshot | ModelsSnapshot;
 export type StorageKind = StorageSnapshot["kind"];
@@ -203,6 +205,57 @@ export function countModels(
   return { ok: true, ...summarizeModels({ whisper, parakeet, llm }) };
 }
 
+const fulfilled = (value: unknown): PromiseSettledResult<unknown> => ({
+  status: "fulfilled",
+  value,
+});
+
+// Main reads all three families in one pass and binds the downloaded set to
+// an identity; the count, bytes and identity all describe that one read.
+export function modelsFromPreview(
+  raw: unknown
+):
+  | { ok: true; count: number; bytes: number; modelsIdentity: string }
+  | { ok: false; error: string } {
+  if (!isObject(raw)) return { ok: false, error: "invalid-preview" };
+  const counted = countModels({
+    whisper: fulfilled(raw.whisper),
+    parakeet: fulfilled(raw.parakeet),
+    llm: fulfilled(raw.llm),
+  });
+  if (counted.ok === false) return counted;
+  if (!isIdentity(raw.modelsIdentity)) {
+    const error =
+      typeof raw.identityError === "string" ? raw.identityError : "unknown model identity";
+    return { ok: false, error };
+  }
+  return { ...counted, modelsIdentity: raw.modelsIdentity };
+}
+
+// Main's model deletion result. `refused` means main checked the reviewed set
+// and deleted nothing (stale, invalid request, unreadable inventory).
+export function modelDeleteFromResult(raw: unknown): {
+  families: FamilyOutcome[];
+  errors: string[];
+  remaining: number | null;
+  refused: boolean;
+} {
+  const unknown = { families: [], errors: ["invalid-result"], remaining: null, refused: false };
+  if (!isObject(raw) || !Array.isArray(raw.errors)) return unknown;
+  const errors = raw.errors.map(String);
+  const remaining = isCount(raw.remaining) ? raw.remaining : null;
+  const results = raw.families;
+  if (isObject(results)) {
+    const families = MODEL_FAMILIES.map((family) =>
+      familyOutcome(family, fulfilled(results[family]))
+    );
+    return { families, errors, remaining, refused: false };
+  }
+  if (results === null && errors.length > 0)
+    return { families: [], errors, remaining, refused: true };
+  return unknown;
+}
+
 export function familyOutcome(
   family: ModelFamily,
   settled: PromiseSettledResult<unknown>
@@ -219,11 +272,13 @@ export function modelsOutcome(
   before: number,
   families: FamilyOutcome[],
   remaining: number | null,
-  recountError: string | null
+  recountError: string | null,
+  mainErrors: string[] = []
 ): DeleteOutcome {
-  const errors = families
-    .filter((f) => f.ok === false)
-    .map((f) => `${f.family}: ${f.error ?? "failed"}`);
+  const errors = [
+    ...mainErrors,
+    ...families.filter((f) => f.ok === false).map((f) => `${f.family}: ${f.error ?? "failed"}`),
+  ];
   if (recountError !== null) errors.push(`recount-failed: ${recountError}`);
   return {
     ok: errors.length === 0 && remaining === 0,

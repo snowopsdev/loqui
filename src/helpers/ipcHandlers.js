@@ -21,6 +21,7 @@ const { PARAKEET_UNSUPPORTED_OS_CODE } = require("./parakeetCapability");
 const { getModelType, isSherpaLocalProvider } = require("./parakeetModelInfo");
 const { broadcastToWindows } = require("./windowBroadcast");
 const { createStorageOps } = require("./storageOps");
+const { createModelStorageOps } = require("./modelStorageOps");
 const { openExternalUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
@@ -338,6 +339,23 @@ class IPCHandlers {
       audio: this.audioStorageManager,
       database: this.databaseManager,
       broadcast: (channel, payload) => setImmediate(() => broadcastToWindows(channel, payload)),
+    });
+    // Storage deletes exactly the reviewed models, one family manager at a time.
+    this.modelStorageOps = createModelStorageOps({
+      families: {
+        whisper: {
+          list: () => this.whisperManager.listWhisperModels(),
+          remove: (id) => this.whisperManager.deleteWhisperModel(id),
+        },
+        parakeet: {
+          list: () => this.parakeetManager.listParakeetModels(),
+          remove: (id) => this.parakeetManager.deleteParakeetModel(id),
+        },
+        llm: {
+          list: () => require("./modelManagerBridge").default.getModelsWithStatus(),
+          remove: (id) => require("./modelManagerBridge").default.deleteModel(id),
+        },
+      },
     });
     this.localModelDownloadStatus = new LocalModelDownloadStatus();
     this._retentionCleanupInterval = null;
@@ -1656,6 +1674,10 @@ class IPCHandlers {
     );
     ipcMain.handle("storage-delete-history", async (_event, expected) =>
       this.storageOps.deleteHistory({ expected: expected ?? null })
+    );
+    ipcMain.handle("storage-preview-models", async () => this.modelStorageOps.preview());
+    ipcMain.handle("storage-delete-models", async (_event, expected) =>
+      this.modelStorageOps.deleteModels({ expected: expected ?? null })
     );
 
     ipcMain.on(

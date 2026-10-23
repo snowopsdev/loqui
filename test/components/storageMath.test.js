@@ -179,6 +179,73 @@ test("[change-driving] model deletion is typed per family and needs a zero recou
   assert.equal(modelsOutcome(3, [{ family: "llm", ok: false, error: "x" }], 0, null).ok, false);
 });
 
+// change-driving (Codex P2): models had no main-owned inventory identity.
+test("[change-driving] a models preview needs every family list and main's identity", async () => {
+  const { modelsFromPreview } = await load();
+  const MODELS_IDENTITY = "c".repeat(64);
+  const lists = {
+    whisper: { success: true, models: [{ downloaded: true, size_bytes: 100 }] },
+    parakeet: { success: true, models: [] },
+    llm: [{ isDownloaded: true, downloadedSize: 50 }],
+  };
+  assert.deepEqual(modelsFromPreview({ ...lists, modelsIdentity: MODELS_IDENTITY }), {
+    ok: true,
+    count: 2,
+    bytes: 150,
+    modelsIdentity: MODELS_IDENTITY,
+  });
+  assert.deepEqual(modelsFromPreview({ ...lists, identityError: "llm: model without an id" }), {
+    ok: false,
+    error: "llm: model without an id",
+  });
+  assert.deepEqual(modelsFromPreview({ ...lists, modelsIdentity: "short" }), {
+    ok: false,
+    error: "unknown model identity",
+  });
+  assert.deepEqual(
+    modelsFromPreview({ ...lists, parakeet: { error: "EACCES" }, modelsIdentity: MODELS_IDENTITY }),
+    { ok: false, error: "parakeet: EACCES" }
+  );
+  assert.deepEqual(modelsFromPreview(null), { ok: false, error: "invalid-preview" });
+});
+
+test("[change-driving] a models delete result is a refusal, typed families, or unknown", async () => {
+  const { modelDeleteFromResult } = await load();
+  assert.deepEqual(
+    modelDeleteFromResult({ ok: false, remaining: 3, errors: ["stale"], families: null }),
+    { families: [], errors: ["stale"], remaining: 3, refused: true }
+  );
+  assert.deepEqual(
+    modelDeleteFromResult({
+      ok: false,
+      errors: [],
+      families: {
+        whisper: { success: true },
+        parakeet: { success: true },
+        llm: { success: false, error: "MODEL_BUSY" },
+      },
+    }),
+    {
+      families: [
+        { family: "whisper", ok: true },
+        { family: "parakeet", ok: true },
+        { family: "llm", ok: false, error: "MODEL_BUSY" },
+      ],
+      errors: [],
+      remaining: null,
+      refused: false,
+    }
+  );
+  for (const raw of [undefined, { ok: true }, { ok: false, errors: [], families: null }]) {
+    assert.deepEqual(modelDeleteFromResult(raw), {
+      families: [],
+      errors: ["invalid-result"],
+      remaining: null,
+      refused: false,
+    });
+  }
+});
+
 test("[change-driving] reset succeeds only on success: true with no errors", async () => {
   const { resetOutcome, resetConfirmed } = await load();
   assert.deepEqual(resetOutcome({ success: true, message: "Cleanup completed", errors: [] }), {

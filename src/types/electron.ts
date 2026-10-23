@@ -266,6 +266,20 @@ export interface StorageDeleteResult extends StorageAudioErase {
   ok: boolean;
   errors: string[];
 }
+// Each family's own list result (or { error }), plus main's identity for the downloaded set.
+export interface StorageModelsPreview {
+  whisper: WhisperModelsListResult | { error: string };
+  parakeet: ParakeetModelsListResult | { error: string };
+  llm: LocalLLMModelStatus[] | { error: string };
+  modelsIdentity?: string;
+  identityError?: string;
+}
+export interface StorageModelsDeleteResult {
+  ok: boolean;
+  remaining?: number | null;
+  errors: string[];
+  families: Record<"whisper" | "parakeet" | "llm", { success: boolean; error?: string }> | null;
+}
 export interface StorageHistoryDeleteResult {
   ok: boolean;
   deleted: number;
@@ -1220,6 +1234,11 @@ declare global {
           audioIdentity: string;
           historyIdentity: string;
         }) => Promise<StorageHistoryDeleteResult>;
+        previewModels: () => Promise<StorageModelsPreview>;
+        deleteModels: (expected: {
+          count: number;
+          modelsIdentity: string;
+        }) => Promise<StorageModelsDeleteResult>;
       };
       syncRetentionSettings?: (settings: {
         audioRetentionDays: number;

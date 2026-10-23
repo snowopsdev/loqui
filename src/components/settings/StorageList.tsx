@@ -11,12 +11,11 @@ import { notify } from "../ui/notices";
 import { useAudioStorageUsage } from "../../hooks/useAudioStorageUsage";
 import {
   audioRowFromUsage,
-  countModels,
   errorText,
-  familyOutcome,
   historyOutcomeFromResult,
   isEmptySnapshot,
-  MODEL_FAMILIES,
+  modelDeleteFromResult,
+  modelsFromPreview,
   modelsOutcome,
   outcomeFromRejection,
   outcomeFromResult,
@@ -443,12 +442,12 @@ async function loadPreviewRows(api: Api): Promise<Pick<Rows, "audio" | "history"
 }
 
 async function loadModelsRow(api: Api): Promise<RowState<ModelsSnapshot>> {
-  const [whisper, parakeet, llm] = await Promise.allSettled([
-    call(api?.listWhisperModels),
-    call(api?.listParakeetModels),
-    call(api?.modelGetAll),
-  ]);
-  const counted = countModels({ whisper, parakeet, llm });
+  let counted: ReturnType<typeof modelsFromPreview>;
+  try {
+    counted = modelsFromPreview(await call(api?.storage?.previewModels));
+  } catch (error) {
+    return { status: "error", error: errorText(error) };
+  }
   if (counted.ok === false) return { status: "error", error: counted.error };
   const directory = await call(api?.getModelCacheRoot).catch(() => null);
   return {
@@ -458,24 +457,35 @@ async function loadModelsRow(api: Api): Promise<RowState<ModelsSnapshot>> {
       count: counted.count,
       bytes: counted.bytes,
       directory: directory || null,
+      modelsIdentity: counted.modelsIdentity,
     },
   };
 }
 
+// Main rechecks the reviewed inventory identity and deletes only that set.
 async function deleteModels(api: Api, s: ModelsSnapshot): Promise<DeleteOutcome> {
-  const settled = await Promise.allSettled([
-    call(api?.deleteAllWhisperModels),
-    call(api?.deleteAllParakeetModels),
-    call(api?.modelDeleteAll),
-  ]);
-  const families = MODEL_FAMILIES.map((family, index) => familyOutcome(family, settled[index]));
+  const storage = api?.storage;
+  if (!storage?.deleteModels) throw new Error("unavailable in this window");
+  const result = modelDeleteFromResult(
+    await storage.deleteModels({ count: s.count, modelsIdentity: s.modelsIdentity })
+  );
+  if (result.families.length === 0) {
+    return {
+      ok: false,
+      deleted: result.refused ? 0 : null,
+      remaining: result.remaining,
+      errors: result.errors,
+    };
+  }
   const after = await loadModelsRow(api);
-  if (after.status === "ready") return modelsOutcome(s.count, families, after.snapshot.count, null);
+  if (after.status === "ready")
+    return modelsOutcome(s.count, result.families, after.snapshot.count, null, result.errors);
   return modelsOutcome(
     s.count,
-    families,
+    result.families,
     null,
-    after.status === "error" ? after.error : "not counted"
+    after.status === "error" ? after.error : "not counted",
+    result.errors
   );
 }
 

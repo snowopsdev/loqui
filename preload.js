@@ -66,7 +66,9 @@ const invokeTextOperation = async (channel, input) => {
   const result = await ipcRenderer.invoke(channel, input);
   if (result?.code === "SEALED_MODE") {
     // Keep Sealed mode typed: a refusal sent nothing, an interruption may have.
-    const interrupted = result.phase === "interrupted";
+    // Only main's explicit "refused" is a refusal; a missing or unknown phase
+    // never becomes "nothing was sent" (Task 18 T18-06).
+    const interrupted = result.phase !== "refused";
     throw Object.assign(
       new Error(
         interrupted ? "[SEALED_MODE:interrupted] Sealed mode" : "[SEALED_MODE] Sealed mode"

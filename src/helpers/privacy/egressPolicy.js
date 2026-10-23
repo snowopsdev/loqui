@@ -225,6 +225,31 @@ function decideEgress({ sealed, target }) {
   };
 }
 
+// Credential shapes a user could paste into a model-id field (Task 18
+// T18-07). The flight recorder keeps metadata only, so a model id that looks
+// like a key is dropped rather than stored:
+// - a known key prefix at the start or after a separator;
+// - a 32+ run of word characters (hex and base64 secrets);
+// - a 16+ letter/digit segment that mixes cases or letters with digits
+//   (random base64url), which real model ids do not have;
+// - a 32+ run with "-"/"_" whose segments are mostly mixed, as random
+//   base64url with separators is.
+const KEY_PREFIX =
+  /(?:^|[^A-Za-z0-9])(?:AIza|sk[-_]|AKIA|ASIA|gh[pousr]_|github_pat_|xox[a-z]-|glpat-|gsk_|hf_|ya29\.)/;
+const mixedSegment = (s) => (/[0-9]/.test(s) && /[A-Za-z]/.test(s)) || /[a-z][A-Z]/.test(s);
+function looksLikeSecret(value) {
+  if (typeof value !== "string") return false;
+  if (KEY_PREFIX.test(value) || /[A-Za-z0-9_]{32,}/.test(value)) return true;
+  for (const segment of value.match(/[A-Za-z0-9]{16,}/g) ?? [])
+    if (/[A-Z]/.test(segment) + /[a-z]/.test(segment) + /[0-9]/.test(segment) >= 2) return true;
+  for (const run of value.match(/[A-Za-z0-9_-]{32,}/g) ?? []) {
+    const segments = run.split(/[-_]+/).filter(Boolean);
+    if (segments.length >= 3 && segments.filter(mixedSegment).length * 4 >= segments.length * 3)
+      return true;
+  }
+  return false;
+}
+
 const SEALED_MODE = "SEALED_MODE";
 class SealedModeError extends Error {
   constructor({ task, host, phase = "refused" }) {
@@ -262,7 +287,10 @@ function sealedPhaseOf(error, depth = 0) {
   // a wrapper's code-only fallback, which cannot distinguish interruption.
   const causePhase = sealedPhaseOf(error.cause, depth + 1);
   if (causePhase) return causePhase;
-  if (error.code === SEALED_MODE) return "refused";
+  // No phase anywhere: unknown, never "nothing was sent" (Task 18 T18-06).
+  // Main states every refusal explicitly; the safe reading of silence is that
+  // the provider may have received part of the request.
+  if (error.code === SEALED_MODE) return "interrupted";
   return null;
 }
 
@@ -277,6 +305,7 @@ module.exports = {
   sameHostAddress,
   isLoopbackHost,
   decideEgress,
+  looksLikeSecret,
   SEALED_MODE,
   SealedModeError,
   isSealedModeError,

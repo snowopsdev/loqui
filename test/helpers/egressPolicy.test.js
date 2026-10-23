@@ -123,6 +123,26 @@ test("decideEgress: validated loopback is allowed; malformed fails closed sealed
   );
 });
 
+// Task 18 T18-06: only main's explicit refusal (details.phase or the
+// "[SEALED_MODE]" marker SealedModeError writes) is "refused". A code with no
+// phase evidence is unknown and is reported as an interruption.
+test("a code-only SEALED_MODE error is not a refusal", () => {
+  const codeOnly = Object.assign(new Error("request failed"), { code: policy.SEALED_MODE });
+  assert.equal(policy.sealedPhaseOf(codeOnly), "interrupted");
+  assert.equal(
+    policy.sealedPhaseOf(new Error("outer", { cause: { code: policy.SEALED_MODE } })),
+    "interrupted"
+  );
+  assert.equal(
+    policy.sealedPhaseOf(Object.assign(new Error("x"), { details: { phase: "refused" } })),
+    "refused"
+  );
+  assert.equal(
+    policy.sealedPhaseOf(new policy.SealedModeError({ task: "chat", host: "x" })),
+    "refused"
+  );
+});
+
 test("SealedModeError survives IPC message-only serialization and fetch causes", () => {
   const error = new policy.SealedModeError({ task: "chat", host: "api.groq.com" });
   assert.equal(error.code, "SEALED_MODE");

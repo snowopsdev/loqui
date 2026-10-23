@@ -620,7 +620,11 @@ function createKeyring({
     });
     const admit = () => {
       validate(metadata(identity));
-      if (isSealed()) throw Object.assign(new Error("Sealed"), { code: "SEALED_MODE" });
+      if (isSealed())
+        throw Object.assign(new Error("[SEALED_MODE] Sealed"), {
+          code: "SEALED_MODE",
+          details: { phase: "refused" },
+        });
     };
     try {
       admit();

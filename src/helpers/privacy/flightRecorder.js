@@ -1,5 +1,5 @@
 const { EventEmitter } = require("node:events");
-const { EGRESS_TASKS } = require("./egressPolicy");
+const { EGRESS_TASKS, looksLikeSecret } = require("./egressPolicy");
 
 const MAX_ROWS = 100000;
 const MEMORY_LIMIT = 500;
@@ -30,7 +30,7 @@ const BARE_HOST = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-
 function modelId(value) {
   if (typeof value !== "string") return null;
   const v = value.trim();
-  if (!MODEL_ID.test(v) || v.includes("//") || /:[^/@]*@/.test(v) || /[A-Za-z0-9_]{32,}/.test(v))
+  if (!MODEL_ID.test(v) || v.includes("//") || /:[^/@]*@/.test(v) || looksLikeSecret(v))
     return null;
   return v;
 }

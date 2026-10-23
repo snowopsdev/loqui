@@ -82,3 +82,25 @@ test("dictation copy: History only on audioKept; held is RAM copy; interruption 
     "sealedMode.interrupted.generic"
   );
 });
+
+// Task 18 T18-06: "Nothing was sent" is only for a refusal main stated. A
+// SEALED_MODE code with no phase anywhere is unknown, which reads as an
+// interruption (the provider may have received part of it).
+test("a phase-less SEALED_MODE envelope is never a refusal", async () => {
+  const { sealedPhase, sealedGenericMessageKey, sealedDictationMessageKey } = await load();
+  for (const envelope of [
+    { code: "SEALED_MODE" },
+    { code: "SEALED_MODE", phase: "unknown" },
+    { code: "SEALED_MODE", details: { phase: null } },
+    Object.assign(new Error("request failed"), { code: "SEALED_MODE" }),
+    new Error("outer", { cause: { code: "SEALED_MODE" } }),
+  ]) {
+    assert.equal(sealedPhase(envelope), "interrupted", JSON.stringify(envelope));
+    assert.equal(sealedGenericMessageKey(envelope), "sealedMode.interrupted.generic");
+    assert.equal(sealedDictationMessageKey(envelope), "sealedMode.interrupted.dictationNotKept");
+  }
+  // An explicit refusal still says nothing was sent.
+  assert.equal(sealedPhase({ code: "SEALED_MODE", phase: "refused" }), "refused");
+  assert.equal(sealedPhase({ code: "SEALED_MODE", details: { phase: "refused" } }), "refused");
+  assert.equal(sealedPhase(refused), "refused");
+});

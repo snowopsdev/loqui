@@ -1026,6 +1026,30 @@ test("a final refused redirect error cannot claim the dispatched first hop was u
   );
 });
 
+test("the gate drops key-shaped model ids before any recorder sees them (T18-07)", (t) => {
+  setup(t);
+  const rows = [];
+  gate.attachRecorder({ record: (row) => rows.push(row) });
+  const models = [
+    ["AIzaSyD-ABCdefGHIjklMNOpqrSTUvwxYZ01234", null],
+    ["sk-ant-api03-AbCdEfGhIjKl-MnOp", null],
+    ["AKIAIOSFODNN7EXAMPLE", null],
+    ["ghp_16C7e42F292c6912E7710c838347Ae178B4a", null],
+    ["xoxb-123456789012-1234567890123-AbCdEf", null],
+    ["Zx8-Qp_3LmN7vR2tY9wK4bH6jF1dS5aE0cU", null],
+    ["gpt-4o-mini-realtime-preview-2024-12-17", "gpt-4o-mini-realtime-preview-2024-12-17"],
+    ["nvidia/Llama-3_1-Nemotron-Ultra-253B-v1", "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1"],
+  ];
+  for (const [model] of models) {
+    const ticket = gate.authorize({ task: "chat", target: "https://api.groq.com/x", model });
+    ticket.settle({ outcome: "ok" });
+  }
+  assert.deepEqual(
+    rows.map((row) => row.model),
+    models.map(([, expected]) => expected)
+  );
+});
+
 test("metadata handed to recorder-shaped adapters is already bounded", (t) => {
   setup(t);
   const rows = [];

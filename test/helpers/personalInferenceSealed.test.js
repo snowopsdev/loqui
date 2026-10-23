@@ -730,6 +730,21 @@ test("preload rebuilds a typed Sealed mode error for captured operations", async
             : "sealedMode.blocked.generic")
     );
   }
+  // T18-06: without main's explicit "refused" the envelope is not a refusal.
+  for (const envelope of [
+    { ok: false, code: "SEALED_MODE" },
+    { ok: false, code: "SEALED_MODE", phase: "unknown" },
+  ]) {
+    const unknown = loadPreload(envelope);
+    await assert.rejects(
+      unknown.personalInference.runTextOperation({ token: "t", request: {} }),
+      (error) =>
+        error.code === "SEALED_MODE" &&
+        sealedPhaseOf(error) === "interrupted" &&
+        error.messageKey === "sealedMode.interrupted.generic" &&
+        !/nothing was sent/i.test(error.message)
+    );
+  }
   const api = loadPreload({ ok: false, code: "CLEANUP_FAILED" });
   await assert.rejects(
     api.personalInference.runTextOperation({ token: "t", request: {} }),

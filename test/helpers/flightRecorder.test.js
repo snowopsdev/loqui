@@ -172,6 +172,47 @@ test("model ids and error classes are identifiers or nothing: no URL, credential
   assert.equal(ctx.recorder.record({ ...base, errorClass: "HTTP_5XX" }).errorClass, "HTTP_5XX");
 });
 
+// Task 18 T18-07: a credential pasted into a model field must not reach the
+// ledger. Known key prefixes, long random runs that include "-"/"_", and long
+// mixed-case segments are dropped; real model ids, including long dated and
+// mixed-case ones, are kept.
+const KEY_SHAPED_MODELS = [
+  "AIzaSyD-ABCdefGHIjklMNOpqrSTUvwxYZ01234",
+  "sk-proj-abcDEF123ghiJKL456mnoPQR789stu",
+  "sk-ant-api03-AbCdEfGhIjKl-MnOp",
+  "AKIAIOSFODNN7EXAMPLE",
+  "ghp_16C7e42F292c6912E7710c838347Ae178B4a",
+  "xoxb-123456789012-1234567890123-AbCdEf",
+  "gsk_AbCdEfGh1234",
+  "hf_AbCdEfGhIjKlMnOp",
+  "glpat-" + "AbCdEfGh1234567890Ij",
+  "ya29.a0AfH6SMBx-AbCdEf_GhIjKl",
+  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  "Zx8-Qp_3LmN7vR2tY9wK4bH6jF1dS5aE0cU",
+  "Ab3-Cd4_Ef5-Gh6_Ij7-Kl8_Mn9-Op0_Qr1-St2",
+];
+const REAL_MODELS = [
+  "gpt-4o-mini-realtime-preview-2024-12-17",
+  "gemini-2.5-flash-native-audio-preview-12-2025",
+  "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1",
+  "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+  "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "DeepSeek-R1-0528-Qwen3-8B-Q4_K_M",
+  "moonshotai/kimi-k2-instruct-0905",
+  "whisper-large-v3-turbo",
+  "nova-3-general",
+  "whisk-1-mini",
+];
+test("key-shaped model ids are dropped; real model ids are kept", () => {
+  const recorder = new FlightRecorder({ now: () => 5 });
+  recorder.setPersistence(false);
+  for (const value of KEY_SHAPED_MODELS)
+    assert.equal(recorder.record({ ...base, model: value }).model, null, value);
+  for (const value of REAL_MODELS)
+    assert.equal(recorder.record({ ...base, model: value }).model, value, value);
+});
+
 test("pending rows flush on the first sync; memory-only rows never become durable", (t) => {
   const manager = createDb(t);
   if (!manager) return;

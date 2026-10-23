@@ -28,8 +28,9 @@ export function isSealedModeError(error: unknown, depth = 0): boolean {
 const explicitPhase = (value: unknown): SealedPhase | null =>
   value === "refused" || value === "interrupted" ? value : null;
 
-// "interrupted" whenever any evidence says a request was cut off mid-flight:
-// the provider may have received part of it. "refused" only when main said so.
+// "interrupted" whenever any evidence says a request was cut off mid-flight,
+// or when nothing states a phase: the provider may have received part of it.
+// "refused" only when main said so.
 export function sealedPhase(error: unknown, depth = 0): SealedPhase | null {
   if (!error || typeof error !== "object" || depth > 3) return null;
   const e = error as Errorish;
@@ -40,7 +41,8 @@ export function sealedPhase(error: unknown, depth = 0): SealedPhase | null {
   if (text.includes(`[${SEALED_MODE}]`)) return "refused";
   const causePhase = sealedPhase(e.cause, depth + 1);
   if (causePhase) return causePhase;
-  if (e.code === SEALED_MODE) return "refused";
+  // A code with no phase is unknown: never "nothing was sent" (T18-06).
+  if (e.code === SEALED_MODE) return "interrupted";
   return null;
 }
 

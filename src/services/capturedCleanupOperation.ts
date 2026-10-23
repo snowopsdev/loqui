@@ -20,9 +20,11 @@ import type {
   TextOperationDescriptor,
 } from "./ai/personalInferenceTypes";
 
-// Main's typed envelope for a Sealed mode refusal or interruption.
+// Main's typed envelope for a Sealed mode refusal or interruption. Only main's
+// explicit "refused" is a refusal; a missing phase never says nothing was sent
+// (Task 18 T18-06).
 function sealedModeError(result: { phase?: unknown }) {
-  const interrupted = result.phase === "interrupted";
+  const interrupted = result.phase !== "refused";
   return Object.assign(
     new Error(interrupted ? "[SEALED_MODE:interrupted] Sealed mode" : "[SEALED_MODE] Sealed mode"),
     {

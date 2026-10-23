@@ -9,6 +9,7 @@ const {
   normalizeHost,
   hostOf,
   isLoopbackHost,
+  looksLikeSecret,
 } = require("./egressPolicy");
 
 // Layer A of Sealed mode (docs/security/sealed-mode-threat-model.md). Every
@@ -183,7 +184,7 @@ function safeModel(value) {
     !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}$/.test(value) ||
     value.includes("//") ||
     /:[^/@]*@/.test(value) ||
-    /[A-Za-z0-9_]{32,}/.test(value)
+    looksLikeSecret(value)
   )
     return null;
   return value;

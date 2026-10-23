@@ -16,6 +16,7 @@ const {
   compareVersions,
 } = require("../src/helpers/parakeetCapability");
 const { renameImportedModule } = require("./lib/pe-imports");
+const { dropEscapingElfSearchPaths } = require("./lib/bundle-native-checks");
 
 const SHERPA_ONNX_VERSION = "1.13.8";
 const GITHUB_RELEASE_URL = `https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_ONNX_VERSION}`;
@@ -227,6 +228,20 @@ async function extractTarBz2(archivePath, destDir, { platform = process.platform
   });
 }
 
+// Upstream links $ORIGIN/../../../sherpa_onnx/lib (its Python wheel layout)
+// into its executables. From an AppImage's resources/bin that is
+// /tmp/sherpa_onnx/lib, which any local user can create, so drop entries that
+// leave the app. On macOS the same entry stays inside Loqui.app, and
+// afterPack.js checks every bundled image on both platforms.
+function dropEscapingSearchPaths(filePath, platformArch) {
+  if (!platformArch.startsWith("linux")) return;
+  for (const { before, after } of dropEscapingElfSearchPaths(filePath)) {
+    console.log(
+      `  ${platformArch}: ${path.basename(filePath)} search path ${before.join(":")} -> ${after.join(":")}`
+    );
+  }
+}
+
 function copyBinary(extractDir, binaryName, outputPath, platformArch) {
   const foundPath = findBinaryInDir(extractDir, binaryName);
 
@@ -238,6 +253,7 @@ function copyBinary(extractDir, binaryName, outputPath, platformArch) {
   fs.rmSync(outputPath, { force: true });
   fs.copyFileSync(foundPath, outputPath);
   setExecutable(outputPath);
+  dropEscapingSearchPaths(outputPath, platformArch);
   adhocSign(outputPath, platformArch);
   console.log(`  ${platformArch}: Extracted to ${path.basename(outputPath)}`);
   return true;
@@ -339,6 +355,10 @@ async function downloadBinary(platformArch, config, isForce = false) {
       platformArch,
     })
   ) {
+    // Installs from before the search-path fix keep the upstream entry.
+    for (const binaryPath of [outputPath, onlineOutputPath, diarizeOutputPath]) {
+      dropEscapingSearchPaths(binaryPath, platformArch);
+    }
     console.log(`  ${platformArch}: Already exists (use --force to re-download)`);
     return true;
   }
@@ -389,6 +409,7 @@ async function downloadBinary(platformArch, config, isForce = false) {
         fs.rmSync(destPath, { force: true });
         fs.copyFileSync(libPath, destPath);
         setExecutable(destPath);
+        dropEscapingSearchPaths(destPath, platformArch);
         if (isMacosHostTarget(platformArch) && libName === MACOS_ARM64_ONNXRUNTIME.libraryName) {
           await replaceMacosArm64OnnxRuntime(destPath, platformArch);
         }

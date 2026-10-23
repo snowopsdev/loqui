@@ -13,6 +13,9 @@
 // 3. Fails the build if required binaries (ffmpeg-static, ps-list vendor exe,
 //    onnx worker script) are missing from app.asar.unpacked/, or if the
 //    Parakeet servers are not the loopback-only build.
+// 4. Fails the build if any native image under resources/ can load a library
+//    from outside the app (RPATH/RUNPATH/LC_RPATH or a dylib path), or if a
+//    Linux sherpa-onnx executable needs a newer glibc than whisper and llama.
 
 const fs = require("fs");
 const path = require("path");
@@ -24,6 +27,8 @@ const {
   WINDOWS_ONNXRUNTIME_UPSTREAM_NAME,
 } = require("./download-sherpa-onnx");
 const { isLoopbackSherpaBinary } = require("../src/helpers/sherpaLoopback");
+const { readNativeImage } = require("./lib/native-image");
+const { enforceGlibcFloor, findBundleSearchPathEscapes } = require("./lib/bundle-native-checks");
 
 // ---------------------------------------------------------------------------
 // macOS resource binary signing
@@ -256,8 +261,24 @@ function verifyWindowsOnnxRuntimePrivatized(binDir) {
   }
 }
 
+// The ONNX Runtime file names a sherpa-onnx image loads: ELF NEEDED names, or
+// Mach-O @rpath/ install names, which resolve beside it through @loader_path.
+function onnxRuntimeDependencies(image) {
+  const names =
+    image.format === "elf"
+      ? image.needed
+      : image.slices.flatMap((slice) =>
+          slice.dylibs
+            .map((dylib) => dylib.name)
+            .filter((name) => name.startsWith("@rpath/"))
+            .map((name) => name.slice("@rpath/".length))
+        );
+  return [...new Set(names.filter((name) => name.startsWith("libonnxruntime")))];
+}
+
 // Upstream sherpa-onnx WebSocket servers listen on every IPv4 interface. The
 // app refuses to start them, so shipping one would silently break Parakeet.
+// Each server must also find the ONNX Runtime it loads, under that name.
 function verifyLoopbackSherpaServers(binDir, platformArch) {
   for (const prefix of ["sherpa-onnx-ws", "sherpa-onnx-online-ws"]) {
     const binaryPath = path.join(binDir, `${prefix}-${platformArch}`);
@@ -269,6 +290,55 @@ function verifyLoopbackSherpaServers(binDir, platformArch) {
         `afterPack: ${binaryPath} is the upstream wildcard-listening build; run scripts/build-sherpa-websocket.js after the sherpa-onnx download`
       );
     }
+    const image = readNativeImage(fs.readFileSync(binaryPath));
+    const runtimes = image ? onnxRuntimeDependencies(image) : [];
+    if (runtimes.length === 0) {
+      throw new Error(`afterPack: ${binaryPath} does not load an ONNX Runtime library`);
+    }
+    for (const name of runtimes) {
+      if (!fs.existsSync(path.join(binDir, name))) {
+        throw new Error(`afterPack: ${binaryPath} loads ${name}, which did not ship beside it`);
+      }
+    }
+  }
+}
+
+// A search path outside the app lets whoever can write there supply a library
+// (upstream sherpa-onnx's $ORIGIN/../../../sherpa_onnx/lib is /tmp in an
+// AppImage). `scanDirs` are relative to `bundleRoot`.
+function verifyBundledSearchPaths(bundleRoot, scanDirs, options) {
+  const findings = findBundleSearchPathEscapes(bundleRoot, scanDirs, options);
+  if (findings.length > 0) {
+    throw new Error(
+      `afterPack: native images can load libraries from outside the app:\n${findings
+        .map(({ file, problems }) => `  ${file}: ${problems.join("; ")}`)
+        .join("\n")}`
+    );
+  }
+}
+
+const LINUX_SHERPA_EXECUTABLES = [
+  "sherpa-onnx-ws-linux-x64",
+  "sherpa-onnx-online-ws-linux-x64",
+  "sherpa-onnx-diarize-linux-x64",
+];
+
+function verifyNativeImages(context) {
+  const platform = context.electronPlatformName;
+  if (platform === "linux") {
+    const resourcesDir = resolveResourcesDir(context);
+    verifyBundledSearchPaths(context.appOutDir, [path.relative(context.appOutDir, resourcesDir)]);
+    const binDir = path.join(resourcesDir, "bin");
+    enforceGlibcFloor(
+      binDir,
+      LINUX_SHERPA_EXECUTABLES.filter((name) => fs.existsSync(path.join(binDir, name))),
+      { strict: process.env.LOQUI_RELEASE_BUILD === "1", label: "  afterPack" }
+    );
+  } else if (platform === "darwin") {
+    const appPath = resolveAppPath(context);
+    verifyBundledSearchPaths(appPath, [path.relative(appPath, resolveResourcesDir(context))], {
+      appExecutableDir: "Contents/MacOS",
+    });
   }
 }
 
@@ -328,8 +398,10 @@ exports.default = async function (context) {
   wrapLinuxBinary(context);
   verifyMeetingAecHelper(context);
   verifyUnpackedBinaries(context);
+  verifyNativeImages(context);
   registerMacResourceBinariesForSigning(context);
 };
 
+exports.verifyBundledSearchPaths = verifyBundledSearchPaths;
 exports.verifyLoopbackSherpaServers = verifyLoopbackSherpaServers;
 exports.verifyWindowsOnnxRuntimePrivatized = verifyWindowsOnnxRuntimePrivatized;

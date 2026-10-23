@@ -9,6 +9,7 @@ const {
   cmakeConfigureArgs,
   computeBuildStamp,
   parseElfDynamic,
+  parseMachOIdentity,
   parseMachOLinkage,
   readCmakeOnnxRuntimePin,
   verifyLinkage,
@@ -18,7 +19,9 @@ const { MACOS_ARM64_ONNXRUNTIME } = require("../../scripts/download-sherpa-onnx"
 const { LOOPBACK_LISTEN_MARKER } = require("../../src/helpers/sherpaLoopback");
 const manifest = require("../../runtime-assets.json");
 
-const READELF_OUTPUT = `
+// readelf -d of the patched server. Upstream's executables also carry
+// $ORIGIN/../../../sherpa_onnx/lib, which the patch removes.
+const readelfOutput = (rpath) => `
 Dynamic section at offset 0x2b0d20 contains 31 entries:
   Tag        Type                         Name/Value
  0x0000000000000001 (NEEDED)             Shared library: [libonnxruntime.so]
@@ -26,35 +29,62 @@ Dynamic section at offset 0x2b0d20 contains 31 entries:
  0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so.6]
  0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
  0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
- 0x000000000000000f (RPATH)              Library rpath: [$ORIGIN:$ORIGIN/../lib:$ORIGIN/../../../sherpa_onnx/lib]
+ 0x000000000000000f (RPATH)              Library rpath: [${rpath}]
  0x000000000000000c (INIT)               0x2b000
 `;
+const PATCHED_ELF_RPATH = "$ORIGIN:$ORIGIN/../lib";
+const UPSTREAM_ELF_RPATH = "$ORIGIN:$ORIGIN/../lib:$ORIGIN/../../../sherpa_onnx/lib";
 
+// otool -L and -l of the macOS server as platform CI built it (run
+// 39984788961): ONNX Runtime is loaded by its unversioned install name.
 const OTOOL_L = `sherpa-onnx-offline-websocket-server:
-\t@rpath/libonnxruntime.1.28.2.dylib (compatibility version 0.0.0, current version 1.28.2)
-\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 1900.180.0)
-\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)
+\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)
+\t@rpath/libonnxruntime.dylib (compatibility version 0.0.0, current version 0.0.0)
+\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2100.43.0)
 `;
 
-const OTOOL_LC = `Load command 14
+const otoolRpaths = (entries) =>
+  entries
+    .map(
+      (entry, i) => `Load command ${16 + i}
           cmd LC_RPATH
       cmdsize 32
-         path @loader_path (offset 12)
-Load command 15
-          cmd LC_RPATH
-      cmdsize 40
-         path @loader_path/../lib (offset 12)
-Load command 16
-          cmd LC_FUNCTION_STARTS
+         path ${entry} (offset 12)
+`
+    )
+    .join("") +
+  `Load command ${16 + entries.length}
+      cmd LC_FUNCTION_STARTS
 `;
+const PATCHED_MAC_RPATH = ["@loader_path", "@loader_path/../lib"];
+const UPSTREAM_MAC_RPATH = [...PATCHED_MAC_RPATH, "@loader_path/../../../sherpa_onnx/lib"];
 
-const linuxLinkage = () => parseElfDynamic(READELF_OUTPUT);
-const macLinkage = () => parseMachOLinkage(OTOOL_L, OTOOL_LC);
+// otool -l of libonnxruntime.dylib from the pinned arm64 zip; the shipped
+// universal2 file's arm64 slice carries the same install name and UUID.
+const otoolOnnxRuntime = ({ id = "@rpath/libonnxruntime.dylib", uuid }) => `Load command 4
+          cmd LC_ID_DYLIB
+      cmdsize 56
+         name ${id} (offset 24)
+   time stamp 1 Wed Dec 31 19:00:01 1969
+      current version 0.0.0
+compatibility version 0.0.0
+Load command 8
+     cmd LC_UUID
+ cmdsize 24
+    uuid ${uuid}
+Load command 9
+       cmd LC_BUILD_VERSION
+`;
+const PINNED_ARM64_UUID = "38E898BD-5CB9-32A7-AF32-5F9F181D2C1F";
+
+const linuxLinkage = (rpath = PATCHED_ELF_RPATH) => parseElfDynamic(readelfOutput(rpath));
+const macLinkage = (rpath = PATCHED_MAC_RPATH) => parseMachOLinkage(OTOOL_L, otoolRpaths(rpath));
 
 test("the patch moves both pinned listeners to 127.0.0.1 and announces it", () => {
   const patch = fs.readFileSync(PATCH_PATH, "utf8");
   const files = [...patch.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((match) => match[1]).sort();
   assert.deepEqual(files, [
+    "sherpa-onnx/csrc/CMakeLists.txt",
     "sherpa-onnx/csrc/offline-websocket-server-impl.cc",
     "sherpa-onnx/csrc/offline-websocket-server.cc",
     "sherpa-onnx/csrc/online-websocket-server-impl.cc",
@@ -72,6 +102,15 @@ test("the patch moves both pinned listeners to 127.0.0.1 and announces it", () =
   const announced = patch.match(/^\+.*SHERPA_ONNX_LOGE\("Listening on: .*$/gm);
   assert.equal(announced.length, 2);
   for (const line of announced) assert.ok(line.includes(`"${LOOPBACK_LISTEN_MARKER}%d"`), line);
+
+  // Both servers lose the out-of-app search path, and no other link line changes.
+  const removedLinks = patch.match(/^-.*target_link_libraries.*$/gm);
+  assert.deepEqual(removedLinks.map((line) => line.match(/\((\S+) /)[1]).sort(), [
+    "sherpa-onnx-offline-websocket-server",
+    "sherpa-onnx-online-websocket-server",
+  ]);
+  for (const line of removedLinks) assert.ok(line.includes("/../../../sherpa_onnx/lib"), line);
+  assert.equal(patch.match(/^\+.*target_link_libraries.*$/gm), null);
 });
 
 test("the pinned source archive is checksummed in runtime-assets.json", () => {
@@ -130,16 +169,16 @@ test("linkage parsing reads ELF and Mach-O dependencies and rpaths", () => {
       "libgcc_s.so.1",
       "libc.so.6",
     ],
-    rpath: ["$ORIGIN", "$ORIGIN/../lib", "$ORIGIN/../../../sherpa_onnx/lib"],
+    rpath: ["$ORIGIN", "$ORIGIN/../lib"],
     runpath: [],
   });
-  assert.deepEqual(macLinkage(), {
+  assert.deepEqual(macLinkage(UPSTREAM_MAC_RPATH), {
     dependencies: [
-      "@rpath/libonnxruntime.1.28.2.dylib",
-      "/usr/lib/libc++.1.dylib",
       "/usr/lib/libSystem.B.dylib",
+      "@rpath/libonnxruntime.dylib",
+      "/usr/lib/libc++.1.dylib",
     ],
-    rpath: ["@loader_path", "@loader_path/../lib"],
+    rpath: ["@loader_path", "@loader_path/../lib", "@loader_path/../../../sherpa_onnx/lib"],
     runpath: [],
   });
 });
@@ -154,13 +193,14 @@ test("linkage must load only the shipped ONNX Runtime from beside the server", (
     }),
     "libonnxruntime.so"
   );
+  // The macOS runtime ships only the unversioned name the servers load.
   assert.equal(
     verifyLinkage({
       platformArch: "darwin-arm64",
       linkage: macLinkage(),
-      shippedFiles: ["libonnxruntime.1.28.2.dylib", "libonnxruntime.dylib"],
+      shippedFiles: ["libonnxruntime.dylib", "libsherpa-onnx-c-api.dylib"],
     }),
-    "libonnxruntime.1.28.2.dylib"
+    "libonnxruntime.dylib"
   );
 
   const rejects = (platformArch, linkage, shippedFiles, pattern) =>
@@ -181,8 +221,47 @@ test("linkage must load only the shipped ONNX Runtime from beside the server", (
     linuxShipped,
     /uses RUNPATH \(\$ORIGIN\); expected RPATH/
   );
-  rejects("linux-x64", linux({ rpath: ["$ORIGIN", "/../lib"] }), linuxShipped, /must stay under/);
-  rejects("linux-x64", linux({ rpath: [] }), linuxShipped, /\(none\) must stay under/);
+  rejects(
+    "darwin-arm64",
+    macLinkage(),
+    ["libonnxruntime.1.28.2.dylib"],
+    /links @rpath\/libonnxruntime\.dylib, which the sherpa-onnx runtime does not ship/
+  );
+  rejects("linux-x64", linux({ rpath: [] }), linuxShipped, /\(none\) does not include \$ORIGIN/);
+  rejects(
+    "linux-x64",
+    linuxLinkage(UPSTREAM_ELF_RPATH),
+    linuxShipped,
+    /rpath entry \$ORIGIN\/\.\.\/\.\.\/\.\.\/sherpa_onnx\/lib climbs out of the bundle; only \$ORIGIN and \$ORIGIN\/\.\.\/lib are allowed/
+  );
+  for (const [entry, reason] of [
+    ["/../lib", "is absolute"],
+    ["/tmp/sherpa_onnx/lib", "is absolute"],
+    ["$ORIGIN/../..", null],
+    ["$ORIGIN/lib/../../../../x", "climbs out of the bundle"],
+    ["lib", "is relative to the working directory"],
+    ["$LIB", "uses a loader token"],
+  ]) {
+    rejects(
+      "linux-x64",
+      linux({ rpath: ["$ORIGIN", entry] }),
+      linuxShipped,
+      new RegExp(`rpath entry ${entry.replace(/[$.*/]/g, "\\$&")}${reason ? ` ${reason}` : ";"}`)
+    );
+  }
+  // Inside Loqui.app on macOS, but still not one of the two allowed entries.
+  rejects(
+    "darwin-arm64",
+    macLinkage(UPSTREAM_MAC_RPATH),
+    ["libonnxruntime.dylib"],
+    /rpath entry @loader_path\/\.\.\/\.\.\/\.\.\/sherpa_onnx\/lib; only @loader_path and @loader_path\/\.\.\/lib are allowed/
+  );
+  rejects(
+    "darwin-arm64",
+    macLinkage([...PATCHED_MAC_RPATH, "/usr/local/lib"]),
+    ["libonnxruntime.dylib"],
+    /rpath entry \/usr\/local\/lib is absolute outside the SIP-protected system paths/
+  );
   rejects(
     "darwin-arm64",
     {
@@ -224,11 +303,20 @@ test("the build's ONNX Runtime must be the one the app ships", (t) => {
   assert.throws(() => verifyOnnxRuntime({ ...common, ...linux }), /differs from the shipped/);
 
   const pinFile = path.join(sourceDir, "cmake", "onnxruntime-osx-arm64.cmake");
+  // The CI failure: the servers load libonnxruntime.dylib, unversioned.
+  fs.writeFileSync(path.join(builtLib, "libonnxruntime.dylib"), "arm64 ort");
+  fs.writeFileSync(path.join(binDir, "libonnxruntime.dylib"), "universal2 ort");
+  const loadCommands = { built: { uuid: PINNED_ARM64_UUID }, shipped: { uuid: PINNED_ARM64_UUID } };
+  const otoolCalls = [];
   const mac = {
     ...common,
     platformArch: "darwin-arm64",
-    runtimeName: "libonnxruntime.1.28.2.dylib",
+    runtimeName: "libonnxruntime.dylib",
     marker: { onnxRuntime: MACOS_ARM64_ONNXRUNTIME.marker },
+    readLoadCommands: (file, arch) => {
+      otoolCalls.push([path.relative(dir, file), arch]);
+      return otoolOnnxRuntime(loadCommands[file.startsWith(binDir) ? "shipped" : "built"]);
+    },
   };
   const writePin = (url, sha256) =>
     fs.writeFileSync(
@@ -237,14 +325,36 @@ test("the build's ONNX Runtime must be the one the app ships", (t) => {
     );
   writePin(MACOS_ARM64_ONNXRUNTIME.url, MACOS_ARM64_ONNXRUNTIME.sha256);
   verifyOnnxRuntime(mac);
+  assert.deepEqual(otoolCalls, [
+    [path.join("build", "_deps", "onnxruntime-src", "lib", "libonnxruntime.dylib"), undefined],
+    [path.join("bin", "libonnxruntime.dylib"), "arm64"],
+  ]);
   assert.throws(
     () => verifyOnnxRuntime({ ...mac, marker: {} }),
     /shipped ONNX Runtime is unmarked/
   );
+  loadCommands.shipped = { uuid: "F03D123C-4B21-31BD-9775-E822FB9B1EA1" };
   assert.throws(
-    () => verifyOnnxRuntime({ ...mac, runtimeName: "libonnxruntime.1.23.2.dylib" }),
-    /expected libonnxruntime\.1\.28\.2\.dylib/
+    () => verifyOnnxRuntime(mac),
+    /shipped libonnxruntime\.dylib arm64 slice \(UUID f03d123c4b2131bd9775e822fb9b1ea1\) is not the build's ONNX Runtime \(UUID 38e898bd5cb932a7af325f9f181d2c1f\)/
   );
+  loadCommands.shipped = { id: "@rpath/libonnxruntime.1.28.2.dylib", uuid: PINNED_ARM64_UUID };
+  assert.throws(
+    () => verifyOnnxRuntime(mac),
+    /the shipped libonnxruntime\.dylib is named @rpath\/libonnxruntime\.1\.28\.2\.dylib, not @rpath\/libonnxruntime\.dylib/
+  );
+  loadCommands.shipped = { uuid: PINNED_ARM64_UUID };
+  fs.rmSync(path.join(binDir, "libonnxruntime.dylib"));
+  assert.throws(() => verifyOnnxRuntime(mac), /libonnxruntime\.dylib does not exist/);
+  fs.writeFileSync(path.join(binDir, "libonnxruntime.dylib"), "universal2 ort");
   writePin(MACOS_ARM64_ONNXRUNTIME.url, "0".repeat(64));
   assert.throws(() => verifyOnnxRuntime(mac), /not the shipped one/);
+});
+
+test("otool -l identity parsing reads the install name and UUID", () => {
+  assert.deepEqual(parseMachOIdentity(otoolOnnxRuntime({ uuid: PINNED_ARM64_UUID })), {
+    id: "@rpath/libonnxruntime.dylib",
+    uuid: "38e898bd5cb932a7af325f9f181d2c1f",
+  });
+  assert.deepEqual(parseMachOIdentity(otoolRpaths(PATCHED_MAC_RPATH)), { id: null, uuid: null });
 });

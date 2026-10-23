@@ -19,6 +19,8 @@ const {
 } = require("./download-sherpa-onnx");
 const { PARAKEET_MINIMUM_MACOS_VERSION } = require("../src/helpers/parakeetCapability");
 const { isLoopbackSherpaBinary } = require("../src/helpers/sherpaLoopback");
+const { checkSearchPath } = require("./lib/native-image");
+const { LINUX_BUNDLED_BIN_DIR, enforceGlibcFloor } = require("./lib/bundle-native-checks");
 
 const ROOT = path.join(__dirname, "..");
 // The commit tagged v1.13.8; the archive is pinned in runtime-assets.json.
@@ -35,6 +37,12 @@ const SERVERS = [
 const LINUX_SYSTEM_LIBRARY =
   /^(?:(?:libc|libm|libdl|libpthread|librt|libgcc_s|libstdc\+\+)\.so(?:\.\d+)*|ld-linux-x86-64\.so\.2)$/;
 const ONNXRUNTIME_LIBRARY = /^libonnxruntime(?:\.\d+)*\.(?:so|dylib)(?:\.\d+)*$/;
+// The only search paths the servers may carry, which the patch leaves: beside
+// the server, and a lib/ sibling that stays inside the app.
+const ALLOWED_SEARCH_PATHS = {
+  linux: ["$ORIGIN", "$ORIGIN/../lib"],
+  darwin: ["@loader_path", "@loader_path/../lib"],
+};
 
 function cmakeConfigureArgs(platformArch, sourceDir, buildDir) {
   const prefixMaps = `-ffile-prefix-map=${sourceDir}=sherpa-onnx -ffile-prefix-map=${buildDir}=build`;
@@ -130,6 +138,28 @@ function parseMachOLinkage(dependencyOutput, loadCommandOutput) {
   return { dependencies, rpath, runpath: [] };
 }
 
+// The install name (LC_ID_DYLIB) and LC_UUID in `otool -l` output for one
+// architecture. The UUID survives lipo and re-signing; bytes do not.
+function parseMachOIdentity(loadCommandOutput) {
+  const lines = String(loadCommandOutput).split("\n");
+  const identity = { id: null, uuid: null };
+  for (let i = 0; i < lines.length; i++) {
+    const command = lines[i].trim();
+    if (command !== "cmd LC_ID_DYLIB" && command !== "cmd LC_UUID") continue;
+    for (let j = i + 1; j < Math.min(lines.length, i + 4); j++) {
+      const line = lines[j].trim();
+      const id = line.match(/^name (.+) \(offset \d+\)$/);
+      const uuid = line.match(/^uuid ([0-9A-Fa-f-]{36})$/);
+      if (command === "cmd LC_ID_DYLIB" && id) identity.id = id[1];
+      else if (command === "cmd LC_UUID" && uuid)
+        identity.uuid = uuid[1].replace(/-/g, "").toLowerCase();
+      else continue;
+      break;
+    }
+  }
+  return identity;
+}
+
 function readLinkage(binaryPath, platformArch) {
   if (platformArch.startsWith("linux")) {
     return parseElfDynamic(execFileSync("readelf", ["-d", binaryPath], { encoding: "utf8" }));
@@ -169,8 +199,19 @@ function verifyLinkage({ platformArch, linkage, shippedFiles }) {
   if (linkage.runpath.length > 0) {
     throw new Error(`uses RUNPATH (${linkage.runpath.join(":")}); expected RPATH`);
   }
-  if (!linkage.rpath.includes(origin) || linkage.rpath.some((entry) => !entry.startsWith(origin))) {
-    throw new Error(`rpath ${linkage.rpath.join(":") || "(none)"} must stay under ${origin}`);
+  const allowed = ALLOWED_SEARCH_PATHS[isLinux ? "linux" : "darwin"];
+  if (!linkage.rpath.includes(origin)) {
+    throw new Error(`rpath ${linkage.rpath.join(":") || "(none)"} does not include ${origin}`);
+  }
+  for (const entry of linkage.rpath) {
+    if (allowed.includes(entry)) continue;
+    const reason = checkSearchPath(entry, {
+      format: isLinux ? "elf" : "macho",
+      imageDir: isLinux ? LINUX_BUNDLED_BIN_DIR : "Contents/Resources/bin",
+    });
+    throw new Error(
+      `rpath entry ${entry}${reason ? ` ${reason}` : ""}; only ${allowed.join(" and ")} are allowed`
+    );
   }
   return runtimes[0];
 }
@@ -181,10 +222,24 @@ function readCmakeOnnxRuntimePin(cmakeSource) {
   return url && hash ? { url, sha256: hash } : null;
 }
 
-function verifyOnnxRuntime({ platformArch, runtimeName, sourceDir, buildDir, binDir, marker }) {
+function readMachOLoadCommands(file, arch) {
+  return execFileSync("otool", [...(arch ? ["-arch", arch] : []), "-l", file], {
+    encoding: "utf8",
+  });
+}
+
+function verifyOnnxRuntime({
+  platformArch,
+  runtimeName,
+  sourceDir,
+  buildDir,
+  binDir,
+  marker,
+  readLoadCommands = readMachOLoadCommands,
+}) {
+  const built = path.join(buildDir, "_deps", "onnxruntime-src", "lib", runtimeName);
+  const shipped = path.join(binDir, runtimeName);
   if (platformArch.startsWith("linux")) {
-    const built = path.join(buildDir, "_deps", "onnxruntime-src", "lib", runtimeName);
-    const shipped = path.join(binDir, runtimeName);
     if (sha256(fs.readFileSync(built)) !== sha256(fs.readFileSync(shipped))) {
       throw new Error(`${runtimeName} from the build differs from the shipped ${shipped}`);
     }
@@ -205,9 +260,29 @@ function verifyOnnxRuntime({ platformArch, runtimeName, sourceDir, buildDir, bin
       `the build links ${pin?.url ?? "an unknown ONNX Runtime"}, not the shipped one`
     );
   }
-  const version = MACOS_ARM64_ONNXRUNTIME.marker.replace(/^arm64-/, "");
-  if (runtimeName !== `libonnxruntime.${version}.dylib`) {
-    throw new Error(`the servers load ${runtimeName}, expected libonnxruntime.${version}.dylib`);
+  // The servers load @rpath/libonnxruntime.dylib: the install name the pinned
+  // zip's dylib carries, and the only name the runtime ships under. The
+  // shipped file's arm64 slice must be that dylib: same install name, same UUID.
+  const installName = `@rpath/${runtimeName}`;
+  for (const file of [built, shipped]) {
+    if (!fs.existsSync(file)) throw new Error(`${file} does not exist`);
+  }
+  const builtIdentity = parseMachOIdentity(readLoadCommands(built));
+  const shippedIdentity = parseMachOIdentity(readLoadCommands(shipped, "arm64"));
+  for (const [label, identity] of [
+    ["the build's", builtIdentity],
+    ["the shipped", shippedIdentity],
+  ]) {
+    if (identity.id !== installName) {
+      throw new Error(
+        `${label} ${runtimeName} is named ${identity.id ?? "nothing"}, not ${installName}`
+      );
+    }
+  }
+  if (!builtIdentity.uuid || builtIdentity.uuid !== shippedIdentity.uuid) {
+    throw new Error(
+      `the shipped ${runtimeName} arm64 slice (UUID ${shippedIdentity.uuid ?? "none"}) is not the build's ONNX Runtime (UUID ${builtIdentity.uuid ?? "none"})`
+    );
   }
 }
 
@@ -331,6 +406,15 @@ async function buildSherpaWebsocket({
     smokeRun(outputPath);
     console.log(`  ${platformArch}: Installed loopback-only ${config[outputKey]}`);
   }
+
+  if (platformArch === "linux-x64") {
+    // afterPack enforces this on every packaged build too.
+    enforceGlibcFloor(
+      binDir,
+      SERVERS.map(({ outputKey }) => config[outputKey]),
+      { strict: process.env.LOQUI_RELEASE_BUILD === "1", label: `  ${platformArch}` }
+    );
+  }
 }
 
 module.exports = {
@@ -340,6 +424,7 @@ module.exports = {
   cmakeConfigureArgs,
   computeBuildStamp,
   parseElfDynamic,
+  parseMachOIdentity,
   parseMachOLinkage,
   readCmakeOnnxRuntimePin,
   verifyLinkage,

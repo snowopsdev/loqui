@@ -422,6 +422,25 @@ const MANUAL_CHECKLIST = [
       "while sealed is a finding (raise T18-02 to High).",
   },
   {
+    id: "FWR-m1",
+    source: "Fix-wave round 2, re-review m1 (spellcheck after a sealed quit)",
+    check:
+      "With spellcheck on, seal and confirm privacy-spellcheck.json (0600) appears beside " +
+      "privacy.json and the spellchecker is off. Quit while sealed and restart: unsealed, the " +
+      "spellchecker is on again and the marker is gone; sealed, it stays off until unsealing. " +
+      "With spellcheck off before sealing, no marker is written and it stays off. Record whether " +
+      "Electron persists setSpellCheckerEnabled in the profile's Preferences (NOT VERIFIED yet).",
+  },
+  {
+    id: "T18R-04",
+    source: "Task 18 re-review T18R-04 (permissions)",
+    check:
+      "Sealed and unsealed: navigator.geolocation.getCurrentPosition in the main window is " +
+      "denied, and no Google location request appears in the netlog or the packet capture. " +
+      "The microphone (dictation) and display-capture (meeting system audio) still work, and " +
+      "copy and paste still work.",
+  },
+  {
     id: "OBS-PACKET",
     source: "Task 16 review r1 M6 (handoff: no packet to a non-loopback address)",
     check:

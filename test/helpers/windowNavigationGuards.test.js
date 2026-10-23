@@ -5,7 +5,7 @@ const test = require("node:test");
 const { EventEmitter } = require("node:events");
 const {
   guardWindowNavigation,
-  routeOpenExternalPermission,
+  installPermissionHandlers,
 } = require("../../src/helpers/navigationGuard.js");
 
 // Final review I3 / T11-M7 / T7a-M2 / Task 18 K1: every window denies in-app
@@ -50,7 +50,13 @@ test("window.open is always denied; only http(s) and mailto are routed to the gu
 });
 
 test("navigation away from the app is prevented and routed; the app's own reload stays", () => {
-  const { contents, routed } = guarded();
+  const contents = fakeContents();
+  const routed = [];
+  guardWindowNavigation(contents, {
+    getAppUrl: () => APP_URL,
+    openExternal: (u) => routed.push(u),
+    allowDevtools: true,
+  });
   const navigate = (url) => {
     let prevented = false;
     contents.emit("will-navigate", { preventDefault: () => (prevented = true) }, url);
@@ -62,6 +68,22 @@ test("navigation away from the app is prevented and routed; the app's own reload
   assert.equal(navigate("mailto:a@example.com"), true);
   assert.equal(navigate("file:///etc/passwd"), true);
   assert.deepEqual(routed, ["https://example.com/", "mailto:a@example.com"]);
+});
+
+// Task 18 re-review T18R-06: a packaged build allows no devtools:// navigation,
+// and a file: URL must name no host (or localhost) to count as the app.
+test("packaged windows refuse devtools:// and file: URLs that name a host", () => {
+  const { contents, routed } = guarded();
+  const navigate = (url) => {
+    let prevented = false;
+    contents.emit("will-navigate", { preventDefault: () => (prevented = true) }, url);
+    return prevented;
+  };
+  assert.equal(navigate("devtools://devtools/bundled/inspector.html?ws=evil.example:9222"), true);
+  assert.equal(navigate(APP_URL.replace("file:///", "file://evil.example/")), true);
+  assert.equal(navigate(APP_URL.replace("file:///", "file://localhost/")), false);
+  assert.equal(navigate(`${APP_URL}?panel=true`), false);
+  assert.deepEqual(routed, []);
 });
 
 test("a child window that slips through is closed and its URL routed, never shown", () => {
@@ -76,8 +98,9 @@ test("a child window that slips through is closed and its URL routed, never show
 test("the OS external-protocol permission is denied and its URL routed through the guard", () => {
   let handler;
   const routed = [];
-  routeOpenExternalPermission({ setPermissionRequestHandler: (fn) => (handler = fn) }, (url) =>
-    routed.push(url)
+  installPermissionHandlers(
+    { setPermissionRequestHandler: (fn) => (handler = fn), setPermissionCheckHandler() {} },
+    (url) => routed.push(url)
   );
   const answer = (permission, details) => {
     let granted;
@@ -88,8 +111,57 @@ test("the OS external-protocol permission is denied and its URL routed through t
   assert.equal(answer("openExternal", { externalURL: "zoommtg://join?x=1" }), false);
   assert.equal(answer("openExternal", {}), false);
   assert.deepEqual(routed, ["mailto:a@example.com?body=x"]);
-  // Every other permission keeps Electron's default answer (granted).
   assert.equal(answer("media", { mediaTypes: ["audio"] }), true);
+});
+
+// Task 18 re-review T18R-04: geolocation is always denied (Chromium's network
+// location provider fetches outside session.webRequest), and any permission
+// Loqui does not use is denied by default. The check handler answers the same.
+test("only the permissions Loqui uses are granted; geolocation and unknown ones never", () => {
+  let request;
+  let check;
+  installPermissionHandlers(
+    {
+      setPermissionRequestHandler: (fn) => (request = fn),
+      setPermissionCheckHandler: (fn) => (check = fn),
+    },
+    () => {}
+  );
+  const asked = (permission) => {
+    let granted;
+    request({}, permission, (value) => (granted = value), {});
+    return granted;
+  };
+  const used = ["media", "display-capture", "clipboard-read", "clipboard-sanitized-write"];
+  const refused = [
+    "geolocation",
+    "notifications",
+    "midi",
+    "midiSysex",
+    "hid",
+    "serial",
+    "usb",
+    "idle-detection",
+    "window-management",
+    "storage-access",
+    "top-level-storage-access",
+    "mediaKeySystem",
+    "pointerLock",
+    "keyboardLock",
+    "fullscreen",
+    "speaker-selection",
+    "unknown",
+    "a-future-permission",
+  ];
+  for (const permission of used) {
+    assert.equal(asked(permission), true, permission);
+    assert.equal(check({}, permission, "file://", {}), true, `check ${permission}`);
+  }
+  for (const permission of refused) {
+    assert.equal(asked(permission), false, permission);
+    assert.equal(check({}, permission, "file://", {}), false, `check ${permission}`);
+  }
+  assert.equal(check({}, "openExternal", "file://", {}), false);
 });
 
 // Ratchet beside the executed tests above: every BrowserWindow windowManager
@@ -109,4 +181,12 @@ test("every BrowserWindow in windowManager is guarded", () => {
       `unguarded BrowserWindow at offset ${index}`
     );
   }
+  // T18R-06: devtools:// is allowed only in an unpackaged build, in every window.
+  assert.equal(
+    (source.match(/allowDevtools: !app\.isPackaged/g) || []).length,
+    2,
+    "the shared guard and the control panel"
+  );
+  const main = fs.readFileSync(path.join(__dirname, "../../main.js"), "utf8");
+  assert.match(main, /installPermissionHandlers\(\s*session\.defaultSession/);
 });

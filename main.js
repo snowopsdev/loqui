@@ -1564,7 +1564,8 @@ if (gotSingleInstanceLock) {
     .then(() => {
       // A mailto: or other external-protocol hand-off goes through main's
       // guarded opener (sealed confirmation), never straight to the OS (K1).
-      require("./src/helpers/navigationGuard").routeOpenExternalPermission(
+      // Only the permissions Loqui uses are granted; geolocation never (T18R-04).
+      require("./src/helpers/navigationGuard").installPermissionHandlers(
         session.defaultSession,
         (url) => void externalUrlOpener.openExternalUrl(url).catch(() => {})
       );

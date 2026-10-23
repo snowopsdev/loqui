@@ -1488,6 +1488,7 @@ class WindowManager {
     guardWindowNavigation(win.webContents, {
       getAppUrl: () => this._appUrl(),
       openExternal: (url) => this.openExternalUrl(url),
+      allowDevtools: !app.isPackaged,
     });
   }
 
@@ -1526,7 +1527,7 @@ class WindowManager {
         DevServerManager.getAppUrl(true) ??
         pathToFileURL(DevServerManager.getAppFilePath(true).path).href;
 
-      if (isAllowedAppNavigation(url, appUrl)) {
+      if (isAllowedAppNavigation(url, appUrl, { allowDevtools: !app.isPackaged })) {
         return;
       }
 

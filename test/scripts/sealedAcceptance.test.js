@@ -824,6 +824,8 @@ test("not-run: missing prerequisites exit non-zero with NOT RUN and a non-pass r
     "T7a-SMOKE",
     "OBS-PACKET",
     "T18-02",
+    "FWR-m1",
+    "T18R-04",
   ])
     assert.ok(ids.includes(id), id);
   assert.equal(electronLoaded(), false, "the not-run path never loads Electron or Playwright");
@@ -1256,6 +1258,11 @@ test("the checklist carries the Task 7a desktop smoke (fixture-only downloads) a
   assert.match(chromium.check, /\bwpad\b/);
   assert.match(chromium.check, /no webRequest event/);
   assert.match(chromium.check, /net-export|netlog/i);
+  // Fix-wave round 2: spellcheck after a sealed quit, and permissions.
+  assert.match(byId["FWR-m1"].check, /privacy-spellcheck\.json/);
+  assert.match(byId["FWR-m1"].check, /quit while sealed/i);
+  assert.match(byId["T18R-04"].check, /geolocation/);
+  assert.match(byId["T18R-04"].check, /display-capture/);
   // The popup check names WebRTC and the bridge in a same-origin popup (T7a-M2).
   assert.match(byId["T7a-M2"].check, /popup/);
   assert.match(byId["T7a-M2"].check, /RTCPeerConnection/);

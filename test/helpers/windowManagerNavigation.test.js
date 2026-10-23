@@ -37,10 +37,29 @@ test("packaged app: remote and unparseable URLs are blocked", () => {
   assert.equal(isAllowedAppNavigation("not a url", PACKAGED_APP_URL), false);
 });
 
-test("a null appUrl blocks everything except devtools without throwing", () => {
+test("a null appUrl blocks everything except devtools in development, without throwing", () => {
   assert.equal(isAllowedAppNavigation("file:///etc/passwd", null), false);
   assert.equal(isAllowedAppNavigation("https://example.com/", undefined), false);
-  assert.equal(isAllowedAppNavigation("devtools://devtools/bundled/inspector.html", null), true);
+  assert.equal(
+    isAllowedAppNavigation("devtools://devtools/bundled/inspector.html", null, {
+      allowDevtools: true,
+    }),
+    true
+  );
+});
+
+// Task 18 re-review T18R-06: packaged builds allow no devtools:// navigation,
+// and a file: URL is the app only with no host (or localhost).
+test("packaged app: devtools:// and file: URLs naming a host are blocked", () => {
+  assert.equal(isAllowedAppNavigation("devtools://devtools/bundled/inspector.html", null), false);
+  assert.equal(
+    isAllowedAppNavigation("devtools://devtools/bundled/inspector.html", PACKAGED_APP_URL),
+    false
+  );
+  const withHost = (host) => PACKAGED_APP_URL.replace("file:///", `file://${host}/`);
+  assert.equal(isAllowedAppNavigation(withHost("evil.example"), PACKAGED_APP_URL), false);
+  assert.equal(isAllowedAppNavigation(withHost("127.0.0.1"), PACKAGED_APP_URL), false);
+  assert.equal(isAllowedAppNavigation(withHost("localhost"), PACKAGED_APP_URL), true);
 });
 
 test("navigation guard keeps the development app route and devtools available", () => {
@@ -48,7 +67,12 @@ test("navigation guard keeps the development app route and devtools available", 
   assert.equal(isAllowedAppNavigation("http://localhost:5183/", appUrl), true);
   assert.equal(isAllowedAppNavigation("http://localhost:5183/?panel=true", appUrl), true);
   assert.equal(isAllowedAppNavigation("http://localhost:5183/other", appUrl), false);
-  assert.equal(isAllowedAppNavigation("devtools://devtools/bundled/inspector.html", null), true);
+  assert.equal(
+    isAllowedAppNavigation("devtools://devtools/bundled/inspector.html", null, {
+      allowDevtools: true,
+    }),
+    true
+  );
 });
 
 test("only http(s) targets are handed to the external browser", () => {

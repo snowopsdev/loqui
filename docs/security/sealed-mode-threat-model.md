@@ -676,5 +676,5 @@ The scoped re-review and the Task 18 focused security re-review (`docs/security/
 
 - T18-03's remainder: raw socket writes, SOCKS, HTTP/2 and other HTTP stacks to a loopback forwarder the user runs (threat 8). Owner decision D-5 accepts this as outside the guarantee and closes the `envProxy` forwarding hazard for Loqui's own Node requests.
 - T18-02 has not been observed at runtime (threat 7, Task 16).
-- Owner decisions (2026-10-23): D-1 (pending Google revoke after unseal), D-3 (process-group ownership proof) and D-5 (proxies) are implemented above. D-4, the Parakeet all-interfaces bind, stays with 07b (6g).
+- Owner decisions (2026-10-23): D-1 (pending Google revoke after unseal), D-3 (process-group ownership proof) and D-5 (proxies) are implemented above. D-2: Corti keeps the honest "Corti may still hold the dictation" copy (`sealedMode.interrupted.cortiRetained`) and gets no new IPC; a user-initiated provider-side deletion is a follow-up only if Corti's API supports it. D-4, the Parakeet all-interfaces bind, stays with 07b (6g).
 - 07b/D14–D16, and the Linux D15 `.deb`/`.rpm` boundary proof. The merge gate is NOT met.

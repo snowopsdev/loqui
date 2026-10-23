@@ -216,6 +216,20 @@ Two fresh reviews ran at `3fd48133`, the end of the consolidated fix wave: a sco
 
 No native speaker has verified the round-2 translations. The merge gate stays NOT MET.
 
+## Owner decisions (2026-10-23)
+
+The owner said "whatever you think best"; the root decided the following. These are implementation rulings, not owner sign-off: the boxes below stay unchecked.
+
+| Decision | Item                            | Ruling and where it lives                                                                                                                                                                                                                                                                                                                             |
+| -------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-1      | K9 (1), Google revoke           | A sealed disconnect keeps a pending revoke (only the token, encrypted in `secure-keys/`), and main revokes automatically after unsealing as a ticketed, recorded calendar request. A failure keeps it, offers Retry and names the Google Account permissions page. Reset everything never drops it silently. Threat model, Task 11 calendars section. |
+| D-2      | K9 (2), Corti delete            | No new IPC or feature. The honest "Corti may still hold the dictation" copy (`sealedMode.interrupted.cortiRetained`) stays. Follow-up only: a user-initiated provider-side deletion, if Corti's API supports it.                                                                                                                                      |
+| D-3      | K9 (3), A23 process group       | Ownership proof before signalling a reaped root's group (leader identity at spawn; Linux `/proc`, macOS `ps`). Unproven means no signal, the obligation stays unresolved, and a typed reason is surfaced. Windows stays with 07b. Threat model, Task 10 section.                                                                                      |
+| D-4      | K2, Parakeet bind               | Unchanged: 07b (6g).                                                                                                                                                                                                                                                                                                                                  |
+| D-5      | T18-03 remainder and `envProxy` | Accepted: programs the user runs (forwarders, SOCKS, tunnels) are outside the guarantee, as the threat model, `docs/PRIVACY.md` and the Sealed mode panel say. Closed: while sealed, Loqui's own Node requests never go through an environment, agent or dispatcher proxy. Threat model, threat 8.                                                    |
+
+None of these was observed in a real Electron run (Task 16 is still a manual gap), and nothing ran on macOS.
+
 ## Sign-off
 
 - [ ] All critical and high findings fixed and re-verified (link commits)

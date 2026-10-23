@@ -406,6 +406,87 @@ test("a write failure keeps the list and the actions, and says the list may be i
   assert.doesNotMatch(en, /can't read/, "the list is readable when it says this");
 });
 
+// Re-review m2/m7: the count is distinct programs, from main's summary, so a
+// program refused in two sealings counts once, and a program whose rows are
+// past the listed page is still named. An unnamed program is counted only.
+test("refused programs are counted and named from main's summary, not from the listed rows", async () => {
+  const html = await renderView({
+    events: [ev({ id: 1 })],
+    summary: sum({
+      left: 1,
+      observed: 1,
+      nativeRefused: 5,
+      nativeRefusedPrograms: ["pactl", "unknown", "yt-dlp"],
+    }),
+  });
+  assert.match(html, /recorder\.nativeRefusedToday\{"count":3\}/);
+  assert.match(html, /recorder\.nativeRefusedPrograms\{"names":"pactl, yt-dlp"\}/);
+  const en = resources.en.settingsPage.privacy.recorder;
+  assert.match(
+    en.nativeRefusedToday_other,
+    /^Sealed mode didn't start \{\{count\}\} local programs\./
+  );
+  assert.match(
+    en.nativeRefusedToday_one,
+    /^Sealed mode didn't start \{\{count\}\} local program\./
+  );
+  for (const l of LOCALES)
+    for (const [key, value] of Object.entries(resources[l].settingsPage.privacy.recorder))
+      if (key.startsWith("nativeRefusedToday_"))
+        assert.doesNotMatch(
+          value,
+          /program starts?\b|Programmstart|inicio de programa|démarrage|avvio di un|起動：|启动：|啟動：|عمليات تشغيل/i,
+          `${l}:${key}`
+        );
+});
+
+// Re-review m9: the "couldn't save some records" line is only for records
+// that weren't saved. A failed delete (Clear, prune) and a failed read while
+// an older list is shown each say what actually happened.
+test("persistence failures name their kind: save, delete or read", async () => {
+  const lines = async (props) => {
+    const html = await renderView({ events: [ev({ id: 1 })], ...props });
+    return ["unavailable", "deleteFailed", "readStale"].filter((k) =>
+      html.includes(`recorder.${k}<`)
+    );
+  };
+  const summary = (extra) => sum({ left: 1, observed: 1, ...extra });
+  assert.deepEqual(
+    await lines({
+      summary: summary({ persistError: "SQLITE_BUSY", persistErrorKinds: ["delete"] }),
+    }),
+    ["deleteFailed"]
+  );
+  assert.deepEqual(
+    await lines({ summary: summary({ persistError: "READ_ERROR", persistErrorKinds: ["read"] }) }),
+    ["readStale"]
+  );
+  assert.deepEqual(
+    await lines({
+      summary: summary({ persistError: "SQLITE_FULL", persistErrorKinds: ["save", "read"] }),
+    }),
+    ["unavailable", "readStale"]
+  );
+  // The attestation's kinds join the summary's.
+  assert.deepEqual(
+    await lines({
+      summary: summary({ persistErrorKinds: [] }),
+      persistError: true,
+      persistErrorKinds: ["delete"],
+    }),
+    ["deleteFailed"]
+  );
+  // Without kinds (an older main), a failure is still a possible gap in the list.
+  assert.deepEqual(await lines({ summary: summary({ persistError: "SQLITE_FULL" }) }), [
+    "unavailable",
+  ]);
+  assert.deepEqual(await lines({ summary: summary({ persistErrorKinds: [] }) }), []);
+  const en = resources.en.settingsPage.privacy.recorder;
+  assert.match(en.deleteFailed, /couldn't delete some records/);
+  assert.match(en.readStale, /couldn't read its records/);
+  assert.match(en.readStale, /out of date/);
+});
+
 test("the empty state makes no network claim beyond what was recorded", async () => {
   const html = await renderView({ events: [], summary: sum({}) });
   assert.match(html, /settingsPage\.privacy\.recorder\.empty/);
@@ -1114,6 +1195,8 @@ const KEYS = [
   "notice.cleared",
   "notice.clearError",
   "nativeRefusedPrograms",
+  "deleteFailed",
+  "readStale",
   ...["time", "task", "host", "sent", "received", "status", "model"].map((c) => `columns.${c}`),
   ...["ok", "error", "blocked", "cancelled"].map((o) => `outcome.${o}`),
 ].map((k) => `${R}.${k}`);
@@ -1326,8 +1409,13 @@ test("DESIGN.md completes the Sealed mode section with the recorder rules", () =
     "whole connection",
     // Final review I1, I5, V1/V2 (FW-B contracts, consolidated fix wave).
     "Programs not started",
-    "A program start isn't a request",
+    "A program that wasn't started isn't a request",
     "couldn't save some records, so this list may be incomplete",
+    // Re-review m2/m7/m9 (fix-wave round 2).
+    "Sealed mode didn't start {{count}} local programs",
+    "nativeRefusedPrograms",
+    "couldn't delete some records, so older entries may still be stored",
+    "may be out of date",
     "whitespace-nowrap",
     '<bdi dir="ltr">',
   ])
@@ -1368,8 +1456,11 @@ test("PRIVACY.md documents Sealed mode and the recorder as a partial 07a with th
     "Every connection row",
     "whole connection",
     // Final review I1, I3, I5 and Task 18 T18-02 (consolidated fix wave).
-    "A program start isn't a request",
+    "A program that wasn't started isn't a request",
+    "Sealed mode didn't start 2 local programs",
     "couldn't save some records",
+    "older entries may still be stored",
+    "may be out of date",
     "in any Loqui window",
   ])
     assert.ok(body.includes(phrase), phrase);

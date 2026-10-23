@@ -108,7 +108,11 @@ function attachPrivacyIPC({
   handle("egress-summary", (_event, options) => {
     const result = recorder.summary({ since: range(options).since });
     readable();
-    return { ...result, persistError: recorder.persistError ?? null };
+    return {
+      ...result,
+      persistError: recorder.persistError ?? null,
+      persistErrorKinds: recorder.persistErrorKinds ?? [],
+    };
   });
   handle("egress-clear", (event) =>
     serialize(async () => {

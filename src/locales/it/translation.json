@@ -1956,6 +1956,8 @@
         "loadError": "Impossibile caricare il registratore di volo.",
         "unavailable": "Il registratore di volo non è riuscito a salvare alcune voci, quindi questo elenco potrebbe essere incompleto.",
         "unavailableRead": "Il registratore di volo non riesce a leggere o salvare le sue voci in questo momento.",
+        "deleteFailed": "Il registratore di volo non è riuscito a eliminare alcune voci, quindi potrebbero essere ancora conservate voci meno recenti.",
+        "readStale": "Il registratore di volo non è riuscito a leggere le sue voci poco fa, quindi questo elenco potrebbe non essere aggiornato.",
         "retry": "Riprova",
         "observedToday_one": "{{count}} richiesta in uscita registrata oggi",
         "observedToday_other": "{{count}} richieste in uscita registrate oggi",
@@ -2046,8 +2048,8 @@
           "unattributed": "Non spiegata",
           "nativeLaunch": "Programma locale (non avviato)"
         },
-        "nativeRefusedToday_one": "{{count}} avvio di un programma locale rifiutato dalla modalità sigillata. L’avvio di un programma non è una richiesta, quindi non è conteggiato sopra.",
-        "nativeRefusedToday_other": "{{count}} avvii di programmi locali rifiutati dalla modalità sigillata. L’avvio di un programma non è una richiesta, quindi non sono conteggiati sopra.",
+        "nativeRefusedToday_one": "La modalità sigillata non ha avviato {{count}} programma locale. Un programma non avviato non è una richiesta, quindi non è conteggiato sopra.",
+        "nativeRefusedToday_other": "La modalità sigillata non ha avviato {{count}} programmi locali. I programmi non avviati non sono richieste, quindi non sono conteggiati sopra.",
         "nativeRefusedPrograms": "Programmi non avviati: {{names}}"
       }
     },

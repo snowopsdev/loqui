@@ -2009,6 +2009,8 @@
         "loadError": "No se pudo cargar el registro de vuelo.",
         "unavailable": "El registro de vuelo no pudo guardar algunos registros, así que esta lista puede estar incompleta.",
         "unavailableRead": "El registro de vuelo no puede leer ni guardar sus registros en este momento.",
+        "deleteFailed": "El registro de vuelo no pudo borrar algunos registros, así que es posible que todavía haya entradas antiguas guardadas.",
+        "readStale": "El registro de vuelo no pudo leer sus registros hace un momento, así que esta lista puede no estar actualizada.",
         "retry": "Reintentar",
         "observedToday_one": "{{count}} solicitud saliente registrada hoy",
         "observedToday_other": "{{count}} solicitudes salientes registradas hoy",
@@ -2099,8 +2101,8 @@
           "unattributed": "Sin explicar",
           "nativeLaunch": "Programa local (no iniciado)"
         },
-        "nativeRefusedToday_one": "{{count}} inicio de programa local rechazado por el modo sellado. Iniciar un programa no es una solicitud, así que no se cuenta arriba.",
-        "nativeRefusedToday_other": "{{count}} inicios de programas locales rechazados por el modo sellado. Iniciar un programa no es una solicitud, así que no se cuentan arriba.",
+        "nativeRefusedToday_one": "El modo sellado no inició {{count}} programa local. Un programa que no se inició no es una solicitud, así que no se cuenta arriba.",
+        "nativeRefusedToday_other": "El modo sellado no inició {{count}} programas locales. Los programas que no se iniciaron no son solicitudes, así que no se cuentan arriba.",
         "nativeRefusedPrograms": "Programas no iniciados: {{names}}"
       }
     },

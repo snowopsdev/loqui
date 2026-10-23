@@ -1935,6 +1935,8 @@
         "loadError": "Não foi possível carregar o gravador de voo.",
         "unavailable": "O gravador de voo não conseguiu salvar alguns registros, então esta lista pode estar incompleta.",
         "unavailableRead": "O gravador de voo não consegue ler nem salvar seus registros agora.",
+        "deleteFailed": "O gravador de voo não conseguiu excluir alguns registros, então entradas antigas ainda podem estar armazenadas.",
+        "readStale": "O gravador de voo não conseguiu ler seus registros agora há pouco, então esta lista pode estar desatualizada.",
         "retry": "Tentar novamente",
         "observedToday_one": "Solicitações de saída registradas hoje: {{count}}",
         "observedToday_other": "Solicitações de saída registradas hoje: {{count}}",
@@ -2025,8 +2027,8 @@
           "unattributed": "Sem explicação",
           "nativeLaunch": "Programa local (não iniciado)"
         },
-        "nativeRefusedToday_one": "Inícios de programas locais recusados pelo modo selado: {{count}}. Iniciar um programa não é uma solicitação, por isso não entra na contagem acima.",
-        "nativeRefusedToday_other": "Inícios de programas locais recusados pelo modo selado: {{count}}. Iniciar um programa não é uma solicitação, por isso não entra na contagem acima.",
+        "nativeRefusedToday_one": "O modo selado não iniciou {{count}} programa local. Um programa não iniciado não é uma solicitação, por isso não entra na contagem acima.",
+        "nativeRefusedToday_other": "O modo selado não iniciou {{count}} programas locais. Programas não iniciados não são solicitações, por isso não entram na contagem acima.",
         "nativeRefusedPrograms": "Programas não iniciados: {{names}}"
       }
     },

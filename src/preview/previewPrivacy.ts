@@ -158,6 +158,9 @@ function summarize(rows: EgressEvent[]): EgressSummary {
     connections: connections.length,
     blocked: rows.filter((row) => row.outcome === "blocked" && row.task !== "nativeLaunch").length,
     nativeRefused: nativeRefused.length,
+    nativeRefusedPrograms: [
+      ...new Set(nativeRefused.map((row) => row.host.replace(/^native-/, "") || "unknown")),
+    ],
     unattributed: unexplained.length,
     unattributedHosts: [...new Set(unexplained.map((row) => row.host))],
     bytesOut: sum("bytesOut"),
@@ -260,6 +263,7 @@ export function createPreviewPrivacyAPI(clock: () => number = Date.now): Privacy
     egressSummary: async (options) => ({
       ...summarize(events.filter((row) => inWindow(row, options?.since ?? startOfDay(clock())))),
       persistError: null,
+      persistErrorKinds: [],
     }),
     // Main asks in its own dialog; the preview simulates "Clear" accepted.
     clearEgress: async () => {

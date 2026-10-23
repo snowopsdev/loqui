@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { EgressEvent, EgressSummary } from "../../types/privacy";
+import type { EgressEvent, EgressSummary, PersistErrorKind } from "../../types/privacy";
 import { useSealedMode } from "../../hooks/useSealedMode";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { formatBytes } from "../../utils/formatBytes";
@@ -19,7 +19,8 @@ import {
   hostTrail,
   ltr,
   outcomeId,
-  refusedPrograms,
+  persistenceLines,
+  refusedProgramsView,
   sentCell,
   shownEvents,
   startOfToday,
@@ -133,6 +134,7 @@ export function FlightRecorderView({
   retention = null,
   recordFailures = 0,
   persistError = false,
+  persistErrorKinds,
 }: {
   t: T;
   events: EgressEvent[];
@@ -152,6 +154,7 @@ export function FlightRecorderView({
   retention?: RetentionView | null;
   recordFailures?: number;
   persistError?: boolean;
+  persistErrorKinds?: PersistErrorKind[];
 }) {
   const headingId = `flight-recorder-${useId()}`;
   const loaded = error === null && summary !== null;
@@ -161,13 +164,20 @@ export function FlightRecorderView({
   // marked as not drawn rather than shown empty while the counts include it.
   const undrawn = loaded ? undrawnUntil(events, since, truncated) : null;
   const unexplainedHosts = summary?.unattributedHosts ?? [];
-  // Program starts main refused while sealed (I1): counted from main's summary,
-  // named from the rows; never requests.
-  const nativeRefused = loaded ? Number(summary?.nativeRefused) || 0 : 0;
-  const programs = nativeRefused > 0 ? refusedPrograms(events, since) : [];
-  // A pending write failure (I5), from the attestation or main's summary: the
-  // list is readable but may be incomplete.
-  const incomplete = persistError || Boolean(summary?.persistError);
+  // Programs main refused to start while sealed (I1): counted and named from
+  // main's summary (re-review m2/m7); never requests.
+  const { count: nativeRefused, names: programs } = refusedProgramsView(
+    loaded ? summary : null,
+    events,
+    since
+  );
+  // Unresolved persistence failures (I5, m9), from the attestation or main's
+  // summary: the list stays, and each line says what may be wrong with it.
+  const persistLines = persistenceLines([
+    { error: summary?.persistError, kinds: summary?.persistErrorKinds },
+    { error: persistError, kinds: persistErrorKinds },
+  ]);
+  const incomplete = persistLines.length > 0;
   const retentionLine = !retention
     ? t(`${R}.retention`)
     : !retention.historyOn
@@ -246,8 +256,13 @@ export function FlightRecorderView({
           {recordFailures > 0 && (
             <p className={warn}>{t(`${R}.recordFailures`, { count: recordFailures })}</p>
           )}
-          {/* "This list may be incomplete" only while a list is shown. */}
-          {incomplete && loaded && <p className={warn}>{t(`${R}.unavailable`)}</p>}
+          {/* These lines describe the list, so only while a list is shown. */}
+          {loaded &&
+            persistLines.map((key) => (
+              <p key={key} className={warn}>
+                {t(`${R}.${key}`)}
+              </p>
+            ))}
         </div>
       )}
 
@@ -459,6 +474,7 @@ export default function FlightRecorderPanel() {
       retention={{ historyOn: historyOn !== false, days: Number(days) || 0 }}
       recordFailures={attestation?.recordFailures ?? 0}
       persistError={Boolean(attestation?.persistError)}
+      persistErrorKinds={attestation?.persistErrorKinds}
       onShowMore={() => void feedRef.current?.showMore()}
       onRetry={api ? () => void feedRef.current?.retry() : undefined}
       onExport={() => void feedRef.current?.exportCsv()}

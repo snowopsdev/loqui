@@ -104,6 +104,15 @@ function toPublic(row) {
   };
 }
 
+// Newest first. Within one timestamp, memory rows (negative ids, newer as they
+// decrease) sit above database rows (positive ids, newer as they increase).
+// Two integer tiers, no float keys (T8-M1). Exported so the tiers are tested in
+// both argument orders: list() always passes disk rows first (re-review m5).
+const memoryTier = (row) => (row.id > 0 ? 0 : 1);
+function newestFirst(a, b) {
+  return b.ts - a.ts || memoryTier(b) - memoryTier(a) || (a.id > 0 ? b.id - a.id : a.id - b.id);
+}
+
 class FlightRecorder extends EventEmitter {
   constructor({ db = null, now = Date.now } = {}) {
     super();
@@ -123,6 +132,18 @@ class FlightRecorder extends EventEmitter {
 
   get persistError() {
     return this._pendingPersistError || this._writePersistError || this._readPersistError;
+  }
+
+  // Which kinds of failure are unresolved (re-review m9): "save" (records that
+  // could not be written, so the list may be incomplete), "delete" (a Clear,
+  // prune or cap that failed, so older records may still be stored) and "read"
+  // (the stored list could not be read, so a shown list may be out of date).
+  get persistErrorKinds() {
+    return [
+      ...(this._pendingPersistError ? ["save"] : []),
+      ...(this._writePersistError ? ["delete"] : []),
+      ...(this._readPersistError ? ["read"] : []),
+    ];
   }
 
   // Only a failed read makes the stored list unreadable. A write failure
@@ -301,17 +322,7 @@ class FlightRecorder extends EventEmitter {
     const fromMemory = this.memory.filter(
       (row) => row.ts >= since || (row.ended_at != null && row.ended_at >= since)
     );
-    // Newest first. Within one timestamp, memory rows (negative ids, newer as
-    // they decrease) sit above database rows (positive ids, newer as they
-    // increase). Two integer tiers, no float keys (T8-M1).
-    const memoryRow = (row) => (row.id > 0 ? 0 : 1);
-    return [...fromDb, ...fromMemory]
-      .sort(
-        (a, b) =>
-          b.ts - a.ts || memoryRow(b) - memoryRow(a) || (a.id > 0 ? b.id - a.id : a.id - b.id)
-      )
-      .slice(0, lim)
-      .map(toPublic);
+    return [...fromDb, ...fromMemory].sort(newestFirst).slice(0, lim).map(toPublic);
   }
 
   summary({ since = 0 } = {}) {
@@ -332,6 +343,13 @@ class FlightRecorder extends EventEmitter {
       blocked: rows.filter((row) => row.outcome === "blocked" && row.task !== "nativeLaunch")
         .length,
       nativeRefused: nativeRefused.length,
+      // Distinct programs, from every row in the window (re-review m7): the
+      // panel names them from here, not from the rows its list shows.
+      nativeRefusedPrograms: [
+        ...new Set(
+          nativeRefused.map((row) => String(row.host ?? "").replace(/^native-/, "") || "unknown")
+        ),
+      ],
       unattributed: unexplained.length,
       unattributedHosts: [...new Set(unexplained.map((row) => row.host))],
       bytesOut: sum("bytesOut"),
@@ -462,4 +480,5 @@ module.exports = {
   MAX_ROWS,
   MEMORY_LIMIT,
   CAP_CHECK_EVERY,
+  newestFirst,
 };

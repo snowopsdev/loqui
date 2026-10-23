@@ -54,10 +54,18 @@ export interface EgressSummary {
   opaqueSessions: number;
   // Refused program starts (nativeLaunch rows): never in `blocked` or `unattributed`.
   nativeRefused: number;
-  // privacy:egress-summary only: a pending write failure (I5). Non-null means
-  // the list is readable but may be incomplete.
+  // The distinct programs behind those rows, from every row in the window;
+  // "unknown" for one Loqui could not name (re-review m2/m7).
+  nativeRefusedPrograms?: string[];
+  // privacy:egress-summary only: an unresolved persistence failure (I5). Non-null
+  // means the list is readable; its kinds say what may be wrong with it (m9).
   persistError?: string | null;
+  persistErrorKinds?: PersistErrorKind[];
 }
+// "save": records not written (the list may be incomplete); "delete": a Clear,
+// prune or cap that failed (older records may still be stored); "read": the
+// stored list could not be read (a shown list may be out of date).
+export type PersistErrorKind = "save" | "delete" | "read";
 export type EgressNotice =
   | {
       phase: "dispatched" | "delivered" | "undelivered";
@@ -121,6 +129,7 @@ export interface Attestation {
   };
   paused: never[];
   persistError: string | null;
+  persistErrorKinds?: PersistErrorKind[];
   blockedSinceSealed: number;
   recordFailures: number;
   version: number;

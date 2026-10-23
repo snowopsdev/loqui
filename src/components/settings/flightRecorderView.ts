@@ -1,4 +1,11 @@
-import type { EgressEvent, EgressNotice, EgressOutcome, EgressTask } from "../../types/privacy";
+import type {
+  EgressEvent,
+  EgressNotice,
+  EgressOutcome,
+  EgressSummary,
+  EgressTask,
+  PersistErrorKind,
+} from "../../types/privacy";
 
 // Pure view model for the flight recorder (Plan 07, SET-M3). The panel shows
 // one window, "today since local midnight", and fetches exactly that window
@@ -88,6 +95,46 @@ export function refusedPrograms(events: EgressEvent[], since: number): string[] 
     .map((e) => (e.host ?? "").replace(/^native-/, ""))
     .filter((name) => name && name !== "unknown");
   return [...new Set(names)];
+}
+
+// The programs main refused today, counted and named from its summary, which
+// reads every row of the window (re-review m2/m7). Without that list (an older
+// main) the count is its row count and the names come from the listed rows.
+// A program whose name is unknown is counted, never named.
+export function refusedProgramsView(
+  summary: Pick<EgressSummary, "nativeRefused" | "nativeRefusedPrograms"> | null,
+  events: EgressEvent[],
+  since: number
+): { count: number; names: string[] } {
+  if (!summary) return { count: 0, names: [] };
+  if (Array.isArray(summary.nativeRefusedPrograms))
+    return {
+      count: summary.nativeRefusedPrograms.length,
+      names: summary.nativeRefusedPrograms.filter((name) => name && name !== "unknown"),
+    };
+  const count = Number(summary.nativeRefused) || 0;
+  return { count, names: count > 0 ? refusedPrograms(events, since) : [] };
+}
+
+const PERSIST_LINES: Record<PersistErrorKind, string> = {
+  save: "unavailable",
+  delete: "deleteFailed",
+  read: "readStale",
+};
+// The recorder keys for unresolved persistence failures, from main's summary
+// and attestation (re-review m9). A failure reported without kinds (an older
+// main) is treated as possibly missing records.
+export function persistenceLines(
+  sources: { error?: unknown; kinds?: readonly PersistErrorKind[] | null }[]
+): string[] {
+  const kinds = new Set<PersistErrorKind>();
+  for (const { error, kinds: listed } of sources) {
+    if (Array.isArray(listed)) for (const kind of listed) kinds.add(kind);
+    else if (error) kinds.add("save");
+  }
+  return (["save", "delete", "read"] as const)
+    .filter((kind) => kinds.has(kind))
+    .map((kind) => PERSIST_LINES[kind]);
 }
 
 export function startOfToday(now: number): number {

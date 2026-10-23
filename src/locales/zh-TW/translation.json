@@ -1955,6 +1955,8 @@
         "loadError": "無法載入飛行記錄器。",
         "unavailable": "飛行記錄器未能儲存部分記錄，因此此清單可能不完整。",
         "unavailableRead": "飛行記錄器目前無法讀取或儲存其記錄。",
+        "deleteFailed": "飛行記錄器未能刪除部分記錄，因此較早的記錄可能仍被儲存。",
+        "readStale": "飛行記錄器剛才未能讀取其記錄，因此此清單可能不是最新的。",
         "retry": "重試",
         "observedToday_other": "今天記錄的外送請求：{{count}} 個",
         "connectionsToday_other": "另有與請求分開列出的連線：{{count}} 個",
@@ -2037,7 +2039,7 @@
           "unattributed": "無法解釋",
           "nativeLaunch": "本機程式（未啟動）"
         },
-        "nativeRefusedToday_other": "被封閉模式拒絕的本機程式啟動：{{count}} 次。啟動程式不是請求，因此不計入上方的數量。",
+        "nativeRefusedToday_other": "封閉模式未啟動 {{count}} 個本機程式。未啟動的程式不是請求，因此不計入上方的數量。",
         "nativeRefusedPrograms": "未啟動的程式：{{names}}"
       }
     },

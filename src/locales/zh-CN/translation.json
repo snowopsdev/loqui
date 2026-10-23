@@ -1955,6 +1955,8 @@
         "loadError": "无法加载飞行记录器。",
         "unavailable": "飞行记录器未能保存部分记录，因此此列表可能不完整。",
         "unavailableRead": "飞行记录器目前无法读取或保存其记录。",
+        "deleteFailed": "飞行记录器未能删除部分记录，因此较早的记录可能仍被保存。",
+        "readStale": "飞行记录器刚才未能读取其记录，因此此列表可能不是最新的。",
         "retry": "重试",
         "observedToday_other": "今天记录的外发请求：{{count}} 个",
         "connectionsToday_other": "另有与请求分开列出的连接：{{count}} 个",
@@ -2037,7 +2039,7 @@
           "unattributed": "无法解释",
           "nativeLaunch": "本地程序（未启动）"
         },
-        "nativeRefusedToday_other": "被封闭模式拒绝的本地程序启动：{{count}} 次。启动程序不是请求，因此不计入上方的数量。",
+        "nativeRefusedToday_other": "封闭模式未启动 {{count}} 个本地程序。未启动的程序不是请求，因此不计入上方的数量。",
         "nativeRefusedPrograms": "未启动的程序：{{names}}"
       }
     },

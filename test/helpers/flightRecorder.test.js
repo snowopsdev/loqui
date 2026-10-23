@@ -1,7 +1,12 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createDb } = require("./harness/db");
-const { FlightRecorder, toCsv, MEMORY_LIMIT } = require("../../src/helpers/privacy/flightRecorder");
+const {
+  FlightRecorder,
+  toCsv,
+  MEMORY_LIMIT,
+  newestFirst,
+} = require("../../src/helpers/privacy/flightRecorder");
 
 const DAY = 24 * 60 * 60 * 1000;
 const base = { task: "chat", host: "api.groq.com", outcome: "ok", bytesOut: 3100, bytesIn: 9800 };
@@ -539,6 +544,7 @@ test("summary counts measured request rows separately and preserves unknown byte
     connections: 1,
     blocked: 1,
     nativeRefused: 0,
+    nativeRefusedPrograms: [],
     unattributed: 2,
     // Newest first (T8-M1): y was recorded after x.
     unattributedHosts: ["y.example.com", "x.example.com"],
@@ -642,6 +648,118 @@ test("same-timestamp rows list newest first: memory above disk, then by insertio
     ctx.recorder.list().map((row) => row.model),
     ["mem-8", "mem-7", "mem-6", "mem-5", "mem-4", "mem-3", "mem-2", "mem-1", "disk-2", "disk-1"]
   );
+});
+
+// Re-review m5: list() always hands the sort disk rows first, so a comparator
+// without the memory tier can still come out right. The comparator itself is
+// asked in both orders, and a shuffled fixture must sort to one answer.
+test("the list comparator puts a memory row above a disk row in either argument order", () => {
+  const disk = { id: 4, ts: 7 };
+  const mem = { id: -2, ts: 7 };
+  assert.ok(newestFirst(disk, mem) > 0, "disk after memory when disk is first");
+  assert.ok(newestFirst(mem, disk) < 0, "memory before disk when memory is first");
+  assert.ok(newestFirst({ id: 1, ts: 8 }, mem) < 0, "a newer timestamp still wins");
+  const rows = [
+    ...[1, 2, 3, 4, 5].map((id) => ({ id, ts: 7 })),
+    ...[-1, -2, -3].map((id) => ({ id, ts: 7 })),
+  ];
+  const expected = [-3, -2, -1, 5, 4, 3, 2, 1];
+  // Every rotation and its reverse: memory rows ahead of disk rows included.
+  for (let shift = 0; shift < rows.length; shift++) {
+    const rotated = [...rows.slice(shift), ...rows.slice(0, shift)];
+    for (const input of [rotated, [...rotated].reverse()])
+      assert.deepEqual(
+        [...input].sort(newestFirst).map((row) => row.id),
+        expected,
+        JSON.stringify(input.map((row) => row.id))
+      );
+  }
+});
+
+// Re-review m7: the panel names refused programs from main's summary, which
+// reads every row of the window, not only the rows the list shows.
+test("the summary names every refused program in the window, beyond the listed rows", (t) => {
+  let clock = 1_000;
+  const ctx = persistent(t, () => clock);
+  if (!ctx) return;
+  ctx.recorder.record({
+    task: "nativeLaunch",
+    kind: "operation",
+    host: "native-pactl",
+    outcome: "blocked",
+    bytesOut: 0,
+  });
+  ctx.recorder.record({
+    task: "nativeLaunch",
+    kind: "operation",
+    host: "unknown",
+    outcome: "blocked",
+    bytesOut: 0,
+  });
+  for (let i = 0; i < 600; i++) {
+    clock += 1;
+    ctx.recorder.record(base);
+  }
+  ctx.recorder.record({
+    task: "nativeLaunch",
+    kind: "operation",
+    host: "native-ps",
+    outcome: "blocked",
+    bytesOut: 0,
+  });
+  assert.equal(
+    ctx.recorder.list({ since: 0 }).some((row) => row.host === "native-pactl"),
+    false,
+    "the oldest refusal is past the first page"
+  );
+  const summary = ctx.recorder.summary({ since: 0 });
+  assert.equal(summary.nativeRefused, 3);
+  // Distinct programs; one whose name is unknown is counted, not named.
+  assert.deepEqual([...summary.nativeRefusedPrograms].sort(), ["pactl", "ps", "unknown"]);
+});
+
+// Re-review m9: a persistence failure says which kind it is, so the panel never
+// calls a failed delete or a failed read "couldn't save some records".
+test("persistence failures are reported by kind: save, delete or read", () => {
+  let failInsert = false;
+  let failDelete = false;
+  let failRead = false;
+  const db = {
+    prepare: (sql) => ({
+      run: () => {
+        if (sql.startsWith("INSERT") && failInsert)
+          throw Object.assign(new Error("x"), { code: "SQLITE_FULL" });
+        if (sql.startsWith("DELETE") && failDelete)
+          throw Object.assign(new Error("x"), { code: "SQLITE_BUSY" });
+        return { lastInsertRowid: 1, changes: 0 };
+      },
+      all: () => {
+        if (failRead) throw new Error("read failed");
+        return [];
+      },
+      get: () => ({ n: 0 }),
+    }),
+    transaction: (fn) => () => fn(),
+  };
+  const recorder = new FlightRecorder({ now: () => 5 });
+  recorder.attachDatabase(db);
+  recorder.setPersistence(true);
+  assert.deepEqual(recorder.persistErrorKinds, []);
+  failDelete = true;
+  assert.equal(recorder.clear(), false);
+  assert.deepEqual(recorder.persistErrorKinds, ["delete"], "a failed Clear is not a lost record");
+  failDelete = false;
+  failRead = true;
+  recorder.list();
+  assert.deepEqual(recorder.persistErrorKinds, ["delete", "read"]);
+  failRead = false;
+  recorder.list();
+  assert.equal(recorder.clear(), true);
+  assert.deepEqual(recorder.persistErrorKinds, []);
+  failInsert = true;
+  recorder.record(base);
+  assert.deepEqual(recorder.persistErrorKinds, ["save"]);
+  assert.equal(recorder.persistError, "SQLITE_FULL");
 });
 
 // T15-N1: the recorder's window query reads ended_at as well as ts.

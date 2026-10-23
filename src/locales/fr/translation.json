@@ -2050,6 +2050,8 @@
         "loadError": "Impossible de charger l’enregistreur de vol.",
         "unavailable": "L’enregistreur de vol n’a pas pu enregistrer certaines entrées ; cette liste est peut-être incomplète.",
         "unavailableRead": "L’enregistreur de vol ne peut pas lire ni enregistrer ses entrées pour le moment.",
+        "deleteFailed": "L’enregistreur de vol n’a pas pu supprimer certaines entrées ; des entrées plus anciennes sont peut-être encore conservées.",
+        "readStale": "L’enregistreur de vol n’a pas pu lire ses entrées à l’instant ; cette liste n’est peut-être pas à jour.",
         "retry": "Réessayer",
         "observedToday_one": "Requêtes sortantes enregistrées aujourd’hui : {{count}}",
         "observedToday_other": "Requêtes sortantes enregistrées aujourd’hui : {{count}}",
@@ -2140,8 +2142,8 @@
           "unattributed": "Inexpliquée",
           "nativeLaunch": "Programme local (non démarré)"
         },
-        "nativeRefusedToday_one": "Démarrages de programmes locaux refusés par le mode scellé : {{count}}. Un démarrage de programme n’est pas une requête : il n’est pas compté plus haut.",
-        "nativeRefusedToday_other": "Démarrages de programmes locaux refusés par le mode scellé : {{count}}. Un démarrage de programme n’est pas une requête : il n’est pas compté plus haut.",
+        "nativeRefusedToday_one": "Le mode scellé n’a pas lancé {{count}} programme local. Un programme non lancé n’est pas une requête : il n’est pas compté plus haut.",
+        "nativeRefusedToday_other": "Le mode scellé n’a pas lancé {{count}} programmes locaux. Les programmes non lancés ne sont pas des requêtes : ils ne sont pas comptés plus haut.",
         "nativeRefusedPrograms": "Programmes non démarrés : {{names}}"
       }
     },

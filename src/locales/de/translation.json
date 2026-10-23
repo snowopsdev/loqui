@@ -2050,6 +2050,8 @@
         "loadError": "Der Flugschreiber konnte nicht geladen werden.",
         "unavailable": "Der Flugschreiber konnte einige Einträge nicht speichern, daher ist diese Liste möglicherweise unvollständig.",
         "unavailableRead": "Der Flugschreiber kann seine Einträge gerade nicht lesen oder speichern.",
+        "deleteFailed": "Der Flugschreiber konnte einige Einträge nicht löschen, daher sind ältere Einträge möglicherweise noch gespeichert.",
+        "readStale": "Der Flugschreiber konnte seine Einträge gerade nicht lesen, daher ist diese Liste möglicherweise nicht aktuell.",
         "retry": "Erneut versuchen",
         "observedToday_one": "{{count}} ausgehende Anfrage heute aufgezeichnet",
         "observedToday_other": "{{count}} ausgehende Anfragen heute aufgezeichnet",
@@ -2140,8 +2142,8 @@
           "unattributed": "Ungeklärt",
           "nativeLaunch": "Lokales Programm (nicht gestartet)"
         },
-        "nativeRefusedToday_one": "{{count}} Start eines lokalen Programms vom abgeschotteten Modus abgelehnt. Ein Programmstart ist keine Anfrage und wird oben nicht mitgezählt.",
-        "nativeRefusedToday_other": "{{count}} Starts lokaler Programme vom abgeschotteten Modus abgelehnt. Programmstarts sind keine Anfragen und werden oben nicht mitgezählt.",
+        "nativeRefusedToday_one": "Der abgeschottete Modus hat {{count}} lokales Programm nicht gestartet. Ein nicht gestartetes Programm ist keine Anfrage und wird oben nicht mitgezählt.",
+        "nativeRefusedToday_other": "Der abgeschottete Modus hat {{count}} lokale Programme nicht gestartet. Nicht gestartete Programme sind keine Anfragen und werden oben nicht mitgezählt.",
         "nativeRefusedPrograms": "Nicht gestartete Programme: {{names}}"
       }
     },

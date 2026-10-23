@@ -2050,6 +2050,8 @@
         "loadError": "Couldn't load the flight recorder.",
         "unavailable": "The flight recorder couldn't save some records, so this list may be incomplete.",
         "unavailableRead": "The flight recorder can't read or save its records right now.",
+        "deleteFailed": "The flight recorder couldn't delete some records, so older entries may still be stored.",
+        "readStale": "The flight recorder couldn't read its records just now, so this list may be out of date.",
         "retry": "Try again",
         "observedToday_one": "{{count}} outgoing request recorded today",
         "observedToday_other": "{{count}} outgoing requests recorded today",
@@ -2140,8 +2142,8 @@
           "unattributed": "Unexplained",
           "nativeLaunch": "Local program (not started)"
         },
-        "nativeRefusedToday_one": "{{count}} local program start refused by Sealed mode. A program start isn't a request, so it isn't counted above.",
-        "nativeRefusedToday_other": "{{count}} local program starts refused by Sealed mode. Program starts aren't requests, so they aren't counted above.",
+        "nativeRefusedToday_one": "Sealed mode didn't start {{count}} local program. A program that wasn't started isn't a request, so it isn't counted above.",
+        "nativeRefusedToday_other": "Sealed mode didn't start {{count}} local programs. Programs that weren't started aren't requests, so they aren't counted above.",
         "nativeRefusedPrograms": "Programs not started: {{names}}"
       }
     },

@@ -315,6 +315,7 @@ function createAttestor({
       blockedSinceSealed: tally.blockedSinceSealed,
       recordFailures: tally.recordFailures,
       persistError: gate.getRecorder()?.persistError ?? null,
+      persistErrorKinds: gate.getRecorder()?.persistErrorKinds ?? [],
       saveError: saved.saveError
         ? /^[A-Z0-9_]{1,40}$/.test(saved.saveError)
           ? saved.saveError

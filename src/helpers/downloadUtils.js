@@ -269,6 +269,30 @@ async function downloadFile(url, destPath, options = {}) {
 
   const tempPath = `${destPath}.tmp`;
 
+  const remainingBytes = () =>
+    fsPromises.stat(tempPath).then(
+      (stats) => stats.size,
+      (error) => (error.code === "ENOENT" ? 0 : null)
+    );
+  const discardPartial = async () => {
+    try {
+      await fsPromises.unlink(tempPath);
+      return { keptBytes: 0, cleanupFailed: false };
+    } catch (error) {
+      if (error.code === "ENOENT") return { keptBytes: 0, cleanupFailed: false };
+      return { keptBytes: await remainingBytes(), cleanupFailed: true };
+    }
+  };
+
+  const discardCancelledDownload = async (error) => {
+    // downloadAttempt rejects only after its writer closes. Never unlink earlier.
+    const retained = await discardPartial();
+    throw Object.assign(error?.isAbort ? error : new Error("Download cancelled"), {
+      isAbort: true,
+      ...retained,
+    });
+  };
+
   debugLogger.info("Download starting", { url, destPath });
 
   let startOffset = 0;
@@ -286,7 +310,7 @@ async function downloadFile(url, destPath, options = {}) {
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (signal?.aborted) {
-      throw Object.assign(new Error("Download cancelled"), { isAbort: true });
+      return discardCancelledDownload();
     }
 
     if (attempt > 0) {
@@ -328,18 +352,23 @@ async function downloadFile(url, destPath, options = {}) {
     } catch (error) {
       lastError = error;
 
-      if (error.isAbort) {
-        await fsPromises.unlink(tempPath).catch(() => {});
-        throw error;
-      }
+      // Stop may be acknowledged while an earlier failure awaits writer close.
+      if (error.isAbort || signal?.aborted) return discardCancelledDownload(error);
 
       if (!isRetryable(error) || attempt >= maxRetries) {
+        // Network failures preserve resumable bytes; HTTP, TLS and size failures drop them.
+        if (isRetryable(error)) {
+          error.keptBytes = await remainingBytes();
+        } else {
+          Object.assign(error, await discardPartial());
+        }
+        // The retained-byte stat (or discard) also yields to an accepted Stop.
+        if (signal?.aborted) return discardCancelledDownload(error);
         debugLogger.error("Download failed", {
           url,
           error: error.message,
           code: error.code,
         });
-        await fsPromises.unlink(tempPath).catch(() => {});
         throw error;
       }
 

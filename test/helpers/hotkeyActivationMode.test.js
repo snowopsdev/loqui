@@ -2,7 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 require.cache[require.resolve("electron")] = {
+  loaded: true,
   exports: {
+    app: { isReady: () => false, getPath: () => "/fixture-unused" },
     globalShortcut: {
       register: () => true,
       unregister: () => undefined,
@@ -17,7 +19,9 @@ require.cache[require.resolve("electron")] = {
   },
 };
 
-const HotkeyManager = require("../../src/helpers/hotkeyManager");
+const HotkeyManager = require("../lib/scopedDiagnostics").assertQuietImport(() =>
+  require("../../src/helpers/hotkeyManager")
+);
 
 function withPlatform(platform, run) {
   const original = Object.getOwnPropertyDescriptor(process, "platform");

@@ -1,7 +1,7 @@
+import { useTranslation } from "react-i18next";
 import mark from "../assets/brand/mark.png";
 import { X } from "./icons";
-import { cn } from "./lib/utils";
-import { BRAND_GLASS_SURFACE } from "./ui/gradientCircle";
+import { Button } from "./ui/button";
 
 interface MeetingNotificationCardProps {
   title: string;
@@ -9,82 +9,88 @@ interface MeetingNotificationCardProps {
   startLabel: string;
   onStart?: () => void;
   onDismiss?: () => void;
-  /** Controls the close button's hover fade. Ignored when `onDismiss` is absent. */
-  closeVisible?: boolean;
+  phase?: "card" | "mini" | "accepted";
+  privacyLine?: string;
+  hotkeyLabel?: string | null;
+  miniLabel?: string;
   className?: string;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }
 
-/**
- * Presentational only — shared by the live always-on-top overlay
- * (`MeetingNotificationOverlay`) and the onboarding preview so the two never
- * drift. Behaviour (slide animation, IPC, hover) is layered on by the caller
- * via `className` and the handler props.
- */
 export function MeetingNotificationCard({
   title,
   body,
   startLabel,
   onStart,
   onDismiss,
-  closeVisible = true,
+  phase = "card",
+  privacyLine,
+  hotkeyLabel,
+  miniLabel,
   className = "",
   onMouseEnter,
   onMouseLeave,
 }: MeetingNotificationCardProps) {
+  const { t } = useTranslation();
   return (
     <div
-      className={[
-        "relative",
-        "bg-card/95 dark:bg-surface-2/95 backdrop-blur-xl",
-        "border border-border/70 dark:border-border-subtle/60",
-        "rounded-xl shadow-lg p-2.5",
-        className,
-      ].join(" ")}
+      className={`meeting-card meeting-drop bg-card/95 dark:bg-surface-2/95 border border-border/70 dark:border-border-subtle/60 ${className}`}
+      data-phase={phase}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      {onDismiss && (
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label={t("meetingNotification.dismiss")}
+        className="meeting-card__close"
+      >
+        <X className="size-3" aria-hidden="true" />
+      </button>
+      {phase === "mini" ? (
         <button
-          onClick={onDismiss}
-          className={[
-            "absolute -left-2.5 -top-2.5 z-10 size-6 rounded-full",
-            "flex items-center justify-center",
-            "bg-card dark:bg-surface-2 border border-border/70 dark:border-border-subtle/60 shadow-sm",
-            "text-muted-foreground/70 hover:text-foreground hover:bg-muted",
-            "transition-all duration-150",
-            closeVisible ? "opacity-100 scale-100" : "opacity-0 scale-75 pointer-events-none",
-          ].join(" ")}
-        >
-          <X className="size-3" />
-        </button>
-      )}
-
-      <div className="flex items-center gap-2.5">
-        <div className="shrink-0 bg-primary/10 rounded-md p-1">
-          <img src={mark} alt="" className="w-4.5 h-4.5" draggable={false} />
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <p className="truncate text-[12px] font-semibold text-foreground leading-tight">
-            {title}
-          </p>
-          <p className="text-[11px] text-muted-foreground leading-tight mt-0.5 break-words">
-            {body}
-          </p>
-        </div>
-
-        <button
+          type="button"
+          className="meeting-card__mini"
           onClick={onStart}
-          className={cn(
-            BRAND_GLASS_SURFACE,
-            "shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium transition-[filter] hover:brightness-110 active:brightness-95"
-          )}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            event.currentTarget.querySelector(".meeting-card__mini-label")?.scrollBy({
+              left: event.key === "ArrowRight" ? 80 : -80,
+            });
+          }}
         >
-          {startLabel}
+          <span className="meeting-card__dot" aria-hidden="true" />
+          <span className="meeting-card__mini-label">{miniLabel}</span>
+          {hotkeyLabel ? <kbd dir="ltr">{hotkeyLabel}</kbd> : null}
         </button>
-      </div>
+      ) : (
+        <>
+          <div className="meeting-card__main">
+            <img src={mark} alt="" className="size-6.5 shrink-0" draggable={false} />
+            <div className="meeting-card__copy" tabIndex={0}>
+              <p className="meeting-card__title">
+                {phase === "accepted" ? t("meetingNotification.accepted") : title}
+              </p>
+              <p className="meeting-card__body">{body}</p>
+            </div>
+            {phase !== "accepted" ? (
+              <Button variant="live" size="sm" onClick={onStart} className="meeting-card__start">
+                <span>{startLabel}</span>
+              </Button>
+            ) : null}
+          </div>
+          <div className="meeting-card__footer">
+            {privacyLine ? (
+              <p className="meeting-card__privacy text-success" tabIndex={0}>
+                {privacyLine}
+              </p>
+            ) : null}
+            {hotkeyLabel && phase !== "accepted" ? <kbd dir="ltr">{hotkeyLabel}</kbd> : null}
+          </div>
+        </>
+      )}
     </div>
   );
 }

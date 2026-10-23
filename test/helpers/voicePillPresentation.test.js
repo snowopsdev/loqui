@@ -53,6 +53,237 @@ test("Live Transcript entrance beats land strictly after one another", async () 
   assert.ok(timeline.streamAtMs > timeline.contentAtMs);
 });
 
+test("press to first bar is one expansion, with no hold (VO-Q5)", async () => {
+  const { getListeningEntranceTimeline, LISTENING_ENTRANCE_TIMING } = await load();
+  const timeline = getListeningEntranceTimeline();
+  assert.equal(timeline.expandAtMs, 0);
+  assert.equal(timeline.waveformAtMs, LISTENING_ENTRANCE_TIMING.expansionMs);
+  assert.ok(timeline.waveformAtMs <= 300);
+  // The Agent footer handoff still needs its hold.
+  assert.ok(getListeningEntranceTimeline({ afterAssistantFooterHandoff: true }).expandAtMs >= 400);
+});
+
+test("Live Transcript shows first words by 700ms (VO-Q18)", async () => {
+  const { getLiveTranscriptEntranceTimeline } = await load();
+  assert.ok(getLiveTranscriptEntranceTimeline().streamAtMs <= 700);
+});
+
+test("every pill footprint fits the 184px dock budget", async () => {
+  const { VOICE_PILL_FOOTPRINT, VOICE_PILL_MAX_WIDTH } = await load();
+  assert.deepEqual(VOICE_PILL_FOOTPRINT, {
+    idle: { width: 40, height: 40 },
+    recording: { width: 98, height: 36 },
+    transcribing: { width: 144, height: 36 },
+    cleaning: { width: 144, height: 36 },
+    pasted: { width: 164, height: 36 },
+    cancelled: { width: 160, height: 36 },
+    meeting: { width: 124, height: 36 },
+    meetingInterrupted: { width: 184, height: 36 },
+    sealedPaused: { width: 124, height: 36 },
+  });
+  assert.equal(VOICE_PILL_MAX_WIDTH, 184);
+  for (const [name, size] of Object.entries(VOICE_PILL_FOOTPRINT)) {
+    assert.ok(size.width <= VOICE_PILL_MAX_WIDTH, name);
+    assert.ok(size.height <= 40, name);
+  }
+});
+
+test("pill stage priority: live work, then cancel, then outcome, then meeting", async () => {
+  const { resolvePillStage } = await load();
+  const base = {
+    isRecording: false,
+    micUnavailable: false,
+    isProcessing: false,
+    processingStage: null,
+    agentMode: false,
+    cancelled: null,
+    recentOutcome: null,
+    meetingRecording: null,
+    showMeetingRecorder: true,
+  };
+  const meeting = { startedAt: 1, interruption: null, quiet: false };
+  assert.equal(resolvePillStage(base), null);
+  assert.equal(resolvePillStage({ ...base, meetingRecording: meeting }), "meeting");
+  assert.equal(
+    resolvePillStage({ ...base, meetingRecording: meeting, showMeetingRecorder: false }),
+    null
+  );
+  assert.equal(
+    resolvePillStage({ ...base, isRecording: true, meetingRecording: meeting }),
+    "recording"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, isRecording: true, micUnavailable: true }),
+    "unavailable"
+  );
+  assert.equal(resolvePillStage({ ...base, isProcessing: true }), "transcribing");
+  assert.equal(
+    resolvePillStage({ ...base, isProcessing: true, processingStage: "cleaning" }),
+    "cleaning"
+  );
+  assert.equal(resolvePillStage({ ...base, isProcessing: true, agentMode: true }), "thinking");
+  assert.equal(
+    resolvePillStage({ ...base, cancelled: { undoUntil: 5 }, recentOutcome: { kind: "pasted" } }),
+    "cancelled"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, recentOutcome: { kind: "pasted" }, meetingRecording: meeting }),
+    "pasted"
+  );
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "failed" } }), "failed");
+  // §5.4: a failure while Sealed mode blocks the dictation route is the pre-flight refusal.
+  assert.equal(
+    resolvePillStage({ ...base, recentOutcome: { kind: "failed" }, dictationSealed: true }),
+    "sealedPaused"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, recentOutcome: { kind: "pasted" }, dictationSealed: true }),
+    "pasted"
+  );
+});
+
+test("regular dictation processing is a transcribing capsule, Agent keeps thinking", async () => {
+  const { resolveVoiceActivityPresentation } = await load();
+  assert.deepEqual(
+    resolveVoiceActivityPresentation({
+      isRecording: false,
+      isProcessing: true,
+      isAssistantVoice: false,
+      assistantThinking: false,
+    }),
+    { activeState: "transcribing", compactPill: true, isAgentThinking: false }
+  );
+  assert.equal(
+    resolveVoiceActivityPresentation({
+      isRecording: false,
+      isProcessing: true,
+      isAssistantVoice: true,
+      assistantThinking: false,
+    }).activeState,
+    "thinking"
+  );
+});
+
+test("one ownership policy for the long-lived stages (I4)", async () => {
+  const { resolvePillOwnership } = await load();
+  assert.deepEqual(resolvePillOwnership("cancelled"), {
+    holdsWindow: true,
+    interactive: true,
+    outranksFooter: true,
+  });
+  assert.deepEqual(resolvePillOwnership("meeting"), {
+    holdsWindow: true,
+    interactive: true,
+    outranksFooter: true,
+  });
+  assert.deepEqual(resolvePillOwnership("pasted"), {
+    holdsWindow: true,
+    interactive: false,
+    outranksFooter: false,
+  });
+  for (const stage of ["failed", "sealedPaused"]) {
+    assert.deepEqual(
+      resolvePillOwnership(stage),
+      {
+        holdsWindow: true,
+        interactive: false,
+        outranksFooter: false,
+      },
+      stage
+    );
+  }
+  assert.deepEqual(resolvePillOwnership(null), {
+    holdsWindow: false,
+    interactive: false,
+    outranksFooter: false,
+  });
+});
+
+test("auto-hide never hides an undo window, a success beat or the meeting recorder", async () => {
+  const { shouldAutoHidePill, resolvePillOwnership } = await load();
+  const idle = {
+    floatingIconAutoHide: true,
+    isRecording: false,
+    isVisuallyProcessing: false,
+    noticesOnScreen: false,
+    wordsCardHandoffActive: false,
+    assistantMounted: false,
+    liveTranscriptMounted: false,
+  };
+  assert.equal(shouldAutoHidePill({ ...idle, ownership: resolvePillOwnership(null) }), true);
+  for (const stage of ["cancelled", "pasted", "failed", "meeting", "sealedPaused"]) {
+    assert.equal(
+      shouldAutoHidePill({ ...idle, ownership: resolvePillOwnership(stage) }),
+      false,
+      stage
+    );
+  }
+  assert.equal(
+    shouldAutoHidePill({
+      ...idle,
+      floatingIconAutoHide: false,
+      ownership: resolvePillOwnership(null),
+    }),
+    false
+  );
+});
+
+test("Assistant final actions cannot suppress Undo or the meeting recorder", async () => {
+  const { shouldSuppressPillForAssistantActions, resolvePillOwnership } = await load();
+  const actions = {
+    assistantOpen: true,
+    footerPillVisible: false,
+    assistantClosing: false,
+    hasLiveActivity: false,
+  };
+  assert.equal(
+    shouldSuppressPillForAssistantActions({ ...actions, ownership: resolvePillOwnership(null) }),
+    true
+  );
+  assert.equal(
+    shouldSuppressPillForAssistantActions({
+      ...actions,
+      ownership: resolvePillOwnership("meeting"),
+    }),
+    false
+  );
+  assert.equal(
+    shouldSuppressPillForAssistantActions({
+      ...actions,
+      ownership: resolvePillOwnership("cancelled"),
+    }),
+    false
+  );
+});
+
+test("Undo and Stop stay interactive with a panel mounted (Linux input region follows this flag)", async () => {
+  const { resolveVoicePillInteraction, resolvePillOwnership } = await load();
+  const base = { isRecording: false, isProcessing: false, isHovered: false };
+  for (const panel of [
+    { assistantMounted: true, liveTranscriptMounted: false },
+    { assistantMounted: false, liveTranscriptMounted: true },
+  ]) {
+    assert.equal(
+      resolveVoicePillInteraction({ ...base, ...panel, ownership: resolvePillOwnership(null) })
+        .pillInteractive,
+      false
+    );
+    assert.equal(
+      resolveVoicePillInteraction({ ...base, ...panel, ownership: resolvePillOwnership("meeting") })
+        .pillInteractive,
+      true
+    );
+    assert.equal(
+      resolveVoicePillInteraction({
+        ...base,
+        ...panel,
+        ownership: resolvePillOwnership("cancelled"),
+      }).pillInteractive,
+      true
+    );
+  }
+});
+
 test("Live Transcript keeps an adaptive surface instead of entering at Agent height", async () => {
   const { LIVE_TRANSCRIPT_SURFACE_LIMITS } = await load();
 
@@ -322,9 +553,9 @@ test("listening entrance timers preserve the visual order", async () => {
 
   for (const afterAssistantFooterHandoff of [false, true]) {
     const timeline = getListeningEntranceTimeline({ afterAssistantFooterHandoff });
-    assert.ok(timeline.expandAtMs > 0);
+    assert.ok(timeline.expandAtMs >= 0);
     assert.ok(timeline.settleAtMs > timeline.expandAtMs);
-    assert.ok(timeline.waveformAtMs > timeline.settleAtMs);
+    assert.ok(timeline.waveformAtMs >= timeline.settleAtMs);
   }
 
   // The floating pill has no footer handoff to wait out, so its hold is the
@@ -509,7 +740,7 @@ test("model thinking stays in the rotating circle after transcription ends", asy
   );
 });
 
-test("regular dictation transcription contracts to the rotating thinking circle", async () => {
+test("regular dictation transcription is a labelled capsule", async () => {
   const { resolveVoiceActivityPresentation } = await load();
   assert.deepEqual(
     resolveVoiceActivityPresentation({
@@ -518,7 +749,7 @@ test("regular dictation transcription contracts to the rotating thinking circle"
       isAssistantVoice: false,
       assistantThinking: false,
     }),
-    { activeState: "thinking", compactPill: false, isAgentThinking: false }
+    { activeState: "transcribing", compactPill: true, isAgentThinking: false }
   );
 });
 
@@ -820,4 +1051,141 @@ test("activity handed back at close intent stays visible through the content fad
     }),
     true
   );
+});
+
+test("owned capsules bypass close and return masks while explicit hard gates remain", async () => {
+  const { resolvePillVisualSuppression, resolvePillOwnership } = await load();
+  const base = {
+    dictationErrorSuppressed: false,
+    assistantActionsSuppressed: false,
+    assistantClosing: false,
+    panelReturnResizeActive: false,
+    hasLiveActivity: false,
+  };
+  for (const stage of ["cancelled", "meeting"]) {
+    const ownership = resolvePillOwnership(stage);
+    assert.equal(ownership.outranksFooter, true);
+    for (const gate of ["assistantClosing", "panelReturnResizeActive"]) {
+      assert.equal(
+        resolvePillVisualSuppression({ ...base, [gate]: true, ownership }),
+        false,
+        `${stage}: ${gate}`
+      );
+      assert.equal(resolvePillVisualSuppression({ ...base, [gate]: true }), true, `legacy ${gate}`);
+    }
+    for (const hardGate of ["dictationErrorSuppressed", "assistantActionsSuppressed"]) {
+      assert.equal(resolvePillVisualSuppression({ ...base, [hardGate]: true, ownership }), true);
+    }
+  }
+});
+
+test("owned Agent response presentation preempts only the meeting resting stage", async () => {
+  const { resolvePillStage } = await load();
+  const base = {
+    meetingRecording: { sessionId: "m1", startedAt: 1, quiet: false, interruption: null },
+    showMeetingRecorder: true,
+    agentResponseActive: true,
+  };
+  assert.equal(resolvePillStage(base), "thinking");
+  assert.equal(resolvePillStage({ ...base, agentResponseActive: false }), "meeting");
+  assert.equal(resolvePillStage({ ...base, isRecording: true }), "recording");
+  assert.equal(
+    resolvePillStage({ ...base, isProcessing: true, processingStage: "cleaning" }),
+    "cleaning"
+  );
+  assert.equal(resolvePillStage({ ...base, cancelled: { sessionId: "d1" } }), "cancelled");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "pasted" } }), "pasted");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "failed" } }), "failed");
+  assert.equal(
+    resolvePillStage({ ...base, recentOutcome: { kind: "failed" }, dictationSealed: true }),
+    "sealedPaused"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, meetingRecording: null }),
+    null,
+    "default Agent callers retain their existing presentation path"
+  );
+});
+
+test("owned preparation keeps its existing processing acknowledgement ahead of resting meeting", async () => {
+  const { resolvePillStage, resolvePillOwnership } = await load();
+  const base = {
+    meetingRecording: { sessionId: "m1", startedAt: 1, quiet: false, interruption: null },
+    showMeetingRecorder: true,
+    isPreparing: true,
+  };
+  assert.equal(resolvePillStage(base), "processing");
+  assert.equal(
+    resolvePillStage({ ...base, agentMode: true }),
+    "processing",
+    "mic warmup is not Agent thinking"
+  );
+  assert.equal(resolvePillStage({ ...base, isPreparing: false }), "meeting");
+  assert.equal(resolvePillStage({ ...base, agentResponseActive: true }), "thinking");
+  assert.equal(resolvePillStage({ ...base, isRecording: true }), "recording");
+  assert.equal(
+    resolvePillStage({ ...base, isRecording: true, micUnavailable: true }),
+    "unavailable"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, isProcessing: true, processingStage: "cleaning" }),
+    "cleaning"
+  );
+  assert.equal(resolvePillStage({ ...base, cancelled: { sessionId: "d1" } }), "cancelled");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "pasted" } }), "pasted");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "failed" } }), "failed");
+  assert.equal(
+    resolvePillStage({ ...base, recentOutcome: { kind: "failed" }, dictationSealed: true }),
+    "sealedPaused"
+  );
+  assert.equal(
+    resolvePillStage({ ...base, meetingRecording: null }),
+    null,
+    "legacy fallback is unchanged without a visible meeting"
+  );
+  assert.equal(resolvePillStage({ ...base, showMeetingRecorder: false }), null);
+  assert.equal(
+    resolvePillStage({ meetingRecording: base.meetingRecording, showMeetingRecorder: true }),
+    "meeting",
+    "omitted preparation defaults to the original policy"
+  );
+  assert.deepEqual(
+    resolvePillOwnership("processing"),
+    { holdsWindow: false, interactive: false, outranksFooter: false },
+    "no new resting ownership is forged"
+  );
+});
+
+test("sealedPaused holds auto-hide but yields the footer and panel input", async () => {
+  const {
+    resolvePillOwnership,
+    shouldSuppressPillForAssistantActions,
+    resolveVoicePillInteraction,
+  } = await load();
+  const ownership = resolvePillOwnership("sealedPaused");
+  assert.equal(
+    shouldSuppressPillForAssistantActions({
+      assistantOpen: true,
+      footerPillVisible: false,
+      assistantClosing: false,
+      hasLiveActivity: false,
+      ownership,
+    }),
+    true
+  );
+  for (const panel of [
+    { assistantMounted: true, liveTranscriptMounted: false },
+    { assistantMounted: false, liveTranscriptMounted: true },
+  ]) {
+    assert.equal(
+      resolveVoicePillInteraction({
+        isRecording: false,
+        isProcessing: false,
+        isHovered: false,
+        ...panel,
+        ownership,
+      }).pillInteractive,
+      false
+    );
+  }
 });

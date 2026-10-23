@@ -1,0 +1,1519 @@
+/* Loqui setup. Tokens only (DESIGN.md "Onboarding"): no hex, no raw durations. */
+
+.onb-radio-group {
+  display: grid;
+  gap: 8px;
+}
+
+.onb-radio {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-card);
+  color: var(--color-foreground);
+  text-align: start;
+  cursor: pointer;
+}
+
+.onb-radio[aria-checked="true"] {
+  border-color: var(--color-live);
+  background: color-mix(in oklab, var(--color-live) 8%, var(--color-card));
+}
+
+.onb-radio[aria-disabled="true"] {
+  cursor: not-allowed;
+  color: var(--color-muted-foreground);
+}
+
+.onb-radio:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.onb-radio__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onb-radio__description,
+.onb-radio__meta,
+.onb-radio__reason {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-radio-group[data-variant="segmented"] {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-muted);
+}
+
+.onb-radio-group[data-variant="segmented"] .onb-radio {
+  justify-items: center;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.onb-radio-group[data-variant="segmented"] .onb-radio[aria-checked="true"] {
+  background: var(--color-card);
+  /* Persistent selection edge, independent of focus, without changing layout. */
+  box-shadow:
+    inset 0 0 0 1px var(--color-foreground),
+    0 1px 2px color-mix(in oklab, var(--color-foreground) 12%, transparent);
+}
+
+.onb-recovery {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in oklab, var(--color-warning) 30%, transparent);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--color-warning) 5%, var(--color-card));
+  color: var(--color-foreground);
+}
+
+.onb-recovery[data-tone="neutral"] {
+  border-color: var(--color-border);
+  background: var(--color-card);
+}
+
+.onb-recovery__icon {
+  width: 20px;
+  height: 20px;
+  color: var(--color-warning);
+}
+
+.onb-recovery__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onb-recovery__body {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-recovery__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Shell: pinned to the window (ONB-Q1), 56px header and a 64px footer that may
+   wrap to a second row at 200% zoom or with long labels, never a third (M04). */
+.onb-shell {
+  --onb-header: 56px;
+  --onb-footer: 64px;
+  display: grid;
+  grid-template-rows: var(--onb-header) minmax(0, 1fr) auto;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-family-sans);
+}
+
+.onb-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding-inline: 24px;
+  border-bottom: 1px solid var(--color-border);
+  -webkit-app-region: drag;
+}
+
+.onb-header button {
+  -webkit-app-region: no-drag;
+}
+
+/* macOS draws the traffic lights at x:20 (windowConfig.js); they stay on the
+   physical left in RTL too, so this is padding-left on purpose (Plan 02, ONB-Q1). */
+.onb-shell[data-platform="darwin"] .onb-header {
+  padding-left: 84px;
+}
+
+.onb-brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onb-brand__tile {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--color-live) 10%, var(--color-background));
+}
+
+.onb-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-inline-start: auto;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-progress__label {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onb-progress__list {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onb-progress__step {
+  position: relative;
+  width: 34px;
+  height: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--color-border-hover);
+}
+
+.onb-progress__step::after {
+  content: "";
+  position: absolute;
+  inset: -9px 0;
+}
+
+.onb-progress__step[data-state="done"] {
+  background: var(--color-nav-marker);
+}
+
+.onb-progress__step[data-state="current"] {
+  background: var(--color-nav-marker);
+}
+
+.onb-progress__step:not(:disabled) {
+  cursor: pointer;
+}
+
+.onb-header__later,
+.onb-footer__skip {
+  flex: none;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.onb-main {
+  display: grid;
+  grid-template-columns: minmax(280px, 36%) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.onb-controls {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 28px clamp(16px, 4vw, 48px);
+}
+
+.onb-step {
+  display: grid;
+  gap: 20px;
+  max-width: 640px;
+  animation: onb-step-in var(--motion-base) var(--motion-ease-enter) both;
+}
+
+@keyframes onb-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes onb-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.onb-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-height: var(--onb-footer);
+  padding: 11px 24px;
+  border-top: 1px solid var(--color-border);
+}
+
+.onb-footer__start {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+/* The rail: orange in light (ink 5.75:1, paper bars 3.12:1); warm Plum Night in dark.
+   ONB-Q16: 36px/650 title, tokens only. */
+.onb-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 30px 30px 0;
+  background: var(--color-live);
+  color: var(--color-live-foreground);
+}
+
+.dark .onb-rail {
+  border-inline-end: 1px solid var(--color-border);
+  background: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--color-live) 14%, var(--color-surface-1)),
+    var(--color-surface-1) 60%
+  );
+  color: var(--color-foreground);
+}
+
+.onb-rail h1 {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.onb-rail h1:focus {
+  outline: none;
+}
+
+.onb-rail__copy p {
+  max-width: 360px;
+  margin-top: 12px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.onb-instrument {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 20px;
+  height: 170px;
+  margin-top: auto;
+  padding-bottom: 14px;
+  view-transition-name: loqui-mark;
+}
+
+/* After the first success the mark lives in the header; the rail shows bars
+   again only while they carry state (M02). */
+.onb-shell[data-docked]
+  .onb-instrument:not([data-mode="download"]):not([data-mode="listening"]):not(
+    [data-mode="processing"]
+  ):not([data-mode="error"]) {
+  opacity: 0;
+  view-transition-name: none;
+}
+
+.onb-shell[data-docked] .onb-brand__tile {
+  view-transition-name: loqui-mark;
+}
+
+::view-transition-group(loqui-mark) {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--motion-ease-std);
+}
+
+.onb-bubble {
+  position: absolute;
+  inset: 0;
+  width: 250px;
+  max-width: 100%;
+  margin-inline: auto;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+
+.onb-bubble path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: onb-bubble-draw var(--motion-slow) var(--motion-ease-std) forwards;
+}
+
+@keyframes onb-bubble-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.onb-bar {
+  position: relative;
+  display: block;
+  width: 25px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--color-live-foreground) 14%, transparent);
+}
+
+.dark .onb-bar {
+  background: color-mix(in oklab, var(--color-foreground) 8%, transparent);
+}
+
+.onb-bar__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--color-background);
+  transform: scaleY(var(--fill, 1));
+  transform-origin: bottom;
+  transition:
+    transform var(--motion-fast) var(--motion-ease-std),
+    background-color var(--motion-fast) var(--motion-ease-std);
+}
+
+.dark .onb-bar__fill {
+  background: linear-gradient(180deg, var(--color-live), var(--color-nav-marker));
+}
+
+/* Idle breathe, about 6 s (11.5 × --motion-hero); runs only in the idle state. */
+.onb-instrument[data-mode="idle"] .onb-bar__fill {
+  animation: onb-breathe calc(var(--motion-hero) * 11.5) var(--motion-ease-std) infinite;
+}
+
+@keyframes onb-breathe {
+  50% {
+    transform: scaleY(0.85);
+  }
+}
+
+/* Error bars drop to 30% (the shape cue) and the caption names the problem.
+   Light: ink on the orange rail, 5.75:1 (warning amber would be 1.02:1, R2-I09).
+   Plum Night: warning amber on the dark rail, 8.73:1. */
+.onb-instrument[data-mode="error"] .onb-bar__fill {
+  background: var(--color-live-foreground);
+}
+
+.dark .onb-instrument[data-mode="error"] .onb-bar__fill {
+  background: var(--color-warning);
+}
+
+.onb-instrument[data-mode="error"] {
+  animation: onb-shake var(--motion-fast) var(--motion-ease-std) 1;
+}
+
+@keyframes onb-shake {
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+
+.onb-instrument__caption {
+  min-height: 31px;
+  margin: 0;
+  padding-block: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .onb-brand strong {
+    display: none;
+  }
+  .onb-progress__label {
+    max-width: 18ch;
+  }
+}
+
+@media (max-width: 760px) {
+  .onb-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .onb-rail {
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    min-height: 72px;
+    padding: 12px 20px;
+  }
+  .onb-rail h1 {
+    font-size: 22px;
+  }
+  .onb-rail__copy p {
+    display: none;
+  }
+  .onb-instrument {
+    display: none;
+  }
+  .onb-instrument__caption {
+    margin-inline-start: auto;
+    padding: 0;
+  }
+  .onb-progress__label {
+    display: none;
+  }
+  .onb-footer__start {
+    order: -1;
+    flex-basis: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-step {
+    animation: onb-fade var(--motion-base) var(--motion-ease-std) both !important;
+  }
+  .onb-instrument,
+  .onb-instrument[data-mode="idle"] .onb-bar__fill {
+    animation: none !important;
+  }
+  .onb-bubble path {
+    animation: none !important;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Hidden instruments do no decorative work (F10). Their captions remain visible. */
+.onb-shell[data-docked] .onb-instrument[data-mode="idle"] .onb-bar__fill {
+  animation: none;
+}
+.onb-progress__step:focus-visible,
+.onb-header__later:focus-visible,
+.onb-footer__skip:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 4px;
+}
+.onb-progress__step[data-state="current"] {
+  height: 5px;
+}
+.onb-rail__copy {
+  min-width: 0;
+}
+.onb-rail h1 {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .onb-instrument[data-mode="idle"] .onb-bar__fill {
+    animation: none;
+  }
+  .onb-main {
+    grid-template-rows: 72px minmax(0, 1fr);
+  }
+  .onb-rail {
+    padding-block: 8px;
+  }
+  .onb-rail__copy {
+    flex: 1;
+  }
+  .onb-instrument__caption {
+    max-width: 40%;
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-instrument {
+    transform: none;
+  }
+  .onb-bar__fill {
+    transition-property: background-color !important;
+  }
+}
+
+/* Two structural rows: status and actions. Long labels wrap inside their
+   controls instead of creating a third footer row (rendered M04/R5 gate). */
+.onb-footer {
+  align-content: center;
+}
+.onb-footer__actions {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.onb-footer__actions > button {
+  min-width: min-content;
+  min-height: 40px;
+  height: auto;
+  white-space: normal;
+  overflow-wrap: normal;
+}
+.onb-footer__skip {
+  margin-inline-start: auto;
+  flex-shrink: 1;
+}
+.onb-footer__actions > [data-onb-primary] {
+  margin-inline-start: auto;
+}
+.onb-footer__skip + [data-onb-primary] {
+  margin-inline-start: 0;
+}
+.onb-action-label {
+  min-width: 0;
+}
+.onb-fieldset button:focus-visible,
+.onb-toggle-row button:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+.onb-footer__start:has(+ .onb-footer__actions) {
+  flex: 0 1 auto;
+}
+.onb-header__later {
+  flex-shrink: 1;
+  max-width: 55%;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .onb-footer__start:has(+ .onb-footer__actions) {
+    flex-basis: 100%;
+  }
+  .onb-footer__actions {
+    flex-basis: 100%;
+  }
+  .onb-footer__actions > button {
+    flex: 1 1 0;
+  }
+  .onb-footer__actions > [data-onb-primary] {
+    flex-grow: 1.4;
+  }
+}
+@media (max-width: 420px) {
+  .onb-footer__actions > button {
+    padding-inline: 8px;
+  }
+}
+
+.onb-static-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 20px;
+  height: 140px;
+}
+.onb-instrument[data-mode="success"] .onb-static-bars {
+  align-items: center;
+}
+.onb-progress__step:not(:disabled) {
+  background: var(--color-nav-marker);
+}
+
+.onb-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+
+.onb-card__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.onb-muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-muted-foreground);
+}
+
+.onb-mic-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.onb-mic-row__icon {
+  width: 18px;
+  height: 18px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-select-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  font-size: 13px;
+  transition: border-color var(--motion-fast) var(--motion-ease-std);
+}
+
+/* R3 C "nothing heard": the device select is what to check first. */
+.onb-select-row[data-attention] {
+  border-color: var(--color-live);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-live) 18%, transparent);
+}
+
+.onb-select-row select {
+  min-height: 36px;
+  padding-inline: 10px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 6px;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font: inherit;
+}
+
+.onb-select-row select:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.onb-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.onb-toggle-row > div {
+  min-width: 0;
+}
+
+.onb-toggle-row > button {
+  flex-shrink: 0;
+  border: 1px solid var(--color-input-border);
+}
+
+.onb-toggle-row > button[aria-checked="false"] > span {
+  background: var(--color-foreground);
+}
+
+.onb-toggle-row__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onb-warning {
+  margin: 0;
+  color: var(--color-foreground);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* T13: detected voice and the shared download lifecycle. */
+.onb-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+}
+
+.onb-signals {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onb-signal {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  animation: onb-step-in var(--motion-base) var(--motion-ease-enter) both;
+}
+
+/* 60ms stagger in tokens: n × (2/3 × --motion-instant). */
+.onb-signal:nth-child(2) {
+  animation-delay: calc(var(--motion-instant) * 2 / 3);
+}
+.onb-signal:nth-child(3) {
+  animation-delay: calc(var(--motion-instant) * 4 / 3);
+}
+.onb-signal:nth-child(4) {
+  animation-delay: calc(var(--motion-instant) * 2);
+}
+
+.onb-signal__tick {
+  width: 14px;
+  height: 14px;
+  color: var(--color-success);
+}
+
+.onb-warning {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--color-warning) 10%, var(--color-card));
+  font-size: 13px;
+}
+
+.onb-warning p {
+  margin: 0;
+}
+
+.onb-ok {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.onb-reco {
+  display: grid;
+  gap: 6px;
+  padding: 15px 16px;
+  border: 2px solid var(--color-live);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--color-live) 4%, var(--color-card));
+}
+
+.onb-reco__name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.onb-reco__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.onb-download {
+  display: grid;
+  gap: 6px;
+}
+
+.onb-download__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.onb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  background: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.onb-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onb-chip[data-status="ready"] {
+  background: color-mix(in oklab, var(--color-success) 14%, var(--color-card));
+}
+
+.onb-chip[data-status="error"] {
+  background: color-mix(in oklab, var(--color-destructive) 12%, var(--color-card));
+}
+
+.onb-chip__icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.onb-chip[data-status="ready"] .onb-chip__icon {
+  color: var(--color-success);
+}
+
+.onb-chip__ring {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  transform: rotate(-90deg);
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.onb-chip__ring circle:first-child {
+  stroke: var(--color-border-hover);
+}
+
+.onb-chip__ring circle:last-child {
+  stroke: var(--color-live);
+  transition: stroke-dashoffset var(--motion-slow) var(--motion-ease-std);
+}
+
+.onb-chip__action {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Preserve a readable static progress signal when decorative motion is suppressed. */
+.onb-signal > strong {
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+.onb-chip__action {
+  min-block-size: 30px;
+}
+.onb-chip__action:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+.onb-shell[data-docked] .onb-signal,
+:is([hidden], [aria-hidden="true"]) .onb-signal {
+  animation: none;
+}
+.onb-shell[data-docked] .onb-chip__ring circle,
+:is([hidden], [aria-hidden="true"]) .onb-chip__ring circle {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-signal {
+    animation: onb-fade var(--motion-base) var(--motion-ease-std) both;
+    animation-delay: calc(var(--motion-instant) * 0);
+    transform: none;
+  }
+  .onb-chip__ring {
+    transform: none;
+  }
+  .onb-chip__ring circle:last-child {
+    transition: none;
+  }
+}
+
+.onb-stage {
+  display: grid;
+  gap: 14px;
+}
+
+.onb-stage[data-arrived] > :not(.onb-stage__ready) {
+  animation: onb-popin var(--motion-base) var(--motion-spring-snap) both;
+}
+
+@keyframes onb-popin {
+  from {
+    opacity: 0.4;
+    transform: scale(0.96);
+  }
+}
+
+.onb-tour {
+  display: grid;
+  gap: 12px;
+}
+
+.onb-tour__head,
+.onb-tour__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.onb-tour__slides {
+  position: relative;
+  min-height: 168px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+
+.onb-tour__slide {
+  position: relative;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  opacity: 0;
+  transform: translateX(14px);
+  transition:
+    opacity var(--motion-base) var(--motion-ease-enter),
+    transform var(--motion-base) var(--motion-ease-enter);
+}
+
+.onb-tour__slide[data-active] {
+  opacity: 1;
+  transform: none;
+}
+
+.onb-tour__slide[hidden] {
+  display: none;
+}
+
+.onb-tour__title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.onb-tour__arrow,
+.onb-tour__dot {
+  border: 0;
+  cursor: pointer;
+}
+
+.onb-tour__arrow {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+[dir="rtl"] .onb-tour__arrow {
+  transform: scaleX(-1);
+}
+
+.onb-tour__dot {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.onb-tour__dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: inherit;
+  background: var(--color-muted-foreground);
+}
+
+.onb-tour__dot[aria-current="true"]::before {
+  width: 18px;
+  background: var(--color-nav-marker);
+}
+
+.onb-map {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.onb-demo {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.onb-demo__raw {
+  color: var(--color-muted-foreground);
+}
+
+.onb-demo[data-active] .onb-demo__final {
+  animation: onb-fade var(--motion-slow) var(--motion-ease-std) both;
+  animation-delay: calc(var(--motion-hero) * 2);
+}
+
+.onb-demo[data-reduced] .onb-demo__raw {
+  display: none;
+}
+
+.onb-keycap {
+  --keycap-size: 96px;
+  display: inline-grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  width: var(--keycap-size);
+  height: var(--keycap-size);
+  border: 1px solid var(--color-border-hover);
+  border-radius: calc(var(--keycap-size) / 6);
+  background: linear-gradient(180deg, var(--color-card), var(--color-muted));
+  box-shadow:
+    0 5px 0 var(--color-border-hover),
+    inset 0 1px 0 color-mix(in oklab, var(--color-background) 60%, transparent);
+  user-select: none;
+  transition:
+    transform var(--motion-instant) var(--motion-ease-std),
+    box-shadow var(--motion-instant) var(--motion-ease-std),
+    background-color var(--motion-instant) var(--motion-ease-std);
+}
+
+.onb-keycap[data-pressed] {
+  transform: translateY(4px);
+  background: color-mix(in oklab, var(--color-live) 18%, var(--color-card));
+  box-shadow: 0 1px 0 var(--color-border-hover);
+}
+
+.onb-keycap[data-flash] {
+  animation: onb-keypress var(--motion-base) var(--motion-ease-std) 1;
+}
+
+.onb-keycap[data-demo] {
+  animation: onb-keypress calc(var(--motion-hero) * 4.6) var(--motion-ease-std) infinite;
+}
+
+@keyframes onb-keypress {
+  30%,
+  60% {
+    transform: translateY(4px);
+    background: color-mix(in oklab, var(--color-live) 18%, var(--color-card));
+    box-shadow: 0 1px 0 var(--color-border-hover);
+  }
+}
+
+.onb-keycap__label {
+  max-inline-size: calc(var(--keycap-size) - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: max(12px, calc(var(--keycap-size) / 4.8));
+  font-weight: 700;
+}
+
+.onb-keycap__sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+[hidden] .onb-keycap,
+[hidden] .onb-demo__final,
+[data-docked] .onb-keycap[data-demo] {
+  animation: none;
+}
+
+@media (max-width: 480px) {
+  .onb-tour__slide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The global animation policy does not remove direct pressed transforms. */
+@media (prefers-reduced-motion: reduce) {
+  .onb-keycap,
+  .onb-keycap[data-pressed],
+  .onb-keycap[data-demo],
+  .onb-keycap[data-flash] {
+    transform: none;
+    animation: none;
+    transition-property: background-color, box-shadow;
+  }
+  .onb-keycap[data-demo],
+  .onb-keycap[data-flash] {
+    background: color-mix(in oklab, var(--color-live) 18%, var(--color-card));
+    box-shadow: 0 1px 0 var(--color-border-hover);
+  }
+  .onb-tour__slide,
+  .onb-stage[data-arrived] > :not(.onb-stage__ready) {
+    transform: none;
+    animation-name: onb-fade;
+    transition-property: opacity;
+  }
+}
+
+.onb-trial,
+.onb-trial__card {
+  display: grid;
+  gap: 14px;
+}
+
+.onb-trial__card {
+  justify-items: center;
+  max-width: 560px;
+  padding: 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-card);
+  transition: border-color var(--motion-slow) var(--motion-ease-std);
+}
+
+.onb-field {
+  width: 100%;
+  min-height: 58px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-background);
+  font-size: 15px;
+}
+
+.onb-field[data-state="recording"] {
+  border-color: var(--color-live);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-live) 18%, transparent);
+}
+
+.onb-field__hint,
+.onb-field__status {
+  margin: 0;
+  color: var(--color-muted-foreground);
+}
+
+.onb-field__text {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 500;
+  animation: onb-fade var(--motion-base) var(--motion-ease-std) both;
+}
+
+.onb-field__ok {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.onb-field__ok svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-success);
+}
+
+.onb-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-card);
+  animation: onb-band-in var(--motion-base) var(--motion-ease-enter) both;
+}
+
+@keyframes onb-band-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+.onb-band__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.onb-band__actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+  gap: 8px;
+}
+
+.onb-trial__card {
+  width: 100%;
+  min-width: 0;
+  margin-inline: auto;
+}
+.onb-field {
+  overflow-wrap: anywhere;
+}
+.onb-trial .onb-warning {
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-band {
+    animation: none;
+  }
+  .onb-field__text {
+    animation: none;
+  }
+}
+
+/* Task16: truthful cleanup examples/results and persistent changed words. */
+.onb-panes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.onb-pane {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-inline-size: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.onb-pane p,
+.onb-cleanup-error p {
+  margin: 0;
+}
+.onb-pane--after {
+  border-color: var(--color-input-border);
+}
+.onb-pane mark {
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-foreground) 15%, transparent);
+  color: inherit;
+  animation: onb-mark var(--motion-slow) var(--motion-ease-std) both;
+}
+@keyframes onb-mark {
+  from {
+    background: color-mix(in oklab, var(--color-foreground) 28%, transparent);
+  }
+}
+.onb-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.onb-check input {
+  flex-shrink: 0;
+  accent-color: var(--color-foreground);
+}
+.onb-cleanup-consent {
+  justify-self: start;
+  white-space: normal;
+  height: auto;
+  min-block-size: 36px;
+  text-align: start;
+}
+.onb-cleanup-error {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 520px) {
+  .onb-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-pane mark {
+    animation: none;
+  }
+}
+
+/* R7 B: the shortcut tester observes the registered key without recording. */
+.onb-tester {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  min-inline-size: 0;
+  padding: 16px;
+  border: 1px dashed var(--color-border-hover);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+
+.onb-tester:focus-visible {
+  border-style: solid;
+  border-color: var(--color-ring);
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Keep this preference neutral; orange belongs to live voice controls. */
+.onb-shortcut [role="switch"] {
+  flex-shrink: 0;
+  border: 1px solid var(--color-input-border);
+  background: var(--color-card);
+}
+
+.onb-shortcut [role="switch"] > span {
+  background: var(--color-foreground);
+}
+
+.onb-shortcut [role="switch"][aria-checked="true"] {
+  background: var(--color-cta);
+}
+
+.onb-shortcut [role="switch"][aria-checked="true"] > span {
+  background: var(--color-cta-foreground);
+}
+
+.onb-shortcut [role="switch"]:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.onb-ready__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  animation: onb-fade var(--motion-fast) var(--motion-ease-std) both;
+}
+
+.onb-ready-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+
+.onb-ready-list li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.onb-ready-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  inline-size: 100%;
+  min-block-size: 52px;
+  padding-block: 8px;
+  padding-inline: 14px;
+  border: 0;
+  background: none;
+  color: var(--color-foreground);
+  font-size: 14px;
+  text-align: start;
+}
+
+button.onb-ready-row {
+  cursor: pointer;
+}
+
+button.onb-ready-row:hover {
+  background: var(--color-muted);
+}
+
+.onb-ready-row__icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  transition: transform var(--motion-fast) var(--motion-spring-snap);
+}
+
+.onb-ready-row__icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.onb-ready-row__icon[data-status="ready"] {
+  background: var(--color-background);
+  color: var(--color-success);
+}
+
+.onb-ready-row__icon[data-status="configured"] {
+  background: var(--color-muted);
+  color: var(--color-success);
+}
+
+.onb-ready-row__icon[data-status="pending"] {
+  background: var(--color-background);
+  color: var(--color-warning);
+}
+
+.onb-ready-row__icon[data-status="optional"] {
+  background: var(--color-muted);
+  color: var(--color-muted-foreground);
+}
+
+.onb-ready-row__name {
+  font-weight: 600;
+}
+
+/* Status words stay in text colours: success and warning are ~3.2:1 on white. */
+.onb-ready-row__status {
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+
+.onb-ready__note {
+  display: grid;
+  gap: 8px;
+}
+
+.onb-ready__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button.onb-ready-row:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -3px;
+}
+.onb-ready-row__status {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .onb-ready-row {
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 4px 12px;
+  }
+  .onb-ready-row__icon {
+    grid-row: span 2;
+  }
+  .onb-ready-row__status {
+    grid-column: 2;
+  }
+}

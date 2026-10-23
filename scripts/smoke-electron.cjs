@@ -250,37 +250,55 @@ async function smoke() {
       "Run npm run build:renderer first"
     );
     let panel = await launch(false);
-    await panel
-      .getByRole("heading", { name: "A quieter way to get words out.", exact: true })
-      .waitFor();
+    // Plan 05 setup: every step names itself in the rail's h1 and keeps its
+    // Back/Skip/primary actions in the shell footer.
+    const setup = translation.setupFlow;
+    const footer = panel.locator("footer");
+    const setupStep = (name) => panel.getByRole("heading", { level: 1, name, exact: true });
+    await setupStep(setup.rail.welcome.title).waitFor();
     verify(
       "fresh launch offers device setup without an account",
-      (await panel.getByText("Loqui setup", { exact: true }).count()) === 1
+      (await panel.getByText(setup.brand, { exact: true }).count()) === 1
     );
     await panel.screenshot({ path: path.join(output, "first-launch.png") });
-    await panel
-      .locator("footer")
-      .getByRole("button", { name: "Set up dictation", exact: true })
-      .click();
-    await panel
-      .getByRole("heading", { name: "Choose the voice you use most.", exact: true })
-      .waitFor();
+    await footer.getByRole("button", { name: setup.hello.start, exact: true }).click();
+    await setupStep(setup.rail.speech.title).waitFor();
+    const [downloadLabel] = setup.voice.download.split("{{size}}");
+    const downloadVoice = footer.getByRole("button", {
+      name: new RegExp(`^${downloadLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    });
+    await downloadVoice.waitFor();
     verify(
       "speech setup keeps the local model download user initiated",
-      await panel.getByRole("button", { name: "Download model", exact: true }).isVisible()
+      (await downloadVoice.isVisible()) &&
+        (await panel.evaluate(() => window.electronAPI.modelGetActiveDownloads())).length === 0
     );
-    await panel.locator("footer").getByRole("button", { name: "Continue", exact: true }).click();
-    await panel
-      .getByRole("heading", { name: "Make the transcript easier to read.", exact: true })
-      .waitFor();
+    await footer.getByRole("button", { name: setup.skipStep, exact: true }).click();
+    await setupStep(setup.rail.try.title).waitFor();
+    verify(
+      "the first-dictation test waits for a chosen voice",
+      await panel.getByText(setup.tour.noVoice, { exact: true }).isVisible()
+    );
+    await footer.getByRole("button", { name: setup.skipStep, exact: true }).click();
+    await setupStep(setup.rail.cleanup.title).waitFor();
+    const cleanupChoices = panel.getByRole("radiogroup", {
+      name: setup.cleanup.label,
+      exact: true,
+    });
     verify(
       "cleanup remains optional and exposes ChatGPT subscription access",
-      await panel.getByText("ChatGPT subscription", { exact: true }).isVisible()
+      (await cleanupChoices
+        .getByRole("radio", { name: setup.cleanup.options.none, exact: true })
+        .getAttribute("aria-checked")) === "true" &&
+        (await cleanupChoices
+          .getByRole("radio", { name: setup.cleanup.options.codex, exact: true })
+          .isVisible())
     );
-    await panel
-      .locator("footer")
-      .getByRole("button", { name: "Explore first", exact: true })
-      .click();
+    await footer.getByRole("button", { name: setup.continue, exact: true }).click();
+    await setupStep(setup.rail.shortcuts.title).waitFor();
+    await footer.getByRole("button", { name: setup.continue, exact: true }).click();
+    await setupStep(setup.rail.finish.title).waitFor();
+    await panel.getByRole("button", { name: setup.ready.openWorkspace, exact: true }).click();
     await panel
       .locator("nav")
       .getByRole("button", { name: translation.sidebar.home, exact: true })
@@ -357,15 +375,15 @@ async function smoke() {
       !!fixture.note && !!fixture.meeting && !!fixture.conversation
     );
     await panel.evaluate((id) => window.electronAPI.agentOpenNote(id), fixture.note);
-    // Notes have a separate optional introduction. Complete it through its UI.
-    const notesIntro = panel.getByRole("button", {
-      name: translation.notes.onboarding.getStarted,
-      exact: true,
-    });
-    await notesIntro.waitFor();
-    await notesIntro.click();
+    // Notes open straight into the editor; the Actions introduction is opt-in.
     const title = panel.getByLabel(translation.notes.editor.noteTitle, { exact: true });
     await title.waitFor();
+    verify(
+      "a note opens without the Actions introduction gate",
+      (await panel
+        .getByRole("button", { name: translation.notes.onboarding.getStarted, exact: true })
+        .count()) === 0
+    );
     await title.fill(`Edited note ${token}`);
     await title.press("Tab");
     await waitFor(
@@ -384,7 +402,7 @@ async function smoke() {
       .waitFor();
     verify(
       "offline restart skips completed setup",
-      (await panel.getByText(translation.personal.onboarding, { exact: true }).count()) === 0
+      (await panel.getByText(translation.setupFlow.brand, { exact: true }).count()) === 0
     );
     const restored = await panel.evaluate(
       async ({ fixture, token }) => {
@@ -437,7 +455,7 @@ async function smoke() {
     verify("restart does not trigger model downloads", restored.downloads.length === 0);
     await panel.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
     await panel
-      .getByPlaceholder(translation.commandSearch.placeholder, { exact: true })
+      .getByPlaceholder(translation.commandSearch.placeholderAll, { exact: true })
       .fill(token);
     await panel.getByRole("dialog").getByText(`Edited note ${token}`, { exact: true }).waitFor();
     verify("search results render in the offline desktop UI", true);

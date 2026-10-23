@@ -12,7 +12,9 @@ const defaultMockModules = (settingsKey) => ({
   "/utils/logger":
     "export default { debug() {}, info() {}, warn() {}, error() {}, logReasoning() {} };",
   "/stores/settingsStore": `
-    export const getSettings = () => globalThis.${settingsKey};
+    export * from "/stores/settingsStore.ts";
+    import { useSettingsStore } from "/stores/settingsStore.ts";
+    export const getSettings = () => ({ ...useSettingsStore.getState(), ...globalThis.${settingsKey} });
     export const getEffectiveCleanupModel = () => null;
     export const selectResolvedLLMConfig = () => ({ model: null, provider: null });
     export const isCloudCleanupMode = () => false;
@@ -26,15 +28,22 @@ const defaultMockModules = (settingsKey) => ({
   "/utils/permissions": "export const isAccessibilitySkipped = () => false;",
 });
 
+// node:test keeps every hook until the file ends. Built outside
+// loadAudioManager, the hook cannot share its scope and pin AudioManager (and
+// with it the whole evaluated renderer graph) after the test.
+function clearSettingsSlot(settingsKey) {
+  return () => {
+    delete globalThis[settingsKey];
+  };
+}
+
 async function loadAudioManager(t, { cachePrefix, settingsKey, settings, mockModules = {} } = {}) {
   const { window } = installBrowserGlobals(t);
   const vite = await createRendererServer(t, {
     cachePrefix,
     mockModules: { ...defaultMockModules(settingsKey), ...mockModules },
   });
-  t.after(() => {
-    delete globalThis[settingsKey];
-  });
+  t.after(clearSettingsSlot(settingsKey));
   globalThis[settingsKey] = settings ?? {};
 
   const AudioManager = (await vite.ssrLoadModule("/helpers/audioManager.js")).default;
@@ -52,4 +61,11 @@ async function loadAudioManager(t, { cachePrefix, settingsKey, settings, mockMod
   };
 }
 
-module.exports = { loadAudioManager };
+function realSettingsStoreSource(settingsKey) {
+  return `
+    export * from "/stores/settingsStore.ts";
+    import { useSettingsStore } from "/stores/settingsStore.ts";
+    export const getSettings = () => ({ ...useSettingsStore.getState(), ...globalThis.${settingsKey} });
+  `;
+}
+module.exports = { loadAudioManager, realSettingsStoreSource };

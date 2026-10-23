@@ -1,3 +1,4 @@
+const { ipcDownloaderLeaf } = require("./harness/ipcDownloaderLeaf");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
@@ -54,6 +55,8 @@ const electronStub = {
 
 Module._load = function loadWithMocks(request, parent, isMain) {
   if (request === "electron") return electronStub;
+  const downloader = ipcDownloaderLeaf(request, parent);
+  if (downloader) return downloader;
   if (parent?.filename === handlersModulePath) {
     if (request === "./debugLogger") {
       return new Proxy({}, { get: () => () => {} });

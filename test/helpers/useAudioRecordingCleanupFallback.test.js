@@ -10,6 +10,7 @@ const {
 
 const FAKE_AUDIO_MANAGER_SOURCE = `
 export default class FakeAudioManager {
+  _ownedAudioSnapshot() { return { blob: this.lastAudioBlob ?? null, private: false, sessionId: this.activeSession?.id ?? null }; }
   constructor() {
     this.voiceAgentRequested = false;
     this.translationRequested = false;
@@ -75,7 +76,7 @@ test("raw cleanup fallback is reported only after the original dictation is past
   useCleanupFailureStore.setState({ pending: 0, lastFailure: null });
 
   function Harness() {
-    useAudioRecording(() => {}, { onDemoEvent: () => {} });
+    useAudioRecording({ onDemoEvent: () => {} });
     return null;
   }
 
@@ -84,6 +85,7 @@ test("raw cleanup fallback is reported only after the original dictation is past
   const manager = globalThis.__cleanupFallbackManager;
   const cleanupFailure = {
     message: "AWS Bedrock is temporarily unavailable.",
+    retryCleanup: async () => "Captured operation output",
     technicalDetails: { status: 503, requestId: "request-503" },
   };
   const result = {
@@ -98,7 +100,11 @@ test("raw cleanup fallback is reported only after the original dictation is past
   await React.act(async () => manager.callbacks.onTranscriptionComplete({ ...result }));
   assert.equal(manager.pasteCalls, 1);
   assert.equal(useCleanupFailureStore.getState().pending, 1);
-  assert.deepEqual(useCleanupFailureStore.getState().lastFailure, cleanupFailure);
+  assert.deepEqual(useCleanupFailureStore.getState().lastFailure, {
+    ...cleanupFailure,
+    rawText: result.text,
+    retryCleanup: cleanupFailure.retryCleanup,
+  });
 
   useCleanupFailureStore.setState({ pending: 0, lastFailure: null });
   globalThis.__cleanupFallbackPasteOutcome = { success: true, pasted: false };

@@ -6,17 +6,23 @@ import { LOCAL_MODELS_CHANGED_EVENT } from "../hooks/useModelDownload";
 import { ProviderTabs } from "./ui/ProviderTabs";
 import { DownloadProgressBar } from "./ui/DownloadProgressBar";
 import { ConfirmDialog } from "./ui/dialog";
-import ModelCardList, { type ModelCardOption } from "./ui/ModelCardList";
+import { ModelCartridgeGrid } from "./ui/ModelCartridgeGrid";
+import { cartridgeFromLocalModel, usedByMap } from "./ui/cartridgeMath";
+import { useResolvedRoutes } from "../lib/routes";
+import { useTotalMemory } from "../hooks/useTotalMemory";
 import { useDialogs } from "../hooks/useDialogs";
 import { useModelDownload, type ModelType } from "../hooks/useModelDownload";
 import { MODEL_PICKER_COLORS, type ColorScheme } from "../utils/modelPickerStyles";
-import { getProviderIcon, isMonochromeProvider } from "../utils/providerIcons";
 
 export interface LocalModel {
   id: string;
   name: string;
   size: string;
   sizeBytes?: number;
+  contextLength?: number;
+  /** Curated 1-5 ratings from the registry; the cartridge estimates from size when absent. */
+  speedTier?: number;
+  qualityTier?: number;
   description: string;
   descriptionKey?: string;
   specUrl?: string;
@@ -58,6 +64,8 @@ export default function LocalModelPicker({
   onDownloadComplete,
 }: LocalModelPickerProps) {
   const { t } = useTranslation();
+  const totalMemory = useTotalMemory();
+  const routes = useResolvedRoutes();
   const [downloadedModels, setDownloadedModels] = useState<Set<string>>(new Set());
   const loadDownloadedModelsRequestRef = useRef(0);
   const [inventoryLoaded, setInventoryLoaded] = useState(false);
@@ -281,6 +289,10 @@ export default function LocalModelPicker({
   const currentProvider = effectiveProviders.find((p) => p.id === selectedProvider);
   const models = useMemo(() => currentProvider?.models || [], [currentProvider?.models]);
   const activeModels = allModels.filter((model) => downloads[model.id]);
+  const usedBy = useMemo(
+    () => usedByMap(models, routes, (routeId) => t(`routes.names.${routeId}`)),
+    [models, routes, t]
+  );
 
   return (
     <div className={className}>
@@ -360,27 +372,33 @@ export default function LocalModelPicker({
       <div className="mt-2">
         <h5 className={`${styles.header} mb-2`}>{t("common.availableModels")}</h5>
 
-        <ModelCardList
-          models={models.map((model): ModelCardOption => ({
-            value: model.id,
-            label: model.name,
-            description: model.imported
-              ? `${model.size} · ${t(`localModels.status.${model.loadStatus || "untested"}`)}`
-              : model.size,
-            specUrl: model.specUrl,
-            icon: getProviderIcon(selectedProvider),
-            invertInDark: isMonochromeProvider(selectedProvider),
-            recommended: model.recommended,
-            isDownloaded: downloadedModels.has(model.id) || model.isDownloaded || model.downloaded,
-            isDownloading: isDownloadingModel(model.id),
-            isCancelling: isCancellingModel(model.id),
-          }))}
-          selectedModel={selectedModel}
-          onModelSelect={selectModel}
+        <ModelCartridgeGrid
+          label={t("cartridge.groupLabel")}
+          models={models.map((model) =>
+            cartridgeFromLocalModel(model, {
+              downloaded: !!(
+                downloadedModels.has(model.id) ||
+                model.isDownloaded ||
+                model.downloaded
+              ),
+              downloading: isDownloadingModel(model.id),
+              cancelling: isCancellingModel(model.id),
+              installing: downloads[model.id]?.phase === "installing",
+              progress: downloads[model.id]?.progress,
+              badge: model.imported
+                ? t(`localModels.status.${model.loadStatus || "untested"}`)
+                : undefined,
+              href: model.specUrl,
+              hrefLabel: model.specUrl ? t("models.learnMore") : undefined,
+            })
+          )}
+          selectedId={selectedModel}
+          totalMemoryBytes={totalMemory}
+          usedBy={usedBy}
+          onSelect={selectModel}
           onDownload={handleDownload}
+          onCancel={cancelDownload}
           onDelete={handleDelete}
-          onCancelDownload={cancelDownload}
-          colorScheme={colorScheme}
         />
       </div>
 

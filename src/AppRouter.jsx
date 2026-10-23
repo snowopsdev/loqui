@@ -1,6 +1,10 @@
+import { NoticePlacementContext } from "./components/ui/useNoticePlacement";
+import { NoticeStack } from "./components/ui/NoticeStack";
+import { useStartOnboardingListener } from "./hooks/useStartOnboarding";
+import { clearAfterSetupIntent, setAfterSetupIntent } from "./utils/afterSetupIntent";
 import UpdateSettings from "./components/settings/UpdateSettings";
 import { flushForUpdate } from "./utils/updateFlush";
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import App from "./App.jsx";
 import AgentDictationPillOverlay from "./components/dictation/AgentDictationPillOverlay.tsx";
@@ -46,6 +50,15 @@ function MainApp() {
   const [showOnboarding, setShowOnboarding] = useState(
     () => localStorage.getItem("onboardingCompleted") !== "true"
   );
+  const [onboardingStart, setOnboardingStart] = useState({ step: undefined, key: 0 });
+  const requestKey = useRef(0);
+  const completedKey = useRef(-1);
+  useStartOnboardingListener((step) => {
+    clearAfterSetupIntent();
+    requestKey.current += 1;
+    setOnboardingStart((current) => ({ step, key: current.key + 1 }));
+    setShowOnboarding(true);
+  });
   useControlPanelWindowDrag(isControlPanel);
   useEffect(() => {
     if (isControlPanel) void window.electronAPI?.setOnboardingWindowMode?.("restore");
@@ -53,32 +66,61 @@ function MainApp() {
     if (!isControlPanel && showOnboarding) window.electronAPI?.hideWindow?.();
     if (!showOnboarding) window.electronAPI?.markMacAccessibilityFeaturesReady?.(null);
   }, [isControlPanel, showOnboarding]);
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-background flex items-center justify-center">
-          {t("common.loading")}
-        </div>
-      }
-    >
-      {isControlPanel ? (
-        showOnboarding ? (
-          <OnboardingFlow
-            onComplete={() => {
-              localStorage.setItem("onboardingCompleted", "true");
-              window.electronAPI?.updates?.completeSetup();
-              setShowOnboarding(false);
-            }}
-          />
-        ) : (
-          <>
-            <UpdateSettings notice />
-            <ControlPanel />
-          </>
-        )
-      ) : (
+  // First launch never mounts the workspace. Once entered, retain its original
+  // editor/chat/recorder owners across every later setup presentation.
+  const [workspaceMounted, setWorkspaceMounted] = useState(() => !showOnboarding);
+  const completeSetup = (options) => {
+    if (requestKey.current !== onboardingStart.key || completedKey.current === onboardingStart.key)
+      return;
+    completedKey.current = onboardingStart.key;
+    localStorage.setItem("onboardingCompleted", "true");
+    window.electronAPI?.updates?.completeSetup();
+    if (options?.next) setAfterSetupIntent(options.next);
+    setWorkspaceMounted(true);
+    setShowOnboarding(false);
+  };
+  const [noticeInsets, setNoticeInsets] = useState(new Map());
+  const reserveNoticeBottom = React.useCallback((owner, inset) => {
+    setNoticeInsets((current) => {
+      const next = new Map(current);
+      if (inset === null) next.delete(owner);
+      else next.set(owner, inset);
+      return next;
+    });
+  }, []);
+  const loading = (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      {t("common.loading")}
+    </div>
+  );
+  if (!isControlPanel)
+    return (
+      <Suspense fallback={loading}>
         <App />
+      </Suspense>
+    );
+  return (
+    <NoticePlacementContext.Provider value={reserveNoticeBottom}>
+      {workspaceMounted && (
+        <Suspense fallback={showOnboarding ? null : loading}>
+          <ControlPanel
+            workspaceActive={!showOnboarding}
+            workspaceActivationEpoch={requestKey}
+            onReturnToWorkspace={() => completeSetup()}
+          />
+        </Suspense>
       )}
-    </Suspense>
+      {showOnboarding && (
+        <Suspense fallback={loading}>
+          <OnboardingFlow
+            key={onboardingStart.key}
+            initialStep={onboardingStart.step}
+            onComplete={completeSetup}
+          />
+        </Suspense>
+      )}
+      {!showOnboarding && <UpdateSettings notice />}
+      <NoticeStack placement="panel" bottomInset={Math.max(0, ...noticeInsets.values())} />
+    </NoticePlacementContext.Provider>
   );
 }

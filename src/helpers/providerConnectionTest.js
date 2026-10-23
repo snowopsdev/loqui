@@ -1,3 +1,10 @@
+function isSealedRefusal(error, depth = 0) {
+  if (!error || depth > 3) return false;
+  if (error.code === "SEALED_MODE") return true;
+  if (typeof error.message === "string" && error.message.includes("[SEALED_MODE")) return true;
+  return isSealedRefusal(error.cause, depth + 1);
+}
+
 const ENDPOINTS = {
   openai: "https://api.openai.com/v1/models",
   groq: "https://api.groq.com/openai/v1/models",
@@ -151,14 +158,14 @@ function buildModelEndpoints(base) {
   });
 }
 
-function resolveProviderRequest(config) {
+function resolveProviderRequest(config, environment = process.env) {
   const provider = String(config?.provider || "").toLowerCase();
   const apiKey = typeof config?.apiKey === "string" ? config.apiKey.trim() : "";
   let endpoints = ENDPOINTS[provider] ? [ENDPOINTS[provider]] : [];
 
   if (provider === "openai") {
     const override = normalizeBaseUrl(
-      process.env.LOQUI_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL
+      environment.LOQUI_OPENAI_BASE_URL || environment.OPENAI_BASE_URL
     );
     if (override) endpoints = buildModelEndpoints(override);
   }
@@ -279,10 +286,10 @@ async function responseOffersModel(response, model) {
   }
 }
 
-async function testProviderConnection(config, fetchImpl = fetch) {
+async function testProviderConnection(config, fetchImpl = fetch, environment = process.env) {
   let request;
   try {
-    request = resolveProviderRequest(config);
+    request = resolveProviderRequest(config, environment);
   } catch (error) {
     return {
       success: false,
@@ -314,6 +321,7 @@ async function testProviderConnection(config, fetchImpl = fetch) {
       }
       failure = pickFailure(failure, describeStatusFailure(response.status, provider));
     } catch (error) {
+      if (isSealedRefusal(error)) throw error;
       if (error?.name === "AbortError") {
         failure = pickFailure(failure, {
           errorCode: "timeout",
@@ -332,4 +340,4 @@ async function testProviderConnection(config, fetchImpl = fetch) {
   return { success: false, ...failure };
 }
 
-module.exports = { resolveProviderRequest, testProviderConnection };
+module.exports = { isSealedRefusal, isPrivateHost, resolveProviderRequest, testProviderConnection };

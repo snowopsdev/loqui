@@ -1,3 +1,39 @@
+import type { MeetingPresence, MeetingOutcome, CancelledState, UndoResult } from "./dictation";
+/** Fresh dictation attempt identity; main binds it to one sender, generation and adapter. */
+export interface DictationStreamingOperationOptions {
+  operationId?: string;
+  correlationId?: string | null;
+  dictationSessionId?: string | null;
+}
+import type { SettingsLink } from "../utils/settingsDeepLink";
+
+type SettingsLinkResult =
+  { delivered: true } | { delivered: false; reason: "timeout" | "replaced" };
+import type { PillHotkeySlot } from "../hooks/usePillHotkey";
+import type {
+  CleanupOperationIdentity,
+  CleanupRetryRequest,
+  CleanupRetryReply,
+  CleanupRetryResult,
+} from "../services/ai/personalInferenceTypes";
+import type { TableBoardData, TableEntityRef, TablePlacement, TableViewport } from "./table";
+export type VertexAuthSource = "adc" | "apiKey";
+export interface EnterpriseRouteSettings {
+  bedrockRegion: string;
+  azureEndpoint: string;
+  vertexProject: string;
+  vertexLocation: string;
+  vertexAuthSource: VertexAuthSource;
+}
+export interface EnterpriseRouteState {
+  current: EnterpriseRouteSettings | null;
+  version: number;
+  facts: import("../lib/routeGraph").EnterpriseMainFacts;
+}
+export type EnterpriseRoutePatchAck =
+  | { success: true; current: EnterpriseRouteSettings; version: number }
+  | { success: false; conflict: true; current: EnterpriseRouteSettings; version: number };
+
 import type { ModelDefinition } from "../models/ModelRegistry";
 import type { TinfoilCatalogModel } from "../models/tinfoilModels";
 import type { CalendarAvailabilityRequest, CalendarAvailabilityResult } from "./calendar";
@@ -17,6 +53,53 @@ export type ChineseScriptPreference = "simplified" | "traditional" | "as-transcr
 
 export type InferenceMode = "openwhispr" | "providers" | "local" | "self-hosted" | "enterprise";
 
+/** Main-owned credential slots (src/helpers/credentialAuthority.js); one shared definition. */
+export type CredentialSlot = import("../lib/credentialSlots").CredentialSlot;
+export type CredentialField = import("../lib/credentialSlots").CredentialField;
+export type CredentialError =
+  | "unknownCredential"
+  | "unknownField"
+  | "invalidValue"
+  | "persistFailed"
+  | "unsupported"
+  | "notStored"
+  | "reset"; // a Reset Loqui began after the request: nothing was kept
+export interface CredentialPresence {
+  id: CredentialSlot;
+  present: boolean;
+  generation: number;
+  fields: Partial<Record<CredentialField, boolean>>;
+  /** Durable recovery could not determine the slot. Never ready; capture is refused. */
+  unknown?: boolean;
+}
+export interface CredentialChange extends Omit<CredentialPresence, "id"> {
+  id: CredentialSlot;
+}
+export type CredentialSaveResult =
+  { ok: true; generation: number } | { ok: false; error: CredentialError };
+export type CredentialRemoveResult =
+  | { ok: true; undoToken: string; expiresAt: number; generation: number }
+  | { ok: false; error: CredentialError };
+export type CredentialUndoResult =
+  | { ok: true; generation: number }
+  | { ok: false; reason: "expired" | "replaced" | "unknown" | "persistFailed" };
+/** What every legacy per-slot secret save channel resolves to. */
+export interface SecretSaveAck {
+  success: boolean;
+  error?: CredentialError;
+}
+export interface CredentialsAPI {
+  list: () => Promise<CredentialPresence[]>;
+  save: (
+    id: CredentialSlot,
+    field: CredentialField,
+    value: string
+  ) => Promise<CredentialSaveResult>;
+  remove: (id: CredentialSlot) => Promise<CredentialRemoveResult>; // every field of the slot
+  undoRemove: (token: string) => Promise<CredentialUndoResult>;
+  onChanged: (callback: (change: CredentialChange) => void) => () => void;
+}
+
 export type SelfHostedType = "openai-compatible" | "lan";
 
 type TranscriptionStatus = "completed" | "failed" | "pending" | "discarded";
@@ -34,7 +117,7 @@ interface OperationFailureMetadata {
 // it (built by dictationStreamingRouting.buildStreamingSessionOptions); the
 // main process defaults a missing value to "openai-realtime" for pre-1.8.4
 // renderers (#1624).
-interface DictationRealtimeSessionOptions {
+interface DictationRealtimeSessionOptions extends DictationStreamingOperationOptions {
   provider: string;
   model?: string;
   mode?: "byok" | "openwhispr";
@@ -64,6 +147,8 @@ export type TranscriptionErrorCode =
 type MeetingPromptVariant = "detected" | "starting" | "underway";
 
 export interface MeetingNotificationData {
+  appName?: string | null;
+  acceptHotkeyLabel?: string | null;
   detectionId: string;
   source: string;
   key: string;
@@ -114,6 +199,12 @@ export interface TranscriptionItem {
   deleted_at: string | null;
 }
 
+/** Lifecycle snapshot sent to the control panel; future main-process states pass through. */
+export interface DictationLifecycleSnapshot {
+  state: "idle" | "preparing" | "recording" | "processing" | (string & {});
+  inputKind: "dictation" | "assistant" | "translation";
+}
+
 type AnalyticsMode = "local" | "openwhispr_cloud" | "byok" | "self_hosted" | "unknown";
 
 interface AnalyticsEventInput {
@@ -144,6 +235,57 @@ export interface AnalyticsSummary {
   wpmCoveragePercent: number;
   daily: AnalyticsDailyBucket[];
   historyBackfillRetryRequired?: boolean;
+}
+
+export interface StorageAudioPreview {
+  files: number;
+  bytes: number;
+  directory: string;
+  audioIdentity: string;
+}
+export interface StorageHistoryPreview {
+  total: number;
+  discarded: number;
+  softDeleted: number;
+  withAudio: number;
+  historyIdentity: string;
+}
+export interface StoragePreview {
+  audio: StorageAudioPreview | { error: string };
+  history: StorageHistoryPreview | { error: string };
+}
+// failed and readable are Plan 02's fields (spec §5.6): failed = recordings that could not be unlinked;
+// readable = the folder could be read to count them (false also when nothing was read, e.g. "invalid-request").
+export interface StorageAudioErase {
+  deleted: number;
+  failed: number;
+  readable: boolean;
+  remaining: number | null;
+}
+export interface StorageDeleteResult extends StorageAudioErase {
+  ok: boolean;
+  errors: string[];
+}
+// Each family's own list result (or { error }), plus main's identity for the downloaded set.
+export interface StorageModelsPreview {
+  whisper: WhisperModelsListResult | { error: string };
+  parakeet: ParakeetModelsListResult | { error: string };
+  llm: LocalLLMModelStatus[] | { error: string };
+  modelsIdentity?: string;
+  identityError?: string;
+}
+export interface StorageModelsDeleteResult {
+  ok: boolean;
+  remaining?: number | null;
+  errors: string[];
+  families: Record<"whisper" | "parakeet" | "llm", { success: boolean; error?: string }> | null;
+}
+export interface StorageHistoryDeleteResult {
+  ok: boolean;
+  deleted: number;
+  remaining: number | null;
+  errors: string[];
+  audio: StorageAudioErase;
 }
 
 export interface NoteItem {
@@ -484,6 +626,8 @@ export interface ParakeetCheckResult {
 }
 
 interface ParakeetModelResult {
+  keptBytes?: number | null;
+  cleanupFailed?: boolean;
   success: boolean;
   model: string;
   downloaded: boolean;
@@ -515,6 +659,8 @@ interface ParakeetModelsListResult {
 }
 
 interface ParakeetDownloadProgressData {
+  keptBytes?: number | null;
+  cleanupFailed?: boolean;
   type: "progress" | "installing" | "complete" | "error";
   model: string;
   percentage?: number;
@@ -648,18 +794,84 @@ interface ConversationPreview {
   last_message_role?: "user" | "assistant" | "system" | null;
 }
 
-export type OnboardingDemoKind = "dictation" | "assistant";
+export interface SystemProfile {
+  locales: string[]; // OS preferred languages, deduped, max 8
+  totalMemoryBytes: number | null; // Composed from Plan 03's getTotalMemory in the renderer
+  freeDiskBytes: number | null; // Advisory free space where models are stored
+  gpu: { kind: "apple-silicon" | "nvidia" | "unknown"; name: string | null };
+}
+
+export type SystemFacts = Omit<SystemProfile, "totalMemoryBytes">;
+
+export type OnboardingDemoKind = "dictation" | "assistant" | "shortcut";
+/** Main-admitted preparation/start identity; separate from Plan04's recording session. */
+export interface DictationBinding {
+  hotkey: string;
+  activationMode: "tap" | "push";
+}
+/** Transport identity only; never a provider capability or Plan04 session. */
+export interface OnboardingDemoAdmissionIdentity {
+  demoId: string;
+  requestId: string;
+}
+export interface OnboardingDemoAdmissionRequest extends OnboardingDemoAdmissionIdentity {
+  kind: OnboardingDemoKind;
+  deadlineAt: number;
+}
+export interface OnboardingDemoAdmissionReply extends OnboardingDemoAdmissionIdentity {
+  accepted: boolean;
+}
+export interface OnboardingDemoReservation extends OnboardingDemoAdmissionIdentity {
+  takeId?: string;
+  action: "commit" | "release";
+}
+export interface OnboardingDemoTake {
+  reservationId: string;
+  demoId: string;
+  takeId: string;
+  context?: string;
+  expectedContext?: string;
+}
+export interface DictationStartOptions {
+  onboardingTake?: OnboardingDemoTake;
+}
+export interface DictationHotkeyEvent {
+  binding?: DictationBinding;
+  phase: "down" | "up" | "tap";
+  at: number;
+}
 /**
  * "partial" streams the transcript, "processing" carries the final transcript,
  * "replying" streams the assistant demo's reply, and "level" mirrors the
  * microphone level while listening.
  */
 type OnboardingDemoStatus =
-  "listening" | "level" | "processing" | "partial" | "replying" | "success" | "error";
+  | "preparing"
+  | "listening"
+  | "level"
+  | "processing"
+  | "partial"
+  | "replying"
+  | "success"
+  | "error"
+  | "cancelled"
+  | "cancelClosed";
 export interface OnboardingDemoEvent {
   demoId: string;
+  takeId?: string;
+  cleanupOperationId?: string;
+  cleanupCode?: string;
+  context?: string;
+  origin?: "button" | "hotkey";
+  binding?: DictationBinding;
   kind: OnboardingDemoKind;
   status: OnboardingDemoStatus;
+  sessionId?: string;
+  cancelled?: CancelledState;
+  reason?: "expired" | "restored" | "replaced" | "flushed";
+  rawText?: string;
+  code?: string;
+  cleanup?: "applied" | "skipped" | "failed";
   text?: string;
   message?: string;
   /** Tool the assistant is running while it replies (a tool registry name). */
@@ -668,13 +880,105 @@ export interface OnboardingDemoEvent {
   level?: number;
 }
 
+export type KeyringIdentity =
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "groq"
+  | "xai"
+  | "mistral"
+  | "openrouter"
+  | "tinfoil"
+  | "deepgram"
+  | "assemblyai"
+  | "corti:text"
+  | "corti:speech";
+export type CredentialIdentity = KeyringIdentity | "bedrock" | "azure" | "vertex";
+export type KeyHealthStatus = "unverified" | "verified" | "rejected" | "unreachable";
+export interface KeyringEntry {
+  id: KeyringIdentity;
+  providerId: string;
+  status: KeyHealthStatus;
+  lastVerifiedAt: number | null;
+  lastErrorCode: string | null;
+  lastErrorStatus: number | null;
+  reminderDueAt: number | null;
+  unknown?: boolean;
+}
+export type KeyringVerifyOutcome =
+  | "recorded"
+  | "superseded"
+  | "missing"
+  | "sealed"
+  | "invalidOptions"
+  | "recipientChanged"
+  | "unavailable";
+export interface KeyringVerifyResult {
+  outcome: KeyringVerifyOutcome;
+  entry: KeyringEntry | null;
+}
+export interface KeyringVerifyOptions {
+  cortiEnvironment?: string;
+  cortiTenant?: string;
+  /** The displayed main-issued token, captured with the immutable options before save waits. */
+  recipientToken?: string;
+}
+export interface KeyringConnectionResult {
+  success: boolean;
+  errorCode?:
+    | "recipientChanged"
+    | "unavailable"
+    | "sealed"
+    | "invalidOptions"
+    | "timeout"
+    | "credentialsRejected"
+    | "network"
+    | "unsupportedAuthSource";
+  status?: number;
+}
+export interface KeyringAPI {
+  /** Pass the current Corti options; unmatched history is unverified, uncertainty has unknown:true. */
+  list(options?: import("../lib/routeGraph").RouteVerificationOptions): Promise<KeyringEntry[]>;
+  routeHealth(
+    options?: import("../lib/routeGraph").RouteVerificationOptions
+  ): Promise<import("../lib/routeGraph").RouteHealthMetadata>;
+  describeVerify(
+    identity: CredentialIdentity,
+    options?: { cortiEnvironment?: string; cortiTenant?: string; model?: string }
+  ): Promise<VerifyTargetDescription>;
+  /** Missing/stale token refuses as recipientChanged; refresh disclosure and require a fresh click. */
+  verify(identity: KeyringIdentity, options?: KeyringVerifyOptions): Promise<KeyringVerifyResult>;
+  verifyConnection(
+    request: import("../services/ai/personalInferenceTypes").TextRequest & {
+      recipientToken: string;
+    }
+  ): Promise<KeyringConnectionResult>;
+  setReminder(identity: KeyringIdentity, enabled: boolean): Promise<KeyringEntry | null>;
+  onChanged(callback: (change: { id: KeyringIdentity }) => void): () => void;
+}
+
+export interface VerifyTargetDescription {
+  hosts: string[];
+  fields: string[];
+  recipientToken?: string;
+}
+
 declare global {
   interface Window {
     electronAPI: {
       getSearchModelStatus: () => Promise<{ downloaded: boolean }>;
       downloadSearchModel: () => Promise<{ success: boolean; error?: string }>;
+      // Sealed mode (spec §5.4, Plan 07). Optional until Plan 07 ships the
+      // preload namespace; src/stores/sealedStore.ts is its only reader.
+      privacy?: {
+        getSealed: () => Promise<boolean>;
+        onSealedChange: (callback: (sealed: boolean) => void) => (() => void) | void;
+      };
+
       updates: import("./updates").UpdatesAPI;
       personalInference: import("../services/ai/personalInferenceTypes").PersonalInferenceAPI;
+      keyring: KeyringAPI;
+      credentials: CredentialsAPI;
       modelImportGguf: () => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -694,11 +998,50 @@ declare global {
       // Basic window operations
       setOnboardingWindowMode?: (mode: "compact" | "expanded" | "restore") => Promise<boolean>;
       setOnboardingActive?: (active: boolean) => Promise<boolean>;
-      beginOnboardingDemo?: (session: { id: string; kind: OnboardingDemoKind }) => Promise<boolean>;
+      retryOnboardingCleanup?: (identity: CleanupOperationIdentity) => Promise<CleanupRetryResult>;
+      replyOnboardingCleanup?: (reply: CleanupRetryReply) => Promise<boolean>;
+      onOnboardingCleanupRetry?: (callback: (request: CleanupRetryRequest) => void) => () => void;
+      onOnboardingCleanupRetired?: (
+        callback: (identity: CleanupOperationIdentity) => void
+      ) => () => void;
+      replyOnboardingDemoAdmission?: (reply: OnboardingDemoAdmissionReply) => Promise<boolean>;
+      invalidateOnboardingDemoAdmission?: (
+        identity: OnboardingDemoAdmissionIdentity
+      ) => Promise<boolean>;
+      onOnboardingDemoAdmission?: (
+        callback: (request: OnboardingDemoAdmissionRequest) => void
+      ) => () => void;
+      onOnboardingDemoReservation?: (
+        callback: (command: OnboardingDemoReservation) => void
+      ) => () => void;
+      beginOnboardingDemo?: (session: {
+        id: string;
+        kind: OnboardingDemoKind;
+        context?: string;
+      }) => Promise<boolean>;
       endOnboardingDemo?: (id: string) => Promise<boolean>;
-      stopOnboardingDemo?: (id: string) => Promise<boolean>;
-      publishOnboardingDemoEvent?: (event: Omit<OnboardingDemoEvent, "demoId">) => Promise<boolean>;
+      stopOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
+      publishOnboardingDemoEvent?: (
+        event: Omit<OnboardingDemoEvent, "demoId"> & Partial<OnboardingDemoTake>
+      ) => Promise<boolean>;
       onOnboardingDemoEvent?: (callback: (event: OnboardingDemoEvent) => void) => () => void;
+      getSystemProfile?: () => Promise<SystemFacts>;
+      toggleOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
+      cancelOnboardingDemo?: (id: string, takeId?: string | null) => Promise<boolean>;
+      undoOnboardingDemoCancel?: (
+        id: string,
+        takeId?: string | null,
+        sessionId?: string
+      ) => Promise<boolean>;
+      onDictationHotkeyEvent?: (callback: (event: DictationHotkeyEvent) => void) => () => void;
+      probeSelfHosted?: (baseUrl: string) => Promise<
+        | { ok: true; count: number }
+        | {
+            ok: false;
+            code: "invalidUrl" | "httpsRequired" | "network" | "timeout" | "http" | "sealed";
+            status?: number;
+          }
+      >;
       testProviderConnection?: (config: {
         scope: "transcription" | "reasoning";
         provider: string;
@@ -769,23 +1112,35 @@ declare global {
       hideWindow: () => Promise<void>;
       showDictationPanel: () => Promise<void>;
       captureDictationTarget?: () => Promise<{ success: boolean; pid: number | null }>;
-      onToggleDictation: (callback: () => void) => () => void;
-      onToggleVoiceAgent?: (callback: () => void) => () => void;
+      onToggleDictation: (callback: (options?: DictationStartOptions) => void) => () => void;
+      onToggleVoiceAgent?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onToggleTranslation?: (callback: () => void) => () => void;
       onOpenAssistantPanel?: (callback: () => void) => () => void;
-      onStartDictation?: (callback: () => void) => () => void;
-      onStopDictation?: (callback: () => void) => () => void;
+      onStartDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
+      onStopDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onPrepareDictation?: (
-        callback: (options?: { inputKind?: "dictation" | "assistant" | "translation" }) => void
+        callback: (
+          options?: DictationStartOptions & {
+            inputKind?: "dictation" | "assistant" | "translation";
+          }
+        ) => void
       ) => () => void;
-      onCancelDictationPreparation?: (callback: () => void) => () => void;
-      onCancelDictation?: (callback: () => void) => () => void;
+      onCancelDictationPreparation?: (
+        callback: (options?: DictationStartOptions) => void
+      ) => () => void;
+      onCancelDictation?: (callback: (options?: DictationStartOptions) => void) => () => void;
       onDictationForceStopped?: (
         callback: (payload?: { reason?: "timeout" | "reset" | "manual" }) => void
       ) => () => void;
       micWarmHoldChanged?: (active: boolean) => void;
+      onUndoCancelRequest?: (
+        cb: (req: { token: number; sessionId: string | null; deadlineAt: number }) => void
+      ) => () => void;
+      replyUndoCancel?: (token: number, result: UndoResult) => void;
+      onDictationFlushRequest?: (cb: (req: { token: number }) => void) => () => void;
+      replyDictationFlush?: (token: number) => void;
       dictationLifecycleStateChanged: (
-        state: "idle" | "preparing" | "recording" | "processing",
+        state: "idle" | "preparing" | "recording" | "processing" | "cancelled",
         inputKind?: "dictation" | "assistant" | "translation"
       ) => void;
       dictationAudioLevelChanged?: (level: number) => void;
@@ -796,6 +1151,12 @@ declare global {
         interactive: boolean;
         horizontalDirection: "left" | "right";
       }>;
+      getDictationLifecycleState?: () => Promise<DictationLifecycleSnapshot>;
+      onDictationLifecycleChanged?: (
+        callback: (snapshot: DictationLifecycleSnapshot) => void
+      ) => () => void;
+      onDictationLevelChanged?: (callback: (level: number) => void) => () => void;
+      toggleDictationFromControlPanel?: () => Promise<{ success: boolean }>;
       resizeAgentDictationPillToContent?: (surfaceHeight: number | null) => Promise<{
         success: boolean;
         changed?: boolean;
@@ -845,17 +1206,40 @@ declare global {
         metadata?: { durationMs?: number; provider?: string; model?: string }
       ) => Promise<{ success: boolean; path?: string }>;
       mergeAudioSegments: (
-        segments: Array<{ buffer: ArrayBuffer; mimeType: string }>
+        segments: Array<{ buffer: ArrayBuffer; mimeType: string }>,
+        options?: { private?: boolean }
       ) => Promise<
-        | { success: true; buffer: ArrayBuffer; mimeType: "audio/webm" }
+        | { success: true; buffer: ArrayBuffer; mimeType: "audio/webm" | "audio/wav" }
         | { success: false; error: string }
       >;
       getAudioPath: (id: number) => Promise<string | null>;
       showAudioInFolder: (id: number) => Promise<{ success: boolean }>;
       getAudioBuffer: (id: number) => Promise<ArrayBuffer | null>;
       deleteTranscriptionAudio: (id: number) => Promise<{ success: boolean }>;
-      getAudioStorageUsage: () => Promise<{ fileCount: number; totalBytes: number }>;
-      deleteAllAudio: () => Promise<{ deleted: number }>;
+      getAudioStorageUsage: () => Promise<{
+        fileCount: number;
+        totalBytes: number;
+        readable: boolean;
+      }>;
+      deleteAllAudio: () => Promise<{ deleted: number; failed: number; readable: boolean }>;
+      storage?: {
+        preview: () => Promise<StoragePreview>;
+        deleteAudio: (expected: {
+          files: number;
+          audioIdentity: string;
+        }) => Promise<StorageDeleteResult>;
+        deleteHistory: (expected: {
+          total: number;
+          files: number;
+          audioIdentity: string;
+          historyIdentity: string;
+        }) => Promise<StorageHistoryDeleteResult>;
+        previewModels: () => Promise<StorageModelsPreview>;
+        deleteModels: (expected: {
+          count: number;
+          modelsIdentity: string;
+        }) => Promise<StorageModelsDeleteResult>;
+      };
       syncRetentionSettings?: (settings: {
         audioRetentionDays: number;
         transcriptRetentionDays: number;
@@ -955,7 +1339,7 @@ declare global {
           updated_by_user_id?: string | null;
           left_team?: number;
         }
-      ) => Promise<{ success: boolean; note?: NoteItem }>;
+      ) => Promise<{ success: boolean; note?: NoteItem; error?: string }>;
       deleteNote: (id: number) => Promise<{ success: boolean }>;
       exportNote: (
         noteId: number,
@@ -1003,6 +1387,27 @@ declare global {
       >;
 
       // Space operations
+      getTableBoard?: (spaceId: number) => Promise<TableBoardData>;
+      placeTableCards?: (
+        spaceId: number,
+        placements: TablePlacement[]
+      ) => Promise<
+        | { success: true; placed: number; placedKeys: string[] }
+        | { success: false; code: "TABLE_FULL" | "INVALID" }
+      >;
+      hideTableCards?: (
+        spaceId: number,
+        refs: TableEntityRef[]
+      ) => Promise<{ success: boolean; hidden: number }>;
+      linkTableCards?: (
+        spaceId: number,
+        a: TableEntityRef,
+        b: TableEntityRef
+      ) => Promise<{ success: boolean }>;
+      setTableViewport?: (
+        spaceId: number,
+        viewport: TableViewport
+      ) => Promise<{ success: boolean }>;
       getSpaces?: () => Promise<SpaceItem[]>;
       updateSpace?: (
         id: number,
@@ -1113,6 +1518,8 @@ declare global {
       // Note event listeners
       onNoteAdded?: (callback: (note: NoteItem) => void) => () => void;
       onNoteUpdated?: (callback: (note: NoteItem) => void) => () => void;
+      onAgentConversationDeleted?: (callback: (payload: { id: number }) => void) => () => void;
+      onAgentConversationArchived?: (callback: (payload: { id: number }) => void) => () => void;
       onNoteDeleted?: (callback: (payload: { id: number }) => void) => () => void;
       onFolderDeleted?: (callback: (payload: { id: number }) => void) => () => void;
 
@@ -1125,9 +1532,9 @@ declare global {
 
       // API key management
       getOpenAIKey: () => Promise<string>;
-      saveOpenAIKey: (key: string) => Promise<{ success: boolean }>;
+      saveOpenAIKey: (key: string) => Promise<SecretSaveAck>;
       getAnthropicKey: () => Promise<string | null>;
-      saveAnthropicKey: (key: string) => Promise<void>;
+      saveAnthropicKey: (key: string) => Promise<SecretSaveAck>;
       getUiLanguage: () => Promise<string>;
       saveUiLanguage: (language: string) => Promise<{ success: boolean; language: string }>;
       setUiLanguage: (language: string) => Promise<{ success: boolean; language: string }>;
@@ -1231,7 +1638,7 @@ declare global {
       // Parakeet operations (NVIDIA via sherpa-onnx)
       transcribeLocalParakeet: (
         audioBlob: ArrayBuffer,
-        options?: { model?: string; language?: string }
+        options?: { model?: string; language?: string; private?: boolean }
       ) => Promise<ParakeetTranscriptionResult>;
       checkParakeetInstallation: () => Promise<ParakeetCheckResult>;
       downloadParakeetModel: (modelName: string) => Promise<ParakeetModelResult>;
@@ -1408,10 +1815,9 @@ declare global {
         sizeKey:
           | "BASE"
           | "RECORDING"
-          | "DICTATION_ERROR"
           | "DICTATION_ERROR_WITH_TRANSCRIPT"
           | "WITH_MENU"
-          | "WITH_TOAST"
+          | "WITH_NOTICES"
           | "EXPANDED"
           | "ASSISTANT"
       ) => Promise<{
@@ -1440,6 +1846,17 @@ declare global {
       openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 
       // Hotkey management
+      acquirePillHotkey?: (
+        slot: PillHotkeySlot,
+        options?: { ttlMs?: number }
+      ) => Promise<{ leaseId: number; held: boolean; reason?: string }>;
+      releasePillHotkey?: (leaseId: number) => Promise<void>;
+      onPillHotkeyPressed?: (
+        callback: (press: { slot: PillHotkeySlot; leaseId: number }) => void
+      ) => () => void;
+      onPillHotkeyReleased?: (
+        callback: (released: { slot: PillHotkeySlot; leaseId: number }) => void
+      ) => () => void;
       updateHotkey: (key: string) => Promise<{ success: boolean; message: string }>;
       setHotkeyListeningMode?: (enabled: boolean) => Promise<{ success: boolean }>;
       getHotkeyModeInfo?: (hotkey?: string) => Promise<{
@@ -1487,7 +1904,10 @@ declare global {
       onLinuxPttPermissionDenied?: (callback: () => void) => () => void;
 
       // Settings shortcut (Cmd+, / Ctrl+,)
-      onShowSettings?: (callback: () => void) => () => void;
+      openSettingsAt?: (settingsPath: string) => Promise<SettingsLinkResult>;
+      pendingSettingsLink?: () => Promise<SettingsLink | null>;
+      ackSettingsLink?: (id: string) => Promise<boolean>;
+      onShowSettings?: (callback: (link?: SettingsLink) => void) => () => void;
 
       // Accessibility permission events (macOS)
       markMacAccessibilityFeaturesReady?: (expectedAccountScope?: ActiveAccountScope) => void;
@@ -1496,7 +1916,7 @@ declare global {
 
       // Gemini API key management
       getGeminiKey: () => Promise<string | null>;
-      saveGeminiKey: (key: string) => Promise<void>;
+      saveGeminiKey: (key: string) => Promise<SecretSaveAck>;
       proxyGeminiTranscription?: (data: {
         audioBuffer: ArrayBuffer;
         model?: string;
@@ -1506,13 +1926,13 @@ declare global {
 
       // Groq API key management
       getGroqKey: () => Promise<string | null>;
-      saveGroqKey: (key: string) => Promise<void>;
+      saveGroqKey: (key: string) => Promise<SecretSaveAck>;
       getOpenrouterKey: () => Promise<string | null>;
-      saveOpenrouterKey: (key: string) => Promise<void>;
+      saveOpenrouterKey: (key: string) => Promise<SecretSaveAck>;
 
       // xAI API key management
       getXaiKey?: () => Promise<string | null>;
-      saveXaiKey?: (key: string) => Promise<void>;
+      saveXaiKey?: (key: string) => Promise<SecretSaveAck>;
       proxyXaiTranscription?: (data: {
         audioBuffer: ArrayBuffer;
         language?: string;
@@ -1521,7 +1941,7 @@ declare global {
 
       // Mistral API key management
       getMistralKey: () => Promise<string | null>;
-      saveMistralKey: (key: string) => Promise<void>;
+      saveMistralKey: (key: string) => Promise<SecretSaveAck>;
       proxyMistralTranscription: (data: {
         audioBuffer: ArrayBuffer;
         model?: string;
@@ -1531,11 +1951,11 @@ declare global {
 
       // Corti credential management
       getCortiClientId?: () => Promise<string | null>;
-      saveCortiClientId?: (key: string) => Promise<void>;
+      saveCortiClientId?: (key: string) => Promise<SecretSaveAck>;
       getCortiClientSecret?: () => Promise<string | null>;
-      saveCortiClientSecret?: (key: string) => Promise<void>;
+      saveCortiClientSecret?: (key: string) => Promise<SecretSaveAck>;
       getCortiKey?: () => Promise<string | null>;
-      saveCortiKey?: (key: string) => Promise<void>;
+      saveCortiKey?: (key: string) => Promise<SecretSaveAck>;
       proxyCortiTranscription?: (data: {
         audioBuffer: ArrayBuffer;
         language: string;
@@ -1543,7 +1963,7 @@ declare global {
         tenant: string;
       }) => Promise<ProxyTranscriptionResult>;
       getTinfoilKey?: () => Promise<string | null>;
-      saveTinfoilKey?: (key: string) => Promise<void>;
+      saveTinfoilKey?: (key: string) => Promise<SecretSaveAck>;
       getTinfoilChatModels?: () => Promise<TinfoilCatalogModel[]>;
       proxyTinfoilTranscription?: (data: {
         audioBuffer: ArrayBuffer;
@@ -1551,51 +1971,60 @@ declare global {
         prompt?: string;
       }) => Promise<ProxyTranscriptionResult>;
       getDeepgramKey?: () => Promise<string | null>;
-      saveDeepgramKey?: (key: string) => Promise<void>;
+      saveDeepgramKey?: (key: string) => Promise<SecretSaveAck>;
       getAssemblyAIKey?: () => Promise<string | null>;
-      saveAssemblyAIKey?: (key: string) => Promise<void>;
+      saveAssemblyAIKey?: (key: string) => Promise<SecretSaveAck>;
 
       // Custom endpoint API keys
       getCustomTranscriptionKey?: () => Promise<string | null>;
-      saveCustomTranscriptionKey?: (key: string) => Promise<void>;
+      saveCustomTranscriptionKey?: (key: string) => Promise<SecretSaveAck>;
       getCleanupCustomKey?: () => Promise<string | null>;
-      saveCleanupCustomKey?: (key: string) => Promise<void>;
+      saveCleanupCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getNoteFormattingCustomKey?: () => Promise<string | null>;
-      saveNoteFormattingCustomKey?: (key: string) => Promise<void>;
+      saveNoteFormattingCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getTranslationCustomKey?: () => Promise<string | null>;
-      saveTranslationCustomKey?: (key: string) => Promise<void>;
+      saveTranslationCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getDictationAgentCustomKey?: () => Promise<string | null>;
-      saveDictationAgentCustomKey?: (key: string) => Promise<void>;
+      saveDictationAgentCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getDictationAgentVisionCustomKey?: () => Promise<string | null>;
-      saveDictationAgentVisionCustomKey?: (key: string) => Promise<void>;
+      saveDictationAgentVisionCustomKey?: (key: string) => Promise<SecretSaveAck>;
       getChatAgentCustomKey?: () => Promise<string | null>;
-      saveChatAgentCustomKey?: (key: string) => Promise<void>;
+      saveChatAgentCustomKey?: (key: string) => Promise<SecretSaveAck>;
 
       // Enterprise provider key persistence
       getBedrockRegion?: () => Promise<string | null>;
+      getEnterpriseRouteState?: () => Promise<EnterpriseRouteState>;
+      onEnterpriseRouteChanged?: (callback: (state: EnterpriseRouteState) => void) => () => void;
+      saveEnterpriseRoutePatch?: (input: {
+        patch: Partial<EnterpriseRouteSettings>;
+        expected: EnterpriseRouteSettings;
+      }) => Promise<EnterpriseRoutePatchAck>;
       saveBedrockRegion?: (value: string) => Promise<void>;
       getBedrockProfile?: () => Promise<string | null>;
-      saveBedrockProfile?: (value: string) => Promise<void>;
+      saveBedrockProfile?: (value: string) => Promise<{ success: boolean }>;
       getBedrockAccessKeyId?: () => Promise<string | null>;
-      saveBedrockAccessKeyId?: (key: string) => Promise<void>;
+      saveBedrockAccessKeyId?: (key: string) => Promise<SecretSaveAck>;
       getBedrockSecretAccessKey?: () => Promise<string | null>;
-      saveBedrockSecretAccessKey?: (key: string) => Promise<void>;
+      saveBedrockSecretAccessKey?: (key: string) => Promise<SecretSaveAck>;
       getBedrockSessionToken?: () => Promise<string | null>;
-      saveBedrockSessionToken?: (key: string) => Promise<void>;
+      saveBedrockSessionToken?: (key: string) => Promise<SecretSaveAck>;
       getAzureEndpoint?: () => Promise<string | null>;
       saveAzureEndpoint?: (value: string) => Promise<void>;
       getAzureApiKey?: () => Promise<string | null>;
-      saveAzureApiKey?: (key: string) => Promise<void>;
+      saveAzureApiKey?: (key: string) => Promise<SecretSaveAck>;
       getAzureDeployment?: () => Promise<string | null>;
       saveAzureDeployment?: (value: string) => Promise<void>;
       getAzureApiVersion?: () => Promise<string | null>;
       saveAzureApiVersion?: (value: string) => Promise<void>;
+      enterpriseRouteFacts?: () => Promise<import("../lib/routeGraph").EnterpriseMainFacts>;
+      getVertexAuthSource: () => Promise<"adc" | "apiKey" | null>;
+      saveVertexAuthSource: (source: "adc" | "apiKey") => Promise<{ success: boolean }>;
       getVertexProject?: () => Promise<string | null>;
       saveVertexProject?: (value: string) => Promise<void>;
       getVertexLocation?: () => Promise<string | null>;
       saveVertexLocation?: (value: string) => Promise<void>;
       getVertexApiKey?: () => Promise<string | null>;
-      saveVertexApiKey?: (key: string) => Promise<void>;
+      saveVertexApiKey?: (key: string) => Promise<SecretSaveAck>;
       testEnterpriseConnection?: (
         provider: string,
         config: Record<string, unknown>
@@ -1617,6 +2046,7 @@ declare global {
 
       // Dictation key persistence (file-based for reliable startup)
       getDictationKey?: () => Promise<string | null>;
+      getDictationBinding?: () => Promise<DictationBinding | null>;
       getActiveDictationKey?: () => Promise<string>;
       getEffectiveDefaultHotkey?: () => Promise<string>;
       saveDictationKey?: (key: string) => Promise<void>;
@@ -1676,6 +2106,8 @@ declare global {
       pauseMediaPlayback?: () => Promise<boolean>;
       resumeMediaPlayback?: () => Promise<boolean>;
       getModelCacheRoot?: () => Promise<string>;
+      /** Total system memory in bytes (os.totalmem), for model-fit estimates. */
+      getTotalMemory?: () => Promise<number>;
       openWhisperModelsFolder?: () => Promise<{ success: boolean; error?: string }>;
 
       // Windows Push-to-Talk notifications
@@ -1710,6 +2142,9 @@ declare global {
       ) => () => void;
 
       // BYOK audio file transcription
+      onDictationDispatch?: (
+        callback: (dispatch: import("./dictation").DictationDispatch) => void
+      ) => () => void;
       transcribeAudioFileByok?: (options: {
         filePath?: string;
         audioBuffer?: ArrayBuffer;
@@ -1744,15 +2179,23 @@ declare global {
           alreadyWarm?: boolean;
         } & OperationFailureMetadata
       >;
-      assemblyAiStreamingStart?: (options?: { sampleRate?: number; language?: string }) => Promise<
+      assemblyAiStreamingStart?: (
+        options?: DictationStreamingOperationOptions & { sampleRate?: number; language?: string }
+      ) => Promise<
         {
           success: boolean;
           usedWarmConnection?: boolean;
         } & OperationFailureMetadata
       >;
-      assemblyAiStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      assemblyAiStreamingForceEndpoint?: () => void;
-      assemblyAiStreamingStop?: () => Promise<{
+      assemblyAiStreamingSend?: (
+        audioBuffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      assemblyAiStreamingForceEndpoint?: (operation?: DictationStreamingOperationOptions) => void;
+      assemblyAiStreamingCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      assemblyAiStreamingStop?: (operation?: DictationStreamingOperationOptions) => Promise<{
         success: boolean;
         text?: string;
         error?: string;
@@ -1885,19 +2328,27 @@ declare global {
         error?: string;
         code?: string;
       }>;
-      deepgramStreamingStart?: (options?: {
-        sampleRate?: number;
-        language?: string;
-        forceNew?: boolean;
-      }) => Promise<
+      deepgramStreamingStart?: (
+        options?: DictationStreamingOperationOptions & {
+          sampleRate?: number;
+          language?: string;
+          forceNew?: boolean;
+        }
+      ) => Promise<
         {
           success: boolean;
           usedWarmConnection?: boolean;
         } & OperationFailureMetadata
       >;
-      deepgramStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      deepgramStreamingFinalize?: () => void;
-      deepgramStreamingStop?: () => Promise<{
+      deepgramStreamingSend?: (
+        audioBuffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      deepgramStreamingFinalize?: (operation?: DictationStreamingOperationOptions) => void;
+      deepgramStreamingCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      deepgramStreamingStop?: (operation?: DictationStreamingOperationOptions) => Promise<{
         success: boolean;
         text?: string;
         error?: string;
@@ -1928,9 +2379,15 @@ declare global {
           error?: string;
         } & OperationFailureMetadata
       >;
-      geminiStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      geminiStreamingFinalize?: () => void;
-      geminiStreamingStop?: () => Promise<{
+      geminiStreamingSend?: (
+        audioBuffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      geminiStreamingFinalize?: (operation?: DictationStreamingOperationOptions) => void;
+      geminiStreamingCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      geminiStreamingStop?: (operation?: DictationStreamingOperationOptions) => Promise<{
         success: boolean;
         text?: string;
         model?: string;
@@ -1950,15 +2407,23 @@ declare global {
         language?: string;
         keyterms?: string[];
       }) => Promise<{ success: boolean } & OperationFailureMetadata>;
-      cortiStreamingStart?: (options?: {
-        environment?: string;
-        tenant?: string;
-        language?: string;
-        keyterms?: string[];
-      }) => Promise<{ success: boolean } & OperationFailureMetadata>;
-      cortiStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      cortiStreamingFinalize?: () => void;
-      cortiStreamingStop?: () => Promise<{
+      cortiStreamingStart?: (
+        options?: DictationStreamingOperationOptions & {
+          environment?: string;
+          tenant?: string;
+          language?: string;
+          keyterms?: string[];
+        }
+      ) => Promise<{ success: boolean } & OperationFailureMetadata>;
+      cortiStreamingSend?: (
+        audioBuffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      cortiStreamingFinalize?: (operation?: DictationStreamingOperationOptions) => void;
+      cortiStreamingCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      cortiStreamingStop?: (operation?: DictationStreamingOperationOptions) => Promise<{
         success: boolean;
         text?: string;
         model?: string;
@@ -2049,6 +2514,21 @@ declare global {
         sessionId: string,
         available: boolean
       ) => Promise<{ success: boolean; reason?: "stale-session" }>;
+      reportMeetingRecordingPresence?: (p: {
+        recording: boolean;
+        sessionId?: string;
+        startedAt?: number;
+        interruption?: "systemAudio" | "mic" | null;
+        quiet?: boolean;
+      }) => void;
+      reportMeetingRecordingOutcome?: (o: MeetingOutcome) => void;
+      showControlPanel?: () => Promise<void>;
+      getMeetingRecordingPresence?: () => Promise<MeetingPresence | null>;
+      onMeetingRecordingPresenceChanged?: (cb: (p: MeetingPresence | null) => void) => () => void;
+      onMeetingRecordingOutcome?: (cb: (o: MeetingOutcome) => void) => () => void;
+      requestStopMeetingRecording?: (sessionId: string) => Promise<void>;
+      onMeetingRecordingStopRequested?: (cb: (sessionId: string) => void) => () => void;
+      onMeetingRecorderRevealRequested?: (cb: (sessionId: string) => void) => () => void;
       meetingTranscriptionStop?: (expectedSessionId?: string) => Promise<{
         success: boolean;
         transcript?: string;
@@ -2202,8 +2682,16 @@ declare global {
       dictationRealtimeStart?: (
         options: DictationRealtimeSessionOptions
       ) => Promise<{ success: boolean } & OperationFailureMetadata>;
-      dictationRealtimeSend?: (buffer: ArrayBuffer) => void;
-      dictationRealtimeStop?: () => Promise<{ success: boolean; text: string }>;
+      dictationRealtimeSend?: (
+        buffer: ArrayBuffer,
+        operation?: DictationStreamingOperationOptions
+      ) => void;
+      dictationRealtimeCancel?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; reason?: string }>;
+      dictationRealtimeStop?: (
+        operation?: DictationStreamingOperationOptions
+      ) => Promise<{ success: boolean; text?: string; error?: string; reason?: "stale-session" }>;
       onDictationRealtimePartial?: (callback: (text: string) => void) => () => void;
       onDictationRealtimeFinal?: (callback: (text: string) => void) => () => void;
       onDictationRealtimeError?: (callback: (error: string) => void) => () => void;
@@ -2241,6 +2729,10 @@ declare global {
       syncNotificationPreferences?: (
         prefs: Record<string, boolean>
       ) => Promise<{ success: boolean }>;
+      showSystemNotification?: (payload: {
+        title: string;
+        body?: string;
+      }) => Promise<{ success: boolean; reason?: "disabled" | "unsupported" | "invalid" }>;
       setSpeakerDiarizationEnabled?: (
         enabled: boolean
       ) => Promise<{ success: boolean; error?: string }>;

@@ -1,4 +1,5 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, ["downloadUtils"]);
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const fs = require("node:fs/promises");

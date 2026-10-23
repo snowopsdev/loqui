@@ -2,7 +2,17 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const { renderStatic } = require("../helpers/harness/reactSsr");
+const { renderStatic: renderComponent, React } = require("../helpers/harness/reactSsr");
+const { createInstance } = require("i18next");
+const { I18nextProvider } = require("react-i18next");
+const i18n = createInstance();
+i18n.init({
+  lng: "en",
+  initImmediate: false,
+  resources: { en: { translation: require("../../src/locales/en/translation.json") } },
+});
+const renderStatic = (Component, props, children) =>
+  renderComponent(I18nextProvider, { i18n }, React.createElement(Component, props, children));
 const { readTokens, resolveTokens } = require("../helpers/harness/cssTokens");
 
 const repoRoot = path.join(__dirname, "../..");
@@ -65,9 +75,19 @@ test("the focus ring clears 3:1 on every surface in both themes", async () => {
     }
 });
 
-test("the onboarding canvas does not swap in a lower-contrast focus ring", () => {
-  const canvas = css.match(/\n\.onboarding-canvas \{([^}]*)\}/)[1];
-  assert.doesNotMatch(canvas, /--color-ring:/);
+test("the current onboarding shell retains the shared contrast-tested focus ring", () => {
+  const source = fs.readFileSync(path.join(repoRoot, "src/styles/onboarding.css"), "utf8");
+  const assertSharedRing = (stylesheet) => {
+    assert.match(stylesheet, /\.onb-shell\s*\{/u, "the real shell selector must exist");
+    assert.doesNotMatch(stylesheet, /--color-ring\s*:/u, "setup cannot override the shared ring");
+  };
+  assertSharedRing(source);
+  assert.throws(
+    () => assertSharedRing(source + "\n.onb-shell { --color-ring: #ff5a1f; }"),
+    /setup cannot override the shared ring/,
+    "a deliberate lower-contrast override is rejected"
+  );
+  assert.throws(() => assertSharedRing(""), /the real shell selector must exist/);
 });
 
 test("focus indicators on shared controls are fully opaque", () => {
@@ -81,10 +101,20 @@ test("focus indicators on shared controls are fully opaque", () => {
   }
 });
 
-test("every HotkeyInput variant draws an opaque ring on focus and while capturing", async () => {
+test("every HotkeyInput variant draws an opaque ring on focus and while capturing", async (t) => {
+  const { captureDiagnostics } = require("../lib/scopedDiagnostics");
+  const diagnostics = captureDiagnostics(t);
+  t.after(() => assert.deepEqual(diagnostics, []));
+  const i18n = require("i18next").createInstance();
+  const { I18nextProvider } = require("react-i18next");
+  await i18n.init({ lng: "en", resources: { en: { translation: {} } }, initImmediate: false });
   const { HotkeyInput } = await import("../../src/components/ui/HotkeyInput.tsx");
   for (const variant of ["default", "hero", "capture-overlay"]) {
-    const html = renderStatic(HotkeyInput, { value: "", onChange() {}, variant });
+    const html = renderStatic(
+      I18nextProvider,
+      { i18n },
+      require("react").createElement(HotkeyInput, { value: "", onChange() {}, variant })
+    );
     assert.match(html, /focus-visible:ring-2 focus-visible:ring-ring(?![\w/-])/, variant);
   }
   const source = fs.readFileSync(path.join(repoRoot, "src/components/ui/HotkeyInput.tsx"), "utf8");
@@ -158,26 +188,64 @@ const buttonClasses = async (variant, props = {}) => {
   return html.match(/class="([^"]*)"/)[1].split(/\s+/);
 };
 
+const FILTER_LIKE =
+  /^(brightness|contrast|saturate|hue-rotate|invert|sepia|grayscale|blur|opacity|filter|drop-shadow)(-|$)|^\[(filter|opacity):/;
+const INTERACTIVE = /^(hover|active|focus|focus-visible|focus-within|group-hover|peer-.*)$/;
+
+function splitVariants(cls) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of cls) {
+    if (ch === "[" || ch === "(") depth++;
+    else if (ch === "]" || ch === ")") depth--;
+    if (ch === ":" && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+function ringRecolouringClasses(classes) {
+  return classes.filter((cls) => {
+    const parts = splitVariants(cls);
+    const utility = parts[parts.length - 1];
+    return FILTER_LIKE.test(utility) && parts.slice(0, -1).some((p) => INTERACTIVE.test(p));
+  });
+}
+
 // The focus ring is a box-shadow on the button, so any filter or opacity that
 // changes on hover, press or focus recolours it. Feedback must come from fills,
 // borders, text or shadows instead. Checked by property, not by class suffix.
 test("no Button variant changes filter or opacity on hover, press or focus", async () => {
-  const filterLike =
-    /^(brightness|contrast|saturate|hue-rotate|invert|sepia|grayscale|blur|opacity|filter|drop-shadow)(-|$)|^\[(filter|opacity):/;
   for (const variant of BUTTON_VARIANTS) {
     const classes = await buttonClasses(variant);
     assert.ok(classes.includes("focus-visible:ring-ring"), `${variant} has an opaque focus ring`);
-    for (const cls of classes) {
-      const parts = cls.split(":");
-      const utility = parts[parts.length - 1];
-      const prefixes = parts.slice(0, -1);
-      if (!filterLike.test(utility)) continue;
-      const interactive = prefixes.some((p) =>
-        /^(hover|active|focus|focus-visible|focus-within|group-hover|peer-.*)$/.test(p)
-      );
-      assert.ok(!interactive, `${variant} uses ${cls}, which recolours the focus ring`);
-    }
+    assert.deepEqual(
+      ringRecolouringClasses(classes),
+      [],
+      `${variant} recolours the focus ring on hover, press or focus`
+    );
   }
+});
+
+test("the filter/opacity guard catches arbitrary-property mutations", () => {
+  const mutated = [
+    "hover:[opacity:0.5]",
+    "hover:[filter:brightness(1.1)]",
+    "active:brightness-95",
+    "[opacity:0.5]",
+    "hover:bg-cta-hover",
+    "[&_svg]:size-4",
+    "focus-visible:ring-ring",
+  ];
+  assert.deepEqual(ringRecolouringClasses(mutated), [
+    "hover:[opacity:0.5]",
+    "hover:[filter:brightness(1.1)]",
+    "active:brightness-95",
+  ]);
 });
 
 test("a focused default or live Button still has distinct hover and pressed fills", async () => {

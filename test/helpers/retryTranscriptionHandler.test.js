@@ -106,16 +106,39 @@ Module._load = function loadWithMocks(request, parent, isMain) {
     if (request === "./windowBroadcast") {
       return { broadcastToWindows: () => {} };
     }
-    if (request === "./ffmpegUtils") {
-      const real = originalLoad.call(this, request, parent, isMain);
+    if (request === "./ffmpegUtils")
       return {
-        ...real,
+        isWavFormat: (buffer) =>
+          buffer.length >= 12 &&
+          buffer.toString("ascii", 0, 4) === "RIFF" &&
+          buffer.toString("ascii", 8, 12) === "WAVE",
         convertBufferToWav: async (buffer, options) => {
           wavConversions.push(buffer);
           return convertBehavior(buffer, options);
         },
       };
-    }
+    if (request === "./urlAudioDownloader")
+      return {
+        sweepStaleTempArtifacts() {},
+        download() {
+          throw Error("No downloads");
+        },
+      };
+    const allowed = new Set([
+      "./providerUploadAudio",
+      "./uploadCancelRegistry",
+      "./debugLogger",
+      "./policyResponseError",
+      "../config/secretKeys",
+      "./streamingHandOff",
+      "../models/modelRegistryData.json",
+      "fs",
+    ]);
+    if (
+      !allowed.has(request) &&
+      (request.startsWith(".") || /^(?:node:)?(?:child_process|net|tls|http|https)$/.test(request))
+    )
+      return anything();
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -764,4 +787,50 @@ test("invalid keys, invalid routes, and malformed captured audio fail without le
   } finally {
     fetchResponse = originalResponse;
   }
+});
+
+test("captured dictation audio is handed off right before the upload, never on a refused route", async () => {
+  fetches.length = 0;
+  const handOffs = [];
+  const sender = {
+    isDestroyed: () => false,
+    send: (channel, payload) => handOffs.push({ channel, payload }),
+  };
+  const upload = (payload) =>
+    handlers.get("transcribe-audio-file-byok")(
+      { sender },
+      {
+        audioBuffer: WAV_BUFFER,
+        mimeType: "audio/wav",
+        provider: "openai",
+        model: "whisper-1",
+        correlationId: "rec-1",
+        ...payload,
+      }
+    );
+  const ok = fetchResponse;
+  let respond;
+  fetchResponse = () => new Promise((resolve) => (respond = resolve));
+  try {
+    const pending = upload({ requestId: "hand-off", transcriptionMode: "providers" });
+    while (!respond) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(
+      handOffs,
+      [
+        {
+          channel: "dictation-dispatch",
+          payload: { correlationId: "rec-1", task: "dictationStt", payload: "audio" },
+        },
+      ],
+      "sent before the provider answered"
+    );
+    respond(ok());
+    assert.equal((await pending).success, true);
+  } finally {
+    fetchResponse = ok;
+  }
+  handOffs.length = 0;
+  const refused = await upload({ requestId: "hand-off-refused", transcriptionMode: "openwhispr" });
+  assert.equal(refused.success, false, "transcriptionRoute.ts:216 refuses a retired mode");
+  assert.deepEqual(handOffs, []);
 });

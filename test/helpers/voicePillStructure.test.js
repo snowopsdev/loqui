@@ -11,12 +11,8 @@ const readDictationStyles = () =>
   fs.readFileSync(path.join(sourceRoot, "src/index.css"), "utf8") +
   fs.readFileSync(path.join(sourceRoot, "src/styles/dictation-panel.css"), "utf8");
 
-// The pill renders the resting silhouette and the live waveform as two
-// stacked bar sets, both sized from the shared bar count.
-const totalWaveBars = async () => {
-  const { WAVEFORM_BAR_COUNT } = await import("../../src/components/dictation/waveformMath.ts");
-  return WAVEFORM_BAR_COUNT * 2;
-};
+const levelBarCount = async () =>
+  (await import("../../src/components/ui/levelBarsMath.ts")).LOGO_BAR_SHAPE.length;
 
 // The pill's rendered footprints are a native-window contract (see
 // VOICE_PILL_FOOTPRINT); every footprint assertion derives from the exported
@@ -54,9 +50,8 @@ test("thinking and recording keep the same persistent glow and pill roots", asyn
   }
   assert.match(thinking, /class="processing-signal-glow" data-active="true"/);
   assert.doesNotMatch(recording, /data-active/);
-  const expectedBars = await totalWaveBars();
-  assert.equal((thinking.match(/rounded-full bg-current/g) || []).length, expectedBars);
-  assert.equal((recording.match(/rounded-full bg-current/g) || []).length, expectedBars);
+  assert.equal((thinking.match(/data-level-bar=/g) || []).length, 0);
+  assert.equal((recording.match(/data-level-bar=""/g) || []).length, await levelBarCount());
 });
 
 test("one Signal glow serves both identities: brand orange processing, violet agent", async () => {
@@ -68,10 +63,8 @@ test("one Signal glow serves both identities: brand orange processing, violet ag
 
   assert.match(styles, /\.processing-signal-glow\s*\{/);
   assert.match(styles, /:root:not\(\.dark\) \.processing-signal-glow\s*\{/);
-  assert.match(
-    agentThinking,
-    /class="processing-signal-glow" data-active="true" data-agent="true"/
-  );
+  assert.match(agentThinking, /class="agent-orbit" data-phase="thinking"/);
+  assert.doesNotMatch(agentThinking, /data-active="true"/);
   assert.doesNotMatch(agentListening, /data-active/);
 });
 
@@ -94,11 +87,12 @@ test("panel thinking contracts to the identity circle instead of freezing a wave
   });
 
   assert.match(panelThinking, footprint.idle);
-  assert.match(panelThinking, /data-agent-beam-active="true"/);
+  assert.match(panelThinking, /class="agent-orbit" data-phase="thinking"/);
+  assert.doesNotMatch(panelThinking, /data-agent-beam-active/);
   assert.doesNotMatch(panelThinking, footprint.recording);
 });
 
-test("an idle Agent panel starts with the normal pill and expands only while listening", async () => {
+test("an idle Agent panel and Agent listening retain the circle", async () => {
   const footprint = await pillFootprints();
   const idleAgent = await renderPill("idle", false, "right", {
     variant: "panel",
@@ -114,7 +108,8 @@ test("an idle Agent panel starts with the normal pill and expands only while lis
   assert.match(idleAgent, footprint.idle);
   assert.doesNotMatch(idleAgent, footprint.recording);
   assert.doesNotMatch(idleAgent, /data-active/);
-  assert.match(listeningAgent, footprint.recording);
+  assert.match(listeningAgent, footprint.idle);
+  assert.match(listeningAgent, /data-phase="listening"/);
   assert.doesNotMatch(listeningAgent, /data-active/);
 });
 
@@ -130,9 +125,9 @@ test("the waveform stays to the right of the identity across docks and voice mod
   });
 
   assert.match(right, /data-horizontal-direction="right"/);
-  assert.match(right, /voice-pill-control[^"\n]*pr-1/);
+  assert.match(right, /voice-pill-control[^"\n]*pe-1/);
   assert.match(left, /data-horizontal-direction="left"/);
-  assert.match(left, /voice-pill-control[^"\n]*pr-1/);
+  assert.match(left, /voice-pill-control[^"\n]*pe-1/);
 
   for (const markup of [right, left, leftAgent, leftLiveTranscript]) {
     assert.doesNotMatch(markup, /flex-row-reverse/);
@@ -168,7 +163,7 @@ test("the idle pill keeps the logo at normal foreground strength", async () => {
   assert.match(idle, /border-border-hover[^"\n]*dark:border-border\/50/);
   assert.match(
     idle,
-    /voice-identity-icon relative inline-block shrink-0 transition-\[width,height\] duration-200 text-foreground/
+    /voice-identity-icon relative inline-block shrink-0 voice-pill-identity-icon text-foreground/
   );
 });
 
@@ -177,7 +172,7 @@ test("the floating hover pill changes surface treatment without zooming", async 
   const hovered = await renderPill("hover", false);
 
   assert.match(hovered, /border-border-hover bg-surface-3 text-foreground/);
-  assert.match(hovered, /box-shadow:var\(--shadow-card-hover-subtle\)/);
+  assert.match(hovered, /box-shadow:var\(--shadow-card-hover-subtle,/);
   assert.doesNotMatch(hovered, /style="[^"]*transform:/);
   assert.match(hovered, footprint.idle);
   assert.match(hovered, /<svg width="22" height="22"/);
@@ -206,21 +201,18 @@ test("an interactive voice pill is keyboard focusable", async () => {
   assert.match(interactive, /tabindex="0"/);
 });
 
-test("the waveform uses foreground contrast, rounded caps, and a pronounced height range", async () => {
-  const recording = await renderPill("recording", true);
-  const { WAVEFORM_BAR_MIN_PX, WAVEFORM_BAR_MAX_PX, resolveWaveformBarHeight } =
-    await import("../../src/components/dictation/waveformMath.ts");
-
-  assert.match(recording, /relative shrink-0 overflow-hidden text-foreground/);
-  assert.equal(
-    (recording.match(/w-0\.5 rounded-full bg-current/g) || []).length,
-    await totalWaveBars()
-  );
-  assert.equal(WAVEFORM_BAR_MIN_PX, 4);
-  assert.equal(WAVEFORM_BAR_MAX_PX, 22);
-  assert.equal(resolveWaveformBarHeight(0), WAVEFORM_BAR_MIN_PX);
-  assert.equal(resolveWaveformBarHeight(1), WAVEFORM_BAR_MAX_PX);
-  assert.ok(resolveWaveformBarHeight(0.15) > 20);
+test("LevelBars supplies five live bars and five resting bars only in compact states", async () => {
+  const count = await levelBarCount();
+  for (const [state, expanded, live, rest] of [
+    ["recording", true, count, 0],
+    ["idle", true, 0, count],
+    ["idle", false, 0, 0],
+    ["thinking", false, 0, 0],
+  ]) {
+    const html = await renderPill(state, expanded);
+    assert.equal((html.match(/data-level-bar=""/g) || []).length, live);
+    assert.equal((html.match(/data-level-bar-rest=""/g) || []).length, rest);
+  }
 });
 
 test("Live Transcript hands visual border ownership to the shared panel", async () => {
@@ -235,7 +227,7 @@ test("Live Transcript hands visual border ownership to the shared panel", async 
   assert.doesNotMatch(standalone, /data-integrated-with-panel/);
 });
 
-test("Agent Mode uses the supplied mark, a purple perimeter glow, and a neutral waveform", async () => {
+test("Agent Mode uses the supplied mark and radial violet listening ticks", async () => {
   const agentRecording = await renderPill("recording", true, "right", {
     agentMode: true,
   });
@@ -259,24 +251,20 @@ test("Agent Mode uses the supplied mark, a purple perimeter glow, and a neutral 
   assert.match(agentRecording, /voice-identity-final-agent/);
   assert.ok(agentRecording.includes(`d="${AGENT_MODE_PATH}"`));
   assert.doesNotMatch(agentRecording, /agent-waveform-background|text-agent-brand/);
-  assert.equal(
-    (agentRecording.match(/w-0\.5 rounded-full bg-current/g) || []).length,
-    await totalWaveBars()
-  );
+  assert.match(agentRecording, /class="agent-orbit" data-phase="listening"/);
+  assert.match(agentRecording, (await pillFootprints()).idle);
   assert.doesNotMatch(normalRecording, /agent-waveform-background/);
 });
 
-test("Agent thinking keeps the purple glow on the same persistent pill root", async () => {
+test("Agent thinking mounts its orbit on the same persistent pill root", async () => {
   const agentThinking = await renderPill("thinking", false, "right", {
     agentMode: true,
   });
 
-  assert.match(
-    agentThinking,
-    /class="processing-signal-glow" data-active="true" data-agent="true"/
-  );
+  assert.match(agentThinking, /class="agent-orbit" data-phase="thinking"/);
+  assert.doesNotMatch(agentThinking, /data-active="true"/);
   assert.match(agentThinking, /<div [^>]*data-agent-mode="true"/);
-  assert.match(agentThinking, /data-agent-beam-active="true"/);
+  assert.doesNotMatch(agentThinking, /data-agent-beam-active/);
 });
 
 test("the stable identity box contains the supplied listening artwork and Agent leaf", async () => {
@@ -305,6 +293,111 @@ test("voice identities crossfade without changing geometry and respect reduced m
   );
   assert.match(
     styles,
-    /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.voice-identity-listening,\s*\.voice-identity-agent\s*\{\s*transition: none;/
+    /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.voice-identity-listening,\s*\.voice-identity-agent\s*\{\s*transition: opacity var\(--motion-base\) var\(--motion-ease-std\);/
   );
+});
+
+test("stage labels truncate inside the footprint (long translations)", async () => {
+  const { VOICE_PILL_FOOTPRINT } = await import("../../src/helpers/voicePillPresentation.js");
+  const html = await renderPill("cancelled", false, "right", {
+    label: "Verworfen · Rückgängig machen, solange das Fenster offen ist",
+    countdown: { durationMs: 5000, paused: false },
+  });
+  const { width, height } = VOICE_PILL_FOOTPRINT.cancelled;
+  assert.match(html, new RegExp(`style="width:${width}px;height:${height}px`));
+  const css = readDictationStyles();
+  const rule = css.match(/\.pill-stage-label\s*\{([^}]*)\}/)[1];
+  assert.match(rule, /text-overflow:\s*ellipsis/);
+  assert.match(rule, /white-space:\s*nowrap/);
+  assert.match(rule, /min-width:\s*0/);
+});
+
+test("transcribing and cleaning light the comet on the capsule; cleaning adds magenta", async () => {
+  const transcribing = await renderPill("transcribing", false, "right", { label: "Transcribing…" });
+  const cleaning = await renderPill("cleaning", false, "right", { label: "Cleaning up" });
+  assert.match(
+    transcribing,
+    /class="processing-signal-glow" data-active="true" data-stage="transcribing"/
+  );
+  assert.match(cleaning, /data-stage="cleaning"/);
+  assert.match(cleaning, />Cleaning up</);
+  const css = readDictationStyles();
+  assert.match(
+    css,
+    /\.processing-signal-glow\[data-stage="transcribing"\]\s*\{[^}]*--signal-deep:\s*var\(--signal-core\)/
+  );
+});
+
+test("the identity sits inside a locality ring; sealed shows it blocked", async () => {
+  const remote = await renderPill("idle", false, "right", {
+    locality: {
+      locality: "remote",
+      provider: "OpenAI",
+      blocked: false,
+      label: "Sends to OpenAI",
+      routeLine: "",
+    },
+  });
+  assert.match(remote, /data-locality="remote"/);
+  assert.match(remote, /aria-label="Sends to OpenAI"/);
+  const sealed = await renderPill("idle", false, "right", {
+    locality: {
+      locality: "remote",
+      provider: "OpenAI",
+      blocked: true,
+      label: "Blocked",
+      routeLine: "",
+    },
+  });
+  assert.match(sealed, /locality-ring--blocked/);
+});
+
+test("pasted swaps the logo for a drawn check on a green edge (VO-Q12)", async () => {
+  const html = await renderPill("pasted", false, "right", { label: "Pasted · 19 words" });
+  assert.match(html, /pill-success-check/);
+  assert.match(html, /data-pill-state="pasted"/);
+  assert.match(
+    readDictationStyles(),
+    /\.voice-pill-control\[data-pill-state="pasted"\]\s*\{[^}]*border-color:\s*var\(--color-success\)/
+  );
+});
+
+test("cancelled shows a countdown that pauses on hover", async () => {
+  const running = await renderPill("cancelled", false, "right", {
+    label: "Discarded · Undo",
+    countdown: { durationMs: 10000, paused: false },
+  });
+  const paused = await renderPill("cancelled", false, "right", {
+    label: "Discarded · Undo",
+    countdown: { durationMs: 10000, paused: true },
+  });
+  // Assert each declaration, not the serialised attribute (M1): React emits
+  // "animation-duration:10000ms;--undo-ms:10000ms" and the order is not part of the contract.
+  const style = running.match(/class="pill-countdown" style="([^"]*)"/)[1].split(";");
+  assert.ok(style.includes("animation-duration:10000ms"), style.join(";"));
+  assert.ok(style.includes("--undo-ms:10000ms"), "the reduced-motion duration rides along");
+  assert.match(paused, /data-paused="true"/);
+});
+
+test("the retired pill waveform is gone; recording uses LevelBars", async () => {
+  assert.equal(
+    fs.existsSync(path.join(sourceRoot, "src/components/dictation/PillWaveform.tsx")),
+    false
+  );
+  const html = await renderPill("recording", true);
+  assert.equal((html.match(/data-level-bar=""/g) || []).length, 5);
+});
+
+test("semantic stage edges yield to fused/panel chrome and the recording skin matches its edge", async () => {
+  const css = readDictationStyles();
+  const stage = css.indexOf('.voice-pill-control[data-pill-state="recording"]');
+  const owner = css.lastIndexOf('.voice-pill-control[data-liquid-fused="true"],');
+  assert.ok(owner > stage, "the surface owner's transparent border wins the stage edge cascade");
+  assert.match(css.slice(owner), /border-color:\s*transparent/);
+  assert.match(
+    css,
+    /\.liquid-cancel-skin\[data-pill-state="recording"\] path\s*\{[^}]*stroke:\s*var\(--color-ring\)/
+  );
+  const fused = await renderPill("recording", true, "right", { liquidFused: true });
+  assert.match(fused, /data-liquid-fused="true"/);
 });

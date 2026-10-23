@@ -1,12 +1,22 @@
+import { revokeSetupCleanupSelection } from "./setupCleanupAdmission";
+import {
+  SECRET_STORE_SLOTS as SECRET_SLOTS,
+  type CredentialField,
+  type CredentialSlot,
+  type SecretSaveResult,
+  type SecretStoreKey,
+} from "../lib/credentialSlots";
+export type { SecretSaveResult, SecretStoreKey };
 import { create } from "zustand";
 import { API_ENDPOINTS } from "../config/constants";
 import i18n, { normalizeUiLanguage } from "../i18n";
 import { ensureAgentNameInDictionary } from "../utils/agentName";
-import { chooseDictionaryStartupAction } from "../helpers/dictionaryStartup";
+import { chooseDictionaryStartupAction } from "../helpers/dictionaryStartup.mjs";
 import logger from "../utils/logger";
 import whisperVadConstants from "../constants/whisperVad.json";
 import type {
   ChineseScriptPreference,
+  CredentialSaveResult,
   LocalTranscriptionProvider,
   InferenceMode,
   SelfHostedType,
@@ -30,6 +40,19 @@ import { pickDefaultModelId } from "../models/providerDefaultModel";
 // the switch store only zustand, so neither reopens the ModelRegistry cycle.
 import { readCachedTinfoilModels } from "../models/tinfoilModelCache";
 import { recordTinfoilModelSwitch } from "./tinfoilModelSwitchStore";
+import {
+  ROUTE_ENTERPRISE_KEYS,
+  ROUTE_PATCH_KEY_SET,
+  TRANSCRIPTION_CONTEXT_KEYS,
+  type RouteEnterpriseKey,
+  planReasoningProviderSwitch,
+  planTranscriptionProviderSwitch,
+  providerSearchScope,
+  reasoningModelBelongsToProvider,
+  type SettingsPatch,
+} from "../lib/providerSwitchPlans";
+import type { EnterpriseRouteSettings, EnterpriseRouteState } from "../types/electron";
+import { writeProviderSearchPreference } from "../utils/providerSearch";
 import { STREAMING_ONLY_PROVIDERS } from "../helpers/transcriptionRoute";
 import type { TranscriptionPolicyContext } from "../utils/providerSelection";
 import type {
@@ -54,66 +77,11 @@ const isBrowser = typeof window !== "undefined" && typeof localStorage !== "unde
 
 const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";
 
-// Independent task slots used only when the user changes a provider.
-const TRANSCRIPTION_CONTEXT_KEYS = [
-  {
-    context: "dictation",
-    provider: "cloudTranscriptionProvider",
-    model: "cloudTranscriptionModel",
-  },
-  {
-    context: "meeting",
-    provider: "meetingCloudTranscriptionProvider",
-    model: "meetingCloudTranscriptionModel",
-  },
-  {
-    context: "upload",
-    provider: "uploadCloudTranscriptionProvider",
-    model: "uploadCloudTranscriptionModel",
-  },
-] as const;
-
 const localLlmProviderIds = new Set(
   modelRegistryData.localProviders.map((provider) => provider.id)
 );
 
-function transcriptionProviderModels(
-  providerId: string,
-  context: TranscriptionPolicyContext
-): Array<{ id: string; streaming?: boolean }> {
-  const models =
-    modelRegistryData.transcriptionProviders.find((provider) => provider.id === providerId)
-      ?.models ?? [];
-  return context === "meeting" ? models.filter((model) => model.streaming) : models;
-}
-
-function defaultTranscriptionModel(
-  providerId: string,
-  context: TranscriptionPolicyContext
-): string {
-  return transcriptionProviderModels(providerId, context)[0]?.id ?? "whisper-1";
-}
-
-function transcriptionModelBelongsToProvider(
-  providerId: string,
-  modelId: string,
-  context: TranscriptionPolicyContext
-): boolean {
-  if (providerId === "custom") return Boolean(modelId);
-  return transcriptionProviderModels(providerId, context).some((model) => model.id === modelId);
-}
-
-export function reasoningModelBelongsToProvider(providerId: string, modelId: string): boolean {
-  if (!modelId) return false;
-  // Custom and OpenRouter ids are free-form; any remembered id is valid.
-  // Tinfoil's registry entry is refreshed in place from its live catalog.
-  if (providerId === "custom" || providerId === "openrouter") return true;
-  return (
-    modelRegistryData.cloudProviders
-      .find((provider) => provider.id === providerId)
-      ?.models.some((model) => model.id === modelId) ?? false
-  );
-}
+export { reasoningModelBelongsToProvider };
 
 function readString(key: string, fallback: string): string {
   if (!isBrowser) return fallback;
@@ -208,6 +176,7 @@ const BOOLEAN_SETTINGS = new Set([
   "translationDisableThinking",
   "preferBuiltInMic",
   "audioCuesEnabled",
+  "showMeetingRecorderOnScreen",
   "pauseMediaOnDictation",
   "floatingIconAutoHide",
   "startMinimized",
@@ -220,6 +189,7 @@ const BOOLEAN_SETTINGS = new Set([
   "keepTranscriptionInClipboard",
   "dataRetentionEnabled",
   "saveDiscardedTranscriptions",
+  "labsTable",
   "noteFilesEnabled",
   "showTranscriptionPreview",
   "cleanupDisableThinking",
@@ -234,6 +204,14 @@ const BOOLEAN_SETTINGS = new Set([
   "mcalPrimaryOnly",
   "appleCalendarConnected",
 ]);
+
+type DictationCueSet = "soft" | "classic";
+type DictationCueVolume = "low" | "medium" | "high";
+const normalizeCueSet = (value: unknown): DictationCueSet =>
+  value === "classic" ? "classic" : "soft";
+const normalizeCueVolume = (value: unknown): DictationCueVolume =>
+  value === "low" || value === "high" ? value : "medium";
+const STRING_SETTINGS = new Set(["dictationCueSet", "dictationCueVolume"]);
 
 const ARRAY_SETTINGS = new Set([
   "customDictionary",
@@ -784,6 +762,11 @@ export interface SettingsState
     ThemeSettings,
     ChatAgentSettings {
   audioCuesEnabled: boolean;
+  showMeetingRecorderOnScreen: boolean;
+  dictationCueSet: DictationCueSet;
+  dictationCueVolume: DictationCueVolume;
+  // Labs prototype (Plan 08). Off by default; off means today's behaviour exactly.
+  labsTable: boolean;
   pauseMediaOnDictation: boolean;
   floatingIconAutoHide: boolean;
   startMinimized: boolean;
@@ -908,7 +891,7 @@ export interface SettingsState
   setDictationAgentCloudMode: (value: string) => void;
   setDictationAgentCloudBaseUrl: (value: string) => void;
   setDictationAgentRemoteUrl: (url: string) => void;
-  setDictationAgentCustomApiKey: (key: string) => void;
+  setDictationAgentCustomApiKey: (key: string) => Promise<SecretSaveResult>;
 
   setVoiceAgentScreenContext: (value: boolean) => void;
   setUseDictationAgentVisionModel: (value: boolean) => void;
@@ -916,7 +899,7 @@ export interface SettingsState
   setDictationAgentVisionModel: (value: string) => void;
   setDictationAgentVisionCloudMode: (value: string) => void;
   setDictationAgentVisionCloudBaseUrl: (value: string) => void;
-  setDictationAgentVisionCustomApiKey: (key: string) => void;
+  setDictationAgentVisionCustomApiKey: (key: string) => Promise<SecretSaveResult>;
   setDictationAgentVisionDisableThinking: (value: boolean) => void;
 
   setTranscriptionMode: (mode: InferenceMode) => void;
@@ -956,7 +939,7 @@ export interface SettingsState
   setNoteFormattingCloudMode: (value: string) => void;
   setNoteFormattingCloudBaseUrl: (value: string) => void;
   setNoteFormattingRemoteUrl: (url: string) => void;
-  setNoteFormattingCustomApiKey: (key: string) => void;
+  setNoteFormattingCustomApiKey: (key: string) => Promise<SecretSaveResult>;
 
   setTranslationMode: (mode: InferenceMode) => void;
   setTranslationProvider: (value: string) => void;
@@ -964,7 +947,7 @@ export interface SettingsState
   setTranslationCloudMode: (value: string) => void;
   setTranslationCloudBaseUrl: (value: string) => void;
   setTranslationRemoteUrl: (value: string) => void;
-  setTranslationCustomApiKey: (value: string) => void;
+  setTranslationCustomApiKey: (value: string) => Promise<SecretSaveResult>;
   setTranslationDisableThinking: (value: boolean) => void;
   setUseDictationTranslation: (value: boolean) => void;
   setTranslationSourceLanguage: (value: string) => void;
@@ -993,12 +976,18 @@ export interface SettingsState
   switchCloudTranscriptionProvider: (
     context: TranscriptionPolicyContext,
     providerId: string
-  ) => void;
+  ) => Promise<void>;
   switchReasoningProvider: (
     scope: InferenceScope,
     providerId: string,
     fallbackModel?: string
-  ) => void;
+  ) => Promise<void>;
+  /** Enterprise writes acknowledge main before local commit. */
+  applyRoutePatch: (
+    patch: SettingsPatch,
+    options?: { expectedEnterprise?: EnterpriseRouteSettings; canCommit?: () => boolean }
+  ) => Promise<void>;
+
   setCleanupCloudMode: (value: string) => void;
   setCleanupCloudBaseUrl: (value: string) => void;
   setCustomDictionary: (words: string[]) => void;
@@ -1014,21 +1003,21 @@ export interface SettingsState
   setCleanupProvider: (value: string) => void;
   setUiLanguage: (language: string) => void;
 
-  setOpenaiApiKey: (key: string) => void;
-  setAnthropicApiKey: (key: string) => void;
-  setGeminiApiKey: (key: string) => void;
-  setGroqApiKey: (key: string) => void;
-  setXaiApiKey: (key: string) => void;
-  setMistralApiKey: (key: string) => void;
-  setOpenrouterApiKey: (key: string) => void;
-  setCortiClientId: (key: string) => void;
-  setCortiClientSecret: (key: string) => void;
-  setCortiApiKey: (key: string) => void;
-  setTinfoilApiKey: (key: string) => void;
-  setDeepgramApiKey: (key: string) => void;
-  setAssemblyaiApiKey: (key: string) => void;
-  setCustomTranscriptionApiKey: (key: string) => void;
-  setCleanupCustomApiKey: (key: string) => void;
+  setOpenaiApiKey: (key: string) => Promise<SecretSaveResult>;
+  setAnthropicApiKey: (key: string) => Promise<SecretSaveResult>;
+  setGeminiApiKey: (key: string) => Promise<SecretSaveResult>;
+  setGroqApiKey: (key: string) => Promise<SecretSaveResult>;
+  setXaiApiKey: (key: string) => Promise<SecretSaveResult>;
+  setMistralApiKey: (key: string) => Promise<SecretSaveResult>;
+  setOpenrouterApiKey: (key: string) => Promise<SecretSaveResult>;
+  setCortiClientId: (key: string) => Promise<SecretSaveResult>;
+  setCortiClientSecret: (key: string) => Promise<SecretSaveResult>;
+  setCortiApiKey: (key: string) => Promise<SecretSaveResult>;
+  setTinfoilApiKey: (key: string) => Promise<SecretSaveResult>;
+  setDeepgramApiKey: (key: string) => Promise<SecretSaveResult>;
+  setAssemblyaiApiKey: (key: string) => Promise<SecretSaveResult>;
+  setCustomTranscriptionApiKey: (key: string) => Promise<SecretSaveResult>;
+  setCleanupCustomApiKey: (key: string) => Promise<SecretSaveResult>;
 
   // Corti (BYOK)
   cortiEnvironment: string;
@@ -1048,23 +1037,25 @@ export interface SettingsState
   azureDeploymentName: string;
   azureApiVersion: string;
   vertexAuthMode: string;
+  vertexAuthSource: "adc" | "apiKey";
+  setVertexAuthSource: (value: "adc" | "apiKey") => Promise<boolean>;
   vertexProject: string;
   vertexLocation: string;
   vertexApiKey: string;
   setBedrockAuthMode: (value: string) => void;
   setBedrockRegion: (value: string) => void;
-  setBedrockProfile: (value: string) => void;
-  setBedrockAccessKeyId: (key: string) => void;
-  setBedrockSecretAccessKey: (key: string) => void;
-  setBedrockSessionToken: (key: string) => void;
+  setBedrockProfile: (value: string) => Promise<boolean>;
+  setBedrockAccessKeyId: (key: string) => Promise<SecretSaveResult>;
+  setBedrockSecretAccessKey: (key: string) => Promise<SecretSaveResult>;
+  setBedrockSessionToken: (key: string) => Promise<SecretSaveResult>;
   setAzureEndpoint: (value: string) => void;
-  setAzureApiKey: (key: string) => void;
+  setAzureApiKey: (key: string) => Promise<SecretSaveResult>;
   setAzureDeploymentName: (value: string) => void;
   setAzureApiVersion: (value: string) => void;
   setVertexAuthMode: (value: string) => void;
   setVertexProject: (value: string) => void;
   setVertexLocation: (value: string) => void;
-  setVertexApiKey: (key: string) => void;
+  setVertexApiKey: (key: string) => Promise<SecretSaveResult>;
 
   setDictationKey: (key: string) => void;
   setMeetingKey: (key: string) => void;
@@ -1087,7 +1078,11 @@ export interface SettingsState
   setTranscriptRetentionDays: (days: number) => void;
   setDataRetentionEnabled: (value: boolean) => void;
   setSaveDiscardedTranscriptions: (value: boolean) => void;
+  setShowMeetingRecorderOnScreen: (enabled: boolean) => void;
+  setLabsTable: (value: boolean) => void;
   setAudioCuesEnabled: (value: boolean) => void;
+  setDictationCueSet: (value: DictationCueSet) => void;
+  setDictationCueVolume: (value: DictationCueVolume) => void;
   setPauseMediaOnDictation: (value: boolean) => void;
   setFloatingIconAutoHide: (enabled: boolean) => void;
   setStartMinimized: (enabled: boolean) => void;
@@ -1123,7 +1118,7 @@ export interface SettingsState
   setChatAgentMode: (mode: InferenceMode) => void;
   setChatAgentCloudBaseUrl: (value: string) => void;
   setChatAgentRemoteUrl: (url: string) => void;
-  setChatAgentCustomApiKey: (key: string) => void;
+  setChatAgentCustomApiKey: (key: string) => Promise<SecretSaveResult>;
 
   updateTranscriptionSettings: (settings: Partial<TranscriptionSettings>) => void;
   setCloudTranscriptionForAllScopes: (settings: Partial<TranscriptionSettings>) => void;
@@ -1142,14 +1137,15 @@ function createStringSetter(key: string) {
   };
 }
 
-function persistTranscriptionModelMemory(memory: Record<string, string>) {
-  if (isBrowser) localStorage.setItem("transcriptionModelByProvider", JSON.stringify(memory));
-  useSettingsStore.setState({ transcriptionModelByProvider: memory });
+function writeModelMemoryStorage(
+  key: "transcriptionModelByProvider" | "reasoningModelByProvider",
+  memory: Record<string, string>
+) {
+  if (isBrowser) localStorage.setItem(key, JSON.stringify(memory));
 }
-
-function persistReasoningModelMemory(memory: Record<string, string>) {
-  if (isBrowser) localStorage.setItem("reasoningModelByProvider", JSON.stringify(memory));
-  useSettingsStore.setState({ reasoningModelByProvider: memory });
+function persistTranscriptionModelMemory(memory: Record<string, string>) {
+  writeModelMemoryStorage("transcriptionModelByProvider", memory);
+  useSettingsStore.setState({ transcriptionModelByProvider: memory });
 }
 
 function readModelMemory(key: string): Record<string, string> {
@@ -1246,54 +1242,331 @@ function debouncedPersistToEnv() {
   }, 1000);
 }
 
-const SECRET_IPC_SAVERS = {
-  openai: "saveOpenAIKey",
-  anthropic: "saveAnthropicKey",
-  gemini: "saveGeminiKey",
-  groq: "saveGroqKey",
-  xai: "saveXaiKey",
-  mistral: "saveMistralKey",
-  openrouter: "saveOpenrouterKey",
-  cortiClientId: "saveCortiClientId",
-  cortiClientSecret: "saveCortiClientSecret",
-  cortiApiKey: "saveCortiKey",
-  tinfoil: "saveTinfoilKey",
-  deepgram: "saveDeepgramKey",
-  assemblyai: "saveAssemblyAIKey",
-  customTranscription: "saveCustomTranscriptionKey",
-  cleanupCustom: "saveCleanupCustomKey",
-  noteFormattingCustom: "saveNoteFormattingCustomKey",
-  translationCustom: "saveTranslationCustomKey",
-  dictationAgentCustom: "saveDictationAgentCustomKey",
-  dictationAgentVisionCustom: "saveDictationAgentVisionCustomKey",
-  chatAgentCustom: "saveChatAgentCustomKey",
-  bedrockAccessKeyId: "saveBedrockAccessKeyId",
-  bedrockSecretAccessKey: "saveBedrockSecretAccessKey",
-  bedrockSessionToken: "saveBedrockSessionToken",
-  azureApiKey: "saveAzureApiKey",
-  vertexApiKey: "saveVertexApiKey",
-} as const;
+// Main publishes one acknowledged tuple and monotonic version. Editors own raw drafts.
+const ENTERPRISE_ROUTE_FIELDS = ROUTE_ENTERPRISE_KEYS;
+let enterpriseLocalWrites = 0;
+let enterpriseVersion = -1;
+let enterpriseCanonical: EnterpriseRouteSettings | null = null;
+let enterprisePatchInFlight = false;
+let enterprisePublicationDeferred = false;
+let enterpriseSourceRevision = 0;
+const enterpriseAuthorityListeners = new Set<(state?: EnterpriseRouteState) => void>();
+let enterpriseSubscribed = false;
 
-type SecretProvider = keyof typeof SECRET_IPC_SAVERS;
-
-const secretSaveTimers: Partial<Record<SecretProvider, ReturnType<typeof setTimeout>>> = {};
-function debouncedSaveSecret(provider: SecretProvider, key: string) {
-  if (!isBrowser) return;
-  const timer = secretSaveTimers[provider];
-  if (timer) clearTimeout(timer);
-  secretSaveTimers[provider] = setTimeout(() => {
-    const api = window.electronAPI;
-    const save = api?.[SECRET_IPC_SAVERS[provider]] as
-      ((k: string) => Promise<unknown>) | undefined;
-    save?.(key)?.catch((err) => {
-      logger.warn(
-        "Failed to persist secret",
-        { provider, error: (err as Error).message },
-        "settings"
-      );
-    });
-  }, 250);
+export function noteEnterpriseLocalWrite(): void {
+  enterpriseLocalWrites++;
 }
+export function enterpriseLocalWriteCount(): number {
+  return enterpriseLocalWrites;
+}
+export function enterpriseRouteVersion(): number {
+  return enterpriseVersion;
+}
+export function enterpriseSettingsAreConfirmed(): boolean {
+  const state = useSettingsStore.getState();
+  return (
+    enterpriseCanonical !== null &&
+    !enterprisePublicationDeferred &&
+    ENTERPRISE_ROUTE_FIELDS.every((key) => state[key] === enterpriseCanonical[key])
+  );
+}
+export function subscribeEnterpriseAuthority(
+  listener: (state?: EnterpriseRouteState) => void
+): () => void {
+  enterpriseAuthorityListeners.add(listener);
+  return () => enterpriseAuthorityListeners.delete(listener);
+}
+function notifyEnterpriseAuthority(state?: EnterpriseRouteState): void {
+  for (const listener of enterpriseAuthorityListeners) listener(state);
+}
+function validEnterpriseTuple(value: unknown): value is EnterpriseRouteSettings {
+  const tuple = value as EnterpriseRouteSettings;
+  return (
+    !!tuple &&
+    typeof tuple === "object" &&
+    Object.keys(tuple).length === ENTERPRISE_ROUTE_FIELDS.length &&
+    ENTERPRISE_ROUTE_FIELDS.every((key) => typeof tuple[key] === "string") &&
+    (tuple.vertexAuthSource === "adc" || tuple.vertexAuthSource === "apiKey")
+  );
+}
+
+export function reconcileEnterpriseRouteState(
+  authority: Pick<EnterpriseRouteState, "current" | "version"> &
+    Partial<Pick<EnterpriseRouteState, "facts">>,
+  companion: Partial<SettingsState> = {},
+  deferPublication = enterprisePatchInFlight
+): boolean {
+  if (
+    !authority ||
+    !Number.isSafeInteger(authority.version) ||
+    authority.version < 0 ||
+    authority.version < enterpriseVersion ||
+    (authority.current !== null && !validEnterpriseTuple(authority.current))
+  )
+    return false;
+  if (
+    authority.version === enterpriseVersion &&
+    (authority.current === null || enterpriseCanonical === null
+      ? authority.current !== enterpriseCanonical
+      : ENTERPRISE_ROUTE_FIELDS.some((key) => authority.current[key] !== enterpriseCanonical[key]))
+  )
+    return false;
+  enterpriseVersion = authority.version;
+  enterpriseCanonical = authority.current ? { ...authority.current } : null;
+  enterprisePublicationDeferred = deferPublication;
+  // Revoke old facts before synchronous settings subscribers can inspect a
+  // newly published tuple. Local editable text belongs to its component.
+  notifyEnterpriseAuthority(authority.facts ? (authority as EnterpriseRouteState) : undefined);
+  noteEnterpriseLocalWrite();
+  if (deferPublication) return true;
+  const patch: Partial<SettingsState> = { ...companion };
+  if (enterpriseCanonical) {
+    for (const key of ENTERPRISE_ROUTE_FIELDS) {
+      Object.assign(patch, { [key]: enterpriseCanonical[key] });
+    }
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === "transcriptionModelByProvider" || key === "reasoningModelByProvider") {
+      writeModelMemoryStorage(key, value as Record<string, string>);
+    } else if (isBrowser) localStorage.setItem(key, String(value));
+  }
+  if (Object.keys(patch).length) useSettingsStore.setState(patch);
+  notifyEnterpriseAuthority(authority.facts ? (authority as EnterpriseRouteState) : undefined);
+  return true;
+}
+
+export function ensureEnterpriseRouteSubscribed(): void {
+  if (enterpriseSubscribed || !isBrowser || !window.electronAPI?.onEnterpriseRouteChanged) return;
+  enterpriseSubscribed = true;
+  window.electronAPI.onEnterpriseRouteChanged((authority) => {
+    reconcileEnterpriseRouteState(authority);
+  });
+}
+
+// Legacy non-Settings callers can still persist a field, but only a complete
+// acknowledged canonical tuple may enter settings. No second raw authority.
+function writeLegacyEnterpriseSetting(
+  _key: RouteEnterpriseKey,
+  value: string,
+  save: ((value: string) => Promise<unknown>) | undefined
+): void {
+  ensureEnterpriseRouteSubscribed();
+  void Promise.resolve()
+    .then(() => save?.(value))
+    .then((result) => {
+      const ack = result as {
+        success?: boolean;
+        current?: EnterpriseRouteSettings;
+        version?: number;
+      };
+      if (ack?.success && ack.current && typeof ack.version === "number")
+        reconcileEnterpriseRouteState({ current: ack.current, version: ack.version });
+    })
+    .catch(() => {});
+}
+
+let routePatchQueue: Promise<void> = Promise.resolve();
+let routePatchBusy = false;
+const routePatchJobs: (() => void)[] = [];
+
+type RoutePatchOptions = {
+  expectedEnterprise?: EnterpriseRouteSettings;
+  // Renderer-only admission predicate. Never crosses IPC. Task 7 uses it
+  // to prevent a closed/replaced request from sending a patch while queued.
+  canCommit?: () => boolean;
+};
+
+function assertRoutePatchAdmission(options?: RoutePatchOptions): void {
+  if (options?.canCommit && !options.canCommit()) {
+    throw Object.assign(new Error("Route request was superseded before commit"), {
+      code: "ROUTE_PATCH_SUPERSEDED",
+    });
+  }
+}
+
+function enqueueRoutePatch(operation: () => void | Promise<void>): Promise<void> {
+  let finish: () => void;
+  let fail: (error: unknown) => void;
+  const result = new Promise<void>((resolve, reject) => {
+    finish = resolve;
+    fail = reject;
+  });
+  routePatchQueue = result.catch(() => {});
+  const advance = () => {
+    routePatchBusy = false;
+    routePatchJobs.shift()?.();
+  };
+  const run = () => {
+    routePatchBusy = true;
+    try {
+      const pending = operation();
+      if (pending) {
+        pending.then(finish, fail).finally(advance);
+      } else {
+        finish();
+        advance();
+      }
+    } catch (error) {
+      fail(error);
+      advance();
+    }
+  };
+  if (routePatchBusy) routePatchJobs.push(run);
+  else run();
+  return result;
+}
+
+export async function flushRoutePatchSaves(): Promise<void> {
+  for (;;) {
+    const pending = routePatchQueue;
+    await pending;
+    if (pending === routePatchQueue) return;
+  }
+}
+
+function runRoutePatchAtHead(
+  buildPatch: (state: SettingsState) => SettingsPatch,
+  options?: RoutePatchOptions
+): Promise<void> {
+  return enqueueRoutePatch(() => {
+    // Check before planning and again immediately before the first write.
+    // There is no await between the second check and starting IPC.
+    assertRoutePatchAdmission(options);
+    const state = useSettingsStore.getState();
+    return applyRoutePatchNow(buildPatch(state), options);
+  });
+}
+
+function applyRoutePatchNow(
+  patch: SettingsPatch,
+  options?: RoutePatchOptions
+): void | Promise<void> {
+  const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
+  for (const [key] of entries) {
+    if ((STALE_SECRET_LOCALSTORAGE_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`applyRoutePatch: ${key} is a secret and never part of a route patch`);
+    }
+    if (!ROUTE_PATCH_KEY_SET.has(key))
+      throw new Error(`applyRoutePatch: ${key} is not a route setting`);
+  }
+  if (entries.length === 0) return;
+  const storeEntries = entries.filter(([key]) => providerSearchScope(key) === null);
+  const enterpriseEntries = storeEntries.filter(([key]) =>
+    ROUTE_ENTERPRISE_KEYS.includes(key as RouteEnterpriseKey)
+  );
+  // A queued stale request may fail closed here without contacting main or
+  // writing local state. Once saveEnterpriseRoutePatch starts, however, an
+  // ACK is durable and must be reflected even if the request later expires.
+  assertRoutePatchAdmission(options);
+  const commit = () => {
+    for (const [key, value] of storeEntries) {
+      if (key === "transcriptionModelByProvider" || key === "reasoningModelByProvider") {
+        writeModelMemoryStorage(key, value as Record<string, string>);
+      } else if (isBrowser) {
+        localStorage.setItem(key, String(value));
+      }
+    }
+    if (storeEntries.length > 0)
+      useSettingsStore.setState(Object.fromEntries(storeEntries) as Partial<SettingsState>);
+    for (const [key, value] of entries) {
+      const scope = providerSearchScope(key);
+      if (scope && isBrowser) writeProviderSearchPreference(scope, value === true);
+    }
+  };
+  if (enterpriseEntries.length > 0 && isBrowser) {
+    const save = window.electronAPI?.saveEnterpriseRoutePatch;
+    if (!save) throw new Error("Enterprise route persistence is unavailable");
+    const current = useSettingsStore.getState();
+    const expected =
+      options?.expectedEnterprise ??
+      (Object.fromEntries(
+        ROUTE_ENTERPRISE_KEYS.map((key) => [key, current[key]])
+      ) as unknown as EnterpriseRouteSettings);
+    const enterprisePatch = Object.fromEntries(
+      enterpriseEntries
+    ) as Partial<EnterpriseRouteSettings>;
+    ensureEnterpriseRouteSubscribed();
+    enterprisePatchInFlight = true;
+    let saved: ReturnType<NonNullable<Window["electronAPI"]["saveEnterpriseRoutePatch"]>>;
+    try {
+      saved = save({ patch: enterprisePatch, expected });
+    } catch (error) {
+      enterprisePatchInFlight = false;
+      throw error;
+    }
+    return saved
+      .then((ack) => {
+        if (
+          !ack ||
+          (ack.success !== true && !(ack.success === false && ack.conflict === true)) ||
+          !validEnterpriseTuple(ack.current) ||
+          !Number.isSafeInteger(ack.version) ||
+          ack.version < 0
+        )
+          throw new Error("Malformed enterprise route acknowledgement");
+        if (ack.version < enterpriseVersion) {
+          throw Object.assign(new Error("Enterprise route acknowledgement was superseded"), {
+            code: "ENTERPRISE_ROUTE_SUPERSEDED",
+          });
+        }
+        if (ack.success === false) {
+          reconcileEnterpriseRouteState(ack, {}, false);
+          throw Object.assign(
+            new Error("Enterprise route settings changed; review the draft again"),
+            {
+              code: "ENTERPRISE_ROUTE_CONFLICT",
+              current: ack.current,
+            }
+          );
+        }
+        const companion = Object.fromEntries(
+          storeEntries.filter(([key]) => !ROUTE_ENTERPRISE_KEYS.includes(key as RouteEnterpriseKey))
+        ) as Partial<SettingsState>;
+        if (!reconcileEnterpriseRouteState(ack, companion, false)) {
+          throw Object.assign(new Error("Enterprise route acknowledgement was superseded"), {
+            code: "ENTERPRISE_ROUTE_SUPERSEDED",
+          });
+        }
+        for (const [key, value] of entries) {
+          const scope = providerSearchScope(key);
+          if (scope && isBrowser) writeProviderSearchPreference(scope, value === true);
+        }
+      })
+      .finally(() => {
+        enterprisePatchInFlight = false;
+        if (enterprisePublicationDeferred) {
+          reconcileEnterpriseRouteState(
+            { current: enterpriseCanonical, version: enterpriseVersion },
+            {},
+            false
+          );
+        }
+      });
+  }
+  commit();
+}
+
+// Which ReasoningService key cache a secret invalidates (same as the former setters).
+const SECRET_CACHE: Partial<Record<SecretStoreKey, Parameters<typeof invalidateApiKeyCaches>[0]>> =
+  {
+    openaiApiKey: "openai",
+    anthropicApiKey: "anthropic",
+    geminiApiKey: "gemini",
+    groqApiKey: "groq",
+    mistralApiKey: "mistral",
+    openrouterApiKey: "openrouter",
+    tinfoilApiKey: "tinfoil",
+    cortiApiKey: "corti",
+    cortiClientId: "corti",
+    cortiClientSecret: "corti",
+    customTranscriptionApiKey: "custom",
+    cleanupCustomApiKey: "custom",
+    noteFormattingCustomApiKey: "custom",
+    translationCustomApiKey: "custom",
+    dictationAgentCustomApiKey: "custom",
+    dictationAgentVisionCustomApiKey: "custom",
+    chatAgentCustomApiKey: "custom",
+  };
 
 const STALE_SECRET_LOCALSTORAGE_KEYS = [
   "openaiApiKey",
@@ -1334,7 +1607,8 @@ function invalidateApiKeyCaches(
     | "tinfoil"
     | "custom"
     | "openrouter"
-    | "corti"
+    | "corti",
+  { persistEnv = true }: { persistEnv?: boolean } = {}
 ) {
   if (provider) {
     if (_ReasoningService) {
@@ -1349,22 +1623,89 @@ function invalidateApiKeyCaches(
     }
   }
   if (isBrowser) window.dispatchEvent(new Event("api-key-changed"));
-  debouncedPersistToEnv();
+  if (persistEnv) debouncedPersistToEnv();
 }
 
-// Uniform BYOK key setter: persist to the secure store (debounced) and clear
-// the provider's cached key. cacheProvider is omitted where there is no scoped
-// cache to clear (xai), preserving prior behavior.
-function createSecretSetter(
-  storeKey: string,
-  saver: SecretProvider,
-  cacheProvider?: Parameters<typeof invalidateApiKeyCaches>[0]
-) {
-  return (key: string) => {
-    useSettingsStore.setState({ [storeKey]: key });
-    debouncedSaveSecret(saver, key);
-    invalidateApiKeyCaches(cacheProvider);
-  };
+const pendingSecretSaves = new Set<Promise<SecretSaveResult>>();
+const credentialGenerations: Partial<Record<CredentialSlot, number>> = {};
+// Getter-only startup snapshots have no generation. Revisions record every
+// accepted ACK/event so late reads cannot replace a newer committed fact.
+const credentialRevisions: Partial<Record<CredentialSlot, number>> = {};
+const credentialRevision = (id: CredentialSlot) => credentialRevisions[id] ?? 0;
+const advanceCredentialRevision = (id: CredentialSlot) => {
+  credentialRevisions[id] = credentialRevision(id) + 1;
+};
+
+// Acknowledged secret save (I3). The raw value goes to main and nowhere
+// else; the store field becomes "__stored__" or "" only after main confirms
+// it persisted, and an older acknowledgement never overwrites a newer save.
+export function saveSecret(storeKey: SecretStoreKey, value: string): Promise<SecretSaveResult> {
+  const run = (async (): Promise<SecretSaveResult> => {
+    const credentials = isBrowser ? window.electronAPI?.credentials : undefined;
+    if (!credentials?.save) return { ok: false, error: "unavailable" };
+    const [id, field] = SECRET_SLOTS[storeKey];
+    let result: CredentialSaveResult;
+    try {
+      result = await credentials.save(id, field, value);
+    } catch {
+      result = { ok: false, error: "persistFailed" };
+    }
+    if (result.ok === false) {
+      logger.warn("Failed to persist secret", { storeKey, error: result.error }, "settings");
+      return { ok: false, error: result.error };
+    }
+    if (result.generation >= (credentialGenerations[id] ?? 0) && value !== "__stored__") {
+      credentialGenerations[id] = result.generation;
+      advanceCredentialRevision(id);
+      useSettingsStore.setState({
+        [storeKey]: value.trim() ? "__stored__" : "",
+      } as Partial<SettingsState>);
+    }
+    // Main already persisted (persistSecret); no .env rewrite from here.
+    invalidateApiKeyCaches(SECRET_CACHE[storeKey], { persistEnv: false });
+    return { ok: true };
+  })();
+  pendingSecretSaves.add(run);
+  void run.finally(() => pendingSecretSaves.delete(run));
+  return run;
+}
+
+// Route Apply (Task 7) and Verify (Task 12) await this, so they always act on
+// what main has stored rather than on a save still in flight.
+export async function flushSecretSaves(): Promise<void> {
+  while (pendingSecretSaves.size > 0) {
+    await Promise.allSettled([...pendingSecretSaves]);
+  }
+}
+
+// Main broadcasts credentials-changed after every save, removal, undo and
+// reset; each window mirrors the per-field presence into its sentinels.
+export function subscribeCredentialChanges(): () => void {
+  const credentials = isBrowser ? window.electronAPI?.credentials : undefined;
+  if (!credentials?.onChanged) return () => {};
+  return credentials.onChanged((change) => {
+    if (change.generation < (credentialGenerations[change.id] ?? 0)) return;
+    credentialGenerations[change.id] = change.generation;
+    advanceCredentialRevision(change.id);
+    const patch: Record<string, string> = {};
+    const caches = new Set<Parameters<typeof invalidateApiKeyCaches>[0]>();
+    for (const [storeKey, [id, field]] of Object.entries(SECRET_SLOTS) as [
+      SecretStoreKey,
+      readonly [CredentialSlot, CredentialField],
+    ][]) {
+      const stored = change.fields[field];
+      if (id !== change.id || stored === undefined) continue;
+      patch[storeKey] = stored ? "__stored__" : "";
+      caches.add(SECRET_CACHE[storeKey]);
+    }
+    if (Object.keys(patch).length === 0) return;
+    useSettingsStore.setState(patch as Partial<SettingsState>);
+    for (const provider of caches) invalidateApiKeyCaches(provider, { persistEnv: false });
+  });
+}
+
+function createSecretSetter(storeKey: SecretStoreKey) {
+  return (key: string) => saveSecret(storeKey, key);
 }
 
 export const MAX_TRANSLATION_TARGETS = 5;
@@ -1449,6 +1790,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   azureDeploymentName: readString("azureDeploymentName", ""),
   azureApiVersion: readString("azureApiVersion", "2024-10-21"),
   vertexAuthMode: readString("vertexAuthMode", "adc"),
+  vertexAuthSource: readString("vertexAuthSource", "adc") as "adc" | "apiKey",
   vertexProject: readString("vertexProject", ""),
   vertexLocation: readString("vertexLocation", "us-central1"),
   vertexApiKey: "",
@@ -1487,7 +1829,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   transcriptRetentionDays: readNumber("transcriptRetentionDays", 0),
   dataRetentionEnabled: readBoolean("dataRetentionEnabled", true),
   saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),
+  showMeetingRecorderOnScreen: readBoolean("showMeetingRecorderOnScreen", true),
+  labsTable: readBoolean("labsTable", false),
   audioCuesEnabled: readBoolean("audioCuesEnabled", true),
+  dictationCueSet: normalizeCueSet(readString("dictationCueSet", "soft")),
+  dictationCueVolume: normalizeCueVolume(readString("dictationCueVolume", "medium")),
   pauseMediaOnDictation: readBoolean("pauseMediaOnDictation", false),
   floatingIconAutoHide: readBoolean("floatingIconAutoHide", false),
   startMinimized: readBoolean("startMinimized", false),
@@ -1623,7 +1969,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   noteFormattingCloudMode: readString("noteFormattingCloudMode", ""),
   noteFormattingCloudBaseUrl: readString("noteFormattingCloudBaseUrl", ""),
   noteFormattingRemoteUrl: readString("noteFormattingRemoteUrl", ""),
-  noteFormattingCustomApiKey: readString("noteFormattingCustomApiKey", ""),
+  noteFormattingCustomApiKey: "",
 
   translationMode: (() => {
     const v = readString("translationMode", "local");
@@ -1635,7 +1981,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   translationCloudMode: readString("translationCloudMode", "byok"),
   translationCloudBaseUrl: readString("translationCloudBaseUrl", ""),
   translationRemoteUrl: readString("translationRemoteUrl", ""),
-  translationCustomApiKey: readString("translationCustomApiKey", ""),
+  translationCustomApiKey: "",
   translationDisableThinking: readBoolean("translationDisableThinking", true),
   useDictationTranslation: readBoolean("useDictationTranslation", false),
   translationSourceLanguage: readString("translationSourceLanguage", "auto"),
@@ -1699,11 +2045,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setNoteFormattingCloudMode: createStringSetter("noteFormattingCloudMode"),
   setNoteFormattingCloudBaseUrl: createStringSetter("noteFormattingCloudBaseUrl"),
   setNoteFormattingRemoteUrl: createStringSetter("noteFormattingRemoteUrl"),
-  setNoteFormattingCustomApiKey: createSecretSetter(
-    "noteFormattingCustomApiKey",
-    "noteFormattingCustom",
-    "custom"
-  ),
+  setNoteFormattingCustomApiKey: createSecretSetter("noteFormattingCustomApiKey"),
 
   setTranslationMode: createStringSetter("translationMode") as (mode: InferenceMode) => void,
   setTranslationProvider: createStringSetter("translationProvider"),
@@ -1711,11 +2053,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setTranslationCloudMode: createStringSetter("translationCloudMode"),
   setTranslationCloudBaseUrl: createStringSetter("translationCloudBaseUrl"),
   setTranslationRemoteUrl: createStringSetter("translationRemoteUrl"),
-  setTranslationCustomApiKey: createSecretSetter(
-    "translationCustomApiKey",
-    "translationCustom",
-    "custom"
-  ),
+  setTranslationCustomApiKey: createSecretSetter("translationCustomApiKey"),
   setTranslationDisableThinking: createBooleanSetter("translationDisableThinking"),
   setUseDictationTranslation: createBooleanSetter("useDictationTranslation"),
   setTranslationSourceLanguage: createStringSetter("translationSourceLanguage"),
@@ -1738,7 +2076,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   })(),
   chatAgentRemoteUrl: readString("chatAgentRemoteUrl", ""),
   chatAgentCloudBaseUrl: readString("chatAgentCloudBaseUrl", ""),
-  chatAgentCustomApiKey: readString("chatAgentCustomApiKey", ""),
+  chatAgentCustomApiKey: "",
 
   dictationAgentMode: (() => {
     const v = readString("dictationAgentMode", "local");
@@ -1750,7 +2088,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   dictationAgentCloudMode: readString("dictationAgentCloudMode", "byok"),
   dictationAgentCloudBaseUrl: readString("dictationAgentCloudBaseUrl", ""),
   dictationAgentRemoteUrl: readString("dictationAgentRemoteUrl", ""),
-  dictationAgentCustomApiKey: readString("dictationAgentCustomApiKey", ""),
+  dictationAgentCustomApiKey: "",
 
   voiceAgentScreenContext: readBoolean("voiceAgentScreenContext", false),
   useDictationAgentVisionModel: readBoolean("useDictationAgentVisionModel", false),
@@ -1760,7 +2098,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   dictationAgentVisionModel: readString("dictationAgentVisionModel", ""),
   dictationAgentVisionCloudMode: readString("dictationAgentVisionCloudMode", "byok"),
   dictationAgentVisionCloudBaseUrl: readString("dictationAgentVisionCloudBaseUrl", ""),
-  dictationAgentVisionCustomApiKey: readString("dictationAgentVisionCustomApiKey", ""),
+  dictationAgentVisionCustomApiKey: "",
 
   cleanupDisableThinking: readBoolean("cleanupDisableThinking", true),
   dictationAgentDisableThinking: readBoolean("dictationAgentDisableThinking", true),
@@ -1785,11 +2123,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setDictationAgentCloudMode: createStringSetter("dictationAgentCloudMode"),
   setDictationAgentCloudBaseUrl: createStringSetter("dictationAgentCloudBaseUrl"),
   setDictationAgentRemoteUrl: createStringSetter("dictationAgentRemoteUrl"),
-  setDictationAgentCustomApiKey: createSecretSetter(
-    "dictationAgentCustomApiKey",
-    "dictationAgentCustom",
-    "custom"
-  ),
+  setDictationAgentCustomApiKey: createSecretSetter("dictationAgentCustomApiKey"),
 
   setVoiceAgentScreenContext: createBooleanSetter("voiceAgentScreenContext"),
   setUseDictationAgentVisionModel: createBooleanSetter("useDictationAgentVisionModel"),
@@ -1797,11 +2131,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setDictationAgentVisionModel: createStringSetter("dictationAgentVisionModel"),
   setDictationAgentVisionCloudMode: createStringSetter("dictationAgentVisionCloudMode"),
   setDictationAgentVisionCloudBaseUrl: createStringSetter("dictationAgentVisionCloudBaseUrl"),
-  setDictationAgentVisionCustomApiKey: createSecretSetter(
-    "dictationAgentVisionCustomApiKey",
-    "dictationAgentVisionCustom",
-    "custom"
-  ),
+  setDictationAgentVisionCustomApiKey: createSecretSetter("dictationAgentVisionCustomApiKey"),
 
   setCleanupDisableThinking: createBooleanSetter("cleanupDisableThinking"),
   setDictationAgentDisableThinking: createBooleanSetter("dictationAgentDisableThinking"),
@@ -1829,64 +2159,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setCloudTranscriptionModel: createStringSetter("cloudTranscriptionModel"),
   setCloudTranscriptionBaseUrl: createStringSetter("cloudTranscriptionBaseUrl"),
 
-  // Every provider shares one model slot per scope, so a plain provider write
-  // destroys the outgoing provider's model (the "Parasail" wipe). This setter
-  // remembers the outgoing model and restores the incoming provider's last one.
-  switchCloudTranscriptionProvider: (context, providerId) => {
-    const s = useSettingsStore.getState();
-    const keys = TRANSCRIPTION_CONTEXT_KEYS.find((entry) => entry.context === context);
-    if (!keys) return;
-    // Meeting/upload raw keys default to "" (inherit from dictation), so work
-    // against resolved values. Restoring writes a concrete model — the scope
-    // stops inheriting the dictation model from that point on.
-    const outgoingProvider = (s[keys.provider] as string) || s.cloudTranscriptionProvider;
-    if (outgoingProvider === providerId) {
-      setStringSetting(keys.provider, providerId);
-      return;
-    }
-    const outgoingModel = (s[keys.model] as string) || s.cloudTranscriptionModel;
-    const memory = { ...s.transcriptionModelByProvider };
-    if (outgoingProvider && outgoingModel) {
-      memory[`${context}:${outgoingProvider}`] = outgoingModel;
-      persistTranscriptionModelMemory(memory);
-    }
-    const remembered = memory[`${context}:${providerId}`];
-    setStringSetting(keys.provider, providerId);
-    setStringSetting(
-      keys.model,
-      remembered && transcriptionModelBelongsToProvider(providerId, remembered, context)
-        ? remembered
-        : defaultTranscriptionModel(providerId, context)
-    );
-  },
-
-  // LLM twin of switchCloudTranscriptionProvider. The caller supplies the
-  // provider's default model because dynamic catalogs (Tinfoil) live in the UI.
-  switchReasoningProvider: (scope, providerId, fallbackModel = "") => {
-    const s = useSettingsStore.getState();
-    const cfg = selectResolvedLLMConfig(s, scope);
-    const memory = { ...s.reasoningModelByProvider };
-    // Only remember a model the outgoing provider actually owns — after a
-    // local/cloud mode round-trip the shared slot can hold a foreign id.
-    if (cfg.provider && cfg.provider !== providerId) {
-      if (reasoningModelBelongsToProvider(cfg.provider, cfg.model)) {
-        memory[`${scope}:${cfg.provider}`] = cfg.model;
-        persistReasoningModelMemory(memory);
-      }
-    } else if (reasoningModelBelongsToProvider(providerId, cfg.model)) {
-      // Reselecting the current provider with a model it owns: keep it.
-      setResolvedLLMConfig(scope, { provider: providerId });
-      return;
-    }
-    const remembered = memory[`${scope}:${providerId}`];
-    setResolvedLLMConfig(scope, {
-      provider: providerId,
-      model:
-        remembered && reasoningModelBelongsToProvider(providerId, remembered)
-          ? remembered
-          : fallbackModel,
-    });
-  },
+  switchCloudTranscriptionProvider: (context, providerId) =>
+    runRoutePatchAtHead((state) => planTranscriptionProviderSwitch(state, context, providerId)),
+  switchReasoningProvider: (scope, providerId, fallbackModel = "") =>
+    runRoutePatchAtHead((state) =>
+      planReasoningProviderSwitch(state, scope, providerId, fallbackModel)
+    ),
+  applyRoutePatch: (patch, options) => runRoutePatchAtHead(() => patch, options),
   setCloudTranscriptionMode: createStringSetter("cloudTranscriptionMode"),
   setCleanupCloudMode: createStringSetter("cleanupCloudMode"),
   setCleanupCloudBaseUrl: createStringSetter("cleanupCloudBaseUrl"),
@@ -1990,84 +2269,50 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     }
   },
 
-  setOpenaiApiKey: createSecretSetter("openaiApiKey", "openai", "openai"),
-  setAnthropicApiKey: createSecretSetter("anthropicApiKey", "anthropic", "anthropic"),
-  setGeminiApiKey: createSecretSetter("geminiApiKey", "gemini", "gemini"),
-  setGroqApiKey: createSecretSetter("groqApiKey", "groq", "groq"),
-  setXaiApiKey: createSecretSetter("xaiApiKey", "xai"),
-  setMistralApiKey: createSecretSetter("mistralApiKey", "mistral", "mistral"),
-  setOpenrouterApiKey: createSecretSetter("openrouterApiKey", "openrouter", "openrouter"),
-  setCortiClientId: (key: string) => {
-    set({ cortiClientId: key });
-    debouncedSaveSecret("cortiClientId", key);
-    invalidateApiKeyCaches("corti");
-  },
-  setCortiClientSecret: (key: string) => {
-    set({ cortiClientSecret: key });
-    debouncedSaveSecret("cortiClientSecret", key);
-    invalidateApiKeyCaches("corti");
-  },
-  setCortiApiKey: createSecretSetter("cortiApiKey", "cortiApiKey", "corti"),
+  setOpenaiApiKey: createSecretSetter("openaiApiKey"),
+  setAnthropicApiKey: createSecretSetter("anthropicApiKey"),
+  setGeminiApiKey: createSecretSetter("geminiApiKey"),
+  setGroqApiKey: createSecretSetter("groqApiKey"),
+  setXaiApiKey: createSecretSetter("xaiApiKey"),
+  setMistralApiKey: createSecretSetter("mistralApiKey"),
+  setOpenrouterApiKey: createSecretSetter("openrouterApiKey"),
+  setCortiClientId: createSecretSetter("cortiClientId"),
+  setCortiClientSecret: createSecretSetter("cortiClientSecret"),
+  setCortiApiKey: createSecretSetter("cortiApiKey"),
   setCortiEnvironment: createStringSetter("cortiEnvironment"),
   setCortiTenant: createStringSetter("cortiTenant"),
-  setTinfoilApiKey: createSecretSetter("tinfoilApiKey", "tinfoil", "tinfoil"),
+  setTinfoilApiKey: createSecretSetter("tinfoilApiKey"),
   // STT-only, so there is no ReasoningService key cache to invalidate.
-  setDeepgramApiKey: createSecretSetter("deepgramApiKey", "deepgram"),
-  setAssemblyaiApiKey: createSecretSetter("assemblyaiApiKey", "assemblyai"),
-  setCustomTranscriptionApiKey: (key: string) => {
-    set({ customTranscriptionApiKey: key });
-    debouncedSaveSecret("customTranscription", key);
-    invalidateApiKeyCaches("custom");
-  },
-  setCleanupCustomApiKey: (key: string) => {
-    set({ cleanupCustomApiKey: key });
-    debouncedSaveSecret("cleanupCustom", key);
-    invalidateApiKeyCaches("custom");
-  },
+  setDeepgramApiKey: createSecretSetter("deepgramApiKey"),
+  setAssemblyaiApiKey: createSecretSetter("assemblyaiApiKey"),
+  setCustomTranscriptionApiKey: createSecretSetter("customTranscriptionApiKey"),
+  setCleanupCustomApiKey: createSecretSetter("cleanupCustomApiKey"),
 
   // Enterprise provider setters
   setBedrockAuthMode: (value: string) => {
     if (isBrowser) localStorage.setItem("bedrockAuthMode", value);
     set({ bedrockAuthMode: value });
   },
-  setBedrockRegion: (value: string) => {
-    if (isBrowser) localStorage.setItem("bedrockRegion", value);
-    set({ bedrockRegion: value });
-    window.electronAPI?.saveBedrockRegion?.(value);
-    debouncedPersistToEnv();
+  setBedrockRegion: (value: string) =>
+    writeLegacyEnterpriseSetting("bedrockRegion", value, window.electronAPI?.saveBedrockRegion),
+  setBedrockProfile: async (value: string) => {
+    try {
+      const result = await window.electronAPI?.saveBedrockProfile?.(value);
+      if (!result?.success) return false;
+      set({ bedrockProfile: value });
+      if (isBrowser) localStorage.setItem("bedrockProfile", value);
+      return true;
+    } catch {
+      logger.warn("Failed to persist Bedrock profile", {}, "settings");
+      return false;
+    }
   },
-  setBedrockProfile: (value: string) => {
-    if (isBrowser) localStorage.setItem("bedrockProfile", value);
-    set({ bedrockProfile: value });
-    window.electronAPI?.saveBedrockProfile?.(value);
-    debouncedPersistToEnv();
-  },
-  setBedrockAccessKeyId: (key: string) => {
-    set({ bedrockAccessKeyId: key });
-    debouncedSaveSecret("bedrockAccessKeyId", key);
-    debouncedPersistToEnv();
-  },
-  setBedrockSecretAccessKey: (key: string) => {
-    set({ bedrockSecretAccessKey: key });
-    debouncedSaveSecret("bedrockSecretAccessKey", key);
-    debouncedPersistToEnv();
-  },
-  setBedrockSessionToken: (key: string) => {
-    set({ bedrockSessionToken: key });
-    debouncedSaveSecret("bedrockSessionToken", key);
-    debouncedPersistToEnv();
-  },
-  setAzureEndpoint: (value: string) => {
-    if (isBrowser) localStorage.setItem("azureEndpoint", value);
-    set({ azureEndpoint: value });
-    window.electronAPI?.saveAzureEndpoint?.(value);
-    debouncedPersistToEnv();
-  },
-  setAzureApiKey: (key: string) => {
-    set({ azureApiKey: key });
-    debouncedSaveSecret("azureApiKey", key);
-    debouncedPersistToEnv();
-  },
+  setBedrockAccessKeyId: createSecretSetter("bedrockAccessKeyId"),
+  setBedrockSecretAccessKey: createSecretSetter("bedrockSecretAccessKey"),
+  setBedrockSessionToken: createSecretSetter("bedrockSessionToken"),
+  setAzureEndpoint: (value: string) =>
+    writeLegacyEnterpriseSetting("azureEndpoint", value, window.electronAPI?.saveAzureEndpoint),
+  setAzureApiKey: createSecretSetter("azureApiKey"),
   setAzureDeploymentName: (value: string) => {
     if (isBrowser) localStorage.setItem("azureDeploymentName", value);
     set({ azureDeploymentName: value });
@@ -2084,23 +2329,30 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (isBrowser) localStorage.setItem("vertexAuthMode", value);
     set({ vertexAuthMode: value });
   },
-  setVertexProject: (value: string) => {
-    if (isBrowser) localStorage.setItem("vertexProject", value);
-    set({ vertexProject: value });
-    window.electronAPI?.saveVertexProject?.(value);
-    debouncedPersistToEnv();
+  setVertexAuthSource: async (value: "adc" | "apiKey") => {
+    const revision = ++enterpriseSourceRevision;
+    ensureEnterpriseRouteSubscribed();
+    try {
+      const result = await window.electronAPI?.saveVertexAuthSource?.(value);
+      if (
+        !result?.success ||
+        revision !== enterpriseSourceRevision ||
+        (enterpriseCanonical && enterpriseCanonical.vertexAuthSource !== value)
+      )
+        return false;
+      noteEnterpriseLocalWrite();
+      if (isBrowser) localStorage.setItem("vertexAuthSource", value);
+      set({ vertexAuthSource: value });
+      return true;
+    } catch {
+      return false;
+    }
   },
-  setVertexLocation: (value: string) => {
-    if (isBrowser) localStorage.setItem("vertexLocation", value);
-    set({ vertexLocation: value });
-    window.electronAPI?.saveVertexLocation?.(value);
-    debouncedPersistToEnv();
-  },
-  setVertexApiKey: (key: string) => {
-    set({ vertexApiKey: key });
-    debouncedSaveSecret("vertexApiKey", key);
-    debouncedPersistToEnv();
-  },
+  setVertexProject: (value: string) =>
+    writeLegacyEnterpriseSetting("vertexProject", value, window.electronAPI?.saveVertexProject),
+  setVertexLocation: (value: string) =>
+    writeLegacyEnterpriseSetting("vertexLocation", value, window.electronAPI?.saveVertexLocation),
+  setVertexApiKey: createSecretSetter("vertexApiKey"),
 
   setDictationKey: (key: string) => {
     if (isBrowser) localStorage.setItem("dictationKey", key);
@@ -2199,7 +2451,19 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     );
   },
   setSaveDiscardedTranscriptions: createBooleanSetter("saveDiscardedTranscriptions"),
+  setShowMeetingRecorderOnScreen: createBooleanSetter("showMeetingRecorderOnScreen"),
+  setLabsTable: createBooleanSetter("labsTable"),
   setAudioCuesEnabled: createBooleanSetter("audioCuesEnabled"),
+  setDictationCueSet: (value) => {
+    const dictationCueSet = normalizeCueSet(value);
+    if (isBrowser) localStorage.setItem("dictationCueSet", dictationCueSet);
+    set({ dictationCueSet });
+  },
+  setDictationCueVolume: (value) => {
+    const dictationCueVolume = normalizeCueVolume(value);
+    if (isBrowser) localStorage.setItem("dictationCueVolume", dictationCueVolume);
+    set({ dictationCueVolume });
+  },
   setPauseMediaOnDictation: createBooleanSetter("pauseMediaOnDictation"),
 
   setFloatingIconAutoHide: (enabled: boolean) => {
@@ -2347,11 +2611,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setChatAgentMode: createStringSetter("chatAgentMode") as (mode: InferenceMode) => void,
   setChatAgentCloudBaseUrl: createStringSetter("chatAgentCloudBaseUrl"),
   setChatAgentRemoteUrl: createStringSetter("chatAgentRemoteUrl"),
-  setChatAgentCustomApiKey: createSecretSetter(
-    "chatAgentCustomApiKey",
-    "chatAgentCustom",
-    "custom"
-  ),
+  setChatAgentCustomApiKey: createSecretSetter("chatAgentCustomApiKey"),
 
   updateTranscriptionSettings: (settings: Partial<TranscriptionSettings>) => {
     const s = useSettingsStore.getState();
@@ -2700,6 +2960,40 @@ export function setResolvedLLMConfig(
   if (Object.keys(updates).length > 0) useSettingsStore.setState(updates);
 }
 
+// Synchronous mutation admission, independent of React's render scheduling.
+// Only nonsecret cleanup work dependencies participate. Main still owns its
+// credential and enterprise generations; renderer revisions never replace them.
+function setupCleanupDependencies(state: SettingsState): string {
+  const selected = selectResolvedLLMConfig(state, "dictationCleanup");
+  return JSON.stringify([
+    state.useCleanupModel,
+    selected.mode,
+    selected.provider,
+    selected.model,
+    selected.cloudMode,
+    selected.cloudBaseUrl,
+    selected.remoteUrl,
+    state.cleanupDisableThinking,
+    state.customPrompts.cleanup,
+    state.customDictionary,
+    state.snippets.map((snippet) => snippet.trigger),
+    state.preferredLanguage,
+    state.uiLanguage,
+    state.chineseScriptPreference,
+    state.azureEndpoint,
+    state.azureApiVersion,
+    state.vertexProject,
+    state.vertexLocation,
+    state.vertexAuthSource,
+    state.bedrockRegion,
+    state.bedrockProfile,
+  ]);
+}
+useSettingsStore.subscribe((state, previous) => {
+  if (setupCleanupDependencies(state) !== setupCleanupDependencies(previous))
+    revokeSetupCleanupSelection();
+});
+
 // --- Convenience getters for non-React code ---
 
 export function getSettings(): SettingsState {
@@ -2765,26 +3059,31 @@ export function getEffectiveCleanupModel() {
 
 // --- Initialization ---
 
-// One-time migration: scope custom keys lived in plaintext localStorage before
-// moving to the OS secure store. Prefer the secure value; otherwise push the
-// legacy plaintext copy into the secure store — the stale-secret sweep in
-// initializeSettings then strips it from localStorage.
+// Legacy plaintext scope keys move into main's store. Renderer state only
+// receives the presence sentinel; a copy main did not acknowledge stays in
+// localStorage (the sweep below skips it) so nothing the user typed is lost.
+const unmigratedLegacySecrets = new Set<string>();
 async function migrateScopeCustomKeys(
-  entries: ReadonlyArray<[keyof SettingsState & string, string | null | undefined, string]>
+  entries: ReadonlyArray<[SecretStoreKey, string | null | undefined]>,
+  boundary: Partial<Record<CredentialSlot, number>>
 ): Promise<Partial<SettingsState>> {
   const updates: Record<string, string> = {};
-  for (const [storeKey, secureValue, saverName] of entries) {
-    let value = secureValue || "";
-    if (!value) {
+  for (const [storeKey, secureValue] of entries) {
+    // An earlier migration may have waited while the user initiated a save.
+    // Join those saves before deciding whether an old legacy copy may write.
+    await flushSecretSaves();
+    const [id] = SECRET_SLOTS[storeKey];
+    if (credentialRevision(id) !== (boundary[id] ?? 0)) continue;
+    let present = !!secureValue;
+    if (!present) {
       const legacy = localStorage.getItem(storeKey)?.trim() || "";
       if (legacy) {
-        value = legacy;
-        const save = window.electronAPI?.[saverName as keyof typeof window.electronAPI] as
-          ((key: string) => Promise<unknown>) | undefined;
-        await save?.(legacy);
+        const result = await saveSecret(storeKey, legacy);
+        present = result.ok;
+        if (!result.ok) unmigratedLegacySecrets.add(storeKey);
       }
     }
-    updates[storeKey] = value;
+    updates[storeKey] = present ? "__stored__" : "";
   }
   return updates as Partial<SettingsState>;
 }
@@ -2798,6 +3097,9 @@ export async function initializeSettings(): Promise<void> {
   if (!isBrowser) return;
 
   const state = useSettingsStore.getState();
+  const secretHydrationBoundary = { ...credentialRevisions };
+  subscribeCredentialChanges();
+  ensureEnterpriseRouteSubscribed();
 
   if (window.electronAPI) {
     try {
@@ -2855,39 +3157,46 @@ export async function initializeSettings(): Promise<void> {
         window.electronAPI.getAssemblyAIKey?.(),
       ]);
 
-      useSettingsStore.setState({
-        openaiApiKey: openai || "",
-        anthropicApiKey: anthropic || "",
-        geminiApiKey: gemini || "",
-        groqApiKey: groq || "",
-        xaiApiKey: xai || "",
-        mistralApiKey: mistral || "",
-        openrouterApiKey: openrouter || "",
-        cortiClientId: cortiClientId || "",
-        cortiClientSecret: cortiClientSecret || "",
-        cortiApiKey: cortiApiKey || "",
-        tinfoilApiKey: tinfoil || "",
-        customTranscriptionApiKey: customTx || "",
-        cleanupCustomApiKey: customRx || "",
-        bedrockAccessKeyId: bedrockAccessKeyId || "",
-        ...(await migrateScopeCustomKeys([
-          ["noteFormattingCustomApiKey", noteFormattingCustom, "saveNoteFormattingCustomKey"],
-          ["translationCustomApiKey", translationCustom, "saveTranslationCustomKey"],
-          ["dictationAgentCustomApiKey", dictationAgentCustom, "saveDictationAgentCustomKey"],
+      const secretHydration: Partial<SettingsState> = {
+        openaiApiKey: openai ? "__stored__" : "",
+        anthropicApiKey: anthropic ? "__stored__" : "",
+        geminiApiKey: gemini ? "__stored__" : "",
+        groqApiKey: groq ? "__stored__" : "",
+        xaiApiKey: xai ? "__stored__" : "",
+        mistralApiKey: mistral ? "__stored__" : "",
+        openrouterApiKey: openrouter ? "__stored__" : "",
+        cortiClientId: cortiClientId ? "__stored__" : "",
+        cortiClientSecret: cortiClientSecret ? "__stored__" : "",
+        cortiApiKey: cortiApiKey ? "__stored__" : "",
+        tinfoilApiKey: tinfoil ? "__stored__" : "",
+        customTranscriptionApiKey: customTx ? "__stored__" : "",
+        cleanupCustomApiKey: customRx ? "__stored__" : "",
+        bedrockAccessKeyId: bedrockAccessKeyId ? "__stored__" : "",
+        ...(await migrateScopeCustomKeys(
           [
-            "dictationAgentVisionCustomApiKey",
-            dictationAgentVisionCustom,
-            "saveDictationAgentVisionCustomKey",
+            ["noteFormattingCustomApiKey", noteFormattingCustom],
+            ["translationCustomApiKey", translationCustom],
+            ["dictationAgentCustomApiKey", dictationAgentCustom],
+            ["dictationAgentVisionCustomApiKey", dictationAgentVisionCustom],
+            ["chatAgentCustomApiKey", chatAgentCustom],
           ],
-          ["chatAgentCustomApiKey", chatAgentCustom, "saveChatAgentCustomKey"],
-        ])),
-        bedrockSecretAccessKey: bedrockSecretAccessKey || "",
-        bedrockSessionToken: bedrockSessionToken || "",
-        azureApiKey: azureApiKey || "",
-        vertexApiKey: vertexApiKey || "",
-        deepgramApiKey: deepgram || "",
-        assemblyaiApiKey: assemblyai || "",
-      });
+          secretHydrationBoundary
+        )),
+        bedrockSecretAccessKey: bedrockSecretAccessKey ? "__stored__" : "",
+        bedrockSessionToken: bedrockSessionToken ? "__stored__" : "",
+        azureApiKey: azureApiKey ? "__stored__" : "",
+        vertexApiKey: vertexApiKey ? "__stored__" : "",
+        deepgramApiKey: deepgram ? "__stored__" : "",
+        assemblyaiApiKey: assemblyai ? "__stored__" : "",
+      };
+      useSettingsStore.setState(
+        Object.fromEntries(
+          Object.entries(secretHydration).filter(([key]) => {
+            const [id] = SECRET_SLOTS[key as SecretStoreKey];
+            return credentialRevision(id) === (secretHydrationBoundary[id] ?? 0);
+          })
+        ) as Partial<SettingsState>
+      );
 
       if (localStorage.getItem("_dictationAgentSeeded") === "key-pending") {
         const { chatAgentCustomApiKey, setDictationAgentCustomApiKey } =
@@ -2897,7 +3206,11 @@ export async function initializeSettings(): Promise<void> {
       }
 
       for (const key of STALE_SECRET_LOCALSTORAGE_KEYS) {
-        localStorage.removeItem(key);
+        const slot = SECRET_SLOTS[key as SecretStoreKey]?.[0];
+        const changed = slot && credentialRevision(slot) !== (secretHydrationBoundary[slot] ?? 0);
+        // A failed copy is retained only while no newer authoritative change
+        // has revoked it. Otherwise a later startup could resurrect that copy.
+        if (!unmigratedLegacySecrets.has(key) || changed) localStorage.removeItem(key);
       }
 
       // Users who configured OpenRouter through the Custom tab keep their key
@@ -3191,9 +3504,18 @@ export async function initializeSettings(): Promise<void> {
 
   // Sync Zustand store when another window writes to localStorage
   window.addEventListener("storage", (event) => {
-    if (!event.key || event.storageArea !== localStorage || event.newValue === null) return;
+    if (!event.key || event.storageArea !== localStorage) return;
+    if (STRING_SETTINGS.has(event.key)) {
+      if (event.key === "dictationCueSet")
+        useSettingsStore.setState({ dictationCueSet: normalizeCueSet(event.newValue) });
+      else useSettingsStore.setState({ dictationCueVolume: normalizeCueVolume(event.newValue) });
+      return;
+    }
+    if (event.newValue === null) return;
 
     const { key, newValue } = event;
+    // Per-key peer storage delivery is not an atomic main acknowledgement.
+    if ((ENTERPRISE_ROUTE_FIELDS as readonly string[]).includes(key)) return;
 
     if (key.startsWith("customPrompt.")) {
       const kind = key.slice("customPrompt.".length) as PromptKind;
@@ -3262,6 +3584,7 @@ export async function initializeSettings(): Promise<void> {
 
   // Sync settings pushed from main process (e.g., hotkey changed in control panel)
   window.electronAPI?.onSettingUpdated?.((data: { key: string; value: unknown }) => {
+    if ((ENTERPRISE_ROUTE_FIELDS as readonly string[]).includes(data.key)) return;
     const state = useSettingsStore.getState();
     if (
       data.key in state &&

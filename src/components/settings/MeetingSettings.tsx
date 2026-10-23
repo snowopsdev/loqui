@@ -1,9 +1,13 @@
-import { useCallback } from "react";
+import { useRouteDraftStore } from "../../stores/routeDraftStore";
+import { StagedRoutePanel } from "./routing/StagedRoutePanel";
+import { stagedTargetForMode } from "./routing/stagedTarget";
+import { useRouteChange, useRouteCommit } from "./routing/useRouteChange";
 import { useTranslation } from "react-i18next";
 import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
 import { getMeetingStreamingTranscriptionProviders } from "../../models/ModelRegistry";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useResolvedRoute } from "../../lib/routes";
 import type { InferenceMode } from "../../types/electron";
 import { Cpu, Key, Network } from "../icons";
 import TranscriptionModelPicker from "../TranscriptionModelPicker";
@@ -20,40 +24,31 @@ function MeetingSpeakerDetectionRow() {
   const setSpeakerDiarizationEnabled = useSettingsStore((s) => s.setSpeakerDiarizationEnabled);
 
   return (
-    <SettingsRow
-      label={t("settings.meeting.speakerDetection.title")}
-      description={t("settings.meeting.speakerDetection.description")}
-    >
-      <Toggle checked={speakerDiarizationEnabled} onChange={setSpeakerDiarizationEnabled} />
-    </SettingsRow>
+    <div data-setting-id="speakerLabels">
+      <SettingsRow
+        label={t("settings.meeting.speakerDetection.title")}
+        description={t("settings.meeting.speakerDetection.description")}
+      >
+        <Toggle checked={speakerDiarizationEnabled} onChange={setSpeakerDiarizationEnabled} />
+      </SettingsRow>
+    </div>
   );
 }
 
-const noop = () => {};
-
 export function MeetingTranscriptionPanel() {
   const { t } = useTranslation();
+  const route = useResolvedRoute("noteRecordingStt");
   const startOnboarding = useStartOnboarding();
 
   const {
     meetingTranscriptionMode,
-    setMeetingTranscriptionMode,
-    setMeetingUseLocalWhisper,
     meetingWhisperModel,
-    setMeetingWhisperModel,
     meetingLocalTranscriptionProvider,
-    setMeetingLocalTranscriptionProvider,
     meetingParakeetModel,
-    setMeetingParakeetModel,
     meetingCohereModel,
-    setMeetingCohereModel,
     meetingCloudTranscriptionProvider,
-    setMeetingCloudTranscriptionProvider,
     meetingCloudTranscriptionModel,
-    setMeetingCloudTranscriptionModel,
     meetingCloudTranscriptionBaseUrl,
-    setMeetingCloudTranscriptionBaseUrl,
-    setMeetingCloudTranscriptionMode,
   } = useSettingsStore();
   const {
     modes: transcriptionModes,
@@ -84,43 +79,34 @@ export function MeetingTranscriptionPanel() {
     ],
     meetingTranscriptionMode
   );
+  const { request, requestPatch } = useRouteChange();
+  const stagedMode = useRouteDraftStore((s) =>
+    s.draft?.routeId === "noteRecordingStt" && s.draft.kind === "target"
+      ? s.draft.target.mode
+      : null
+  );
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
     if (mode === "self-hosted") return;
-
-    if (mode === effectiveTranscriptionMode) return;
-    setMeetingTranscriptionMode(mode);
-    setMeetingUseLocalWhisper(mode === "local");
-    setMeetingCloudTranscriptionMode("byok");
+    if (mode === effectiveTranscriptionMode) {
+      void requestPatch("noteRecordingStt", {});
+      return;
+    }
+    void request(
+      "noteRecordingStt",
+      stagedTargetForMode(mode, "noteRecordingStt", useSettingsStore.getState())
+    );
   };
 
-  const handleLocalTranscriptionModelSelect = useCallback(
-    (modelId: string, providerId?: string) => {
-      const provider = providerId ?? meetingLocalTranscriptionProvider;
-      if (provider === "nvidia") {
-        setMeetingParakeetModel(modelId);
-      } else if (provider === "cohere") {
-        setMeetingCohereModel(modelId);
-      } else {
-        setMeetingWhisperModel(modelId);
-      }
-    },
-    [
-      meetingLocalTranscriptionProvider,
-      setMeetingParakeetModel,
-      setMeetingCohereModel,
-      setMeetingWhisperModel,
-    ]
-  );
+  const commitnoteRecordingStt = useRouteCommit("noteRecordingStt");
 
   const renderTranscriptionPicker = (mode: "cloud" | "local") => (
     <TranscriptionModelPicker
+      onCommit={commitnoteRecordingStt}
       streamingOnly
       transcriptionContext="meeting"
       selectedCloudProvider={meetingCloudTranscriptionProvider}
-      onCloudProviderSelect={setMeetingCloudTranscriptionProvider}
       selectedCloudModel={meetingCloudTranscriptionModel}
-      onCloudModelSelect={setMeetingCloudTranscriptionModel}
       selectedLocalModel={
         meetingLocalTranscriptionProvider === "nvidia"
           ? meetingParakeetModel
@@ -128,14 +114,10 @@ export function MeetingTranscriptionPanel() {
             ? meetingCohereModel
             : meetingWhisperModel
       }
-      onLocalModelSelect={handleLocalTranscriptionModelSelect}
       selectedLocalProvider={meetingLocalTranscriptionProvider}
-      onLocalProviderSelect={setMeetingLocalTranscriptionProvider}
       useLocalWhisper={mode === "local"}
-      onModeChange={noop}
       mode={mode}
       cloudTranscriptionBaseUrl={meetingCloudTranscriptionBaseUrl}
-      setCloudTranscriptionBaseUrl={setMeetingCloudTranscriptionBaseUrl}
       variant="settings"
     />
   );
@@ -143,10 +125,14 @@ export function MeetingTranscriptionPanel() {
   return (
     <div className="space-y-3">
       <InferenceModeSelector
+        label={t("routes.runsOn", { task: t("routes.names.noteRecordingStt") })}
         modes={transcriptionModes}
         activeMode={effectiveTranscriptionMode}
+        stagedMode={stagedMode}
         onSelect={handleTranscriptionModeSelect}
+        routeState={route.state}
       />
+      <StagedRoutePanel routeId="noteRecordingStt" />
 
       {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
       {effectiveTranscriptionMode === "local" && renderTranscriptionPicker("local")}

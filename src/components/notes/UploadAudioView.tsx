@@ -2,17 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import type { FolderItem } from "../../types/electron";
-import {
-  AlertCircle,
-  ChevronRight,
-  FileAudio,
-  FolderOpen,
-  Link2,
-  Plus,
-  Settings,
-  Upload,
-  X,
-} from "../icons";
+import { AlertCircle, ChevronRight, FileAudio, FolderOpen, Link2, Plus, Upload, X } from "../icons";
 import { cn } from "../lib/utils";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -35,21 +25,14 @@ import {
 } from "./shared";
 
 import { MAX_SPEAKER_COUNT } from "../../constants/speakerDetection.json";
-import { byokFileSizeLimit, resolveTranscriptionRoute } from "../../helpers/transcriptionRoute";
-import { useSettings } from "../../hooks/useSettings";
-import {
-  getBatchTranscriptionModel,
-  getParakeetModelInfo,
-  getTranscriptionProviders,
-  isSherpaLocalProvider,
-} from "../../models/ModelRegistry";
+import { byokFileSizeLimit } from "../../helpers/transcriptionRoute";
+import { getBatchTranscriptionModel, getParakeetModelInfo } from "../../models/ModelRegistry";
 import type {
   DiarizationSettings,
   FileTranscriptionConfig,
   FileTranscriptionResult,
 } from "../../services/fileTranscription";
 import {
-  getTranscriptionApiKey,
   resolveDiarizationSettings,
   shouldUseByokDiarize,
   transcribeFileWithSpeakers,
@@ -67,9 +50,14 @@ import { getBaseLanguageCode } from "../../utils/languageSupport";
 import BatchQueueView from "./BatchQueueView";
 
 import { isSupportedUploadFile, uploadFileUrlPattern } from "../../utils/uploadAudioFormats";
+import { providerDisplayLabel } from "../../lib/locality";
+import { resolveRoute, routeSnapshotFromSettings, useResolvedRoute } from "../../lib/routes";
+import { RouteStateChip } from "../settings/routing/RouteChips";
+import { UploadDropZone } from "./UploadDropZone";
 import { UploadCompleteWarnings, UploadModelSettingsButton } from "./UploadAudioFeedback";
 
 type UploadState = "idle" | "selected" | "downloading" | "transcribing" | "complete" | "error";
+type PendingUploadFile = { name: string; path: string; sizeBytes: number };
 
 const CLOUD_FREE_MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB — free plan cloud limit
 const CLOUD_PRO_MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB — pro plan cloud limit
@@ -80,7 +68,8 @@ const uploadFieldClass = cn(
   "rounded-lg text-xs",
   "bg-surface-1/40 dark:bg-white/[0.03] backdrop-blur-sm",
   "border border-foreground/6 dark:border-white/10",
-  "text-foreground/70 placeholder:text-foreground/45",
+  "text-foreground placeholder:text-muted-foreground disabled:cursor-not-allowed",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
   "focus:outline-none focus:border-foreground/12 dark:focus:border-white/10",
   "transition-colors"
 );
@@ -176,6 +165,10 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   const singleDownloadIdRef = useRef<string | null>(null);
 
   const batch = useBatchQueue();
+  const [pendingFiles, setPendingFiles] = useState<PendingUploadFile[]>([]);
+  // Event-owned selection: held callbacks read and consume the current files
+  // synchronously, including concurrent chooser completions before a render.
+  const pendingFilesRef = useRef<PendingUploadFile[]>([]);
 
   const [diarizationEnabled, setDiarizationEnabled] = useState(
     () => localStorage.getItem("uploadDiarizationEnabled") === "true"
@@ -251,23 +244,16 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
 
-  const [providerReady, setProviderReady] = useState<boolean | null>(null);
-
-  // The server enforces the free-tier size limit regardless, so an unresolved
-  // entitlement should not block a payer's upload.
-
-  const apiKeys = useSettings();
-  const {
-    openaiApiKey,
-    groqApiKey,
-    xaiApiKey,
-    mistralApiKey,
-    geminiApiKey,
-    tinfoilApiKey,
-    deepgramApiKey,
-    assemblyaiApiKey,
-    customTranscriptionApiKey,
-  } = apiKeys;
+  const uploadRoute = useResolvedRoute("uploadStt");
+  const providerReady = uploadRoute.state.status === "ready";
+  useEffect(() => {
+    if (!providerReady) setIsDragOver(false);
+  }, [providerReady]);
+  // Held event handlers read the same shared resolver at invocation time. A
+  // previous ready render cannot authorize work after facts/settings change.
+  const canAdmitUpload = () =>
+    mountedRef.current &&
+    resolveRoute(routeSnapshotFromSettings(getSettings()), "uploadStt").state.status === "ready";
 
   const {
     useLocalWhisper,
@@ -285,14 +271,6 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   const remoteTranscriptionUrl = useSettingsStore((s) => s.remoteTranscriptionUrl);
   const remoteTranscriptionModel = useSettingsStore((s) => s.remoteTranscriptionModel);
 
-  const setUploadTranscriptionMode = useSettingsStore((s) => s.setUploadTranscriptionMode);
-  const setUploadCloudTranscriptionMode = useSettingsStore(
-    (s) => s.setUploadCloudTranscriptionMode
-  );
-  const setUploadUseLocalWhisper = useSettingsStore((s) => s.setUploadUseLocalWhisper);
-
-  const cortiClientId = useSettingsStore((s) => s.cortiClientId);
-  const cortiClientSecret = useSettingsStore((s) => s.cortiClientSecret);
   const cortiEnvironment = useSettingsStore((s) => s.cortiEnvironment);
   const cortiTenant = useSettingsStore((s) => s.cortiTenant);
   const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
@@ -359,76 +337,6 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const checkProviderReady = async () => {
-      if (!useLocalWhisper) {
-        if (isSelfHosted) {
-          if (!cancelled) setProviderReady(!!remoteTranscriptionUrl?.trim());
-        } else if (cloudTranscriptionProvider === "custom") {
-          const route = resolveTranscriptionRoute({
-            settings: { cloudTranscriptionProvider, cloudTranscriptionBaseUrl },
-            providers: getTranscriptionProviders(),
-          });
-          if (!cancelled) setProviderReady(route.transport !== "error");
-        } else if (cloudTranscriptionProvider === "corti") {
-          if (!cancelled) setProviderReady(!!(cortiClientId && cortiClientSecret));
-        } else {
-          if (!cancelled)
-            setProviderReady(
-              !!getTranscriptionApiKey(cloudTranscriptionProvider, {
-                openaiApiKey,
-                groqApiKey,
-                xaiApiKey,
-                mistralApiKey,
-                geminiApiKey,
-                tinfoilApiKey,
-                deepgramApiKey,
-                assemblyaiApiKey,
-                customTranscriptionApiKey,
-              })
-            );
-        }
-        return;
-      }
-      if (isSherpaLocalProvider(localTranscriptionProvider)) {
-        const r = await window.electronAPI.listParakeetModels?.();
-        if (!cancelled)
-          setProviderReady(
-            !!(r?.success && r.models.some((m: { downloaded?: boolean }) => m.downloaded))
-          );
-      } else {
-        const r = await window.electronAPI.listWhisperModels?.();
-        if (!cancelled)
-          setProviderReady(
-            !!(r?.success && r.models.some((m: { downloaded?: boolean }) => m.downloaded))
-          );
-      }
-    };
-    checkProviderReady();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    isSelfHosted,
-    remoteTranscriptionUrl,
-    useLocalWhisper,
-    localTranscriptionProvider,
-    cloudTranscriptionProvider,
-    cloudTranscriptionBaseUrl,
-    openaiApiKey,
-    groqApiKey,
-    xaiApiKey,
-    mistralApiKey,
-    geminiApiKey,
-    tinfoilApiKey,
-    deepgramApiKey,
-    assemblyaiApiKey,
-    customTranscriptionApiKey,
-    cortiClientId,
-    cortiClientSecret,
-  ]);
-
   const getActiveModelLabel = (): string => {
     if (useLocalWhisper) {
       if (localTranscriptionProvider === "nvidia")
@@ -443,7 +351,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     const name =
       cloudTranscriptionProvider === "custom"
         ? t("notes.upload.custom")
-        : cloudTranscriptionProvider.charAt(0).toUpperCase() + cloudTranscriptionProvider.slice(1);
+        : providerDisplayLabel(cloudTranscriptionProvider, t);
     const model = getBatchTranscriptionModel(cloudTranscriptionProvider) ?? cloudTranscriptionModel;
     return `${name} · ${model}`;
   };
@@ -481,8 +389,9 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   };
 
   const handleBrowse = async () => {
+    if (!canAdmitUpload()) return;
     const res = await window.electronAPI.selectAudioFile({ multiple: true });
-    if (res.canceled) return;
+    if (!mountedRef.current || res.canceled) return;
 
     const filePaths: string[] = res.filePaths || (res.filePath ? [res.filePath] : []);
     if (filePaths.length === 0) return;
@@ -492,6 +401,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
       const fp = filePaths[0];
       const name = fp.split(/[/\\]/).pop() || "audio";
       const sizeBytes = (await window.electronAPI.getFileSize?.(fp)) ?? 0;
+      if (!mountedRef.current) return;
       setFile({ name, path: fp, size: sizeBytes ? formatFileSize(sizeBytes) : "", sizeBytes });
       setState("selected");
       setError(null);
@@ -504,11 +414,29 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
       const sizeBytes = (await window.electronAPI.getFileSize?.(fp)) ?? 0;
       items.push({ name, path: fp, sizeBytes });
     }
+    if (!mountedRef.current) return;
+    // An active drain consumes additions immediately. A chooser's old ready
+    // render cannot authorize that admission after its asynchronous reads.
+    if (!canAdmitUpload()) {
+      pendingFilesRef.current = [...pendingFilesRef.current, ...items];
+      setPendingFiles(pendingFilesRef.current);
+      return;
+    }
     batch.addFiles(items);
+  };
+
+  const handleAddPendingFiles = () => {
+    if (!canAdmitUpload()) return;
+    const items = pendingFilesRef.current;
+    if (items.length === 0) return;
+    batch.addFiles(items);
+    pendingFilesRef.current = pendingFilesRef.current.filter((item) => !items.includes(item));
+    setPendingFiles(pendingFilesRef.current);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    if (!canAdmitUpload()) return;
     setIsDragOver(false);
     const files = e.dataTransfer.files;
     if (!files || files.length === 0) return;
@@ -584,7 +512,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     reset();
   };
   const handleTranscribe = async () => {
-    if (!file || batch.isProcessing) return;
+    if (!canAdmitUpload() || !file || batch.isProcessing) return;
 
     const currentFile = file;
     const currentTempPath = downloadedTempPath;
@@ -704,6 +632,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   };
 
   const handleUrlSubmit = async () => {
+    if (!canAdmitUpload()) return;
     const trimmed = urlInput.trim();
     if (!trimmed) return;
 
@@ -790,6 +719,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
 
   // Retry re-runs whatever failed: a selected file's transcription, or the URL download.
   const handleRetry = () => {
+    if (!canAdmitUpload()) return;
     if (file) {
       handleTranscribe();
     } else if (urlInput.trim()) {
@@ -804,6 +734,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   };
 
   const handleBatchUrlSubmit = () => {
+    if (!canAdmitUpload()) return;
     const { valid, skipped } = parseBatchUrls(urlInput);
     if (valid.length > 0) {
       batch.addUrls(valid);
@@ -819,6 +750,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   };
 
   const startBatchProcessing = async () => {
+    if (!canAdmitUpload()) return;
     if (state === "downloading" || state === "transcribing") return;
 
     setSkippedNotice(null);
@@ -830,7 +762,9 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
       generateTitle: async (text) => await generateTitle(text),
     };
 
-    batch.processQueue(transcribeOpts, await buildDiarizationSettings());
+    const diarization = await buildDiarizationSettings();
+    if (!canAdmitUpload()) return;
+    batch.processQueue(transcribeOpts, diarization);
   };
 
   const handleCreateFolder = async () => {
@@ -867,34 +801,47 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
         provider: t("settingsPage.transcription.modes.selfHosted"),
       });
     }
-    return t("notes.upload.transcribingProvider", { provider: cloudTranscriptionProvider });
+    return t("notes.upload.transcribingProvider", {
+      provider: providerDisplayLabel(cloudTranscriptionProvider, t),
+    });
   };
 
   return (
     <div className="flex flex-col items-center h-full overflow-y-auto">
-      <div
-        className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 shrink-0 my-auto")}
-        style={{ animation: "float-up 0.4s ease-out" }}
-      >
-        {state === "idle" && providerReady === false && (
-          <NoProviderView t={t} onOpenSettings={() => onOpenSettings?.("uploadTranscription")} />
+      <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 shrink-0 my-auto")}>
+        {!providerReady && (uploadRoute.state.status !== "needsModel" || state !== "idle") && (
+          <div className="mb-2 flex flex-wrap items-center justify-center gap-2">
+            <RouteStateChip state={uploadRoute.state} className="h-auto min-h-6" />
+            {uploadRoute.state.status !== "unknown" && (
+              <button
+                type="button"
+                onClick={() => onOpenSettings?.("uploadTranscription")}
+                disabled={!onOpenSettings}
+                className="rounded-sm text-xs text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("notes.upload.noProviderAction")}
+              </button>
+            )}
+          </div>
         )}
-
-        {state === "idle" && providerReady !== false && (
+        {state === "idle" && (
           <>
             <IdleView
+              disabled={!providerReady}
+              unavailableContent={uploadRoute.state.status === "needsModel" ? undefined : null}
+              onChooseModel={() => onOpenSettings?.("uploadTranscription")}
               t={t}
               getActiveModelLabel={getActiveModelLabel}
               handleDrop={handleDrop}
               handleBrowse={handleBrowse}
               isDragOver={isDragOver}
-              setIsDragOver={setIsDragOver}
+              setIsDragOver={(value) => setIsDragOver(value && canAdmitUpload())}
               onOpenSettings={onOpenSettings}
             />
 
             <div className="flex items-center gap-3 my-3">
               <div className="h-px flex-1 bg-foreground/5 dark:bg-white/5" />
-              <span className="text-[10px] text-foreground/45 uppercase tracking-wider">
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">
                 {t("notes.upload.orDivider")}
               </span>
               <div className="h-px flex-1 bg-foreground/5 dark:bg-white/5" />
@@ -904,8 +851,11 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               <div>
                 <textarea
                   dir="ltr"
+                  disabled={!providerReady}
                   value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
+                  onChange={(e) => {
+                    if (canAdmitUpload()) setUrlInput(e.target.value);
+                  }}
                   placeholder={t("notes.upload.pasteUrls")}
                   rows={4}
                   className={cn(uploadFieldClass, "w-full px-3 py-2 resize-none")}
@@ -915,11 +865,13 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                   <Button
                     variant="ghost"
                     size="sm"
+                    disabled={!providerReady}
                     onClick={() => {
+                      if (!canAdmitUpload()) return;
                       setUrlExpanded(false);
                       setUrlInput("");
                     }}
-                    className="h-7 text-xs text-foreground/45"
+                    className="h-7 text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-100"
                   >
                     {t("notes.upload.cancel")}
                   </Button>
@@ -927,8 +879,8 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                     variant="default"
                     size="sm"
                     onClick={handleBatchUrlSubmit}
-                    disabled={!urlInput.trim()}
-                    className="h-7 text-xs"
+                    disabled={!providerReady || !urlInput.trim()}
+                    className="h-7 text-xs focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-100"
                   >
                     {t("notes.upload.addToQueue")}
                   </Button>
@@ -939,7 +891,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                 {isYouTubeUrl(urlInput) ? (
                   <svg
                     viewBox="0 0 28 20"
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-[18px] h-[13px] z-10 pointer-events-none"
+                    className="absolute start-2.5 top-1/2 -translate-y-1/2 w-[18px] h-[13px] z-10 pointer-events-none"
                   >
                     <rect width="28" height="20" rx="4" fill="#FF0000" />
                     <polygon points="11,4 11,16 21,10" fill="white" />
@@ -947,19 +899,22 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                 ) : uploadFileUrlPattern.test(urlInput) ? (
                   <FileAudio
                     size={13}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-foreground/45 z-10 pointer-events-none"
+                    className="absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10 pointer-events-none"
                   />
                 ) : (
                   <Link2
                     size={13}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-foreground/45 z-10 pointer-events-none"
+                    className="absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10 pointer-events-none"
                   />
                 )}
                 <input
                   dir="ltr"
                   type="url"
+                  disabled={!providerReady}
                   value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
+                  onChange={(e) => {
+                    if (canAdmitUpload()) setUrlInput(e.target.value);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -967,9 +922,13 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                     }
                   }}
                   onFocus={() => {
-                    if (urlInput.includes("\n")) setUrlExpanded(true);
+                    if (canAdmitUpload() && urlInput.includes("\n")) setUrlExpanded(true);
                   }}
                   onPaste={(e) => {
+                    if (!canAdmitUpload()) {
+                      e.preventDefault();
+                      return;
+                    }
                     const pasted = e.clipboardData.getData("text");
                     if (pasted.includes("\n")) {
                       e.preventDefault();
@@ -978,18 +937,18 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                     }
                   }}
                   placeholder={t("notes.upload.urlPlaceholder")}
-                  className={cn(uploadFieldClass, "w-full h-8 pl-8 pr-9")}
+                  className={cn(uploadFieldClass, "w-full h-8 ps-8 pe-9")}
                 />
                 <button
                   onClick={handleUrlSubmit}
-                  disabled={!urlInput.trim()}
+                  disabled={!providerReady || !urlInput.trim()}
                   aria-label={t("notes.upload.urlSubmit")}
                   className={cn(
-                    "absolute right-px top-px bottom-px w-7 rounded-r-[7px] flex items-center justify-center transition-colors",
-                    "border-l border-foreground/6 dark:border-white/10",
-                    urlInput.trim()
-                      ? "text-foreground/45 hover:text-foreground/60 hover:bg-foreground/[0.03] dark:hover:bg-white/[0.03]"
-                      : "text-foreground/45"
+                    "absolute end-px top-px bottom-px w-7 rounded-e-[7px] flex items-center justify-center transition-colors",
+                    "border-s border-foreground/6 dark:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed",
+                    providerReady && urlInput.trim()
+                      ? "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.03] dark:hover:bg-white/[0.03]"
+                      : "text-muted-foreground"
                   )}
                 >
                   <ChevronRight size={14} />
@@ -1000,7 +959,30 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
         )}
 
         {skippedNotice && (
-          <p className="text-[10px] text-amber-500/60 mt-2 text-center">{skippedNotice}</p>
+          <p className="text-caption text-foreground mt-2 text-center">{skippedNotice}</p>
+        )}
+
+        {pendingFiles.length > 0 && (
+          <div className="mt-3 rounded-lg border border-border bg-background p-3">
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {pendingFiles.map((item, index) => (
+                <li key={index} dir="auto" className="break-words [overflow-wrap:anywhere]">
+                  {item.name}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 flex justify-end">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleAddPendingFiles}
+                disabled={!providerReady}
+                className="h-8 text-xs focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-100"
+              >
+                {t("notes.upload.addToQueue")}
+              </Button>
+            </div>
+          </div>
         )}
 
         {batch.hasQueue && (
@@ -1038,8 +1020,8 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                     variant="default"
                     size="sm"
                     onClick={startBatchProcessing}
-                    disabled={state === "downloading" || state === "transcribing"}
-                    className="h-8 text-xs px-5"
+                    disabled={!providerReady || state === "downloading" || state === "transcribing"}
+                    className="h-8 text-xs px-5 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-100"
                   >
                     {t("notes.upload.transcribe")}
                   </Button>
@@ -1056,7 +1038,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
             getActiveModelLabel={getActiveModelLabel}
             reset={reset}
             handleTranscribe={handleTranscribe}
-            transcribeDisabled={batch.isProcessing}
+            transcribeDisabled={!providerReady || batch.isProcessing}
 
             fileTooLarge={fileTooLarge}
 
@@ -1076,7 +1058,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               {[0, 1, 2, 3, 4, 5, 6].map((i) => (
                 <div
                   key={i}
-                  className="w-[3px] rounded-full bg-primary/40 dark:bg-primary/50 origin-bottom"
+                  className="w-[3px] rounded-full bg-muted-foreground origin-bottom"
                   style={{
                     height: "100%",
                     animation: `waveform-bar ${0.8 + i * 0.12}s ease-in-out infinite`,
@@ -1089,7 +1071,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
             <div className="w-full max-w-[200px] h-[3px] rounded-full bg-foreground/5 dark:bg-white/5 overflow-hidden mb-3">
               <div
                 className={cn(
-                  "h-full rounded-full bg-primary/50 transition-[width] duration-500 ease-out",
+                  "h-full rounded-full bg-muted-foreground transition-[width] duration-500 ease-out",
                   // Percent 0 = size unknown (no content-length): pulse instead
                   // of sitting on an empty bar.
                   (downloadProgress.stage !== "downloading" || !downloadProgress.percent) &&
@@ -1104,14 +1086,14 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               />
             </div>
 
-            <p className="text-xs text-foreground/50 font-medium">
+            <p className="text-caption text-muted-foreground font-medium">
               {downloadProgress.stage === "resolving"
                 ? t("notes.upload.urlResolving")
                 : t("notes.upload.urlDownloading")}
             </p>
 
             {downloadProgress.title && (
-              <p dir="auto" className="text-xs text-foreground/45 mt-1 truncate max-w-50">
+              <p dir="auto" className="text-caption text-muted-foreground mt-1 truncate max-w-50">
                 {downloadProgress.title}
               </p>
             )}
@@ -1120,7 +1102,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               variant="ghost"
               size="sm"
               onClick={handleCancelDownload}
-              className="mt-3 h-7 text-xs text-foreground/45"
+              className="mt-3 h-7 text-caption text-muted-foreground"
             >
               {t("notes.upload.urlCancelDownload")}
             </Button>
@@ -1154,17 +1136,23 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
         )}
 
         {state === "error" && error && (
-          <ErrorView t={t} error={error} reset={reset} onRetry={handleRetry} />
+          <ErrorView
+            t={t}
+            error={error}
+            reset={reset}
+            onRetry={handleRetry}
+            retryDisabled={!providerReady}
+          />
         )}
 
-        {(state === "idle" || state === "selected") && (
+        {(state === "idle" || state === "selected") && providerReady && (
           <div className="mt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-foreground/45 font-medium">
+                <p className="text-xs text-muted-foreground font-medium">
                   {t("notes.upload.speakerDetection")}
                 </p>
-                <p className="text-[10px] text-foreground/45 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   {t("notes.upload.speakerDetectionDescription")}
                 </p>
               </div>
@@ -1173,7 +1161,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                 aria-checked={diarizationEnabled}
                 aria-label={t("notes.upload.speakerDetection")}
                 onClick={async () => {
-                  if (diarizationDownloading) return;
+                  if (!canAdmitUpload() || diarizationDownloading) return;
                   const next = !diarizationEnabled;
                   setDiarizationEnabled(next);
                   // BYOK-native diarization needs no local models — don't download them.
@@ -1187,18 +1175,19 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                   }
                 }}
                 className={cn(
-                  "relative w-7 h-4 rounded-full transition-colors shrink-0",
+                  "relative w-7 h-4 rounded-full border border-muted-foreground transition-colors duration-(--motion-fast) shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   diarizationDownloading
-                    ? "bg-primary/50 animate-pulse"
+                    ? "bg-muted-foreground"
                     : diarizationEnabled
-                      ? "bg-primary"
+                      ? "bg-foreground"
                       : "bg-muted"
                 )}
                 disabled={diarizationDownloading}
               >
                 <div
                   className={cn(
-                    "absolute top-0.5 start-0.5 w-3 h-3 rounded-full bg-white transition-transform",
+                    "absolute top-px start-px w-3 h-3 rounded-full transition-transform duration-(--motion-fast)",
+                    diarizationEnabled ? "bg-background" : "bg-muted-foreground",
                     diarizationEnabled ? "translate-x-3 rtl:-translate-x-3" : ""
                   )}
                 />
@@ -1209,7 +1198,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               !useLocalWhisper &&
               !isSelfHosted &&
               cloudTranscriptionProvider === "openai" && (
-                <p className="text-[10px] text-foreground/45 mt-1.5">
+                <p className="text-xs text-muted-foreground mt-1.5">
                   {t("notes.upload.openaiDiarizeNote")}
                 </p>
               )}
@@ -1217,7 +1206,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               !useLocalWhisper &&
               !isSelfHosted &&
               cloudTranscriptionProvider === "mistral" && (
-                <p className="text-[10px] text-foreground/45 mt-1.5">
+                <p className="text-xs text-muted-foreground mt-1.5">
                   {t("notes.upload.mistralDiarizeNote")}
                 </p>
               )}
@@ -1225,13 +1214,13 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               !useLocalWhisper &&
               !isSelfHosted &&
               cloudTranscriptionProvider === "groq" && (
-                <p className="text-[10px] text-amber-500/60 mt-1.5">
+                <p className="text-xs text-muted-foreground mt-1.5">
                   {t("notes.upload.groqDiarizeNote")}
                 </p>
               )}
 
             {diarizationDownloading && (
-              <p className="text-[10px] text-primary/50 mt-1.5">
+              <p className="text-xs text-muted-foreground mt-1.5">
                 {t("notes.upload.downloadingModels")}
               </p>
             )}
@@ -1240,7 +1229,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               <div className="mt-2">
                 <label
                   htmlFor="upload-num-speakers"
-                  className="block text-xs font-medium text-foreground/50"
+                  className="block text-xs font-medium text-muted-foreground"
                 >
                   {t("notes.upload.numSpeakersLabel")}
                 </label>
@@ -1251,6 +1240,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                   max={MAX_SPEAKER_COUNT}
                   value={diarizationNumSpeakers}
                   onChange={(e) => {
+                    if (!canAdmitUpload()) return;
                     const raw = e.target.value;
                     if (raw === "") {
                       setDiarizationNumSpeakers("");
@@ -1265,7 +1255,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                     "mt-1 w-full h-8 px-2.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   )}
                 />
-                <p className="text-[10px] text-foreground/45 mt-1.5">
+                <p className="text-xs text-muted-foreground mt-1.5">
                   {t("notes.upload.numSpeakersHint")}
                 </p>
               </div>
@@ -1280,7 +1270,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
             <DialogTitle>{t("notes.upload.newFolder")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground/50">
+            <label className="text-caption font-medium text-muted-foreground">
               {t("notes.upload.folderName")}
             </label>
             <Input
@@ -1314,40 +1304,10 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   );
 }
 
-interface NoProviderViewProps {
-  t: (key: string, options?: Record<string, unknown>) => string;
-  onOpenSettings: () => void;
-}
-
-function NoProviderView({ t, onOpenSettings }: NoProviderViewProps) {
-  return (
-    <div
-      className="flex flex-col items-center gap-4 py-2"
-      style={{ animation: "float-up 0.4s ease-out" }}
-    >
-      <div className="w-10 h-10 rounded-[10px] bg-linear-to-b from-foreground/5 to-foreground/2 dark:from-white/8 dark:to-white/3 border border-foreground/8 dark:border-white/10 flex items-center justify-center">
-        <Settings
-          size={17}
-          strokeWidth={1.5}
-          className="text-foreground/45 dark:text-foreground/45"
-        />
-      </div>
-      <div className="text-center">
-        <h2 className="text-xs font-semibold text-foreground mb-1">
-          {t("notes.upload.noProviderTitle")}
-        </h2>
-        <p className="text-xs text-foreground/45 leading-relaxed max-w-60">
-          {t("notes.upload.noProviderDescription")}
-        </p>
-      </div>
-      <Button variant="default" size="sm" className="h-7 text-xs px-4" onClick={onOpenSettings}>
-        {t("notes.upload.noProviderAction")}
-      </Button>
-    </div>
-  );
-}
-
 interface IdleViewProps {
+  disabled: boolean;
+  unavailableContent?: React.ReactNode;
+  onChooseModel: () => void;
   t: (key: string, options?: Record<string, unknown>) => string;
   getActiveModelLabel: () => string;
   handleDrop: (e: React.DragEvent) => void;
@@ -1358,6 +1318,9 @@ interface IdleViewProps {
 }
 
 function IdleView({
+  disabled,
+  unavailableContent,
+  onChooseModel,
   t,
   getActiveModelLabel,
   handleDrop,
@@ -1380,7 +1343,7 @@ function IdleView({
           <Upload
             size={17}
             strokeWidth={1.5}
-            className="text-foreground/45 dark:text-foreground/45"
+            className="text-muted-foreground dark:text-muted-foreground"
           />
         </div>
         <h2 className="text-xs font-semibold text-foreground mb-1">{t("notes.upload.title")}</h2>
@@ -1388,14 +1351,15 @@ function IdleView({
           label={t("notes.upload.using", { model: getActiveModelLabel() })}
           actionLabel={t("notes.upload.noProviderAction")}
           onOpenSettings={onOpenSettings}
-          className="text-xs text-foreground/70"
+          className="text-xs text-muted-foreground"
         />
       </div>
 
-      <div
-        role="button"
-        tabIndex={0}
-        aria-label={t("notes.upload.dropOrBrowse")}
+      <UploadDropZone
+        disabled={disabled}
+        unavailableContent={unavailableContent}
+        onChooseModel={onChooseModel}
+        isDragOver={isDragOver}
         onDrop={handleDrop}
         onDragOver={(e) => {
           e.preventDefault();
@@ -1405,47 +1369,33 @@ function IdleView({
           e.preventDefault();
           setIsDragOver(false);
         }}
-        onClick={handleBrowse}
+        onBrowse={handleBrowse}
         onKeyDown={handleKeyDown}
-        className={cn(
-          "relative rounded-lg p-8 text-center cursor-pointer transition-[background-color,border-color,transform] duration-300 group",
-          "bg-surface-1/40 dark:bg-white/[0.03] backdrop-blur-sm",
-          "border border-foreground/6 dark:border-white/10",
-          "hover:bg-surface-1/60 dark:hover:bg-white/[0.05] hover:border-foreground/12 dark:hover:border-white/10",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/30",
-          isDragOver && "border-primary/30 bg-primary/[0.04] dark:bg-primary/[0.06] scale-[1.01]"
-        )}
-        style={isDragOver ? { animation: "drag-pulse 1.5s ease-in-out infinite" } : undefined}
       >
-        <div className="absolute inset-0 rounded-lg overflow-hidden pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-          <div
-            className="absolute inset-0 bg-gradient-to-r from-transparent via-foreground/[0.02] dark:via-white/[0.03] to-transparent"
-            style={{ animation: "shimmer-slide 3s ease-in-out infinite" }}
-          />
-        </div>
-
-        {!isDragOver ? (
+        {disabled || !isDragOver ? (
           <div className="flex flex-col items-center gap-2 relative">
             <div className="w-8 h-8 rounded-full bg-foreground/[0.03] dark:bg-white/[0.04] flex items-center justify-center mb-1">
               <Upload
                 size={14}
-                className="text-foreground/45 dark:text-foreground/45 transition-colors"
+                className="text-muted-foreground dark:text-muted-foreground transition-colors"
               />
             </div>
-            <p className="text-xs text-foreground/45 group-hover:text-foreground/50 transition-colors">
+            <p className="text-xs text-muted-foreground transition-colors">
               {t("notes.upload.dropOrBrowse")}
             </p>
-            <p className="text-xs text-foreground/45 tracking-wide">
+            <p className="text-xs text-muted-foreground tracking-wide">
               {t("notes.upload.supportedFormats")}
             </p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 relative">
-            <Upload size={18} className="text-primary/60" />
-            <p className="text-xs text-primary/60 font-medium">{t("notes.upload.dropToUpload")}</p>
+            <Upload size={18} className="text-muted-foreground" />
+            <p className="text-xs text-muted-foreground font-medium">
+              {t("notes.upload.dropToUpload")}
+            </p>
           </div>
         )}
-      </div>
+      </UploadDropZone>
     </>
   );
 }
@@ -1481,25 +1431,30 @@ function SelectedView({
   const canTranscribe = !fileTooLarge && !byokTooLarge;
 
   return (
-    <div style={{ animation: "float-up 0.3s ease-out" }}>
+    <div>
       <div className="rounded-lg border border-foreground/8 dark:border-white/10 bg-surface-1/40 dark:bg-white/[0.03] backdrop-blur-sm p-4 mb-3">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-[8px] bg-primary/8 dark:bg-primary/12 border border-primary/10 dark:border-primary/15 flex items-center justify-center shrink-0">
-            <FileAudio size={15} className="text-primary/60" />
+          <div className="w-9 h-9 rounded-[8px] bg-foreground/5 dark:bg-foreground/5 border border-border dark:border-border flex items-center justify-center shrink-0">
+            <FileAudio size={15} className="text-link" />
           </div>
           <div className="min-w-0 flex-1">
-            <p dir="ltr" className="text-xs text-foreground/70 truncate font-medium">
+            <p dir="ltr" className="text-xs text-foreground truncate font-medium">
               {file.name}
             </p>
-            {file.size && <p className="text-xs text-foreground/45 mt-0.5">{file.size}</p>}
+            {file.size && <p className="text-xs text-muted-foreground mt-0.5">{file.size}</p>}
             <UploadModelSettingsButton
               label={getActiveModelLabel()}
               actionLabel={t("notes.upload.noProviderAction")}
               onOpenSettings={onOpenSettings}
-              className="block max-w-full truncate text-start text-xs text-foreground/70 mt-0.5"
+              className="block max-w-full truncate text-start text-xs text-foreground mt-0.5"
             />
           </div>
-          <button onClick={reset} className="text-foreground/45 transition-colors p-1 rounded">
+          <button
+            type="button"
+            aria-label={t("notes.upload.cancel")}
+            onClick={reset}
+            className="text-muted-foreground transition-colors p-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             <X size={12} />
           </button>
         </div>
@@ -1516,14 +1471,14 @@ function SelectedView({
 
       {/* BYOK file too large — shared explanation */}
       {byokTooLarge && (
-        <div className="rounded-lg border border-primary/12 dark:border-primary/15 bg-primary/[0.03] px-3 py-2.5 mb-3">
-          <p className="text-xs text-foreground/50 leading-relaxed">
+        <div className="rounded-lg border border-border dark:border-border bg-foreground/5 px-3 py-2.5 mb-3">
+          <p className="text-xs text-muted-foreground leading-relaxed">
             {t("notes.upload.byokTooLarge", { size: byokMaxFileSizeMb })}
           </p>
-          <p className="text-xs text-foreground/45 leading-relaxed mt-1.5">
+          <p className="text-xs text-muted-foreground leading-relaxed mt-1.5">
             {t("notes.upload.byokTooLargeDetail", { size: byokMaxFileSizeMb })}
           </p>
-          <p className="text-xs text-foreground/50 leading-relaxed mt-1.5 font-medium">
+          <p className="text-xs text-muted-foreground leading-relaxed mt-1.5 font-medium">
             {t("personal.providerFileTooLarge")}
           </p>
         </div>
@@ -1549,7 +1504,7 @@ function SelectedView({
             size="sm"
             onClick={handleTranscribe}
             disabled={transcribeDisabled}
-            className="h-8 text-xs px-5"
+            className="h-8 text-xs px-5 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-100"
           >
             {t("notes.upload.transcribe")}
           </Button>
@@ -1560,7 +1515,7 @@ function SelectedView({
           variant="ghost"
           size="sm"
           onClick={reset}
-          className="h-8 text-xs text-foreground/45"
+          className="h-8 text-xs text-muted-foreground"
         >
           {t("notes.upload.cancel")}
         </Button>
@@ -1594,7 +1549,7 @@ function TranscribingView({
         {[0, 1, 2, 3, 4, 5, 6].map((i) => (
           <div
             key={i}
-            className="w-[3px] rounded-full bg-primary/40 dark:bg-primary/50 origin-bottom"
+            className="w-[3px] rounded-full bg-muted-foreground origin-bottom"
             style={{
               height: "100%",
               animation: `waveform-bar ${0.8 + i * 0.12}s ease-in-out infinite`,
@@ -1606,14 +1561,14 @@ function TranscribingView({
 
       <div className="w-full max-w-[200px] h-[3px] rounded-full bg-foreground/5 dark:bg-white/5 overflow-hidden mb-3">
         <div
-          className="h-full rounded-full bg-primary/50 transition-[width] duration-500 ease-out"
+          className="h-full rounded-full bg-muted-foreground transition-[width] duration-500 ease-out"
           style={{ width: `${Math.min(progress, 100)}%` }}
         />
       </div>
 
-      <p className="text-xs text-foreground/50 font-medium">{getTranscribingLabel()}</p>
+      <p className="text-caption text-muted-foreground font-medium">{getTranscribingLabel()}</p>
       {hasChunkInfo ? (
-        <p className="text-xs text-foreground/45 mt-1">
+        <p className="text-caption text-muted-foreground mt-1">
           {t("notes.upload.chunkProgress", {
             completed: chunkProgress.chunksCompleted,
             total: chunkProgress.chunksTotal,
@@ -1621,7 +1576,7 @@ function TranscribingView({
         </p>
       ) : null}
       {!hasChunkInfo && file ? (
-        <p dir="ltr" className="text-xs text-foreground/45 mt-1 truncate max-w-50">
+        <p dir="ltr" className="text-caption text-muted-foreground mt-1 truncate max-w-50">
           {file.name}
         </p>
       ) : null}
@@ -1629,7 +1584,7 @@ function TranscribingView({
         variant="ghost"
         size="sm"
         onClick={onCancel}
-        className="h-7 text-xs text-foreground/45 mt-4"
+        className="h-7 text-caption text-muted-foreground mt-4"
       >
         {t("notes.upload.cancelTranscription")}
       </Button>
@@ -1656,9 +1611,9 @@ function FolderSelect({
 }: FolderSelectProps) {
   return (
     <div className={cn("flex items-center justify-center gap-2", className)}>
-      <FolderOpen size={12} className="text-foreground/45 shrink-0" />
+      <FolderOpen size={12} className="text-muted-foreground shrink-0" />
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-7 w-44 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
+        <SelectTrigger className="focus-visible:ring-2 focus-visible:ring-ring focus:ring-2 focus:ring-ring dark:focus:ring-ring h-7 w-44 text-caption rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
           <SelectValue placeholder={t("notes.upload.selectFolder")} />
         </SelectTrigger>
         <SelectContent>
@@ -1674,7 +1629,7 @@ function FolderSelect({
                 <span className="flex items-center gap-1.5">
                   <span dir="auto">{f.name}</span>
                   {isMeetings && (
-                    <span className="text-[8px] uppercase tracking-wider text-foreground/45 font-medium">
+                    <span className="text-caption uppercase tracking-wider text-muted-foreground font-medium">
                       {t("notes.folders.soon")}
                     </span>
                   )}
@@ -1686,7 +1641,7 @@ function FolderSelect({
             <>
               <SelectSeparator />
               <SelectItem value="__create_new__" className="text-xs py-1.5 ps-2.5 pe-7 rounded-md">
-                <span className="flex items-center gap-1.5 text-primary/60">
+                <span className="flex items-center gap-1.5 text-link">
                   <Plus size={11} />
                   {t("notes.upload.newFolder")}
                 </span>
@@ -1764,10 +1719,10 @@ function CompleteView({
         </div>
       </div>
 
-      <p className="text-xs text-foreground/60 font-medium mb-1">
+      <p className="text-caption text-muted-foreground font-medium mb-1">
         {t("notes.upload.transcriptionComplete")}
       </p>
-      <p className="text-xs text-foreground/45 max-w-[240px] text-center line-clamp-2 mb-4">
+      <p className="text-caption text-muted-foreground max-w-[240px] text-center line-clamp-2 mb-4">
         {result.slice(0, 150)}
       </p>
 
@@ -1805,7 +1760,7 @@ function CompleteView({
           variant="ghost"
           size="sm"
           onClick={reset}
-          className="h-8 text-xs text-foreground/45"
+          className="h-8 text-caption text-muted-foreground"
         >
           {t("notes.upload.uploadAnother")}
         </Button>
@@ -1819,18 +1774,21 @@ interface ErrorViewProps {
   error: string;
   reset: () => void;
   onRetry: () => void;
+  retryDisabled: boolean;
 }
 
-function ErrorView({ t, error, reset, onRetry }: ErrorViewProps) {
+function ErrorView({ t, error, reset, onRetry, retryDisabled }: ErrorViewProps) {
   return (
-    <div style={{ animation: "float-up 0.3s ease-out" }}>
+    <div>
       <div className="rounded-lg border border-destructive/15 dark:border-destructive/20 bg-destructive/[0.03] dark:bg-destructive/[0.05] backdrop-blur-sm p-4 mb-4">
         <div className="flex items-start gap-2.5">
           <AlertCircle size={14} className="text-destructive/50 shrink-0 mt-0.5" />
-          <p className="flex-1 text-xs text-destructive/70 leading-relaxed">{error}</p>
+          <p className="flex-1 text-xs text-destructive leading-relaxed">{error}</p>
           <button
+            type="button"
+            aria-label={t("notes.upload.cancel")}
             onClick={reset}
-            className="text-foreground/45 transition-colors shrink-0 p-0.5 rounded"
+            className="text-muted-foreground transition-colors shrink-0 p-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X size={11} />
           </button>
@@ -1842,7 +1800,8 @@ function ErrorView({ t, error, reset, onRetry }: ErrorViewProps) {
           variant="ghost"
           size="sm"
           onClick={onRetry}
-          className="h-7 text-xs text-foreground/45"
+          disabled={retryDisabled}
+          className="h-7 text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-100"
         >
           {t("notes.upload.retry")}
         </Button>
@@ -1850,7 +1809,7 @@ function ErrorView({ t, error, reset, onRetry }: ErrorViewProps) {
           variant="ghost"
           size="sm"
           onClick={reset}
-          className="h-7 text-xs text-foreground/45"
+          className="h-7 text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-100"
         >
           {t("notes.upload.startOver")}
         </Button>

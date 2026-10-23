@@ -203,3 +203,12 @@ test("the notification Join action does not open non-web calendar links", async 
 
   assert.deepEqual(opened, ["https://meet.google.com/abc-defg-hij"]);
 });
+
+test("audio prompt names the detected meeting process, with explicit event app taking priority", () => {
+  const { engine, processDetector, shown } = createEngine();
+  processDetector.getDetectedProcesses = () => [{ processKey: "zoom", appName: "Zoom" }];
+  engine._showPrompt("audio:A", "audio", "A", {});
+  assert.equal(shown.at(-1).appName, "Zoom");
+  engine._showPrompt("audio:B", "audio", "B", { appName: "Webex" });
+  assert.equal(shown.at(-1).appName, "Webex");
+});

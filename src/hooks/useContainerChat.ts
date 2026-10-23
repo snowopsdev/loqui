@@ -1,3 +1,5 @@
+import type { ChatMessageSendOptions } from "../components/chat/useChatMessageSender";
+import type { ChatSelection } from "../components/chat/useChatPersistence";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useChatPersistence } from "../components/chat/useChatPersistence";
 import { useChatStreaming } from "../components/chat/useChatStreaming";
@@ -14,6 +16,14 @@ interface UseContainerChatOptions {
   space: SpaceItem;
   folder: FolderItem | null;
   notes: NoteItem[];
+  contextOverride?: string | null;
+  /** Opt-in hosts already mount an empty, idle conversation. */
+  initializeIdleConversation?: boolean;
+  /** Optional host-owned list publication; admission/history remain in this hook. */
+  conversationList?: {
+    read: () => ContainerConversationItem[];
+    set: (items: ContainerConversationItem[]) => void;
+  };
 }
 
 export interface ContainerConversationItem {
@@ -27,7 +37,9 @@ export interface ContainerConversationItem {
 interface UseContainerChatReturn {
   messages: Message[];
   agentState: AgentState;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, options?: ChatMessageSendOptions) => Promise<boolean>;
+  conversationGeneration: number;
+  canSend: boolean;
   cancelStream: () => void;
   conversations: ContainerConversationItem[];
   activeConversationId: number | null;
@@ -44,14 +56,16 @@ export function useContainerChat({
   space,
   folder,
   notes,
+  contextOverride = null,
+  conversationList,
+  initializeIdleConversation,
 }: UseContainerChatOptions): UseContainerChatReturn {
-  const [conversationId, setConversationId] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
   const [conversations, setConversations] = useState<ContainerConversationItem[]>([]);
   const folderId = folder?.id ?? null;
 
-  const persistence = useChatPersistence({
-    onConversationCreated: (id) => setConversationId(id),
-  });
+  const persistence = useChatPersistence();
+  const conversationId = persistence.conversationId;
 
   const containerContext = useMemo(() => {
     const header = folder
@@ -70,13 +84,12 @@ export function useContainerChat({
   );
 
   const streaming = useChatStreaming({
+    initializeIdleConversation,
+    conversationId: persistence.conversationId,
     messages: persistence.messages,
     setMessages: persistence.setMessages,
-    noteContext: containerContext,
+    noteContext: contextOverride ?? containerContext,
     searchScope,
-    onStreamComplete: (_id, content, toolCalls) => {
-      persistence.saveAssistantMessage(content, toolCalls);
-    },
   });
 
   const fetchConversations = useCallback(
@@ -87,9 +100,9 @@ export function useContainerChat({
       } catch {
         list = [];
       }
-      if (!isStale?.()) setConversations(list);
+      if (!isStale?.()) (conversationList?.set ?? setConversations)(list);
     },
-    [space.id, folderId]
+    [space.id, folderId, conversationList]
   );
 
   useEffect(() => {
@@ -103,23 +116,26 @@ export function useContainerChat({
   const switchConversation = useCallback(
     async (id: number) => {
       await persistence.loadConversation(id);
-      setConversationId(id);
     },
     [persistence]
   );
 
   const startNewChat = useCallback(() => {
     persistence.handleNewChat();
-    setConversationId(null);
   }, [persistence]);
 
   const createConversation = useCallback(
-    async (text: string) => {
+    async (text: string, selection?: ChatSelection) => {
       const title = deriveConversationTitle(text, folder?.name ?? space.name);
-      const id = await persistence.createConversation(title, null, {
-        spaceId: space.id,
-        folderId,
-      });
+      const id = await persistence.createConversation(
+        title,
+        null,
+        {
+          spaceId: space.id,
+          folderId,
+        },
+        selection
+      );
       void fetchConversations();
       return id;
     },
@@ -130,11 +146,11 @@ export function useContainerChat({
     persistence,
     streaming,
     createConversation,
+    onSendingChange: setSending,
   });
   const sendMessage = useCallback(
-    async (text: string): Promise<void> => {
-      await sendMessageWithResult(text);
-    },
+    (text: string, options?: ChatMessageSendOptions): Promise<boolean> =>
+      sendMessageWithResult(text, options),
     [sendMessageWithResult]
   );
 
@@ -143,8 +159,10 @@ export function useContainerChat({
     agentState: streaming.agentState,
     sendMessage,
     cancelStream: streaming.cancelStream,
-    conversations,
+    conversations: conversationList ? conversationList.read() : conversations,
     activeConversationId: conversationId,
+    conversationGeneration: persistence.conversationGeneration,
+    canSend: !sending && streaming.agentState === "idle",
     switchConversation,
     startNewChat,
   };

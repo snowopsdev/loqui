@@ -1,8 +1,12 @@
-import { useCallback } from "react";
+import { useRouteDraftStore } from "../../stores/routeDraftStore";
+import { StagedRoutePanel } from "./routing/StagedRoutePanel";
+import { stagedTargetForMode } from "./routing/stagedTarget";
+import { useRouteChange, useRouteCommit } from "./routing/useRouteChange";
 import { useTranslation } from "react-i18next";
 import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useResolvedRoute } from "../../lib/routes";
 import type { InferenceMode } from "../../types/electron";
 import { Cpu, Key, Network } from "../icons";
 import SelfHostedPanel from "../SelfHostedPanel";
@@ -11,31 +15,20 @@ import { InferenceModeSelector } from "../ui/SettingsSection";
 
 export function UploadTranscriptionPanel() {
   const { t } = useTranslation();
+  const route = useResolvedRoute("uploadStt");
   const startOnboarding = useStartOnboarding();
 
   const {
     uploadTranscriptionMode,
-    setUploadTranscriptionMode,
-    setUploadUseLocalWhisper,
     uploadWhisperModel,
-    setUploadWhisperModel,
     uploadLocalTranscriptionProvider,
-    setUploadLocalTranscriptionProvider,
     uploadParakeetModel,
-    setUploadParakeetModel,
     uploadCohereModel,
-    setUploadCohereModel,
     uploadCloudTranscriptionProvider,
-    setUploadCloudTranscriptionProvider,
     uploadCloudTranscriptionModel,
-    setUploadCloudTranscriptionModel,
     uploadCloudTranscriptionBaseUrl,
-    setUploadCloudTranscriptionBaseUrl,
-    setUploadCloudTranscriptionMode,
     remoteTranscriptionUrl,
-    setRemoteTranscriptionUrl,
     remoteTranscriptionModel,
-    setRemoteTranscriptionModel,
   } = useSettingsStore();
   const {
     modes: transcriptionModes,
@@ -65,41 +58,28 @@ export function UploadTranscriptionPanel() {
     ],
     uploadTranscriptionMode
   );
+  const { request, requestPatch } = useRouteChange();
+  const stagedMode = useRouteDraftStore((s) =>
+    s.draft?.routeId === "uploadStt" && s.draft.kind === "target" ? s.draft.target.mode : null
+  );
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
-
-    if (mode === effectiveTranscriptionMode) return;
-    setUploadTranscriptionMode(mode);
-    setUploadUseLocalWhisper(mode === "local");
-    setUploadCloudTranscriptionMode("byok");
+    if (mode === effectiveTranscriptionMode) {
+      void requestPatch("uploadStt", {});
+      return;
+    }
+    // Self-hosted upload reads dictation's server; the planner never writes it from here.
+    void request("uploadStt", stagedTargetForMode(mode, "uploadStt", useSettingsStore.getState()));
   };
 
-  const handleLocalTranscriptionModelSelect = useCallback(
-    (modelId: string, providerId?: string) => {
-      const provider = providerId ?? uploadLocalTranscriptionProvider;
-      if (provider === "nvidia") {
-        setUploadParakeetModel(modelId);
-      } else if (provider === "cohere") {
-        setUploadCohereModel(modelId);
-      } else {
-        setUploadWhisperModel(modelId);
-      }
-    },
-    [
-      uploadLocalTranscriptionProvider,
-      setUploadParakeetModel,
-      setUploadCohereModel,
-      setUploadWhisperModel,
-    ]
-  );
+  const commituploadStt = useRouteCommit("uploadStt");
 
   const renderTranscriptionPicker = (mode: "cloud" | "local") => (
     <TranscriptionModelPicker
+      onCommit={commituploadStt}
       transcriptionContext="upload"
       selectedCloudProvider={uploadCloudTranscriptionProvider}
-      onCloudProviderSelect={setUploadCloudTranscriptionProvider}
       selectedCloudModel={uploadCloudTranscriptionModel}
-      onCloudModelSelect={setUploadCloudTranscriptionModel}
       selectedLocalModel={
         uploadLocalTranscriptionProvider === "nvidia"
           ? uploadParakeetModel
@@ -107,14 +87,10 @@ export function UploadTranscriptionPanel() {
             ? uploadCohereModel
             : uploadWhisperModel
       }
-      onLocalModelSelect={handleLocalTranscriptionModelSelect}
       selectedLocalProvider={uploadLocalTranscriptionProvider}
-      onLocalProviderSelect={setUploadLocalTranscriptionProvider}
       useLocalWhisper={mode === "local"}
-      onModeChange={() => {}}
       mode={mode}
       cloudTranscriptionBaseUrl={uploadCloudTranscriptionBaseUrl}
-      setCloudTranscriptionBaseUrl={setUploadCloudTranscriptionBaseUrl}
       variant="settings"
     />
   );
@@ -122,10 +98,14 @@ export function UploadTranscriptionPanel() {
   return (
     <div className="space-y-3">
       <InferenceModeSelector
+        label={t("routes.runsOn", { task: t("routes.names.uploadStt") })}
         modes={transcriptionModes}
         activeMode={effectiveTranscriptionMode}
+        stagedMode={stagedMode}
         onSelect={handleTranscriptionModeSelect}
+        routeState={route.state}
       />
+      <StagedRoutePanel routeId="uploadStt" />
 
       {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
       {effectiveTranscriptionMode === "local" && renderTranscriptionPicker("local")}
@@ -133,9 +113,7 @@ export function UploadTranscriptionPanel() {
         <SelfHostedPanel
           service="transcription"
           url={remoteTranscriptionUrl}
-          onUrlChange={setRemoteTranscriptionUrl}
           model={remoteTranscriptionModel}
-          onModelChange={setRemoteTranscriptionModel}
         />
       )}
     </div>

@@ -12,10 +12,11 @@ export interface ResolvePromptOptions {
   language?: string;
   customDictionary?: string[];
   targetLanguageLabel?: string;
+  customPrompts?: Readonly<Record<string, string>>;
 }
 
 export function resolvePrompt(kind: PromptKind, opts: ResolvePromptOptions): string {
-  const custom = useSettingsStore.getState().customPrompts[kind];
+  const custom = (opts.customPrompts ?? useSettingsStore.getState().customPrompts)[kind];
   const template = custom || getDefaultPromptText(kind, opts.uiLanguage);
   return applySubstitutions(template, opts);
 }
@@ -70,4 +71,13 @@ function applySubstitutions(template: string, opts: ResolvePromptOptions): strin
   if (langInstruction) prompt += "\n\n" + langInstruction;
 
   return appendDictionarySuffix(prompt, opts.customDictionary, opts.uiLanguage);
+}
+
+// Model-facing and English on purpose: the renderer parses these markers.
+// A suffix leaves the base-prompt hash ratchet untouched.
+const CITATION_SUFFIX =
+  '\n\nWhen a sentence relies on one of the user\'s notes or meetings, cite it right after that sentence as [note:ID], using the id from the search result or the <note id="…"> tag. Cite only notes you were given in this conversation. Never invent an id.';
+
+export function appendCitationSuffix(prompt: string): string {
+  return prompt + CITATION_SUFFIX;
 }

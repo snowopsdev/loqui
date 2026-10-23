@@ -23,6 +23,46 @@ const { app } = require("electron");
 // Keep snippet triggers bounded for predictable local matching.
 const MAX_SNIPPET_TRIGGER_LENGTH = 100;
 
+// The Table (Plan 08, WS-M5).
+const TABLE_ENTITY_TYPES = new Set(["note", "dictation", "chat"]);
+const TABLE_CARD_CAP = 500;
+const TABLE_EXCERPT_CHARS = 600;
+const TABLE_INBOX_DICTATIONS = 20;
+const TABLE_INBOX_CHATS = 10;
+const TABLE_INBOX_HIDDEN = 50;
+const TABLE_BATCH_LIMIT = 500;
+const TABLE_COORD_LIMIT = 1e6;
+const MARKDOWN_HREF = /\]\(([^)\s]+)\)/g;
+const NON_ENTITY_HREF = /^(https?:|mailto:|mention:)/i;
+
+const tableKey = (type, id) => `${type}:${id}`;
+const clampCoord = (n) => Math.max(-TABLE_COORD_LIMIT, Math.min(TABLE_COORD_LIMIT, n));
+const finiteOrNull = (n) => (Number.isFinite(n) && n > 0 ? Math.min(n, 4000) : null);
+const isTableRef = (ref) =>
+  !!ref && TABLE_ENTITY_TYPES.has(ref.type) && Number.isSafeInteger(ref.id) && ref.id > 0;
+
+function extractEntityHrefs(markdown) {
+  const hrefs = new Set();
+  for (const match of String(markdown || "").matchAll(MARKDOWN_HREF)) {
+    if (!NON_ENTITY_HREF.test(match[1])) hrefs.add(match[1]);
+    if (hrefs.size >= 50) break;
+  }
+  return [...hrefs];
+}
+
+function parseParticipantNames(raw) {
+  try {
+    const list = JSON.parse(raw || "[]");
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((p) => (typeof p === "string" ? p : p?.name || p?.displayName || p?.email || ""))
+      .filter((name) => typeof name === "string" && name.length > 0)
+      .slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
 const FOLDER_NAME_TAKEN_FILTER = "deleted_at IS NULL";
 
 // A "contains" pattern for `LIKE ? ESCAPE '\'`: the query is a literal
@@ -1393,6 +1433,330 @@ class DatabaseManager {
     }
   }
 
+  // ---- The Table (Plan 08, WS-M5, Labs) -------------------------------
+  // Every entry point validates the Space and every entity, because the
+  // renderer is not trusted to send ids that exist.
+
+  _isTableSpace(spaceId) {
+    return (
+      Number.isSafeInteger(spaceId) &&
+      spaceId > 0 &&
+      !!this.db
+        .prepare("SELECT 1 FROM spaces WHERE id = ? AND kind = 'private' AND deleted_at IS NULL")
+        .get(spaceId)
+    );
+  }
+
+  // Validation, cleanup and the operation share one SQLite transaction. Even a
+  // refused payload on a valid board performs cleanup; invalid Spaces never write.
+  _withTableTransaction(spaceId, refused, operation) {
+    if (!this.db) throw new Error("Database not initialized");
+    return this.db.transaction(() => {
+      if (!this._isTableSpace(spaceId)) return refused;
+      this._pruneTableLayout(spaceId);
+      return operation();
+    })();
+  }
+
+  _tableLayoutTimestamp(spaceId) {
+    // Millisecond, monotonic layout time makes a newly removed old card reachable
+    // even when several batches run in one clock tick. Batch ties use entity id.
+    return this.db
+      .prepare(
+        `SELECT strftime('%Y-%m-%d %H:%M:%f',
+      MAX(julianday('now'), COALESCE(MAX(julianday(updated_at)), 0)) + 1.0 / 86400000) AS at
+      FROM note_layout WHERE space_id = ?`
+      )
+      .get(spaceId).at;
+  }
+
+  _tableEntityExists(spaceId, type, id) {
+    if (!isTableRef({ type, id })) return false;
+    const sql = {
+      note: "SELECT 1 FROM notes WHERE id = ? AND space_id = ? AND deleted_at IS NULL",
+      dictation:
+        "SELECT 1 FROM transcriptions WHERE id = ? AND deleted_at IS NULL AND status = 'completed'",
+      chat: "SELECT 1 FROM agent_conversations WHERE id = ? AND space_id = ? AND deleted_at IS NULL AND archived_at IS NULL",
+    }[type];
+    if (!sql) return false;
+    const params = type === "dictation" ? [id] : [id, spaceId];
+    return !!this.db.prepare(sql).get(...params);
+  }
+
+  // Deleting a note, conversation or transcription never touches these
+  // tables (no FK is possible across three entity tables), so every read
+  // and write prunes first. An archived chat counts as gone, matching the
+  // board read: it must not hold capacity or keep links.
+  _pruneTableLayout(spaceId) {
+    this.db
+      .prepare(
+        `DELETE FROM note_layout WHERE space_id = ? AND (
+           (entity_type = 'note' AND NOT EXISTS (SELECT 1 FROM notes n
+              WHERE n.id = note_layout.entity_id AND n.space_id = note_layout.space_id AND n.deleted_at IS NULL))
+        OR (entity_type = 'dictation' AND NOT EXISTS (SELECT 1 FROM transcriptions t
+              WHERE t.id = note_layout.entity_id AND t.deleted_at IS NULL AND t.status = 'completed'))
+        OR (entity_type = 'chat' AND NOT EXISTS (SELECT 1 FROM agent_conversations c
+              WHERE c.id = note_layout.entity_id AND c.space_id = note_layout.space_id
+                AND c.deleted_at IS NULL AND c.archived_at IS NULL)))`
+      )
+      .run(spaceId);
+    const drop = this.db.prepare("DELETE FROM note_layout_links WHERE rowid = ?");
+    for (const l of this.db
+      .prepare("SELECT rowid, a_type, a_id, b_type, b_id FROM note_layout_links WHERE space_id = ?")
+      .all(spaceId)) {
+      if (
+        !this._tableEntityExists(spaceId, l.a_type, l.a_id) ||
+        !this._tableEntityExists(spaceId, l.b_type, l.b_id)
+      ) {
+        drop.run(l.rowid);
+      }
+    }
+  }
+
+  getTableBoard(spaceId) {
+    if (!this.db) throw new Error("Database not initialized");
+    const empty = { spaceId, cards: [], inbox: [], links: [], viewport: null, truncated: false };
+    return this._withTableTransaction(spaceId, empty, () => {
+      const layoutOf = (row) =>
+        row.l_x == null
+          ? null
+          : {
+              x: row.l_x,
+              y: row.l_y,
+              w: row.l_w,
+              h: row.l_h,
+              z: row.l_z,
+              hidden: row.l_hidden === 1,
+            };
+      const LAYOUT_COLUMNS =
+        "l.x AS l_x, l.y AS l_y, l.w AS l_w, l.h AS l_h, l.z AS l_z, l.hidden AS l_hidden";
+      const layoutJoin = (type, alias) =>
+        `LEFT JOIN note_layout l ON l.space_id = ${Number(spaceId)} AND l.entity_type = '${type}' AND l.entity_id = ${alias}.id`;
+      const scope = this._personalScopeCondition("n");
+
+      const noteRows = (layoutClause, limit) =>
+        this.db
+          .prepare(
+            `SELECT n.id, n.title, n.note_type, n.content, n.enhanced_content, n.participants, n.updated_at,
+                    n.audio_duration_seconds, ${LAYOUT_COLUMNS}
+             FROM notes n ${layoutJoin("note", "n")}
+             WHERE n.space_id = ? AND n.deleted_at IS NULL AND ${scope.sql} AND ${layoutClause}
+             ORDER BY ${layoutClause === "l.hidden = 1" ? "l.updated_at" : "n.updated_at"} DESC, n.id DESC LIMIT ?`
+          )
+          .all(spaceId, ...scope.params, limit);
+      const dictationRows = (layoutClause, extra, limit) =>
+        this.db
+          .prepare(
+            `SELECT t.id, t.text, t.timestamp, t.audio_duration_ms, ${LAYOUT_COLUMNS}
+             FROM transcriptions t ${layoutJoin("dictation", "t")}
+             WHERE t.deleted_at IS NULL AND t.status = 'completed' AND ${layoutClause} ${extra}
+             ORDER BY ${layoutClause === "l.hidden = 1" ? "l.updated_at" : "t.timestamp"} DESC, t.id DESC LIMIT ?`
+          )
+          .all(limit);
+      const chatRows = (layoutClause, extra, limit) =>
+        this.db
+          .prepare(
+            `SELECT c.id, c.title, c.note_id, c.updated_at, ${LAYOUT_COLUMNS},
+               (SELECT substr(m.content, 1, ${TABLE_EXCERPT_CHARS}) FROM agent_messages m
+                 WHERE m.conversation_id = c.id AND m.role = 'assistant'
+                 ORDER BY m.id DESC LIMIT 1) AS answer
+             FROM agent_conversations c ${layoutJoin("chat", "c")}
+             WHERE c.space_id = ? AND c.deleted_at IS NULL AND c.archived_at IS NULL AND ${layoutClause} ${extra}
+             ORDER BY ${layoutClause === "l.hidden = 1" ? "l.updated_at" : "c.updated_at"} DESC, c.id DESC LIMIT ?`
+          )
+          .all(spaceId, limit);
+
+      const noteEntity = (n) => {
+        const body =
+          n.enhanced_content && n.enhanced_content.trim() ? n.enhanced_content : n.content || "";
+        return {
+          ref: { type: "note", id: n.id },
+          kind: n.note_type === "meeting" ? "meeting" : "note",
+          title: n.title,
+          excerpt: body.slice(0, TABLE_EXCERPT_CHARS),
+          at: n.updated_at,
+          durationMs:
+            n.audio_duration_seconds != null ? Math.round(n.audio_duration_seconds * 1000) : null,
+          participants: parseParticipantNames(n.participants),
+          hrefs: extractEntityHrefs(body),
+          noteId: null,
+          layout: layoutOf(n),
+        };
+      };
+      const dictationEntity = (d) => ({
+        ref: { type: "dictation", id: d.id },
+        kind: "dictation",
+        title: null,
+        excerpt: String(d.text || "").slice(0, TABLE_EXCERPT_CHARS),
+        at: d.timestamp,
+        durationMs: d.audio_duration_ms ?? null,
+        participants: [],
+        hrefs: [],
+        noteId: null,
+        layout: layoutOf(d),
+      });
+      const chatEntity = (c) => ({
+        ref: { type: "chat", id: c.id },
+        kind: "chat",
+        title: c.title,
+        excerpt: c.answer || "",
+        at: c.updated_at,
+        durationMs: null,
+        participants: [],
+        hrefs: [],
+        noteId: c.note_id ?? null,
+        layout: layoutOf(c),
+      });
+
+      // Arranged cards first and in full (placement caps them at 500), so
+      // an old arranged note can never be pushed out by newer ones.
+      const placed = [
+        ...noteRows("l.hidden = 0", TABLE_CARD_CAP).map(noteEntity),
+        ...dictationRows("l.hidden = 0", "", TABLE_CARD_CAP).map(dictationEntity),
+        ...chatRows("l.hidden = 0", "", TABLE_CARD_CAP).map(chatEntity),
+      ];
+      const room = Math.max(0, TABLE_CARD_CAP - placed.length);
+      const unplacedNotes = noteRows("l.entity_id IS NULL", room + 1).map(noteEntity);
+      const cards = [...placed, ...unplacedNotes.slice(0, room)];
+
+      // Removed cards stay in the inbox regardless of age; new captures are recent only.
+      const inbox = [
+        ...noteRows("l.hidden = 1", TABLE_INBOX_HIDDEN).map(noteEntity),
+        ...dictationRows("l.hidden = 1", "", TABLE_INBOX_HIDDEN).map(dictationEntity),
+        ...chatRows("l.hidden = 1", "", TABLE_INBOX_HIDDEN).map(chatEntity),
+        ...dictationRows(
+          "l.entity_id IS NULL",
+          "AND t.text != '' AND t.timestamp >= datetime('now', '-7 days')",
+          TABLE_INBOX_DICTATIONS
+        ).map(dictationEntity),
+        ...chatRows("l.entity_id IS NULL", "AND answer IS NOT NULL", TABLE_INBOX_CHATS).map(
+          chatEntity
+        ),
+      ];
+
+      const present = new Set([...cards, ...inbox].map((e) => tableKey(e.ref.type, e.ref.id)));
+      const links = this.db
+        .prepare("SELECT a_type, a_id, b_type, b_id FROM note_layout_links WHERE space_id = ?")
+        .all(spaceId)
+        .map((l) => ({ a: { type: l.a_type, id: l.a_id }, b: { type: l.b_type, id: l.b_id } }))
+        .filter(
+          (l) => present.has(tableKey(l.a.type, l.a.id)) && present.has(tableKey(l.b.type, l.b.id))
+        );
+      const viewport = this.db
+        .prepare("SELECT x, y, scale FROM note_layout_viewport WHERE space_id = ?")
+        .get(spaceId);
+
+      return {
+        spaceId,
+        cards,
+        inbox,
+        links,
+        viewport: viewport ? { x: viewport.x, y: viewport.y, scale: viewport.scale } : null,
+        truncated: unplacedNotes.length > room,
+      };
+    });
+  }
+
+  placeTableCards(spaceId, placements) {
+    try {
+      return this._withTableTransaction(spaceId, { success: false, code: "INVALID" }, () => {
+        if (!Array.isArray(placements) || placements.length > TABLE_BATCH_LIMIT) {
+          return { success: false, code: "INVALID" };
+        }
+        const upsert = this.db.prepare(
+          `INSERT INTO note_layout (space_id, entity_type, entity_id, x, y, w, h, z, hidden, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+           ON CONFLICT(space_id, entity_type, entity_id) DO UPDATE SET
+             x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h, z = excluded.z,
+             hidden = 0, updated_at = excluded.updated_at`
+        );
+        const at = this._tableLayoutTimestamp(spaceId);
+        const placedKeys = new Set();
+        for (const p of placements) {
+          if (!isTableRef(p) || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+          if (!this._tableEntityExists(spaceId, p.type, p.id)) continue;
+          upsert.run(
+            spaceId,
+            p.type,
+            p.id,
+            clampCoord(p.x),
+            clampCoord(p.y),
+            finiteOrNull(p.w),
+            finiteOrNull(p.h),
+            Number.isSafeInteger(p.z) ? p.z : 0,
+            at
+          );
+          placedKeys.add(tableKey(p.type, p.id));
+        }
+        const visible = this.db
+          .prepare("SELECT COUNT(*) AS n FROM note_layout WHERE space_id = ? AND hidden = 0")
+          .get(spaceId).n;
+        if (visible > TABLE_CARD_CAP)
+          throw Object.assign(new Error("table full"), { code: "TABLE_FULL" });
+        return { success: true, placed: placedKeys.size, placedKeys: [...placedKeys] };
+      });
+    } catch (error) {
+      if (error.code === "TABLE_FULL") return { success: false, code: "TABLE_FULL" };
+      throw error;
+    }
+  }
+
+  hideTableCards(spaceId, refs) {
+    return this._withTableTransaction(spaceId, { success: false, hidden: 0 }, () => {
+      if (!Array.isArray(refs) || refs.length > TABLE_BATCH_LIMIT)
+        return { success: false, hidden: 0 };
+      const hide = this.db.prepare(
+        `INSERT INTO note_layout (space_id, entity_type, entity_id, x, y, hidden, updated_at)
+         VALUES (?, ?, ?, 0, 0, 1, ?)
+         ON CONFLICT(space_id, entity_type, entity_id) DO UPDATE SET hidden = 1, updated_at = excluded.updated_at`
+      );
+      const at = this._tableLayoutTimestamp(spaceId);
+      const hiddenKeys = new Set();
+      for (const ref of refs) {
+        // Removing a card preserves its content and previous position.
+        if (!isTableRef(ref) || !this._tableEntityExists(spaceId, ref.type, ref.id)) continue;
+        hide.run(spaceId, ref.type, ref.id, at);
+        hiddenKeys.add(tableKey(ref.type, ref.id));
+      }
+      return { success: true, hidden: hiddenKeys.size };
+    });
+  }
+
+  linkTableCards(spaceId, a, b) {
+    return this._withTableTransaction(spaceId, { success: false }, () => {
+      if (!isTableRef(a) || !isTableRef(b)) return { success: false };
+      const ka = tableKey(a.type, a.id);
+      const kb = tableKey(b.type, b.id);
+      if (
+        ka === kb ||
+        !this._tableEntityExists(spaceId, a.type, a.id) ||
+        !this._tableEntityExists(spaceId, b.type, b.id)
+      )
+        return { success: false };
+      const [first, second] = ka < kb ? [a, b] : [b, a];
+      this.db
+        .prepare(
+          "INSERT OR IGNORE INTO note_layout_links (space_id, a_type, a_id, b_type, b_id) VALUES (?, ?, ?, ?, ?)"
+        )
+        .run(spaceId, first.type, first.id, second.type, second.id);
+      return { success: true };
+    });
+  }
+
+  setTableViewport(spaceId, viewport) {
+    return this._withTableTransaction(spaceId, { success: false }, () => {
+      const { x, y, scale } = viewport || {};
+      if (![x, y, scale].every(Number.isFinite)) return { success: false };
+      this.db
+        .prepare(
+          `INSERT INTO note_layout_viewport (space_id, x, y, scale, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(space_id) DO UPDATE SET x = excluded.x, y = excluded.y, scale = excluded.scale, updated_at = CURRENT_TIMESTAMP`
+        )
+        .run(spaceId, clampCoord(x), clampCoord(y), Math.max(0.25, Math.min(2, scale)));
+      return { success: true };
+    });
+  }
+
   getSpaces() {
     return this.db
       .prepare(
@@ -1509,6 +1873,31 @@ class DatabaseManager {
       debugLogger.error("Error getting action", { error: error.message }, "notes");
       throw error;
     }
+  }
+
+  getKeyHealth() {
+    return this.db.prepare("SELECT * FROM provider_key_health ORDER BY identity").all();
+  }
+
+  saveKeyHealth(row) {
+    this.db
+      .prepare(
+        `INSERT INTO provider_key_health
+      (identity, generation, config_fingerprint, status, last_verified_at, last_error_code,
+       last_error_status, reminder_due_at, reminded_at, updated_at)
+      VALUES (@identity, @generation, @config_fingerprint, @status, @last_verified_at, @last_error_code,
+       @last_error_status, @reminder_due_at, @reminded_at, @updated_at)
+      ON CONFLICT(identity) DO UPDATE SET
+       generation=excluded.generation, config_fingerprint=excluded.config_fingerprint,
+       status=excluded.status, last_verified_at=excluded.last_verified_at,
+       last_error_code=excluded.last_error_code, last_error_status=excluded.last_error_status,
+       reminder_due_at=excluded.reminder_due_at, reminded_at=excluded.reminded_at, updated_at=excluded.updated_at`
+      )
+      .run({ generation: null, config_fingerprint: null, ...row });
+  }
+
+  deleteKeyHealth(identity) {
+    this.db.prepare("DELETE FROM provider_key_health WHERE identity = ?").run(identity);
   }
 
   createAction(name, description, prompt, icon = "sparkles") {

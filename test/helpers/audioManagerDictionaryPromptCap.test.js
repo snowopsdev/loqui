@@ -56,6 +56,7 @@ test("custom dictionary prompt caps follow the provider's real limit", async (t)
 
   await t.test("gpt-4o-mini-transcribe sends the dictionary whole", async () => {
     setSettings({
+      transcriptionMode: "providers",
       useLocalWhisper: false,
       allowLocalFallback: false,
       cloudTranscriptionProvider: "openai",
@@ -79,6 +80,7 @@ test("custom dictionary prompt caps follow the provider's real limit", async (t)
 
   await t.test("groq stays under its documented 896-char limit", async () => {
     setSettings({
+      transcriptionMode: "providers",
       useLocalWhisper: false,
       allowLocalFallback: false,
       cloudTranscriptionProvider: "groq",
@@ -103,6 +105,7 @@ test("custom dictionary prompt caps follow the provider's real limit", async (t)
 
   await t.test("whisper-1 keeps the ~224-token (900-char) cap", async () => {
     setSettings({
+      transcriptionMode: "providers",
       useLocalWhisper: false,
       allowLocalFallback: false,
       cloudTranscriptionProvider: "openai",
@@ -152,6 +155,7 @@ test("custom dictionary prompt caps follow the provider's real limit", async (t)
 
   await t.test("4o transcribe still gets a context guard on absurd lists", async () => {
     setSettings({
+      transcriptionMode: "providers",
       useLocalWhisper: false,
       allowLocalFallback: false,
       cloudTranscriptionProvider: "openai",

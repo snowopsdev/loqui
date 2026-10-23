@@ -1,7 +1,48 @@
+const DISCLOSURE_TASKS = new Set([
+  "dictationStt",
+  "dictationCleanup",
+  "translation",
+  "voiceAssistant",
+  "assistantVision",
+]);
 const { randomUUID } = require("node:crypto");
 const { createAbortError } = require("./abortError");
 const { CodexAppServer } = require("./codexAppServer");
 const { isSecureHttpEndpoint } = require("../utils/urlUtils.ts");
+
+const {
+  captureEnterpriseEnvironment,
+  resolveEnterpriseCredentialMaterial,
+  resolveEnterpriseExecutor,
+} = require("./enterpriseRecipientIdentity");
+const ENTERPRISE_PROVIDERS = new Set(["azure", "bedrock", "vertex"]);
+const isEnterpriseProvider = (provider) => ENTERPRISE_PROVIDERS.has(provider);
+function recipientFailure(code) {
+  return Object.assign(new Error(code), { code, messageKey: `voiceOverlay.errors.${code}` });
+}
+function validateDictationRecipientFields(input) {
+  const hasSession = input.dictationSessionId != null;
+  const hasTag = input.enterpriseRecipientTag != null;
+  if (input.dictationOperation !== undefined && input.dictationOperation !== true)
+    throw recipientFailure("recipientUnknown");
+  if (
+    hasSession &&
+    (typeof input.dictationSessionId !== "string" ||
+      !input.dictationSessionId.trim() ||
+      input.dictationSessionId.length > 100)
+  )
+    throw recipientFailure("recipientUnknown");
+  if (
+    hasTag &&
+    (typeof input.enterpriseRecipientTag !== "string" ||
+      !/^sha256:[a-f0-9]{64}$/.test(input.enterpriseRecipientTag))
+  )
+    throw recipientFailure("recipientUnknown");
+  if (input.dictationOperation === true) {
+    if (!hasSession || (isEnterpriseProvider(input.provider) && !hasTag))
+      throw recipientFailure("recipientUnknown");
+  } else if (hasSession || hasTag) throw recipientFailure("recipientUnknown");
+}
 
 const PROVIDERS = new Set([
   "openai",
@@ -91,6 +132,16 @@ function validateCredentialRef(ref) {
   return ref;
 }
 function validateRequest(input) {
+  if (input?.disclosureTask != null && !DISCLOSURE_TASKS.has(input.disclosureTask))
+    throw new Error("Invalid disclosure task.");
+  if (input) {
+    validateDictationRecipientFields(input);
+    if (
+      input.correlationId != null &&
+      (typeof input.correlationId !== "string" || input.correlationId.length > 100)
+    )
+      throw new Error("Invalid correlation id.");
+  }
   if (!input || !PROVIDERS.has(input.provider))
     throw new Error("Choose a supported text provider.");
   if (typeof input.requestId !== "string" || input.requestId.length > 100 || !input.requestId)
@@ -170,20 +221,63 @@ function validateRequest(input) {
   return { ...input, baseUrl, inferenceScope: scope, credentialRef: expectedRef };
 }
 
-async function createModel(provider, model, apiKey, baseURL, disableThinking, enterprise) {
+async function createModel(
+  provider,
+  model,
+  apiKey,
+  baseURL,
+  disableThinking,
+  enterprise,
+  enterpriseCredentialMaterial,
+  fetchImpl,
+  execution
+) {
+  execution?.assertLive();
+  const guardedFetch = execution
+    ? (input, init) => {
+        execution.assertLive();
+        return (fetchImpl || fetch)(input, {
+          ...init,
+          signal: init?.signal
+            ? AbortSignal.any([execution.signal, init.signal])
+            : execution.signal,
+          redirect: "error",
+        });
+      }
+    : undefined;
   if (["bedrock", "azure", "vertex"].includes(provider))
     return require("./enterpriseAiProviders").getEnterpriseAIModel(
       provider,
       model,
       apiKey,
-      enterprise
+      enterprise,
+      enterpriseCredentialMaterial,
+      fetchImpl,
+      execution
     );
   const { createOpenAI } = require("@ai-sdk/openai");
-  if (provider === "openai") return createOpenAI({ apiKey })(model);
+  if (provider === "openai")
+    return createOpenAI({
+      apiKey,
+      ...(execution ? { baseURL: enterprise.sdkBaseURL } : {}),
+      ...(guardedFetch ? { fetch: guardedFetch } : {}),
+    })(model);
   if (provider === "anthropic")
-    return require("@ai-sdk/anthropic").createAnthropic({ apiKey })(model);
-  if (provider === "gemini") return require("@ai-sdk/google").createGoogle({ apiKey })(model);
-  if (provider === "groq") return require("@ai-sdk/groq").createGroq({ apiKey })(model);
+    return require("@ai-sdk/anthropic").createAnthropic({
+      apiKey,
+      ...(execution ? { baseURL: enterprise.sdkBaseURL } : {}),
+      ...(guardedFetch ? { fetch: guardedFetch } : {}),
+    })(model);
+  if (provider === "gemini")
+    return require("@ai-sdk/google").createGoogle({
+      apiKey,
+      ...(guardedFetch ? { fetch: guardedFetch } : {}),
+    })(model);
+  if (provider === "groq")
+    return require("@ai-sdk/groq").createGroq({
+      apiKey,
+      ...(guardedFetch ? { fetch: guardedFetch } : {}),
+    })(model);
   if (provider === "tinfoil")
     return (await (await import("tinfoil")).createTinfoilAI(apiKey))(model);
   const customFetch =
@@ -194,14 +288,16 @@ async function createModel(provider, model, apiKey, baseURL, disableThinking, en
               ...init,
               body: JSON.stringify({ ...JSON.parse(init.body), reasoning: { enabled: false } }),
             };
-          return fetch(url, init);
+          return (guardedFetch || fetch)(url, init);
         }
       : undefined;
   return createOpenAI({
     apiKey: apiKey || "no-key",
     baseURL: ALIASES[provider] || baseURL,
-    headers: require("./openCodeSession").openCodeSessionHeaders(ALIASES[provider] || baseURL),
-    ...(customFetch ? { fetch: customFetch } : {}),
+    headers: execution
+      ? enterprise.openCodeHeaders
+      : require("./openCodeSession").openCodeSessionHeaders(ALIASES[provider] || baseURL),
+    ...(customFetch || guardedFetch ? { fetch: customFetch || guardedFetch } : {}),
   }).chat(model);
 }
 
@@ -209,12 +305,30 @@ function registerPersonalInferenceIPC({
   ipcMain,
   userDataPath,
   getCredential,
+  credentials,
+  fetchModels = (...args) => globalThis.fetch(...args),
   saveCredential,
   openExternal,
   codex = new CodexAppServer({ userDataPath }),
   modelFactory = createModel,
   getEnterpriseConfig = () => ({}),
+  waitForAdmission = async () => {},
+  fetchImpl,
+  textOperationSnapshot = () => ({}),
+  authorizeTextOperation = () => true,
+  onTextOperationIssued = () => {},
+  onTextOperationsDisposed = () => {},
+  captureTextFactoryInputs = require("./textOperationCapture").captureTextFactoryInputs,
+  aiRuntime = () => require("ai"),
 }) {
+  const textOperations = require("./textOperationAuthority").createTextOperationAuthority({
+    credentials,
+    snapshot: textOperationSnapshot,
+    waitForAdmission,
+    authorize: authorizeTextOperation,
+    captureFactoryInputs: captureTextFactoryInputs,
+  });
+  const recipients = require("./recipientAuthority").createRecipientAuthority();
   const active = new Map();
   const pendingTools = new Map();
   const channels = [];
@@ -225,7 +339,19 @@ function registerPersonalInferenceIPC({
   const handle = (name, fn) => {
     const channel = `personal-inference:${name}`;
     channels.push(channel);
-    ipcMain.handle(channel, fn);
+    ipcMain.handle(channel, async (...args) => {
+      if (
+        ![
+          "text-cancel",
+          "text-tool-result",
+          "text-operation-capture",
+          "text-operation-run",
+          "text-operation-retire",
+        ].includes(name)
+      )
+        await waitForAdmission();
+      return fn(...args);
+    });
   };
   const ownerKey = (sender, id) => `${sender.id}:${id}`;
   const track = (sender) => {
@@ -264,10 +390,11 @@ function registerPersonalInferenceIPC({
   handle("codex-cancel-login", (_event, loginId) => codex.cancelLogin(loginId));
   handle("codex-logout", () => codex.logout());
   handle("codex-models", () => codex.models());
+  handle("codex-model-catalog", () => codex.modelCatalog());
   handle("codex-rate-limits", () => codex.rateLimits());
   handle("credential-status", async (_event, ref) => {
     validateCredentialRef(ref);
-    const enterprise = ["bedrock", "vertex"].includes(ref) ? await getEnterpriseConfig() : {};
+    const enterprise = ["bedrock", "vertex"].includes(ref) ? await getEnterpriseConfig(ref) : {};
     return {
       configured:
         ref === "bedrock"
@@ -283,19 +410,61 @@ function registerPersonalInferenceIPC({
     await saveCredential(ref, value.trim());
     return { configured: !!value.trim() };
   });
-  handle("models", async (_event, input) => {
+  const discoveryConfig = (input) => {
     if (!["custom", "lan", "openrouter"].includes(input?.provider))
       throw new Error("Model discovery is only available for custom endpoints and OpenRouter.");
     const request = validateRequest({
-      ...input,
+      provider: input.provider,
+      credentialRef: input.credentialRef,
+      inferenceScope: input.inferenceScope,
       requestId: "model-discovery",
       model: "discovery",
       messages: [],
       baseUrl: input.provider === "openrouter" ? undefined : input.baseUrl,
     });
-    const baseUrl = request.provider === "openrouter" ? ALIASES.openrouter : request.baseUrl;
-    const key = await getCredential(request.credentialRef);
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
+    return {
+      provider: request.provider,
+      baseUrl:
+        request.provider === "openrouter"
+          ? ALIASES.openrouter
+          : request.baseUrl.replace(/\/+$/, ""),
+      credentialId: request.credentialRef,
+      inferenceScope: request.inferenceScope,
+    };
+  };
+  const discoveryCredential = (config) => {
+    const row = credentials?.list().find((row) => row.id === config.credentialId);
+    if (!row || row.unknown || credentials.isFenced?.())
+      throw new Error("Credential persistence is unavailable.");
+    return row;
+  };
+  handle("describe-models", (event, input) => {
+    const config = discoveryConfig(input);
+    const credential = discoveryCredential(config);
+    return {
+      recipientToken: recipients.issue(event.sender, config, credential),
+      host: new URL(config.baseUrl).host,
+      credentialId: credential.id,
+      present: credential.present,
+      generation: credential.generation,
+    };
+  });
+  handle("models", async (event, input) => {
+    const config = discoveryConfig(input);
+    recipients.validate(input.recipientToken, event.sender, config, discoveryCredential(config));
+    const captured = await credentials.captureCommitted(config.credentialId);
+    // Credential persistence can settle while this click waits. Never upgrade
+    // a reviewed no-key action or send a replacement/removal under an old label.
+    recipients.validate(
+      input.recipientToken,
+      event.sender,
+      config,
+      captured ? { id: config.credentialId, ...captured } : null
+    );
+    recipients.validate(input.recipientToken, event.sender, config, discoveryCredential(config));
+    const baseUrl = config.baseUrl;
+    const key = captured.values.key || "";
+    const response = await fetchModels(`${baseUrl.replace(/\/$/, "")}/models`, {
       headers: key ? { Authorization: `Bearer ${key}` } : {},
       redirect: "error",
       signal: AbortSignal.timeout(15000),
@@ -344,7 +513,7 @@ function registerPersonalInferenceIPC({
     else pending.resolve(result);
   });
 
-  async function execute(event, raw, streaming) {
+  async function execute(event, raw, streaming, captured = null, operationExecution = null) {
     const request = validateRequest(raw);
     const sender = event.sender;
     track(sender);
@@ -356,12 +525,41 @@ function registerPersonalInferenceIPC({
       () => controller.abort(new Error("Text request timed out.")),
       Math.min(Math.max(request.timeoutMs || 180000, 1000), 600000)
     );
+    const execution = operationExecution
+      ? {
+          ...operationExecution,
+          signal: AbortSignal.any([controller.signal, operationExecution.signal]),
+          assertLive() {
+            operationExecution.assertLive();
+            controller.signal.throwIfAborted();
+          },
+        }
+      : null;
     const emit = (chunk) => send(sender, { type: "chunk", requestId: request.requestId, chunk });
     // The abort reason carries why the request ended (timeout vs. cancel).
     const abortFailure = () =>
       controller.signal.reason instanceof Error
         ? controller.signal.reason
         : createAbortError("Request canceled.");
+    const handOff = () => {
+      controller.signal.throwIfAborted();
+      if (
+        !request.correlationId ||
+        !request.disclosureTask ||
+        request.provider === "local" ||
+        sender.isDestroyed()
+      )
+        return;
+      const image = request.messages.some(
+        (m) => Array.isArray(m.content) && m.content.some((p) => p?.type === "image")
+      );
+      for (const payload of image ? ["text", "image"] : ["text"])
+        sender.send("dictation-dispatch", {
+          correlationId: request.correlationId,
+          task: request.disclosureTask,
+          payload,
+        });
+    };
     const executeTool = (name, args, suppliedCallId) =>
       new Promise((resolve, reject) => {
         if (controller.signal.aborted) {
@@ -389,6 +587,7 @@ function registerPersonalInferenceIPC({
       });
     try {
       if (request.provider === "codex") {
+        handOff();
         const text = await codex.generate({
           ...request,
           signal: controller.signal,
@@ -404,22 +603,60 @@ function registerPersonalInferenceIPC({
         if (streaming) emit({ type: "done", finishReason: "stop" });
         return { text };
       }
-      const apiKey = ["local", "bedrock"].includes(request.provider)
-        ? ""
-        : await getCredential(request.credentialRef);
+      execution?.assertLive();
+      const apiKey = captured
+        ? captured.apiKey
+        : ["local", "bedrock"].includes(request.provider)
+          ? ""
+          : await getCredential(request.credentialRef);
       if (!apiKey && !["local", "lan", "custom", "bedrock", "vertex"].includes(request.provider))
         throw new Error(`Configure the ${request.provider} API key in Settings.`);
+      let enterprise, material;
+      if (!captured) {
+        const enterpriseConfigSnapshot = isEnterpriseProvider(request.provider)
+          ? await getEnterpriseConfig(request.provider)
+          : undefined;
+        const enterpriseEnvironmentSnapshot = isEnterpriseProvider(request.provider)
+          ? captureEnterpriseEnvironment(request.provider, process.env)
+          : undefined;
+        enterprise = isEnterpriseProvider(request.provider)
+          ? resolveEnterpriseExecutor(
+              request.provider,
+              enterpriseConfigSnapshot,
+              enterpriseEnvironmentSnapshot
+            )
+          : undefined;
+        if (enterprise && enterprise.status !== "ready") throw recipientFailure("recipientUnknown");
+        if (
+          request.dictationOperation &&
+          enterprise &&
+          enterprise.tag !== request.enterpriseRecipientTag
+        )
+          throw recipientFailure("recipientChanged");
+        material = enterprise
+          ? resolveEnterpriseCredentialMaterial(
+              request.provider,
+              enterpriseConfigSnapshot,
+              apiKey,
+              enterpriseEnvironmentSnapshot
+            )
+          : undefined;
+        controller.signal.throwIfAborted();
+      }
+      execution?.assertLive();
       const model = await modelFactory(
         request.provider,
         request.model,
         apiKey,
         request.baseUrl,
         request.disableThinking,
-        ["bedrock", "azure", "vertex"].includes(request.provider)
-          ? await getEnterpriseConfig()
-          : undefined
+        captured ? captured.enterprise : enterprise?.executor,
+        material,
+        fetchImpl,
+        execution
       );
-      const { streamText, generateText, isStepCount, jsonSchema } = require("ai");
+      execution?.assertLive();
+      const { streamText, generateText, isStepCount, jsonSchema } = aiRuntime();
       let tools = request.tools?.length
         ? Object.fromEntries(
             request.tools.map((tool) => [
@@ -452,7 +689,7 @@ function registerPersonalInferenceIPC({
         model,
         messages: request.messages,
         instructions: request.systemPrompt || undefined,
-        abortSignal: controller.signal,
+        abortSignal: execution?.signal || controller.signal,
         tools,
         stopWhen: isStepCount(tools ? 20 : 1),
         maxRetries: 0,
@@ -468,6 +705,7 @@ function registerPersonalInferenceIPC({
         if (request.temperature !== undefined) options.temperature = request.temperature;
       }
       if (streaming) {
+        handOff();
         const result = streamText(options);
         const sources = [];
         let finishReason;
@@ -486,7 +724,10 @@ function registerPersonalInferenceIPC({
         emit({ type: "done", finishReason });
         return {};
       }
+      handOff();
+      execution?.assertLive();
       const result = await generateText(options);
+      execution?.assertLive();
       if (request.requireCompleteOutput && result.finishReason === "length")
         throw new Error(
           "The model truncated its response. Your original content is preserved; retry with a larger context or output budget."
@@ -510,7 +751,81 @@ function registerPersonalInferenceIPC({
         }
     }
   }
-  handle("text-generate", (event, request) => execute(event, request, false));
+  // Electron invoke does not preserve custom Error properties. New operation
+  // channels return a safe code envelope; preload reconstructs the typed error.
+  const operationHandle = (name, fn) =>
+    handle(name, (...args) => {
+      const refused = (error) => ({
+        ok: false,
+        code: [
+          "RECIPIENT_CHANGED",
+          "UNSUPPORTED_AUTH_SOURCE",
+          "CLEANUP_OPERATION_UNAVAILABLE",
+          "CLEANUP_OPERATION_BUSY",
+          "CLEANUP_REQUEST_CHANGED",
+        ].includes(error?.code)
+          ? error.code
+          : "CLEANUP_FAILED",
+      });
+      try {
+        return Promise.resolve(fn(...args)).then((value) => ({ ok: true, value }), refused);
+      } catch (error) {
+        return refused(error);
+      }
+    });
+  operationHandle("text-operation-capture", (event, descriptor) => {
+    if (["codex", "tinfoil"].includes(descriptor?.provider))
+      throw Object.assign(new Error("The selected authentication source cannot be retained."), {
+        code: "UNSUPPORTED_AUTH_SOURCE",
+      });
+    if (
+      descriptor?.inferenceScope !== "dictationCleanup" ||
+      descriptor.tools?.length ||
+      descriptor.webSearch
+    )
+      throw new Error("Captured operations support cleanup text only.");
+    const request = validateRequest({
+      ...descriptor,
+      requestId: "captured-cleanup",
+      messages: [],
+      ...(descriptor.provider === "local" ? { baseUrl: "http://127.0.0.1:1/v1" } : {}),
+    });
+    if (descriptor.provider === "local") delete request.baseUrl;
+    return textOperations.capture(event.sender, request, (token) =>
+      onTextOperationIssued(event.sender, request, token)
+    );
+  });
+  const { validateCapturedTextInput } = require("./capturedTextInput.mjs");
+  operationHandle("text-operation-run", (event, { token, request }) =>
+    textOperations.execute(
+      event.sender,
+      token,
+      validateCapturedTextInput(request),
+      (original, captured, execution, descriptor) => {
+        if (descriptor.provider === "local")
+          throw new Error("Use the captured local reasoning path.");
+        return execute(
+          event,
+          { ...descriptor, ...original, requestId: randomUUID() },
+          false,
+          captured,
+          execution
+        );
+      }
+    )
+  );
+  operationHandle("text-operation-retire", (event, token) =>
+    textOperations.retire(event.sender, token)
+  );
+  handle("text-generate", async (event, request) => {
+    try {
+      return await execute(event, request, false);
+    } catch (error) {
+      if (["recipientUnknown", "recipientChanged"].includes(error?.code))
+        return { error: error.code, code: error.code };
+      throw error;
+    }
+  });
   handle("text-stream", async (event, request) => {
     try {
       await execute(event, request, true);
@@ -530,11 +845,27 @@ function registerPersonalInferenceIPC({
     }
   });
   return {
-    isBusy: () => active.size > 0,
+    retireTextOperation: (sender, token) => textOperations.retire(sender, token),
+    runCapturedLocal(event, token, request, run) {
+      return textOperations.execute(
+        event.sender,
+        token,
+        validateCapturedTextInput(request),
+        (original, _captured, execution, descriptor) => {
+          if (descriptor.provider !== "local")
+            throw new Error("The captured operation is not local.");
+          return run(original, descriptor, execution);
+        }
+      );
+    },
+    isBusy: () => active.size > 0 || textOperations.isBusy(),
     eraseCodexProfile: () => codex.erase(),
     dispose() {
       for (const { controller } of active.values()) controller.abort();
       for (const channel of channels) ipcMain.removeHandler(channel);
+      recipients.dispose();
+      textOperations.dispose();
+      onTextOperationsDisposed();
       codex.off("notification", notification);
       codex.stop();
     },

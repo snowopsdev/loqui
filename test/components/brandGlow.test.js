@@ -4,6 +4,14 @@ const path = require("node:path");
 const test = require("node:test");
 const { renderStatic } = require("../helpers/harness/reactSsr");
 
+require("i18next")
+  .use(require("react-i18next").initReactI18next)
+  .init({
+    lng: "en",
+    resources: { en: { translation: require("../../src/locales/en/translation.json") } },
+    initImmediate: false,
+  });
+
 const repoRoot = path.join(__dirname, "../..");
 const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
 

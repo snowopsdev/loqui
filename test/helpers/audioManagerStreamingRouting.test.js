@@ -136,3 +136,25 @@ test("deepgram/assemblyai byok stream on the key alone, never on the batch path"
     assert.equal(manager.shouldUseStreaming(), false, `${provider} without a key`);
   }
 });
+
+test("every streaming provider carries the dictation correlation identity", async (t) => {
+  const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-streaming-correlation-" });
+  const { buildStreamingSessionOptions } = await vite.ssrLoadModule(
+    "/helpers/dictationStreamingRouting.js"
+  );
+  for (const providerName of [
+    "deepgram",
+    "assemblyai",
+    "gemini",
+    "corti",
+    "openai-realtime",
+    "tinfoil-realtime",
+  ])
+    assert.equal(
+      buildStreamingSessionOptions({ providerName, settings: {}, correlationId: "rec-A" })
+        .correlationId,
+      "rec-A"
+    );
+});

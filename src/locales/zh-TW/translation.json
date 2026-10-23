@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "語言",
-      "sectionDescription": "分別設定介面語言和轉錄語言",
+      "sectionDescription": "Loqui 選單和按鈕使用的語言",
       "uiLabel": "介面語言",
       "uiDescription": "選擇 Loqui 介面使用的語言",
       "transcriptionLabel": "轉錄語言",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "偵測到中文時，將語音輸入的轉錄結果轉換為簡體或繁體。口語聽起來一樣；Whisper 只會輸出一種字形。",
       "chineseScriptAsTranscribed": "保持轉錄原樣",
       "chineseScriptSimplified": "簡體",
-      "chineseScriptTraditional": "繁體"
+      "chineseScriptTraditional": "繁體",
+      "dictationSectionTitle": "口述語言",
+      "dictationSectionDescription": "聽寫時使用的語言"
     },
     "noteFiles": {
       "title": "將筆記儲存為檔案",
@@ -57,6 +59,23 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui 正在錄製此會議",
+    "notificationBody": "可在此處、系統匣選單或 Loqui 膠囊中停止錄製。",
+    "notificationFallbackBody": "點擊顯示 Loqui 膠囊並停止錄製，或使用系統匣選單。",
+    "stop": "停止",
+    "systemLost": "系統音訊已中斷",
+    "micLost": "麥克風已中斷",
+    "stopAria": "停止會議錄音",
+    "groupAria": "會議錄音器",
+    "saved": "會議已儲存 · {{elapsed}}",
+    "openNotes": "開啟筆記",
+    "failed": {
+      "save": "會議已停止，但無法儲存轉錄。請開啟筆記查看保留的內容。",
+      "stop": "會議錄音未正常停止。請開啟筆記查看。",
+      "ownerLost": "會議錄音器意外停止。請開啟筆記查看保留的內容。"
+    }
+  },
   "tray": {
     "toggleDictation": {
       "show": "顯示語音輸入面板",
@@ -65,7 +84,12 @@
     "openControlPanel": "開啟控制面板",
     "hideControlPanel": "隱藏控制面板",
     "quit": "結束 Loqui",
-    "tooltip": "Loqui - 語音輸入"
+    "tooltip": "Loqui - 語音輸入",
+    "tooltipRecording": "Loqui — 正在錄製會議",
+    "meetingRecording": "正在錄製會議 · {{elapsed}}",
+    "meetingRecordingSystemLost": "錄製中 · 系統音訊已中斷",
+    "meetingRecordingMicLost": "錄製中 · 麥克風已中斷連線",
+    "stopMeetingRecording": "停止錄製會議"
   },
   "menu": {
     "appLabel": "Loqui",
@@ -565,6 +589,12 @@
         "title": "有一項下載未完成",
         "description": "請檢查網路連線與磁碟剩餘空間，然後重試。如果仍然失敗，請聯絡您的管理員。"
       }
+    },
+    "download": {
+      "chip": "正在下載語音模型 · {{percent}}%",
+      "start": "下載模型",
+      "inProgress": "正在下載…",
+      "chipInstalling": "正在安裝語音模型"
     }
   },
   "streaming": {
@@ -690,7 +720,8 @@
       "title": "缺少必要的模型",
       "description": "您的組織要求在此裝置上安裝這些模型：{{models}}。",
       "download": "下載"
-    }
+    },
+    "breadcrumb": "位置"
   },
   "reasoning": {
     "mode": {
@@ -726,7 +757,16 @@
       "otherGroup": "其他",
       "noSearchResults": "沒有與「{{query}}」相符的模型",
       "selectModelHint": "尚未選擇模型 — 請從下方清單中選擇一個。",
-      "keyRequiredHint": "推論需要 API 金鑰 — 請新增金鑰以使用此供應商。"
+      "keyRequiredHint": "推論需要 API 金鑰 — 請新增金鑰以使用此供應商。",
+      "listModels": "列出 {{host}} 的模型",
+      "listModelsSendsKey": "將{{slot}}傳送至 {{host}} 以取得模型清單。",
+      "listModelsNoKey": "不傳送金鑰。向 {{host}} 查詢模型清單。",
+      "listModelsNeedsEndpoint": "請先使用端點，再列出模型。",
+      "listModelsSealed": "封閉模式已開啟，不會向端點傳送查詢。",
+      "slotCustom": "為{{task}}儲存的自訂端點金鑰",
+      "slotProvider": "已儲存的 {{provider}} 金鑰",
+      "currentModel": "目前模型：{{model}}",
+      "useDefault": "使用預設端點"
     },
     "getApiKey": "取得 API Key ->",
     "selectModel": "選擇模型",
@@ -805,8 +845,26 @@
       },
       "vertex": {
         "adcHelp": "使用 Application Default Credentials。請執行：gcloud auth application-default login",
-        "apikeyHelp": "從 Google AI Studio 取得的 Vertex AI Express Mode API 金鑰。"
-      }
+        "apikeyHelp": "從 Google AI Studio 取得的 Vertex AI Express Mode API 金鑰。",
+        "authSource": "驗證來源",
+        "authSourceAdc": "應用程式預設憑證 (ADC)",
+        "authSourceApiKey": "API 金鑰"
+      },
+      "profileSaveFailed": "無法儲存此設定檔。你輸入的內容仍在這裡，請再試一次。",
+      "testConnectionAt": "測試與 {{host}} 的連線",
+      "testSends": "將{{fields}}和簡短測試提示傳送至 {{host}}。",
+      "testSendsNoKey": "使用雲端登入向 {{host}} 傳送簡短測試提示，不傳送已儲存的金鑰。",
+      "testHostUnknown": "請輸入有效的端點或區域後再測試。",
+      "field": {
+        "key": "已儲存的 API 金鑰",
+        "accessKeyId": "存取金鑰 ID",
+        "secretAccessKey": "私密存取金鑰",
+        "sessionToken": "工作階段權杖",
+        "profile": "AWS 設定檔的憑證",
+        "environmentKey": "Loqui 環境變數中設定的 Vertex API 金鑰（GOOGLE_VERTEX_API_KEY）"
+      },
+      "recipientChanged": "目標或憑證已變更。請檢查目標，然後再次點選測試。",
+      "unsupportedAuthSource": "此連線測試支援靜態 AWS 設定檔，以及服務帳戶或已授權使用者的 ADC 檔案。此處無法測試其他驗證來源。"
     },
     "tinfoil": {
       "modelRetiredTitle": "模型已無法使用",
@@ -815,6 +873,10 @@
     },
     "corti": {
       "euOnly": "Corti 模型僅在歐盟地區可用。"
+    },
+    "codex": {
+      "listModels": "列出 ChatGPT 模型（透過 Codex 應用程式）",
+      "listModelsTitle": "Codex 應用程式使用你的 ChatGPT 登入查詢模型清單。Loqui 不傳送已儲存的金鑰。"
     }
   },
   "transcription": {
@@ -848,6 +910,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil 串流轉錄使用 Voxtral Mini 4B，批次轉錄使用 Voxtral Small 24B。",
       "docsLink": "查看文件"
+    },
+    "families": {
+      "orukHint": "Oruk 發布 Orukeet，這是針對多種語言微調的 Parakeet 模型。它在此裝置上執行。"
     }
   },
   "hooks": {
@@ -1357,7 +1422,6 @@
       "none": "無",
       "outputLabel": "輸出",
       "processing": "處理中...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "供應商",
       "run": "執行測試",
       "customEndpoint": "自訂端點",
@@ -1378,47 +1442,38 @@
   "settingsModal": {
     "managedByOrg": "部分設定由您的組織管理。",
     "groups": {
-      "account": "帳戶",
       "app": "應用程式",
       "aiModels": "AI 模型",
       "system": "系統"
     },
     "sections": {
-      "account": {
-        "description": "個人資料與登入",
-        "label": "個人資料"
-      },
-      "plansBilling": {
-        "description": "方案、用量與帳單",
-        "label": "方案與帳單"
-      },
       "general": {
         "description": "外觀、音效與啟動",
         "label": "偏好設定"
       },
       "hotkeys": {
-        "description": "聽寫快捷鍵與啟用模式",
-        "label": "快捷鍵"
+        "description": "快速鍵、麥克風、貼上與語言",
+        "label": "聽寫"
       },
       "speechToText": {
-        "description": "聽寫與筆記錄音引擎",
+        "description": "聽寫與筆記引擎",
         "label": "語音轉文字"
       },
       "llms": {
-        "description": "用於清理、筆記格式化和聊天的模型",
+        "description": "清理、助理、聊天與本機支援",
         "label": "語言模型"
       },
       "privacyData": {
-        "description": "隱私、權限與資料分析",
-        "label": "隱私與資料"
+        "description": "保留、儲存與權限",
+        "label": "隱私權與資料"
       },
       "system": {
-        "description": "更新、儲存與開發者工具",
+        "description": "更新與開發者工具",
         "label": "系統"
       },
-      "workspace": {
-        "description": "成員、團隊空間與 API 金鑰",
-        "label": "工作區"
+      "routing": {
+        "label": "路由",
+        "description": "每個任務運行的地方"
       }
     },
     "title": "設定"
@@ -1444,230 +1499,6 @@
         "newCapacity": "新容量",
         "chargeToday": "今日收費",
         "confirm": "新增席次"
-      }
-    },
-    "account": {
-      "badges": {
-        "free": "免費",
-        "limitReached": "已達上限",
-        "pastDue": "款項逾期",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "試用"
-      },
-      "billing": {
-        "couldNotOpenDescription": "開啟帳單頁面時發生問題。請再試一次。",
-        "couldNotOpenTitle": "無法開啟帳單頁面",
-        "manageBilling": "管理帳單",
-        "opening": "開啟中...",
-        "updatePaymentMethod": "更新付款方式",
-        "contactOwnerTitle": "請聯絡工作區擁有者",
-        "contactOwnerDescription": "只有工作區擁有者才能更新該工作區的帳單。"
-      },
-      "checkout": {
-        "couldNotOpenDescription": "開啟結帳頁面時發生問題。請再試一次。",
-        "couldNotOpenTitle": "無法開啟結帳頁面",
-        "opening": "開啟中...",
-        "upgradeToPro": "升級至 Pro"
-      },
-      "disabled": "已停用",
-      "featuresDisabled": "帳號功能已停用",
-      "featuresDisabledDescription": "請在 .env 檔案中設定 VITE_AUTH_URL 以啟用帳號功能。",
-      "notConfigured": "尚未設定驗證功能",
-      "notSignedIn": "尚未登入",
-      "notSignedInDescription": "建立帳號以解鎖進階功能。",
-      "offline": "離線",
-      "pastDue": {
-        "description": "你目前使用的是免費方案。更新付款方式即可恢復 Pro。",
-        "title": "我們無法處理你的付款"
-      },
-      "planDescriptions": {
-        "freeUsage": "本週已使用 {{used}} / {{limit}} 字",
-        "nextBilling": "下次扣款日：{{date}}",
-        "pastDue": "本週 {{used}} / {{limit}} 免費字數——更新付款方式以恢復 Pro",
-        "trial": "剩餘 {{days}} 天——無限轉錄",
-        "unlimited": "無限"
-      },
-      "planLabels": {
-        "free": "免費",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "試用"
-      },
-      "rollingWeeklyLimit": "滾動式每週額度",
-      "signOut": {
-        "failedDescription": "登出時發生錯誤。請再試一次。",
-        "failedTitle": "無法登出",
-        "signOut": "登出",
-        "signingOut": "登出中..."
-      },
-      "title": "帳號",
-      "toasts": {
-        "approachingLimit": {
-          "description": "你本週已使用 {{used}} / {{limit}} 免費字數。升級至 Pro 即可無限使用。",
-          "title": "即將達到每週上限"
-        }
-      },
-      "trialCta": {
-        "button": "建立免費帳號",
-        "description": "無限轉錄、優先處理等更多功能。",
-        "title": "免費試用 Pro 7 天"
-      },
-      "pricing": {
-        "title": "方案",
-        "billedYearly": "按年計費",
-        "free": {
-          "name": "Free",
-          "price": "$0",
-          "period": "永久",
-          "features": [
-            "## Loqui Cloud",
-            "每週 2,000 字轉錄",
-            "每月 5 小時會議錄製",
-            "## 永久免費",
-            "無限本地 AI 模型",
-            "使用自己的 API 金鑰無限雲端轉錄",
-            "支援 100+ 種語言",
-            "自訂詞典",
-            "零資料留存",
-            "社群支援"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/月",
-          "annualPrice": "$80",
-          "annualPeriod": "/年",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "所有 Free 功能 +",
-          "features": [
-            "無限雲端轉錄",
-            "每月 20 小時會議錄製",
-            "跨裝置同步",
-            "透過公開連結分享筆記",
-            "個人 API 存取",
-            "在所有應用程式中整合 MCP",
-            "行動應用程式",
-            "電子郵件支援"
-          ],
-          "cta": "開始使用",
-          "switchToAnnual": "切換為年付"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/月",
-          "annualPrice": "$160",
-          "annualPeriod": "/年",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "所有 Pro 功能 +",
-          "badge": "最熱門",
-          "features": [
-            "無限會議錄製",
-            "工作區角色與成員管理",
-            "助理模式",
-            "與您的資料對話",
-            "優先支援"
-          ],
-          "cta": "開始使用",
-          "switchToAnnual": "切換為年付"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "自訂",
-          "subtitle": "提供進階安全保障與支援",
-          "includesPrefix": "所有 Business 功能 +",
-          "features": [
-            "託管 API 額度",
-            "跨裝置雲端同步",
-            "團隊功能與管理",
-            "SSO 與合規",
-            "專屬支援"
-          ],
-          "cta": "聯繫銷售",
-          "upgradeCta": "升級至 Enterprise",
-          "askOwner": "請 {{name}} 升級您的工作區。"
-        },
-        "currentPlan": "目前方案",
-        "coveredByWorkspace": "已包含在您的工作區方案中",
-        "upgrade": "升級",
-        "downgrade": "降級",
-        "planSwitched": "方案已成功更新",
-        "confirmSwitch": {
-          "title": "確認更換方案",
-          "description": "切換至 {{plan}}（{{interval}}）",
-          "monthly": "月付",
-          "yearly": "年付",
-          "chargeToday": "今日收費",
-          "accountCredit": "帳戶餘額",
-          "newPrice": "新價格",
-          "nextBilling": "下次計費",
-          "mo": "月",
-          "yr": "年",
-          "cancel": "取消",
-          "confirm": "確認"
-        }
-      },
-      "signedOutPlans": {
-        "button": "建立免費帳號"
-      },
-      "user": "使用者",
-      "wordsRemaining": "剩餘 {{remaining}} 字",
-      "deleteAccount": {
-        "label": "刪除帳戶",
-        "labelDescription": "永久刪除您的帳戶和個人雲端資料。其他本地使用者和工作區擁有的內容將被保留。",
-        "button": "刪除我的帳戶",
-        "deleting": "正在刪除...",
-        "title": "刪除您的帳戶？",
-        "description": "這將永久刪除您的 Loqui 帳戶和個人資料。工作區擁有的內容及其他本地使用者的資料會保留在此裝置上。",
-        "confirmText": "刪除帳戶",
-        "eraseDeviceLabel": "同時清除此裝置上的所有資料",
-        "eraseDeviceDescription": "刪除所有本地使用者的筆記和工作區快取、已下載模型、設定、行事曆連線、憑證和錄音。",
-        "eraseDeviceWarning": "此裝置級清除無法復原，並會影響所有本地使用者。",
-        "successTitle": "帳戶已刪除",
-        "successDescription": "您的帳戶和個人資料已刪除。其他本地使用者、工作區、模型和裝置設定均已保留。",
-        "partialCleanupDescription": "您的帳戶已刪除，但部分本地清理未能完成。其他使用者和工作區擁有的內容均已保留。",
-        "failedTitle": "刪除失敗",
-        "failedDescription": "無法完成帳戶刪除。未啟動裝置級清除。請重試。"
-      },
-      "profile": {
-        "name": {
-          "label": "顯示名稱",
-          "placeholder": "您的姓名",
-          "save": "儲存",
-          "saving": "儲存中...",
-          "saved": "顯示名稱已更新",
-          "error": "無法更新您的姓名"
-        },
-        "password": {
-          "label": "密碼",
-          "description": "變更您用於登入的密碼。",
-          "change": "變更密碼",
-          "dialogTitle": "變更密碼",
-          "dialogDescription": "輸入您目前的密碼並設定新密碼。",
-          "currentLabel": "目前密碼",
-          "newLabel": "新密碼",
-          "confirmLabel": "確認新密碼",
-          "minLength": "密碼至少需要 8 個字元",
-          "mismatch": "兩次輸入的密碼不一致",
-          "revokeOthers": "在其他裝置上登出",
-          "submit": "更新密碼",
-          "saving": "更新中...",
-          "cancel": "取消",
-          "saved": "密碼已更新"
-        },
-        "errors": {
-          "invalidPassword": "您目前的密碼不正確。",
-          "passwordTooShort": "密碼至少需要 8 個字元。",
-          "passwordTooLong": "密碼過長。",
-          "noPassword": "此帳戶尚未設定密碼。",
-          "generic": "發生錯誤，請再試一次。"
-        }
-      },
-      "planUnavailable": {
-        "title": "無法取得方案",
-        "description": "目前無法載入你的方案，你的使用權限不受影響。"
       }
     },
     "agentConfig": {
@@ -1698,19 +1529,15 @@
       "enableTextCleanup": "啟用文字整理",
       "enableTextCleanupDescription": "AI 移除語助詞，修正文法和標點",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "雲端供應商",
         "local": "本機",
         "selfHosted": "自架主機",
-        "openwhisprDesc": "準確可靠，無需設定。",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "裝置端模型，完全私密。",
+        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
         "selfHostedDesc": "你的伺服器，在你的網路上。",
         "enterprise": "企業級",
         "enterpriseDesc": "使用你組織的雲端帳號（AWS、Azure、GCP）。"
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "準確可靠，無需設定。",
       "title": "AI 文字增強",
       "toasts": {
         "switchedCloud": {
@@ -1854,7 +1681,14 @@
         "dictationSoundsDescription": "錄音開始和結束時播放提示音",
         "pauseMedia": "暫停媒體",
         "pauseMediaDescription": "開始聽寫時自動暫停音樂",
-        "title": "音效"
+        "title": "音效",
+        "cueSet": "音效風格",
+        "cueSetSoft": "柔和",
+        "cueSetClassic": "經典",
+        "cueVolume": "音量",
+        "cueVolumeLow": "低",
+        "cueVolumeMedium": "中",
+        "cueVolumeHigh": "高"
       },
       "notifications": {
         "title": "通知",
@@ -1864,7 +1698,9 @@
         "meetingDetection": "會議偵測",
         "meetingDetectionDescription": "偵測到會議時通知您以便開始錄音",
         "calendarReminders": "行事曆提醒",
-        "calendarRemindersDescription": "預定會議即將開始時通知您"
+        "calendarRemindersDescription": "預定會議即將開始時通知您",
+        "meetingRecorderOnScreen": "在螢幕上顯示會議錄音器",
+        "meetingRecorderOnScreenDescription": "錄製會議時，聽寫膠囊會顯示計時器和停止按鈕。"
       },
       "clipboard": {
         "title": "剪貼簿",
@@ -2059,8 +1895,6 @@
       "leaderboardDescription": "在符合條件的工作區與工作網域排行榜中顯示你的姓名、電子郵件和活動。轉錄內容維持私密。",
       "leaderboardRequiresAccount": "登入後即可管理排行榜參與狀態。",
       "leaderboardRequiresHistory": "加入排行榜前，請先開啟資料保留。",
-      "usageAnalytics": "使用分析",
-      "usageAnalyticsDescription": "分享匿名的效能指標，協助我們改善 Loqui。我們絕不會傳送轉錄內容——只有計時和錯誤資料。",
       "dataRetention": "資料保留",
       "dataRetentionDescription": "將轉錄和音訊本地儲存至歷史記錄。停用後，轉錄內容會被貼上但不會被儲存。",
       "transcriptRetention": "轉錄保留",
@@ -2080,9 +1914,15 @@
       "audioStorageFiles": "{{count}} 個檔案，{{size}}",
       "audioStorageEmpty": "沒有已儲存的音訊檔案",
       "clearAllAudio": "清除所有音訊",
-      "clearAllAudioConfirm": "刪除所有已儲存的音訊檔案？此操作無法復原。",
       "saveDiscarded": "儲存已捨棄的聽寫",
-      "saveDiscardedDescription": "當你以 Escape 取消聽寫時，將其音訊保留在歷史記錄中以便復原。需要開啟資料與音訊保留。"
+      "saveDiscardedDescription": "當你以 Escape 取消聽寫時，將其音訊保留在歷史記錄中以便復原。需要開啟資料與音訊保留。",
+      "clearAllAudioTitle": "清除所有音訊？",
+      "clearAllAudioCounted": "已儲存的音訊：{{summary}}。全部刪除？此動作無法復原。",
+      "clearAllAudioAction": "刪除音訊",
+      "clearAllAudioDone": "已刪除儲存的音訊",
+      "clearAllAudioFailed": "並非所有儲存的音訊都已刪除。請再試一次，或確認沒有其他應用程式正在使用這些檔案。",
+      "audioStorageChecking": "正在檢查儲存的音訊…",
+      "audioStorageUnavailable": "Loqui 無法讀取其音訊資料夾，因此目前無法顯示或清除儲存的音訊。"
     },
     "prompts": {
       "description": "檢視、自訂和測試用於文字整理和指令偵測的統一系統提示詞",
@@ -2106,7 +1946,16 @@
         "dictationAgent": "語音助理",
         "noteFormatting": "筆記格式化",
         "chatIntelligence": "聊天",
-        "dictationTranslation": "翻譯"
+        "dictationTranslation": "翻譯",
+        "supportModels": "裝置端支援"
+      },
+      "supportModels": {
+        "title": "裝置端支援模型",
+        "description": "始終在此裝置上執行的小型模型。處理這些工作時，錄音和筆記不會離開此裝置。",
+        "downloaded": "已下載",
+        "checking": "正在檢查…",
+        "download": "下載 {{size}}",
+        "statusUnavailable": "狀態無法使用"
       }
     },
     "noteFormatting": {
@@ -2118,19 +1967,15 @@
       "customSetupDescription": "使用你自己的供應商和 API Key。",
       "description": "選擇 Loqui 轉錄語音的方式",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "雲端供應商",
         "local": "本機",
         "selfHosted": "自架主機",
-        "openwhisprDesc": "準確可靠，無需設定。",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "裝置端模型，完全私密。",
+        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
         "selfHostedDesc": "你的伺服器，在你的網路上。",
         "enterprise": "企業雲端",
         "enterpriseDesc": "音訊會傳送到貴組織自己的雲端。"
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "準確可靠，無需設定。",
       "title": "語音轉文字",
       "toasts": {
         "switchedCloud": {
@@ -2225,207 +2070,16 @@
     "selfHosted": {
       "endpointUrl": "端點 URL",
       "serverUrl": "伺服器 URL",
-      "apiKeyOptional": "API Key（選填）"
-    },
-    "workspace": {
-      "title": "工作區",
-      "description": "與團隊成員協作、分享筆記，並在同一處管理工作區存取權限。",
-      "empty": {
-        "title": "建立你的第一個工作區",
-        "description": "工作區讓你與團隊成員協作並分享筆記。",
-        "create": "建立工作區"
-      },
-      "loadError": {
-        "title": "無法載入工作區",
-        "description": "請檢查網路連線後再試一次。",
-        "retry": "重試"
-      },
-      "tab": {
-        "general": "一般",
-        "members": "成員",
-        "teams": "群組",
-        "developer": "開發者"
-      },
-      "role": {
-        "owner": "擁有者",
-        "admin": "管理員",
-        "member": "成員"
-      },
-      "general": {
-        "nameLabel": "工作區名稱",
-        "saved": "工作區已更新",
-        "dangerTitle": "刪除工作區",
-        "dangerDescription": "所有共享的筆記、資料夾與整合都會被刪除。此操作無法復原。",
-        "delete": "刪除工作區",
-        "confirmTitle": "要刪除 {{name}} 嗎？",
-        "confirmDescription": "這會取消訂閱並永久移除所有工作區資料。",
-        "deleting": "刪除中…",
-        "deleted": "工作區已刪除",
-        "leaveTitle": "離開工作區",
-        "leaveDescription": "你將失去此工作區及其共享筆記的存取權。",
-        "leave": "離開工作區",
-        "leaving": "離開中…",
-        "leaveConfirm": {
-          "title": "要離開 {{name}} 嗎？",
-          "description": "你將立即失去存取權。管理員可以再次邀請你加入。"
-        },
-        "left": "你已離開 {{name}}"
-      },
-      "members": {
-        "title": "成員",
-        "description": "已使用 {{count}} / {{seats}} 個席次。",
-        "invite": "邀請",
-        "empty": "尚無成員。",
-        "loadError": "無法載入成員。",
-        "roleUpdated": "角色已更新",
-        "removed": "已移除 {{name}}",
-        "promote": "設為管理員",
-        "demote": "設為成員",
-        "transferOwnership": "轉移擁有權",
-        "remove": "從工作區移除",
-        "removeConfirm": {
-          "title": "要移除這位成員嗎？",
-          "description": "{{name}} 將立即失去 {{workspace}} 的存取權。"
-        },
-        "transferConfirm": {
-          "title": "要轉移擁有權嗎？",
-          "description": "{{name}} 將成為 {{workspace}} 的擁有者。你的角色會變更為管理員，且只有新擁有者能將擁有權轉回。"
-        }
-      },
-      "joinRequests": {
-        "title": "加入申請",
-        "approve": "核准",
-        "deny": "拒絕",
-        "approved": "{{name}} 已加入工作區",
-        "denied": "已拒絕申請",
-        "errorTitle": "無法更新申請"
-      },
-      "teams": {
-        "title": "群組",
-        "description": "可一次取得團隊空間存取權的工作區成員群組。",
-        "new": "新增群組",
-        "empty": "還沒有群組。",
-        "createFirst": "建立你的第一個群組",
-        "addMembersLabel": "新增成員",
-        "createTitle": "建立群組",
-        "nameLabel": "群組名稱",
-        "memberCount_one": "{{count}} 位成員",
-        "memberCount_other": "{{count}} 位成員",
-        "membersButton": "成員",
-        "grantsAccessToSpaces_one": "授予 {{count}} 個空間的存取權",
-        "grantsAccessToSpaces_other": "授予 {{count}} 個空間的存取權",
-        "couldNotCreate": "無法建立群組",
-        "created": "已建立 {{team}}",
-        "deleted": "已刪除 {{team}}",
-        "deleteConfirmTitle": "刪除 {{team}}？",
-        "deleteConfirmDescription": "這將封存該群組。其成員將失去它授予的存取權。",
-        "deleteConfirmSpaceAccess_one": "該群組授予 {{count}} 個空間的存取權。其成員將失去該存取權。",
-        "deleteConfirmSpaceAccess_other": "該群組授予 {{count}} 個空間的存取權。其成員將失去該存取權。",
-        "members": {
-          "title": "{{team}} 的成員",
-          "removeConfirm": "將 {{name}} 從 {{team}} 移除？",
-          "leave": "退出群組",
-          "leftTeam": "你已退出 {{team}}",
-          "leaveConfirm": "退出 {{team}}？",
-          "leaveConfirmDescription": "除非你被直接加入或其他群組包含你，否則你將失去透過該群組取得的空間存取權。"
-        }
-      },
-      "invites": {
-        "title": "待處理的邀請",
-        "expiresIn_one": "{{count}} 天後到期",
-        "expiresIn_other": "{{count}} 天後到期",
-        "expired": "已到期",
-        "loadError": "無法載入邀請。",
-        "resend": "重新傳送",
-        "resending": "重新傳送中…",
-        "revoke": "撤銷",
-        "resent": "邀請已重新傳送",
-        "resentNoEmail": "邀請已更新，但電子郵件無法送達。",
-        "revoked": "邀請已撤銷",
-        "revokeFailed": "無法撤銷邀請",
-        "revokeConfirm": {
-          "title": "要撤銷此邀請嗎？",
-          "description": "{{email}} 的邀請連結將會失效。"
-        }
-      },
-      "billing": {
-        "plan": "方案",
-        "seats": "席次",
-        "ownerOnly": "只有工作區擁有者可以管理訂閱。",
-        "nextInvoice": "下期帳單",
-        "manageStripe": "在 Stripe 中管理",
-        "startSubscription": "開始訂閱",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "免費",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "使用中",
-          "trialing": "試用中",
-          "past_due": "逾期未付",
-          "canceled": "已取消",
-          "incomplete": "未完成",
-          "unpaid": "未付款"
-        }
-      },
-      "developer": {
-        "title": "API 金鑰",
-        "description": "範圍限於此工作區的程式化存取。",
-        "empty": "尚無 API 金鑰。建立一個以整合此工作區。",
-        "loadError": "無法載入 API 金鑰。",
-        "new": "新增金鑰",
-        "create": "建立金鑰",
-        "createTitle": "建立 API 金鑰",
-        "createDescription": "選擇此金鑰所需的權限。你隨時可以撤銷它。",
-        "nameLabel": "金鑰名稱",
-        "namePlaceholder": "正式環境整合",
-        "revoke": "撤銷金鑰",
-        "revoked": "已撤銷金鑰 {{name}}",
-        "lastUsed": "上次使用於 {{date}}",
-        "neverUsed": "從未使用",
-        "keyCreatedTitle": "API 金鑰已建立",
-        "keyCreatedDescription": "請立即複製此金鑰 — 之後將無法再次檢視。",
-        "revokeConfirm": {
-          "title": "要撤銷此金鑰嗎？",
-          "description": "{{name}} 將立即失效。所有使用它的整合都會開始失敗。"
-        },
-        "scopes": {
-          "notes": {
-            "title": "筆記",
-            "read": "讀取筆記",
-            "write": "寫入筆記"
-          },
-          "folders": {
-            "title": "資料夾",
-            "read": "讀取資料夾",
-            "write": "寫入資料夾"
-          },
-          "transcriptions": {
-            "title": "轉錄",
-            "read": "讀取轉錄"
-          },
-          "members": {
-            "title": "成員",
-            "read": "讀取成員",
-            "write": "管理成員"
-          },
-          "billing": {
-            "title": "帳單",
-            "read": "讀取帳單"
-          },
-          "full": {
-            "title": "完整存取",
-            "admin": "工作區管理員"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "Enterprise 主控台",
-        "description": "在網頁上管理 SSO、政策與成員",
-        "open": "開啟主控台"
-      }
+      "apiKeyOptional": "API Key（選填）",
+      "test": "測試",
+      "testing": "測試中…",
+      "testTitle": "向 {{host}} 查詢模型清單。不傳送金鑰。",
+      "testOk_one": "已連線 · {{count}} 個模型",
+      "testOk_other": "已連線 · {{count}} 個模型",
+      "testFail": "無法列出 {{host}} 的模型。請檢查位址及伺服器是否運作。",
+      "testHttpsRequired": "http:// 僅適用於你自己網路內的位址。",
+      "sharedReadOnly": "音訊上傳使用聽寫伺服器。請在語音轉文字 › 聽寫中修改。",
+      "notSet": "未設定"
     },
     "enterpriseCheckout": {
       "title": "升級至 Enterprise",
@@ -2454,6 +2108,19 @@
       "upgradeCta": "立即升級",
       "upgradedTitle": "已升級至 Enterprise",
       "upgradedDescription": "{{workspace}} 現已升級至 Enterprise。"
+    },
+    "reviewSetup": {
+      "title": "檢查聽寫設定",
+      "description": "返回設定流程，不會變更現有筆記或憑證。",
+      "action": "開啟設定精靈"
+    },
+    "labs": {
+      "title": "實驗室",
+      "description": "仍在打磨的原型功能。可隨時關閉。",
+      "table": {
+        "label": "桌面",
+        "description": "空間的畫布檢視：鋪開筆記、聽寫與回答並將它們連起來。卡片位置保存在此裝置上；摘要與提問使用你的聊天服務提供者。"
+      }
     }
   },
   "models": {
@@ -2597,7 +2264,11 @@
       "contextTooLarge": "內容過長，{{model}} 無法在這台電腦上讀取。大約需要 {{needed}} 個上下文 token，但記憶體只能容納 {{max}} 個。請改用雲端模型，或對更短的選取範圍執行該動作。",
       "contextTooLargeGeneric": "內容過長，{{model}} 無法在這台電腦上讀取。請改用雲端模型，或對更短的選取範圍執行該動作。",
       "localServerUnavailable": "無法在這台電腦上啟動 {{model}}。請重試，或改用雲端模型。"
-    }
+    },
+    "downloadingNamed": "正在下載 {{model}}",
+    "installingNamed": "正在安裝 {{model}}",
+    "deleteNamed": "刪除 {{model}}",
+    "listLabel": "模型"
   },
   "referral": {
     "modalTitle": "推薦計畫",
@@ -2870,7 +2541,7 @@
       "transcriptEmptyDescription": "點擊錄製開始轉錄。所說的內容會即時顯示在這裡。",
       "startRecording": "開始錄製",
       "generateSummary": "產生 AI 摘要",
-      "startWriting": "開始撰寫...",
+      "startWriting": "輸入、聽寫或貼上。按 / 使用區塊與操作。",
       "staleIndicator": "內容在增強後已變更",
       "live": "即時",
       "transcript": "轉錄",
@@ -2913,7 +2584,6 @@
       "newFolder": "新增資料夾",
       "folderName": "資料夾名稱",
       "create": "建立",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "自訂",
       "selectFolder": "選擇資料夾",
       "transcriptionFailed": "轉錄失敗",
@@ -2970,7 +2640,9 @@
       "urlFileTooLarge": "檔案過大，無法下載。大小上限為 500 MB。",
       "urlYoutubeBlocked": "YouTube 暫時封鎖了來自您網路的下載。請稍後再試。",
       "customEndpointInvalid": "自訂轉錄端點未設定或無效。請在設定中更新。",
-      "streamingOnlyProvider": "此服務商僅支援即時轉錄。請為檔案上傳與重試選擇其他服務商。"
+      "streamingOnlyProvider": "此服務商僅支援即時轉錄。請為檔案上傳與重試選擇其他服務商。",
+      "needsModel": "上傳檔案需要轉錄模型。",
+      "chooseModel": "選擇轉錄模型"
     },
     "meeting": {
       "title": "會議筆記",
@@ -3172,6 +2844,60 @@
       "author": {
         "you": "你"
       }
+    },
+    "actionsModelHint": {
+      "title": "動作需要 AI 模型",
+      "choose": "選擇模型",
+      "needsProvider": "操作需要 AI 提供者",
+      "chooseProvider": "選擇提供者",
+      "needsKey": "操作需要 {{provider}} 的 API 金鑰",
+      "addKey": "新增金鑰",
+      "needsUrl": "操作需要你的伺服器位址",
+      "addUrl": "新增位址",
+      "sealed": "封存模式開啟時，操作會暫停",
+      "unreachable": "操作無法連線至筆記模型",
+      "openSettings": "開啟設定"
+    },
+    "slash": {
+      "label": "插入區塊",
+      "empty": "沒有相符的區塊",
+      "aiNeedsModel": "操作需要 AI 模型",
+      "setupAi": "設定筆記 AI…",
+      "ai": {
+        "needsModel": "請在設定中下載筆記模型",
+        "needsKey": "請在設定中新增 API 金鑰",
+        "needsUrl": "請在設定中新增伺服器位址",
+        "off": "筆記 AI 已在設定中關閉",
+        "unreachable": "無法連線至筆記模型",
+        "unknown": "正在檢查筆記模型…"
+      },
+      "manageActions": "管理操作…",
+      "groups": {
+        "text": "文字",
+        "ai": "AI",
+        "insert": "插入"
+      },
+      "items": {
+        "h1": "標題 1",
+        "h2": "標題 2",
+        "h3": "標題 3",
+        "bullet": "項目符號清單",
+        "numbered": "編號清單",
+        "todo": "待辦清單",
+        "quote": "引言",
+        "code": "程式碼",
+        "timestamp": "時間戳記",
+        "dictation": "在此聽寫",
+        "mention": "提及"
+      }
+    },
+    "bubble": {
+      "bold": "粗體",
+      "italic": "斜體",
+      "link": "連結",
+      "linkUrl": "連結位址",
+      "linkInvalid": "請輸入網址或電子郵件地址",
+      "askAi": "詢問 AI"
     }
   },
   "dictionary": {
@@ -3228,7 +2954,8 @@
     "emptyDescription": "新增希望{{agentName}}始終辨識正確的詞：名字、工具、縮寫。",
     "addFirstWord": "新增第一個詞",
     "importList": "匯入清單",
-    "agentDefault": "預設加入"
+    "agentDefault": "預設加入",
+    "exportAction": "匯出"
   },
   "insights": {
     "title": "統計",
@@ -3354,12 +3081,18 @@
       "saved": "圖片已下載。",
       "failed": "無法建立分享卡片。",
       "unnamedMember": "團隊成員"
-    }
+    },
+    "openHistory": "開啟歷史記錄",
+    "openDictations": "在歷史記錄中顯示聽寫",
+    "focusHeatmap": "前往活動圖表"
   },
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "空間",
+      "recent": "最近使用",
+      "voice": "語音"
     },
     "navigation": "Main navigation",
     "insights": "統計",
@@ -3385,7 +3118,8 @@
     "notSignedIn": "尚未登入",
     "chat": "聊天",
     "collapse": "收合側邊欄",
-    "expand": "展開側邊欄"
+    "expand": "展開側邊欄",
+    "calendars": "行事曆"
   },
   "chat": {
     "newChat": "新對話",
@@ -3407,7 +3141,27 @@
     "searchChats": "搜尋聊天",
     "searchTitle": "搜尋對話",
     "searchDescription": "搜尋所有對話",
-    "newChatEmpty": "詢問關於筆記、轉錄或其他任何內容"
+    "newChatEmpty": "詢問關於筆記、轉錄或其他任何內容",
+    "assistant": "助理",
+    "sources": {
+      "label": "來源",
+      "note": "筆記",
+      "meeting": "會議"
+    },
+    "model": {
+      "changeHint": "在設定中變更"
+    },
+    "rail": {
+      "label": "上下文",
+      "toggle": "上下文",
+      "inScope": "範圍內",
+      "found": "自動找到",
+      "emptyScope": "輸入 @ 新增筆記、會議或資料夾。助理也會自行搜尋你的筆記。",
+      "unpin": "從上下文中移除{{label}}",
+      "activity": "活動",
+      "noActivity": "暫無活動",
+      "addContext": "新增上下文"
+    }
   },
   "support": {
     "documentation": "文件",
@@ -3429,7 +3183,19 @@
     "edit": "編輯",
     "add": "新增",
     "editButton": "編輯金鑰",
-    "addButton": "新增金鑰"
+    "addButton": "新增金鑰",
+    "saveFailed": "無法儲存此金鑰。你輸入的內容仍在這裡，請再試一次。",
+    "removeFailed": "無法移除此金鑰。它仍處於已儲存狀態。",
+    "removed": "金鑰已移除。",
+    "removedCredential": "憑證已移除（所有欄位）。",
+    "removeCredential": "移除憑證（所有欄位）",
+    "restored": "金鑰已還原。",
+    "undo": "復原",
+    "undoLabel": "復原移除金鑰",
+    "undoExpired": "已超過可復原的時間。請重新新增金鑰。",
+    "undoReplaced": "已儲存較新的金鑰，因此未還原已移除的金鑰。",
+    "undoUnknown": "無法再復原此次移除。請重新新增金鑰。",
+    "undoRetry": "無法還原金鑰。請再次按下「復原」。"
   },
   "gpu": {
     "transcriptionBanner": "使用 GPU 加速轉錄",
@@ -3509,15 +3275,20 @@
       "visionModelDescription": "將附有截圖的指令改由另一個支援影像的模型處理。",
       "permissionTitle": "螢幕錄製",
       "permissionDescription": "macOS 需要螢幕錄製權限才能擷取螢幕。",
-      "relaunchHint": "螢幕錄製權限是在 Loqui 執行期間授予的。請結束並重新開啟 Loqui 以開始擷取螢幕截圖。"
+      "relaunchHint": "螢幕錄製權限是在 Loqui 執行期間授予的。請結束並重新開啟 Loqui 以開始擷取螢幕截圖。",
+      "goesToDevice": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 螢幕截圖會傳給此裝置上的 {{model}}，並留在此裝置上。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "goesToDeviceNoModel": "螢幕情境已設為在此裝置上處理，但尚未指定模型。錄音前請檢查語音助理與視覺模型設定。",
+      "goesToServer": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 接著，位於 {{host}} 的伺服器會收到以下內容：{{payload}}。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "goesToServerNoHost": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 接著，您的伺服器會收到以下內容：{{payload}}。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "goesToProvider": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 接著，{{provider}}（{{host}}）會收到以下內容：{{payload}}。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "goesToProviderNoHost": "開始語音助理錄音時，Loqui 會擷取游標所在顯示器的畫面。 接著，{{provider}} 會收到以下內容：{{payload}}。 Loqui 從不儲存截圖，也不會將其寫入記錄檔。",
+      "destinationUnspecified": "尚未設定螢幕情境的接收方。錄音前請檢查語音助理與視覺模型設定。"
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "使用 Loqui 託管的助理，無需 API Key。",
       "providers": "使用你自己的 API Key",
       "providersDesc": "用你自己的 API Key 連接 OpenAI、Anthropic、Gemini 或 Groq。",
       "local": "本機",
-      "localDesc": "在你的裝置上執行本機 LLM，完全私密。",
+      "localDesc": "在此裝置上執行本機模型。不會向外傳送任何內容。",
       "selfHosted": "自架主機",
       "selfHostedDesc": "指向自架的 OpenAI 相容端點。",
       "enterprise": "企業級",
@@ -3534,13 +3305,11 @@
       "systemPromptDescription": "助理的自訂指令",
       "systemPromptPlaceholder": "輸入自訂系統提示詞...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "雲端供應商",
         "local": "本機",
         "selfHosted": "自架主機",
-        "openwhisprDesc": "準確可靠，無需設定。",
         "providersDesc": "使用自己的 API 金鑰。",
-        "localDesc": "裝置端模型，完全私密。",
+        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
         "selfHostedDesc": "你自己網路上的伺服器。",
         "enterprise": "企業級",
         "enterpriseDesc": "使用你組織的雲端帳號（AWS、Azure、GCP）。"
@@ -3556,7 +3325,13 @@
       "thinking": "正在思考...",
       "typeMessage": "輸入訊息...",
       "send": "傳送",
-      "voiceDraftStreamingOnly": "目前的轉錄服務商僅支援即時聽寫，因此無法使用語音輸入。請在「設定 → 語音轉文字」中選擇其他服務商。"
+      "voiceDraftStreamingOnly": "目前的轉錄服務商僅支援即時聽寫，因此無法使用語音輸入。請在「設定 → 語音轉文字」中選擇其他服務商。",
+      "queued": "回覆結束後傳送",
+      "unqueue": "完成後不傳送",
+      "queueDropped": "未傳送：對話或模型已變更。按 Enter 傳送到這裡。",
+      "unsent": "你先前的訊息未傳送。",
+      "restoreUnsent": "放回",
+      "discardUnsent": "捨棄"
     },
     "tools": {
       "search_notesName": "搜尋筆記",
@@ -3585,7 +3360,8 @@
       "copiedToClipboard": "已複製到剪貼簿",
       "openNote": "開啟筆記",
       "unknownTool": "未知工具：{{name}}",
-      "invalidArgs": "{{name}} 的工具參數無效"
+      "invalidArgs": "{{name}} 的工具參數無效",
+      "summary_other": "已搜尋 {{count}} 則筆記"
     }
   },
   "assistant": {
@@ -3761,7 +3537,8 @@
     "openSettings": "打開系統設定",
     "connectCalendar": "連接您的日曆",
     "connectCalendarDescription": "無需離開 Loqui 即可查看並加入您的會議。",
-    "connectCalendarButton": "連接日曆"
+    "connectCalendarButton": "連接日曆",
+    "todayLabel": "今天"
   },
   "notesView": {
     "searchPlaceholder": "搜尋筆記…",
@@ -3835,15 +3612,46 @@
     "sections": {
       "notes": "筆記",
       "transcripts": "轉錄",
-      "jumpTo": "跳至"
+      "jumpTo": "跳至",
+      "suggested": "推薦",
+      "recent": "最近",
+      "commands": "命令",
+      "meetings": "會議",
+      "chats": "聊天",
+      "folders": "資料夾"
     },
     "noResults": "無結果",
     "emptyState": "輸入內容開始搜尋",
     "footer": {
       "navigate": "導覽",
       "open": "開啟",
-      "dismiss": "關閉"
-    }
+      "dismiss": "關閉",
+      "scope": "範圍",
+      "close": "關閉"
+    },
+    "placeholderAll": "搜尋筆記、會議或執行命令…",
+    "commands": {
+      "newNote": "新增筆記",
+      "startDictation": "開始聽寫",
+      "askAssistant": "詢問助理",
+      "goNotes": "前往筆記",
+      "goHome": "前往首頁",
+      "goChat": "前往聊天",
+      "recordMeeting": "錄製會議",
+      "uploadAudio": "上傳音訊…",
+      "newChat": "新增聊天",
+      "openSettings": "開啟設定",
+      "switchSpeechModel": "切換語音模型…",
+      "toggleTheme": "切換深色主題"
+    },
+    "askAssistant": "詢問助理：「{{query}}」",
+    "nothingMatches": "沒有符合「{{query}}」的結果。",
+    "meta": {
+      "meeting": "會議",
+      "chat": "聊天"
+    },
+    "clear": "清除搜尋",
+    "seeAllTranscripts_other": "在歷史紀錄中查看全部 {{count}} 筆結果"
   },
   "emojiPicker": {
     "search": "搜尋表情符號…",
@@ -4054,7 +3862,12 @@
       "underway": "你的會議似乎已在進行中。要開始記錄嗎？"
     },
     "start": "開始記錄",
-    "join": "加入並轉錄"
+    "join": "加入並轉錄",
+    "bodyApp": "偵測到 {{app}} 中的會議。",
+    "privacy": "在此裝置上偵測到。尚未錄製任何內容。",
+    "mini": "開會？開始記筆記",
+    "accepted": "正在記筆記",
+    "dismiss": "關閉"
   },
   "codexConnection": {
     "title": "ChatGPT subscription (Codex)",
@@ -4066,7 +3879,10 @@
     "cancel": "取消登入",
     "connect": "連接 ChatGPT",
     "refresh": "重新整理",
-    "loginFailed": "無法完成登入。"
+    "loginFailed": "無法完成登入。",
+    "signedInStored": "此裝置已登入 ChatGPT。檢查狀態以查看帳戶和剩餘用量。",
+    "checkStatus": "檢查 ChatGPT 狀態",
+    "checkStatusTitle": "啟動 Codex 應用程式，向 ChatGPT 查詢登入狀態和剩餘用量。Loqui 啟動後的首次檢查也會向 GitHub 確認 Codex 是否為官方版本。不傳送已儲存的金鑰。"
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",
@@ -4119,6 +3935,7 @@
     "beta": "Beta and stable",
     "downloading": "Downloading update: {{percent}}%",
     "ready": "Loqui {{version}} is ready. Finish active work before restarting.",
+    "available": "Loqui {{version}} 已可使用。開啟自動更新即可安裝，或從 GitHub 下載。",
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"
@@ -4129,5 +3946,1081 @@
     "remote": "傳送至 {{provider}}",
     "unknownProvider": "未知提供者",
     "customEndpoint": "自訂端點"
+  },
+  "routes": {
+    "groups": {
+      "speech": "語音",
+      "text": "文字",
+      "support": "僅限此裝置"
+    },
+    "names": {
+      "dictationStt": "聽寫",
+      "noteRecordingStt": "筆記錄音",
+      "uploadStt": "音訊上傳",
+      "dictationCleanup": "聽寫潤飾",
+      "voiceAssistant": "語音助理",
+      "assistantVision": "助理視覺",
+      "translation": "翻譯",
+      "noteFormatting": "筆記排版",
+      "chat": "聊天",
+      "speakerId": "說話者辨識",
+      "semanticSearch": "語意搜尋"
+    },
+    "subtitles": {
+      "dictationStt": "輕點即可在任何應用程式中語音輸入",
+      "noteRecordingStt": "會議和語音筆記",
+      "uploadStt": "轉錄匯入的檔案",
+      "dictationCleanup": "修正贅詞和標點符號",
+      "voiceAssistant": "提出問題，即可獲得回答",
+      "assistantVision": "隨助理請求傳送的螢幕截圖",
+      "translation": "用一種語言聽寫，以另一種語言貼上",
+      "noteFormatting": "摘要和待辦事項",
+      "chat": "針對筆記內容提問",
+      "speakerId": "辨識會議中誰說了什麼",
+      "semanticSearch": "依意義尋找筆記"
+    },
+    "payload": {
+      "audio": "你的音訊",
+      "audioFile": "音訊檔案",
+      "meetingAudio": "來自麥克風和通話的會議音訊",
+      "dictionary": "你的詞典詞彙和文字片段觸發詞",
+      "dictionaryWords": "你的詞典詞彙",
+      "transcript": "你的轉錄文字",
+      "request": "你的語音請求",
+      "selectedText": "你選取的文字",
+      "history": "最近的對話",
+      "lookups": "查找到的筆記和行事曆詳情",
+      "noteText": "你的筆記文字",
+      "meetingTranscript": "附有說話者姓名的會議轉錄",
+      "participants": "與會者姓名和電子郵件地址",
+      "screenshot": "你的螢幕截圖",
+      "webSearch": "允許供應商搜尋網路的授權",
+      "messages": "你的訊息",
+      "metadataNote": "語言和模型名稱等設定也會傳送。"
+    },
+    "runsOn": "{{task}}執行於",
+    "place": {
+      "chooseProvider": "選擇提供者"
+    },
+    "selection": {
+      "current": "目前",
+      "selected": "已選取",
+      "staged": "已暫存，未啟用"
+    },
+    "state": {
+      "ready": "就緒",
+      "off": "關閉",
+      "checking": "正在檢查…",
+      "download": "下載{{size}}",
+      "chooseModel": "選擇模型",
+      "addKey": "新增 API 金鑰",
+      "chooseProvider": "選擇提供者",
+      "addUrl": "新增伺服器網址",
+      "sealed": "已暫停 · 封存模式",
+      "retired": "服務已停用 · 請重新選擇",
+      "unsupported": "此任務無法使用",
+      "cantReach": "無法連線至伺服器"
+    },
+    "toast": {
+      "local": "{{task}}現在在此裝置上執行。",
+      "sends": "{{task}}現在將{{payload}}傳送至{{destination}}。",
+      "whenOn": "開啟{{task}}後，將使用{{destination}}。",
+      "off": "{{task}}已關閉。不會傳送任何內容。",
+      "saved": "已儲存{{task}}設定。",
+      "thisDevice": "此裝置",
+      "server": "你的伺服器",
+      "serverAt": "位於{{host}}的伺服器",
+      "chooseModel": "請選擇模型以完成設定。",
+      "signInNext": "接下來請登入{{provider}}。登入前不會傳送任何內容。",
+      "alsoChanges": "同時變更{{tasks}}。",
+      "undo": "復原",
+      "undoStaged": "復原操作等待套用。請先檢查，然後套用。"
+    }
+  },
+  "staging": {
+    "region": "待處理的路由變更",
+    "heading": "傳送任何內容前請先檢查",
+    "coupled": "同時變更",
+    "sends": "傳送{{payload}}",
+    "staysOnDevice": "保留在此裝置上",
+    "offNote": "已關閉。開啟後使用。",
+    "setupHere": "套用前請先在此設定 {{provider}}。套用前不會傳送任何內容。",
+    "discard": "捨棄",
+    "apply": "套用",
+    "blocked": {
+      "needsKey": "{{provider}} 需要先提供金鑰。",
+      "chooseProvider": "選擇供應商以查看將傳送的內容。",
+      "needsUrl": "請輸入有效的伺服器位址。",
+      "needsModel": "請先下載模型。",
+      "chooseModel": "請先選擇模型。",
+      "signIn": "請先登入 {{provider}}。套用前不會傳送任何內容。",
+      "sealed": "封閉模式已開啟。離開此裝置的路由已暫停。",
+      "unknown": "仍在檢查已儲存的金鑰和模型。請稍後重試。",
+      "unsupported": "此供應商無法執行此工作。"
+    },
+    "provider": "供應商",
+    "model": "模型",
+    "modelId": "模型 ID",
+    "useModel": "使用此模型",
+    "keySaved": "已儲存金鑰",
+    "noKey": "無金鑰",
+    "cloud": {
+      "title": "將{{task}}傳送到雲端供應商？",
+      "body": "請選擇供應商。套用前不會傳送任何內容。"
+    },
+    "server": {
+      "title": "將{{task}}傳送到您自己的伺服器？",
+      "body": "請輸入伺服器位址。套用前不會傳送任何內容。"
+    },
+    "sharedWithDictation": "音訊上傳使用聽寫伺服器 {{url}}。請在「語音轉文字 › 聽寫」中變更。",
+    "serverUrl": "伺服器位址",
+    "endpointUrl": "端點 URL",
+    "useEndpoint": "使用此端點",
+    "useServer": "使用此伺服器",
+    "url": {
+      "empty": "貼上或輸入基底 URL。",
+      "invalid": "這還不是有效的網址。請以 https:// 或 http:// 開頭。",
+      "insecure": "未加密的 http:// 僅適用於您自己網路中的位址。請使用 https://。",
+      "http": "http:// 未加密。可在您自己的網路中使用。",
+      "ok": "看起來沒問題。"
+    }
+  },
+  "patchbay": {
+    "title": "路由",
+    "description": "每項任務及其目前的執行位置。切換至此裝置會立即生效，且可復原。切換至伺服器或提供者前，需先由您檢查並套用。",
+    "tasks": "任務",
+    "destinations": "執行位置",
+    "openSettings": "開啟 {{task}} 設定",
+    "sealed": "密封模式已開啟。任務只能在此設備上運行。",
+    "undo": "撤銷",
+    "kind": {
+      "speech": "語音",
+      "text": "文字"
+    },
+    "hint": {
+      "idle": "選擇一個任務，然後選擇它應該運行的位置。",
+      "pickDestination": "發送 {{task}} 至... 選擇突出顯示的目的地。",
+      "pickTaskFirst": "首先選擇一個任務，然後選擇它應該運行的位置。",
+      "already": "{{task}} 已在以下位置執行：{{place}}。",
+      "off": "{{task}} 已關閉。在其設定中將其打開。",
+      "moved": "{{task}} 目前的執行位置：{{place}}。",
+      "movedOff": "{{task}} 已關閉。啟用後的執行位置：{{place}}。",
+      "movedAlso": "也更改：{{tasks}}。",
+      "staged": "請檢查下方的 {{task}} → {{destination}}，然後套用變更。套用前不會傳送任何內容。",
+      "undone": "{{task}} 又回到原來的位置了。",
+      "undoStaged": "請在下方檢查並套用恢復原執行位置的變更。",
+      "notApplied": "一切都沒有改變。",
+      "failed": "無法更改路線：{{error}}"
+    },
+    "locked": {
+      "speakerId": "鎖定到此裝置：說話者辨識需要您在裝置上的錄音。",
+      "semanticSearch": "鎖定到此裝置：嵌入保留在本地，因此搜尋永遠不會將您的筆記發送到任何地方。"
+    },
+    "no": {
+      "capability": "{{provider}} 無法在 Loqui 中執行此任務。",
+      "visionCloudOnly": "目前，螢幕截圖只能轉到雲視覺模型。",
+      "meetingServer": "筆記錄音尚不支援使用您自己的伺服器。",
+      "sealed": "密封模式將此任務保留在此設備上。",
+      "uploadServer": "文件上傳使用為聽寫設定的伺服器。在那裡改變它。",
+      "serverKind": "尚未為 {{kind}} 任務設定 {{server}}。使用“新增伺服器”輸入其位址。"
+    },
+    "place": {
+      "device": "在此裝置上",
+      "server": "在位址為 {{host}} 的伺服器上",
+      "anyServer": "在您的伺服器上",
+      "endpoint": "在 {{name}}（{{host}}）處",
+      "provider": "在 {{provider}} 處"
+    },
+    "dest": {
+      "serverAt": "伺服器位於 {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "新增伺服器",
+      "addServerHint": "接下來輸入它的地址",
+      "nothingLeaves": "不向外傳送任何內容",
+      "yourServer": "您自己的伺服器",
+      "unencrypted": "http，未加密",
+      "hosted": "託管提供者",
+      "keySaved": "API 金鑰已儲存",
+      "noKey": "尚未儲存密鑰",
+      "keyRejected": "金鑰遭拒絕",
+      "keyUnknown": "檢查已儲存的密鑰..."
+    },
+    "leaves": {
+      "none": "不會向此裝置以外傳送任何內容。",
+      "prefix": "向此裝置以外傳送內容的任務：",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_other": "{{count}} 任務",
+    "meter": {
+      "label_other": "{{count}} 任務（共 {{total}} 個）保留在此裝置上",
+      "headline_other": "{{count}} 任務（共 {{total}} 個）保留在此裝置上",
+      "network_other": "{{count}} 在您的伺服器上"
+    }
+  },
+  "keyring": {
+    "reminder": {
+      "title": "該更換 {{provider}} 金鑰了",
+      "body": "你已要求 Loqui 在儲存此金鑰 90 天後提醒你。請在設定中更換金鑰。"
+    },
+    "fields": {
+      "environmentKey": "來自 Loqui 環境變數的 API 金鑰（GOOGLE_VERTEX_API_KEY）",
+      "key": "API 金鑰",
+      "clientId": "用戶端 ID",
+      "clientSecret": "用戶端密鑰",
+      "accessKeyId": "存取金鑰 ID",
+      "secretAccessKey": "秘密存取金鑰",
+      "sessionToken": "工作階段權杖",
+      "profile": "AWS 設定檔憑證"
+    },
+    "title": "鑰匙圈",
+    "subtitle": "已儲存的憑證及其可用狀態。結果會保留在此裝置上。",
+    "verify": "驗證",
+    "verifyLabel": "驗證 {{identity}}",
+    "verifyAll": "全部驗證",
+    "verifyingAll": "正在驗證第 {{current}} 項，共 {{total}} 項…",
+    "verifyTooltip": "將「{{identity}}」已儲存的 {{fields}} 傳送至 {{host}} 進行驗證。",
+    "verifyTarget": "驗證會將 {{fields}} 傳送至 {{host}}",
+    "verifyTargetUnknown": "驗證目標尚不明確",
+    "verifyTooltipNoHost": "將已儲存的憑證「{{identity}}」傳送給其供應商進行驗證。",
+    "verifyAllTooltip": "將下方已儲存的憑證逐一傳送給各自的供應商。",
+    "checking": "正在檢查…",
+    "never": "從未驗證",
+    "lastVerified": "上次驗證：{{when}}",
+    "rejected": "已拒絕（{{status}}）。請更換金鑰。",
+    "rejectedNoStatus": "已拒絕。請更換金鑰。",
+    "unreachable": "無法連線至 {{host}}。金鑰已保留，但尚未驗證。",
+    "unreachableNoHost": "無法連線至供應商。金鑰已保留，但尚未驗證。",
+    "paused": "已暫停：{{tasks}}",
+    "superseded": "金鑰在驗證期間已變更，因此已捨棄此結果。請重新驗證。",
+    "verifyFailed": "無法驗證。請再試一次。",
+    "invalidCortiOptions": "未傳送任何內容：語音設定中的 Corti 區域「{{environment}}」或租用戶「{{tenant}}」無效。請修正後重新驗證。",
+    "loadFailed": "無法重新整理此清單。目前顯示先前載入的內容。",
+    "remind": "90 天後提醒",
+    "remindLabel": "90 天後提醒我輪替 {{identity}}",
+    "sealed": "密封模式已開啟，驗證已暫停。",
+    "empty": "沒有已儲存的憑證。需要憑證的工作會在「路由」中顯示「新增 API 金鑰」。",
+    "identity": {
+      "cortiText": "{{provider}} · 文字 API 金鑰",
+      "cortiSpeech": "{{provider}} · 語音用戶端 ID 和密鑰"
+    },
+    "status": {
+      "verified": "已驗證",
+      "unverified": "尚未驗證",
+      "rejected": "已拒絕",
+      "unreachable": "無法驗證"
+    },
+    "unknown": "無法取得已儲存憑證的狀態。",
+    "recipientChanged": "憑證或接收方已變更。請檢查更新後的目標，再次按下「驗證」。",
+    "unavailable": "目前無法驗證。無法確認已儲存憑證的狀態。"
+  },
+  "cartridge": {
+    "groupLabel": "語言模型",
+    "speechGroupLabel": "語音模型",
+    "speed": "速度",
+    "quality": "品質",
+    "memory": "記憶體用量",
+    "meter": "{{label}}：{{value}}/5",
+    "estimate": "未有實測資料時，指標依檔案大小估算。不會上傳任何內容。",
+    "context": "{{k}}k 上下文",
+    "tight": "此裝置記憶體較吃緊",
+    "tooLarge": "此模型超出裝置容量：約需 {{needs}}，此裝置有 {{total}}",
+    "notDownloaded": "尚未下載",
+    "download": "下載",
+    "downloadNamed": "下載 {{name}}",
+    "downloading": "正在下載 {{name}}",
+    "cancel": "取消下載 {{name}}",
+    "delete": "刪除 {{name}}",
+    "inUseBy": "使用此模型的工作",
+    "showFewer": "收合",
+    "showAll_other": "顯示全部 {{count}} 個"
+  },
+  "storage": {
+    "title": "儲存空間",
+    "loading": "正在統計…",
+    "countFailed": "無法統計。完成統計前無法刪除任何內容。",
+    "countAgain": "重新統計",
+    "delete": "刪除…",
+    "deleting": "正在刪除…",
+    "open": "開啟",
+    "retry": "重試",
+    "danger": "危險區域",
+    "failed": {
+      "partial": "已刪除 {{total}} 項中的 {{deleted}} 項。{{remaining}} 項無法刪除。",
+      "unknown": "Loqui 無法確認刪除了哪些內容。請重新統計後再試。",
+      "stale": "開啟此對話框後，儲存的內容已變更，即使數量沒有變化也是如此。請在刪除前檢查目前的內容和數量。",
+      "historyRows": "逐字稿：已刪除 {{total}} 份中的 {{deleted}} 份。",
+      "historyAudio": "音訊檔案：已刪除 {{total}} 個中的 {{deleted}} 個。{{remaining}} 個無法刪除。",
+      "historyAudioUnknown": "音訊檔案：Loqui 無法確認刪除了多少個檔案。"
+    },
+    "audio": {
+      "title": "聽寫音訊",
+      "empty": "沒有儲存的音訊檔案",
+      "summary_other": "{{count}} 個檔案 · {{size}}",
+      "confirmTitle_other": "刪除 {{count}} 段錄音？",
+      "confirmBody_other": "這會永久刪除此資料夾中的 {{count}} 段錄音（{{size}}），包括未連結任何逐字稿的錄音。逐字稿將保留。已傳送給服務供應商的副本不受影響。",
+      "confirmButton_other": "刪除 {{count}} 段錄音",
+      "done_other": "已刪除 {{count}} 段錄音。"
+    },
+    "models": {
+      "title": "已下載的模型",
+      "empty": "尚未下載任何模型",
+      "summary_other": "{{count}} 個模型 · {{size}}",
+      "confirmTitle_other": "刪除 {{count}} 個模型？",
+      "confirmBody_other": "這會永久刪除此資料夾中已下載的 {{count}} 個模型（{{size}}）。使用這些模型的工作會要求你重新選擇模型。",
+      "confirmButton_other": "刪除 {{count}} 個模型",
+      "done_other": "已刪除 {{count}} 個模型。",
+      "familyFailed": "無法刪除{{family}}。",
+      "families": {
+        "whisper": "Whisper 語音模型",
+        "parakeet": "Parakeet 語音模型",
+        "llm": "本機語言模型"
+      }
+    },
+    "history": {
+      "title": "逐字稿歷史記錄",
+      "empty": "沒有儲存的逐字稿或音訊",
+      "summary_other": "{{count}} 份逐字稿",
+      "summaryWithHidden_other": "{{count}} 份逐字稿，包括{{hidden}}",
+      "hidden_other": "{{count}} 份已捨棄或已刪除的逐字稿",
+      "transcripts_other": "{{count}} 份逐字稿",
+      "transcriptsWithHidden_other": "{{count}} 份逐字稿（{{discarded}}，{{deleted}}）",
+      "discarded_other": "{{count}} 份已捨棄",
+      "softDeleted_other": "{{count}} 份已刪除",
+      "audioFiles_other": "{{count}} 個音訊檔案（{{size}}）",
+      "audioFilesShort_other": "{{count}} 個音訊檔案",
+      "confirmTitle": "刪除所有逐字稿歷史記錄？",
+      "confirmBody": "這會永久刪除{{transcripts}}和{{audio}}，並重設此裝置上的 Insights 計數器。已傳送給服務供應商的副本不受影響。",
+      "confirmButton": "刪除{{transcripts}}和{{audio}}",
+      "done_other": "已刪除 {{count}} 份逐字稿和所有儲存的音訊。"
+    },
+    "reset": {
+      "title": "重設 Loqui",
+      "description": "刪除設定、歷史記錄、音訊、已下載的模型和已儲存的服務供應商金鑰。",
+      "button": "重設…",
+      "confirmTitle": "重設 Loqui？",
+      "confirmBody": "這會刪除設定、歷史記錄、音訊、已下載的模型和已儲存的服務供應商金鑰，然後重新啟動 Loqui。此操作無法復原。",
+      "confirmButton": "重設 Loqui",
+      "typeLabel": "輸入「{{word}}」以確認",
+      "word": "重設",
+      "running": "正在重設…",
+      "failed": "重設尚未完成，因此 Loqui 不會自動重新啟動。以下步驟失敗：",
+      "done": "重設完成。Loqui 正在重新啟動…"
+    }
+  },
+  "settingsSearch": {
+    "title": "搜尋結果",
+    "placeholder": "搜尋設定",
+    "count_other": "{{count}} 個結果",
+    "none": "沒有符合「{{query}}」的設定。請試試「麥克風」、「保留」或「雲端」。",
+    "items": {
+      "assistantEnabled": {
+        "description": "用語音提問並取得回答"
+      },
+      "storage": {
+        "description": "此裝置上的音訊、模型和歷史記錄"
+      }
+    }
+  },
+  "notices": {
+    "messageDetails": "訊息與操作",
+    "dismiss": "關閉",
+    "wordsCard": {
+      "copy": "複製",
+      "copied": "已複製",
+      "copyFailed": "無法複製",
+      "copyFailedHint": "剪貼簿未能接收文字。你的文字仍保留在這裡：可以選取或拖曳。",
+      "hint": "將文字拖曳到應用程式中，或再次貼上。",
+      "dragHint": "拖曳到你剛才輸入文字的欄位中",
+      "more_other": "還有 {{count}} 段未傳送的文字"
+    },
+    "pasted": "已貼上",
+    "actions": {
+      "pasteAgain": "再次貼上"
+    },
+    "cleanupFailed": {
+      "title": "已貼上未經整理的文字",
+      "retry": "重試文字整理",
+      "settings": "設定",
+      "cleaned": "已複製整理後的文字",
+      "cleanedBody": "請將其貼到所需位置。",
+      "noChanges": "整理未做任何變更",
+      "retryFailed": "文字整理再次失敗。您的原文未變更。",
+      "noModel": "請在設定中選擇文字整理模型。",
+      "unavailable": "原本的文字整理操作已無法使用。您的原文仍保留在這裡。"
+    },
+    "modelChanged": {
+      "title": "模型已變更",
+      "accept": "接受",
+      "choose": "選擇其他模型"
+    },
+    "pasteFailed": "無法貼上您的文字",
+    "undo": {
+      "sealed": "無法復原：密封模式已開啟，而此錄音的路由會將資料傳送至裝置外。",
+      "routeUnavailable": "無法復原：此錄音原先使用的路由已無法使用。",
+      "noAudio": "無法復原：錄音為空。",
+      "busy": "請先完成目前的聽寫，再復原取消操作。",
+      "expired": "已無法復原：該錄音已被捨棄。",
+      "notReady": "錄音仍在接收中。請再次嘗試復原。",
+      "unavailable": "無法連線至聽寫視窗以執行復原。"
+    }
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "無法驗證此錄音的傳送目標。您的文字已保留。請在設定中恢復原始目標後重試，或開始新錄音。",
+      "recipientChanged": "此錄音已固定使用開始錄音時的傳送目標。您的文字已保留。請在設定中恢復該目標後重試，或開始新錄音。",
+      "recipientTitle": "錄音傳送目標無法使用",
+      "streamingUnavailable": "無法為本次錄音啟動即時轉寫。請在設定中檢查所選供應商，然後再試一次。",
+      "restoreFailed": "無法還原錄音。音訊已保留，可再次嘗試。"
+    }
+  },
+  "pill": {
+    "tooltip": {
+      "hold": "按住 {{hotkey}} 說話",
+      "press": "按 {{hotkey}} 開始"
+    },
+    "caption": {
+      "remoteAudio": "{{provider}} 已收到音訊。",
+      "remoteText": "{{provider}} 已收到文字。",
+      "remoteImage": "{{provider}} 已收到圖片。",
+      "remoteSeveral": "{{provider}} 已收到本次聽寫的部分內容。",
+      "mayHaveAudio": "{{provider}} 可能已收到音訊。",
+      "mayHaveText": "{{provider}} 可能已收到文字。",
+      "mayHaveImage": "{{provider}} 可能已收到圖片。",
+      "mayHaveSeveral": "{{provider}} 可能已收到本次聽寫的部分內容。",
+      "sealedPaused": "聽寫已暫停：隔離模式已開啟"
+    },
+    "stage": {
+      "transcribing": "正在轉寫…",
+      "cleaning": "正在潤飾",
+      "discardedUndo": "已捨棄 · 復原",
+      "paused": "已暫停",
+      "pasted_other": "已貼上 · {{count}} 字詞"
+    },
+    "locality": {
+      "sealed": "已被隔離模式封鎖",
+      "remote": "傳送至 {{provider}}"
+    },
+    "route": {
+      "speech": "語音: {{where}}",
+      "speechOff": "語音: 關閉",
+      "cleanup": "潤飾: {{where}}",
+      "cleanupOff": "潤飾: 關閉",
+      "translation": "翻譯: {{where}}",
+      "translationOff": "翻譯: 關閉",
+      "agent": "智慧助理: {{where}}",
+      "agentOff": "智慧助理: 關閉",
+      "vision": "螢幕上下文: {{where}}",
+      "visionOff": "螢幕上下文: 關閉"
+    },
+    "agent": {
+      "listening": "智慧助理 · 正在聆聽",
+      "screenContext": "螢幕上下文已開啟 · 預計傳送至 {{where}}",
+      "thinking": "正在思考 · 預計傳送至 {{where}}",
+      "thinkingScreenContext": "結合螢幕上下文思考中 · 預計傳送至 {{where}}"
+    }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "錄音已可復原",
+      "transcribe": "轉錄錄音",
+      "discard": "捨棄錄音"
+    }
+  },
+  "setupFlow": {
+    "progress": {
+      "nav": "設定進度",
+      "dictate": "開始語音輸入",
+      "personalize": "依你的習慣設定",
+      "ready": "準備就緒",
+      "label": "{{phase}} · {{step}}",
+      "goTo": "前往{{step}}"
+    },
+    "steps": {
+      "welcome": "你好",
+      "speech": "語音",
+      "try": "說點什麼",
+      "cleanup": "文字整理",
+      "shortcuts": "快速鍵",
+      "finish": "準備就緒"
+    },
+    "units": {
+      "mb": "{{value}} MB",
+      "gb": "{{value}} GB"
+    },
+    "download": {
+      "eta": {
+        "seconds": "約{{count}}秒",
+        "minutes": "約{{count}}分鐘"
+      },
+      "chip": "下載中 {{percent}}% · 還需{{eta}}",
+      "chipNoEta": "下載中 {{percent}}%",
+      "chipInstalling": "正在安裝語音模型",
+      "chipCancelling": "正在停止下載…",
+      "chipCancelled": "已取消下載",
+      "chipReady": "語音模型已就緒",
+      "chipFailed": "下載失敗",
+      "received": "{{done}}，共{{total}}",
+      "stoppedKept": "下載在 {{percent}}% 處停止。下載進度已保留。",
+      "stoppedRestart": "下載在 {{percent}}% 處停止。重試會從頭開始。",
+      "cancelledLine": "你取消了下載。下載的內容未保留。",
+      "downloadAgain": "重新下載",
+      "retry": "重試",
+      "cancel": "取消",
+      "readyTitle": "語音模型已就緒",
+      "failedTitle": "語音模型未能下載",
+      "announcePercent": "語音模型下載已完成百分之{{percent}}。",
+      "announceReady": "語音模型已就緒",
+      "checking": "正在檢查語音模型…",
+      "voiceModel": "語音模型",
+      "stoppedUnknown": "已在 {{percent}}% 處停止。無法檢查保留的下載資料大小。",
+      "cleanupFailed": "下載已停止，但部分下載檔案無法刪除。"
+    },
+    "brand": "Loqui 設定",
+    "back": "返回",
+    "skipStep": "略過此步驟",
+    "continue": "繼續",
+    "finishLater": "稍後完成",
+    "lookAroundFirst": "先看看",
+    "instrument": {
+      "idle": "隨時可以開始",
+      "downloading": "下載中 · {{percent}}% · {{done}}，共{{total}}",
+      "goodLevel": "正在聆聽 · 音量適中",
+      "waiting": "正在聆聽 · 等待你說話",
+      "processing": "正在轉成文字…",
+      "heard": "聽到你了",
+      "downloadError": "下載已停止",
+      "micError": "Loqui 聽不到麥克風的聲音",
+      "nothingHeard": "沒有聽到聲音。請檢查麥克風。",
+      "error": "沒有成功。請再試一次。"
+    },
+    "rail": {
+      "welcome": {
+        "title": "你說話，Loqui 打字。",
+        "bodyMac": "隨處語音輸入，將筆記和會議集中在一處，並自行決定哪些內容可以離開你的 Mac。",
+        "bodyOther": "隨處語音輸入，將筆記和會議集中在一處，並自行決定哪些內容可以離開你的電腦。"
+      },
+      "speech": {
+        "title": "選擇 Loqui 如何聆聽。",
+        "bodyMac": "為你推薦一款語音模型。它在這台 Mac 上執行，離線也能使用。",
+        "bodyOther": "為你推薦一款語音模型。它在這台電腦上執行，離線也能使用。"
+      },
+      "try": {
+        "title": "說點什麼",
+        "bodyMac": "這次測試的內容不會貼到其他 App，也不會儲存到歷程記錄。",
+        "bodyOther": "這次測試的內容不會貼到其他 App，也不會儲存到歷程記錄。"
+      },
+      "cleanup": {
+        "title": "讓文字更好讀。",
+        "bodyMac": "看看文字整理如何調整你說的話，再做選擇。",
+        "bodyOther": "看看文字整理如何調整你說的話，再做選擇。"
+      },
+      "shortcuts": {
+        "title": "在任何 App 中說話。",
+        "bodyMac": "隨時按下快速鍵即可使用。如果與其他 App 衝突，可以更改。",
+        "bodyOther": "隨時按下快速鍵即可使用。如果與其他 App 衝突，可以更改。"
+      },
+      "finish": {
+        "title": "這是你目前的設定狀況。",
+        "bodyMac": "以下內容均反映目前的實際狀態。",
+        "bodyOther": "以下內容均反映目前的實際狀態。"
+      }
+    },
+    "hello": {
+      "start": "開始使用",
+      "micTitle": "讓 Loqui 聽到你",
+      "micBody": "Loqui 只會在語音輸入時聆聽。此頁面不會錄音。",
+      "allowMic": "允許使用麥克風",
+      "micReady": "{{device}} 正在聆聽",
+      "micReadyGeneric": "你的麥克風正在聆聽",
+      "micLabel": "麥克風",
+      "systemDefault": "系統預設",
+      "builtIn": "內建麥克風",
+      "unnamedMic": "未命名的麥克風",
+      "notHearing": "聽不到你？請選擇另一個麥克風。",
+      "savedMicMissing": "你儲存的麥克風未連接，Loqui 正在使用系統預設麥克風。",
+      "deniedTitle": "Loqui 無法使用你的麥克風",
+      "deniedBodyMac": "請在「系統設定」中允許存取，然後返回。返回後 Loqui 會再次檢查。",
+      "deniedBodyOther": "請在系統的隱私權或聲音設定中允許存取，然後返回。返回後 Loqui 會再次檢查。",
+      "openSettings": "開啟系統設定",
+      "recheck": "我已開啟權限",
+      "unavailableTitle": "Loqui 無法開啟你的麥克風",
+      "unavailableBody": "可能有其他 App 正在使用麥克風，或尚未連接輸入裝置。",
+      "retryOpen": "再試一次",
+      "openSound": "開啟聲音設定",
+      "starting": "正在開啟麥克風…"
+    },
+    "privacy": {
+      "title": "隱私權預設值",
+      "historyTitle": "保留本機歷程記錄",
+      "historyBodyMac": "將轉寫文字儲存在這台 Mac 上。可隨時在「隱私權與資料」中更改。",
+      "historyBodyOther": "將轉寫文字儲存在這台電腦上。可隨時在「隱私權與資料」中更改。",
+      "updatesTitle": "自動下載更新",
+      "updatesBody": "每天檢查已簽署的版本。由你決定何時重新啟動。"
+    },
+    "voice": {
+      "checkingMac": "正在檢查這台 Mac…",
+      "checkingOther": "正在檢查這台電腦…",
+      "title": "我們為你選好了語音模型。",
+      "unsupportedTitle": "選擇最適合你的語音模型。",
+      "why": {
+        "englishMac": "因為你的 Mac 設為英文，我們選擇了英文。",
+        "englishOther": "因為你的電腦設為英文，我們選擇了英文。",
+        "languageMac": "因為你的 Mac 設為{{language}}，我們選擇了{{voice}}。",
+        "languageOther": "因為你的電腦設為{{language}}，我們選擇了{{voice}}。",
+        "multilingualMac": "因為你的 Mac 使用{{languages}}，我們選擇了{{voice}}。",
+        "multilingualOther": "因為你的電腦使用{{languages}}，我們選擇了{{voice}}。",
+        "unsupported": "Loqui 的本機語音模型還無法辨識{{language}}。請選擇最接近的模型，或稍後在設定中加入雲端語音模型。"
+      },
+      "noticed": "偵測到的資訊",
+      "signals": {
+        "systemLanguage": "系統語言",
+        "memory": "記憶體",
+        "freeSpace": "可用空間",
+        "graphics": "顯示卡"
+      },
+      "gpu": {
+        "appleSilicon": "Apple 晶片",
+        "nvidia": "NVIDIA 顯示卡",
+        "unknown": "未偵測到"
+      },
+      "unknown": "未知",
+      "diskShort": "此語音模型安裝時需要約 {{needed}} 可用空間。目前可用 {{free}}。",
+      "recommended": "為你推薦",
+      "installed": "已安裝在此裝置上",
+      "notRight": "不合適？自行選擇",
+      "pickerLabel": "語音模型",
+      "lockedWhileDownloading": "請先取消下載，再選擇其他語音模型。",
+      "languageLocked": "請先取消下載，再更改語言。",
+      "cantHear": "無法辨識{{language}}",
+      "blocked": {
+        "mismatch": "此語音模型無法辨識{{language}}。請在下方選擇其他模型。",
+        "none": "目前還沒有本機語音模型能辨識{{language}}。請選擇支援的語言，或稍後在設定中加入雲端語音模型。"
+      },
+      "download": "下載（{{size}}）",
+      "outcomes": {
+        "fastEnglish": {
+          "name": "快速辨識英文",
+          "description": "快速、準確地辨識英文。停止說話約一秒後即可看到文字。"
+        },
+        "manyLanguages": {
+          "name": "支援多種語言",
+          "description": "可辨識並自動偵測 25 種語言，方便你在一天中切換語言。"
+        },
+        "liveCaptions": {
+          "name": "即時字幕",
+          "description": "邊說邊顯示文字。適合會議和長時間語音輸入。"
+        },
+        "liveMultilingual": {
+          "name": "即時辨識，支援更多語言",
+          "description": "支援日文、阿拉伯文及印地文等 15 種語言，邊說邊顯示文字。"
+        }
+      }
+    },
+    "tour": {
+      "label": "等待下載時",
+      "title": "等待下載時，認識一下 Loqui。",
+      "skip": "略過介紹",
+      "skipped": "語音模型準備好後，我們就會開始測試。",
+      "noVoice": "請先選擇語音模型。它會在此裝置上執行。",
+      "chooseVoice": "選擇語音模型",
+      "slideOf": "第{{current}}項，共{{total}}項",
+      "previous": "上一則提示",
+      "next": "下一則提示",
+      "tip": "提示{{number}}",
+      "shortcut": {
+        "title": "使用快速鍵",
+        "tap": "按下{{key}}開始說話，再按一次結束。",
+        "push": "按住{{key}}說話，放開結束。"
+      },
+      "privacy": {
+        "title": "你的話會去哪裡",
+        "bodyMac": "除非你選擇服務供應商，否則不會有任何內容離開這台 Mac。",
+        "bodyOther": "除非你選擇服務供應商，否則不會有任何內容離開這台電腦。",
+        "nodes": {
+          "mic": "麥克風",
+          "loqui": "Loqui",
+          "model": "語音模型",
+          "notes": "筆記"
+        }
+      },
+      "demo": {
+        "title": "說話就能得到文字",
+        "body": "文字整理可以移除語助詞、調整標點。你可以在下一步選擇。",
+        "raw": "嗯提醒我午餐前把草稿寄出去",
+        "final": "提醒我午餐前把草稿寄出去。"
+      },
+      "readyTitle": "準備好了。說點什麼吧。",
+      "readyBody": "你的語音模型在此裝置上。",
+      "carouselRole": "輪播",
+      "slideRole": "投影片"
+    },
+    "cleanupAuthority": {
+      "unavailable": "原本的文字整理已無法使用。原始文字已保留。",
+      "changed": "文字整理的目的地或憑證已變更。原始文字已保留。",
+      "unsupported": "無法為文字整理保留所選的 {{provider}} 驗證來源。原始文字已保留。",
+      "failed": "文字整理失敗。原始文字已保留。",
+      "busy": "文字整理已在執行中。"
+    },
+    "try": {
+      "idle": {
+        "tap": "按下{{key}}，說點什麼。再按一次結束。",
+        "push": "按住{{key}}，說點什麼。放開結束。"
+      },
+      "keycap": {
+        "tap": "按下說話",
+        "push": "按住說話"
+      },
+      "listening": "正在聆聽",
+      "processing": "正在轉成文字…",
+      "shortcutWorks": "快速鍵運作正常",
+      "heardYou": "Loqui 聽到你了",
+      "discarded": "已捨棄。",
+      "undo": "復原",
+      "silent": "沒有聽到聲音。是不是選錯了麥克風？",
+      "noAudioTitle": "沒有聽到聲音",
+      "noAudioBody": "請檢查是否選到正確的麥克風，並確認未靜音，然後再試一次。",
+      "memoryTitle": "此語音模型需要的記憶體超過目前可用的記憶體",
+      "memoryBody": "請關閉一些 App，或選擇較小的語音模型。",
+      "chooseSmaller": "選擇其他語音模型",
+      "changeMic": "更換麥克風",
+      "otherTitle": "這次錄音沒有成功",
+      "otherBody": "請再試一次。你的設定沒有改變。",
+      "again": "再試一次",
+      "cleanupFailed": "文字整理未執行。這是你的原始文字。",
+      "retryFailed": "文字整理仍未執行。這是你的原始文字。",
+      "retryCleanup": "重試文字整理",
+      "cleanupOff": "關閉文字整理",
+      "wordsSafe": "無論哪種情況，你的文字都會保留。",
+      "accessibilityTitle": "快速鍵需要輔助使用權限",
+      "accessibilityBody": "取得你的許可後，macOS 才會允許 Loqui 偵測全域快速鍵。在 Loqui 內語音輸入不需要此權限。",
+      "grantAccess": "授予權限",
+      "useButton": "改用按鈕",
+      "start": "開始錄音",
+      "stop": "停止",
+      "privacyLine": "不會貼到任何地方，也不會儲存。",
+      "bandTitle": "這是你的聲音。Loqui 已在你的裝置上辨識。",
+      "makeItYours": "依你的習慣設定",
+      "startUsing": "開始使用 Loqui",
+      "cancel": "捨棄這次錄音",
+      "cleanupUnsupported": "無法為文字整理保留此驗證來源。原始文字已保留。",
+      "controlUnavailable": "錄音控制未回應。請再次嘗試停止或捨棄。"
+    },
+    "cleanup": {
+      "title": "看看文字整理的效果",
+      "label": "文字整理",
+      "options": {
+        "none": "不整理",
+        "local": "裝置本機",
+        "codex": "ChatGPT",
+        "provider": "API 金鑰"
+      },
+      "original": "原始文字",
+      "withCleanup": "整理後",
+      "nothingChanges": "沒有變更",
+      "running": "正在整理你的句子…",
+      "wordsSent_other": "將向 {{provider}} 傳送 {{count}} 個詞",
+      "sentNotice_other": "這次預覽已將你的 {{count}} 個詞傳送至 {{provider}}",
+      "tryMine_other": "用我的句子試試 · 向 {{provider}} 傳送 {{count}} 個詞",
+      "exampleNotice": "範例文字。未傳送任何內容。",
+      "localExampleNotice": "範例文字。此裝置上的本機文字整理準備好後，這裡會顯示你自己的句子。",
+      "example": {
+        "original": "嗯我們午餐前把草稿寄給瑪雅吧然後那個提醒我預訂週四的會議室",
+        "local": "我們午餐前把草稿寄給瑪雅吧，然後提醒我預訂週四的會議室。",
+        "codex": "我們午餐前把草稿寄給瑪雅吧。提醒我預訂週四的會議室。",
+        "provider": "我們在午餐前寄草稿給瑪雅吧，再提醒我預訂週四的會議室。"
+      },
+      "listModels": "取得 ChatGPT 模型清單",
+      "modelListFailed": "無法取得 ChatGPT 模型清單，請再試一次。",
+      "now": {
+        "off": "文字整理已關閉。你的話會原樣保留。",
+        "checking": "正在檢查文字整理是否可用…",
+        "ready": "已啟用文字整理，使用 {{name}}。",
+        "readyNetwork": "已啟用文字整理，使用 {{provider}} 上的 {{name}}。",
+        "needsKey": "在設定中加入你的 {{provider}} 金鑰即可啟用文字整理。在此之前，你的話會原樣保留。",
+        "needsConnection": "在上方連接 ChatGPT 即可啟用文字整理。在此之前，你的話會原樣保留。",
+        "needsModel": "此裝置上還沒有本機文字整理模型。請在「設定 → 語言模型」中下載（1.3 GB）。",
+        "unreachable": "Loqui 目前無法連接 {{provider}}。你的話會原樣保留。",
+        "modelSetup": "已連接 ChatGPT。請取得模型清單，選擇用於文字潤飾的模型。",
+        "review": "請檢視此變更，然後選擇「套用」。"
+      },
+      "reuse": "其他文字功能也使用此選擇",
+      "exampleInProgress": "請求執行期間顯示範例文字。只有文字整理成功後，才會顯示你的結果。",
+      "attemptNotice_other": "你已允許向 {{provider}} 傳送 {{count}} 個詞。這次嘗試失敗，但內容可能已經送達。你的原始文字沒有改變。",
+      "previousAttemptNotice_other": "你先前允許向 {{provider}} 傳送 {{count}} 個詞。變更此預覽不會撤回那次請求。原始文字已保留。"
+    },
+    "shortcut": {
+      "title": "試試你的快速鍵。",
+      "testerLabel": "快速鍵測試。請按{{key}}。",
+      "hint": "請按{{key}}。輕按可開始或停止；長按時，只在按住期間錄音。",
+      "fills": "你好，可以用了。",
+      "works": "快速鍵正常",
+      "detected": {
+        "tap": "已偵測到輕按開始和停止",
+        "hold": "已偵測到按住說話"
+      },
+      "suggest": {
+        "push": "你按住了按鍵。要切換為按住說話嗎？",
+        "tap": "你輕按了按鍵。要切換為輕按開始和停止嗎？"
+      },
+      "switch": "切換",
+      "change": "更改快速鍵",
+      "changeHelp": "在任何應用程式中按此快速鍵即可說話。若與其他應用程式衝突，請更改。",
+      "autoPaste": "自動貼上",
+      "autoPasteBodyMac": "將文字貼到游標所在位置。macOS需要輔助使用權限。",
+      "autoPasteBodyOther": "將文字貼到游標所在位置。",
+      "accessibilityBody": "只有獲得你的許可後，macOS才允許Loqui偵測快速鍵並貼上。你可以現在授權，也可以稍後在設定中授權。"
+    },
+    "ready": {
+      "titleProven": "你已開始語音輸入。",
+      "titleConfigured": "設定完成。試一次確認看看。",
+      "titlePending_one": "快好了：還剩{{count}}項。",
+      "titlePending_other": "快好了：還剩{{count}}項。",
+      "subAllLocalMac": "首次語音輸入成功。所有處理都在這台 Mac 上執行。",
+      "subAllLocalOther": "首次語音輸入成功。所有處理都在這台電腦上執行。",
+      "subProven": "首次語音輸入成功。",
+      "subConfigured": "試著語音輸入一次，確認此設定可用。",
+      "subPending": "完成這些項目即可。每項都會開啟對應的設定位置。",
+      "rows": {
+        "speech": "語音",
+        "microphone": "麥克風",
+        "shortcut": "快速鍵",
+        "cleanup": "文字整理"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}，已辨識首次語音輸入",
+          "checking": "正在檢查…",
+          "configured": "{{voice}}，尚未試用",
+          "downloading": "仍在下載",
+          "needsModel": "下載語音模型",
+          "unavailable": "在設定中完成配置"
+        },
+        "microphone": {
+          "heard": "運作正常",
+          "allowed": "已允許，尚未偵測到語音",
+          "denied": "在系統設定中允許",
+          "untested": "說點什麼來測試"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}，按下開始或停止",
+            "push": "{{key}}，按住說話"
+          },
+          "configured": {
+            "tap": "{{key}}，尚未試用",
+            "push": "{{key}}，尚未試用"
+          },
+          "needsAccessibility": "授予輔助使用權限",
+          "checkAccessibility": "檢查輔助使用權限"
+        },
+        "cleanup": {
+          "off": "已關閉。可稍後新增",
+          "checking": "仍在檢查",
+          "needsConnection": "連接 ChatGPT",
+          "needsKey": "在設定中新增 {{provider}} 金鑰",
+          "needsModel": "在設定中下載本機模型",
+          "unreachable": "無法連接 {{provider}}",
+          "configured": "已設定 {{name}}",
+          "configuredNetwork": "已在 {{provider}} 設定 {{name}}",
+          "modelSetup": "取得用於文字潤飾的 ChatGPT 模型清單",
+          "review": "請檢視此變更，然後選擇「套用」。"
+        }
+      },
+      "dictateNote": "在筆記中語音輸入",
+      "openWorkspace": "開啟工作區",
+      "noteLocal": "筆記在此裝置上轉寫。",
+      "noteSends": "筆記會將音訊傳送至 {{provider}}。",
+      "noteChecking": "正在檢查筆記的轉寫方式…",
+      "noteBlocked": {
+        "microphone": "筆記需要使用麥克風。",
+        "unsupported": "筆記錄音設定了尚未支援的服務，例如自行託管的伺服器。",
+        "sealed": "密封模式已開啟，筆記錄音無法連接 {{provider}}。",
+        "needsModel": "筆記錄音需要此裝置上的語音模型。",
+        "needsKey": "筆記錄音需要你的 {{provider}} 金鑰。",
+        "needsUrl": "筆記錄音需要伺服器位址。",
+        "unreachable": "Loqui 無法連接 {{provider}} 進行筆記錄音。"
+      },
+      "fixNote": "修正此項",
+      "noteNetwork": "筆記已設為向 {{provider}} 傳送音訊。"
+    },
+    "resume": {
+      "title": "完成設定",
+      "body": "工作區已就緒。你可以隨時從上次的位置繼續設定。",
+      "items": {
+        "finishDictating": "試試第一次語音輸入",
+        "cleanup": "選擇文字整理方式",
+        "shortcut": "試試快速鍵"
+      },
+      "resume": "繼續設定",
+      "dismiss": "關閉設定清單",
+      "label": "設定清單"
+    }
+  },
+  "workspace": {
+    "noteMissing": "該筆記已遭刪除或移出此工作區。",
+    "noteLoadError": "無法載入此筆記。請再試一次。"
+  },
+  "capture": {
+    "group": "擷取",
+    "moreOptions": "更多擷取選項",
+    "actions": {
+      "dictate": "向 Loqui 聽寫",
+      "recordMeeting": "錄製會議",
+      "upload": "上傳音訊…",
+      "newNote": "新增筆記",
+      "newChat": "新增聊天"
+    },
+    "short": {
+      "dictate": "聽寫",
+      "recordMeeting": "錄製",
+      "upload": "上傳",
+      "newNote": "新增筆記",
+      "newChat": "新增聊天"
+    },
+    "listening": "正在聆聽 {{time}}",
+    "stopListening": "停止聆聽",
+    "stopRecording": "停止錄製",
+    "cleaningUp": "正在整理文字…"
+  },
+  "micCard": {
+    "ready": "就緒",
+    "setUp": "設定聽寫",
+    "listening": "正在聆聽",
+    "listeningFor": "正在聆聽 {{time}}",
+    "cleaningUp": "正在潤飾…",
+    "offline": "麥克風離線",
+    "offlinePermission": "麥克風存取權限已關閉",
+    "offlineDevice": "麥克風已中斷連線",
+    "nextCapture": "下次錄音",
+    "role": {
+      "dictation": "聽寫",
+      "meeting": "會議",
+      "assistant": "助理",
+      "translation": "翻譯"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "語音輸入狀態",
+      "ready": "就緒",
+      "setUp": "設定聽寫",
+      "listening": "正在聆聽",
+      "listeningFor": "正在聆聽 {{time}}",
+      "cleaningUp": "正在整理…",
+      "offline": "麥克風離線",
+      "hold": "按住<kbd>{{key}}</kbd>進行語音輸入",
+      "press": "按下<kbd>{{key}}</kbd>進行語音輸入",
+      "nextNow": "{{title}}正在進行",
+      "nextAt": "{{title}}於{{time}}開始",
+      "takeNotes": "做筆記",
+      "nextIn_other": "{{title}}將在{{count}}分鐘後開始"
+    },
+    "history": {
+      "filterLabel": "篩選歷史記錄",
+      "filterPlaceholder": "篩選此清單",
+      "chipsLabel": "顯示",
+      "menu": "歷史記錄選項",
+      "showDiscarded": "顯示已捨棄的錄音",
+      "clearAll": "全部清除…",
+      "expand": "展開",
+      "collapse": "收合",
+      "meetingRow": "會議",
+      "noteRow": "筆記",
+      "nothingMatches": "沒有符合「{{query}}」的內容。",
+      "clearFilter": "清除篩選",
+      "olderMissing": "此聽寫已不在歷史記錄中。",
+      "chips": {
+        "all": "全部",
+        "dictations": "聽寫",
+        "meetings": "會議",
+        "notes": "筆記",
+        "failed": "失敗"
+      },
+      "dayCount_other": "{{count}} 則聽寫",
+      "words_other": "{{count}} 個詞",
+      "session_other": "工作階段 · {{count}} 段錄音 · {{duration}}",
+      "sessionNoDuration_other": "工作階段 · {{count}} 段錄音",
+      "loadFailed": "無法載入這則聽寫。請再試一次。"
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "聯絡人",
+      "note": "筆記",
+      "meeting": "會議",
+      "dictation": "聽寫",
+      "folder": "資料夾"
+    },
+    "empty": "沒有可提及的項目",
+    "loading": "載入中…",
+    "missing": "此項目已不存在。",
+    "open": "開啟",
+    "insertQuote": "插入引用",
+    "folderMeta": "資料夾",
+    "error": "無法載入此項目。",
+    "retry": "重試",
+    "pickerLabel": "提及項目"
+  },
+  "table": {
+    "view": {
+      "label": "檢視",
+      "list": "清單",
+      "table": "桌面"
+    },
+    "canvasLabel": "畫布：{{space}}",
+    "canvasRole": "畫布",
+    "zoomIn": "放大",
+    "zoomOut": "縮小",
+    "resetView": "重設檢視",
+    "zoomLevel": "{{percent}}%",
+    "hint": "拖曳卡片或背景。按住 Shift 拖曳可框選。Ctrl 或 ⌘ 加滾輪可縮放。方向鍵在卡片間移動；Shift 加方向鍵可微調位置。",
+    "kind": {
+      "note": "筆記",
+      "meeting": "會議",
+      "dictation": "聽寫",
+      "chat": "回答"
+    },
+    "card": {
+      "label": "{{kind}}：{{title}}",
+      "untitled": "未命名",
+      "answerPending": "正在等待回答…"
+    },
+    "inbox": {
+      "title": "收件匣",
+      "description": "最近的記錄及每類最多50項最近移除的內容。拖到桌面上或按 Enter。所有內容仍可在歷史記錄和清單中查看。",
+      "empty": "沒有新內容"
+    },
+    "selection": {
+      "count": "已選取：{{count}}",
+      "summarise": "摘要",
+      "ask": "針對這些提問",
+      "group": "合併為筆記",
+      "remove": "從桌面移除",
+      "summarisePrompt": "用幾句話摘要所選內容。",
+      "limit": "AI 操作最多支援 {{limit}} 張卡片。",
+      "busy": "另一項操作正在進行中。"
+    },
+    "groupedNote": {
+      "title": "從桌面合併"
+    },
+    "status": {
+      "full": "桌面最多可容納 500 張卡片。請先移除一些。",
+      "truncated": "最多顯示500張卡片，已排列的卡片優先。更多內容可在清單和歷史記錄中查看。",
+      "saveFailed": "無法儲存此變更。內容已保留。"
+    },
+    "ask": {
+      "open": "提問",
+      "close": "關閉",
+      "pinned": "已釘選卡片：{{count}}",
+      "wholeTable": "針對整個桌面提問",
+      "sendFailed": "訊息未傳送。文字和來源保留在下方，請準備就緒後重試。",
+      "invalidated": "傳送目標已變更。訊息未傳送，請確認目標後重試。",
+      "retry": "使用這些來源重試"
+    },
+    "detail": {
+      "close": "關閉全文",
+      "loading": "正在載入全文…",
+      "failed": "無法載入全文。請關閉後重新開啟以重試。"
+    }
   }
 }

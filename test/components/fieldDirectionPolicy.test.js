@@ -56,25 +56,29 @@ function inventoryByFile(inventory) {
 // multiple fields in the same component and makes any new or reclassified
 // consumer require an explicit policy decision in this test.
 const EXPECTED_SHARED_FIELD_DIRECTIONS = {
-  "src/components/EnterpriseProviderConfig.tsx": ["ltr"],
+  "src/components/EnterpriseProviderConfig.tsx": ["ltr", "ltr"],
   "src/components/DictionaryView.tsx": ["auto", "auto", "auto"],
-  "src/components/OpenAICompatiblePanel.tsx": ["ltr"],
-  "src/components/SelfHostedPanel.tsx": ["ltr", "ltr"],
   "src/components/SettingsPage.tsx": ["ltr", "ltr", "ltr", "ltr", "ltr", "ltr"],
   "src/components/SnippetsView.tsx": ["auto", "auto", "auto", "auto"],
-  "src/components/TranscriptionModelPicker.tsx": ["ltr", "ltr", "ltr"],
+  "src/components/TranscriptionModelPicker.tsx": ["ltr"],
   "src/components/notes/ActionManagerDialog.tsx": ["auto", "auto"],
   "src/components/notes/SpacesTree.tsx": ["auto"],
   "src/components/notes/UploadAudioView.tsx": ["auto"],
   "src/components/settings/DictationAgentSettings.tsx": ["auto"],
+  // Localized confirmation word, not an ASCII protocol token.
+  "src/components/settings/StorageList.tsx": ["auto"],
+  "src/components/settings/routing/EndpointDraft.tsx": ["ltr", "ltr"],
+  "src/components/settings/routing/StagedRoutePanel.tsx": ["ltr"],
   "src/components/ui/ApiKeyInput.tsx": ["ltr"],
   "src/components/ui/PromptStudio.tsx": ["auto", "auto"],
   "src/components/ui/SearchableModelList.tsx": ["ltr"],
 };
 
 const EXPECTED_NATIVE_FIELD_DIRECTIONS = {
+  "src/components/ui/editor/BubbleToolbar.tsx": ["ltr"],
+  "src/components/home/HistoryToolbar.tsx": ["auto"],
   "src/components/CommandSearch.tsx": ["auto"],
-  "src/components/OnboardingFlow.tsx": ["ltr"],
+  "src/components/onboarding/CleanupStep.tsx": ["ltr"],
   "src/components/chat/ChatInput.tsx": ["auto"],
   "src/components/notes/ActionManagerDialog.tsx": ["auto"],
   "src/components/notes/AddNotesToFolderDialog.tsx": ["auto"],
@@ -85,6 +89,8 @@ const EXPECTED_NATIVE_FIELD_DIRECTIONS = {
   "src/components/notes/NotesOnboarding.tsx": ["auto", "auto", "auto"],
   "src/components/notes/UploadAudioView.tsx": ["ltr", "ltr", "inherit"],
   "src/components/settings/ChatAgentSettings.tsx": ["auto"],
+  // Human-language queries choose direction from their content.
+  "src/components/settings/SettingsSearchField.tsx": ["auto"],
   "src/components/ui/EmojiPicker.tsx": ["auto"],
   "src/components/ui/LanguageSelector.tsx": ["auto"],
 };
@@ -164,5 +170,64 @@ test("representative prose, identity, secret, and rich-editor surfaces keep thei
   assert.match(
     source("src/index.css"),
     /\.rich-text-editor-content code,[\s\S]*?direction: ltr;[\s\S]*?unicode-bidi: isolate;/
+  );
+});
+
+test("[change-driving] the human Settings query explicitly chooses automatic content direction", async (t) => {
+  const { withI18nMock } = require("../lib/i18nTestMock");
+  const vite = await createRendererServer(
+    t,
+    withI18nMock({ cachePrefix: "loqui-settings-query-direction-" })
+  );
+  const { SettingsSearchField } = await vite.ssrLoadModule(
+    "/components/settings/SettingsSearchField.tsx"
+  );
+  const html = renderToStaticMarkup(
+    React.createElement(SettingsSearchField, {
+      value: "ميكروفون",
+      onChange() {},
+      onKeyDown() {},
+      onEscape() {
+        return false;
+      },
+    })
+  );
+  const input = html.match(/<input\b[^>]*>/)?.[0];
+  assert.ok(input, "the actual Settings search input renders");
+  assert.match(input, /dir="auto"/);
+  assert.match(input, /value="ميكروفون"/);
+});
+
+test("[change-driving] localized Reset confirmation preserves Arabic text with automatic direction", async (t) => {
+  const { withI18nMock } = require("../lib/i18nTestMock");
+  const vite = await createRendererServer(
+    t,
+    withI18nMock(
+      { cachePrefix: "loqui-storage-word-direction-" },
+      {
+        t: '(key, options) => key === "storage.reset.word" ? "ضبط" : key === "storage.reset.typeLabel" ? `اكتب ${options.word}` : key',
+      }
+    )
+  );
+  const { ResetContent } = await vite.ssrLoadModule("/components/settings/StorageList.tsx");
+  const html = renderToStaticMarkup(
+    React.createElement(ResetContent, {
+      phase: "review",
+      typed: "ضبط",
+      confirmDisabled: false,
+      errors: [],
+      onTypedChange() {},
+      onConfirm() {},
+      onCancel() {},
+    })
+  );
+  const input = html.match(/<input\b[^>]*>/)?.[0];
+  assert.ok(input, "the actual localized Reset input renders");
+  assert.match(input, /dir="auto"/);
+  assert.match(input, /value="ضبط"/);
+  assert.match(
+    html,
+    /اكتب ضبط/,
+    "the displayed word remains localized rather than an ASCII protocol token"
   );
 });

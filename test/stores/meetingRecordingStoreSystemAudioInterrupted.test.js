@@ -71,6 +71,12 @@ async function loadStore(t, api) {
 }
 
 async function startWithPendingMicrophone(t, startResult) {
+  // node:test after hooks run in registration order: stop while the browser,
+  // capture and Vite fixtures are still installed, before their restorers run.
+  t.after(async () => {
+    await finishStart();
+    await store.stopRecording();
+  });
   installMicCaptureGlobals(t);
   const micStream = await navigator.mediaDevices.getUserMedia();
   const microphone = Promise.withResolvers();
@@ -95,10 +101,6 @@ async function startWithPendingMicrophone(t, startResult) {
     microphone.resolve(micStream);
     await starting;
   };
-  t.after(async () => {
-    await finishStart();
-    await store.stopRecording();
-  });
   await Promise.all([mainStarted.promise, micRequested.promise]);
   return { api, listeners, store, finishStart };
 }
@@ -202,13 +204,13 @@ test("stopping during microphone setup discards buffered warnings and early list
 });
 
 test("resumed audio clears only quiet warnings without creating another interruption", async (t) => {
+  t.after(() => store.stopRecording());
   installMicCaptureGlobals(t);
   const { api, listeners } = createElectronAPI({
     systemAudioMode: "native",
     systemAudioStrategy: "native",
   });
   const store = await loadStore(t, api);
-  t.after(() => store.stopRecording());
   await store.startRecording(START_ARGS);
   listeners.systemAudioInterrupted({ ...stoppedCapture, reason: "gone_quiet" });
   const nonce = store.useMeetingRecordingStore.getState().systemAudioInterruptedNonce;

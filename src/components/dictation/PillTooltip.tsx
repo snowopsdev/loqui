@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type React from "react";
+import { PillCaption } from "./PillCaption";
 
 interface PillTooltipProps {
   children: React.ReactNode;
@@ -7,43 +8,69 @@ interface PillTooltipProps {
   emoji?: string;
   align?: "left" | "right" | "center";
   disabled?: boolean;
+  elementRef?: React.RefObject<HTMLDivElement | null>;
+  onVisibilityChange?: (visible: boolean) => void;
 }
 
-/**
- * Minimal hover tooltip for the dictation pill. The pill window is tiny and
- * frameless, so this stays lighter than the app-wide Radix tooltip and can be
- * aligned against the pill's docked edge.
- */
+/** The tooltip shares the caption's bounded, scrollable physical-dock geometry. */
 export function PillTooltip({
   children,
   content,
   emoji,
   align = "center",
   disabled = false,
+  elementRef,
+  onVisibilityChange,
 }: PillTooltipProps): React.JSX.Element {
-  const [isVisible, setIsVisible] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const visible = (hovered || focused) && !disabled;
+  useLayoutEffect(() => {
+    // Removing a focused bubble need not dispatch blur. Reconcile after the
+    // commit, preserving focus on a trigger that actually remains mounted.
+    const anchor = anchorRef.current;
+    if (focused && !anchor?.contains(anchor.ownerDocument.activeElement)) setFocused(false);
+  }, [disabled, focused, children, content]);
+  useEffect(() => {
+    onVisibilityChange?.(visible);
+    return () => onVisibilityChange?.(false);
+  }, [visible, onVisibilityChange]);
 
-  const alignClass =
-    align === "right" ? "right-0" : align === "left" ? "left-0" : "left-1/2 -translate-x-1/2";
-
+  // These anchors follow the physical screen dock even for RTL text.
   const arrowClass =
     align === "right" ? "right-3" : align === "left" ? "left-3" : "left-1/2 -translate-x-1/2";
 
   return (
-    <div className="relative inline-block">
-      <div onMouseEnter={() => setIsVisible(true)} onMouseLeave={() => setIsVisible(false)}>
-        {children}
-      </div>
-      {isVisible && !disabled && (
-        <div
-          className={`absolute bottom-full ${alignClass} mb-2 px-1.5 py-1 text-[10px] text-popover-foreground bg-popover border border-border rounded-full z-10 shadow-lg transition-opacity duration-150 whitespace-nowrap`}
-        >
-          {emoji && <span className="me-1">{emoji}</span>}
-          {content}
-          <div
-            className={`absolute top-full ${arrowClass} w-0 h-0 border-l-2 border-r-2 border-t-2 border-transparent border-t-popover`}
-          ></div>
-        </div>
+    <div
+      ref={anchorRef}
+      className="pill-tooltip-anchor relative inline-block"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+      }}
+    >
+      {children}
+      {visible && (
+        <>
+          <PillCaption
+            elementRef={elementRef}
+            horizontalDirection={align}
+            role="tooltip"
+            className="pill-tooltip text-xs rounded-lg"
+          >
+            <span className="flex flex-col gap-0.5">
+              {emoji && <span>{emoji}</span>}
+              {content}
+            </span>
+          </PillCaption>
+          <span
+            aria-hidden="true"
+            className={`absolute bottom-full ${arrowClass} mb-1.5 z-10 w-0 h-0 border-l-2 border-r-2 border-t-2 border-transparent border-t-popover`}
+          />
+        </>
       )}
     </div>
   );

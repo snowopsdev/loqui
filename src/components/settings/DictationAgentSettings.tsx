@@ -1,3 +1,5 @@
+import { useResolvedRoute } from "../../lib/routes";
+import { screenContextCopy } from "./screenContextCopy";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDialogs } from "../../hooks/useDialogs";
@@ -10,19 +12,16 @@ import { Input } from "../ui/input";
 import PermissionCard from "../ui/PermissionCard";
 import PromptStudio from "../ui/PromptStudio";
 import { SectionHeader, SettingsPanel, SettingsPanelRow, SettingsRow } from "../ui/SettingsSection";
-import { Toggle } from "../ui/toggle";
+import { RouteSwitch } from "./routing/RouteSwitch";
+import { StagedRoutePanel } from "./routing/StagedRoutePanel";
 import InferenceConfigEditor from "./InferenceConfigEditor";
 
 export default function DictationAgentSettings() {
   const { t } = useTranslation();
+  const visionRoute = useResolvedRoute("assistantVision");
   const useDictationAgent = useSettingsStore((s) => s.useDictationAgent);
-  const setUseDictationAgent = useSettingsStore((s) => s.setUseDictationAgent);
   const voiceAgentScreenContext = useSettingsStore((s) => s.voiceAgentScreenContext);
-  const setVoiceAgentScreenContext = useSettingsStore((s) => s.setVoiceAgentScreenContext);
   const useDictationAgentVisionModel = useSettingsStore((s) => s.useDictationAgentVisionModel);
-  const setUseDictationAgentVisionModel = useSettingsStore(
-    (s) => s.setUseDictationAgentVisionModel
-  );
   const {
     isMacOS,
     granted: screenGranted,
@@ -54,16 +53,14 @@ export default function DictationAgentSettings() {
     });
   }, [agentNameInput, setAgentName, showAlertDialog, t]);
 
-  const handleScreenContextToggle = useCallback(
+  // Task 7's commit tells main (setScreenContextEnabled) whenever this
+  // switch is committed, here or from the Apply bar. Asking for the macOS
+  // permission stays with the editor, once the change is applied.
+  const handleScreenContextApplied = useCallback(
     (enabled: boolean) => {
-      setVoiceAgentScreenContext(enabled);
-      // Keeps the dictation overlay out of its own screenshots.
-      window.electronAPI?.setScreenContextEnabled?.(enabled);
-      if (enabled && isMacOS && !screenGranted) {
-        void requestScreenAccess();
-      }
+      if (enabled && isMacOS && !screenGranted) void requestScreenAccess();
     },
-    [setVoiceAgentScreenContext, isMacOS, screenGranted, requestScreenAccess]
+    [isMacOS, screenGranted, requestScreenAccess]
   );
 
   const instructionMode = t("settingsPage.agentConfig.instructionMode");
@@ -141,16 +138,20 @@ export default function DictationAgentSettings() {
   return (
     <div className="space-y-4">
       <SettingsPanel>
-        <SettingsPanelRow>
+        <SettingsPanelRow settingId="assistantEnabled">
           <SettingsRow
             label={t("dictationAgent.enabled")}
             description={t("dictationAgent.enabledDescription", { agentName })}
           >
-            <Toggle checked={useDictationAgent} onChange={setUseDictationAgent} disabled={false} />
+            <RouteSwitch routeId="voiceAssistant" settingKey="useDictationAgent" />
           </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>
 
+      {!useDictationAgent && <StagedRoutePanel routeId="voiceAssistant" />}
+      {!(useDictationAgent && screenContextActive && useDictationAgentVisionModel) && (
+        <StagedRoutePanel routeId="assistantVision" />
+      )}
       {useDictationAgent && <InferenceConfigEditor scope="dictationAgent" />}
 
       {/* Screen context is a voice-agent sub-feature: hidden when an org
@@ -163,19 +164,20 @@ export default function DictationAgentSettings() {
             description={t("dictationAgent.screenContext.description")}
           />
           <SettingsPanel>
-            <SettingsPanelRow>
+            <SettingsPanelRow settingId="screenContext">
               <SettingsRow
                 label={t("dictationAgent.screenContext.enable")}
                 description={
                   screenSupported
-                    ? t("dictationAgent.screenContext.enableDescription")
+                    ? screenContextCopy(visionRoute, t)
                     : t("dictationAgent.screenContext.unsupported")
                 }
               >
-                <Toggle
-                  checked={screenContextActive}
-                  onChange={handleScreenContextToggle}
+                <RouteSwitch
+                  routeId="assistantVision"
+                  settingKey="voiceAgentScreenContext"
                   disabled={!screenSupported}
+                  onApplied={handleScreenContextApplied}
                 />
               </SettingsRow>
             </SettingsPanelRow>
@@ -185,9 +187,9 @@ export default function DictationAgentSettings() {
                   label={t("dictationAgent.screenContext.visionModel")}
                   description={t("dictationAgent.screenContext.visionModelDescription")}
                 >
-                  <Toggle
-                    checked={useDictationAgentVisionModel}
-                    onChange={setUseDictationAgentVisionModel}
+                  <RouteSwitch
+                    routeId="assistantVision"
+                    settingKey="useDictationAgentVisionModel"
                   />
                 </SettingsRow>
               </SettingsPanelRow>
@@ -204,7 +206,7 @@ export default function DictationAgentSettings() {
             />
           )}
           {screenContextActive && isMacOS && screenNeedsRelaunch && (
-            <p className="text-[11px] text-warning/80 leading-snug">
+            <p className="text-[11px] text-muted-foreground leading-snug">
               {t("dictationAgent.screenContext.relaunchHint")}
             </p>
           )}

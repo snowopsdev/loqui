@@ -1,5 +1,21 @@
 const test = require("node:test");
+
+// Explicit key-only fixture instance: no missing-instance warning, while
+// assertions deliberately keep translation keys instead of product copy.
+test.before(async () => {
+  const i18n = require("i18next").createInstance();
+  const { initReactI18next, setI18n } = await import("react-i18next");
+  require("react-i18next").setI18n(i18n);
+  setI18n(i18n);
+  await i18n.use(initReactI18next).init({
+    lng: "en",
+    resources: { en: { translation: {} } },
+    initImmediate: false,
+  });
+});
 const assert = require("node:assert/strict");
+const { captureDiagnostics } = require("../lib/scopedDiagnostics");
+const { I18N_KEYS_MOCK } = require("../helpers/harness/rendererMocks");
 const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
@@ -10,6 +26,8 @@ const { createRendererServer, installBrowserGlobals } = require("../lib/renderer
 // 00:00; deriving them from the session's start timestamp does not.
 async function renderRecordControl(t, { elapsedMs, isRecording = true }) {
   installBrowserGlobals(t);
+  const diagnostics = captureDiagnostics(t);
+  t.after(() => assert.deepEqual(diagnostics, []));
   // The store's stamp is resolved when the component reads it, not when this
   // harness is built: standing up the renderer server takes seconds, and a
   // timestamp fixed here would drift the expected elapsed value.
@@ -18,8 +36,10 @@ async function renderRecordControl(t, { elapsedMs, isRecording = true }) {
     delete globalThis.__recordingElapsedMs;
   });
   const vite = await createRendererServer(t, {
+    noExternal: ["react-i18next"],
     cachePrefix: "openwhispr-note-record-control-timer-test-",
     mockModules: {
+      "react-i18next": I18N_KEYS_MOCK,
       "/stores/meetingRecordingStore": `
         const state = {
           currentMicLevel: 0,

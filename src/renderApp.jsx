@@ -3,11 +3,10 @@ import ReactDOM from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import AppRouter from "./AppRouter.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.tsx";
-import CleanupFailureToastListener from "./components/CleanupFailureToastListener.tsx";
-import TinfoilModelSwitchToastListener from "./components/TinfoilModelSwitchToastListener.tsx";
-import GpuPackMigrationToastListener from "./components/GpuPackMigrationToastListener.tsx";
+import CleanupFailureNoticeListener from "./components/CleanupFailureNoticeListener.tsx";
+import TinfoilModelSwitchNoticeListener from "./components/TinfoilModelSwitchNoticeListener.tsx";
+import GpuPackMigrationNoticeListener from "./components/GpuPackMigrationNoticeListener.tsx";
 import { I18nDirectionProvider } from "./components/I18nDirectionProvider.tsx";
-import { ToastProvider } from "./components/ui/Toast.tsx";
 import { SettingsProvider } from "./hooks/useSettings";
 import { bindDocumentLanguage } from "./utils/i18nDocument";
 
@@ -29,12 +28,10 @@ root.render(
       <I18nextProvider i18n={i18n}>
         <I18nDirectionProvider>
           <SettingsProvider>
-            <ToastProvider>
-              <TinfoilModelSwitchToastListener />
-              <CleanupFailureToastListener />
-              <GpuPackMigrationToastListener />
-              <AppRouter />
-            </ToastProvider>
+            <TinfoilModelSwitchNoticeListener />
+            <CleanupFailureNoticeListener />
+            <GpuPackMigrationNoticeListener />
+            <AppRouter />
           </SettingsProvider>
         </I18nDirectionProvider>
       </I18nextProvider>

@@ -1,11 +1,24 @@
-import { useState } from "react";
+import { RouteTag } from "./ChatModelChip";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
-import { Copy, Check, Search, FileText, ChevronDown, ChevronRight, CircleAlert } from "../icons";
+import {
+  Sparkles,
+  Copy,
+  Check,
+  Search,
+  FileText,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+} from "../icons";
 import { cn } from "../lib/utils";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
-import type { ToolCallInfo } from "./types";
+import type { Message, ToolCallInfo } from "./types";
 import { extractNoteCards } from "./noteCards";
 import { toolIcons } from "./toolIcons";
+import { collectSources, numberCitations } from "./citations";
+import { remarkCitations } from "./remarkCitations";
+import { SourcesRow } from "./SourcesRow";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
@@ -13,9 +26,17 @@ interface ChatMessageProps {
   isStreaming: boolean;
   toolCalls?: ToolCallInfo[];
   onOpenNote?: (noteId: number) => void;
+  variant?: "bubble" | "document";
+  context?: Message["context"];
 }
 
-function ToolCallStep({ toolCall }: { toolCall: ToolCallInfo }) {
+function ToolCallStep({
+  toolCall,
+  presentation = "bubble",
+}: {
+  toolCall: ToolCallInfo;
+  presentation?: "bubble" | "document";
+}) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const Icon = toolIcons[toolCall.name] || Search;
@@ -26,6 +47,52 @@ function ToolCallStep({ toolCall }: { toolCall: ToolCallInfo }) {
 
   const resultLines = toolCall.result?.split("\n") ?? [];
   const hasDetail = resultLines.length > 1 && !isClipboard;
+
+  if (presentation === "document") {
+    const interactive = hasDetail && !isExecuting;
+    const Header = interactive ? "button" : "div";
+    return (
+      <div
+        className={cn("mb-1 rounded-md border-s-2", isExecuting ? "border-agent" : "border-border")}
+      >
+        <Header
+          {...(interactive
+            ? {
+                type: "button" as const,
+                "aria-expanded": expanded,
+                onClick: () => setExpanded((v) => !v),
+              }
+            : {})}
+          className="flex w-full items-center gap-1.5 rounded-sm bg-surface-1 px-2.5 py-1.5 text-start text-caption text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Icon size={12} aria-hidden className="shrink-0" />
+          {isError && <CircleAlert size={12} aria-hidden className="shrink-0" />}
+          <span className="min-w-0 break-words">
+            {isExecuting
+              ? t(`agentMode.tools.${toolCall.name}Status`, { defaultValue: toolCall.name })
+              : isClipboard
+                ? t("agentMode.tools.copiedToClipboard")
+                : toolCall.result?.split("\n")[0] || toolCall.name}
+          </span>
+          {interactive && (
+            <ChevronDown
+              size={12}
+              aria-hidden
+              className={cn("ms-auto shrink-0", expanded && "rotate-180")}
+            />
+          )}
+        </Header>
+        {interactive && expanded && (
+          <pre
+            dir="auto"
+            className="whitespace-pre-wrap break-words px-2.5 pb-1.5 text-caption text-muted-foreground"
+          >
+            {toolCall.result}
+          </pre>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -57,27 +124,27 @@ function ToolCallStep({ toolCall }: { toolCall: ToolCallInfo }) {
           size={12}
           className={cn(
             "shrink-0 transition-colors duration-300",
-            isExecuting && "text-primary/70",
-            isCompleted && !isError && !isClipboard && "text-muted-foreground/70",
+            isExecuting && "text-link",
+            isCompleted && !isError && !isClipboard && "text-muted-foreground",
             isClipboard && "text-emerald-500/70",
             isError && "text-destructive/60"
           )}
         />
 
         {isExecuting ? (
-          <span className="text-[11px] text-muted-foreground/80">
+          <span className="text-caption text-muted-foreground">
             {t(`agentMode.tools.${toolCall.name}Status`, { defaultValue: toolCall.name })}
           </span>
         ) : isError ? (
           <div className="flex items-center gap-1">
             <CircleAlert size={10} className="text-destructive/60 shrink-0" />
-            <span className="text-[11px] text-destructive/70">
+            <span className="text-caption text-destructive">
               {toolCall.result || toolCall.name}
             </span>
           </div>
         ) : isClipboard ? (
           <div className="flex items-center gap-1">
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400/80">
+            <span className="text-caption text-muted-foreground">
               {t("agentMode.tools.copiedToClipboard")}
             </span>
             <Check
@@ -87,7 +154,7 @@ function ToolCallStep({ toolCall }: { toolCall: ToolCallInfo }) {
             />
           </div>
         ) : (
-          <span className="text-[11px] text-muted-foreground/70">
+          <span className="text-caption text-muted-foreground">
             {toolCall.result || toolCall.name}
           </span>
         )}
@@ -96,7 +163,7 @@ function ToolCallStep({ toolCall }: { toolCall: ToolCallInfo }) {
           <ChevronDown
             size={10}
             className={cn(
-              "ms-auto text-muted-foreground/70 shrink-0 transition-transform duration-200",
+              "ms-auto text-muted-foreground shrink-0 transition-transform duration-200",
               expanded && "rotate-180"
             )}
           />
@@ -110,7 +177,7 @@ function ToolCallStep({ toolCall }: { toolCall: ToolCallInfo }) {
         >
           <pre
             dir="ltr"
-            className="text-[10px] text-muted-foreground/70 px-2.5 pb-1.5 whitespace-pre-wrap leading-tight"
+            className="text-caption text-muted-foreground px-2.5 pb-1.5 whitespace-pre-wrap leading-tight"
           >
             {toolCall.result}
           </pre>
@@ -137,28 +204,84 @@ function NoteCard({
         onOpenNote ? onOpenNote(noteId) : window.electronAPI?.agentOpenNote?.(noteId)
       }
       className={cn(
+        "focus-visible:ring-2 focus-visible:ring-ring",
         "flex items-center gap-2 w-full mt-2 px-2.5 py-2 rounded-md",
-        "bg-primary/6 border border-primary/12",
-        "hover:bg-primary/10 hover:border-primary/20",
+        "bg-foreground/5 border border-border",
+        "hover:bg-foreground/5 hover:border-border",
         "active:scale-[0.99]",
         "transition-all duration-150",
         "text-start group/note"
       )}
     >
-      <div className={cn("shrink-0 p-1 rounded", "bg-primary/10")}>
-        <FileText size={12} className="text-primary/70" />
+      <div className={cn("shrink-0 p-1 rounded", "bg-foreground/5")}>
+        <FileText size={12} className="text-link" />
       </div>
       <div className="min-w-0 flex-1">
-        <p dir="auto" className="text-[12px] font-medium text-foreground truncate">
+        <p dir="auto" className="text-caption font-medium text-foreground truncate">
           {title}
         </p>
-        <p className="text-[10px] text-muted-foreground/70">{t("agentMode.tools.openNote")}</p>
+        <p className="text-caption text-muted-foreground">{t("agentMode.tools.openNote")}</p>
       </div>
       <ChevronRight
         size={12}
-        className="text-muted-foreground/70 group-hover/note:text-primary/50 shrink-0 transition-colors duration-150 rtl:rotate-180"
+        className="text-muted-foreground group-hover/note:text-link shrink-0 transition-colors duration-150 rtl:rotate-180"
       />
     </button>
+  );
+}
+
+function CitationSup({
+  node: _node,
+  children,
+  ...props
+}: ComponentProps<"sup"> & { node?: unknown; "data-citation"?: number }) {
+  if (props["data-citation"] == null) return <sup {...props}>{children}</sup>;
+  // Explicit size wins over the browser's smaller default sup font.
+  return (
+    <sup {...props} className="citation-in ms-0.5 text-micro font-bold text-agent-text">
+      {children}
+    </sup>
+  );
+}
+const citationComponents = { sup: CitationSup };
+
+function ToolActivityDisclosure({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const running = toolCalls.find((call) => call.status === "executing");
+  const failed = [...toolCalls].reverse().find((call) => call.status === "error");
+  const searches = toolCalls.filter(
+    (call) => call.name === "search_notes" && call.status === "completed"
+  );
+  const last = toolCalls.at(-1)!;
+  const summary = running
+    ? t(`agentMode.tools.${running.name}Status`, { defaultValue: running.name })
+    : failed
+      ? failed.result || failed.name
+      : searches.length
+        ? t("agentMode.tools.summary", { count: collectSources(searches, undefined).size })
+        : last.name === "copy_to_clipboard"
+          ? t("agentMode.tools.copiedToClipboard")
+          : last.result?.split("\n")[0] ||
+            t(`agentMode.tools.${last.name}Status`, { defaultValue: last.name });
+  return (
+    <div className="mb-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="rounded-sm text-caption text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {summary}
+      </button>
+      {open && (
+        <div className="mt-1">
+          {toolCalls.map((call) => (
+            <ToolCallStep key={call.id} toolCall={call} presentation="document" />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -168,19 +291,42 @@ export function ChatMessage({
   isStreaming,
   toolCalls,
   onOpenNote,
+  variant = "bubble",
+  context,
 }: ChatMessageProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    };
+  }, []);
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(content);
+      if (!mounted.current) return;
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       // clipboard unavailable
     }
   };
+
+  if (variant === "document" && role === "user") {
+    return (
+      <div data-variant="document" className="flex justify-end">
+        <div className="max-w-[80%] rounded-xl bg-surface-3 px-3.5 py-2.5 text-ui text-foreground">
+          <span dir="auto">{content}</span>
+        </div>
+      </div>
+    );
+  }
 
   if (role === "user") {
     return (
@@ -192,8 +338,8 @@ export function ChatMessage({
           data-chat-bubble
           className={cn(
             "max-w-[80%] px-3 py-2 rounded-lg rounded-ee-sm",
-            "bg-primary/90 text-primary-foreground",
-            "text-[13px] leading-relaxed"
+            "bg-secondary text-foreground",
+            "text-ui leading-relaxed"
           )}
         >
           <span dir="auto">{content}</span>
@@ -206,6 +352,76 @@ export function ChatMessage({
   const hasContent = content.length > 0;
   const noteCards = extractNoteCards(toolCalls, t("notes.list.untitledNote"));
 
+  if (variant === "document") {
+    const candidates = collectSources(toolCalls, [
+      ...(context?.ragNotes ?? []),
+      ...(context?.pinnedNotes ?? []),
+    ]);
+    const { numbers, sources } = numberCitations(content, candidates);
+    return (
+      <div
+        data-variant="document"
+        className={cn(
+          "group/msg border-s-2 ps-4",
+          isStreaming ? "border-agent" : "border-transparent"
+        )}
+      >
+        <div className="mb-1.5 flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
+          <span
+            aria-hidden
+            className="flex size-[18px] items-center justify-center rounded-md bg-agent/20 text-agent-text"
+          >
+            <Sparkles size={11} />
+          </span>
+          <span className="text-ui font-medium text-foreground">{t("chat.assistant")}</span>
+          {context?.route && <RouteTag route={context.route} />}
+        </div>
+        {hasToolCalls && <ToolActivityDisclosure toolCalls={toolCalls} />}
+        {hasContent && (
+          <MarkdownRenderer
+            content={content}
+            remarkPlugins={[[remarkCitations, { numbers }]]}
+            components={citationComponents}
+            className="max-w-[68ch] text-body leading-[1.6] [&_strong]:font-[650]"
+          />
+        )}
+        {isStreaming && hasContent && (
+          <span
+            aria-hidden
+            className="document-stream-cursor inline-block h-[15px] w-[2px] align-middle bg-foreground"
+            style={{
+              animation:
+                "agent-cursor-blink var(--motion-loop-blink) var(--motion-ease-std) infinite",
+            }}
+          />
+        )}
+        {isStreaming && !hasContent && !hasToolCalls && (
+          <span className="flex items-center gap-2 text-ui text-muted-foreground">
+            <span className="thinking-dots" aria-hidden>
+              <i />
+              <i />
+              <i />
+            </span>
+            <span>{t("agentMode.input.thinking")}</span>
+          </span>
+        )}
+        <SourcesRow sources={sources} />
+        {hasContent && !isStreaming && (
+          <div className="mt-1.5 flex justify-start">
+            <button
+              type="button"
+              aria-label={t(copied ? "common.copied" : "common.copy")}
+              onClick={handleCopy}
+              className="rounded-sm p-1 text-muted-foreground hover:bg-foreground/8 hover:text-foreground opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       className="group/msg flex justify-start"
@@ -216,7 +432,7 @@ export function ChatMessage({
         className={cn(
           "max-w-[85%] px-3 py-2 rounded-lg rounded-es-sm",
           "bg-surface-1 border border-border/70 text-foreground",
-          "text-[13px] leading-relaxed"
+          "text-ui leading-relaxed"
         )}
       >
         {hasToolCalls && (
@@ -234,7 +450,7 @@ export function ChatMessage({
         {hasContent && (
           <MarkdownRenderer
             content={content}
-            className="text-[13px] leading-relaxed [&_p]:text-[13px] [&_li]:text-[13px]"
+            className="text-ui leading-relaxed [&_p]:text-ui [&_li]:text-ui"
           />
         )}
 
@@ -246,7 +462,7 @@ export function ChatMessage({
         )}
 
         {isStreaming && !hasContent && !hasToolCalls && (
-          <span className="text-[13px] font-medium select-none thinking-shimmer-text">
+          <span className="text-ui font-medium select-none thinking-shimmer-text">
             {t("agentMode.input.thinking")}...
           </span>
         )}
@@ -270,9 +486,9 @@ export function ChatMessage({
               onClick={handleCopy}
               className={cn(
                 "p-1 rounded-sm",
-                "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/8",
-                "opacity-0 group-hover/msg:opacity-100 transition-all duration-150",
-                "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
+                "text-muted-foreground hover:text-foreground hover:bg-foreground/8",
+                "opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 transition-all duration-150",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               )}
             >
               {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}

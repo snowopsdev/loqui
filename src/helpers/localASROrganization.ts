@@ -7,7 +7,7 @@ const catalog = modelData.parakeetModels as Record<
 // Oruk leads: it is the recommended local route, so it is the first tab everywhere.
 export const LOCAL_ASR_ORGANIZATIONS = [
   { id: "oruk", name: "Oruk" },
-  { id: "whisper", name: "OpenAI" },
+  { id: "whisper", name: "Whisper" },
   { id: "nvidia", name: "NVIDIA" },
   { id: "cohere", name: "Cohere" },
 ];

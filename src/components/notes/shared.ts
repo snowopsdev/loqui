@@ -1,5 +1,5 @@
 import { cn } from "../lib/utils";
-import type { FolderItem } from "../../types/electron";
+import type { FolderItem, SpaceItem } from "../../types/electron";
 
 export const DEFAULT_FOLDER_NAME = "Personal";
 export const MEETINGS_FOLDER_NAME = "Meetings";
@@ -18,6 +18,14 @@ export function defaultFolderDisplayName(
   if (!folder.is_default) return folder.name;
   const key = DEFAULT_FOLDER_LABEL_KEYS[folder.name];
   return key ? t(key) : folder.name;
+}
+
+/** The private Space is stored as the English literal "Personal"; show it in the UI language. */
+export function spaceDisplayName(
+  space: Pick<SpaceItem, "kind" | "name">,
+  t: (key: string) => string
+): string {
+  return space.kind === "private" ? t("notes.spaces.personal") : space.name;
 }
 
 // Command search accepts either the presented label or the canonical stored
@@ -119,3 +127,5 @@ export const NOTE_META_CHIP_CLASS = cn(
   "hover:bg-surface-raised hover:text-foreground dark:bg-surface-2 dark:hover:bg-surface-3",
   "cursor-pointer outline-none transition-colors duration-150 focus-visible:ring-1 focus-visible:ring-ring/30"
 );
+
+export const NOTES_ACTIONS_MODEL_HINT_KEY = "notesActionsModelHintDismissed";

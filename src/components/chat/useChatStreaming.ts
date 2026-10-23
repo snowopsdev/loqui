@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   appendDictionarySuffix,
+  appendCitationSuffix,
   appendScreenContextSuffix,
   getAgentSystemPrompt,
 } from "../../config/prompts";
@@ -12,7 +13,13 @@ import { providerSupportsImages } from "../../services/ai/inferenceProviders";
 import ReasoningService, { type AgentStreamChunk } from "../../services/ReasoningService";
 import { createToolRegistry } from "../../services/tools";
 import type { ToolRegistry } from "../../services/tools/ToolRegistry";
-import { getSettings, useSettingsStore } from "../../stores/settingsStore";
+import type {
+  EnterpriseProviderId,
+  EnterpriseRecipientTag,
+  ResolvedRoute,
+  RouteId,
+} from "../../lib/routes";
+import { getSettings, useSettingsStore, type SettingsState } from "../../stores/settingsStore";
 import type { ContainerScope } from "../../types/chat";
 import {
   buildAgentRequestText,
@@ -20,10 +27,12 @@ import {
 } from "../../utils/agentSelectionContext";
 import logger from "../../utils/logger";
 import { getDictionaryHintWords } from "../../utils/snippets";
-import type { AgentState, ChatImageAttachment, Message, ToolCallInfo } from "./types";
-
-const RAG_NOTE_LIMIT = 5;
-const RAG_NOTE_SNIPPET_LENGTH = 500;
+import type { AgentState, ChatImageAttachment, Message, MessageRoute, ToolCallInfo } from "./types";
+import { buildRagContext } from "./ragContext";
+import { resolveRoute, routeSnapshotFromSettings } from "../../lib/routes";
+import { toMessageRoute } from "./messageRoute";
+import type { RagNoteRef } from "./citations";
+type PinnedContext = { text: string; notes: RagNoteRef[] };
 const STREAM_FLUSH_INTERVAL_MS = 32;
 
 const LOCAL_TOOL_MIN_PARAMS_B = 4;
@@ -31,32 +40,6 @@ const LOCAL_TOOL_MIN_PARAMS_B = 4;
 function estimateModelSizeB(modelId: string): number {
   const match = modelId.match(/-([\d.]+)[bB]/);
   return match ? parseFloat(match[1]) : 0;
-}
-
-async function buildRAGContext(userText: string, scope?: ContainerScope): Promise<string> {
-  if (!window.electronAPI?.semanticSearchNotes) return "";
-  try {
-    const results = await window.electronAPI.semanticSearchNotes(
-      userText,
-      RAG_NOTE_LIMIT,
-      scope?.spaceId ?? null,
-      scope?.folderId ?? null
-    );
-    if (!results || results.length === 0) return "";
-
-    const snippets = await Promise.all(
-      results.map(async (r: { id: number; title: string; score?: number }) => {
-        const note = await window.electronAPI.getNote(r.id);
-        if (!note) return null;
-        const content = (note.content || "").slice(0, RAG_NOTE_SNIPPET_LENGTH);
-        return `<note id="${note.id}" title="${note.title}">\n${content}\n</note>`;
-      })
-    );
-
-    return snippets.filter(Boolean).join("\n\n");
-  } catch {
-    return "";
-  }
 }
 
 /**
@@ -68,6 +51,11 @@ async function buildRAGContext(userText: string, scope?: ContainerScope): Promis
 type ChatStreamingScope = "chatIntelligence" | "dictationAgent";
 
 interface UseChatStreamingOptions {
+  /** Table opt-in: the mounted empty conversation already has idle UI state. */
+  initializeIdleConversation?: boolean;
+  getPinnedContext?: () => Promise<PinnedContext>;
+  /** Display owner; changing threads clears activity without redirecting an admitted request. */
+  conversationId?: number | null;
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   /** Settings scope the conversation resolves its provider and model from. */
@@ -76,12 +64,48 @@ interface UseChatStreamingOptions {
   noteContext?: string;
   /** Optional container scope applied to RAG and the search_notes tool (container overview chat). */
   searchScope?: ContainerScope;
-  onStreamComplete?: (assistantId: string, content: string, toolCalls?: ToolCallInfo[]) => void;
+  onStreamComplete?: (
+    assistantId: string,
+    content: string,
+    toolCalls?: ToolCallInfo[],
+    context?: Message["context"]
+  ) => void | Promise<void>;
+  citations?: boolean;
   /** Fires exactly once when displayable assistant content or tool activity becomes available. */
   onResponseContent?: () => void;
 }
 
+/** Non-secret authority for a spoken operation and its later presentation. */
+export interface DictationOperation {
+  sessionId: string;
+  settings: Readonly<Record<string, unknown>>;
+  enterpriseRecipientTags: Readonly<Partial<Record<EnterpriseProviderId, EnterpriseRecipientTag>>>;
+  requestOptions?: Readonly<{ providerSearch: Readonly<Partial<Record<string, boolean>>> }>;
+  presentation?: Readonly<{
+    routes: Readonly<Partial<Record<RouteId, ResolvedRoute>>> | null;
+    intents: Readonly<Record<string, unknown>>;
+  }>;
+}
+
 export interface SendToAIOptions {
+  /** Renderer-local first response handler; never included in provider/IPC payloads. */
+  onResponseContent?: () => void;
+  operation?: DictationOperation;
+  /** Frozen Table context for this submission, captured with inference at admission. */
+  contextOverride?: string;
+  /** Request ownership survives navigation and unmount; completion persists to its admitted conversation. */
+  owner?: {
+    conversationId: number;
+    isCurrent: () => boolean;
+    onStreamComplete: (
+      assistantId: string,
+      content: string,
+      toolCalls?: ToolCallInfo[],
+      context?: Message["context"]
+    ) => void | Promise<void>;
+  };
+  /** Effective inference target captured synchronously when the sender admits a message. */
+  inferenceSnapshot?: ChatInferenceSnapshot;
   /** Screenshot for this message; attached only when the resolved model can see it. */
   attachment?: ChatImageAttachment;
   /** Agent-response selection attached to this request without changing chat history. */
@@ -96,7 +120,19 @@ export interface SendToAIOptions {
   }) => void | Promise<void>;
 }
 
+export interface ChatInferenceSnapshot {
+  operation?: DictationOperation;
+  pinnedContext?: Promise<PinnedContext>;
+  settings: ReturnType<typeof getSettings>;
+  inference: ReturnType<typeof resolveChatStreamingInference>;
+  sentRoute: MessageRoute;
+  webSearch: boolean;
+  noteContext?: string;
+  searchScope?: ContainerScope;
+}
+
 export interface ChatStreaming {
+  captureInference: (options?: SendToAIOptions) => ChatInferenceSnapshot;
   agentState: AgentState;
   toolStatus: string;
   activeToolName: string;
@@ -121,12 +157,15 @@ function transformLastUserMessage(
 }
 
 export function useChatStreaming({
-  messages,
+  conversationId,
+  initializeIdleConversation = false,
+  getPinnedContext,
   setMessages,
   inferenceScope = "chatIntelligence",
   noteContext: externalNoteContext,
   searchScope,
   onStreamComplete,
+  citations = false,
   onResponseContent,
 }: UseChatStreamingOptions): ChatStreaming {
   const { t } = useTranslation();
@@ -134,7 +173,12 @@ export function useChatStreaming({
   const [toolStatus, setToolStatus] = useState("");
   const [activeToolName, setActiveToolName] = useState("");
   const mountedRef = useRef(true);
-  const messagesRef = useRef<Message[]>([]);
+  // Avoid enqueueing redundant mount resets for frame-owned hosts. Even eager
+  // no-op updates can leave a lower-priority replay behind a synchronous paint.
+  // Omitted options preserve the existing initialization of every other host.
+  const activeConversationRef = useRef<number | null | undefined>(
+    initializeIdleConversation ? conversationId : undefined
+  );
   const noteContextRef = useRef(externalNoteContext);
   noteContextRef.current = externalNoteContext;
   const searchScopeRef = useRef(searchScope);
@@ -157,6 +201,14 @@ export function useChatStreaming({
     setToolStatus("");
     setActiveToolName("");
   }, [clearToolActivityTimer]);
+
+  useEffect(() => {
+    // Creating the admitted first conversation is not navigation away from it.
+    if (conversationId !== activeConversationRef.current) {
+      setAgentState("idle");
+      clearToolActivity();
+    }
+  }, [conversationId, clearToolActivity]);
 
   const beginToolActivity = useCallback(
     (name: string, status: string) => {
@@ -184,10 +236,6 @@ export function useChatStreaming({
 
     toolActivityTimerRef.current = setTimeout(clearToolActivity, remainingMs);
   }, [clearToolActivity, clearToolActivityTimer]);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
 
   const sendGenerationRef = useRef(0);
   // Generation stamped by the most recent cancel issued while still mounted
@@ -219,26 +267,91 @@ export function useChatStreaming({
     };
   }, [cancelStream]);
 
-  const sendToAI = useCallback(
-    async (userText: string, allMessages: Message[], options?: SendToAIOptions) => {
-      const sendGeneration = ++sendGenerationRef.current;
-      const cancelled = () => sendGeneration !== sendGenerationRef.current;
-      clearToolActivity();
-      let responseAnnounced = false;
-      const announceResponse = () => {
-        if (responseAnnounced) return;
-        responseAnnounced = true;
-        if (!options?.suppressResponseContent) onResponseContent?.();
-      };
-      const settings = getSettings();
-      const { config: llmConfig, attachScreenContext } = resolveChatStreamingInference(settings, {
+  const pinnedGetterRef = useRef(getPinnedContext);
+  pinnedGetterRef.current = getPinnedContext;
+  const captureInference = useCallback(
+    (options?: SendToAIOptions): ChatInferenceSnapshot => {
+      const settings = (
+        options?.operation ? { ...getSettings(), ...options.operation.settings } : getSettings()
+      ) as SettingsState;
+      const inference = resolveChatStreamingInference(settings, {
         inferenceScope,
         hasScreenContext: !!options?.attachment,
         isProviderImageWired: providerSupportsImages,
       });
+      const config = inference.config;
+      // Freeze disclosure at admission, before creation, user-save or RAG waits.
+      // The shared hook may answer on the agent or its chosen vision override.
+      const routeId =
+        config.scope === "dictationAgentVision"
+          ? "assistantVision"
+          : config.scope === "dictationAgent"
+            ? "voiceAssistant"
+            : "chat";
+      const sentRoute = toMessageRoute(resolveRoute(routeSnapshotFromSettings(settings), routeId));
+      // Invoke now, not after any sender/RAG await; a rejected abandoned lookup
+      // is handled immediately even if creation or user persistence fails.
+      let pinnedContext: Promise<PinnedContext> | undefined;
+      try {
+        pinnedContext = pinnedGetterRef.current?.().catch(() => ({ text: "", notes: [] }));
+      } catch {
+        pinnedContext = Promise.resolve({ text: "", notes: [] });
+      }
+      return {
+        ...(pinnedContext ? { pinnedContext } : {}),
+        settings,
+        operation: options?.operation,
+        sentRoute,
+        noteContext: options?.contextOverride ?? noteContextRef.current,
+        searchScope: searchScopeRef.current ? { ...searchScopeRef.current } : undefined,
+        inference: { ...inference, config: { ...config } },
+        webSearch: options?.operation
+          ? options.operation.requestOptions?.providerSearch[config.scope] === true
+          : isProviderSearchEnabled(
+              config.scope === "dictationAgentVision" ? "dictationAgent" : config.scope,
+              config.provider,
+              config.mode
+            ),
+      };
+    },
+    [inferenceScope]
+  );
+
+  const sendToAI = useCallback(
+    async (userText: string, allMessages: Message[], options?: SendToAIOptions) => {
+      activeConversationRef.current = options?.owner?.conversationId;
+      const isCurrent = () => options?.owner?.isCurrent() !== false;
+      // Keep reply metadata independently of whichever thread the UI now displays.
+      let requestMessages = allMessages;
+      const updateMessages: typeof setMessages = (update) => {
+        requestMessages = typeof update === "function" ? update(requestMessages) : update;
+        setMessages((current) => {
+          if (!isCurrent()) return current;
+          return typeof update === "function" ? update(current) : update;
+        });
+      };
+      const updateAgentState = (state: AgentState) => {
+        setAgentState((current) => (isCurrent() ? state : current));
+      };
+      const completeRequest = options?.owner?.onStreamComplete ?? onStreamComplete;
+      const sendGeneration = ++sendGenerationRef.current;
+      const cancelled = () => sendGeneration !== sendGenerationRef.current;
+      if (isCurrent()) clearToolActivity();
+      let responseAnnounced = false;
+      const announceResponse = () => {
+        if (responseAnnounced) return;
+        responseAnnounced = true;
+        if (isCurrent()) {
+          if (options?.onResponseContent) options.onResponseContent();
+          else if (!options?.suppressResponseContent) onResponseContent?.();
+        }
+      };
+      const snapshot = options?.inferenceSnapshot ?? captureInference(options);
+      const settings = snapshot.settings;
+      const { config: llmConfig, attachScreenContext } = snapshot.inference;
       const requestedAttachment = attachScreenContext ? (options?.attachment ?? null) : null;
       const llmMode = llmConfig.mode || "local";
-      setAgentState("thinking");
+      updateAgentState("thinking");
 
       const isLanAgent = llmMode === "self-hosted" && !!llmConfig.remoteUrl;
       const isCustomAgent = llmMode === "providers" && llmConfig.provider === "custom";
@@ -260,7 +373,7 @@ export function useChatStreaming({
         isLocalProvider && estimateModelSizeB(llmConfig.model) >= LOCAL_TOOL_MIN_PARAMS_B;
       const supportsTools = !isLocalProvider || localModelCanUseTool;
 
-      const scope = searchScopeRef.current;
+      const scope = snapshot.searchScope;
       let registry: ToolRegistry | null = null;
       if (supportsTools) {
         const scopeKey = scope ? `${scope.spaceId}:${scope.folderId ?? ""}` : "";
@@ -290,19 +403,32 @@ export function useChatStreaming({
         }
       }
 
-      const ragContext = await buildRAGContext(userText, scope);
+      const rag = await buildRagContext(window.electronAPI, userText, scope);
+      const ragContext = rag.text;
       if (cancelled() || !mountedRef.current) return;
-      const combinedContext = [noteContextRef.current, ragContext].filter(Boolean).join("\n\n");
+      const pinned = await snapshot.pinnedContext;
+      if (cancelled() || !mountedRef.current) return;
+      const pinnedContext = pinned?.text ?? "";
+      const combinedContext = [snapshot.noteContext, pinnedContext, ragContext]
+        .filter(Boolean)
+        .join("\n\n");
       // The user's dictionary rides on every conversation so replies use their
       // jargon — same suffix the dictation prompts carry.
       let systemPrompt = appendDictionarySuffix(
         getAgentSystemPrompt(
           registry?.getAll().map((t) => t.name),
-          combinedContext || undefined
+          combinedContext || undefined,
+          settings.customPrompts ?? {},
+          settings.uiLanguage
         ),
         getDictionaryHintWords(settings),
         settings.uiLanguage
       );
+
+      // Only ChatView opts in; bubble-only chat surfaces keep their existing prompt.
+      const hasSources =
+        (registry?.getAll().length ?? 0) > 0 || ragContext.length > 0 || pinnedContext.length > 0;
+      if (citations && hasSources) systemPrompt = appendCitationSuffix(systemPrompt);
 
       const history: HistoryMessage[] = allMessages
         .slice(-20)
@@ -341,11 +467,21 @@ export function useChatStreaming({
       }
 
       const assistantId = crypto.randomUUID();
-      setMessages((prev) => [
+      updateMessages((prev) => [
         ...prev,
-        { id: assistantId, role: "assistant", content: "", isStreaming: true },
+        {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          isStreaming: true,
+          context: {
+            ragNotes: rag.notes,
+            ...(pinned ? { pinnedNotes: pinned.notes } : {}),
+            route: snapshot.sentRoute,
+          },
+        },
       ]);
-      setAgentState("streaming");
+      updateAgentState("streaming");
 
       // Chat re-parses the whole answer through react-markdown on every
       // content write, so one write per streamed token made parse cost scale
@@ -359,7 +495,7 @@ export function useChatStreaming({
       };
       const flushContentNow = () => {
         cancelContentFlush();
-        setMessages((prev) =>
+        updateMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, content: fullContent } : m))
         );
       };
@@ -379,6 +515,19 @@ export function useChatStreaming({
             llmConfig.provider,
             {
               systemPrompt,
+              settingsView: settings as unknown as Record<string, unknown>,
+              correlationId: snapshot.operation?.sessionId ?? null,
+              disclosureTask: snapshot.operation
+                ? llmConfig.scope === "dictationAgentVision"
+                  ? "assistantVision"
+                  : "voiceAssistant"
+                : null,
+              dictationSessionId: snapshot.operation?.sessionId ?? null,
+              dictationOperation: snapshot.operation ? true : undefined,
+              enterpriseRecipientTag:
+                snapshot.operation?.enterpriseRecipientTags[
+                  llmConfig.provider as EnterpriseProviderId
+                ] ?? null,
               // Policy and managed enforcement judge the scope that actually
               // answers: the panel's Chat fallback as Chat, and the vision
               // override as the agent scope whose image lane it is.
@@ -389,11 +538,7 @@ export function useChatStreaming({
               customApiKey:
                 isCustomAgent || isLanAgent ? llmConfig.customApiKey || undefined : undefined,
               disableThinking: llmConfig.disableThinking,
-              webSearch: isProviderSearchEnabled(
-                llmConfig.scope === "dictationAgentVision" ? "dictationAgent" : llmConfig.scope,
-                llmConfig.provider,
-                llmConfig.mode
-              ),
+              webSearch: snapshot.webSearch,
             },
             aiTools
           );
@@ -414,12 +559,13 @@ export function useChatStreaming({
             flushContentNow();
             if (chunk.calls.length > 0) announceResponse();
             for (const call of chunk.calls) {
-              setAgentState("tool-executing");
-              beginToolActivity(
-                call.name,
-                t(`agentMode.tools.${call.name}Status`, { defaultValue: `Using ${call.name}...` })
-              );
-              setMessages((prev) =>
+              updateAgentState("tool-executing");
+              if (isCurrent())
+                beginToolActivity(
+                  call.name,
+                  t(`agentMode.tools.${call.name}Status`, { defaultValue: `Using ${call.name}...` })
+                );
+              updateMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
                     ? {
@@ -439,7 +585,7 @@ export function useChatStreaming({
               );
             }
           } else if (chunk.type === "tool_result") {
-            setMessages((prev) =>
+            updateMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId && m.toolCalls
                   ? {
@@ -458,14 +604,14 @@ export function useChatStreaming({
                   : m
               )
             );
-            setAgentState("streaming");
-            completeToolActivity();
+            updateAgentState("streaming");
+            if (isCurrent()) completeToolActivity();
           }
         }
 
         if (cancelled() || !mountedRef.current) {
           flushContentNow();
-          setMessages((prev) =>
+          updateMessages((prev) =>
             prev.map((message) =>
               message.id === assistantId ? { ...message, isStreaming: false } : message
             )
@@ -477,8 +623,13 @@ export function useChatStreaming({
           // the per-request delivery hook.
           const explicitlyCancelled = explicitCancelGenerationRef.current > sendGeneration;
           if (!explicitlyCancelled && fullContent.trim().length > 0) {
-            const finalMsg = messagesRef.current.find((m) => m.id === assistantId);
-            onStreamComplete?.(assistantId, fullContent, finalMsg?.toolCalls);
+            const finalMsg = requestMessages.find((m) => m.id === assistantId);
+            await completeRequest?.(
+              assistantId,
+              fullContent,
+              finalMsg?.toolCalls,
+              finalMsg?.context
+            );
           }
           return;
         }
@@ -492,18 +643,20 @@ export function useChatStreaming({
           // terminal outcome.
           fullContent = t("agentMode.chat.emptyResponse");
           announceResponse();
-          setMessages((prev) =>
+          updateMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, content: fullContent } : m))
           );
         }
 
-        setMessages((prev) =>
+        updateMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false } : m))
         );
 
-        const finalMsg = messagesRef.current.find((m) => m.id === assistantId);
-        onStreamComplete?.(assistantId, fullContent, finalMsg?.toolCalls);
-        if (hasDeliverableContent) {
+        const finalMsg = requestMessages.find((m) => m.id === assistantId);
+        await completeRequest?.(assistantId, fullContent, finalMsg?.toolCalls, finalMsg?.context);
+        // Persistence may yield while Stop or unmount cancels this request.
+        // Its saved reply stays in history, but cancelled work must never deliver.
+        if (hasDeliverableContent && !cancelled() && mountedRef.current) {
           await options?.onComplete?.({
             assistantId,
             content: fullContent,
@@ -513,7 +666,7 @@ export function useChatStreaming({
       } catch (error) {
         if (cancelled()) {
           flushContentNow();
-          setMessages((prev) =>
+          updateMessages((prev) =>
             prev.map((message) =>
               message.id === assistantId ? { ...message, isStreaming: false } : message
             )
@@ -533,7 +686,7 @@ export function useChatStreaming({
             "reasoning"
           );
           announceResponse();
-          setMessages((prev) =>
+          updateMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
                 ? {
@@ -547,14 +700,15 @@ export function useChatStreaming({
         }
       }
 
-      setAgentState("idle");
-      completeToolActivity();
+      updateAgentState("idle");
+      if (isCurrent()) completeToolActivity();
     },
     [
-      inferenceScope,
+      captureInference,
       t,
       setMessages,
       onStreamComplete,
+      citations,
       onResponseContent,
       clearToolActivity,
       beginToolActivity,
@@ -567,6 +721,7 @@ export function useChatStreaming({
     toolStatus,
     activeToolName,
     sendToAI,
+    captureInference,
     cancelStream,
   };
 }

@@ -4,7 +4,12 @@ import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { useCopyFeedback } from "../../hooks/useCopyFeedback";
 import { cn } from "../lib/utils";
-import type { TechnicalErrorDetailsData } from "./useToast";
+export interface TechnicalErrorDetailsData {
+  status?: number;
+  exceptionType?: string;
+  requestId?: string;
+  underlyingError?: string;
+}
 
 function formatTechnicalErrorDetails(details: TechnicalErrorDetailsData, t: TFunction): string {
   return [

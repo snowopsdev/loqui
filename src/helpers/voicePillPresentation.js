@@ -2,16 +2,24 @@ import { LIVE_TRANSCRIPT_SURFACE_LIMITS } from "./voiceSurfaceGeometry.mjs";
 
 export { LIVE_TRANSCRIPT_SURFACE_LIMITS };
 
-// The pill's two rendered footprints (px). This is a real cross-process
-// contract: WINDOW_SIZES.RECORDING in src/helpers/windowConfig.js sizes the
-// native overlay window around the compact recording pill, so these values
-// and that window size may only change together.
+// Every footprint lives inside the 208×120 pill window minus its 12px dock
+// insets (VOICE_PILL_MAX_WIDTH); labelled states size for English and
+// truncate longer translations with an ellipsis.
+export const VOICE_PILL_MAX_WIDTH = 184;
 export const VOICE_PILL_FOOTPRINT = Object.freeze({
   idle: Object.freeze({ width: 40, height: 40 }),
-  // 98 = 6px edge inset + 22px icon + 6px gap + 52px waveform + 12px edge
-  // inset (the waveform side keeps extra air; insets include the 1px border).
   recording: Object.freeze({ width: 98, height: 36 }),
+  transcribing: Object.freeze({ width: 144, height: 36 }),
+  cleaning: Object.freeze({ width: 144, height: 36 }),
+  // Label room = width − 54px (30 ring, 4+12 padding, 6 gap, 2 border).
+  pasted: Object.freeze({ width: 164, height: 36 }),
+  cancelled: Object.freeze({ width: 160, height: 36 }),
+  meeting: Object.freeze({ width: 124, height: 36 }),
+  meetingInterrupted: Object.freeze({ width: 184, height: 36 }),
+  sealedPaused: Object.freeze({ width: 124, height: 36 }), // "Paused"; the sentence is the caption
 });
+
+export const PILL_SEALED_PAUSED_MS = 4000;
 
 // The hover cancel control that emerges beside the pill (px). Same contract:
 // WINDOW_SIZES.RECORDING must fit pill + gap + cancel inside its dock insets,
@@ -19,20 +27,15 @@ export const VOICE_PILL_FOOTPRINT = Object.freeze({
 export const VOICE_PILL_CANCEL = Object.freeze({ size: 28, gap: 8 });
 
 export const LISTENING_ENTRANCE_TIMING = Object.freeze({
-  // A short hold that reads as an acknowledged press before the control
-  // changes shape. It was 420ms when it also had to hide the native window
-  // grow; BASE and RECORDING now share one box (windowConfig.js), so the
-  // floating pill's hold is purely the design beat.
-  thinkingMs: 260,
+  // The press-ack hold is gone; the first bar lands one expansion after press.
+  thinkingMs: 0,
   // A recording that starts under the open assistant panel first hands the
   // footer from final actions back to the pill (actions retreat + pill
   // entrance — getAssistantFooterTransitionTimeline). The expansion must not
   // start until that handoff settles, or both animate the same control.
   assistantFooterThinkingMs: 420,
   expansionMs: 300,
-  // Hold the finished footprint briefly so the waveform reveal cannot be
-  // perceived as part of the width animation.
-  waveformDelayMs: 100,
+  waveformDelayMs: 0,
 });
 
 // The pill's morph between the two VOICE_PILL_FOOTPRINT boxes. The cancel
@@ -94,22 +97,25 @@ export function resolveAssistantResponseReady({
 }
 
 export const LIVE_TRANSCRIPT_ENTRANCE_TIMING = Object.freeze({
-  encapsulateMs: 180,
-  encapsulateHoldMs: 140,
-  horizontalMs: 320,
-  controlsDelayMs: 70,
-  controlsRevealMs: 200,
-  contentDelayMs: 110,
-  measurementSettleMs: 220,
-  panelExpansionMs: 320,
-  contentRevealDelayMs: 80,
-  contentSettleMs: 280,
+  encapsulateMs: 120,
+  encapsulateHoldMs: 0,
+  horizontalMs: 240,
+  controlsDelayMs: 60,
+  controlsRevealMs: 150,
+  contentDelayMs: 40,
+  measurementSettleMs: 120,
+  panelExpansionMs: 240,
+  contentRevealDelayMs: 0,
+  contentSettleMs: 60,
 });
 
+// Words first (VO-Q18): controls and the hidden measurement start during the
+// horizontal travel, so the first words land ~640ms after the first partial
+// instead of ~1.9s.
 export function getLiveTranscriptEntranceTimeline(timing = LIVE_TRANSCRIPT_ENTRANCE_TIMING) {
   const horizontalAtMs = timing.encapsulateMs + timing.encapsulateHoldMs;
-  const controlsAtMs = horizontalAtMs + timing.horizontalMs + timing.controlsDelayMs;
-  const prepareAtMs = controlsAtMs + timing.controlsRevealMs + timing.contentDelayMs;
+  const controlsAtMs = horizontalAtMs + timing.controlsDelayMs;
+  const prepareAtMs = controlsAtMs + timing.contentDelayMs;
   const panelAtMs = prepareAtMs + timing.measurementSettleMs;
   const contentAtMs = panelAtMs + timing.panelExpansionMs + timing.contentRevealDelayMs;
   return {
@@ -253,7 +259,7 @@ export function resolveVoiceActivityPresentation({
   }
 
   if (isProcessing) {
-    return { activeState: "thinking", compactPill: false, isAgentThinking: false };
+    return { activeState: "transcribing", compactPill: true, isAgentThinking: false };
   }
 
   return { activeState: null, compactPill: false, isAgentThinking: false };
@@ -270,6 +276,89 @@ export function resolveAgentModeActive({
   assistantPanelMounted,
 }) {
   return Boolean((isAssistantVoice && (isRecording || isProcessing)) || assistantPanelMounted);
+}
+
+export const PILL_OUTCOME_BEAT_MS = 700;
+
+/**
+ * One pill, legible states (VO-R1 C). Live work outranks everything; a
+ * pending undo outranks the success beat; the meeting recorder is the
+ * resting state while a meeting records (D2).
+ */
+export function resolvePillStage({
+  isRecording,
+  micUnavailable,
+  isProcessing,
+  processingStage,
+  agentMode,
+  cancelled,
+  recentOutcome,
+  meetingRecording,
+  showMeetingRecorder,
+  agentResponseActive = false,
+  isPreparing = false,
+  dictationSealed = false,
+}) {
+  if (isRecording) return micUnavailable ? "unavailable" : "recording";
+  if (isProcessing) {
+    if (agentMode) return "thinking";
+    return processingStage === "cleaning" ? "cleaning" : "transcribing";
+  }
+  if (cancelled) return "cancelled";
+  if (recentOutcome) {
+    if (recentOutcome.kind === "pasted") return "pasted";
+    return dictationSealed ? "sealedPaused" : "failed";
+  }
+  if (meetingRecording && showMeetingRecorder) {
+    // Keep existing owned Agent and mic-preparation feedback before meeting resumes.
+    if (agentResponseActive) return "thinking";
+    return isPreparing ? "processing" : "meeting";
+  }
+  return null;
+}
+
+const OWNERSHIP = Object.freeze({
+  cancelled: Object.freeze({ holdsWindow: true, interactive: true, outranksFooter: true }),
+  meeting: Object.freeze({ holdsWindow: true, interactive: true, outranksFooter: true }),
+  pasted: Object.freeze({ holdsWindow: true, interactive: false, outranksFooter: false }),
+  failed: Object.freeze({ holdsWindow: true, interactive: false, outranksFooter: false }),
+  sealedPaused: Object.freeze({ holdsWindow: true, interactive: false, outranksFooter: false }),
+});
+const NO_OWNERSHIP = Object.freeze({
+  holdsWindow: false,
+  interactive: false,
+  outranksFooter: false,
+});
+
+/** One policy for stages that outlive the dictation (I4). */
+export function resolvePillOwnership(stage) {
+  return OWNERSHIP[stage] ?? NO_OWNERSHIP;
+}
+
+/**
+ * App's auto-hide condition (App.jsx:407-414), with stage ownership. Its one
+ * caller is usePillAutoHide (Task 11), which App calls after pillOwnership.
+ */
+export function shouldAutoHidePill({
+  floatingIconAutoHide,
+  isRecording,
+  isVisuallyProcessing,
+  noticesOnScreen,
+  wordsCardHandoffActive,
+  assistantMounted,
+  liveTranscriptMounted,
+  ownership,
+}) {
+  return Boolean(
+    floatingIconAutoHide &&
+    !isRecording &&
+    !isVisuallyProcessing &&
+    !noticesOnScreen &&
+    !wordsCardHandoffActive &&
+    !assistantMounted &&
+    !liveTranscriptMounted &&
+    !ownership?.holdsWindow
+  );
 }
 
 /**
@@ -331,7 +420,12 @@ export function resolveVoicePillInteraction({
   isRecording,
   isProcessing,
   isHovered = false,
+  ownership = NO_OWNERSHIP,
 }) {
+  if (ownership.interactive) {
+    return { pillInteractive: true, cancelVisible: false };
+  }
+
   if (assistantMounted) {
     return { pillInteractive: false, cancelVisible: false };
   }
@@ -370,7 +464,9 @@ export function shouldSuppressPillForAssistantActions({
   footerPillVisible,
   assistantClosing,
   hasLiveActivity,
+  ownership = NO_OWNERSHIP,
 }) {
+  if (ownership.outranksFooter) return false;
   if (!assistantOpen || footerPillVisible) return false;
   return !(assistantClosing && hasLiveActivity);
 }
@@ -381,9 +477,9 @@ export function shouldSuppressPillForAssistantActions({
  * the pill owns live activity: ownership returns to it at close INTENT (see
  * voicePillOwnsActivity in App.jsx) and beginClose hides the companion on that
  * same tick, so suppressing here would leave a running recording with no
- * visible owner for the whole close. The panel-return mask stays unconditional
- * like the dictation-error handoff — it is bounded by the native shrink it
- * covers, not by the panel's full exit choreography.
+ * visible owner for the whole close. Stages that outrank the footer also bypass
+ * its close/return masks; explicit error/action suppression remains a hard gate.
+ * Callers without ownership retain the existing native-shrink masking policy.
  */
 export function resolvePillVisualSuppression({
   dictationErrorSuppressed,
@@ -391,8 +487,10 @@ export function resolvePillVisualSuppression({
   assistantClosing,
   panelReturnResizeActive,
   hasLiveActivity,
+  ownership = NO_OWNERSHIP,
 }) {
   if (dictationErrorSuppressed || assistantActionsSuppressed) return true;
+  if (ownership.outranksFooter) return false;
   if (panelReturnResizeActive) return true;
   return Boolean(assistantClosing) && !hasLiveActivity;
 }

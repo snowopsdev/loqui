@@ -28,11 +28,9 @@ export default function EmptyStateCard({
       <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-3 text-foreground/70 dark:bg-surface-3">
         <Icon size={20} />
       </span>
-      {title && <p className="mt-4 text-[15px] font-medium text-foreground">{title}</p>}
+      {title && <p className="mt-4 text-body font-medium text-foreground">{title}</p>}
       {description && (
-        <p className="mt-1 max-w-xs text-[13px] leading-relaxed text-foreground/70">
-          {description}
-        </p>
+        <p className="mt-1 max-w-xs text-ui leading-relaxed text-foreground/70">{description}</p>
       )}
       {children && <div className="mt-5 flex flex-col items-center gap-2">{children}</div>}
     </div>

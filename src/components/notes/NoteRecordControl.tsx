@@ -1,40 +1,19 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { getMicAnalyser, useMeetingRecordingStore } from "../../stores/meetingRecordingStore";
-import { analyserRms } from "../../utils/audioLevel";
+import { useMeetingRecordingStore } from "../../stores/meetingRecordingStore";
+import { readMeetingMicLevel } from "../../utils/meetingMicLevel";
 import { formatMmSs } from "../../utils/formatDuration";
 import { Loader2, Mic, Square } from "../icons";
 import { cn } from "../lib/utils";
-import { LiveWaveform } from "../ui/LiveWaveform";
+import { LevelBars } from "../ui/LevelBars";
 import { GRADIENT_CIRCLE } from "../ui/gradientCircle";
-
-// Module-level buffer: there is a single meeting mic analyser at a time.
-const micLevelBuf: { current: Float32Array<ArrayBuffer> | null } = { current: null };
-
-function readMeetingMicLevel(): number {
-  const analyser = getMicAnalyser();
-  if (!analyser) return useMeetingRecordingStore.getState().currentMicLevel;
-  return analyserRms(analyser, micLevelBuf);
-}
 
 // Same near-opaque surface the ask bar wears while recording, so the two capsules match.
 const RECORDING_SURFACE = "bg-surface-2/95 shadow-(--shadow-glass)";
 
-const WAVE_BAR_HEIGHTS = [6, 12, 9, 11];
-
-/** Four-bar pulse shown in the Transcript tab while a recording is running. */
+/** Transcript-tab indicator while a meeting records: the real mic level (VO-Q13). */
 export function RecordingWave({ className }: { className?: string }) {
-  return (
-    <span aria-hidden="true" className={cn("flex h-3 items-center gap-px", className)}>
-      {WAVE_BAR_HEIGHTS.map((height, i) => (
-        <span
-          key={i}
-          className="w-0.5 rounded-full bg-primary animate-[ow-wave_1s_ease-in-out_infinite] motion-reduce:animate-none"
-          style={{ height, animationDelay: `${i * 0.15}s` }}
-        />
-      ))}
-    </span>
-  );
+  return <LevelBars readLevel={readMeetingMicLevel} height={12} className={className} />;
 }
 
 interface NoteRecordControlProps {
@@ -72,7 +51,7 @@ export default function NoteRecordControl({
   return (
     <div
       className={cn(
-        "h-[30px] shrink-0 overflow-hidden transition-[width] duration-500 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)]",
+        "h-[30px] shrink-0 overflow-hidden transition-[width] duration-(--motion-slow) ease-(--motion-ease-enter)",
         isRecording ? "w-40" : "w-[30px]"
       )}
     >
@@ -85,7 +64,7 @@ export default function NoteRecordControl({
           className={cn(
             "group flex h-[30px] w-full items-center gap-2 rounded-full ps-1 pe-3",
             RECORDING_SURFACE,
-            "border border-primary/15 transition-[border-color] duration-200 hover:border-primary/30",
+            "border border-primary/15 transition-[border-color] duration-(--motion-base) hover:border-primary/30",
             "dark:border-primary/25 dark:hover:border-primary/40",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           )}
@@ -94,12 +73,16 @@ export default function NoteRecordControl({
             className={cn(
               "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full",
               GRADIENT_CIRCLE,
-              "transition-[filter] duration-150 group-hover:brightness-110"
+              "transition-[filter] duration-(--motion-fast) group-hover:brightness-110"
             )}
           >
             <Square size={8} fill="currentColor" />
           </span>
-          <LiveWaveform readLevel={readMeetingMicLevel} bars={10} className="h-3.5 flex-1" />
+          <LevelBars
+            readLevel={readMeetingMicLevel}
+            height={14}
+            className="flex-1 justify-center"
+          />
           <span className="shrink-0 text-xs font-medium tabular-nums text-foreground/85">
             {formatMmSs(elapsed)}
           </span>
@@ -114,7 +97,7 @@ export default function NoteRecordControl({
           className={cn(
             "flex h-[30px] w-[30px] items-center justify-center rounded-full",
             GRADIENT_CIRCLE,
-            "transition-[filter,transform] duration-150 hover:brightness-110 active:scale-95",
+            "transition-[filter,transform] duration-(--motion-fast) hover:brightness-110 active:scale-95",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
             disabled && "pointer-events-none opacity-40 saturate-0",
             isProcessing && "pointer-events-none"

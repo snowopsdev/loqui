@@ -13,3 +13,11 @@ d5972be45a37f86a47fc97e67b0ea9b95569a12d:agent-skills/openwhispr-api/SKILL.md:cu
 ## Reviewed false positive: ordinary Plan 03 prose about enterprise settings.
 be12d046466265df5d686565f101df8b2f278874:docs/superpowers/plans/2026-10-15-loqui-uiux-03-routes-settings.md:generic-api-key:10534
 9c13a720d6cda98e900614a0f0c9b4d7e935dcaf:docs/superpowers/plans/2026-10-15-loqui-uiux-03-routes-settings.md:generic-api-key:10674
+## Reviewed false positive: commandSearchMounted test assertions comparing result-row keys.
+1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:256
+1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:260
+1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:284
+1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:285
+1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:295
+1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:436
+1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:437

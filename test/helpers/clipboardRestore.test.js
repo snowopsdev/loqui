@@ -2,7 +2,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const { EventEmitter } = require("node:events");
-const childProcess = require("node:child_process");
 
 class FakeClipboardItem {
   constructor(data) {
@@ -82,6 +81,62 @@ const clipboardModulePath = require.resolve("../../src/helpers/clipboard");
 
 const originalLoad = Module._load;
 
+// A complete, deterministic child_process leaf. clipboard.js must never reach
+// the host: real wl-copy/xclip/xsel writes the user's clipboard and leaves a
+// clipboard-serving process, and real probes depend on what is installed.
+// Command probes answer "absent" unless a test lists the tool; clipboard
+// binaries read and write this file's fake clipboard; anything else fails.
+const fakeHost = { installed: new Set(), primary: "", calls: [] };
+const syncResult = (status, stdout = "") => ({
+  pid: 0,
+  status,
+  signal: null,
+  stdout: Buffer.from(stdout),
+  stderr: Buffer.alloc(0),
+  output: [null, Buffer.from(stdout), Buffer.alloc(0)],
+});
+function fakeSpawnSync(command, args = [], options = {}) {
+  fakeHost.calls.push({ command, args });
+  const input = typeof options.input === "string" ? options.input : String(options.input ?? "");
+  if (command === "sh" && args[0] === "-c") {
+    const probe = /^command -v (\S+)$/.exec(args[1] ?? "");
+    return syncResult(probe && fakeHost.installed.has(probe[1]) ? 0 : 1);
+  }
+  if (!fakeHost.installed.has(command)) return syncResult(127);
+  const primary = args.includes("--primary") || args.includes("primary");
+  const reading = command === "wl-paste" || args.includes("-o") || args.includes("--output");
+  if (reading) return syncResult(0, primary ? fakeHost.primary : fakeClipboard.text);
+  if (command === "wl-copy" || command === "xclip" || command === "xsel") {
+    const text = command === "wl-copy" ? args[args.length - 1] : input;
+    if (primary) fakeHost.primary = text;
+    else fakeClipboard.text = text;
+    return syncResult(0);
+  }
+  return syncResult(1);
+}
+function fakeSpawn(command, args = []) {
+  fakeHost.calls.push({ command, args, async: true });
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { write() {}, end() {} };
+  child.kill = () => true;
+  process.nextTick(() => child.emit("close", 1));
+  return child;
+}
+const refuseHost = (name) => () => {
+  throw new Error(`clipboardRestore fixture: child_process.${name} is not part of the fake leaf`);
+};
+const fakeChildProcess = {
+  spawnSync: fakeSpawnSync,
+  spawn: fakeSpawn,
+  exec: refuseHost("exec"),
+  execSync: refuseHost("execSync"),
+  execFile: refuseHost("execFile"),
+  execFileSync: refuseHost("execFileSync"),
+  fork: refuseHost("fork"),
+};
+
 function loadClipboardManager({ spawn } = {}) {
   delete require.cache[clipboardModulePath];
 
@@ -95,8 +150,8 @@ function loadClipboardManager({ spawn } = {}) {
         },
       };
     }
-    if (request === "child_process" && spawn) {
-      return { ...childProcess, spawn };
+    if (request === "child_process" || request === "node:child_process") {
+      return { ...fakeChildProcess, ...(spawn ? { spawn } : {}) };
     }
     return originalLoad.call(this, request, parent, isMain);
   };
@@ -878,6 +933,10 @@ test("a rejected clipboard write fails delivery and releases the queue", async (
   }
   await manager.runClipboardOperation(() => manager.writeClipboard("second"));
   assert.equal(fakeClipboard.text, "second");
+  assert.ok(
+    fakeHost.calls.every((call) => call.command === "sh"),
+    "only fake command probes ran: " + fakeHost.calls.map((c) => c.command).join(",")
+  );
 });
 
 test("a rejected restore rejects completion and releases queued operations", async () => {
@@ -911,6 +970,29 @@ test("an empty native clipboard item restores by clearing the clipboard", async 
   await manager.writeClipboard("temporary");
   await manager._restoreClipboard(snapshot);
   assert.deepEqual(fakeClipboard.formats, []);
+});
+
+// Round 2: the Wayland write path runs against the fake leaf, never the host.
+test("a Wayland clipboard write uses the fake wl-copy leaf, not the host clipboard", async () => {
+  resetClipboard({ text: "before" });
+  fakeHost.calls.length = 0;
+  fakeHost.installed = new Set(["wl-copy"]);
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  try {
+    const manager = new ClipboardManager();
+    await withWaylandEnvironment("Hyprland", () => manager.writeClipboard("temporary"));
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    fakeHost.installed = new Set();
+  }
+  assert.equal(fakeClipboard.text, "temporary");
+  assert.deepEqual(
+    fakeHost.calls.map((call) => call.command),
+    ["sh", "wl-copy"],
+    "the probe and the write both went to the fake leaf"
+  );
+  assert.deepEqual(fakeHost.calls[1].args, ["--", "temporary"]);
 });
 
 test("Linux PRIMARY fallback awaits the new selection namespace", async () => {

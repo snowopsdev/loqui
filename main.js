@@ -1,3 +1,5 @@
+const { createQuitCoordinator } = require("./src/helpers/quitCoordinator");
+const { hasExistingSettingsProfile } = require("./src/helpers/settingsProfile");
 const product = require("./src/config/product.json");
 // Chromium picks the display backend before JS runs, so appendSwitch is too
 // late — the flag has to come from a relaunch.
@@ -435,26 +437,69 @@ function initializeCoreManagers() {
   const inference = require("./src/helpers/personalInference").registerPersonalInferenceIPC({
     ipcMain,
     userDataPath: app.getPath("userData"),
-    getCredential: (ref) => {
-      const slot = credentialSlot(ref);
-      return slot ? environmentManager[slot[0]]() : "";
+    credentials: ipcHandlers.credentials,
+    textOperationSnapshot: (request) => {
+      const selected = require("./src/helpers/textOperationCapture").textOperationSnapshot(
+        environmentManager,
+        request
+      );
+      for (const [key, value] of Object.entries(request.expectedEnterprise || {})) {
+        if (selected[key] !== value)
+          throw Object.assign(
+            new Error("The cleanup recipient changed. Your original words are preserved."),
+            { code: "RECIPIENT_CHANGED" }
+          );
+      }
+      return selected;
     },
-    saveCredential: (ref, value) => {
-      const slot = credentialSlot(ref);
-      if (!slot) throw new Error("Unknown credential reference");
-      return environmentManager[slot[1]](value);
+    onTextOperationsDisposed: () => ipcHandlers.onboardingCleanup.dispose(),
+    onTextOperationIssued: (sender, request, token) => {
+      if (request.cleanupIdentity)
+        ipcHandlers.onboardingCleanup.bind(sender, request.cleanupIdentity, token);
     },
-    getEnterpriseConfig: () => ({
-      bedrockRegion: environmentManager.getBedrockRegion(),
-      bedrockProfile: environmentManager.getBedrockProfile(),
-      bedrockAccessKeyId: environmentManager.getBedrockAccessKeyId(),
-      bedrockSecretAccessKey: environmentManager.getBedrockSecretAccessKey(),
-      bedrockSessionToken: environmentManager.getBedrockSessionToken(),
-      azureEndpoint: environmentManager.getAzureEndpoint(),
-      azureApiVersion: environmentManager.getAzureApiVersion(),
-      vertexProject: environmentManager.getVertexProject(),
-      vertexLocation: environmentManager.getVertexLocation(),
-    }),
+    authorizeTextOperation: (sender, request) =>
+      request.cleanupIdentity
+        ? ipcHandlers.onboardingCleanup.authorized(sender, request.cleanupIdentity)
+        : sender === windowManager.controlPanelWindow?.webContents,
+    waitForAdmission: () => ipcHandlers.vertexAuthSourceReady,
+    getCredential: async (ref) => {
+      const target = require("./src/helpers/credentialAuthority").slotForCredentialRef(ref);
+      const capture = target ? await ipcHandlers.credentials.captureCommitted(target.id) : null;
+      if (target && !capture) throw new Error("Credential persistence is unavailable.");
+      return capture?.values.key || "";
+    },
+    saveCredential: async (ref, value) => {
+      await ipcHandlers.vertexAuthSourceReady;
+      const target = require("./src/helpers/credentialAuthority").slotForCredentialRef(ref);
+      if (!target) throw new Error("Unknown credential reference");
+      const result = await ipcHandlers.credentials.save(target.id, target.field, value);
+      if (result.ok === false) throw new Error("The credential could not be saved.");
+    },
+    getEnterpriseConfig: async (provider) => {
+      await ipcHandlers.vertexAuthSourceReady;
+      const bedrock =
+        provider === "bedrock" ? await ipcHandlers.credentials.captureCommitted("bedrock") : null;
+      if (provider === "bedrock" && !bedrock)
+        throw new Error("Credential persistence is unavailable.");
+      return {
+        bedrockRegion: environmentManager.getBedrockRegion(),
+        bedrockProfile: environmentManager.getBedrockProfile(),
+        bedrockAccessKeyId: bedrock
+          ? bedrock.values.accessKeyId
+          : environmentManager.getBedrockAccessKeyId(),
+        bedrockSecretAccessKey: bedrock
+          ? bedrock.values.secretAccessKey
+          : environmentManager.getBedrockSecretAccessKey(),
+        bedrockSessionToken: bedrock
+          ? bedrock.values.sessionToken
+          : environmentManager.getBedrockSessionToken(),
+        azureEndpoint: environmentManager.getAzureEndpoint(),
+        azureApiVersion: environmentManager.getAzureApiVersion(),
+        vertexProject: environmentManager.getVertexProject(),
+        vertexLocation: environmentManager.getVertexLocation(),
+        vertexAuthSource: environmentManager.getVertexAuthSource(),
+      };
+    },
     openExternal: (url) => shell.openExternal(url),
   });
   updateManager = require("./src/helpers/updateIPC").attachUpdateIPC({
@@ -490,22 +535,6 @@ function initializeCoreManagers() {
   });
 }
 
-function credentialSlot(ref) {
-  const custom = {
-    dictationCleanup: ["getCleanupCustomKey", "saveCleanupCustomKey"],
-    noteFormatting: ["getNoteFormattingCustomKey", "saveNoteFormattingCustomKey"],
-    dictationTranslation: ["getTranslationCustomKey", "saveTranslationCustomKey"],
-    dictationAgent: ["getDictationAgentCustomKey", "saveDictationAgentCustomKey"],
-    dictationAgentVision: ["getDictationAgentVisionCustomKey", "saveDictationAgentVisionCustomKey"],
-    chatIntelligence: ["getChatAgentCustomKey", "saveChatAgentCustomKey"],
-  };
-  if (ref === "azure") return ["getAzureApiKey", "saveAzureApiKey"];
-  if (ref === "vertex") return ["getVertexApiKey", "saveVertexApiKey"];
-  if (ref.startsWith("custom:")) return custom[ref.slice(7)];
-  const slot = require("./src/config/secretKeys").BYOK_API_KEYS.find((k) => k.base === ref);
-  return slot ? [slot.get, slot.save] : undefined;
-}
-
 function registerSidecars() {
   if (whisperManager) sidecarRegistry.register("whisper", () => whisperManager.stopServer());
   if (parakeetManager) sidecarRegistry.register("parakeet", () => parakeetManager.stopServer());
@@ -531,6 +560,7 @@ function initializeDeferredManagers() {
     clipboardManager.preWarmAccessibility();
   }
   trayManager = new TrayManager();
+  sidecarRegistry.register("meetingNotification", () => trayManager.teardownMeetingNotification());
   globeKeyManager = new GlobeKeyManager({
     // Lets the listener put the user's macOS Globe action back after a crash.
     preferenceStatePath: path.join(app.getPath("userData"), "globe-preference-state.json"),
@@ -570,6 +600,11 @@ function initializeDeferredManagers() {
 }
 
 async function startApp() {
+  const existingSettingsProfile = await hasExistingSettingsProfile({
+    fs: require("node:fs/promises"),
+    userDataPath: app.getPath("userData"),
+    development: process.env.NODE_ENV === "development",
+  });
   // Await so a stale sidecar is confirmed dead before new ones can spawn and
   // contend for its port or storage lock.
   await reapStaleSidecars();
@@ -577,6 +612,7 @@ async function startApp() {
   // Phase 1: Core managers + IPC handlers before windows
   initializeCoreManagers();
   await environmentManager.init();
+  await ipcHandlers.initializeVertexAuthSource(existingSettingsProfile);
   // After any upgrade the GPU gets one fresh attempt: clear the remembered
   // failure before the whisper pre-warm below resolves its GPU backend.
   resetWhisperGpuFailureOnUpgrade(environmentManager);
@@ -885,6 +921,7 @@ async function startApp() {
   // The tray's listen item is a toggle, so it has to rebuild when dictation
   // starts or stops.
   windowManager.onDictationStateChanged = () => trayManager.updateTrayMenu();
+  windowManager.onMeetingPresenceChanged = (p) => trayManager.setMeetingPresence(p);
   trayManager.setCreateControlPanelCallback(() => windowManager.createControlPanelWindow());
   await trayManager.createTray();
 
@@ -892,6 +929,7 @@ async function startApp() {
     const { isGlobeLikeHotkey, isMouseButtonHotkey } = require("./src/helpers/hotkeyManager");
     let globeKeyDownTime = 0;
     let globeKeyIsRecording = false;
+    let globeKeyOnboardingTake;
     let globeLastStopTime = 0;
     const MIN_HOLD_DURATION_MS = 150;
     const POST_STOP_COOLDOWN_MS = 300;
@@ -912,6 +950,11 @@ async function startApp() {
 
       // Handle dictation if Globe/Fn is one of the dictation hotkeys
       const dictationUsesGlobe = hotkeyManager.getSlotHotkeys("dictation").some(isGlobeLikeHotkey);
+      if (dictationUsesGlobe)
+        windowManager.reportDictationHotkey(
+          "down",
+          hotkeyManager.getSlotHotkeys("dictation").find(isGlobeLikeHotkey)
+        );
       if (dictationUsesGlobe) {
         if (mainWindowLive && windowManager.isDictationProcessing()) {
           debugLogger?.debug("[Globe] Ignored — dictation processing");
@@ -926,7 +969,8 @@ async function startApp() {
               return;
             }
             windowManager.showDictationPanel();
-            windowManager.sendPrepareDictation();
+            const onboardingTake = windowManager.sendPrepareDictation();
+            globeKeyOnboardingTake = onboardingTake;
             const pressTime = now;
             globeKeyDownTime = pressTime;
             globeKeyIsRecording = false;
@@ -934,7 +978,7 @@ async function startApp() {
               if (globeKeyDownTime === pressTime && !globeKeyIsRecording) {
                 globeKeyIsRecording = true;
                 debugLogger?.debug("[Globe] Starting dictation (push hold)");
-                windowManager.sendStartDictation();
+                windowManager.sendStartDictation({ onboardingTake });
               }
             }, MIN_HOLD_DURATION_MS);
           } else {
@@ -972,6 +1016,10 @@ async function startApp() {
       }
 
       if (hotkeyManager.getSlotHotkeys("dictation").some(isGlobeLikeHotkey)) {
+        windowManager.reportDictationHotkey(
+          "up",
+          hotkeyManager.getSlotHotkeys("dictation").find(isGlobeLikeHotkey)
+        );
         const activationMode = windowManager.getActivationMode();
         if (activationMode === "push") {
           if (globeKeyDownTime === 0 && !globeKeyIsRecording) {
@@ -984,9 +1032,14 @@ async function startApp() {
             if (globeKeyIsRecording) {
               globeKeyIsRecording = false;
               debugLogger?.debug("[Globe] Stopping dictation (push release)");
-              windowManager.sendStopDictation();
+              windowManager.sendStopDictation({ onboardingTake: globeKeyOnboardingTake });
             } else {
-              windowManager.sendCancelDictationPreparation();
+              if (
+                windowManager.sendCancelDictationPreparation({
+                  onboardingTake: globeKeyOnboardingTake,
+                }) === false
+              )
+                return;
               windowManager.hideDictationPanel();
             }
           }
@@ -1012,9 +1065,14 @@ async function startApp() {
       globeKeyIsRecording = false;
       globeLastStopTime = Date.now();
       if (wasRecording) {
-        windowManager.sendCancelDictation();
+        windowManager.sendCancelDictation({ onboardingTake: globeKeyOnboardingTake });
       } else {
-        windowManager.sendCancelDictationPreparation();
+        if (
+          windowManager.sendCancelDictationPreparation({
+            onboardingTake: globeKeyOnboardingTake,
+          }) === false
+        )
+          return;
         windowManager.hideDictationPanel();
       }
     });
@@ -1028,10 +1086,13 @@ async function startApp() {
     // Right-side single modifier handling (e.g., RightOption as hotkey)
     let rightModDownTime = 0;
     let rightModIsRecording = false;
+    let rightModOnboardingTake;
     let rightModLastStopTime = 0;
     let rightModActiveKey = null;
 
     globeKeyManager.on("right-modifier-down", async (modifier) => {
+      if (hotkeyManager.slotHasHotkey("dictation", modifier))
+        windowManager.reportDictationHotkey("down", modifier);
       // Check voice agent slot for right-modifier
       if (hotkeyManager.slotHasHotkey("voiceAgent", modifier)) {
         windowManager.sendToggleVoiceAgent();
@@ -1051,7 +1112,8 @@ async function startApp() {
         const now = Date.now();
         if (now - rightModLastStopTime < POST_STOP_COOLDOWN_MS) return;
         windowManager.showDictationPanel();
-        windowManager.sendPrepareDictation();
+        const onboardingTake = windowManager.sendPrepareDictation();
+        rightModOnboardingTake = onboardingTake;
         const pressTime = now;
         rightModActiveKey = modifier;
         rightModDownTime = pressTime;
@@ -1059,7 +1121,7 @@ async function startApp() {
         setTimeout(() => {
           if (rightModDownTime === pressTime && !rightModIsRecording) {
             rightModIsRecording = true;
-            windowManager.sendStartDictation();
+            windowManager.sendStartDictation({ onboardingTake });
           }
         }, MIN_HOLD_DURATION_MS);
       } else {
@@ -1068,6 +1130,8 @@ async function startApp() {
     });
 
     globeKeyManager.on("right-modifier-up", async (modifier) => {
+      if (hotkeyManager.slotHasHotkey("dictation", modifier))
+        windowManager.reportDictationHotkey("up", modifier);
       if (hotkeyManager.slotHasHotkey("dictation", modifier)) {
         if (!isLiveWindow(windowManager.mainWindow)) return;
 
@@ -1083,9 +1147,14 @@ async function startApp() {
             rightModLastStopTime = Date.now();
             if (rightModIsRecording) {
               rightModIsRecording = false;
-              windowManager.sendStopDictation();
+              windowManager.sendStopDictation({ onboardingTake: rightModOnboardingTake });
             } else {
-              windowManager.sendCancelDictationPreparation();
+              if (
+                windowManager.sendCancelDictationPreparation({
+                  onboardingTake: rightModOnboardingTake,
+                }) === false
+              )
+                return;
               windowManager.hideDictationPanel();
             }
           }
@@ -1114,10 +1183,13 @@ async function startApp() {
     // Mouse Button 4/5 handling (e.g., Logitech MX Master side buttons)
     let mouseButtonDownTime = 0;
     let mouseButtonIsRecording = false;
+    let mouseButtonOnboardingTake;
     let mouseButtonLastStopTime = 0;
     let mouseButtonActiveButton = null;
 
     globeKeyManager.on("mouse-button-down", async (button) => {
+      if (hotkeyManager.slotHasHotkey("dictation", button))
+        windowManager.reportDictationHotkey("down", button);
       if (hotkeyManager.isInListeningMode && hotkeyManager.isInListeningMode()) return;
       if (!isMouseButtonHotkey(button)) return;
 
@@ -1140,7 +1212,8 @@ async function startApp() {
         const now = Date.now();
         if (now - mouseButtonLastStopTime < POST_STOP_COOLDOWN_MS) return;
         windowManager.showDictationPanel();
-        windowManager.sendPrepareDictation();
+        const onboardingTake = windowManager.sendPrepareDictation();
+        mouseButtonOnboardingTake = onboardingTake;
         const pressTime = now;
         mouseButtonActiveButton = button;
         mouseButtonDownTime = pressTime;
@@ -1148,7 +1221,7 @@ async function startApp() {
         setTimeout(() => {
           if (mouseButtonDownTime === pressTime && !mouseButtonIsRecording) {
             mouseButtonIsRecording = true;
-            windowManager.sendStartDictation();
+            windowManager.sendStartDictation({ onboardingTake });
           }
         }, MIN_HOLD_DURATION_MS);
       } else {
@@ -1157,6 +1230,8 @@ async function startApp() {
     });
 
     globeKeyManager.on("mouse-button-up", async (button) => {
+      if (hotkeyManager.slotHasHotkey("dictation", button))
+        windowManager.reportDictationHotkey("up", button);
       if (hotkeyManager.isInListeningMode && hotkeyManager.isInListeningMode()) return;
       if (!isMouseButtonHotkey(button)) return;
 
@@ -1178,9 +1253,14 @@ async function startApp() {
           mouseButtonLastStopTime = Date.now();
           if (mouseButtonIsRecording) {
             mouseButtonIsRecording = false;
-            windowManager.sendStopDictation();
+            windowManager.sendStopDictation({ onboardingTake: mouseButtonOnboardingTake });
           } else {
-            windowManager.sendCancelDictationPreparation();
+            if (
+              windowManager.sendCancelDictationPreparation({
+                onboardingTake: mouseButtonOnboardingTake,
+              }) === false
+            )
+              return;
             windowManager.hideDictationPanel();
           }
         }
@@ -1264,6 +1344,7 @@ async function startApp() {
     // drives other windows (matching their globalShortcut callbacks and macOS).
     const dispatchNativeKeyDown = (key) => {
       if (hotkeyManager.slotHasHotkey("dictation", key)) {
+        windowManager.reportDictationHotkey("down", key);
         if (!isLiveWindow(windowManager.mainWindow)) return;
         if (windowManager.getActivationMode() === "push") {
           windowManager.startWindowsPushToTalk(key);
@@ -1284,6 +1365,7 @@ async function startApp() {
     // Only dictation drives push-to-talk, so only its key-up matters.
     const dispatchNativeKeyUp = (key) => {
       if (!hotkeyManager.slotHasHotkey("dictation", key)) return;
+      windowManager.reportDictationHotkey("up", key);
       if (windowManager.winPushState?.active) {
         windowManager.handleWindowsPushKeyUp(key);
       } else if (
@@ -1469,17 +1551,22 @@ if (gotSingleInstanceLock) {
     }
   });
 
-  let isShuttingDown = false;
-  app.on("before-quit", (event) => {
-    if (updateExit || isShuttingDown) return;
-    isShuttingDown = true;
-    event.preventDefault();
-    performSyncTeardown();
-    sidecarRegistry.shutdownAll().finally(() => app.exit(0));
-  });
+  // D3: an open cancel window, and any close still saving, is persisted (only if retention
+  // saves discarded audio) and zeroed before the app exits. A dead renderer times out.
+  app.on(
+    "before-quit",
+    createQuitCoordinator({
+      isUpdateExit: () => updateExit,
+      flush: () => windowManager?.flushDictationBeforeQuit?.({ timeoutMs: 3000 }),
+      teardown: performSyncTeardown,
+      shutdown: () => sidecarRegistry.shutdownAll(),
+      exit: (code) => app.exit(code),
+    })
+  );
 }
 
 function performSyncTeardown() {
+  ipcHandlers?.dispose();
   updateManager?.dispose();
   if (wakeRewarmTimer) {
     clearTimeout(wakeRewarmTimer);

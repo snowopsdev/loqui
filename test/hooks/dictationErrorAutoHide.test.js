@@ -42,8 +42,8 @@ async function mountWithErrorCard(t) {
   const closed = { current: false };
   let props = {
     requestMainWindowSize: async () => ({ success: true }),
-    dictationErrorActionCount: 1,
-    toastCount: 0,
+    wordsCardVisible: true,
+    noticeCount: 0,
     isCommandMenuOpen: false,
     isCompactPill: false,
     isDictationActive: false,
@@ -85,17 +85,17 @@ test("Retry keeps the pill window on screen while the new dictation runs", async
   const { hideCalls, render, settle, state } = await mountWithErrorCard(t);
 
   // Retry starts recording, and that start dismisses the error card (#2141).
-  await render({ dictationErrorActionCount: 0, isDictationActive: true });
+  await render({ wordsCardVisible: false, isDictationActive: true });
   await settle();
 
   assert.deepEqual(hideCalls, [], "auto-hide must not hide a window that is still recording");
-  assert.equal(state().dictationErrorPillHandoffActive, false, "the pill must be revealed again");
+  assert.equal(state().wordsCardHandoffActive, false, "the pill must be revealed again");
 });
 
 test("an error card dismissed while idle still auto-hides the window", async (t) => {
   const { hideCalls, render, settle } = await mountWithErrorCard(t);
 
-  await render({ dictationErrorActionCount: 0, isDictationActive: false });
+  await render({ wordsCardVisible: false, isDictationActive: false });
   await settle();
 
   assert.deepEqual(hideCalls, ["hide"]);

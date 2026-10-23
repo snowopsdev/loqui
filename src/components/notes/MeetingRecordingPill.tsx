@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { LevelBars } from "../ui/LevelBars";
+import { readMeetingMicLevel } from "../../utils/meetingMicLevel";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Square } from "../icons";
@@ -7,27 +9,17 @@ import { cn } from "../lib/utils";
 import { isControlPanelWindow } from "../../utils/windowContext";
 
 interface MeetingRecordingPillProps {
+  workspaceActive?: boolean;
   activeView: string;
   activeNoteId: number | null;
   onReturnToNote: () => void;
 }
 
-const BAR_COUNT = 4;
-const BAR_FLOOR = 12;
-
 const truncateTitle = (title: string) =>
   title.length > 20 ? `${title.slice(0, 19).trimEnd()}…` : title;
 
-const computeBarHeight = (level: number, index: number) => {
-  // Per-bar phase keeps the stack from moving in lockstep at sustained levels.
-  // sqrt curve maps small RMS values (typical speech ~0.05-0.1) into a
-  // visible range — linear scaling kept bars clamped at the floor.
-  const phase = 0.7 + 0.3 * Math.sin(index * 1.7);
-  const scaled = Math.sqrt(level) * 180 * phase;
-  return `${Math.max(BAR_FLOOR, Math.min(100, scaled))}%`;
-};
-
 export default function MeetingRecordingPill({
+  workspaceActive = true,
   activeView,
   activeNoteId,
   onReturnToNote,
@@ -36,13 +28,12 @@ export default function MeetingRecordingPill({
   const isRecording = useMeetingRecordingStore((s) => s.isRecording);
   const recordingNoteId = useMeetingRecordingStore((s) => s.recordingNoteId);
   const recordingNoteTitle = useMeetingRecordingStore((s) => s.recordingNoteTitle);
-  const micLevel = useMeetingRecordingStore((s) => s.currentMicLevel);
   const micCaptureStatus = useMeetingRecordingStore((s) => s.micCaptureStatus);
   const isWaitingForMic = micCaptureStatus === "reconnecting" || micCaptureStatus === "unavailable";
   const [isStopping, setIsStopping] = useState(false);
 
   const isViewingRecordingNote =
-    activeView === "personal-notes" && activeNoteId === recordingNoteId;
+    workspaceActive && activeView === "personal-notes" && activeNoteId === recordingNoteId;
 
   if (!isRecording || isViewingRecordingNote || !isControlPanelWindow()) {
     return null;
@@ -59,7 +50,9 @@ export default function MeetingRecordingPill({
   };
 
   const title = truncateTitle(recordingNoteTitle ?? "");
-  const returnLabel = t("notes.meetingPill.returnToNote");
+  const returnLabel = t(
+    workspaceActive ? "notes.meetingPill.returnToNote" : "setupFlow.ready.openWorkspace"
+  );
   const stopLabel = t("notes.editor.stop");
 
   return createPortal(
@@ -68,7 +61,7 @@ export default function MeetingRecordingPill({
       style={
         {
           WebkitAppRegion: "no-drag",
-          animation: "grow-to-bar 0.45s cubic-bezier(0.22, 1, 0.36, 1) both",
+          animation: "grow-to-bar var(--motion-slow) var(--motion-ease-enter) both",
         } as React.CSSProperties
       }
     >
@@ -93,18 +86,11 @@ export default function MeetingRecordingPill({
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
           )}
         >
-          <div className="flex items-end gap-0.75 h-4">
-            {Array.from({ length: BAR_COUNT }, (_, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "w-0.75 rounded-full origin-bottom",
-                  isWaitingForMic ? "bg-amber-500" : "bg-primary/60 dark:bg-primary/70"
-                )}
-                style={{ height: computeBarHeight(micLevel, i) }}
-              />
-            ))}
-          </div>
+          {isWaitingForMic ? (
+            <span className="size-2 rounded-full bg-warning" aria-hidden="true" />
+          ) : (
+            <LevelBars readLevel={readMeetingMicLevel} height={16} />
+          )}
           <span className="text-xs font-medium text-foreground/80 truncate max-w-[12rem]">
             {isWaitingForMic ? t("notes.meetingPill.waitingForMicrophone") : title}
           </span>
@@ -118,7 +104,7 @@ export default function MeetingRecordingPill({
           title={stopLabel}
           className={cn(
             "flex items-center justify-center w-7 h-7 rounded-lg",
-            "transition-colors duration-150",
+            "transition-colors duration-(--motion-fast)",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30",
             isStopping
               ? "bg-primary/6 text-primary/40 cursor-not-allowed"

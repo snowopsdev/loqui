@@ -1,4 +1,5 @@
 const test = require("node:test");
+require("./harness/inMemoryWs").install(test);
 const assert = require("node:assert/strict");
 const WebSocket = require("ws");
 const { WebSocketServer } = WebSocket;

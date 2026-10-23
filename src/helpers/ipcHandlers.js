@@ -1,5 +1,16 @@
-const { ipcMain, app, shell, BrowserWindow, systemPreferences, net } = require("electron");
+const { registerSettingsLinkIpc } = require("./settingsLinks");
+const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
+const {
+  ipcMain,
+  app,
+  shell,
+  BrowserWindow,
+  systemPreferences,
+  net,
+  Notification,
+} = require("electron");
 const path = require("path");
+const { showSystemNotification } = require("./systemNotification");
 const fs = require("fs");
 const os = require("os");
 const { isRestorablePasteTarget } = require("./windowsPasteTarget");
@@ -9,9 +20,19 @@ const { ANALYTICS_HISTORY_BACKFILL_VERSION } = require("./analytics");
 const { PARAKEET_UNSUPPORTED_OS_CODE } = require("./parakeetCapability");
 const { getModelType, isSherpaLocalProvider } = require("./parakeetModelInfo");
 const { broadcastToWindows } = require("./windowBroadcast");
+const { createStorageOps } = require("./storageOps");
+const { createModelStorageOps } = require("./modelStorageOps");
 const { openExternalUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
+const { createCredentialAuthority, byokSlotId } = require("./credentialAuthority");
+const {
+  createKeyring,
+  isSealedRefusal,
+  keyringDisplayName,
+  startRotationReminders,
+} = require("./keyring");
+const { initializeVertexAuthSource } = require("./vertexAuthSourceMigration");
 const { extractAnthropicText, describeMissingAnthropicText } = require("./anthropicResponse");
 const { toPolicyFailure } = require("./policyResponseError");
 const { resolveSystemDefaultMicrophone } = require("./systemDefaultMicrophone");
@@ -51,7 +72,7 @@ const { GeminiLiveStreaming, GEMINI_LIVE_MODEL } = require("./geminiLiveStreamin
 const CortiStreaming = require("./cortiStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const { getCortiToken } = require("./cortiAuth");
-const { ONBOARDING_DEMO_KINDS, ONBOARDING_DEMO_STATUSES } = require("./onboardingInputPolicy");
+const { publishDemoEvent } = require("./onboardingInputPolicy");
 const { focusWindowsHotkeyCaptureWindow } = require("./hotkeyCaptureFocus");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
@@ -314,6 +335,28 @@ class IPCHandlers {
     this._activeRecordingPipeline = null;
     this._onboardingDemoSession = null;
     this.audioStorageManager = new AudioStorageManager();
+    this.storageOps = createStorageOps({
+      audio: this.audioStorageManager,
+      database: this.databaseManager,
+      broadcast: (channel, payload) => setImmediate(() => broadcastToWindows(channel, payload)),
+    });
+    // Storage deletes exactly the reviewed models, one family manager at a time.
+    this.modelStorageOps = createModelStorageOps({
+      families: {
+        whisper: {
+          list: () => this.whisperManager.listWhisperModels(),
+          remove: (id) => this.whisperManager.deleteWhisperModel(id),
+        },
+        parakeet: {
+          list: () => this.parakeetManager.listParakeetModels(),
+          remove: (id) => this.parakeetManager.deleteParakeetModel(id),
+        },
+        llm: {
+          list: () => require("./modelManagerBridge").default.getModelsWithStatus(),
+          remove: (id) => require("./modelManagerBridge").default.deleteModel(id),
+        },
+      },
+    });
     this.localModelDownloadStatus = new LocalModelDownloadStatus();
     this._retentionCleanupInterval = null;
     this._retentionSettings = { ...DEFAULT_RETENTION_SETTINGS }; // Synced from renderer
@@ -335,6 +378,48 @@ class IPCHandlers {
     this._logDetectedGpus();
     // Warm the OS default mic answer before the first hotkey press (~2s on Windows).
     resolveSystemDefaultMicrophone();
+    this.credentials = createCredentialAuthority({
+      env: this.environmentManager,
+      codexHome: path.join(app.getPath("userData"), "codex"),
+      fs,
+      broadcast: broadcastToWindows,
+    });
+    this.isSealed = typeof managers.isSealed === "function" ? managers.isSealed : () => false;
+    this._enterpriseVerificationExecutor =
+      typeof managers.runEnterpriseVerification === "function"
+        ? managers.runEnterpriseVerification
+        : null;
+    this.keyring = createKeyring({
+      store: {
+        all: () => this.databaseManager.getKeyHealth(),
+        save: (row) => this.databaseManager.saveKeyHealth(row),
+        remove: (identity) => this.databaseManager.deleteKeyHealth(identity),
+      },
+      credentials: this.credentials,
+      runTest: (config, values, environment) =>
+        this._runProviderConnectionTest(config, values, environment),
+      runEnterpriseTest: (input, admit) => this._runEnterpriseVerification(input, admit),
+      broadcast: broadcastToWindows,
+      isSealed: () => this.isSealed(),
+      enterpriseConfig: () => {
+        const state = this.environmentManager.getEnterpriseRouteState();
+        return state?.current
+          ? {
+              ...state.current,
+              bedrockProfile: this.environmentManager.getBedrockProfile(),
+              azureApiVersion: this.environmentManager.getAzureApiVersion(),
+            }
+          : null;
+      },
+    });
+    this._stopKeyReminders = startRotationReminders({
+      keyring: this.keyring,
+      notify: (id) => this._notifyKeyRotation(id),
+    });
+    this.vertexAuthSourceReady = new Promise((resolve) => {
+      this.resolveVertexAuthSourceReady = resolve;
+    });
+    this.vertexAuthInitialization = null;
     this.setupHandlers();
     if (this.whisperManager?.serverManager) {
       // Remember the failed backend so it isn't re-attempted (and its model
@@ -356,6 +441,144 @@ class IPCHandlers {
         this._syncStartupEnv({}, ["WHISPER_VULKAN_DEVICE"]);
       });
     }
+  }
+
+  async _runProviderConnectionTest(config, captured = null, requestEnvironment) {
+    const stored = (field, read) => (captured ? captured[field] || "" : read());
+    config = { ...config };
+    const customSlots = {
+      dictationCleanup: "getCleanupCustomKey",
+      noteFormatting: "getNoteFormattingCustomKey",
+      dictationTranslation: "getTranslationCustomKey",
+      dictationAgent: "getDictationAgentCustomKey",
+      dictationAgentVision: "getDictationAgentVisionCustomKey",
+      chatIntelligence: "getChatAgentCustomKey",
+    };
+    const customScope = config.credentialRef?.startsWith("custom:")
+      ? config.credentialRef.slice(7)
+      : config.inferenceScope;
+    const getter =
+      config.provider === "custom"
+        ? config.scope === "transcription"
+          ? "getCustomTranscriptionKey"
+          : customSlots[customScope || "dictationCleanup"]
+        : BYOK_API_KEYS.find((k) => k.base === config.provider)?.get;
+    config.apiKey = getter ? stored("key", () => this.environmentManager[getter]()) : "";
+    if (config.clientId === "__stored__")
+      config.clientId = stored("clientId", () => this.environmentManager.getCortiClientId());
+    if (config.clientSecret === "__stored__")
+      config.clientSecret = stored("clientSecret", () =>
+        this.environmentManager.getCortiClientSecret()
+      );
+    if (config?.provider === "corti" && config?.scope === "transcription") {
+      try {
+        const clientId = String(config.clientId || "").trim();
+        const clientSecret = String(config.clientSecret || "").trim();
+        if (clientId && clientSecret) {
+          await getCortiToken(
+            {
+              environment: config.environment || "us",
+              tenant: String(config.tenant || "").trim() || "base",
+              clientId,
+              clientSecret,
+            },
+            captured ? (url, init) => net.fetch(url, { ...init, redirect: "error" }) : undefined
+          );
+        } else if (captured) {
+          throw new Error("Invalid Corti client credentials");
+        } else {
+          await this._mintStoredCortiToken({
+            environment: config.environment,
+            tenant: config.tenant,
+          });
+        }
+        return { success: true };
+      } catch (error) {
+        if (isSealedRefusal(error)) throw error;
+        // errorCode is the machine-readable field the renderer maps to i18n;
+        // the English string stays for logs/back-compat. Only a response
+        // Corti actually sent counts as a rejection (getCortiToken prefixes
+        // those); a fetch that never reached it is a network problem, and
+        // reporting it as "credentials rejected" sends the user to re-type a
+        // key that was never the issue.
+        if (error?.name === "AbortError") {
+          return {
+            success: false,
+            errorCode: "timeout",
+            error: "The connection test timed out.",
+          };
+        }
+        if (!/^(Corti authentication failed|Invalid Corti)/.test(error?.message || "")) {
+          return {
+            success: false,
+            errorCode: "network",
+            error: "The provider could not be reached.",
+          };
+        }
+        return {
+          success: false,
+          errorCode: "credentialsRejected",
+          error: "Corti rejected these credentials.",
+        };
+      }
+    }
+    return testProviderConnection(
+      config,
+      captured ? (url, init) => fetch(url, { ...init, redirect: "error" }) : undefined,
+      requestEnvironment
+    );
+  }
+
+  async _runEnterpriseVerification(input, admit) {
+    if (this._enterpriseVerificationExecutor) {
+      admit();
+      return this._enterpriseVerificationExecutor(input);
+    }
+    const signal = AbortSignal.timeout(input.timeoutMs);
+    const execution = { signal, deadlineAt: Date.now() + input.timeoutMs };
+    const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
+    let onAbort;
+    const aborted = new Promise((_resolve, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      const model = await Promise.race([
+        getEnterpriseAIModel(
+          input.provider,
+          input.model,
+          input.apiKey,
+          input.enterprise,
+          undefined,
+          undefined,
+          execution
+        ),
+        aborted,
+      ]);
+      // Profile resolution may await. Timeout or changed authority cannot later
+      // resume into transport, even if the filesystem capture eventually lands.
+      signal.throwIfAborted();
+      if (Date.now() >= execution.deadlineAt)
+        throw new DOMException("The connection test timed out.", "TimeoutError");
+      admit();
+      return await require("ai").generateText({
+        model,
+        messages: input.messages,
+        maxOutputTokens: input.maxOutputTokens,
+        maxRetries: 0,
+        abortSignal: signal,
+      });
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  _notifyKeyRotation(identity) {
+    if (!Notification?.isSupported?.()) return;
+    new Notification({
+      title: i18nMain.t("keyring.reminder.title", { provider: keyringDisplayName(identity) }),
+      body: i18nMain.t("keyring.reminder.body"),
+    }).show();
   }
 
   // Reconstructing counters from the transcripts already on disk records exactly
@@ -1008,148 +1231,182 @@ class IPCHandlers {
     return { token, environment, tenant };
   }
 
+  initializeVertexAuthSource(hasExistingSettingsProfile) {
+    if (!this.vertexAuthInitialization) {
+      this.vertexAuthInitialization = initializeVertexAuthSource({
+        hasExistingSettingsProfile,
+        environment: this.environmentManager,
+        credentials: this.credentials,
+      });
+      this.vertexAuthInitialization.then(
+        () => this.resolveVertexAuthSourceReady(),
+        () => {}
+      );
+    }
+    return this.vertexAuthInitialization;
+  }
+
+  async _acknowledgedSave(id, field, value) {
+    await this.vertexAuthSourceReady;
+    const result = await this.credentials.save(id, field, value);
+    return result.ok === true ? { success: true } : { success: false, error: result.error };
+  }
+
+  dispose() {
+    this.onboardingAdmission?.dispose();
+    this.onboardingCleanup?.dispose();
+    void this.dictationStreamingOperations?.dispose();
+  }
+
   setupHandlers() {
+    this.onboardingCleanup = require("./onboardingCleanupRelay").createOnboardingCleanupRelay({
+      getSession: () => this.windowManager._onboardingDemoSession,
+      getSetup: () => this.windowManager.controlPanelWindow?.webContents,
+      getOverlay: () => this.windowManager.mainWindow?.webContents,
+      retire: (sender, token) => this.getPersonalInference?.()?.retireTextOperation(sender, token),
+    });
+    this.windowManager.onOnboardingCleanupRetire = () => this.onboardingCleanup.retire();
+    ipcMain.handle("onboarding-cleanup-retry", (event, identity) =>
+      this.onboardingCleanup.retry(event.sender, identity)
+    );
+    ipcMain.handle("onboarding-cleanup-reply", (event, reply) =>
+      this.onboardingCleanup.reply(event.sender, reply)
+    );
     ipcMain.handle("onboarding-set-window-mode", (_event, mode) =>
       this.windowManager.setOnboardingWindowMode(mode)
     );
 
-    // WindowManager owns every teardown path for a demo (id-matched end,
-    // onboarding-set-active(false), control panel closed); without this hook a
-    // renderer crash mid-demo would leave the session set and broadcast every
-    // later dictation's transcripts on onboarding-demo-event forever.
-    this.windowManager.onOnboardingDemoTeardown = () => {
+    this.onboardingAdmission = require("./onboardingDemoAdmission").createOnboardingDemoAdmission({
+      getSetup: () => this.windowManager.controlPanelWindow?.webContents,
+      getOverlay: () => this.windowManager.mainWindow?.webContents,
+      install: (session) => {
+        this._onboardingDemoSession = session;
+        return this.windowManager.beginOnboardingDemo(session.kind, session);
+      },
+      end: (identity) => {
+        const session = this.windowManager._onboardingDemoSession;
+        if (session?.id === identity.demoId && session.requestId === identity.requestId)
+          this.windowManager.endOnboardingDemo();
+      },
+    });
+    this.windowManager.onOnboardingDemoTeardown = (session) => {
       this._onboardingDemoSession = null;
+      this.windowManager.lastCancelledDictation = null;
+      this.onboardingAdmission.cancelPending();
+      this.onboardingAdmission.retire(
+        session && { demoId: session.id, requestId: session.requestId, takeId: session.takeId }
+      );
+      this.onboardingCleanup.retire();
     };
-
-    ipcMain.handle("onboarding-set-active", (_event, active) => {
-      if (typeof active !== "boolean") return false;
+    const isSetup = (event) => event.sender === this.windowManager.controlPanelWindow?.webContents;
+    ipcMain.handle("onboarding-set-active", (event, active) => {
+      if (!isSetup(event) || typeof active !== "boolean") return false;
       return this.windowManager.setOnboardingActive(active);
     });
-
-    ipcMain.handle("onboarding-demo-begin", (_event, session) => {
-      if (
-        !session ||
-        typeof session.id !== "string" ||
-        session.id.length > 128 ||
-        !ONBOARDING_DEMO_KINDS.has(session.kind)
-      ) {
-        return false;
-      }
-      this._onboardingDemoSession = {
-        id: session.id,
-        kind: session.kind,
-        startedAt: Date.now(),
-      };
-      return this.windowManager.beginOnboardingDemo(session.kind);
-    });
-
-    ipcMain.handle("onboarding-demo-end", (_event, id) => {
-      if (this._onboardingDemoSession?.id === id) {
-        // Session cleanup rides on the teardown hook above.
-        this.windowManager.endOnboardingDemo();
-      }
+    ipcMain.handle("onboarding-demo-begin", (event, session) =>
+      this.onboardingAdmission.begin(event.sender, session)
+    );
+    ipcMain.handle("onboarding-demo-admission-reply", (event, reply) =>
+      this.onboardingAdmission.reply(event.sender, reply)
+    );
+    ipcMain.handle("onboarding-demo-admission-invalidated", (event, identity) =>
+      this.onboardingAdmission.invalidate(event.sender, identity)
+    );
+    ipcMain.handle("onboarding-demo-end", (event, id) => {
+      if (!isSetup(event)) return false;
+      this.onboardingAdmission.endPending(event.sender, id);
+      if (this._onboardingDemoSession?.id === id) this.windowManager.endOnboardingDemo();
       return true;
     });
+    const isCurrentDemo = (event, id) => isSetup(event) && this._onboardingDemoSession?.id === id;
+    const isCurrentTake = (event, id, takeId) =>
+      isCurrentDemo(event, id) &&
+      (this._onboardingDemoSession.takeId
+        ? typeof takeId === "string" && takeId === this._onboardingDemoSession.takeId
+        : takeId == null);
+    ipcMain.handle("onboarding-demo-stop", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.stopOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-toggle", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.toggleOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-cancel", (event, id, takeId) =>
+      isCurrentTake(event, id, takeId) ? this.windowManager.cancelOnboardingDemoRecording() : false
+    );
+    ipcMain.handle("onboarding-demo-undo-cancel", (event, id, takeId, sessionId) =>
+      isCurrentTake(event, id, takeId)
+        ? this.windowManager.undoOnboardingDemoCancel(sessionId)
+        : false
+    );
 
-    ipcMain.handle("onboarding-demo-stop", (_event, id) => {
-      if (this._onboardingDemoSession?.id !== id) return false;
-      return this.windowManager.stopOnboardingDemoRecording();
+    // Cache advisory setup facts for this launch; the NVIDIA probe spawns a
+    // process. Main still checks current disk space when admitting downloads.
+    ipcMain.handle("get-system-profile", () => {
+      if (!this._systemProfilePromise) {
+        const { getSystemProfile } = require("./systemProfile");
+        const { getCacheRoot } = require("./modelDirUtils");
+        const { detectNvidiaGpu } = require("../utils/gpuDetection");
+        this._systemProfilePromise = getSystemProfile({
+          app,
+          cacheRoot: getCacheRoot(),
+          // Setup facts must not enter persistent GPU diagnostics, even at trace level.
+          detectGpu: () => detectNvidiaGpu({ quiet: true }),
+        });
+      }
+      return this._systemProfilePromise;
     });
 
     ipcMain.handle("onboarding-demo-publish", (_event, event) => {
-      const session = this._onboardingDemoSession;
-      if (!session || !event || event.kind !== session.kind) return false;
-      if (!ONBOARDING_DEMO_STATUSES.has(event.status)) return false;
-      const text = typeof event.text === "string" ? event.text.slice(0, 20000) : undefined;
-      const message = typeof event.message === "string" ? event.message.slice(0, 500) : undefined;
-      const tool = typeof event.tool === "string" ? event.tool.slice(0, 64) : undefined;
-      const level = Number.isFinite(event.level)
-        ? Math.min(1, Math.max(0, event.level))
-        : undefined;
-      broadcastToWindows("onboarding-demo-event", {
-        demoId: session.id,
-        kind: session.kind,
-        status: event.status,
-        text,
-        message,
-        tool,
-        level,
+      if (_event.sender !== this.windowManager.mainWindow?.webContents) return false;
+      const payload = publishDemoEvent(event, this._onboardingDemoSession, this.windowManager);
+      if (!payload) return false;
+      const selector = this.onboardingCleanup.selector(_event.sender, {
+        ...event,
+        operationId: event.cleanupOperationId,
       });
+      if (selector) payload.cleanupOperationId = selector.operationId;
+      broadcastToWindows("onboarding-demo-event", payload);
       return true;
     });
 
-    ipcMain.handle("test-provider-connection", async (_event, config) => {
-      config = { ...config };
-      const customSlots = {
-        dictationCleanup: "getCleanupCustomKey",
-        noteFormatting: "getNoteFormattingCustomKey",
-        dictationTranslation: "getTranslationCustomKey",
-        dictationAgent: "getDictationAgentCustomKey",
-        dictationAgentVision: "getDictationAgentVisionCustomKey",
-        chatIntelligence: "getChatAgentCustomKey",
-      };
-      const customScope = config.credentialRef?.startsWith("custom:")
-        ? config.credentialRef.slice(7)
-        : config.inferenceScope;
-      const getter =
-        config.provider === "custom"
-          ? config.scope === "transcription"
-            ? "getCustomTranscriptionKey"
-            : customSlots[customScope || "dictationCleanup"]
-          : BYOK_API_KEYS.find((k) => k.base === config.provider)?.get;
-      config.apiKey = getter ? this.environmentManager[getter]() : "";
-      if (config.clientId === "__stored__")
-        config.clientId = this.environmentManager.getCortiClientId();
-      if (config.clientSecret === "__stored__")
-        config.clientSecret = this.environmentManager.getCortiClientSecret();
-      if (config?.provider === "corti" && config?.scope === "transcription") {
-        try {
-          const clientId = String(config.clientId || "").trim();
-          const clientSecret = String(config.clientSecret || "").trim();
-          if (clientId && clientSecret) {
-            await getCortiToken({
-              environment: config.environment || "us",
-              tenant: String(config.tenant || "").trim() || "base",
-              clientId,
-              clientSecret,
-            });
-          } else {
-            await this._mintStoredCortiToken({
-              environment: config.environment,
-              tenant: config.tenant,
-            });
-          }
-          return { success: true };
-        } catch (error) {
-          // errorCode is the machine-readable field the renderer maps to i18n;
-          // the English string stays for logs/back-compat. Only a response
-          // Corti actually sent counts as a rejection (getCortiToken prefixes
-          // those); a fetch that never reached it is a network problem, and
-          // reporting it as "credentials rejected" sends the user to re-type a
-          // key that was never the issue.
-          if (error?.name === "AbortError") {
-            return {
-              success: false,
-              errorCode: "timeout",
-              error: "The connection test timed out.",
-            };
-          }
-          if (!/^(Corti authentication failed|Invalid Corti)/.test(error?.message || "")) {
-            return {
-              success: false,
-              errorCode: "network",
-              error: "The provider could not be reached.",
-            };
-          }
-          return {
-            success: false,
-            errorCode: "credentialsRejected",
-            error: "Corti rejected these credentials.",
-          };
-        }
-      }
-      return testProviderConnection(config);
+    ipcMain.handle("probe-self-hosted", (_event, baseUrl) =>
+      require("./selfHostedProbe").probeSelfHosted(baseUrl)
+    );
+
+    ipcMain.handle("test-provider-connection", (_event, config) =>
+      this._runProviderConnectionTest(config)
+    );
+    const cortiOptions = (options) => ({
+      cortiEnvironment: options?.cortiEnvironment,
+      cortiTenant: options?.cortiTenant,
     });
+    ipcMain.handle("keyring-list", (_event, options) => this.keyring.list(cortiOptions(options)));
+    ipcMain.handle("keyring-route-health", (_event, options) =>
+      this.keyring.routeHealth(cortiOptions(options))
+    );
+    ipcMain.handle("keyring-verify", (event, identity, options) =>
+      this.keyring.verify(
+        String(identity),
+        { ...cortiOptions(options), recipientToken: options?.recipientToken },
+        event.sender
+      )
+    );
+    ipcMain.handle("keyring-describe-verify", (event, identity, options) =>
+      this.keyring.describeVerify(
+        String(identity),
+        { ...cortiOptions(options), model: options?.model },
+        event.sender
+      )
+    );
+    ipcMain.handle("keyring-verify-connection", (event, input) =>
+      this.keyring.verifyConnection(
+        { provider: input?.provider, model: input?.model, recipientToken: input?.recipientToken },
+        event.sender
+      )
+    );
+    ipcMain.handle("keyring-set-reminder", (_event, identity, enabled) =>
+      this.keyring.setReminder(String(identity), enabled === true)
+    );
 
     ipcMain.handle("window-minimize", () => {
       if (this.windowManager.controlPanelWindow) {
@@ -1179,6 +1436,7 @@ class IPCHandlers {
       }
       return false;
     });
+    registerSettingsLinkIpc(ipcMain, this.windowManager);
 
     ipcMain.handle("snap-to-meeting-mode", () => {
       this.windowManager.snapControlPanelToMeetingMode();
@@ -1192,6 +1450,8 @@ class IPCHandlers {
     ipcMain.handle("hide-window", () => {
       this.windowManager.hideDictationPanel();
     });
+
+    ipcMain.handle("show-control-panel", () => this.windowManager._showControlPanel());
 
     ipcMain.handle("show-dictation-panel", () => {
       this.windowManager.showDictationPanel({ reposition: true });
@@ -1241,12 +1501,40 @@ class IPCHandlers {
       return this.windowManager.resizeDictationErrorWindowToContent(surfaceHeight);
     });
 
+    ipcMain.handle("credentials-list", async () => {
+      await this.vertexAuthSourceReady;
+      return this.credentials.list();
+    });
+    ipcMain.handle("credentials-save", async (_event, id, field, value) => {
+      await this.vertexAuthSourceReady;
+      return this.credentials.save(String(id), String(field), value);
+    });
+    ipcMain.handle("credentials-remove", async (_event, id) => {
+      await this.vertexAuthSourceReady;
+      return this.credentials.remove(String(id));
+    });
+    ipcMain.handle("credentials-undo-remove", async (_event, token) => {
+      await this.vertexAuthSourceReady;
+      return this.credentials.undoRemove(String(token));
+    });
+    ipcMain.handle("get-vertex-auth-source", async () => {
+      await this.vertexAuthSourceReady;
+      return this.environmentManager.getVertexAuthSource();
+    });
+    ipcMain.handle("save-vertex-auth-source", async (_event, source) => {
+      await this.vertexAuthSourceReady;
+      if (source !== "adc" && source !== "apiKey") throw new Error("Invalid Vertex auth source");
+      const result = await this.environmentManager.saveVertexAuthSource(source);
+      if (result?.success) this.credentials.refresh("vertex");
+      return result;
+    });
+
     for (const k of BYOK_API_KEYS) {
       ipcMain.handle(`get-${k.base}-key`, () =>
         this.environmentManager[k.get]() ? "__stored__" : ""
       );
       ipcMain.handle(`save-${k.base}-key`, (event, key) =>
-        key === "__stored__" ? true : this.environmentManager[k.save](key)
+        this._acknowledgedSave(byokSlotId(k.base), "key", key)
       );
     }
 
@@ -1320,7 +1608,7 @@ class IPCHandlers {
       return result;
     });
 
-    ipcMain.handle("merge-audio-segments", async (_event, segments) => {
+    ipcMain.handle("merge-audio-segments", async (_event, segments, options = {}) => {
       try {
         if (!Array.isArray(segments) || segments.length < 2 || segments.length > 100) {
           throw new Error("Invalid audio segment count");
@@ -1332,13 +1620,14 @@ class IPCHandlers {
           return { buffer: Buffer.from(segment.buffer), mimeType: segment.mimeType };
         });
         const { mergeAudioSegments } = require("./ffmpegUtils");
-        const buffer = await mergeAudioSegments(normalized);
+        const privateAudio = options.private === true;
+        const buffer = await mergeAudioSegments(normalized, { private: privateAudio });
         // Slice to a real ArrayBuffer: Buffers sent over IPC arrive as Uint8Array,
         // and pooled Buffers share a larger underlying allocation.
         return {
           success: true,
           buffer: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-          mimeType: "audio/webm",
+          mimeType: privateAudio ? "audio/wav" : "audio/webm",
         };
       } catch (error) {
         debugLogger.error("Failed to merge recovered audio segments", { error: error.message });
@@ -1378,6 +1667,18 @@ class IPCHandlers {
     ipcMain.handle("get-audio-storage-usage", async () => {
       return this.audioStorageManager.getStorageUsage();
     });
+    // Required reviewed counts and opaque identities; main refuses changed sets.
+    ipcMain.handle("storage-preview", async () => this.storageOps.preview());
+    ipcMain.handle("storage-delete-audio", async (_event, expected) =>
+      this.storageOps.deleteAudio({ expected: expected ?? null })
+    );
+    ipcMain.handle("storage-delete-history", async (_event, expected) =>
+      this.storageOps.deleteHistory({ expected: expected ?? null })
+    );
+    ipcMain.handle("storage-preview-models", async () => this.modelStorageOps.preview());
+    ipcMain.handle("storage-delete-models", async (_event, expected) =>
+      this.modelStorageOps.deleteModels({ expected: expected ?? null })
+    );
 
     ipcMain.on(
       "retention-settings-changed",
@@ -1400,12 +1701,10 @@ class IPCHandlers {
     ipcMain.handle("delete-all-audio", async () => {
       const result = this.audioStorageManager.deleteAllAudio();
       try {
-        const rows = this.databaseManager.db
-          .prepare("SELECT id FROM transcriptions WHERE has_audio = 1")
-          .all();
-        if (rows.length > 0) {
-          this.databaseManager.clearAudioFlags(rows.map((r) => r.id));
-        }
+        clearFlagsForDeletedAudio({
+          audioStorage: this.audioStorageManager,
+          database: this.databaseManager,
+        });
       } catch (error) {
         debugLogger.error(
           "Failed to clear audio flags after delete-all",
@@ -1476,6 +1775,23 @@ class IPCHandlers {
         return;
       }
       this.windowManager.setDictationAudioLevel(level);
+    });
+
+    // The control panel pulls once on mount, then receives lifecycle pushes.
+    // Both invoke channels are scoped to the currently live control panel.
+    const fromControlPanel = (event) => {
+      const panel = this.windowManager.controlPanelWindow;
+      return !!panel && !panel.isDestroyed() && event.sender === panel.webContents;
+    };
+    ipcMain.handle("get-dictation-lifecycle-state", (event) =>
+      fromControlPanel(event)
+        ? this.windowManager.getControlPanelDictationState()
+        : { state: "idle", inputKind: "dictation" }
+    );
+    ipcMain.handle("control-panel-toggle-dictation", (event) => {
+      if (!fromControlPanel(event)) return { success: false };
+      this.windowManager.sendToggleDictation();
+      return { success: true };
     });
 
     // Dictionary handlers
@@ -1781,6 +2097,22 @@ class IPCHandlers {
       return this.databaseManager.getSpaces();
     });
 
+    ipcMain.handle("db-get-table-board", async (_event, spaceId) => {
+      return this.databaseManager.getTableBoard(spaceId);
+    });
+    ipcMain.handle("db-place-table-cards", async (_event, spaceId, placements) => {
+      return this.databaseManager.placeTableCards(spaceId, placements);
+    });
+    ipcMain.handle("db-hide-table-cards", async (_event, spaceId, refs) => {
+      return this.databaseManager.hideTableCards(spaceId, refs);
+    });
+    ipcMain.handle("db-link-table-cards", async (_event, spaceId, a, b) => {
+      return this.databaseManager.linkTableCards(spaceId, a, b);
+    });
+    ipcMain.handle("db-set-table-viewport", async (_event, spaceId, viewport) => {
+      return this.databaseManager.setTableViewport(spaceId, viewport);
+    });
+
     ipcMain.handle("db-update-space", async (event, id, updates) => {
       const result = this.databaseManager.updateSpace(id, updates);
       if (result?.success && result.space) {
@@ -1859,6 +2191,8 @@ class IPCHandlers {
       if (this.vectorIndex?.isReady?.()) {
         this.vectorIndex.deleteConversationChunks(id).catch(() => {});
       }
+      if (result?.success)
+        setImmediate(() => broadcastToWindows("agent-conversation-deleted", { id }));
       return result;
     });
 
@@ -1907,7 +2241,10 @@ class IPCHandlers {
     });
 
     ipcMain.handle("db-archive-agent-conversation", async (event, id) => {
-      return this.databaseManager.archiveAgentConversation(id);
+      const result = this.databaseManager.archiveAgentConversation(id);
+      if (result?.success)
+        setImmediate(() => broadcastToWindows("agent-conversation-archived", { id }));
+      return result;
     });
 
     ipcMain.handle("db-unarchive-agent-conversation", async (event, id) => {
@@ -2849,6 +3186,8 @@ class IPCHandlers {
             model: modelName,
             error: error.message,
             code: error.code || "DOWNLOAD_FAILED",
+            keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : null,
+            cleanupFailed: error.cleanupFailed === true,
             sequence: status?.sequence,
           });
         }
@@ -2856,6 +3195,8 @@ class IPCHandlers {
           success: false,
           error: error.message,
           code: error.code || "DOWNLOAD_FAILED",
+          keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : null,
+          cleanupFailed: error.cleanupFailed === true,
         };
       }
     });
@@ -3160,12 +3501,12 @@ class IPCHandlers {
         errors.push(`DB close: ${e.message}`);
       }
 
-      // Delete audio files
-      try {
-        this.audioStorageManager.deleteAllAudio();
-      } catch (e) {
-        errors.push(`Audio delete: ${e.message}`);
-      }
+      // Plan 02 reports failed unlinks and unreadable folders. The database
+      // is already closed, and its file is deleted below, so no flag reconciliation.
+      const audioErase = this.audioStorageManager.deleteAllAudio();
+      if (!audioErase.readable) errors.push("Audio delete: the audio folder could not be read");
+      else if (audioErase.failed > 0)
+        errors.push(`Audio delete: ${audioErase.failed} file(s) could not be deleted`);
 
       // Delete downloaded models
       try {
@@ -3220,7 +3561,7 @@ class IPCHandlers {
 
       // Delete device-wide settings and encrypted credentials.
       try {
-        await this.environmentManager?.clearAllPersistedData();
+        await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData());
       } catch (e) {
         errors.push(`Environment settings: ${e.message}`);
       }
@@ -3507,17 +3848,97 @@ class IPCHandlers {
       return this.windowManager.getHyprlandConfigStatus();
     });
 
-    ipcMain.handle("register-cancel-hotkey", async (event, key) => {
-      const hotkeyManager = this.windowManager.hotkeyManager;
+    const watchedLeaseOwners = new WeakSet();
+    let cancelOperation = null;
+    let cancelQueue = Promise.resolve();
+    const enqueueCancel = (operation) => {
+      const next = cancelQueue.then(operation, operation);
+      cancelQueue = next.catch(() => {});
+      return next;
+    };
+    const releaseCancel = () => {
+      cancelOperation = null;
+      this._cancelHotkeyOwnerId = null;
+      return enqueueCancel(() => this.windowManager.hotkeyManager.unregisterSlot("cancel"));
+    };
+    const watchLeaseOwner = (contents) => {
+      if (watchedLeaseOwners.has(contents)) return;
+      watchedLeaseOwners.add(contents);
+      const id = contents.id;
+      const releaseAll = () => {
+        this.windowManager.hotkeyLeases.releaseOwner(id);
+        if (this._cancelHotkeyOwnerId === id) void releaseCancel();
+      };
+      contents.once("destroyed", releaseAll);
+      contents.on("render-process-gone", releaseAll);
+      contents.on("did-start-navigation", (details) => {
+        if (details.isMainFrame && !details.isSameDocument) releaseAll();
+      });
+    };
+    const isPillOwner = (contents) => {
       const mainWindow = this.windowManager.mainWindow;
-      return hotkeyManager.registerSlot("cancel", key, () => {
-        mainWindow?.webContents?.send("cancel-hotkey-pressed");
+      return Boolean(mainWindow && contents === mainWindow.webContents && !contents.isDestroyed());
+    };
+
+    ipcMain.handle("register-cancel-hotkey", async (event, key) => {
+      if (!isPillOwner(event.sender)) return { success: false };
+      const contents = event.sender;
+      watchLeaseOwner(contents);
+      const operation = {};
+      cancelOperation = operation;
+      this._cancelHotkeyOwnerId = contents.id;
+      return enqueueCancel(async () => {
+        if (cancelOperation !== operation) return { success: false, reason: "released" };
+        const hotkeyManager = this.windowManager.hotkeyManager;
+        const result = await hotkeyManager.registerSlot("cancel", key, () => {
+          if (cancelOperation === operation && !contents.isDestroyed()) {
+            contents.send("cancel-hotkey-pressed");
+          }
+        });
+        if (cancelOperation !== operation) {
+          await hotkeyManager.unregisterSlot("cancel");
+          return { success: false, reason: "released" };
+        }
+        return result;
       });
     });
 
-    ipcMain.handle("unregister-cancel-hotkey", async () => {
-      this.windowManager.hotkeyManager.unregisterSlot("cancel");
+    ipcMain.handle("unregister-cancel-hotkey", async (event) => {
+      if (this._cancelHotkeyOwnerId === event.sender.id) await releaseCancel();
       return { success: true };
+    });
+
+    ipcMain.handle("acquire-pill-hotkey", async (event, slot, options = {}) => {
+      if ((slot !== "undoCancel" && slot !== "noticePrimary") || !isPillOwner(event.sender)) {
+        return { leaseId: 0, held: false, reason: "error" };
+      }
+      const contents = event.sender;
+      watchLeaseOwner(contents);
+      let leaseId = 0;
+      let released = false;
+      const result = await this.windowManager.hotkeyLeases.acquire({
+        slot,
+        ownerId: contents.id,
+        ttlMs: Number(options?.ttlMs) || undefined,
+        onPress: () => {
+          if (leaseId && !released && !contents.isDestroyed()) {
+            contents.send("pill-hotkey-pressed", { slot, leaseId });
+          }
+        },
+        onRelease: () => {
+          released = true;
+          if (leaseId && !contents.isDestroyed()) {
+            contents.send("pill-hotkey-released", { slot, leaseId });
+          }
+        },
+      });
+      leaseId = result.leaseId;
+      // Owner loss/TTL can happen between the backend answer and this reply.
+      return released ? { leaseId, held: false, reason: "released" } : result;
+    });
+
+    ipcMain.handle("release-pill-hotkey", (event, leaseId) => {
+      this.windowManager.hotkeyLeases.release(Number(leaseId), event.sender.id);
     });
 
     ipcMain.handle("start-window-drag", async (event) => {
@@ -3791,17 +4212,17 @@ class IPCHandlers {
       return this.environmentManager.getCortiClientId() ? "__stored__" : "";
     });
 
-    ipcMain.handle("save-corti-client-id", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveCortiClientId(key);
-    });
+    ipcMain.handle("save-corti-client-id", (_event, key) =>
+      this._acknowledgedSave("corti:speech", "clientId", key)
+    );
 
     ipcMain.handle("get-corti-client-secret", async () => {
       return this.environmentManager.getCortiClientSecret() ? "__stored__" : "";
     });
 
-    ipcMain.handle("save-corti-client-secret", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveCortiClientSecret(key);
-    });
+    ipcMain.handle("save-corti-client-secret", (_event, key) =>
+      this._acknowledgedSave("corti:speech", "clientSecret", key)
+    );
 
     ipcMain.handle(
       "proxy-corti-transcription",
@@ -3863,90 +4284,163 @@ class IPCHandlers {
       return this.environmentManager.getCustomTranscriptionKey() ? "__stored__" : "";
     });
 
-    ipcMain.handle("save-custom-transcription-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveCustomTranscriptionKey(key);
-    });
+    ipcMain.handle("save-custom-transcription-key", (_event, key) =>
+      this._acknowledgedSave("custom:transcription", "key", key)
+    );
 
     ipcMain.handle("get-cleanup-custom-key", async () => {
       return this.environmentManager.getCleanupCustomKey() ? "__stored__" : "";
     });
 
-    ipcMain.handle("save-cleanup-custom-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveCleanupCustomKey(key);
+    ipcMain.handle("save-cleanup-custom-key", (_event, key) =>
+      this._acknowledgedSave("custom:dictationCleanup", "key", key)
+    );
+
+    // Atomic tuples/events share the transaction's authority. Profile fact
+    // changes advance this authority even when the five route fields stay equal.
+    const publishedEnterpriseFacts = () =>
+      require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env, {
+        azureEndpoint: this.environmentManager.getAzureEndpoint(),
+        azureApiVersion: this.environmentManager.getAzureApiVersion(),
+        bedrockRegion: this.environmentManager.getBedrockRegion(),
+        bedrockProfile: this.environmentManager.getBedrockProfile(),
+        vertexProject: this.environmentManager.getVertexProject(),
+        vertexLocation: this.environmentManager.getVertexLocation(),
+        vertexAuthSource: this.environmentManager.getVertexAuthSource(),
+      });
+    const enterpriseState = () => ({
+      ...this.environmentManager.getEnterpriseRouteState(),
+      facts: publishedEnterpriseFacts(),
+    });
+    this.environmentManager.subscribeEnterpriseRouteChanged?.((state) => {
+      broadcastToWindows("enterprise-route-changed", {
+        ...state,
+        facts: publishedEnterpriseFacts(),
+      });
+    });
+    ipcMain.handle("get-enterprise-route-state", async () => {
+      await this.vertexAuthSourceReady;
+      return enterpriseState();
+    });
+
+    ipcMain.handle("save-enterprise-route-patch", async (_event, input) => {
+      await this.vertexAuthSourceReady;
+      if (
+        !input ||
+        typeof input !== "object" ||
+        Array.isArray(input) ||
+        Object.keys(input).length !== 2 ||
+        !Object.hasOwn(input, "patch") ||
+        !Object.hasOwn(input, "expected")
+      ) {
+        throw new Error("Expected exactly patch and expected");
+      }
+      return this.environmentManager.saveEnterpriseRoutePatch(input.patch, {
+        expected: input.expected,
+      });
     });
 
     // Enterprise provider key handlers
     ipcMain.handle("get-bedrock-region", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockRegion();
     });
     ipcMain.handle("save-bedrock-region", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveBedrockRegion(value);
     });
     ipcMain.handle("get-bedrock-profile", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockProfile();
     });
-    ipcMain.handle("save-bedrock-profile", async (event, value) => {
-      return this.environmentManager.saveBedrockProfile(value);
+    ipcMain.handle("save-bedrock-profile", async (_event, value) => {
+      await this.vertexAuthSourceReady;
+      const result = await this.environmentManager.saveBedrockProfile(value);
+      if (result?.success) this.credentials.refresh("bedrock");
+      return result;
     });
     ipcMain.handle("get-bedrock-access-key-id", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockAccessKeyId() ? "__stored__" : "";
     });
-    ipcMain.handle("save-bedrock-access-key-id", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveBedrockAccessKeyId(key);
-    });
+    ipcMain.handle("save-bedrock-access-key-id", (_event, key) =>
+      this._acknowledgedSave("bedrock", "accessKeyId", key)
+    );
     ipcMain.handle("get-bedrock-secret-access-key", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockSecretAccessKey() ? "__stored__" : "";
     });
-    ipcMain.handle("save-bedrock-secret-access-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveBedrockSecretAccessKey(key);
-    });
+    ipcMain.handle("save-bedrock-secret-access-key", (_event, key) =>
+      this._acknowledgedSave("bedrock", "secretAccessKey", key)
+    );
     ipcMain.handle("get-bedrock-session-token", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getBedrockSessionToken() ? "__stored__" : "";
     });
-    ipcMain.handle("save-bedrock-session-token", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveBedrockSessionToken(key);
-    });
+    ipcMain.handle("save-bedrock-session-token", (_event, key) =>
+      this._acknowledgedSave("bedrock", "sessionToken", key)
+    );
     ipcMain.handle("get-azure-endpoint", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getAzureEndpoint();
     });
     ipcMain.handle("save-azure-endpoint", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveAzureEndpoint(value);
     });
     ipcMain.handle("get-azure-api-key", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getAzureApiKey() ? "__stored__" : "";
     });
-    ipcMain.handle("save-azure-api-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveAzureApiKey(key);
-    });
+    ipcMain.handle("save-azure-api-key", (_event, key) =>
+      this._acknowledgedSave("azure", "key", key)
+    );
     ipcMain.handle("get-azure-deployment", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getAzureDeployment();
     });
     ipcMain.handle("save-azure-deployment", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveAzureDeployment(value);
     });
     ipcMain.handle("get-azure-api-version", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getAzureApiVersion();
     });
     ipcMain.handle("save-azure-api-version", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveAzureApiVersion(value);
     });
     ipcMain.handle("get-vertex-project", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getVertexProject();
     });
-    ipcMain.handle("save-vertex-project", async (event, value) => {
-      return this.environmentManager.saveVertexProject(value);
+    ipcMain.handle("save-vertex-project", async (_event, value) => {
+      await this.vertexAuthSourceReady;
+      const result = await this.environmentManager.saveVertexProject(value);
+      if (result?.success) this.credentials.refresh("vertex");
+      return result;
     });
     ipcMain.handle("get-vertex-location", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getVertexLocation();
     });
     ipcMain.handle("save-vertex-location", async (event, value) => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.saveVertexLocation(value);
     });
     ipcMain.handle("get-vertex-api-key", async () => {
+      await this.vertexAuthSourceReady;
       return this.environmentManager.getVertexApiKey() ? "__stored__" : "";
     });
-    ipcMain.handle("save-vertex-api-key", async (event, key) => {
-      return key === "__stored__" ? true : this.environmentManager.saveVertexApiKey(key);
+    ipcMain.handle("save-vertex-api-key", (_event, key) =>
+      this._acknowledgedSave("vertex", "key", key)
+    );
+
+    // Local environment facts; migration completes before readiness is published.
+    ipcMain.handle("enterprise-route-facts", async () => {
+      await this.vertexAuthSourceReady;
+      return publishedEnterpriseFacts();
     });
 
     // Enterprise provider test connection
@@ -4305,6 +4799,8 @@ class IPCHandlers {
       return this.environmentManager.saveDictationKey(key);
     });
 
+    ipcMain.handle("get-dictation-binding", () => this.windowManager.getDictationBinding());
+
     ipcMain.handle("get-active-dictation-key", async () => {
       const hotkeys = this.windowManager?.hotkeyManager?.getSlotHotkeys?.("dictation") ?? [];
       return hotkeys.length > 0 ? hotkeys.join(",") : null;
@@ -4421,10 +4917,34 @@ class IPCHandlers {
 
     ipcMain.handle("process-local-reasoning", async (event, text, modelId, _agentName, config) => {
       try {
-        const LocalReasoningService = require("../services/localReasoningBridge").default;
-        const result = await LocalReasoningService.processText(text, modelId, config);
+        const localReasoning = () => require("../services/localReasoningBridge").default;
+        const result = config?.textOperationToken
+          ? await this.getPersonalInference().runCapturedLocal(
+              event,
+              config.textOperationToken,
+              { messages: [{ role: "user", content: text }], wordCount: config.wordCount },
+              (original, descriptor, execution) =>
+                localReasoning().processText(original.messages[0].content, descriptor.model, {
+                  ...descriptor,
+                  execution,
+                })
+            )
+          : await localReasoning().processText(text, modelId, config);
         return { success: true, text: result };
       } catch (error) {
+        if (config?.textOperationToken)
+          return {
+            success: false,
+            error: "Cleanup failed. Your original words are preserved.",
+            code: [
+              "RECIPIENT_CHANGED",
+              "CLEANUP_OPERATION_UNAVAILABLE",
+              "CLEANUP_OPERATION_BUSY",
+              "CLEANUP_REQUEST_CHANGED",
+            ].includes(error.code)
+              ? error.code
+              : "CLEANUP_FAILED",
+          };
         // code/details carry the machine-readable failure across to the
         // renderer, which owns the translation keys. Flattening to a bare
         // string is how llama.cpp JSON used to reach users (#2142).
@@ -5073,12 +5593,20 @@ class IPCHandlers {
     });
 
     const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
-    const resolveEnterpriseRuntime = async (_event, provider, model, config = {}) => ({
-      provider,
-      model,
-      apiKey: config.apiKey || "",
-      enterprise: require("./enterpriseProviderErrors").pickEnterpriseConfig(config),
-    });
+    const resolveEnterpriseRuntime = async (_event, provider, model, config = {}) => {
+      await this.vertexAuthSourceReady;
+      const enterprise = require("./enterpriseProviderErrors").pickEnterpriseConfig(config);
+      return {
+        provider,
+        model,
+        apiKey: config.apiKey || "",
+        enterprise: {
+          ...enterprise,
+          vertexAuthSource:
+            enterprise.vertexAuthSource ?? this.environmentManager.getVertexAuthSource(),
+        },
+      };
+    };
 
     ipcMain.handle("retry-transcription", async (event, id, settings) => {
       const buffer = this.audioStorageManager.getAudioBuffer(id);
@@ -6983,115 +7511,6 @@ class IPCHandlers {
       this.activeMeetingSpeakerConfig = null;
     };
 
-    const setupDictationCallbacks = (streaming, event) => {
-      streaming.onPartialTranscript = (text) => {
-        event.sender.send("dictation-realtime-partial", text);
-        if (this._dictationPreviewEnabled && text) {
-          this.windowManager.showTranscriptionPreview(text);
-        }
-      };
-      streaming.onFinalTranscript = (text) => event.sender.send("dictation-realtime-final", text);
-      streaming.onError = (err) => {
-        event.sender.send("dictation-realtime-error", err.message);
-        if (this._dictationPreviewEnabled) this.windowManager.hideTranscriptionPreview();
-      };
-      streaming.onSessionEnd = (data) => {
-        event.sender.send("dictation-realtime-session-end", data || {});
-        if (this._dictationPreviewEnabled) this.windowManager.hideTranscriptionPreview();
-      };
-    };
-
-    const DICTATION_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-
-    const clearDictationIdleTimer = () => {
-      if (this._dictationIdleTimer) {
-        clearTimeout(this._dictationIdleTimer);
-        this._dictationIdleTimer = null;
-      }
-    };
-
-    const startDictationIdleTimer = () => {
-      clearDictationIdleTimer();
-      this._dictationIdleTimer = setTimeout(() => {
-        if (this._dictationStreaming) {
-          debugLogger.debug("Closing idle dictation warmup connection");
-          this._dictationStreaming.disconnect().catch(() => {});
-          this._dictationStreaming = null;
-        }
-      }, DICTATION_IDLE_TIMEOUT_MS);
-    };
-
-    const connectDictationStreaming = async (event, options) => {
-      // Older renderers did not label the OpenAI dictation adapter. Dictation
-      // realtime was OpenAI-only before Tinfoil support, so preserve that
-      // established default while requiring new adapters to be explicit.
-      options = {
-        ...options,
-        provider: options?.provider || "openai-realtime",
-      };
-
-      if (this._dictationConnectPromise) {
-        await this._dictationConnectPromise.catch(() => {});
-      }
-
-      clearDictationIdleTimer();
-      this._dictationPreviewEnabled = !!options.preview;
-
-      if (this._dictationStreaming) {
-        await this._dictationStreaming.disconnect().catch(() => {});
-        this._dictationStreaming = null;
-      }
-
-      const connectInner = async () => {
-        const isCloud = options.mode !== "byok";
-        // Dictation renderers before 1.8.4 omit `provider` and mean OpenAI; the
-        // default lives here, at the boundary, so the token allowlist stays
-        // fail-closed for genuinely unknown providers (#1624).
-        const provider = options.provider ?? "openai-realtime";
-        const streaming = new OpenAIRealtimeStreaming();
-        setupDictationCallbacks(streaming, event);
-        // Assign before the token fetch (a real network round trip) so
-        // dictation-realtime-send has a live instance to buffer into instead
-        // of silently dropping the start of the recording.
-        streaming.beginConnecting();
-        this._dictationStreaming = streaming;
-        try {
-          const apiKey = await fetchRealtimeToken(event, {
-            mode: options.mode,
-            provider,
-          });
-          if (provider === "tinfoil-realtime") {
-            const model = options.model || TINFOIL_REALTIME_MODEL;
-            await streaming.connect({
-              apiKey,
-              model,
-              // The capture worklet emits 16kHz PCM; declare the true rate.
-              inputRate: 16000,
-              createSocket: () => createTinfoilRealtimeSocket({ model, apiKey }),
-            });
-          } else {
-            await streaming.connect({
-              apiKey,
-              model: options.model || "gpt-4o-mini-transcribe",
-              // OpenAI rejects rates below 24kHz; the 16kHz capture is upsampled instead.
-              captureRate: 16000,
-              preconfigured: isCloud,
-            });
-          }
-        } catch (err) {
-          if (this._dictationStreaming === streaming) this._dictationStreaming = null;
-          throw err;
-        }
-      };
-
-      this._dictationConnectPromise = connectInner();
-      try {
-        await this._dictationConnectPromise;
-      } finally {
-        this._dictationConnectPromise = null;
-      }
-    };
-
     // Pre-warm: fetch tokens + connect WebSockets before user hits record
     ipcMain.handle("meeting-transcription-prepare", async (event, options = {}) => {
       if (meetingTranscriptionPrepareInProgress || meetingTranscriptionStartInProgress) {
@@ -7685,6 +8104,30 @@ class IPCHandlers {
       },
     });
 
+    const watchedMeetingOwners = new WeakSet();
+    ipcMain.on("meeting-recording-presence", (event, payload) => {
+      if (!fromControlPanel(event)) return;
+      const contents = event.sender;
+      this.windowManager.meetingPresence.set(contents, payload);
+      if (watchedMeetingOwners.has(contents)) return;
+      watchedMeetingOwners.add(contents);
+      const lost = () => this.windowManager.meetingPresence.clearIfOwner(contents);
+      contents.once("destroyed", lost);
+      contents.on("render-process-gone", lost);
+      contents.on("did-start-navigation", (details) => {
+        if (details.isMainFrame && !details.isSameDocument) lost();
+      });
+    });
+    ipcMain.on("meeting-recording-outcome", (event, payload) => {
+      if (!fromControlPanel(event)) return;
+      const outcome = this.windowManager.meetingPresence.settleOutcome(event.sender, payload);
+      if (outcome) this.windowManager._onMeetingOutcome(outcome);
+    });
+    ipcMain.handle("get-meeting-recording-presence", () => this.windowManager.getMeetingPresence());
+    ipcMain.handle("request-stop-meeting-recording", (_event, sessionId) => {
+      this.windowManager.requestStopMeetingRecording(sessionId);
+    });
+
     ipcMain.handle("meeting-transcription-start", (event, options = {}) => {
       const sessionId =
         typeof options.sessionId === "string" && options.sessionId.length > 0
@@ -7720,44 +8163,20 @@ class IPCHandlers {
       return result;
     };
 
-    ipcMain.handle("dictation-realtime-warmup", async (event, options = {}) => {
-      try {
-        await connectDictationStreaming(event, options);
-        startDictationIdleTimer();
-        return { success: true };
-      } catch (err) {
-        return streamingStartFailure(err);
-      }
-    });
-
-    ipcMain.handle("dictation-realtime-start", async (event, options = {}) => {
-      try {
-        clearDictationIdleTimer();
-        this._dictationPreviewEnabled = !!options.preview;
-        if (!this._dictationStreaming?.isConnected) await connectDictationStreaming(event, options);
-        return { success: true };
-      } catch (err) {
-        return streamingStartFailure(err);
-      }
-    });
-
-    ipcMain.on("dictation-realtime-send", (_event, buffer) => {
-      this._dictationStreaming?.sendAudio(Buffer.from(buffer));
-    });
-
-    ipcMain.handle("dictation-realtime-stop", async () => {
-      clearDictationIdleTimer();
-      if (!this._dictationStreaming) {
-        return { success: true, text: "" };
-      }
-      const result = await this._dictationStreaming.disconnect().catch(() => ({ text: "" }));
-      this._dictationStreaming = null;
-      if (this._dictationPreviewEnabled) {
-        this.windowManager.hideTranscriptionPreview();
-        this._dictationPreviewEnabled = false;
-      }
-      return { success: true, text: result.text || "" };
-    });
+    // One captured dictation streaming authority for all provider families.
+    this.dictationStreamingOperations =
+      require("./dictationStreamingOperations").createDictationStreamingOperations(ipcMain, this, {
+        OpenAIRealtimeStreaming,
+        AssemblyAiStreaming,
+        DeepgramStreaming,
+        GeminiLiveStreaming,
+        CortiStreaming,
+        TINFOIL_REALTIME_MODEL,
+        GEMINI_LIVE_MODEL,
+        createTinfoilRealtimeSocket,
+        fetchRealtimeToken,
+        streamingStartFailure,
+      });
 
     ipcMain.handle(
       "start-dictation-preview",
@@ -7972,6 +8391,7 @@ class IPCHandlers {
           prompt,
           keyterms,
           baseUrl,
+          correlationId,
           model,
           diarize,
           timestamps,
@@ -7987,7 +8407,22 @@ class IPCHandlers {
         const fs = require("fs");
         let cleanupUpload = null;
         let captureDir = null;
-        const job = this._uploadCancelRegistry.register(requestId);
+        const job = this._uploadCancelRegistry.register(requestId, { correlationId });
+        const handOff = () => {
+          job.signal?.throwIfAborted();
+          if (
+            typeof correlationId !== "string" ||
+            !correlationId ||
+            correlationId.length > 100 ||
+            event.sender?.isDestroyed?.()
+          )
+            return;
+          event.sender?.send?.("dictation-dispatch", {
+            correlationId,
+            task: "dictationStt",
+            payload: "audio",
+          });
+        };
         const completedText = (text) => {
           job.signal?.throwIfAborted();
           if (typeof text !== "string" || !text.trim()) {
@@ -8086,6 +8521,7 @@ class IPCHandlers {
               providerContentType(realByok),
               { model: route.model, language: route.language, ...(prompt ? { prompt } : {}) }
             );
+            handOff();
             const data = await postMultipart(
               new URL(route.endpoint),
               body,
@@ -8115,6 +8551,7 @@ class IPCHandlers {
               throw new Error("Corti credentials not configured. Add them in Settings.");
             }
             const { transcribeAudio } = require("./cortiTranscription");
+            handOff();
             const { text } = await transcribeAudio({
               environment: route.cortiEnvironment,
               tenant: route.cortiTenant,
@@ -8128,6 +8565,9 @@ class IPCHandlers {
           }
 
           if (route.transport === "proxied" && route.provider === "tinfoil") {
+            if (!apiKey?.trim())
+              throw new Error("No API key configured. Add your key in Settings.");
+            handOff();
             const { text } = await transcribeWithTinfoil({
               audioBuffer: fs.readFileSync(realByok),
               fileName: path.basename(realByok),
@@ -8141,8 +8581,11 @@ class IPCHandlers {
           }
 
           if (route.transport === "proxied" && route.provider === "gemini") {
+            if (!apiKey?.trim())
+              throw new Error("No API key configured. Add your key in Settings.");
             // Deliberately no language hint — same rationale as the multipart
             // branch below, and Gemini's language_codes is a hard constraint.
+            handOff();
             const { text } = await transcribeWithGemini({
               audioBuffer: fs.readFileSync(realByok),
               model: route.model,
@@ -8238,6 +8681,7 @@ class IPCHandlers {
                 ? { "api-key": apiKey }
                 : { Authorization: `Bearer ${apiKey}` }
             : undefined;
+          handOff();
           const data = await postMultipart(url, body, boundary, headers, { signal: job.signal });
 
           if (data.statusCode === 401) {
@@ -8315,6 +8759,8 @@ class IPCHandlers {
       const { getCacheRoot } = require("./modelDirUtils");
       return getCacheRoot();
     });
+
+    ipcMain.handle("get-total-memory", () => os.totalmem());
 
     ipcMain.handle("open-whisper-models-folder", async () => {
       try {
@@ -8432,616 +8878,6 @@ class IPCHandlers {
 
     ipcMain.handle("get-app-version", async () => {
       return app.getVersion();
-    });
-
-    const fetchAssemblyAiToken = (event) =>
-      fetchRealtimeToken(event, { mode: "byok", provider: "assemblyai-realtime" });
-
-    ipcMain.handle("assemblyai-streaming-warmup", async (event, options = {}) => {
-      try {
-        const byok = true;
-
-        if (!this.assemblyAiStreaming) {
-          this.assemblyAiStreaming = new AssemblyAiStreaming();
-        }
-        this.assemblyAiStreaming.adoptMode(options);
-
-        if (this.assemblyAiStreaming.hasWarmConnection()) {
-          debugLogger.debug("AssemblyAI connection already warm", {}, "streaming");
-          return { success: true, alreadyWarm: true };
-        }
-
-        let token = byok ? null : this.assemblyAiStreaming.getCachedToken();
-        if (!token) {
-          debugLogger.debug("Fetching new streaming token for warmup", { byok }, "streaming");
-          token = await fetchAssemblyAiToken(event, byok);
-        }
-
-        await this.assemblyAiStreaming.warmup({ ...options, token });
-        debugLogger.debug("AssemblyAI connection warmed up", {}, "streaming");
-
-        return { success: true };
-      } catch (error) {
-        debugLogger.error("AssemblyAI warmup error", { error: error.message });
-        return toPolicyFailure(error);
-      }
-    });
-
-    let streamingStartInProgress = false;
-
-    ipcMain.handle("assemblyai-streaming-start", async (event, options = {}) => {
-      if (streamingStartInProgress) {
-        debugLogger.debug("Streaming start already in progress, ignoring", {}, "streaming");
-        return { success: false, error: "Operation in progress" };
-      }
-
-      streamingStartInProgress = true;
-      try {
-        const byok = true;
-
-        const win = BrowserWindow.fromWebContents(event.sender);
-
-        if (!this.assemblyAiStreaming) {
-          this.assemblyAiStreaming = new AssemblyAiStreaming();
-        }
-        this.assemblyAiStreaming.adoptMode(options);
-
-        // Clean up any stale active connection (shouldn't happen normally)
-        if (this.assemblyAiStreaming.isConnected) {
-          debugLogger.debug(
-            "AssemblyAI cleaning up stale connection before start",
-            {},
-            "streaming"
-          );
-          await this.assemblyAiStreaming.disconnect(false);
-        }
-
-        const hasWarm = this.assemblyAiStreaming.hasWarmConnection();
-        debugLogger.debug(
-          "AssemblyAI streaming start",
-          { hasWarmConnection: hasWarm },
-          "streaming"
-        );
-
-        let token = byok ? null : this.assemblyAiStreaming.getCachedToken();
-        if (!token) {
-          debugLogger.debug("Fetching streaming token", { byok }, "streaming");
-          token = await fetchAssemblyAiToken(event, byok);
-          if (!byok) this.assemblyAiStreaming.cacheToken(token);
-        } else {
-          debugLogger.debug("Using cached streaming token", {}, "streaming");
-        }
-
-        // Set up callbacks to forward events to renderer
-        this.assemblyAiStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("assemblyai-partial-transcript", text);
-          }
-        };
-
-        this.assemblyAiStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("assemblyai-final-transcript", text);
-          }
-        };
-
-        this.assemblyAiStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("assemblyai-error", error.message);
-          }
-        };
-
-        this.assemblyAiStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("assemblyai-session-end", data);
-          }
-        };
-
-        await this.assemblyAiStreaming.connect({ ...options, token });
-        debugLogger.debug("AssemblyAI streaming started", {}, "streaming");
-
-        return {
-          success: true,
-          usedWarmConnection: this.assemblyAiStreaming.hasWarmConnection() === false,
-        };
-      } catch (error) {
-        debugLogger.error("AssemblyAI streaming start error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return streamingStartFailure(error);
-      } finally {
-        streamingStartInProgress = false;
-      }
-    });
-
-    ipcMain.on("assemblyai-streaming-send", (event, audioBuffer) => {
-      try {
-        if (!this.assemblyAiStreaming) return;
-        const buffer = Buffer.from(audioBuffer);
-        this.assemblyAiStreaming.sendAudio(buffer);
-      } catch (error) {
-        debugLogger.error("AssemblyAI streaming send error", { error: error.message });
-      }
-    });
-
-    ipcMain.on("assemblyai-streaming-force-endpoint", () => {
-      this.assemblyAiStreaming?.forceEndpoint();
-    });
-
-    ipcMain.handle("assemblyai-streaming-stop", async () => {
-      try {
-        let result = { text: "" };
-        if (this.assemblyAiStreaming) {
-          result = await this.assemblyAiStreaming.disconnect(true);
-          this.assemblyAiStreaming.cleanupAll();
-          this.assemblyAiStreaming = null;
-        }
-
-        return { success: true, text: result?.text || "" };
-      } catch (error) {
-        debugLogger.error("AssemblyAI streaming stop error", { error: error.message });
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("assemblyai-streaming-status", async () => {
-      if (!this.assemblyAiStreaming) {
-        return { isConnected: false, sessionId: null };
-      }
-      return this.assemblyAiStreaming.getStatus();
-    });
-
-    let deepgramTokenWindowId = null;
-
-    const DEEPGRAM_BYOK_TOKEN_OPTIONS = { mode: "byok", provider: "deepgram-realtime" };
-    const fetchDeepgramToken = (event) => fetchRealtimeToken(event, DEEPGRAM_BYOK_TOKEN_OPTIONS);
-    const setDeepgramTokenRefreshFn = (event) => {
-      this.deepgramStreaming.setTokenRefreshFn(() =>
-        fetchRealtimeToken(event, DEEPGRAM_BYOK_TOKEN_OPTIONS)
-      );
-    };
-
-    ipcMain.handle("deepgram-streaming-warmup", async (event, options = {}) => {
-      try {
-        const byok = true;
-
-        const win = BrowserWindow.fromWebContents(event.sender);
-        if (win && !win.isDestroyed()) {
-          deepgramTokenWindowId = win.id;
-        }
-
-        if (!this.deepgramStreaming) {
-          this.deepgramStreaming = new DeepgramStreaming();
-        }
-        this.deepgramStreaming.adoptMode(options);
-
-        setDeepgramTokenRefreshFn(event, byok);
-
-        if (this.deepgramStreaming.hasWarmConnection()) {
-          debugLogger.debug("Deepgram connection already warm", {}, "streaming");
-          return { success: true, alreadyWarm: true };
-        }
-
-        let token = byok ? null : this.deepgramStreaming.getCachedToken();
-        if (!token) {
-          debugLogger.debug(
-            "Fetching new Deepgram streaming token for warmup",
-            { byok },
-            "streaming"
-          );
-          token = await fetchDeepgramToken(event, byok);
-        }
-
-        await this.deepgramStreaming.warmup({ ...options, token });
-        debugLogger.debug("Deepgram connection warmed up", {}, "streaming");
-
-        return { success: true };
-      } catch (error) {
-        debugLogger.error("Deepgram warmup error", { error: error.message });
-        return toPolicyFailure(error);
-      }
-    });
-
-    let deepgramStreamingStartInProgress = false;
-    let sendDropCount = 0;
-
-    ipcMain.handle("deepgram-streaming-start", async (event, options = {}) => {
-      if (deepgramStreamingStartInProgress) {
-        debugLogger.debug(
-          "Deepgram streaming start already in progress, ignoring",
-          {},
-          "streaming"
-        );
-        return { success: false, error: "Operation in progress" };
-      }
-
-      deepgramStreamingStartInProgress = true;
-      try {
-        const byok = true;
-
-        const win = BrowserWindow.fromWebContents(event.sender);
-        if (win && !win.isDestroyed()) {
-          deepgramTokenWindowId = win.id;
-        }
-
-        if (!this.deepgramStreaming) {
-          this.deepgramStreaming = new DeepgramStreaming();
-        }
-        this.deepgramStreaming.adoptMode(options);
-
-        setDeepgramTokenRefreshFn(event, byok);
-
-        if (this.deepgramStreaming.isConnected) {
-          debugLogger.debug("Deepgram cleaning up stale connection before start", {}, "streaming");
-          await this.deepgramStreaming.disconnect(false);
-        }
-
-        const hasWarm = this.deepgramStreaming.hasWarmConnection();
-        debugLogger.debug("Deepgram streaming start", { hasWarmConnection: hasWarm }, "streaming");
-
-        let token = byok ? null : this.deepgramStreaming.getCachedToken();
-        if (!token) {
-          debugLogger.debug("Fetching Deepgram streaming token", { byok }, "streaming");
-          token = await fetchDeepgramToken(event, byok);
-          if (!byok) this.deepgramStreaming.cacheToken(token);
-        } else {
-          debugLogger.debug("Using cached Deepgram streaming token", {}, "streaming");
-        }
-
-        this.deepgramStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("deepgram-partial-transcript", text);
-          }
-        };
-
-        this.deepgramStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("deepgram-final-transcript", text);
-          }
-        };
-
-        this.deepgramStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("deepgram-error", error.message);
-          }
-        };
-
-        this.deepgramStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("deepgram-session-end", data);
-          }
-        };
-
-        sendDropCount = 0;
-        await this.deepgramStreaming.connect({ ...options, token });
-        debugLogger.debug(
-          "Deepgram streaming started",
-          {
-            isConnected: this.deepgramStreaming.isConnected,
-            hasWs: !!this.deepgramStreaming.ws,
-            wsReadyState: this.deepgramStreaming.ws?.readyState,
-            forceNew: !!options.forceNew,
-          },
-          "streaming"
-        );
-
-        return {
-          success: true,
-          usedWarmConnection: hasWarm && !options.forceNew,
-        };
-      } catch (error) {
-        debugLogger.error("Deepgram streaming start error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return streamingStartFailure(error);
-      } finally {
-        deepgramStreamingStartInProgress = false;
-      }
-    });
-
-    ipcMain.on("deepgram-streaming-send", (event, audioBuffer) => {
-      try {
-        if (!this.deepgramStreaming) return;
-        const buffer = Buffer.from(audioBuffer);
-        const sent = this.deepgramStreaming.sendAudio(buffer);
-        if (!sent) {
-          sendDropCount++;
-          if (sendDropCount <= 3 || sendDropCount % 50 === 0) {
-            debugLogger.warn(
-              "Deepgram audio send dropped",
-              {
-                dropCount: sendDropCount,
-                hasWs: !!this.deepgramStreaming.ws,
-                isConnected: this.deepgramStreaming.isConnected,
-                wsReadyState: this.deepgramStreaming.ws?.readyState,
-              },
-              "streaming"
-            );
-          }
-        } else {
-          if (sendDropCount > 0) {
-            debugLogger.debug(
-              "Deepgram audio send resumed after drops",
-              {
-                previousDrops: sendDropCount,
-              },
-              "streaming"
-            );
-            sendDropCount = 0;
-          }
-        }
-      } catch (error) {
-        debugLogger.error("Deepgram streaming send error", { error: error.message });
-      }
-    });
-
-    ipcMain.on("deepgram-streaming-finalize", () => {
-      this.deepgramStreaming?.finalize();
-    });
-
-    ipcMain.handle("deepgram-streaming-stop", async () => {
-      try {
-        const model = this.deepgramStreaming?.currentModel || "nova-3";
-        const audioBytesSent = this.deepgramStreaming?.audioBytesSent || 0;
-        let result = { text: "" };
-        if (this.deepgramStreaming) {
-          result = await this.deepgramStreaming.disconnect(true);
-        }
-
-        return { success: true, text: result?.text || "", model, audioBytesSent };
-      } catch (error) {
-        debugLogger.error("Deepgram streaming stop error", { error: error.message });
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("deepgram-streaming-status", async () => {
-      if (!this.deepgramStreaming) {
-        return { isConnected: false, sessionId: null };
-      }
-      return this.deepgramStreaming.getStatus();
-    });
-
-    let geminiStreamingStartInProgress = false;
-    let geminiSendDropCount = 0;
-    // One handshake at a time. A start that raced an in-flight warmup used to
-    // clear the cold-start buffer, spend a second single-use managed token and
-    // report success while the warmup's handshake (and its failure) were still
-    // pending on a promise nobody read.
-    let geminiConnectInFlight = null;
-
-    // Re-bound on every warmup/start so a warm socket promoted by a different
-    // window can never emit into the window that opened it.
-    const ensureGeminiStreaming = (event) => {
-      if (!this.geminiStreaming) {
-        this.geminiStreaming = new GeminiLiveStreaming();
-      }
-      const win = BrowserWindow.fromWebContents(event.sender);
-      const emit = (channel, payload) => {
-        if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
-      };
-      const streaming = this.geminiStreaming;
-      streaming.onPartialTranscript = (text) => emit("gemini-partial-transcript", text);
-      streaming.onFinalTranscript = (text) => emit("gemini-final-transcript", text);
-      streaming.onError = (error) => emit("gemini-error", error.message);
-      streaming.onSessionEnd = (data) => emit("gemini-session-end", data);
-      return streaming;
-    };
-
-    const connectGeminiStreaming = (event, options) => {
-      if (geminiConnectInFlight) return geminiConnectInFlight;
-      geminiConnectInFlight = (async () => {
-        const streaming = ensureGeminiStreaming(event);
-        // byok resolves to the raw API key, managed to a single-use ephemeral
-        // token; the client picks its Live method from `mode` accordingly.
-        const tokenOptions = { mode: options.mode, provider: "gemini-realtime" };
-        // Buffer before the token fetch (a real network round trip) so
-        // gemini-streaming-send has somewhere to put the first frames.
-        streaming.beginConnecting();
-        const token = await fetchRealtimeToken(event, tokenOptions);
-        await streaming.connect({
-          ...options,
-          token,
-          refreshToken: () => fetchRealtimeToken(event, tokenOptions),
-        });
-      })().finally(() => {
-        geminiConnectInFlight = null;
-      });
-      return geminiConnectInFlight;
-    };
-
-    ipcMain.handle("gemini-streaming-warmup", async (event, options = {}) => {
-      try {
-        if (this.geminiStreaming?.isConnected) {
-          ensureGeminiStreaming(event);
-          debugLogger.debug("Gemini Live connection already warm", {}, "streaming");
-          return { success: true, alreadyWarm: true };
-        }
-        await connectGeminiStreaming(event, options);
-        return { success: true };
-      } catch (error) {
-        debugLogger.error("Gemini streaming warmup error", { error: error.message });
-        return toPolicyFailure(error);
-      }
-    });
-
-    ipcMain.handle("gemini-streaming-start", async (event, options = {}) => {
-      if (geminiStreamingStartInProgress) {
-        debugLogger.debug("Gemini streaming start already in progress, ignoring", {}, "streaming");
-        return { success: false, error: "Operation in progress" };
-      }
-
-      geminiStreamingStartInProgress = true;
-      try {
-        const streaming = ensureGeminiStreaming(event);
-        if (geminiConnectInFlight) await geminiConnectInFlight;
-        const usedWarmConnection = streaming.isConnected && !options.forceNew;
-        if (!usedWarmConnection) {
-          if (streaming.isConnected) await streaming.disconnect(false);
-          await connectGeminiStreaming(event, options);
-        }
-        geminiSendDropCount = 0;
-        debugLogger.debug("Gemini streaming started", { usedWarmConnection }, "streaming");
-        return { success: true, usedWarmConnection };
-      } catch (error) {
-        debugLogger.error("Gemini streaming start error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return streamingStartFailure(error);
-      } finally {
-        geminiStreamingStartInProgress = false;
-      }
-    });
-
-    ipcMain.on("gemini-streaming-send", (_event, audioBuffer) => {
-      try {
-        if (!this.geminiStreaming) return;
-        const sent = this.geminiStreaming.sendAudio(Buffer.from(audioBuffer));
-        if (!sent) {
-          geminiSendDropCount++;
-          if (geminiSendDropCount <= 3 || geminiSendDropCount % 50 === 0) {
-            debugLogger.warn(
-              "Gemini audio send dropped",
-              {
-                dropCount: geminiSendDropCount,
-                isConnected: this.geminiStreaming.isConnected,
-                wsReadyState: this.geminiStreaming.ws?.readyState,
-              },
-              "streaming"
-            );
-          }
-        } else if (geminiSendDropCount > 0) {
-          debugLogger.debug(
-            "Gemini audio send resumed after drops",
-            { previousDrops: geminiSendDropCount },
-            "streaming"
-          );
-          geminiSendDropCount = 0;
-        }
-      } catch (error) {
-        debugLogger.error("Gemini streaming send error", { error: error.message });
-      }
-    });
-
-    ipcMain.on("gemini-streaming-finalize", () => {
-      this.geminiStreaming?.finalize();
-    });
-
-    ipcMain.handle("gemini-streaming-stop", async () => {
-      try {
-        const model = this.geminiStreaming?.currentModel || GEMINI_LIVE_MODEL;
-        const audioBytesSent = this.geminiStreaming?.audioBytesSent || 0;
-        let result = { text: "" };
-        if (this.geminiStreaming) {
-          result = await this.geminiStreaming.disconnect(true);
-        }
-
-        return { success: true, text: result?.text || "", model, audioBytesSent };
-      } catch (error) {
-        debugLogger.error("Gemini streaming stop error", { error: error.message });
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("gemini-streaming-status", async () => {
-      if (!this.geminiStreaming) {
-        return { isConnected: false, isConnecting: false };
-      }
-      return this.geminiStreaming.getStatus();
-    });
-
-    ipcMain.handle("corti-streaming-warmup", async (_event, options = {}) => {
-      try {
-        if (!this.cortiStreaming) {
-          this.cortiStreaming = new CortiStreaming();
-        }
-        if (this.cortiStreaming.hasWarmConnection() || this.cortiStreaming.isConnected) {
-          return { success: true, alreadyWarm: true };
-        }
-        const { token, environment, tenant } = await this._mintStoredCortiToken(options);
-        await this.cortiStreaming.warmup({
-          token,
-          environment,
-          tenant,
-          language: options.language,
-          keyterms: options.keyterms,
-        });
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message, code: error.code };
-      }
-    });
-
-    ipcMain.handle("corti-streaming-start", async (event, options = {}) => {
-      try {
-        if (!this.cortiStreaming) {
-          this.cortiStreaming = new CortiStreaming();
-        }
-        if (this.cortiStreaming.isConnected) {
-          await this.cortiStreaming.disconnect(false);
-        }
-
-        const { token, environment, tenant } = await this._mintStoredCortiToken(options);
-        const win = BrowserWindow.fromWebContents(event.sender);
-
-        this.cortiStreaming.onPartialTranscript = (text) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-partial-transcript", text);
-        };
-        this.cortiStreaming.onFinalTranscript = (text) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-final-transcript", text);
-        };
-        this.cortiStreaming.onError = (error) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-error", error.message);
-        };
-        this.cortiStreaming.onSessionEnd = (data) => {
-          if (win && !win.isDestroyed()) win.webContents.send("corti-session-end", data);
-        };
-
-        await this.cortiStreaming.connect({
-          token,
-          environment,
-          tenant,
-          language: options.language,
-          keyterms: options.keyterms,
-        });
-        return { success: true };
-      } catch (error) {
-        debugLogger.error("Corti streaming start error", { error: error.message }, "streaming");
-        return { success: false, error: error.message, code: error.code };
-      }
-    });
-
-    ipcMain.on("corti-streaming-send", (_event, audioBuffer) => {
-      this.cortiStreaming?.sendAudio(Buffer.from(audioBuffer));
-    });
-
-    ipcMain.on("corti-streaming-finalize", () => {
-      this.cortiStreaming?.finalize();
-    });
-
-    ipcMain.handle("corti-streaming-stop", async () => {
-      try {
-        const model = this.cortiStreaming?.currentModel || "corti-transcribe";
-        const audioBytesSent = this.cortiStreaming?.audioBytesSent || 0;
-        let result = { text: "" };
-        if (this.cortiStreaming) {
-          result = await this.cortiStreaming.disconnect(true);
-        }
-        return { success: true, text: result?.text || "", model, audioBytesSent };
-      } catch (error) {
-        debugLogger.error("Corti streaming stop error", { error: error.message }, "streaming");
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("corti-streaming-status", async () => {
-      if (!this.cortiStreaming) {
-        return { isConnected: false, sessionId: null };
-      }
-      return this.cortiStreaming.getStatus();
     });
 
     // Agent mode handlers
@@ -9370,6 +9206,21 @@ class IPCHandlers {
       "notifyCalendarReminders",
     ]);
 
+    ipcMain.handle("show-system-notification", async (event, payload) =>
+      showSystemNotification({
+        Notification,
+        payload,
+        prefs: this.windowManager.notificationPrefs,
+        onClick: () => {
+          const win = BrowserWindow.fromWebContents(event.sender);
+          if (!win || win.isDestroyed()) return;
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+        },
+      })
+    );
+
     ipcMain.handle("sync-notification-preferences", async (_event, prefs) => {
       try {
         if (!prefs || typeof prefs !== "object") {
@@ -9598,7 +9449,7 @@ class IPCHandlers {
         const filePaths = [...result.filePaths].sort();
         const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
         const { createGranolaNoteKeyAllocator, parseGranolaCsv } =
-          await import("./granolaImport.js");
+          await import("./granolaImport.mjs");
         const allocateNoteKey = createGranolaNoteKeyAllocator();
         const notes = [];
         const seenIds = new Set();

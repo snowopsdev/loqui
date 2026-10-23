@@ -1,9 +1,17 @@
 import type { MeetingNotificationData } from "../types/electron";
 
+export const MEETING_PROMPT_MINI_AFTER_MS = 8000;
+export function acceptHotkeyLabel(platform: string): string {
+  return platform === "darwin" ? "⌥⌘M" : "Ctrl+Alt+M";
+}
+
 export interface MeetingNotificationPresentation {
+  bodyParams: { app?: string };
+  privacyKey: "meetingNotification.privacy" | null;
   title?: string;
   titleKey?: "meetingNotification.title";
   bodyKey:
+    | "meetingNotification.bodyApp"
     | "meetingNotification.body.detected"
     | "meetingNotification.body.starting"
     | "meetingNotification.body.underway";
@@ -16,9 +24,9 @@ const MEETING_NOTIFICATION_SWIPE_DISTANCE_PX = 80;
 
 export function shouldDismissMeetingNotificationSwipe(
   dismissible: boolean,
-  horizontalDistance: number
+  verticalDistance: number
 ): boolean {
-  return dismissible && Math.abs(horizontalDistance) >= MEETING_NOTIFICATION_SWIPE_DISTANCE_PX;
+  return dismissible && verticalDistance <= -MEETING_NOTIFICATION_SWIPE_DISTANCE_PX;
 }
 
 export function getMeetingNotificationPresentation(
@@ -28,7 +36,12 @@ export function getMeetingNotificationPresentation(
   const eventTitle = variant !== "detected" ? data?.event?.summary : null;
   return {
     ...(eventTitle ? { title: eventTitle } : { titleKey: "meetingNotification.title" }),
-    bodyKey: `meetingNotification.body.${variant}`,
+    bodyKey:
+      variant === "detected" && data?.appName
+        ? "meetingNotification.bodyApp"
+        : `meetingNotification.body.${variant}`,
+    bodyParams: variant === "detected" && data?.appName ? { app: data.appName } : {},
+    privacyKey: variant === "detected" ? "meetingNotification.privacy" : null,
     actionKey: data?.joinUrl ? "meetingNotification.join" : "meetingNotification.start",
     action: data?.joinUrl ? "join" : "start",
     dismissible: true,
@@ -58,10 +71,13 @@ export function initializeMeetingNotificationOverlay({
   let shown = false;
   let revealTimer: ReturnType<typeof setTimeout> | null = null;
 
+  let dataRevision = 0;
   const show = (data: MeetingNotificationData): void => {
-    if (!active || shown) return;
-    shown = true;
+    if (!active) return;
+    dataRevision += 1;
     onData(data);
+    if (shown) return;
+    shown = true;
     revealTimer = schedule(() => {
       revealTimer = null;
       if (!active) return;
@@ -71,9 +87,10 @@ export function initializeMeetingNotificationOverlay({
   };
 
   const unsubscribe = subscribe(show);
+  const readRevision = dataRevision;
   void getPendingData()
     .then((data) => {
-      if (data) show(data);
+      if (data && dataRevision === readRevision) show(data);
     })
     .catch(() => undefined);
 

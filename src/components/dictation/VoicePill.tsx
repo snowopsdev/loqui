@@ -1,16 +1,31 @@
-import { forwardRef, type HTMLAttributes } from "react";
-import { ChevronUp } from "../icons";
+import { forwardRef, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
+import { Check, ChevronUp } from "../icons";
 import { cn } from "../lib/utils";
-import { PillWaveform } from "./PillWaveform";
+import { LevelBars } from "../ui/LevelBars";
+import { LOGO_BAR_SHAPE } from "../ui/levelBarsMath";
+import { LocalityRing } from "../ui/LocalityRing";
+import { AgentOrbit } from "./AgentOrbit";
 import { VoiceIdentityIcon } from "./VoiceIdentityIcon";
-import { RESTING_WAVE_SILHOUETTE, WAVEFORM_BAR_COUNT } from "./waveformMath";
+import type { PillLocality } from "./pillLocality";
 import {
   VOICE_PILL_FOOTPRINT,
   VOICE_PILL_GROW_TRANSITION,
 } from "../../helpers/voicePillPresentation";
 
 export type VoicePillState =
-  "idle" | "hover" | "recording" | "processing" | "thinking" | "unavailable";
+  | "idle"
+  | "hover"
+  | "recording"
+  | "processing"
+  | "thinking"
+  | "unavailable"
+  | "transcribing"
+  | "cleaning"
+  | "pasted"
+  | "failed"
+  | "cancelled"
+  | "meeting"
+  | "sealedPaused";
 
 interface VoicePillProps extends Omit<HTMLAttributes<HTMLDivElement>, "children"> {
   variant: "floating" | "panel";
@@ -24,22 +39,31 @@ interface VoicePillProps extends Omit<HTMLAttributes<HTMLDivElement>, "children"
   /** The cancel button's liquid skin owns the fused surface; go headless. */
   liquidFused?: boolean;
   agentMode?: boolean;
+  agentPhase?: "answering";
   showExpandChevron?: boolean;
   isDragging?: boolean;
   horizontalDirection?: "left" | "right";
+  /** Stage text for labelled states (transcribing, cleaning, pasted, cancelled). */
+  label?: ReactNode;
+  meetingInterrupted?: boolean;
+  /** Where dictation goes; drawn as the ring around the identity (D4). */
+  locality?: PillLocality | null;
+  /** Undo window underline for the cancelled state (D3). */
+  countdown?: { durationMs: number; paused: boolean; generation?: number } | null;
 }
 
-// Sized from WAVEFORM_BAR_COUNT so a bar-count change can never silently
-// desync the resting silhouette from the live waveform's footprint.
-const RESTING_WAVE_HEIGHTS = Array.from(
-  { length: WAVEFORM_BAR_COUNT },
-  (_, index) => RESTING_WAVE_SILHOUETTE[index % RESTING_WAVE_SILHOUETTE.length]
-);
-
-// Icon↔waveform spacing inside the compact pill. Together with the 98px
-// recording footprint and pr-1.5, centering lands the documented 6/12 edge
-// insets (VOICE_PILL_FOOTPRINT in voicePillPresentation.js).
 const COMPACT_CONTENT_GAP_PX = 6;
+const IDENTITY_RING_PX = 30;
+const LABELLED = new Set<VoicePillState>([
+  "transcribing",
+  "cleaning",
+  "pasted",
+  "cancelled",
+  "sealedPaused",
+  "meeting",
+]);
+const GLOWING = new Set<VoicePillState>(["thinking", "transcribing", "cleaning"]);
+const REST_HEIGHTS = LOGO_BAR_SHAPE.map((scale) => Math.round(scale * 20));
 
 // Mirrored by .liquid-cancel-skin[data-pill-state] in dictation-panel.css,
 // which redraws this chrome while the cancel skin owns the fused surface —
@@ -51,9 +75,16 @@ const STATE_APPEARANCE: Record<VoicePillState, string> = {
   processing: "border-border/60 bg-surface-1 text-foreground/70",
   thinking: "border-border/60 bg-surface-1 text-foreground",
   unavailable: "border-border/60 bg-surface-1 text-muted-foreground",
+  transcribing: "border-border/60 bg-surface-1 text-foreground",
+  cleaning: "border-border/60 bg-surface-1 text-foreground",
+  pasted: "bg-surface-1 text-foreground",
+  failed: "bg-surface-1 text-foreground",
+  cancelled: "border-border-hover bg-surface-1 text-foreground",
+  meeting: "border-border-hover bg-surface-1 text-foreground",
+  sealedPaused: "border-border-hover bg-surface-1 text-foreground",
 };
 
-/** One persistent control that resizes between the floating and panel layouts. */
+/** One persistent control that morphs between the pill's legible states. */
 export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function VoicePill(
   {
     variant,
@@ -66,9 +97,14 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
     integratedWithPanel = false,
     liquidFused = false,
     agentMode = false,
+    agentPhase,
     showExpandChevron = false,
     isDragging = false,
     horizontalDirection = "right",
+    label,
+    meetingInterrupted = false,
+    locality = null,
+    countdown = null,
     className,
     style,
     ...props
@@ -76,135 +112,196 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
   ref
 ) {
   const isRecording = state === "recording";
-  const isProcessing = state === "processing";
   const isThinking = state === "thinking";
   const isUnavailable = state === "unavailable";
-  // One Signal glow (comet orbit over a breathing halo) serves both
-  // identities; only the palette differs. It lights for the real thinking
-  // state alone — glowing during the entrance or while listening would read
-  // as work already in flight before any transcript exists.
-  const showSignalGlow = !isUnavailable && isThinking;
+  const hasLabel = LABELLED.has(state) && label != null;
+  const agentListening = agentMode && isRecording;
+  const agentAnswering =
+    agentMode &&
+    agentPhase === "answering" &&
+    (isThinking || state === "idle" || state === "hover");
+  const showSignalGlow = GLOWING.has(state) && !agentMode;
   const isPanel = variant === "panel";
-  const collapseToIdentity = collapseToLogo || isThinking;
+  const collapseToIdentity =
+    collapseToLogo || isThinking || state === "failed" || agentListening || agentAnswering;
   const showCompactPill =
-    !collapseToIdentity && (isRecording || expanded || (isPanel && !waveformOnlyWhileRecording));
-  const showDivider = showCompactPill && waveformVisible && !isRecording;
-  // The hidden divider's margins are what carry the compact pill's 6px
-  // icon↔waveform gap; a visible divider keeps 4px flanking its 1px rule.
-  const dividerMargin = showCompactPill ? (showDivider ? 4 : COMPACT_CONTENT_GAP_PX / 2) : 0;
-  const identitySize = 22;
+    !collapseToIdentity &&
+    (isRecording || hasLabel || expanded || (isPanel && !waveformOnlyWhileRecording));
+  const showWaveformSlot = showCompactPill && !hasLabel;
+  const footprint =
+    state === "meeting"
+      ? VOICE_PILL_FOOTPRINT[meetingInterrupted ? "meetingInterrupted" : "meeting"]
+      : hasLabel
+        ? VOICE_PILL_FOOTPRINT[
+            state as "transcribing" | "cleaning" | "pasted" | "cancelled" | "sealedPaused"
+          ]
+        : showCompactPill
+          ? VOICE_PILL_FOOTPRINT.recording
+          : VOICE_PILL_FOOTPRINT.idle;
   const floatingHover = !isPanel && state === "hover";
-  const footprint = showCompactPill ? VOICE_PILL_FOOTPRINT.recording : VOICE_PILL_FOOTPRINT.idle;
+  // LevelBars holds readLevel in a ref and treats non-finite or sub-floor
+  // input as silence (Plan 01 172f9df), so an inline adapter is enough.
+  const readLevel = () => getAudioLevel() ?? 0;
+  const identitySize = locality ? Math.round(IDENTITY_RING_PX * 0.7) : 22;
+  const busy = state === "transcribing" || state === "cleaning" || isRecording;
+
+  const icon =
+    state === "pasted" ? (
+      <Check
+        className="pill-success-check"
+        size={identitySize - 4}
+        strokeWidth={2.5}
+        aria-hidden="true"
+      />
+    ) : (
+      <VoiceIdentityIcon
+        size={identitySize}
+        agentMode={agentMode}
+        className={cn(
+          "voice-pill-identity-icon",
+          state === "idle" && "text-foreground",
+          (isUnavailable || state === "processing") && "animate-pulse"
+        )}
+      />
+    );
 
   const pill = (
     <div
       ref={ref}
       className={cn(
         "voice-pill-control relative flex items-center justify-center overflow-hidden rounded-full border",
-        showCompactPill && "pr-1.5",
-        "shadow-[var(--shadow-card)]",
+        showCompactPill && state !== "meeting" && "pe-1.5",
+        hasLabel && state !== "meeting" && "ps-1 pe-3",
+        "voice-pill-shadow",
         STATE_APPEARANCE[state],
         className
       )}
       style={{
-        // Listening uses the same compact pill as the assistant panel. The
-        // previous wide recording bar made the control feel like a different
-        // surface and forced an unnecessary large window resize.
         width: footprint.width,
         height: footprint.height,
-        cursor: isProcessing || isThinking ? "not-allowed" : isDragging ? "grabbing" : "pointer",
-        // Yields to the fused rule's `box-shadow: none` while the liquid skin
-        // owns the chrome — an inline shadow would outrank it and paint a
-        // phantom capsule when a de-fusing skin lingers over a hovered pill.
-        boxShadow: floatingHover && !liquidFused ? "var(--shadow-card-hover-subtle)" : undefined,
-        transition: `width ${VOICE_PILL_GROW_TRANSITION}, height ${VOICE_PILL_GROW_TRANSITION}, padding-left ${VOICE_PILL_GROW_TRANSITION}, padding-right ${VOICE_PILL_GROW_TRANSITION}, background-color 220ms ease-out, border-color 220ms ease-out, box-shadow 220ms ease-out`,
+        cursor:
+          state === "processing" || isThinking || state === "transcribing" || state === "cleaning"
+            ? "not-allowed"
+            : isDragging
+              ? "grabbing"
+              : "pointer",
+        boxShadow:
+          floatingHover && !liquidFused
+            ? "var(--shadow-card-hover-subtle, 0 2px 8px -2px rgb(0 0 0 / 0.1))"
+            : undefined,
+        transition: `width ${VOICE_PILL_GROW_TRANSITION}, height ${VOICE_PILL_GROW_TRANSITION}, padding-left ${VOICE_PILL_GROW_TRANSITION}, padding-right ${VOICE_PILL_GROW_TRANSITION}, background-color var(--motion-fast) var(--motion-ease-std), border-color var(--motion-fast) var(--motion-ease-std), box-shadow var(--motion-fast) var(--motion-ease-std)`,
         ...style,
       }}
+      data-pill-state={state}
       data-horizontal-direction={horizontalDirection}
       data-integrated-with-panel={integratedWithPanel || undefined}
       data-liquid-fused={liquidFused || undefined}
       data-agent-mode={agentMode || undefined}
-      data-agent-beam-active={(agentMode && isThinking) || undefined}
       data-expand-chevron={showExpandChevron || undefined}
       {...props}
     >
+      {/* Transitions live in dictation-panel.css on the motion tokens (R2-M1). */}
       <div
-        className="pointer-events-none absolute inset-0 bg-gradient-to-br from-foreground/10 to-transparent transition-opacity duration-200 ease-out"
+        className="voice-pill-sheen pointer-events-none absolute inset-0 bg-gradient-to-br from-foreground/10 to-transparent"
         style={{ opacity: state === "hover" ? 0.72 : 0 }}
       />
 
-      <span
-        className="voice-pill-identity-slot relative inline-block shrink-0 transition-[width,height] duration-200"
-        style={{ width: identitySize, height: identitySize }}
-        aria-hidden="true"
-      >
+      {state !== "meeting" ? (
         <span
-          className={cn(
-            "voice-pill-identity-logo absolute inset-0 transition-[opacity,transform] duration-200 ease-out",
-            showExpandChevron ? "translate-y-1 scale-75 opacity-0" : "scale-100 opacity-100"
-          )}
+          className="voice-pill-identity-slot relative inline-grid shrink-0 place-items-center"
+          style={{
+            width: locality ? IDENTITY_RING_PX : 22,
+            height: locality ? IDENTITY_RING_PX : 22,
+          }}
+          aria-hidden={locality ? undefined : "true"}
         >
-          <VoiceIdentityIcon
-            size={identitySize}
-            agentMode={agentMode}
+          <span
             className={cn(
-              "transition-[width,height] duration-200",
-              state === "idle" && "text-foreground",
-              (isUnavailable || isProcessing) && "animate-pulse"
+              "voice-pill-identity-logo absolute inset-0 grid place-items-center",
+              showExpandChevron ? "translate-y-1 scale-75 opacity-0" : "scale-100 opacity-100"
             )}
+          >
+            {locality ? (
+              <LocalityRing
+                locality={locality.locality}
+                provider={locality.provider}
+                label={locality.label}
+                active={busy && locality.locality === "remote"}
+                size={IDENTITY_RING_PX}
+                className={cn(locality.blocked && "locality-ring--blocked")}
+              >
+                {icon}
+              </LocalityRing>
+            ) : (
+              icon
+            )}
+          </span>
+          <ChevronUp
+            className={cn(
+              "voice-pill-expand-chevron absolute inset-0 m-auto size-5",
+              showExpandChevron ? "scale-100 opacity-100" : "translate-y-1 scale-75 opacity-0"
+            )}
+            strokeWidth={2}
           />
         </span>
-        <ChevronUp
-          className={cn(
-            "voice-pill-expand-chevron absolute inset-0 m-auto size-5 transition-[opacity,transform] duration-200 ease-out",
-            showExpandChevron ? "scale-100 opacity-100" : "translate-y-1 scale-75 opacity-0"
-          )}
-          strokeWidth={2}
-        />
-      </span>
+      ) : null}
 
-      <div
-        className="shrink-0 overflow-hidden bg-border/60"
-        style={{
-          height: showCompactPill ? 16 : 20,
-          width: showDivider ? 1 : 0,
-          marginLeft: dividerMargin,
-          marginRight: dividerMargin,
-          opacity: showDivider ? 1 : 0,
-          transition: `width ${VOICE_PILL_GROW_TRANSITION}, margin ${VOICE_PILL_GROW_TRANSITION}, opacity 180ms ease-out`,
-        }}
-      />
-
-      <div
-        className="voice-pill-waveform relative shrink-0 overflow-hidden text-foreground"
-        style={{
-          width: showCompactPill ? 52 : 0,
-          height: showCompactPill ? 24 : 32,
-          transition: `width ${VOICE_PILL_GROW_TRANSITION}, height ${VOICE_PILL_GROW_TRANSITION}`,
-        }}
-      >
+      {hasLabel ? (
+        state === "meeting" ? (
+          label
+        ) : (
+          <span className="pill-stage-label ms-1.5">{label}</span>
+        )
+      ) : (
         <div
-          className="absolute inset-0 flex items-center justify-center gap-0.75 transition-opacity duration-200 ease-out"
-          style={{ opacity: showCompactPill && waveformVisible && !isRecording ? 1 : 0 }}
-          aria-hidden="true"
+          className="voice-pill-waveform relative grid shrink-0 place-items-center overflow-hidden"
+          style={{
+            width: showWaveformSlot ? 44 : 0,
+            height: showWaveformSlot ? 24 : 32,
+            marginInlineStart: showWaveformSlot ? COMPACT_CONTENT_GAP_PX : 0,
+            transition: `width ${VOICE_PILL_GROW_TRANSITION}, height ${VOICE_PILL_GROW_TRANSITION}`,
+          }}
         >
-          {RESTING_WAVE_HEIGHTS.map((height, index) => (
-            <span
-              key={`${height}-${index}`}
-              className="w-0.5 rounded-full bg-current"
-              style={{ height }}
+          {isRecording && !agentMode ? (
+            // Mounted only while listening, so its sampling interval runs only
+            // in the active state (loops are gated, DESIGN.md "Motion").
+            <LevelBars
+              readLevel={readLevel}
+              height={20}
+              className={cn(
+                "voice-pill-levels",
+                showCompactPill && waveformVisible ? "opacity-100" : "opacity-0"
+              )}
             />
-          ))}
+          ) : showWaveformSlot && waveformVisible ? (
+            <span className="inline-flex items-center gap-[3px]" aria-hidden="true">
+              {REST_HEIGHTS.map((h, i) => (
+                <span
+                  key={i}
+                  data-level-bar-rest=""
+                  className="block w-1 rounded-full bg-current opacity-60"
+                  style={{ height: h }}
+                />
+              ))}
+            </span>
+          ) : null}
         </div>
-        <PillWaveform
-          getLevel={getAudioLevel}
-          active={isRecording}
-          className={cn(
-            "absolute inset-0 transition-opacity duration-200 ease-out",
-            showCompactPill && waveformVisible && isRecording ? "opacity-100" : "opacity-0"
-          )}
+      )}
+
+      {countdown ? (
+        <span
+          key={countdown.generation}
+          className="pill-countdown"
+          style={
+            {
+              animationDuration: `${countdown.durationMs}ms`,
+              "--undo-ms": `${countdown.durationMs}ms`,
+            } as CSSProperties
+          }
+          data-paused={countdown.paused ? "true" : undefined}
+          aria-hidden="true"
         />
-      </div>
+      ) : null}
 
       {isUnavailable && (
         <div className="pointer-events-none absolute inset-0 rounded-full border-2 border-foreground/30 animate-pulse" />
@@ -218,11 +315,18 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
         aria-hidden="true"
         className="processing-signal-glow"
         data-active={showSignalGlow ? "true" : undefined}
+        data-stage={state === "transcribing" || state === "cleaning" ? state : undefined}
         data-agent={agentMode || undefined}
       >
         <span className="processing-signal-ring" />
       </span>
       {pill}
+      {agentMode && (agentListening || isThinking || agentAnswering) ? (
+        <AgentOrbit
+          phase={agentListening ? "listening" : agentAnswering ? "answering" : "thinking"}
+          readLevel={readLevel}
+        />
+      ) : null}
     </span>
   );
 });

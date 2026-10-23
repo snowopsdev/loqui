@@ -12,6 +12,22 @@ const path = require("path");
 // real ~/.cache/openwhispr. Must be set before the module is required.
 const YT_DLP_TEST_CACHE_DIR = path.join(os.tmpdir(), `ow-ytdlp-test-${process.pid}`);
 process.env.LOQUI_YTDLP_CACHE_DIR = YT_DLP_TEST_CACHE_DIR;
+const Module = require("node:module");
+const downloaderPath = require.resolve("../../src/helpers/urlAudioDownloader");
+const ownedTemp = fs.mkdtempSync(path.join(os.tmpdir(), "ow-downloader-unit-"));
+const originalLoad = Module._load;
+Module._load = function (request, parent, isMain) {
+  if (parent?.filename === downloaderPath) {
+    if (request === "./debugLogger") return new Proxy({}, { get: () => () => {} });
+    if (request === "./safeTempDir") return { getSafeTempDir: () => ownedTemp };
+    if (request === "./ffmpegUtils") return { getFFmpegPath: () => null };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+test.after(() => {
+  Module._load = originalLoad;
+  fs.rmSync(ownedTemp, { recursive: true, force: true });
+});
 const downloader = require("../../src/helpers/urlAudioDownloader");
 const {
   detectUrlType,
@@ -736,8 +752,7 @@ async function withFakeHttps(handler, fn) {
 }
 
 function listOwUrlTempFiles() {
-  const { getSafeTempDir } = require("../../src/helpers/safeTempDir");
-  return new Set(fs.readdirSync(getSafeTempDir()).filter((f) => f.startsWith("ow-url-")));
+  return new Set(fs.readdirSync(ownedTemp).filter((f) => f.startsWith("ow-url-")));
 }
 
 test("downloadDirect streams a validated GET to a temp file", async () => {

@@ -1,3 +1,4 @@
+import type { ChatSelection } from "../components/chat/useChatPersistence";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useChatPersistence } from "../components/chat/useChatPersistence";
 import { useChatStreaming } from "../components/chat/useChatStreaming";
@@ -23,7 +24,7 @@ interface NoteConversationItem {
 interface UseEmbeddedChatReturn {
   messages: Message[];
   agentState: AgentState;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string) => Promise<boolean>;
   cancelStream: () => void;
   noteConversations: NoteConversationItem[];
   activeConversationId: number | null;
@@ -38,17 +39,13 @@ export function useEmbeddedChat({
   noteContent,
   noteTranscript,
 }: UseEmbeddedChatOptions): UseEmbeddedChatReturn {
-  const [conversationId, setConversationId] = useState<number | null>(null);
   const [noteConversations, setNoteConversations] = useState<NoteConversationItem[]>([]);
   const noteIdRef = useRef(noteId);
+  noteIdRef.current = noteId;
   const [prevNoteId, setPrevNoteId] = useState(noteId);
 
-  const persistence = useChatPersistence({
-    conversationId,
-    onConversationCreated: (id) => {
-      setConversationId(id);
-    },
-  });
+  const persistence = useChatPersistence();
+  const conversationId = persistence.conversationId;
 
   const noteContext = useMemo(
     () =>
@@ -65,12 +62,10 @@ export function useEmbeddedChat({
   );
 
   const streaming = useChatStreaming({
+    conversationId: persistence.conversationId,
     messages: persistence.messages,
     setMessages: persistence.setMessages,
     noteContext,
-    onStreamComplete: (_id, content, toolCalls) => {
-      persistence.saveAssistantMessage(content, toolCalls);
-    },
   });
 
   const fetchNoteConversations = useCallback(async () => {
@@ -83,11 +78,8 @@ export function useEmbeddedChat({
 
   if (noteId !== prevNoteId) {
     setPrevNoteId(noteId);
-    if (!noteId) {
-      persistence.handleNewChat();
-      setConversationId(null);
-      setNoteConversations([]);
-    }
+    persistence.handleNewChat();
+    setNoteConversations([]);
   }
 
   useEffect(() => {
@@ -95,18 +87,16 @@ export function useEmbeddedChat({
     if (!noteId) return;
 
     let stale = false;
+    const selection = persistence.captureSelection();
     (async () => {
       const conversations = await window.electronAPI?.getConversationsForNote?.(noteId);
-      if (stale || noteIdRef.current !== noteId) return;
+      if (stale || noteIdRef.current !== noteId || !selection.isCurrent()) return;
       setNoteConversations(conversations ?? []);
       if (conversations?.length) {
         const mostRecent = conversations[0];
         await persistence.loadConversation(mostRecent.id);
-        if (stale || noteIdRef.current !== noteId) return;
-        setConversationId(mostRecent.id);
       } else {
         persistence.handleNewChat();
-        setConversationId(null);
       }
     })();
 
@@ -118,19 +108,22 @@ export function useEmbeddedChat({
   const switchConversation = useCallback(
     async (id: number) => {
       await persistence.loadConversation(id);
-      setConversationId(id);
     },
     [persistence]
   );
 
   const startNewChat = useCallback(() => {
     persistence.handleNewChat();
-    setConversationId(null);
   }, [persistence]);
 
   const createConversation = useCallback(
-    async (text: string) => {
-      const id = await persistence.createConversation(`Note: ${noteTitle || "Untitled"}`, noteId);
+    async (text: string, selection?: ChatSelection) => {
+      const id = await persistence.createConversation(
+        `Note: ${noteTitle || "Untitled"}`,
+        noteId,
+        undefined,
+        selection
+      );
       void fetchNoteConversations();
       return id;
     },
@@ -143,9 +136,7 @@ export function useEmbeddedChat({
     createConversation,
   });
   const sendMessage = useCallback(
-    async (text: string): Promise<void> => {
-      await sendMessageWithResult(text);
-    },
+    (text: string): Promise<boolean> => sendMessageWithResult(text),
     [sendMessageWithResult]
   );
 

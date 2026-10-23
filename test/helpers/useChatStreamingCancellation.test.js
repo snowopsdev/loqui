@@ -52,9 +52,11 @@ const EMPTY_RESPONSE_TEXT = JSON.parse(
 
 async function renderChatStreaming(
   t,
-  { electronAPI = {}, settings = {}, onStreamComplete, live = false } = {}
+  { electronAPI = {}, settings = {}, onStreamComplete, live = false, hookOptions = {} } = {}
 ) {
-  installBrowserGlobals(t, { window: { electronAPI: { personalInference: personalInferenceFixture(), ...electronAPI } } });
+  installBrowserGlobals(t, {
+    window: { electronAPI: { personalInference: personalInferenceFixture(), ...electronAPI } },
+  });
   const container = live ? installHookDom(t) : null;
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-chat-streaming-cancellation-test-",
@@ -107,6 +109,7 @@ async function renderChatStreaming(
       messages,
       setMessages,
       onStreamComplete,
+      ...hookOptions,
       onResponseContent: () => {
         responseContentCalls += 1;
       },
@@ -132,6 +135,8 @@ async function renderChatStreaming(
 
   return {
     captured,
+    useSettingsStore,
+    vite,
     getMessages: () => messages,
     getResponseContentCalls: () => responseContentCalls,
     unmount,
@@ -218,6 +223,7 @@ test("cancelling during RAG setup does not start an assistant reply", async (t) 
   });
   const { captured, getMessages } = await renderChatStreaming(t, {
     electronAPI: {
+      getNote: async () => null,
       semanticSearchNotes: () => {
         searchStarted = true;
         return searchResults;
@@ -343,11 +349,7 @@ test("an unmount mid-stream persists the partial reply without delivering it", a
         completionCalls += 1;
       },
     });
-    for (
-      let i = 0;
-      i < 50 && !getMessages().some((m) => m.content === "Partial reply");
-      i++
-    ) {
+    for (let i = 0; i < 50 && !getMessages().some((m) => m.content === "Partial reply"); i++) {
       await waitForFlush();
     }
   });
@@ -417,8 +419,14 @@ test("direct provider screen context crosses IPC without exposing credentials", 
   let request;
   const electronAPI = {
     personalInference: {
-      onTextEvent(callback) { listener = callback; return () => {}; },
-      async textStream(input) { request = input; listener({ type: "end", requestId: input.requestId }); },
+      onTextEvent(callback) {
+        listener = callback;
+        return () => {};
+      },
+      async textStream(input) {
+        request = input;
+        listener({ type: "end", requestId: input.requestId });
+      },
       async textCancel() {},
     },
   };
@@ -440,3 +448,219 @@ test("direct provider screen context crosses IPC without exposing credentials", 
   assert.equal(request.apiKey, undefined);
   assert.match(JSON.stringify(request.messages), /base64-image/);
 });
+
+for (const target of ["chat", "agent", "vision", "dropped-vision"]) {
+  test(`admission stamp matches the actual typed IPC target (${target})`, async (t) => {
+    const listeners = new Set(),
+      requests = [];
+    let releaseSearch,
+      searchStarted = false;
+    const search = new Promise((resolve) => (releaseSearch = resolve));
+    const { captured, getMessages, useSettingsStore, vite } = await renderChatStreaming(t, {
+      settings: {
+        chatAgentMode: "self-hosted",
+        chatAgentProvider: "lan",
+        chatAgentModel: "qwen3-4b-q4_k_m",
+        chatAgentRemoteUrl: "http://127.0.0.1:11434/v1",
+        useDictationAgent: true,
+        dictationAgentMode: "providers",
+        dictationAgentProvider: "openai",
+        dictationAgentModel: "gpt-4o",
+        useDictationAgentVisionModel: true,
+        dictationAgentVisionMode: "providers",
+        dictationAgentVisionProvider: target === "dropped-vision" ? "tinfoil" : "anthropic",
+        dictationAgentVisionModel: "claude-sonnet-4-5",
+        dictationAgentVisionCloudBaseUrl: "https://vision.invalid/v1",
+      },
+      hookOptions: { inferenceScope: target === "chat" ? "chatIntelligence" : "dictationAgent" },
+      electronAPI: {
+        getNote: async () => null,
+        semanticSearchNotes: () => {
+          searchStarted = true;
+          return search;
+        },
+        personalInference: {
+          onTextEvent: (fn) => {
+            listeners.add(fn);
+            return () => listeners.delete(fn);
+          },
+          textStream: async (request) => {
+            requests.push(request);
+            for (const fn of listeners) {
+              fn({
+                requestId: request.requestId,
+                type: "chunk",
+                chunk: { type: "content", text: "ok" },
+              });
+              fn({ requestId: request.requestId, type: "end" });
+            }
+          },
+          textCancel: async () => {},
+        },
+      },
+    });
+    const attachment = { image: "synthetic-image", mediaType: "image/png" };
+    const options = target.includes("vision") ? { attachment } : {};
+    const snapshot = captured.captureInference(options);
+    const pending = captured.sendToAI("hello", [{ role: "user", content: "hello" }], {
+      ...options,
+      inferenceSnapshot: snapshot,
+    });
+    for (let i = 0; i < 50 && !searchStarted; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(searchStarted, true);
+    useSettingsStore.setState({
+      chatAgentMode: "providers",
+      chatAgentProvider: "openai",
+      chatAgentModel: "gpt-5.6",
+      dictationAgentModel: "changed-after-admission",
+      dictationAgentVisionModel: "changed-after-admission",
+    });
+    releaseSearch([]);
+    await pending;
+    const request = requests[0];
+    assert.equal(requests.length, 1);
+    const { getCloudModel, getLocalModel } = await vite.ssrLoadModule("/models/ModelRegistry.ts");
+    const expectedModel =
+      target === "chat" ? "qwen3-4b-q4_k_m" : target === "vision" ? "claude-sonnet-4-5" : "gpt-4o";
+    const provider = target === "chat" ? "lan" : target === "vision" ? "anthropic" : "openai";
+    assert.equal(request.model, expectedModel);
+    assert.equal(request.provider, provider);
+    assert.equal(request.inferenceScope, target === "chat" ? "chatIntelligence" : "dictationAgent");
+    if (target === "chat") assert.equal(request.baseUrl, "http://127.0.0.1:11434/v1");
+    // Self-hosted endpoints disclose the requested server model id; built-in/provider routes use registry names.
+    const display =
+      target === "chat"
+        ? expectedModel
+        : (getCloudModel(expectedModel, provider)?.name ??
+          getLocalModel(expectedModel)?.name ??
+          expectedModel);
+    assert.deepEqual(getMessages()[0].context.route, {
+      model: display,
+      providerId: target === "chat" ? null : provider,
+      locality: target === "chat" ? "device" : "remote",
+    });
+    const content = request.messages.at(-1).content;
+    assert.equal(Array.isArray(content), target === "vision");
+    assert.equal(listeners.size, 0);
+  });
+}
+
+function deferredPins() {
+  let resolve;
+  const promise = new Promise((r) => (resolve = r));
+  let started = false;
+  return {
+    promise,
+    resolve,
+    get started() {
+      return started;
+    },
+    getPinnedContext() {
+      started = true;
+      return promise;
+    },
+  };
+}
+const PINNED22 = {
+  text: '<note id="17" title="Pinned">\nbody\n</note>',
+  notes: [{ id: 17, title: "Pinned", type: "personal", date: null, quote: "body" }],
+};
+for (const action of ["Stop", "unmount", "newer send"]) {
+  test(`${action} while admitted pins load prevents the old typed IPC and assistant`, async (t) => {
+    const pinned = deferredPins();
+    const calls = [];
+    const listeners = new Set();
+    const bridge = {
+      onTextEvent(fn) {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+      async textCancel() {},
+      async textStream(request) {
+        calls.push(request);
+        for (const fn of listeners) {
+          fn({
+            requestId: request.requestId,
+            type: "chunk",
+            chunk: { type: "content", text: "ok" },
+          });
+          fn({ requestId: request.requestId, type: "end" });
+        }
+      },
+    };
+    let first = true;
+    const { captured, getMessages, unmount } = await renderChatStreaming(t, {
+      live: action === "unmount",
+      electronAPI: { personalInference: bridge },
+      hookOptions: {
+        getPinnedContext: () =>
+          first ? ((first = false), pinned.getPinnedContext()) : Promise.resolve(PINNED22),
+      },
+    });
+    let send;
+    if (action === "unmount")
+      await React.act(async () => {
+        send = captured.sendToAI("first", []);
+      });
+    else send = captured.sendToAI("first", []);
+    for (let i = 0; i < 50 && !pinned.started; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(pinned.started, true);
+    if (action === "Stop") captured.cancelStream();
+    else if (action === "unmount") await unmount();
+    else await captured.sendToAI("newer", []);
+    pinned.resolve(PINNED22);
+    await send;
+    assert.equal(calls.length, action === "newer send" ? 1 : 0);
+    assert.equal(
+      getMessages().filter((m) => m.role === "assistant").length,
+      action === "newer send" ? 1 : 0
+    );
+  });
+}
+test("captureInference starts pins synchronously and legacy explicit snapshot never reads live pins", async (t) => {
+  const pinned = deferredPins();
+  const listeners = new Set();
+  const calls = [];
+  const bridge = {
+    onTextEvent(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    async textCancel() {},
+    async textStream(request) {
+      calls.push(request);
+      for (const fn of listeners) {
+        fn({ requestId: request.requestId, type: "end" });
+      }
+    },
+  };
+  const { captured, getMessages } = await renderChatStreaming(t, {
+    electronAPI: { personalInference: bridge },
+    hookOptions: { getPinnedContext: pinned.getPinnedContext },
+  });
+  const snapshot = captured.captureInference();
+  assert.equal(pinned.started, true);
+  pinned.resolve(PINNED22);
+  await captured.sendToAI("pinned", [], { inferenceSnapshot: snapshot });
+  assert.deepEqual(getMessages().at(-1).context.pinnedNotes, PINNED22.notes);
+  const { pinnedContext: _pinnedContext, ...legacy } = snapshot;
+  await captured.sendToAI("legacy", [], { inferenceSnapshot: legacy });
+  assert.equal(getMessages().at(-1).context.pinnedNotes, undefined);
+  assert.equal(calls.length, 2);
+});
+
+for (const failure of ["reject", "throw"]) {
+  test(`abandoned admitted pin lookup handles ${failure} before sender consumption`, async (t) => {
+    const { captured } = await renderChatStreaming(t, {
+      hookOptions: {
+        getPinnedContext: () => {
+          if (failure === "throw") throw new Error("synthetic local failure");
+          return Promise.reject(new Error("synthetic local failure"));
+        },
+      },
+    });
+    const snapshot = captured.captureInference();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(await snapshot.pinnedContext, { text: "", notes: [] });
+  });
+}

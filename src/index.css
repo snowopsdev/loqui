@@ -1,6 +1,7 @@
 @import "tailwindcss";
 /* Dictation window feature styles (voice pill, assistant/live-transcript panels). */
 @import "./styles/dictation-panel.css";
+@import "./styles/notices.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -15,13 +16,28 @@
   --color-muted-foreground: #525252;
   --color-accent: #d90078;
   --color-accent-foreground: #ffffff;
+  /* The Table: dots are decorative; rails, connectors and borders meet 3:1. */
+  --color-table-dot: #dcd7d9;
+  --color-table-connector: #8a8a8a;
+  --color-table-card-border: #949494;
   /* Agent Mode identity, sourced from the supplied sparkle/leaf mark. */
   --color-agent-brand: #8787ff;
   --color-destructive: #dc2626;
   --color-destructive-foreground: #ffffff;
   --color-border: #e5e5e5;
   --color-input: #f9f6f1;
+  /* Field edges: 3:1 against every surface a field sits on (WCAG 1.4.11).
+     --color-border stays the quiet divider for cards and rules. */
+  --color-input-border: #858585;
   --color-ring: #e84e16;
+  --color-speaker-1: #986837;
+  --color-speaker-2: #8b6e2e;
+  --color-speaker-3: #64793c;
+  --color-speaker-4: #467e53;
+  --color-speaker-5: #2b7f67;
+  --color-speaker-6: #0d7f7f;
+  --color-speaker-7: #33799e;
+  --color-speaker-8: #5372a7;
   --color-background: #ffffff;
   --color-foreground: #171717;
   --color-card: #ffffff;
@@ -31,9 +47,11 @@
   --color-link: #c43e13;
   --color-link-hover: #a8340d;
   --color-success: #16a34a;
-  --color-success-foreground: #ffffff;
+  /* Ink on the light green and amber fills (5.44:1, 5.63:1); white was
+     3.30:1 and 3.19:1. Plum Night already puts dark text on its fills. */
+  --color-success-foreground: #171717;
   --color-warning: #d97706;
-  --color-warning-foreground: #ffffff;
+  --color-warning-foreground: #171717;
   --color-info: #c43e13;
   --color-info-foreground: #ffffff;
 
@@ -55,6 +73,43 @@
   --color-locality-device: #0b7a54;
   --color-locality-network: #3b6ea8;
   --color-locality-remote: #ad5008;
+
+  /* Machine and Agent roles (DESIGN.md "Colors"). Fuchsia marks content a
+     model wrote (AI chips, slash AI items, Ask AI); violet marks the Agent
+     (chat rail, spark, citations). Fills/rails use the base token (>= 3:1),
+     small text uses the -text token (>= 4.5:1). */
+  --color-ai: #d90078;
+  --color-ai-text: #b8006a;
+  --color-agent: #7b7bf7;
+  --color-agent-text: #4a4ad8;
+
+  /* UI type ramp (DESIGN.md "Typography"). Chrome only: the note document
+     ramp lives on .rich-text-editor-content. Nothing below 11px; readable
+     text floors at 12px (caption). */
+  --text-display: 2rem;
+  --text-display--line-height: 1.15;
+  --text-display--font-weight: 650;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.25;
+  --text-title--font-weight: 600;
+  --text-title--letter-spacing: -0.015em;
+  --text-heading: 1.0625rem;
+  --text-heading--line-height: 1.35;
+  --text-heading--font-weight: 600;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.55;
+  --text-body--font-weight: 400;
+  --text-ui: 0.8125rem;
+  --text-ui--line-height: 1.4;
+  --text-ui--font-weight: 500;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--font-weight: 450;
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.3;
+  --text-micro--font-weight: 500;
+  --text-micro--letter-spacing: 0.02em;
 
   /* Surface hierarchy — light mode equivalents */
   --color-surface-0: #ffffff;
@@ -89,8 +144,19 @@
   --motion-instant: 90ms;
   --motion-fast: 150ms;
   --motion-base: 240ms;
+  --motion-stagger: 40ms;
   --motion-slow: 360ms;
   --motion-hero: 520ms;
+  /* Loop and dwell cadences (Plan 06, CR-06-4). A loop runs only in its
+     active state; reduced motion stops it (the policy below). */
+  --motion-loop-travel: 1400ms; /* the capture rail's "Cleaning up…" band */
+  --motion-loop-pulse: 1200ms; /* chat "thinking" dots */
+  --motion-loop-blink: 1000ms; /* streaming cursor */
+  --motion-loop-stagger: 150ms; /* step between items of one loop */
+  --motion-dwell-ring: 1200ms; /* a deep-linked history row's focus ring */
+  /* One-shot landing flash on a searched setting (Settings search). The animation uses this
+   duration and JS removes data-flash on animationend, so this is the only place it lives. */
+  --motion-flash: 1400ms;
   --motion-ease-std: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-ease-exit: cubic-bezier(0.2, 0, 0.4, 1);
@@ -172,6 +238,20 @@
     1.004,
     1
   );
+  /* Plan 04 picked beats and gated Signal cadence. */
+  --motion-nudge: 260ms;
+  --motion-bounce: 640ms;
+  --motion-condense-fly: 140ms;
+  --motion-condense-land: 220ms;
+  --motion-rewrite-underline: 600ms;
+  --motion-locality-orbit: 6000ms;
+  --motion-signal-comet: 1600ms;
+  --motion-signal-breathe: 1900ms;
+  --motion-agent-thinking: 2400ms;
+  --motion-agent-answering: 1200ms;
+  --motion-thinking-shimmer: 2000ms;
+  --motion-meeting-dot: 1200ms;
+  --motion-ease-ambient: ease-in-out;
 
   /* Bundled open-source fonts work without network access. */
   --font-family-sans:
@@ -226,8 +306,19 @@
 }
 
 .dark {
+  --color-table-dot: #3a2832;
+  --color-table-connector: #8f7d87;
+  --color-table-card-border: #7d6672;
   /* Plum Night — the brand guide's Deep Plum family (DESIGN.md "Colors").
      Hex, not oklch, so contrast tests can score every pair. */
+  --color-speaker-1: #af7e4c;
+  --color-speaker-2: #a28444;
+  --color-speaker-3: #7a9052;
+  --color-speaker-4: #5c9568;
+  --color-speaker-5: #45967d;
+  --color-speaker-6: #329696;
+  --color-speaker-7: #4b90b6;
+  --color-speaker-8: #6889bf;
   --color-background: #1c1218;
   --color-foreground: #f3e9ee;
   --color-card: #271820;
@@ -246,6 +337,7 @@
   --color-destructive-foreground: #1c1218;
   --color-border: #3d2733;
   --color-input: #170e13;
+  --color-input-border: #8c6b7b;
   --color-ring: #ff5a1f;
   --color-success: #4ade80;
   --color-success-foreground: #1c1218;
@@ -264,6 +356,10 @@
   --color-locality-device: #5ee0ad;
   --color-locality-network: #9bb4d6;
   --color-locality-remote: #fbbf6a;
+  --color-ai: #ff5fae;
+  --color-ai-text: #ff5fae;
+  --color-agent: #8787ff;
+  --color-agent-text: #a5a5ff;
 
   /* Surface hierarchy — plum depth system */
   --color-surface-0: #1c1218;
@@ -365,14 +461,6 @@
     background: transparent;
   }
 
-  /* The control panel window is transparent (windowConfig.js), so the page backing
-     is cleared here rather than filled. The compact frame owns the complete
-     480x576 surface, including its rounded corners. */
-  body:has(.onboarding-canvas.compact),
-  body:has(.onboarding-canvas.compact) #root {
-    background: transparent;
-  }
-
   .dictation-window {
     --window-resize-compensation-x: 0px;
     --window-resize-compensation-y: 0px;
@@ -411,527 +499,13 @@
     animation-iteration-count: 1 !important;
   }
 
-  /* Onboarding entries keep their cue, minus the 8px travel. */
-  .onboarding-step-enter,
-  .onboarding-stagger > * {
-    animation: reduced-motion-fade-in 200ms ease both !important;
+  /* A loading pulse is opacity only, and often the only sign that work goes
+     on, so it keeps its full length. The class selector outranks the `*`
+     rule above; both are !important and unlayered. */
+  .progress-pulse {
+    animation-duration: calc(var(--motion-hero) * 4) !important;
+    animation-iteration-count: infinite !important;
   }
-
-  /* Press feedback is movement by definition; without a transition it would snap.
-     The hover and active colour changes still confirm the press. */
-  .onboarding-pressable:active {
-    transform: none;
-  }
-}
-
-/* Font stack and design tokens apply to the onboarding canvas AND to the whole
-   document while onboarding is mounted. The second selector is what covers
-   portalled UI: Radix renders select/popover/tooltip content into document.body,
-   outside the canvas, so scoping to .onboarding-canvas alone left every dropdown
-   on the app's default stack with none of these tokens. Only the typography and
-   tokens are shared — the canvas keeps its own painted background below. */
-.onboarding-canvas,
-body:has(.onboarding-canvas) {
-  /* Inter sits behind Yowza as the onboarding fallback: both are Latin-only, so
-     zh-CN/zh-TW/ja glyphs must still fall through to Noto Sans. Overriding the
-     variable as well covers descendants that re-declare font-family from it. */
-  --font-family-sans:
-    "Inter Variable", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  font-family: var(--font-family-sans);
-  font-optical-sizing: auto;
-
-  /* Onboarding design tokens from the Figma library, except the accent: that is
-     the app's orange brand color, so both themes resolve it through --color-primary. */
-  --onboarding-accent: var(--color-primary);
-  --onboarding-accent-foreground: #171717;
-  /* Hover on a filled accent means "darker" on light and "lighter" on dark, so the
-     mix target is a token rather than a literal `black` in the utility class. */
-  --onboarding-accent-hover: color-mix(in srgb, var(--onboarding-accent) 88%, black);
-  --onboarding-text-primary: #000000;
-  --onboarding-text-secondary: #656565;
-  --onboarding-text-tertiary: #969393;
-  --onboarding-control-border: #e3e3e3;
-  /* The page/card fill everything else sits on. Split from surface-secondary so
-     the dark theme can move the base without dragging the filled greys with it. */
-  --onboarding-surface: #ffffff;
-  /* light/surface-secondary and light/surface-tertiary: the two filled greys the
-     onboarding frames use (capture surfaces and the inline hint pills). */
-  --onboarding-surface-secondary: #f7f7f7;
-  --onboarding-surface-tertiary: #e6e6e6;
-  /* Hover step above the base surface (ghost rows, outline buttons) and above
-     surface-tertiary (the neutral "Enable" pill). */
-  --onboarding-surface-hover: #fafafa;
-  --onboarding-surface-tertiary-hover: #d4d4d4;
-  /* The row hover slab, which is a fill painted *behind* a row's content rather
-     than a control's own background — so it needs more separation from the base
-     surface than surface-hover gives a bordered button, and it gets its own token
-     instead of leaning on that one. */
-  --onboarding-row-hover: #f5f5f5;
-  /* Inverted HUD: keycaps and the dictation pill preview, which are near-black on
-     light and have to lift off the background rather than sink into it on dark. */
-  --onboarding-inverse-surface: #0a0a0a;
-  --onboarding-inverse-surface-secondary: #262626;
-  --onboarding-inverse-text: #ffffff;
-  /* Status. Kept separate from the accent so a failed provider test never reads
-     as a brand colour. */
-  --onboarding-link: var(--color-link);
-  --onboarding-danger: #ef4444;
-  --onboarding-success: #22c55e;
-  /* Keycap. The cap is lit from above, so it needs its own top/bottom pair rather
-     than reusing the surface tokens: in dark it has to sit *above* the page fill
-     while still reading as a physical key. */
-  --onboarding-keycap-top: #eeeeee;
-  --onboarding-keycap-bottom: #dddddd;
-  --onboarding-keycap-bevel: #f8f8f8;
-  --onboarding-keycap-shadow: #0a0a0a;
-  /* Provider marks ship as full-colour SVGs; the onboarding rows want them
-     monochrome. brightness(0) collapses to black, so dark has to invert after. */
-  --onboarding-mark-monochrome: grayscale(1) brightness(0);
-  /* Dialog scrim. A 20% black veil separates a sheet from a white page; over a
-     near-black one it does nothing, so dark leans on it harder. */
-  --onboarding-scrim: rgb(0 0 0 / 0.2);
-}
-
-/* Dark theme. Only the tokens move — every onboarding component binds to them, so
-   there are no `dark:` variants scattered through the step components.
-   Both selectors are needed for the same reason the light block has two: the
-   canvas itself may be the .dark element, and Radix portals render outside it. */
-.dark .onboarding-canvas,
-.dark:has(.onboarding-canvas),
-body.dark:has(.onboarding-canvas) {
-  /* White, same as light: a filled brand CTA reads as the brand in both themes,
-     and flipping its label to near-black made the dark-mode buttons look like a
-     different component. */
-  --onboarding-accent-foreground: #ffffff;
-  --onboarding-accent-hover: color-mix(in srgb, var(--onboarding-accent) 88%, white);
-  --onboarding-text-primary: #f5f5f5;
-  --onboarding-text-secondary: #a1a1a1;
-  --onboarding-text-tertiary: #7c7c7c;
-  --onboarding-control-border: #2e2e2e;
-  --onboarding-surface: #141414;
-  --onboarding-surface-secondary: #1c1c1c;
-  --onboarding-surface-tertiary: #292929;
-  --onboarding-surface-hover: #202020;
-  --onboarding-surface-tertiary-hover: #363636;
-  --onboarding-row-hover: #202020;
-  /* The HUD inverts: on dark it is the one thing that gets *lighter* than the
-     page, or the keycaps disappear into it. */
-  --onboarding-inverse-surface: #f5f5f5;
-  --onboarding-inverse-surface-secondary: #d4d4d4;
-  --onboarding-inverse-text: #0a0a0a;
-  --onboarding-danger: #f87171;
-  --onboarding-success: #4ade80;
-  --onboarding-keycap-top: #3a3a3a;
-  --onboarding-keycap-bottom: #262626;
-  --onboarding-keycap-bevel: #4d4d4d;
-  --onboarding-keycap-shadow: #000000;
-  --onboarding-mark-monochrome: grayscale(1) brightness(0) invert(1);
-  --onboarding-scrim: rgb(0 0 0 / 0.55);
-}
-
-/* Authentication also appears in the control-panel sign-in dialog. Give that
-   embedded version the same semantic names without applying onboarding's page
-   chrome or overriding the dialog's existing theme. */
-.onboarding-embedded-auth {
-  --onboarding-accent: var(--color-primary);
-  --onboarding-accent-foreground: var(--color-primary-foreground);
-  --onboarding-text-primary: var(--color-foreground);
-  --onboarding-text-secondary: var(--color-muted-foreground);
-  --onboarding-text-tertiary: color-mix(in srgb, var(--color-muted-foreground) 75%, transparent);
-  --onboarding-control-border: var(--color-border);
-  --onboarding-surface: var(--color-background);
-  --onboarding-surface-secondary: var(--color-muted);
-  --onboarding-surface-tertiary: var(--color-secondary);
-  --onboarding-surface-hover: var(--color-surface-1);
-  --onboarding-inverse-surface: var(--color-foreground);
-  --onboarding-inverse-text: var(--color-background);
-}
-
-/* Remaps the app-wide shadcn tokens onto the onboarding palette, so any shared
-   ui/ primitive dropped into a step (Button, Input, Select) picks up the
-   onboarding theme instead of the control panel's. Bound to the --onboarding-*
-   tokens rather than literals, so the .dark block above is the only place the
-   theme is described twice. */
-.onboarding-canvas {
-  --color-background: var(--onboarding-surface);
-  --color-foreground: var(--onboarding-text-primary);
-  --color-card: var(--onboarding-surface);
-  --color-card-foreground: var(--onboarding-text-primary);
-  --color-muted: var(--onboarding-surface-secondary);
-  --color-muted-foreground: var(--onboarding-text-secondary);
-  --color-border: var(--onboarding-control-border);
-  background-color: var(--onboarding-surface);
-  /* Supplied full-width artwork replaces the generated corner washes. Keeping
-     its natural aspect ratio preserves the authored Loqui composition
-     while the surface token fills the transparent lower portion of the panel. */
-  background-image: var(--onboarding-background-light);
-  background-position: top center;
-  background-repeat: no-repeat;
-  background-size: 100% auto;
-  color: var(--onboarding-text-primary);
-}
-
-.dark .onboarding-canvas,
-.dark.onboarding-canvas {
-  background-image: var(--onboarding-background-dark);
-}
-
-/* Nested list surface + rows, per Figma "Onboarding / Frame 37".
-   The row rule is the important part and applies to every list of this shape:
-   dividers sit on TOP of each row except the first, and the first and last rows
-   drop their outer padding so the group sits flush inside the container's own
-   padding instead of doubling it up and reading as extra space. */
-/* Card and section headings: 18/140% semibold, normal tracking, per the Figma
-   frames. This has to be a class: the global h1–h6 rule below sets line-height
-   1.15 and -0.025em letter-spacing as plain CSS, which outranks Tailwind's
-   leading-* and tracking-* utilities, so a utility on the element is silently
-   ignored. */
-.onboarding-card-title {
-  font-size: 1rem;
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: normal;
-}
-
-/* Step entry. Onboarding is seen once, which is the one place delight is worth
-   spending on — a step change is an occasional, deliberate transition, not a
-   keyboard action. 8px is enough to read as arrival without feeling like travel;
-   `both` holds the start frame so there is no flash of the end state. */
-@keyframes onboarding-step-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-}
-
-.onboarding-step-enter {
-  animation: onboarding-step-in 320ms var(--onboarding-ease-out) both;
-}
-
-/* Staggered children, for the step bodies that are a row or column of peers (the
-   setup cards, the permission rows). 45ms apart: long enough to cascade, short
-   enough that the last item is in under 200ms. Decorative only — nothing waits on
-   it, and every item is interactive from the first frame. */
-.onboarding-stagger > * {
-  animation: onboarding-step-in 300ms var(--onboarding-ease-out) both;
-}
-
-.onboarding-stagger > *:nth-child(1) {
-  animation-delay: 40ms;
-}
-
-.onboarding-stagger > *:nth-child(2) {
-  animation-delay: 85ms;
-}
-
-.onboarding-stagger > *:nth-child(3) {
-  animation-delay: 130ms;
-}
-
-.onboarding-stagger > *:nth-child(4) {
-  animation-delay: 175ms;
-}
-
-/* Press feedback. A pressable that does not move on press reads as not having
-   registered the press. 0.97 and 160ms is under the threshold where it becomes a
-   visible animation rather than just tactile. transform only — it is the one
-   property besides opacity that skips layout and paint. */
-.onboarding-pressable {
-  /* Both properties named explicitly, never `all`. The press uses --onboarding-ease-out so
-     the scale is felt immediately; hover fills use plain `ease`, which is the
-     right curve for a colour change that has no direction. Declaring colours here
-     too means these elements do not also need transition-colors, which would
-     overwrite transition-property and silently drop the press. */
-  transition:
-    transform 160ms var(--onboarding-ease-out),
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease;
-}
-
-.onboarding-pressable:active {
-  transform: scale(0.97);
-}
-
-.onboarding-list {
-  /* Column so the scroll child can absorb leftover height (flex-1) when the
-     caller doesn't cap it — that's what keeps the list from overflowing its step
-     and getting clipped when chips are added above it. */
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border: 1px solid var(--onboarding-control-border);
-  border-radius: 16px;
-  background-color: var(--onboarding-surface);
-  /* Clip to the radius, or the scroll child's square box lets its scrollbar and
-     any full-bleed row paint outside the rounded corners. `clip` rather than
-     `hidden`: it honours the radius without turning this into a scroll
-     container of its own. */
-  overflow: clip;
-  /* No padding of its own. All of it lives on the scroll child, so it scrolls
-     away with the rows: static padding out here leaves a gap below a
-     part-scrolled row, which makes the clipped edge read as a flat cut floating
-     above blank space instead of content passing under the border. */
-  padding: 0;
-}
-
-/* The scroll lives on this inner element, never on .onboarding-list itself — a
-   scrollbar on the bordered box sits hard against its 16px corner radius, which
-   clips the ends of the thumb. */
-.onboarding-list-scroll {
-  position: relative;
-  overflow-y: auto;
-  /* Nothing in a list should ever scroll sideways. */
-  overflow-x: hidden;
-  /* Reserve the gutter so rows don't reflow the moment the list overflows. */
-  scrollbar-gutter: stable;
-  /* 8px block + the row's own 12px lands the end rows' content 20px from the
-     edge at rest, and scrolls out of the way once the list moves. 4px inline is
-     the hover slab's breathing room; the scrollbar sits outside it, flush to the
-     border. */
-  padding: 6px 4px;
-}
-
-/* Figma "Rectangle 45": a true 5px pill. Faking an inset with a transparent
-   border + background-clip distorts the pill ends, so don't. */
-.onboarding-list-scroll::-webkit-scrollbar {
-  width: 5px;
-}
-
-/* Hold the thumb clear of the container's 16px corner arcs, so clipping never
-   shaves its ends. */
-.onboarding-list-scroll::-webkit-scrollbar-track {
-  margin-block: 14px;
-  background: transparent;
-}
-
-.onboarding-list-scroll::-webkit-scrollbar-thumb {
-  border-radius: 39px;
-  background-color: var(--onboarding-control-border);
-}
-
-/* The dropdown sheet (Figma "Onboarding / Frame 16") is the same list surface at
-   a smaller size, down to Rectangle 45's 5px thumb. Radix owns the scroll on its
-   viewport — the content box is overflow-hidden — so the scrollbar has to be
-   addressed through that child, which is also why this can't be a Tailwind class
-   on the panel itself. */
-.onboarding-select-panel [data-radix-select-viewport]::-webkit-scrollbar {
-  width: 5px;
-}
-
-.onboarding-select-panel [data-radix-select-viewport]::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.onboarding-select-panel [data-radix-select-viewport]::-webkit-scrollbar-thumb {
-  border-radius: 39px;
-  background-color: var(--onboarding-control-border);
-}
-
-/* Dropdown rows are the same shape as .onboarding-list-row, so they get the same
-   hover: a rounded slab that replaces the rules it touches, rather than a square
-   full-bleed band whose corners fight the panel's 17px radius and whose edges get
-   crossed by the dividers.
-
-   Why this is CSS and not Tailwind on the item: the base SelectItem's
-   `hover:bg-muted` / `dark:hover:bg-primary/8` resolve against the app's own
-   palette, which is a different scale from the onboarding one and moves
-   independently of it. Those are neutralised on the item (see SELECT_ITEM_CLASS)
-   and the fill is bound to --onboarding-row-hover here instead, the same token
-   .onboarding-list-row uses.
-
-   Radix Select sets data-highlighted for pointer hover and keyboard nav alike, so
-   one selector covers both and the two can never light up at once. */
-.onboarding-select-item {
-  --onboarding-row-inset: 6px;
-  position: relative;
-  /* Stacking context, so the slab's z-index: -1 lands behind the row's content
-     but still above the panel's own fill. */
-  z-index: 1;
-  /* Painted gradient rather than a border, so the rule stops short of the row
-     edges and lines up with the label instead of spanning the slab's full width. */
-  background-image: linear-gradient(
-    to right,
-    transparent 0 var(--onboarding-row-inset),
-    var(--onboarding-control-border) var(--onboarding-row-inset)
-      calc(100% - var(--onboarding-row-inset)),
-    transparent calc(100% - var(--onboarding-row-inset)) 100%
-  );
-  background-repeat: no-repeat;
-  background-position: top left;
-  background-size: 100% 1px;
-}
-
-.onboarding-select-item:first-child {
-  background-image: none;
-}
-
-.onboarding-select-item::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border-radius: 12px;
-  background-color: var(--onboarding-row-hover);
-  opacity: 0;
-  transition: opacity 120ms ease;
-  pointer-events: none;
-}
-
-.onboarding-select-item[data-highlighted]::before {
-  opacity: 1;
-}
-
-/* The slab replaces the dividers it touches — its own, and the next row's. */
-.onboarding-select-item[data-highlighted],
-.onboarding-select-item[data-highlighted] + .onboarding-select-item {
-  background-image: none;
-}
-
-.onboarding-list-row {
-  --onboarding-row-inset: 12px;
-  position: relative;
-  /* Stacking context, so the hover slab's z-index: -1 lands behind the row's
-     content but still above the list's white background. */
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-block: 10px;
-  /* Indents the content inside the full-width hover slab, which is what gives
-     the slab room around the checkbox. With the scroller's 4px, content lands
-     16px from the border as specced. */
-  padding-inline: var(--onboarding-row-inset);
-  /* The divider is a painted gradient rather than a border so it can stop short
-     of the row edges and line up with the content; a border would span the whole
-     padding box and run wider than the text. */
-  background-image: linear-gradient(
-    to right,
-    transparent 0 var(--onboarding-row-inset),
-    var(--onboarding-control-border) var(--onboarding-row-inset)
-      calc(100% - var(--onboarding-row-inset)),
-    transparent calc(100% - var(--onboarding-row-inset)) 100%
-  );
-  background-repeat: no-repeat;
-  background-position: top left;
-  background-size: 100% 1px;
-}
-
-/* Only the divider goes; the padding stays, or the first row's hover slab would
-   be shorter than every other row's. */
-.onboarding-list-row:first-child {
-  background-image: none;
-}
-
-/* Hover highlight. inset-inline is 0 on purpose: the row's padding is what keeps
-   the checkbox clear of the slab edge. Bleeding the slab outwards instead counts
-   as horizontal overflow and summons a horizontal scrollbar. */
-.onboarding-list-row::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border-radius: 12px;
-  background-color: var(--onboarding-row-hover);
-  opacity: 0;
-  transition: opacity 120ms ease;
-  pointer-events: none;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .onboarding-list-row:hover::before {
-    opacity: 1;
-  }
-}
-
-/* The slab replaces the dividers it touches — its own, and the next row's. */
-@media (hover: hover) and (pointer: fine) {
-  .onboarding-list-row:hover,
-  .onboarding-list-row:hover + .onboarding-list-row {
-    background-image: none;
-  }
-}
-
-.onboarding-canvas.compact {
-  background-color: var(--onboarding-surface);
-  background-image: none;
-}
-
-/* Compact-frame hero: an orange brand band that dithers into the page surface.
-   Drawn from --color-primary so it follows the theme; the dot layer fades in
-   as the solid fades out. */
-.onboarding-compact-hero {
-  background: linear-gradient(
-    color-mix(in srgb, var(--color-primary) 88%, white),
-    var(--color-primary) 70%,
-    transparent
-  );
-}
-
-.onboarding-compact-hero::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 2px 2px, var(--color-primary) 1.3px, transparent 1.5px) 0
-    0 / 4px 4px;
-  mask-image: linear-gradient(transparent 55%, #000 72%, #000 84%, transparent);
-}
-
-/* Primary Buttons in onboarding disable into the quiet capsule (sunken fill,
-   tertiary text) instead of fading the glass. */
-.onboarding-canvas [data-slot="button"][data-variant="default"]:disabled {
-  opacity: 1;
-  background: var(--onboarding-surface-tertiary);
-  box-shadow: none;
-  color: var(--onboarding-text-tertiary);
-}
-
-/* The classic typing indicator: each dot hops and brightens in turn, so with a
-   per-dot delay the wave travels left to right across the pill. The rest state
-   is a fully opaque dot, which is what the reduced-motion block above leaves on
-   screen once it clamps the duration. */
-@keyframes onboarding-typing-dot {
-  0%,
-  60%,
-  100% {
-    opacity: 0.45;
-    transform: translateY(0);
-  }
-  30% {
-    opacity: 1;
-    transform: translateY(-4px);
-  }
-}
-
-.onboarding-typing-dot {
-  animation: onboarding-typing-dot 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
-
-/* The UA stylesheet gives <kbd> a monospace family; onboarding is on Inter, so
-   every keycap and inline key has to opt back in to the inherited stack. */
-.onboarding-canvas kbd,
-body:has(.onboarding-canvas) kbd {
-  font-family: inherit;
-}
-
-.onboarding-keycap {
-  /* Light from above: a near-white top rolling into neutral-100 reads as a
-     physical cap, where a single flat fill reads as a grey box. */
-  background-image: linear-gradient(
-    to bottom,
-    var(--onboarding-keycap-top),
-    var(--onboarding-keycap-bottom)
-  );
-  border-color: var(--onboarding-control-border);
-  box-shadow:
-    /* top bevel */
-    inset 0 1px 0 var(--onboarding-keycap-bevel),
-    /* the cap's side wall */ 1px 3px 0 var(--onboarding-control-border),
-    /* contact shadow, then a wider ambient one */ 0 5px 5px
-      color-mix(in oklch, var(--onboarding-keycap-shadow) 9%, transparent),
-    0 12px 20px color-mix(in oklch, var(--onboarding-keycap-shadow) 8%, transparent);
 }
 
 /* OpenWhispr Brand Typography */
@@ -971,99 +545,6 @@ h1 {
   font-weight: 700;
 }
 
-.onboarding-display-title {
-  font-size: 2rem; /* 32px */
-  font-weight: 500;
-  line-height: 1.2; /* 120% */
-  /* No letter-spacing on purpose: Yowza Soft is already tight at display
-     sizes, and manual negative tracking on top read as cramped. */
-}
-
-/* The compact first-run steps (auth + permissions, per COMPACT_STEPS in
-   OnboardingFlow.tsx) intentionally keep their existing 32px scale. Exception:
-   CompactPermissionsStep overrides its title to 30px (text-3xl!) so all four
-   permission rows fit the authored 480×624 window without scrolling. */
-.onboarding-canvas.compact .onboarding-display-title {
-  font-size: 2rem; /* 32px */
-}
-
-/* Scoped to .onboarding-canvas because AuthenticationStep also renders outside
-   onboarding (SignInDialog), where the --onboarding-*
-   tokens are undefined and these !important rules would paint invisible inputs.
-   Outside the canvas the Input component's default skin wins instead. */
-.onboarding-canvas .onboarding-light-input,
-.onboarding-canvas .onboarding-light-input:hover,
-.onboarding-canvas .onboarding-light-input:focus-visible {
-  border-color: transparent !important;
-  background-color: var(--onboarding-surface-secondary) !important;
-  color: var(--onboarding-text-primary) !important;
-}
-
-/* Focus is the brand ring, not a stroke: the field stays borderless at rest. */
-.onboarding-canvas .onboarding-light-input:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent) !important;
-}
-
-.onboarding-canvas .onboarding-light-input::placeholder {
-  color: var(--onboarding-text-tertiary);
-}
-
-.onboarding-canvas .onboarding-light-input.onboarding-light-input-bordered {
-  /* Design-system surface stroke. This rule is !important and more specific
-     than a utility class, so a Tailwind border-* on the element cannot win —
-     the token has to be bound here. All four call sites are onboarding. */
-  border-color: var(--onboarding-control-border) !important;
-  background-color: var(--onboarding-surface) !important;
-}
-
-/* Auth fields use the same visible stroke as the rest of onboarding while
-   retaining the raised input fill shown in the compact authentication frames. */
-.onboarding-canvas .onboarding-light-input.onboarding-auth-input,
-.onboarding-canvas .onboarding-light-input.onboarding-auth-input:hover,
-.onboarding-canvas .onboarding-light-input.onboarding-auth-input:focus-visible {
-  border-color: var(--onboarding-control-border) !important;
-  background-color: var(--onboarding-surface-secondary) !important;
-}
-
-.onboarding-provider-input,
-.onboarding-provider-input:hover,
-.onboarding-provider-input:focus-visible,
-.onboarding-provider-input:disabled {
-  border-color: var(--onboarding-control-border) !important;
-  background-color: var(--onboarding-surface-secondary) !important;
-  color: var(--onboarding-text-primary) !important;
-  opacity: 1 !important;
-}
-
-.onboarding-provider-input::placeholder {
-  color: var(--onboarding-text-secondary) !important;
-}
-
-.onboarding-provider-icon-monochrome {
-  filter: var(--onboarding-mark-monochrome) !important;
-}
-
-/* Scrolls without a bar that occupies layout width. A classic scrollbar reserves
-   a gutter in Chromium, so rows in a scrolling list end short of the edge while an
-   identical non-scrolling list fills it — the two read as different widths. Note
-   .onboarding-list-scroll deliberately does the opposite and shows a 5px thumb,
-   because Figma specs one there. */
-.onboarding-scroll-hidden {
-  scrollbar-width: none;
-}
-
-.onboarding-scroll-hidden::-webkit-scrollbar {
-  display: none;
-}
-
-.onboarding-shell-scroll {
-  scrollbar-width: none;
-}
-
-.onboarding-shell-scroll::-webkit-scrollbar {
-  display: none;
-}
-
 /* Modern Button Styling - handled by button component */
 button {
   font-family: var(--font-family-sans);
@@ -1087,10 +568,10 @@ input:not(.input-inline),
 textarea:not(.input-inline) {
   border-radius: var(--radius);
   transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease,
-    box-shadow 0.2s ease;
+    background-color var(--motion-fast) var(--motion-ease-std),
+    border-color var(--motion-fast) var(--motion-ease-std),
+    color var(--motion-fast) var(--motion-ease-std),
+    box-shadow var(--motion-fast) var(--motion-ease-std);
   font-family: var(--font-family-sans);
   box-shadow: inset 0 1px 2px oklch(from var(--color-foreground) l c h / 0.06);
 }
@@ -1099,14 +580,19 @@ textarea:not(.input-inline) {
 :root input:not(.input-inline),
 :root textarea:not(.input-inline) {
   background-color: var(--color-background);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   color: var(--color-foreground);
 }
 
-:root input:not(.input-inline):focus,
-:root textarea:not(.input-inline):focus {
-  border-color: var(--color-border-active);
-  box-shadow: 0 0 0 2px oklch(from var(--color-ring) l c h / 0.15);
+/* Unlayered on purpose: it outranks every Tailwind utility (@layer
+   utilities), so this is the one place a focused field's ring is drawn.
+   1px gap in the page colour, then a 2px full-opacity ring. */
+:root input:not(.input-inline):focus-visible,
+:root textarea:not(.input-inline):focus-visible {
+  border-color: var(--color-ring);
+  box-shadow:
+    0 0 0 1px var(--color-background),
+    0 0 0 3px var(--color-ring);
   background-color: var(--color-background);
 }
 
@@ -1114,15 +600,17 @@ textarea:not(.input-inline) {
 .dark input:not(.input-inline),
 .dark textarea:not(.input-inline) {
   background-color: var(--color-input);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   color: var(--color-foreground);
   box-shadow: none;
 }
 
-.dark input:not(.input-inline):focus,
-.dark textarea:not(.input-inline):focus {
-  border-color: var(--color-border-active);
-  box-shadow: 0 0 0 2px oklch(from var(--color-ring) l c h / 0.15);
+.dark input:not(.input-inline):focus-visible,
+.dark textarea:not(.input-inline):focus-visible {
+  border-color: var(--color-ring);
+  box-shadow:
+    0 0 0 1px var(--color-background),
+    0 0 0 3px var(--color-ring);
 }
 
 /* Card styling - elevated parchment */
@@ -1223,62 +711,6 @@ a:hover {
 
 .dark .icon-monochrome {
   filter: invert(1);
-}
-
-/* Toast — opaque dark HUD surface, same in light & dark mode */
-.toast-surface {
-  background: oklch(0.15 0.006 260);
-  border: 1px solid oklch(0.25 0.006 260);
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.04),
-    0 8px 24px -4px oklch(0 0 0 / 0.5),
-    0 2px 8px -2px oklch(0 0 0 / 0.3);
-}
-
-/* Enter from the physical outer edge of the direction-aware toast stack. */
-.toast-enter {
-  --toast-enter-x: 1rem;
-  animation: toast-enter 300ms ease-out;
-}
-
-[dir="rtl"] .toast-enter {
-  --toast-enter-x: -1rem;
-}
-
-@keyframes toast-enter {
-  from {
-    opacity: 0;
-    transform: translateX(var(--toast-enter-x)) scale(0.98);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .toast-enter {
-    animation: none;
-  }
-}
-
-@keyframes toast-progress {
-  from {
-    width: 100%;
-  }
-  to {
-    width: 0%;
-  }
-}
-
-@keyframes toast-border-progress {
-  from {
-    stroke-dashoffset: 0;
-  }
-  to {
-    stroke-dashoffset: 1;
-  }
 }
 
 /* Model picker LED pulse animation */
@@ -1433,6 +865,18 @@ a:hover {
   100% {
     transform: translateX(300%);
   }
+}
+
+/* Loading pulse for progress (DESIGN.md "Motion"). Opacity only, so it is the
+   loop that keeps running under reduced motion (re-declared there). */
+@keyframes progress-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.progress-pulse {
+  animation: progress-pulse calc(var(--motion-hero) * 4) var(--motion-ease-std) infinite;
 }
 
 /* Action processing scanner sweep */
@@ -1657,17 +1101,6 @@ a:hover {
   display: none;
 }
 
-/* Transcript tab indicator while a meeting is being recorded. */
-@keyframes ow-wave {
-  0%,
-  100% {
-    transform: scaleY(0.4);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -1762,16 +1195,24 @@ a:hover {
 .thinking-shimmer-text {
   background: linear-gradient(
     90deg,
-    oklch(0.65 0.01 260) 0%,
-    oklch(0.85 0.02 240) 40%,
-    oklch(0.65 0.01 260) 60%,
-    oklch(0.78 0.015 250) 100%
+    var(--color-muted-foreground) 0%,
+    var(--color-foreground) 40%,
+    var(--color-muted-foreground) 60%,
+    var(--color-muted-foreground) 100%
   );
   background-size: 200% 100%;
-  animation: thinking-shimmer 2s ease-in-out infinite;
+  animation: thinking-shimmer var(--motion-thinking-shimmer) linear infinite;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-shimmer-text {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: var(--color-muted-foreground);
+  }
 }
 
 @keyframes agent-loading-dot {
@@ -1813,31 +1254,40 @@ a:hover {
   /* Centers the text in the page column (PAGE_CONTENT_WIDTH_CLASS) with padding, not a
      max-width, so the editable area spans the pane and a margin click places the caret. */
   padding-inline: max(1.25rem, calc((100% - var(--container-5xl)) / 2 + 1.25rem));
-  font-size: 0.875rem;
-  line-height: 1.7;
+  font-size: 1rem;
+  line-height: 1.65;
   color: var(--color-foreground);
   caret-color: var(--color-foreground);
 }
 
+/* WS-R6 B: a readable measure. Blocks cap at 68ch inside the page padding. */
+.rich-text-editor-content > * {
+  max-width: 68ch;
+}
+
 .rich-text-editor-content h1 {
-  font-size: 1.125rem;
-  font-weight: 700;
-  margin-top: 1rem;
-  margin-bottom: 0.25rem;
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .rich-text-editor-content h2 {
-  font-size: 1rem;
+  font-size: 1.1875rem;
+  line-height: 1.3;
   font-weight: 600;
-  margin-top: 0.75rem;
-  margin-bottom: 0.25rem;
+  margin-top: 1.25rem;
+  margin-bottom: 0.375rem;
 }
 
 .rich-text-editor-content h3 {
-  font-size: 0.875rem;
+  font-size: 1rem;
+  line-height: 1.4;
   font-weight: 600;
-  margin-top: 0.5rem;
-  margin-bottom: 0.125rem;
+  margin-top: 1rem;
+  margin-bottom: 0.25rem;
 }
 
 .rich-text-editor-content p {
@@ -1892,8 +1342,24 @@ a:hover {
   background: oklch(0.5 0 0 / 0.06);
   border-radius: 2px;
   padding: 1px 3px;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+
+.rich-text-editor-content a {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--color-link) 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+.rich-text-editor-content a:hover {
+  opacity: 1;
+}
+
+.rich-text-editor-content a:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
 
 .rich-text-editor-content hr {
@@ -1982,6 +1448,20 @@ a:hover {
   color: oklch(0.7 0 0 / 0.2);
 }
 
+/* WS-R6 B: opacity-only feedback also remains under reduced motion. */
+.bubble-toolbar {
+  animation: bubble-toolbar-in var(--motion-instant) var(--motion-ease-enter) both;
+}
+
+@keyframes bubble-toolbar-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* Colour emoji fonts per platform. Keep in sync with EMOJI_FONT_FAMILY in
    src/lib/emojiData.ts, which probes emoji support with the same stack. */
 .font-emoji {
@@ -2039,7 +1519,7 @@ a:hover {
   stroke-dasharray: 6 4;
 }
 .locality-ring[data-locality="remote"][data-active="true"] .locality-ring__svg {
-  animation: locality-orbit 6s linear infinite;
+  animation: locality-orbit var(--motion-locality-orbit) linear infinite;
 }
 .locality-ring__content {
   position: relative;
@@ -2070,4 +1550,676 @@ a:hover {
   .locality-ring__svg {
     animation: none !important;
   }
+}
+
+/* Capture rail (WS-R3 C). The sidebar edge breathes with the mic: idle is
+   invisible, listening follows --capture-level in live orange, Cleaning up is
+   amber with one band travelling down, offline is solid warning (the mic card
+   names the reason). Orange appears only while the mic is live (D1). */
+.capture-rail {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(to bottom, var(--color-live), var(--color-accent));
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.capture-rail[data-state="listening"] {
+  opacity: calc(0.25 + var(--capture-level, 0.4) * 0.75);
+  box-shadow: 0 0 calc(var(--capture-level, 0) * 12px) rgb(255 90 31 / 0.45);
+}
+.capture-rail[data-state="processing"] {
+  opacity: 0.7;
+  background: var(--color-warning);
+}
+.capture-rail[data-state="processing"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  block-size: 120px;
+  background: rgb(255 255 255 / 0.95);
+  animation: capture-rail-travel var(--motion-loop-travel) linear infinite;
+}
+.capture-rail[data-state="offline"] {
+  opacity: 1;
+  background: var(--color-warning);
+}
+@keyframes capture-rail-travel {
+  from {
+    transform: translateY(-120px);
+  }
+  to {
+    transform: translateY(100vh);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .capture-rail {
+    transition: none;
+  }
+  .capture-rail[data-state="processing"]::after {
+    display: none;
+    animation: none;
+    transform: none;
+  }
+  .capture-rail[data-state="listening"] {
+    opacity: 1;
+    box-shadow: none;
+  }
+}
+
+/* History metadata keeps the shared ring's decorative provider monogram
+   readable at this compact size, without changing rings on other surfaces. */
+[data-transcript-id] .locality-ring__badge {
+  font-size: var(--text-micro);
+}
+
+/* WS-Q3: a deep-linked history row rings for 1.2s. */
+[data-focused="true"] {
+  border-radius: var(--radius-md, 8px);
+  animation: history-row-focus var(--motion-dwell-ring) var(--motion-ease-std) both;
+}
+@keyframes history-row-focus {
+  0%,
+  70% {
+    box-shadow: inset 0 0 0 2px var(--color-ring);
+  }
+  100% {
+    box-shadow: inset 0 0 0 2px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-focused="true"] {
+    animation: none;
+    box-shadow: inset 0 0 0 2px var(--color-ring);
+  }
+}
+
+/* Patchbay (DESIGN.md "Settings · Routing"). The list is the DOM; cables
+   are decoration. Shape carries locality: solid device, dotted network,
+   dashed remote. */
+.patchbay-board[data-layout="board"] {
+  display: grid;
+  grid-template-columns: minmax(250px, 300px) minmax(48px, 1fr) minmax(240px, 300px);
+}
+.patchbay-board[data-layout="board"] .patchbay-tasks {
+  grid-column: 1;
+}
+.patchbay-board[data-layout="board"] .patchbay-destinations {
+  grid-column: 3;
+}
+.patchbay-board[data-layout="list"] {
+  display: grid;
+  gap: 1rem;
+}
+.patchbay-board[data-layout="list"] .patchbay-jack {
+  display: none;
+}
+.patchbay-tasks,
+.patchbay-destinations {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+.patchbay-destinations {
+  gap: 0.5rem;
+}
+.patchbay-task,
+.patchbay-destination {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding-block: 0.25rem;
+  padding-inline-start: 0.625rem;
+  padding-inline-end: 1.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  text-align: start;
+}
+.patchbay-destination {
+  display: block;
+  min-height: 62px;
+  padding-block: 0.5rem;
+  padding-inline-start: 1rem;
+  padding-inline-end: 0.75rem;
+}
+.patchbay-destination[data-locality="remote"] {
+  border-style: dashed;
+}
+.patchbay-task[aria-pressed="true"] {
+  border-color: var(--color-ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 20%, transparent);
+}
+.patchbay-task[data-staged="true"] {
+  border: 1.5px dashed var(--color-locality-remote);
+}
+.patchbay-task[aria-disabled="true"] {
+  background: var(--color-muted);
+  color: var(--color-muted-foreground);
+}
+.patchbay-destination[data-compat="ok"] {
+  border: 2px solid var(--color-ring);
+}
+.patchbay-destination[data-compat="no"] {
+  opacity: 0.45;
+}
+.patchbay-task:focus-visible,
+.patchbay-destination:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+.patchbay-jack {
+  position: absolute;
+  inset-block-start: 50%;
+  width: 18px;
+  height: 18px;
+  margin-block-start: -9px;
+  border-radius: 9999px;
+  border: 2.5px solid var(--color-locality-device);
+  background: var(--color-background);
+}
+.patchbay-task .patchbay-jack {
+  inset-inline-end: -9px;
+}
+.patchbay-destination .patchbay-jack {
+  inset-inline-start: -9px;
+}
+.patchbay-jack[data-locality="network"] {
+  border-color: var(--color-locality-network);
+  border-style: dotted;
+}
+.patchbay-jack[data-locality="remote"] {
+  border-color: var(--color-locality-remote);
+  border-style: dashed;
+}
+.patchbay-cables {
+  position: absolute;
+  inset-block: 0;
+  inset-inline: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.patchbay-cables path {
+  fill: none;
+  stroke: var(--color-locality-device);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  animation: patchbay-cable-in var(--motion-base) var(--motion-ease-enter) both;
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.patchbay-cables path[data-locality="network"] {
+  stroke: var(--color-locality-network);
+  stroke-dasharray: 0.5 5;
+}
+.patchbay-cables path[data-locality="remote"] {
+  stroke: var(--color-locality-remote);
+  stroke-dasharray: 6 5;
+}
+.patchbay-cables path[data-paused="true"] {
+  opacity: 0.55;
+  stroke-dasharray: 2 6;
+}
+.patchbay-cables path[data-dim="true"] {
+  opacity: 0.16;
+}
+.patchbay-meter-seg {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-locality-device);
+}
+.patchbay-meter-seg[data-locality="network"] {
+  background: var(--color-locality-network);
+}
+.patchbay-meter-seg[data-locality="remote"] {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-locality-remote) 0 3px,
+    transparent 3px 5px
+  );
+  outline: 1px solid var(--color-locality-remote);
+  outline-offset: -1px;
+}
+@keyframes patchbay-cable-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Settings search landing (SET-R2 A): the row you jumped to flashes once. */
+@property --settings-flash {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+[data-setting-id][data-flash="true"] {
+  outline: 2px solid
+    color-mix(in srgb, var(--color-ring) calc(var(--settings-flash) * 100%), transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
+  background-color: color-mix(
+    in srgb,
+    var(--color-ring) calc(var(--settings-flash) * 16%),
+    transparent
+  );
+  animation: settings-flash var(--motion-flash) var(--motion-ease-std) both;
+}
+@keyframes settings-flash {
+  0%,
+  40% {
+    --settings-flash: 1;
+  }
+  100% {
+    --settings-flash: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Reduced motion: no background flash, just the outline cue. The global policy sets
+     animation-duration to 0.01ms !important on every element; this rule outranks it
+     (higher specificity, also !important) so the outline fades over --motion-flash and
+     animationend still fires. */
+  [data-setting-id][data-flash="true"] {
+    background-color: transparent;
+    animation-duration: var(--motion-flash) !important;
+  }
+}
+
+/* WS-R8 B: active thinking and document citation feedback. */
+.thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.thinking-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.35;
+  animation: thinking-dot var(--motion-loop-pulse) var(--motion-ease-std) infinite;
+}
+.thinking-dots i:nth-child(2) {
+  animation-delay: var(--motion-loop-stagger);
+}
+.thinking-dots i:nth-child(3) {
+  animation-delay: calc(var(--motion-loop-stagger) * 2);
+}
+@keyframes thinking-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.citation-in {
+  animation: citation-in var(--motion-fast) var(--motion-ease-enter) both;
+}
+@keyframes citation-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Shared link hover must retain readable paint despite the global anchor rule. */
+a.markdown-link:hover {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots i,
+  .citation-in,
+  .document-stream-cursor {
+    animation: none !important;
+  }
+  .thinking-dots i {
+    opacity: 0.7;
+  }
+}
+
+/* The Table (WS-M5, Labs). The world is physical like a map; only chrome
+   (toolbar, inbox, selection bar) uses logical properties. */
+.table-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  background-color: var(--color-background);
+  background-image: radial-gradient(circle, var(--color-table-dot) 1px, transparent 1.3px);
+}
+.table-canvas[data-panning="true"] {
+  cursor: grabbing;
+}
+.table-canvas:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+.table-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.table-card-plane {
+  contain: layout style;
+}
+.table-connectors {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.table-connectors path {
+  fill: none;
+  stroke: var(--color-table-connector);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+.table-card {
+  position: absolute;
+  padding: 12px 14px;
+  border: 1px solid var(--color-table-card-border);
+  border-radius: 10px;
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 8px 20px -12px rgb(0 0 0 / 0.25);
+  cursor: grab;
+  user-select: none;
+}
+.table-card[data-kind="chat"] {
+  border-inline-start: 3px solid var(--color-agent-brand);
+}
+.table-card[aria-selected="true"] {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 1px;
+}
+.table-card:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 3px;
+}
+.table-card[data-dragging="true"] {
+  cursor: grabbing;
+  box-shadow: 0 18px 38px -12px rgb(0 0 0 / 0.4);
+}
+.table-card[data-snapping="true"] {
+  transition:
+    left var(--motion-slow) var(--motion-spring-snap),
+    top var(--motion-slow) var(--motion-spring-snap);
+}
+.table-card__kind {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 5px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+}
+.table-card__title {
+  margin: 0 0 4px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 600;
+}
+.table-card__excerpt {
+  margin: 0;
+  font-size: var(--text-ui);
+  line-height: var(--text-ui--line-height);
+  color: var(--color-muted-foreground);
+}
+.table-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted-foreground);
+}
+.table-card__people {
+  display: inline-flex;
+}
+.table-card__avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-inline-end: -4px;
+  border: 1px solid var(--color-card);
+  border-radius: 999px;
+  background: var(--color-muted);
+  font-size: var(--text-micro);
+  font-weight: 700;
+}
+.table-lasso {
+  position: absolute;
+  border: 1px solid var(--color-ring);
+  background: color-mix(in srgb, var(--color-ring) 10%, transparent);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-card[data-snapping="true"] {
+    transition: none;
+  }
+}
+
+/* The Table: Task7 chrome and full-content reader. */
+.table-view {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-block: 8px;
+  padding-inline: 14px;
+}
+.table-toolbar__zoom {
+  min-width: 42px;
+  text-align: center;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.table-toolbar__hint,
+.table-status {
+  font-size: var(--text-caption);
+  color: var(--color-muted-foreground);
+}
+.table-status {
+  margin: 0;
+  padding-inline: 14px;
+  min-height: 1em;
+}
+.table-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.table-inbox {
+  width: 220px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--color-table-card-border);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+.table-inbox__title {
+  margin: 0;
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.table-inbox__hint {
+  margin: 2px 0 8px;
+  font-size: var(--text-caption);
+  color: var(--color-muted-foreground);
+}
+.table-inbox__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.table-inbox__item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px;
+  border: 1px dashed var(--color-table-card-border);
+  border-radius: 8px;
+  background: var(--color-background);
+  font-size: var(--text-caption);
+  text-align: start;
+  cursor: grab;
+}
+.table-inbox__kind {
+  font-size: var(--text-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+}
+.table-ask {
+  width: 360px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border: 1px solid var(--color-table-card-border);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+.table-selbar {
+  position: absolute;
+  inset-block-end: 24px;
+  inset-inline-start: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding-inline: 10px;
+  border: 1px solid var(--color-table-card-border);
+  border-radius: 999px;
+  background: var(--color-popover);
+  box-shadow: 0 12px 28px -12px rgb(0 0 0 / 0.35);
+}
+[dir="rtl"] .table-selbar {
+  translate: 50% 0;
+}
+.table-selbar__count {
+  padding-inline: 6px;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.table-selbar__machine {
+  color: var(--color-ai-text);
+}
+.table-selbar__note,
+.table-ask__scope {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--color-muted-foreground);
+}
+.table-ask__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.table-ask__recovery {
+  padding: 12px;
+  font-size: var(--text-caption);
+}
+.table-ask__words {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.table-detail {
+  width: 360px;
+  flex-shrink: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--color-table-card-border);
+  border-radius: 12px;
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+}
+.table-detail:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+.table-detail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.table-detail__head h2 {
+  font-size: var(--text-ui);
+}
+.table-detail__text {
+  font-size: var(--text-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Physical world-space corner; chrome alone follows text direction. The card
+   stays unmasked so its focus outline and the resize target remain opaque. */
+.table-card__resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border-right: 2px solid var(--color-table-card-border);
+  border-bottom: 2px solid var(--color-table-card-border);
+  border-bottom-right-radius: 4px;
+  cursor: nwse-resize;
+  opacity: 0;
+}
+.table-card:hover .table-card__resize,
+.table-card:focus-visible .table-card__resize,
+.table-card[aria-selected="true"] .table-card__resize {
+  opacity: 1;
+}
+
+/* Clip and fade content only: outer focus, borders and the handle stay opaque. */
+.table-card[data-sized="true"] > .table-card__content {
+  height: 100%;
+  overflow: hidden;
+}
+.table-card__content[data-overflowing="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
 }

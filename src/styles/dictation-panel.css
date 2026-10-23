@@ -163,7 +163,7 @@
    the pill's native-window footprint or redrawing the raster brand mark. */
 .voice-identity-listening,
 .voice-identity-agent {
-  transition: opacity 240ms ease-in-out;
+  transition: opacity var(--motion-base) var(--motion-ease-std);
 }
 
 .voice-identity-agent {
@@ -182,7 +182,7 @@
 @media (prefers-reduced-motion: reduce) {
   .voice-identity-listening,
   .voice-identity-agent {
-    transition: none;
+    transition: opacity var(--motion-base) var(--motion-ease-std);
   }
 }
 
@@ -247,16 +247,7 @@
   }
 }
 
-.voice-pill-control[data-agent-beam-active="true"] {
-  box-shadow:
-    var(--shadow-card),
-    0 0 0 1px color-mix(in oklch, var(--color-agent-brand) 28%, transparent),
-    0 0 10px color-mix(in oklch, var(--color-agent-brand) 18%, transparent);
-}
-
-/* While the cancel button's liquid skin owns the fused surface, the pill goes
-   headless like inside the Live Transcript panel. Placed after the agent-beam
-   rule so a fused pill never keeps the brand glow ring on its own box. */
+/* While the cancel skin owns the fused surface, the pill goes headless. */
 .voice-pill-control[data-liquid-fused="true"] {
   border-color: transparent;
   background-color: transparent;
@@ -277,8 +268,8 @@
   fill: var(--color-surface-1);
   stroke: var(--color-border-hover);
   transition:
-    fill 220ms ease-out,
-    stroke 220ms ease-out;
+    fill var(--motion-fast) var(--motion-ease-std),
+    stroke var(--motion-fast) var(--motion-ease-std);
 }
 
 .liquid-cancel-skin[data-pill-state="hover"] path {
@@ -331,7 +322,7 @@
   border-radius: 9999px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 220ms ease-out;
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
 }
 
 /* Agent Mode keeps the identical glow in its purple identity. */
@@ -413,11 +404,12 @@
 /* Animations only run while active so the always-visible idle pill costs
    nothing; the 220ms fade covers the frozen final frame on exit. */
 .processing-signal-glow[data-active="true"]::before {
-  animation: processing-signal-breathe 1.9s ease-in-out infinite;
+  animation: processing-signal-breathe var(--motion-signal-breathe) var(--motion-ease-ambient)
+    infinite;
 }
 
 .processing-signal-glow[data-active="true"] {
-  animation: processing-signal-spin 1.6s linear infinite;
+  animation: processing-signal-spin var(--motion-signal-comet) linear infinite;
 }
 
 @keyframes processing-signal-spin {
@@ -558,16 +550,16 @@
   opacity: 1;
   filter: blur(0);
   transition:
-    opacity 260ms ease-out,
-    filter 260ms ease-out;
+    opacity var(--motion-base) var(--motion-ease-enter),
+    filter var(--motion-base) var(--motion-ease-enter);
 }
 
 .assistant-response-content-updating {
   opacity: 0.42;
   filter: blur(4px);
   transition:
-    opacity 480ms ease-in-out,
-    filter 480ms ease-in-out;
+    opacity var(--motion-slow) var(--motion-ease-exit),
+    filter var(--motion-slow) var(--motion-ease-exit);
   will-change: opacity, filter;
 }
 
@@ -600,7 +592,7 @@
 .assistant-tool-invocation-status {
   box-shadow:
     inset 0 1px 0 color-mix(in oklch, var(--color-foreground) 5%, transparent),
-    var(--shadow-card);
+    var(--shadow-card, 0 2px 8px rgb(0 0 0 / 0.12));
 }
 
 .assistant-tool-invocation-pulse::after {
@@ -655,7 +647,300 @@
   }
 }
 
+/* VO-R1 C stage chrome. Labels truncate inside the fixed footprints so long
+   translations never widen the pill past the 184px dock budget. */
+.pill-stage-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 12.5px/1 var(--font-family-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* VoicePill's own transitions, on the shared tokens (spec §4). The sheen and
+   the level bars only fade. The identity/chevron swap also drops 4px and
+   scales; Tailwind v4's translate-* and scale-* set the individual translate
+   and scale properties, so both are listed. Under reduced motion index.css
+   drops transform, translate and scale from transition-property, and the
+   fade stays. */
+.voice-pill-sheen,
+.voice-pill-levels {
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.voice-pill-identity-logo,
+.voice-pill-expand-chevron {
+  transition-property: opacity, transform, translate, scale;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--motion-ease-std);
+}
+.voice-pill-identity-icon {
+  transition:
+    width var(--motion-base) var(--motion-ease-std),
+    height var(--motion-base) var(--motion-ease-std);
+}
+
+.voice-pill-control[data-pill-state="pasted"] {
+  border-color: var(--color-success);
+}
+.voice-pill-control[data-pill-state="failed"] {
+  border-color: var(--color-destructive);
+  animation: pill-nudge var(--motion-nudge) var(--motion-ease-std) 1;
+}
+.voice-pill-control[data-pill-state="recording"] {
+  border-color: var(--color-ring);
+}
+
+.pill-success-check {
+  color: var(--color-success);
+  stroke-dasharray: 24;
+  animation:
+    draw-check var(--motion-base) var(--motion-ease-std) var(--motion-instant) both,
+    pill-pop var(--motion-bounce) var(--motion-spring-bounce) both;
+}
+@keyframes pill-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+@keyframes pill-nudge {
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(0);
+  }
+}
+
+/* D3 undo window: a 2px live-orange underline that shrinks over the window
+   and freezes while the pointer rests on the pill (the RAM hold pauses too). */
+.pill-countdown {
+  position: absolute;
+  inset-inline: 14px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-ring);
+  transform-origin: left center;
+  animation-name: pill-countdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+[dir="rtl"] .pill-countdown {
+  transform-origin: right center;
+}
+.pill-countdown[data-paused="true"] {
+  animation-play-state: paused;
+}
+@keyframes pill-countdown {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Transcribing is all orange; cleaning keeps Plan 01's orange→magenta tail. */
+.processing-signal-glow[data-stage="transcribing"] {
+  --signal-deep: var(--signal-core);
+}
+
+/* Words and honest copy live on their own layer above the pill (D9). */
+.pill-caption {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0; /* physical dock; measured clamping also follows in-flight travel */
+  width: max-content;
+  max-width: min(184px, calc(100vw - 24px));
+  max-height: 48px; /* first-paint fallback; actual space above is measured */
+  box-sizing: border-box;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ring) var(--color-popover);
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
+  font: 500 12px/1.35 var(--font-family-sans);
+  animation: notice-in var(--motion-base) var(--motion-ease-enter) both;
+}
+.pill-caption[data-direction="left"] {
+  left: 0;
+  right: auto;
+}
+.pill-caption:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.locality-ring--blocked {
+  /* The strike carries blocking; opacity would erase the ring contrast. */
+  opacity: 1;
+}
+.locality-ring--blocked::after {
+  content: "";
+  position: absolute;
+  inset: 45% -2px auto;
+  height: 2px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
+
+.liquid-cancel-skin[data-pill-state="transcribing"] path,
+.liquid-cancel-skin[data-pill-state="cleaning"] path {
+  stroke: color-mix(in oklab, var(--color-border) 60%, transparent);
+}
+.liquid-cancel-skin[data-pill-state="recording"] path {
+  stroke: var(--color-ring);
+}
+.liquid-cancel-skin[data-pill-state="pasted"] path {
+  stroke: var(--color-success);
+}
+.liquid-cancel-skin[data-pill-state="failed"] path {
+  stroke: var(--color-destructive);
+}
+/* Stage edges yield to the current surface owner, including a lingering
+   skin during its exit. These come after the semantic state-edge rules. */
+.voice-pill-control[data-liquid-fused="true"],
+.voice-pill-control[data-integrated-with-panel="true"] {
+  border-color: transparent;
+}
+
+/* Word rows have their own clipped track; let only their decorative spark
+   travel through the gap. Disclosure captions keep their bounded scroll box. */
+.pill-caption:has(.condense-track) {
+  overflow: visible;
+}
+
+/* Condensation (VO-R1 C): words land in the caption layer, newest at the end;
+   older words fade out under a 24px mask on the leading edge. */
+.condense-track {
+  display: flex;
+  max-width: 100%;
+  padding-block-end: 3px; /* keep the rewrite underline inside the clipped track */
+  justify-content: flex-end;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(90deg, transparent, #000 24px);
+}
+[dir="rtl"] .condense-track {
+  mask-image: linear-gradient(270deg, transparent, #000 24px);
+}
+/* The picked beat: the spark flies --motion-condense-fly (140ms) and the word
+   lands over --motion-condense-land (220ms), starting one --motion-instant
+   after the spark leaves, so it settles as the spark fades. */
+.condense-word {
+  position: relative;
+  flex: none;
+  font: 500 13px/1.3 var(--font-family-sans);
+  animation: condense-in var(--motion-condense-land) var(--motion-ease-enter) var(--motion-instant)
+    both;
+}
+.condense-word.is-partial {
+  opacity: 0.7;
+  font-style: italic;
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+@keyframes condense-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(6px);
+  }
+}
+.condense-word.is-changed::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-ring);
+  animation: condense-underline var(--motion-rewrite-underline) var(--motion-ease-std) both;
+}
+@keyframes condense-underline {
+  to {
+    opacity: 0;
+  }
+}
+/* The spark: a 2px mark that rises from the pill's top-edge height (the caption sits
+   8px above the pill) to the newest word at the row's trailing end, then
+   fades. A wide row may place it beside a narrow pill, at the trailing word
+   slot. The rise and the fade are two animations, so each runs on a token
+   and the rise is exactly --motion-condense-fly. It is positioned on
+   .pill-caption, outside the masked track, and never overlaps the pill's
+   bars (D9). */
+.condense-spark {
+  position: absolute;
+  inset-inline-end: 18px;
+  bottom: -8px;
+  width: 2px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--color-ring);
+  animation:
+    condense-spark-rise var(--motion-condense-fly) var(--motion-ease-std) both,
+    condense-spark-fade var(--motion-fast) var(--motion-ease-exit) var(--motion-condense-fly) both;
+  pointer-events: none;
+}
+@keyframes condense-spark-rise {
+  from {
+    transform: translateY(0) scaleY(1);
+  }
+  to {
+    transform: translateY(-14px) scaleY(0.3);
+  }
+}
+@keyframes condense-spark-fade {
+  to {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* No flight. The words still fade in, and the rewrite underline is colour,
+     not movement, so it keeps its full length. index.css crushes every
+     animation to 0.01ms here, hence !important. */
+  .condense-spark {
+    display: none;
+  }
+  .condense-word {
+    animation: notice-fade var(--motion-fast) linear both !important;
+  }
+  .condense-word.is-changed::after {
+    animation-duration: var(--motion-rewrite-underline) !important;
+  }
+
+  /* Movement goes; the cue stays. The red edge carries a failure without the
+     nudge. The check and the caption fade in instead of popping or rising.
+     index.css crushes every animation to 0.01ms under reduced motion, so the
+     fade needs !important to keep its length. */
+  .voice-pill-control[data-pill-state="failed"] {
+    animation: none;
+  }
+  .pill-success-check,
+  .pill-caption {
+    animation: notice-fade var(--motion-fast) linear both !important;
+  }
+  /* index.css forces animation-duration: 0.01ms !important on everything under
+     reduced motion; the countdown is information, not decoration, so it keeps
+     its real length and steps in fifths instead of sliding. */
+  .pill-countdown {
+    animation-duration: var(--undo-ms) !important;
+    animation-iteration-count: 1 !important;
+    animation-timing-function: steps(5, end) !important;
+  }
   .expanding-panel-surface {
     transition-duration: 1ms;
   }
@@ -704,4 +989,273 @@
   .assistant-response-content-updating {
     filter: none;
   }
+}
+
+.voice-pill-shadow {
+  box-shadow: var(--shadow-card, 0 2px 8px rgb(0 0 0 / 0.12));
+}
+
+.voice-pill-presence-fade {
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.pill-undo-shortcut {
+  unicode-bidi: isolate;
+  font-family: inherit;
+  position: absolute;
+  inset-inline-end: 14px;
+  bottom: -8px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-muted-foreground);
+  pointer-events: none;
+}
+
+/* Preserve LevelBars' canonical fill and sampler. The live-orange boundary
+   keeps its brighter gradient endpoint legible on the light capsule. */
+.voice-pill-levels [data-level-bar] {
+  outline: 1px solid var(--color-ring);
+}
+
+/* Agent Mode (VO-R8 B): violet orbit, satellites, radial level ticks. */
+.agent-orbit {
+  --agent-orbit-period: var(--motion-agent-thinking);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--color-agent-brand) 85%, var(--color-foreground));
+}
+.agent-orbit__ticks {
+  position: absolute;
+  inset: -12px;
+  width: 64px;
+  height: 64px;
+}
+.agent-orbit__ticks line {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.agent-orbit__ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  padding: 2px;
+  background: conic-gradient(from var(--signal-angle), transparent 0 40%, currentColor 80% 100%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+.agent-orbit[data-phase="thinking"] .agent-orbit__ring {
+  animation: agent-orbit var(--motion-agent-thinking) linear infinite;
+}
+/* The spin-up uses the shared token for its picked 1.2 s cadence. The
+   dissolve is an ordinary exit: --motion-hero after --motion-slow, which ends
+   at 880 ms, inside useAgentAnswering's AGENT_ANSWERING_MS. */
+.agent-orbit[data-phase="answering"] {
+  --agent-orbit-period: var(--motion-agent-answering);
+}
+.agent-orbit[data-phase="answering"] .agent-orbit__ring {
+  animation:
+    agent-orbit var(--motion-agent-answering) linear infinite,
+    agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow) forwards;
+}
+.agent-orbit__satellite {
+  position: absolute;
+  inset: 0;
+  animation: agent-satellite var(--agent-orbit-period) linear infinite;
+}
+.agent-orbit__satellite::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 50%;
+  top: -5px;
+  width: 4px;
+  height: 4px;
+  margin-inline-start: -2px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.agent-orbit__satellite--b {
+  animation-delay: calc(-0.5 * var(--agent-orbit-period));
+}
+.agent-orbit__satellite--b::before {
+  background: white;
+  border: 1px solid currentColor;
+}
+.voice-pill-control[data-agent-mode="true"][data-pill-state="thinking"] .voice-identity-agent {
+  animation: agent-breathe var(--motion-agent-thinking) var(--motion-ease-ambient) infinite;
+}
+@keyframes agent-orbit {
+  to {
+    --signal-angle: 360deg;
+  }
+}
+@keyframes agent-orbit-fade {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes agent-satellite {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes agent-breathe {
+  50% {
+    transform: scale(1.06);
+  }
+}
+/* Satellites dissolve with the ring, inside the answering owner. Their
+   shared active period keeps the two dots half a cycle apart in both phases. */
+.agent-orbit[data-phase="answering"] .agent-orbit__satellite::before {
+  animation: agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-orbit__ring,
+  .agent-orbit__satellite,
+  .voice-pill-control[data-agent-mode="true"] .voice-identity-agent {
+    animation: none !important;
+    transform: none;
+  }
+  .agent-orbit__ring {
+    background: currentColor;
+  }
+  .agent-orbit[data-phase="answering"] .agent-orbit__ring,
+  .agent-orbit[data-phase="answering"] .agent-orbit__satellite::before {
+    /* Keep the opacity exit; outrank the global reduced-motion duration reset. */
+    animation: agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow)
+      forwards !important;
+  }
+}
+
+/* The tooltip keeps the shared caption fit/scroll/focus policy. The invisible
+   bridge covers its 8px gap so pointer travel into the reading surface stays open. */
+.pill-tooltip-anchor:has(.pill-tooltip)::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: 8px;
+}
+.pill-tooltip {
+  padding: 6px 8px;
+  z-index: 10;
+  animation: none;
+}
+
+/* VO-Q19: idle contrast on any wallpaper, with a light-theme shadow fallback. */
+.voice-pill-control {
+  --pill-hairline: rgb(255 255 255 / 0.7);
+}
+.dark .voice-pill-control {
+  --pill-hairline: rgb(0 0 0 / 0.4);
+}
+.voice-pill-control[data-pill-state="idle"]:not([data-liquid-fused]) {
+  box-shadow:
+    0 0 0 1px var(--pill-hairline),
+    var(--shadow-card, 0 1px 3px rgb(0 0 0 / 0.12));
+}
+
+/* VO-Q20: the fused cancel skin keeps the comet, without a filled halo. */
+.voice-pill-glow-anchor:has(.voice-pill-control[data-liquid-fused="true"])
+  .processing-signal-glow::before,
+.voice-pill-glow-anchor:has(.voice-pill-control[data-liquid-fused="true"])
+  .processing-signal-glow::after {
+  opacity: 0;
+  animation: none;
+}
+
+/* VO-R12 A inside the pill (D2). */
+.meeting-capsule {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding-inline: 10px 4px;
+  font: 600 12px/1 var(--font-family-sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.meeting-capsule__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-live);
+  border: 1px solid var(--color-foreground);
+  transition: background var(--motion-fast) var(--motion-ease-std);
+}
+.meeting-capsule[data-rs="recording"] .meeting-capsule__dot {
+  animation: meeting-dot var(--motion-meeting-dot) var(--motion-ease-ambient) infinite;
+}
+.meeting-capsule[data-rs="quiet"] .meeting-capsule__dot {
+  background: color-mix(in oklch, var(--color-live) 45%, var(--color-surface-1));
+}
+.meeting-capsule[data-rs="lost"] .meeting-capsule__dot {
+  background: var(--color-warning);
+}
+.voice-pill-control[data-pill-state="meeting"]:has(.meeting-capsule[data-rs="lost"]) {
+  border-color: var(--color-warning);
+  box-shadow:
+    0 0 0 2px color-mix(in oklch, var(--color-warning) 55%, transparent),
+    var(--shadow-card, 0 1px 3px rgb(0 0 0 / 0.12));
+}
+.meeting-capsule__note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+}
+.meeting-capsule__stop {
+  margin-inline-start: auto;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: var(--color-foreground);
+}
+.meeting-capsule__stop::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--color-background);
+}
+@keyframes meeting-dot {
+  50% {
+    background: color-mix(in oklch, var(--color-live) 55%, var(--color-surface-1));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .meeting-capsule[data-rs="recording"] .meeting-capsule__dot,
+  .meeting-capsule__dot {
+    animation: none;
+  }
+}
+
+/* Only the recorder setting owns these boundaries; the shared Toggle stays unchanged. */
+:is([data-setting-id="meetingRecorderOnScreen"], [data-result="meetingRecorderOnScreen"])
+  button[role="switch"] {
+  outline: 1px solid var(--color-foreground);
+  outline-offset: -1px;
+}
+:is([data-setting-id="meetingRecorderOnScreen"], [data-result="meetingRecorderOnScreen"])
+  button[role="switch"][aria-checked="false"]
+  > span {
+  background: var(--color-foreground);
+}
+:is([data-setting-id="meetingRecorderOnScreen"], [data-result="meetingRecorderOnScreen"])
+  button[role="switch"][aria-checked="true"]
+  > span {
+  background: var(--color-primary-foreground);
 }

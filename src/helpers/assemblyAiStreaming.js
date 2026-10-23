@@ -1,3 +1,9 @@
+const {
+  egressOpen,
+  discardPendingAudio,
+  zeroAudio,
+  sendContentFrame,
+} = require("./streamingHandOff");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -21,6 +27,22 @@ const minFrameBytes = (sampleRate) => Math.ceil((sampleRate * 2 * MIN_FRAME_MS) 
 const maxFrameBytes = (sampleRate) => Math.floor((sampleRate * 2 * MAX_FRAME_MS) / 1000);
 
 class AssemblyAiStreaming {
+  setLifecycleGate(gate) {
+    this._lifecycleGate = gate;
+  }
+  _lifecycleOpen() {
+    return this._lifecycleGate?.() !== false;
+  }
+  setEgressGate(gate) {
+    this._egressGate = gate;
+  }
+  discardPendingAudio() {
+    discardPendingAudio(this);
+  }
+  _egressOpen() {
+    return egressOpen(this);
+  }
+
   constructor() {
     this.ws = null;
     this.sessionId = null;
@@ -139,6 +161,10 @@ class AssemblyAiStreaming {
   }
 
   async warmup(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const { token } = options;
     if (!token) {
       throw new Error("Streaming token is required for warmup");
@@ -356,6 +382,10 @@ class AssemblyAiStreaming {
   }
 
   async connect(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const { token } = options;
     if (!token) {
       throw new Error("Streaming token is required");
@@ -606,11 +636,15 @@ class AssemblyAiStreaming {
   }
 
   sendAudio(pcmBuffer) {
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return false;
     }
 
-    this.pendingAudio.push(pcmBuffer);
+    this.pendingAudio.push(Buffer.from(pcmBuffer));
     this.pendingAudioBytes += pcmBuffer.length;
     const minBytes = minFrameBytes(this.sessionSampleRate);
     if (this.pendingAudioBytes < minBytes) {
@@ -618,6 +652,7 @@ class AssemblyAiStreaming {
     }
 
     const frame = Buffer.concat(this.pendingAudio, this.pendingAudioBytes);
+    for (const part of this.pendingAudio) zeroAudio(part);
     this.pendingAudio = [];
     this.pendingAudioBytes = 0;
 
@@ -628,14 +663,15 @@ class AssemblyAiStreaming {
     let offset = 0;
     while (frame.length - offset >= minBytes) {
       const end = Math.min(offset + maxBytes, frame.length);
-      this.ws.send(frame.subarray(offset, end));
+      sendContentFrame(this, frame.subarray(offset, end));
       offset = end;
     }
     if (offset < frame.length) {
-      const remainder = frame.subarray(offset);
+      const remainder = Buffer.from(frame.subarray(offset));
       this.pendingAudio.push(remainder);
       this.pendingAudioBytes = remainder.length;
     }
+    zeroAudio(frame);
     return true;
   }
 
@@ -688,6 +724,7 @@ class AssemblyAiStreaming {
   }
 
   cleanup() {
+    this.discardPendingAudio();
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
 

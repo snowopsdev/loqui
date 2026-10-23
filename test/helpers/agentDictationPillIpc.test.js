@@ -58,18 +58,20 @@ const electronStub = {
 Module._load = function loadWithMocks(request, parent, isMain) {
   if (request === "electron") return electronStub;
   if (parent?.filename === handlersModulePath) {
-    if (request === "./cortiTranscription") {
-      return { transcribeAudio: async () => ({ text: "corti text" }) };
-    }
-    if (request === "./tinfoilTranscription") {
+    // setupHandlers unconditionally sweeps temp artifacts. Keep every
+    // unrelated main/native/downloader/credential leaf inert through teardown.
+    if (["./onboardingInputPolicy", "./dictationLifecycle", "./rendererRequest"].includes(request))
+      return originalLoad.call(this, request, parent, isMain);
+    if (request === "./urlAudioDownloader")
       return {
-        transcribeWithTinfoil: async () => ({ text: "tinfoil text", model: "tinfoil-model" }),
-        getTinfoilChatModels: () => [],
+        sweepStaleTempArtifacts() {},
+        download() {
+          throw Error("Fixture download forbidden");
+        },
       };
-    }
-    if (request === "./windowBroadcast") {
-      return { broadcastToWindows: () => {} };
-    }
+    if (request.startsWith(".") || request === "fs") return anything();
+    if (/^(?:node:)?(?:child_process|http|https|net|tls|dgram)$/.test(request))
+      throw Error(`Forbidden fixture boundary: ${request}`);
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -289,4 +291,55 @@ test("the final-transcript relay is accepted only from the dictation renderer", 
   assert.deepEqual(shown, []);
   finalTranscriptHandler({ sender: mainContents }, "hello world");
   assert.deepEqual(shown, ["hello world"]);
+});
+
+test("the meeting failure action opens the control panel through its registered IPC", () => {
+  let shown = 0;
+  installWindowManager({
+    _showControlPanel() {
+      shown++;
+    },
+  });
+  const show = handlers.get("show-control-panel");
+  assert.equal(typeof show, "function");
+  show({ sender: {} });
+  assert.equal(shown, 1);
+});
+
+test("only the live control panel can read dictation state or toggle dictation", () => {
+  const { stub, calls, mainContents } = makeWindowManagerStub();
+  const panelContents = {};
+  stub.controlPanelWindow = { isDestroyed: () => false, webContents: panelContents };
+  stub.getControlPanelDictationState = () => ({ state: "recording", inputKind: "dictation" });
+  installWindowManager(stub);
+
+  const read = handlers.get("get-dictation-lifecycle-state");
+  assert.ok(read, "get-dictation-lifecycle-state must be registered");
+  assert.deepEqual(read({ sender: panelContents }), { state: "recording", inputKind: "dictation" });
+  assert.deepEqual(read({ sender: mainContents }), { state: "idle", inputKind: "dictation" });
+
+  const toggle = handlers.get("control-panel-toggle-dictation");
+  assert.ok(toggle, "control-panel-toggle-dictation must be registered");
+  assert.deepEqual(toggle({ sender: mainContents }), { success: false });
+  assert.deepEqual(toggle({ sender: {} }), { success: false });
+  assert.deepEqual(toggle({ sender: panelContents }), { success: true });
+  assert.equal(calls.toggle, 1);
+
+  const replacementContents = {};
+  stub.controlPanelWindow = { isDestroyed: () => false, webContents: replacementContents };
+  assert.deepEqual(read({ sender: panelContents }), { state: "idle", inputKind: "dictation" });
+  assert.deepEqual(toggle({ sender: panelContents }), { success: false });
+  assert.deepEqual(read({ sender: replacementContents }), {
+    state: "recording",
+    inputKind: "dictation",
+  });
+  stub.controlPanelWindow.isDestroyed = () => true;
+  assert.deepEqual(read({ sender: replacementContents }), {
+    state: "idle",
+    inputKind: "dictation",
+  });
+  assert.deepEqual(toggle({ sender: replacementContents }), { success: false });
+
+  stub.controlPanelWindow = null;
+  assert.deepEqual(toggle({ sender: replacementContents }), { success: false });
 });

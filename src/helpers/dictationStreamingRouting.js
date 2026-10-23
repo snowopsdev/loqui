@@ -52,9 +52,11 @@ export function buildStreamingSessionOptions({
   language,
   keyterms,
   voiceAgentRequested = false,
+  correlationId,
 }) {
   const options = {
     provider: providerName,
+    ...(correlationId != null ? { correlationId } : {}),
     sampleRate: 16000,
     language: language && language !== "auto" ? language : undefined,
     keyterms,

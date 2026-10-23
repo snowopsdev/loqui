@@ -29,26 +29,28 @@ const BUBBLE_STYLES = {
   },
 } as const;
 
+// Token diarization hues avoid Agent violet, live orange and alert red (VO-Q15).
+// Speaker names also carry identity, so colour is never the only cue.
 const SPEAKER_COLORS = [
-  "text-blue-400",
-  "text-green-400",
-  "text-purple-400",
-  "text-orange-400",
-  "text-pink-400",
-  "text-cyan-400",
-  "text-yellow-400",
-  "text-red-400",
+  "text-speaker-1",
+  "text-speaker-2",
+  "text-speaker-3",
+  "text-speaker-4",
+  "text-speaker-5",
+  "text-speaker-6",
+  "text-speaker-7",
+  "text-speaker-8",
 ];
 
 const SPEAKER_BORDER_COLORS = [
-  "border-s-blue-400/50",
-  "border-s-green-400/50",
-  "border-s-purple-400/50",
-  "border-s-orange-400/50",
-  "border-s-pink-400/50",
-  "border-s-cyan-400/50",
-  "border-s-yellow-400/50",
-  "border-s-red-400/50",
+  "border-s-speaker-1/50",
+  "border-s-speaker-2/50",
+  "border-s-speaker-3/50",
+  "border-s-speaker-4/50",
+  "border-s-speaker-5/50",
+  "border-s-speaker-6/50",
+  "border-s-speaker-7/50",
+  "border-s-speaker-8/50",
 ];
 
 // One unlabelled line of transcript; measureElement corrects each row on mount.
@@ -103,7 +105,7 @@ function PartialBubble({
   return (
     <div
       className={cn("flex", s.align)}
-      style={{ animation: "agent-message-in 150ms ease-out both" }}
+      style={{ animation: "agent-message-in var(--motion-fast) var(--motion-ease-enter) both" }}
     >
       <div className="max-w-[80%] flex flex-col">
         {speakerLabel && (
@@ -545,7 +547,7 @@ export function SelectionBar({
   return (
     <div
       className="flex items-center gap-3 rounded-md border border-border/70 bg-surface-2/95 backdrop-blur px-3 py-1.5 text-xs shadow-lg"
-      style={{ animation: "agent-message-in 150ms ease-out both" }}
+      style={{ animation: "agent-message-in var(--motion-fast) var(--motion-ease-enter) both" }}
     >
       <span className="text-foreground/70 tabular-nums">
         {t("notes.speaker.selected", { n: count })}
@@ -672,7 +674,11 @@ const SegmentRow = memo(function SegmentRow({
         !sameSpeaker && !isFirst && "mt-2",
         selectable && (selfSide ? "ps-6" : "pe-6")
       )}
-      style={isNewest ? { animation: "agent-message-in 200ms ease-out both" } : undefined}
+      style={
+        isNewest
+          ? { animation: "agent-message-in var(--motion-base) var(--motion-ease-enter) both" }
+          : undefined
+      }
     >
       {labelElement && !sameSpeaker && labelElement}
       {labelElement && sameSpeaker && (

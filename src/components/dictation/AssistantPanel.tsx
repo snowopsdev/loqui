@@ -1,3 +1,8 @@
+import type { ChatAdmissionPresentation } from "../chat/chatRequestPresentation";
+import type { DictationOperation } from "../chat/useChatStreaming";
+import type { ChatSelection } from "../chat/useChatPersistence";
+import { useChatRouteKey } from "../chat/chatRouteKey";
+import { sendWithSelectedContext } from "./assistantTextSubmit";
 import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Copy, Plus, X } from "../icons";
@@ -33,7 +38,7 @@ import {
   isEditableTarget,
 } from "../../utils/assistantSelection";
 import { AssistantEmptyState } from "./AssistantEmptyState";
-import { useToast } from "../ui/useToast";
+import { notify } from "../ui/notices";
 import {
   resolveAssistantPanelBusy,
   restoreAssistantConversation,
@@ -44,6 +49,7 @@ import {
 } from "../../helpers/assistantResponseDelivery";
 
 interface AssistantCommand {
+  operation: DictationOperation | null;
   id: number;
   text: string;
   attachment: ChatImageAttachment | null;
@@ -63,6 +69,8 @@ interface AssistantPanelProps {
   onCommandConsumed: (id: number) => void;
   onCommandDiscarded: (id: number) => void;
   onCommandSettled: (id: number, options?: { showPanel?: boolean }) => void;
+  onCommandResponse?: (id: number, options?: { showPanel?: boolean }) => void;
+  onCommandResponseCancelled?: (id: number) => void;
   /** Conversation to resume when reopening the panel; null starts fresh on first message. */
   initialConversationId: number | null;
   onConversationIdChange: (id: number | null) => void;
@@ -75,6 +83,8 @@ interface AssistantPanelProps {
   horizontalDirection: "left" | "right";
   onClose: () => void;
   onBusyChange: (busy: boolean) => void;
+  onAdmissionPresentation?: (presentation: ChatAdmissionPresentation) => (() => void) | void;
+  onAdmissionResponse?: (presentation: ChatAdmissionPresentation) => void;
   onResponseReadyChange: (ready: boolean) => void;
   onResponseContent: () => void;
   onConversationReset: () => void;
@@ -89,6 +99,8 @@ export function AssistantPanel({
   onCommandConsumed,
   onCommandDiscarded,
   onCommandSettled,
+  onCommandResponse,
+  onCommandResponseCancelled,
   initialConversationId,
   onConversationIdChange,
   voiceState,
@@ -98,13 +110,15 @@ export function AssistantPanel({
   horizontalDirection,
   onClose,
   onBusyChange,
+  onAdmissionPresentation,
+  onAdmissionResponse,
   onResponseReadyChange,
   onResponseContent,
   onConversationReset,
   onSelectionContextChange,
 }: AssistantPanelProps) {
   const { t } = useTranslation();
-  const { toast } = useToast();
+
   const { handleMouseDown, handleMouseUp } = useWindowDrag();
   const voiceAgentKey = useSettingsStore((state) => state.voiceAgentKey);
   const readableVoiceHotkey = formatHotkeyListLabel(voiceAgentKey);
@@ -113,31 +127,56 @@ export function AssistantPanel({
   const { messages, setMessages } = persistence;
 
   const streaming = useChatStreaming({
+    conversationId: persistence.conversationId,
     messages,
     setMessages,
     // Spoken commands answer on the Voice Assistant scope, not the Chat one.
     inferenceScope: "dictationAgent",
-    onStreamComplete: (_assistantId, content, toolCalls) => {
-      void persistence.saveAssistantMessage(content, toolCalls);
-    },
     onResponseContent,
   });
 
   const createConversation = useCallback(
-    (text: string) => {
+    (text: string, selection?: ChatSelection) => {
       const title = text.slice(0, 50) + (text.length > 50 ? "..." : "");
-      return persistence.createConversation(title);
+      return persistence.createConversation(title, undefined, undefined, selection);
     },
     [persistence]
   );
 
   const [submissionInFlight, setSubmissionInFlight] = useState(false);
+  const activeCommandIdRef = useRef<number | null>(null);
+  const typedPresentationCleanupRef = useRef<(() => void) | null>(null);
+  const publishAdmissionPresentation = useCallback(
+    (presentation: ChatAdmissionPresentation) => {
+      const release = onAdmissionPresentation?.(presentation);
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (typeof release === "function") release();
+        if (typedPresentationCleanupRef.current === finish)
+          typedPresentationCleanupRef.current = null;
+      };
+      typedPresentationCleanupRef.current = finish;
+      return finish;
+    },
+    [onAdmissionPresentation]
+  );
+  const cancelResponse = useCallback(() => {
+    // Retire display ownership at Stop intent even if transport ignores abort.
+    typedPresentationCleanupRef.current?.();
+    const commandId = activeCommandIdRef.current;
+    if (commandId != null) onCommandResponseCancelled?.(commandId);
+    streaming.cancelStream();
+  }, [onCommandResponseCancelled, streaming]);
   const sendMessage = useChatMessageSender({
     conversationId: persistence.conversationId,
     persistence,
     streaming,
     createConversation,
     onSendingChange: setSubmissionInFlight,
+    onAdmissionPresentation: publishAdmissionPresentation,
+    onAdmissionResponse,
   });
   const latestAssistantMessage = [...messages]
     .reverse()
@@ -172,7 +211,7 @@ export function AssistantPanel({
       onReset: persistence.handleNewChat,
       onError: (error: unknown) => {
         console.error("Failed to restore Assistant conversation", error);
-        toast({ title: t("common.error"), variant: "destructive" });
+        notify({ kind: "alert", title: t("common.error") });
       },
       isActive: () => active,
     });
@@ -195,6 +234,7 @@ export function AssistantPanel({
     }
     consumedCommandIdRef.current = pendingCommand.id;
     const commandId = pendingCommand.id;
+    activeCommandIdRef.current = commandId;
     const delivery = pendingCommand.delivery;
     const targetsCapturedInput = delivery?.mode === "paste";
     let responseDelivered = false;
@@ -204,8 +244,12 @@ export function AssistantPanel({
     }
     void sendMessage(pendingCommand.text, {
       attachment: pendingCommand.attachment ?? undefined,
+      operation: pendingCommand.operation ?? undefined,
       selectedContext: pendingCommand.selectedContext ?? undefined,
       suppressResponseContent: targetsCapturedInput,
+      onResponseContent: onCommandResponse
+        ? () => onCommandResponse(commandId, { showPanel: !targetsCapturedInput })
+        : undefined,
       onComplete: delivery
         ? async ({ content }) => {
             const result = await deliverAssistantResponse(delivery, content);
@@ -241,7 +285,10 @@ export function AssistantPanel({
           },
         ]);
       })
-      .finally(() => onCommandSettled(commandId, { showPanel: !responseDelivered }));
+      .finally(() => {
+        if (activeCommandIdRef.current === commandId) activeCommandIdRef.current = null;
+        onCommandSettled(commandId, { showPanel: !responseDelivered });
+      });
   }, [
     historyReady,
     submissionInFlight,
@@ -249,6 +296,7 @@ export function AssistantPanel({
     onCommandConsumed,
     onCommandDiscarded,
     onCommandSettled,
+    onCommandResponse,
     onSelectionContextChange,
     confirmCopied,
     sendMessage,
@@ -297,6 +345,9 @@ export function AssistantPanel({
   });
   const responseSelectionRootRef = useRef<HTMLDivElement | null>(null);
   const [selectedContext, setSelectedContext] = useState<AgentSelectionContext | null>(null);
+  const routeKey = useChatRouteKey("dictationAgent");
+  const selectedContextRef = useRef(selectedContext);
+  selectedContextRef.current = selectedContext;
 
   const clearSelectedContext = useCallback(() => {
     setSelectedContext(null);
@@ -321,13 +372,20 @@ export function AssistantPanel({
   ]);
 
   const handleTextSubmit = useCallback(
-    (text: string): void => {
-      if (!historyReady) return;
-      const context = selectedContext;
-      if (context) clearSelectedContext();
-      void sendMessage(text, context ? { selectedContext: context } : undefined);
+    (text: string): boolean | Promise<boolean> => {
+      // Not ready yet: report the refusal so ChatInput keeps the words.
+      if (!historyReady) return false;
+      return sendWithSelectedContext(text, selectedContext, {
+        send: sendMessage,
+        clear: clearSelectedContext,
+        current: () => selectedContextRef.current,
+        restore: (context) => {
+          setSelectedContext(context);
+          onSelectionContextChange(context);
+        },
+      });
     },
-    [clearSelectedContext, historyReady, selectedContext, sendMessage]
+    [clearSelectedContext, historyReady, onSelectionContextChange, selectedContext, sendMessage]
   );
 
   const showEmptyState =
@@ -381,7 +439,7 @@ export function AssistantPanel({
       if (e.key === "Escape") {
         if (voiceState === "listening") return;
         if (isBusy) {
-          streaming.cancelStream();
+          cancelResponse();
           // A hidden panel means the compact Beam circle owns the thinking
           // state; cancelling it must also dismiss that otherwise-idle shell.
           if (!open) onClose();
@@ -417,6 +475,7 @@ export function AssistantPanel({
     voiceState,
     isBusy,
     streaming,
+    cancelResponse,
     open,
     onClose,
     isResponseReady,
@@ -534,9 +593,10 @@ export function AssistantPanel({
           agentState={historyReady && !submissionInFlight ? streaming.agentState : "thinking"}
           partialTranscript=""
           onTextSubmit={handleTextSubmit}
+          queueKey={`assistant|${persistence.conversationId ?? "new"}|${routeKey}|${selectedContext ? JSON.stringify(selectedContext) : ""}`}
           onCancel={
             historyReady && (!submissionInFlight || streaming.agentState !== "idle")
-              ? streaming.cancelStream
+              ? cancelResponse
               : undefined
           }
           autoFocus={historyReady && open && messages.length === 0}

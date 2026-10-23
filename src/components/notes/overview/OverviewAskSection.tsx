@@ -15,7 +15,10 @@ const PROMPT_CHIP_KEYS = [
 interface OverviewAskSectionProps {
   messages: Message[];
   agentState: AgentState;
-  onTextSubmit: (text: string) => void;
+  onTextSubmit: (text: string) => void | boolean | Promise<void | boolean>;
+  queueKey?: string;
+  onQueue?: () => void;
+  submitDisabled?: boolean;
   onCancel: () => void;
   conversations: ContainerConversationItem[];
   activeConversationId: number | null;
@@ -28,6 +31,9 @@ export function OverviewAskSection({
   messages,
   agentState,
   onTextSubmit,
+  queueKey,
+  onQueue,
+  submitDisabled = false,
   onCancel,
   conversations,
   activeConversationId,
@@ -61,6 +67,9 @@ export function OverviewAskSection({
         agentState={agentState}
         partialTranscript=""
         onTextSubmit={onTextSubmit}
+        queueKey={queueKey}
+        onQueue={onQueue}
+        submitDisabled={submitDisabled}
         onCancel={onCancel}
         placeholder={t("notes.overview.ask.placeholder")}
       />
@@ -69,8 +78,8 @@ export function OverviewAskSection({
           {PROMPT_CHIP_KEYS.map((key) => (
             <button
               key={key}
-              onClick={() => onTextSubmit(t(key))}
-              disabled={agentState !== "idle"}
+              onClick={() => void onTextSubmit(t(key))}
+              disabled={submitDisabled || agentState !== "idle"}
               className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-md border border-border/70 dark:border-white/10 text-[11px] text-foreground/55 hover:text-foreground/80 hover:border-border/70 hover:bg-foreground/3 dark:hover:bg-white/3 disabled:opacity-50 disabled:pointer-events-none transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
             >
               <Sparkles size={10} className="text-foreground/45 shrink-0" />

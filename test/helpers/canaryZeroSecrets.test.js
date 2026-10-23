@@ -24,7 +24,10 @@ function runCanaryWithoutSecrets(scriptArgs) {
 
 for (const [name, scriptArgs] of [
   ["llm-canary", ["--import", "tsx", "scripts/llm-canary.mjs"]],
-  ["stt-canary", ["scripts/stt-canary.mjs"]],
+  [
+    "stt-canary",
+    ["--require", path.join(__dirname, "harness/canaryNoSecrets.js"), "scripts/stt-canary.mjs"],
+  ],
 ]) {
   test(`${name} exits non-zero when no secrets are configured`, () => {
     const result = runCanaryWithoutSecrets(scriptArgs);

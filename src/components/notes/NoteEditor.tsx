@@ -1,3 +1,7 @@
+import { useWorkspaceActive } from "../../hooks/useWorkspaceActive";
+import { askAiTransition } from "../ui/editor/BubbleToolbar";
+import type { ComposerSeed } from "../chat/chatRequest";
+import { useChatRouteKey } from "../chat/chatRouteKey";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { useUiLocale } from "../../hooks/useUiLocale";
@@ -15,6 +19,7 @@ import {
 } from "../icons";
 
 import { useSpaces } from "../../stores/noteStore";
+import { useNoteTitleFocus } from "../../stores/noteFocusRequest";
 
 import type { Editor } from "@tiptap/react";
 import type { ActionProcessingState } from "../../hooks/useActionProcessing";
@@ -35,7 +40,7 @@ import {
 } from "../../utils/transcriptSpeakerState";
 import { cn } from "../lib/utils";
 import EmptyStateCard from "../ui/EmptyStateCard";
-import { RichTextEditor } from "../ui/RichTextEditor";
+import { RichTextEditor, type RichTextEditorProps } from "../ui/RichTextEditor";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -60,7 +65,7 @@ import {
 } from "./shared";
 
 const SEGMENT_BUTTON_CLASS =
-  "relative z-1 flex h-[26px] items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors duration-150";
+  "focus-visible:ring-2 focus-visible:ring-ring relative z-1 flex h-[26px] items-center gap-1.5 rounded-full px-2.5 text-caption font-medium transition-colors duration-150";
 
 const TRANSCRIPT_EXPORT_LABEL_KEYS = {
   txt: "notes.editor.asTranscriptText",
@@ -165,6 +170,7 @@ interface NoteEditorProps {
   onExportTranscript?: (format: "txt" | "srt" | "json" | "md") => void;
   enhancement?: Enhancement;
   actionPicker?: React.ReactNode;
+  slash?: RichTextEditorProps["slash"];
   /** Runs the built-in Generate Notes action; enables the post-recording summary pill. */
   onGenerateSummary?: () => void;
   actionProcessingState?: ActionProcessingState;
@@ -199,6 +205,7 @@ export default function NoteEditor({
   onExportTranscript,
   enhancement,
   actionPicker,
+  slash,
   onGenerateSummary,
   actionProcessingState,
   actionName,
@@ -216,11 +223,15 @@ export default function NoteEditor({
   onCreateFolderAndMove,
   onCancelPendingSaves,
 }: NoteEditorProps) {
+  const workspaceActive = useWorkspaceActive();
   const { t } = useTranslation();
   const locale = useUiLocale();
   const defaultViewMode: MeetingViewMode = enhancement ? "enhanced" : "raw";
   const [viewMode, setViewMode] = useState<MeetingViewMode>(defaultViewMode);
   const [chatMode, setChatMode] = useState<EmbeddedChatMode>("hidden");
+  const [chatSeed, setChatSeed] = useState<ComposerSeed | null>(null);
+  const [chatHasOpened, setChatHasOpened] = useState(false);
+  if (chatMode !== "hidden" && !chatHasOpened) setChatHasOpened(true);
   const [folderSearch, setFolderSearch] = useState("");
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -243,6 +254,8 @@ export default function NoteEditor({
     noteContent: note.content,
     noteTranscript: note.transcript ?? undefined,
   });
+  const chatRouteKeyValue = useChatRouteKey("chatIntelligence");
+  const embeddedQueueKey = `note|${note.id}|${embeddedChat.activeConversationId ?? "new"}|${chatRouteKeyValue}`;
   const titleRef = useRef<HTMLDivElement>(null);
   const prevNoteIdRef = useRef<number>(note.id);
 
@@ -357,6 +370,10 @@ export default function NoteEditor({
 
     return cancelScheduledUpdate;
   }, [actionProcessingState, scheduleUiUpdate]);
+
+  // The after-setup hand-off opens a new note; its title takes keyboard focus
+  // unless the person already moved on (the request is then retired).
+  useNoteTitleFocus(note.id, titleRef);
 
   useEffect(() => {
     if (note.id !== prevNoteIdRef.current) {
@@ -536,13 +553,13 @@ export default function NoteEditor({
   }, []);
 
   useEffect(() => {
-    if (selectedSegmentIds.size === 0) return;
+    if (!workspaceActive || selectedSegmentIds.size === 0) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleClearSelection();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedSegmentIds.size, handleClearSelection]);
+  }, [selectedSegmentIds.size, handleClearSelection, workspaceActive]);
 
   const handleBulkAssignName = useCallback(
     async (displayName: string, _email?: string | null, profileId?: number) => {
@@ -597,7 +614,7 @@ export default function NoteEditor({
 
   const floatingChatPanelRef = useCallback(
     (panel: HTMLDivElement | null): (() => void) | undefined => {
-      const container = panel?.parentElement;
+      const container = contentScrollRef.current?.parentElement;
       const contentRoot = contentScrollRef.current;
       if (!panel || !container || !contentRoot) return undefined;
 
@@ -623,6 +640,17 @@ export default function NoteEditor({
       enhancement?.onChange(note.id, value);
     },
     [enhancement, note.id]
+  );
+
+  // Seed the visible embedded composer; the bottom bar hides when chat opens.
+  const handleAskAi = useCallback(
+    (selection: string) => {
+      const next = askAiTransition(chatMode, selection);
+      if (!next) return;
+      setChatMode(next.mode);
+      setChatSeed(next.seed);
+    },
+    [chatMode]
   );
 
   const handleAskSubmit = useCallback(
@@ -663,9 +691,11 @@ export default function NoteEditor({
   }, [viewMode, onExportTranscript, onExportNote, t]);
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-5 pt-5 pb-0")}>
+    <div className="relative grid h-full min-h-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)]">
+      <div className="contents">
+        <div
+          className={cn(PAGE_CONTENT_WIDTH_CLASS, "col-start-1 row-start-1 min-w-0 px-5 pt-5 pb-0")}
+        >
           <div
             dir="auto"
             ref={titleRef}
@@ -675,11 +705,11 @@ export default function NoteEditor({
             onKeyDown={handleTitleKeyDown}
             onPaste={handleTitlePaste}
             data-placeholder={t("notes.editor.untitled")}
-            className="text-3xl font-medium leading-tight text-foreground bg-transparent outline-none tracking-[-0.01em] empty:before:content-[attr(data-placeholder)] empty:before:text-foreground/45 empty:before:pointer-events-none"
+            className="text-display font-semibold text-foreground bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground empty:before:pointer-events-none"
             role="textbox"
             aria-label={t("notes.editor.noteTitle")}
           />
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2 [&_button]:focus-visible:ring-2! [&_button]:focus-visible:ring-ring!">
             <NoteParticipants
               noteId={note.id}
               participants={parsedParticipants}
@@ -688,14 +718,14 @@ export default function NoteEditor({
             />
             {calendarEventName && (
               <span className={cn(NOTE_META_CHIP_CLASS, "cursor-default")}>
-                <LinkIcon size={14} className="shrink-0 text-foreground/60" />
+                <LinkIcon size={14} className="shrink-0 text-muted-foreground" />
                 <span className="max-w-40 truncate">{calendarEventName}</span>
               </span>
             )}
 
             {folders && onMoveToFolder && !canMoveToFolders && folderName && (
               <span className={cn(NOTE_META_CHIP_CLASS, "cursor-default")}>
-                <FolderOpen size={14} className="shrink-0 text-foreground/60" />
+                <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
                 <span dir="auto">{folderName}</span>
               </span>
             )}
@@ -710,8 +740,13 @@ export default function NoteEditor({
                 }}
               >
                 <DropdownMenuTrigger asChild>
-                  <button className={NOTE_META_CHIP_CLASS}>
-                    <FolderOpen size={14} className="shrink-0 text-foreground/60" />
+                  <button
+                    className={cn(
+                      NOTE_META_CHIP_CLASS,
+                      "focus-visible:ring-2 focus-visible:ring-ring"
+                    )}
+                  >
+                    <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
                     {folderName ? <span dir="auto">{folderName}</span> : t("notes.editor.noFolder")}
                   </button>
                 </DropdownMenuTrigger>
@@ -721,7 +756,7 @@ export default function NoteEditor({
                       <div className="relative px-1.5 py-0.5">
                         <Search
                           size={9}
-                          className="absolute start-3.5 top-1/2 -translate-y-1/2 text-foreground/45 pointer-events-none"
+                          className="absolute start-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
                         />
                         <input
                           dir="auto"
@@ -729,7 +764,7 @@ export default function NoteEditor({
                           onChange={(e) => setFolderSearch(e.target.value)}
                           onKeyDown={(e) => e.stopPropagation()}
                           placeholder={t("notes.context.searchFolders")}
-                          className="input-inline w-full ps-4.5 pe-1 py-0.5 text-xs text-foreground placeholder:text-foreground/45 outline-none border-none appearance-none"
+                          className="focus-visible:ring-2 focus-visible:ring-ring input-inline w-full ps-4.5 pe-1 py-0.5 text-caption text-foreground placeholder:text-muted-foreground outline-none border-none appearance-none"
                         />
                       </div>
                       <DropdownMenuSeparator />
@@ -743,18 +778,18 @@ export default function NoteEditor({
                           key={folder.id}
                           disabled={isCurrent}
                           onClick={() => onMoveToFolder(note.id, folder.id)}
-                          className="text-xs gap-2 rounded-md px-2 py-1.5"
+                          className="focus-visible:ring-2 focus-visible:ring-ring text-caption gap-2 rounded-md px-2 py-1.5"
                         >
-                          <FolderOpen size={11} className="text-foreground/45 shrink-0" />
+                          <FolderOpen size={11} className="text-muted-foreground shrink-0" />
                           <span dir="auto" className="truncate flex-1">
                             {defaultFolderDisplayName(folder, t)}
                           </span>
-                          {isCurrent && <Check size={9} className="text-primary shrink-0" />}
+                          {isCurrent && <Check size={9} className="text-link shrink-0" />}
                         </DropdownMenuItem>
                       );
                     })}
                     {folderSearch && filteredFolders.length === 0 && (
-                      <p className="text-xs text-foreground/45 text-center py-1.5">
+                      <p className="text-caption text-muted-foreground text-center py-1.5">
                         {t("notes.context.noResults")}
                       </p>
                     )}
@@ -782,7 +817,7 @@ export default function NoteEditor({
                               }
                             }}
                             placeholder={t("notes.folders.folderName")}
-                            className="input-inline w-full px-2 py-1.5 rounded-md bg-transparent text-xs text-foreground placeholder:text-foreground/45 outline-none border-none appearance-none"
+                            className="focus-visible:ring-2 focus-visible:ring-ring input-inline w-full px-2 py-1.5 rounded-md bg-transparent text-caption text-foreground placeholder:text-muted-foreground outline-none border-none appearance-none"
                           />
                         </div>
                       ) : (
@@ -791,7 +826,7 @@ export default function NoteEditor({
                             e.preventDefault();
                             setIsCreatingFolder(true);
                           }}
-                          className="text-xs gap-2 rounded-md px-2 py-1.5 text-foreground/45"
+                          className="focus-visible:ring-2 focus-visible:ring-ring text-caption gap-2 rounded-md px-2 py-1.5 text-muted-foreground"
                         >
                           <Plus size={10} />
                           {t("notes.context.newFolder")}
@@ -804,17 +839,17 @@ export default function NoteEditor({
             )}
 
             {isSaving && (
-              <span className="inline-flex items-center gap-1 text-xs text-foreground/45 tabular-nums">
+              <span className="inline-flex items-center gap-1 text-caption text-muted-foreground tabular-nums">
                 <Loader2 size={10} className="animate-spin" />
                 {t("notes.editor.saving")}
               </span>
             )}
           </div>
-          <div className="mt-5 flex items-center justify-between gap-3">
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center">
               <div
                 ref={segmentContainerRef}
-                className="relative flex shrink-0 items-center rounded-full bg-surface-3 p-0.5 dark:bg-surface-2"
+                className="relative flex min-w-0 flex-wrap items-center rounded-2xl bg-surface-3 p-0.5 dark:bg-surface-2"
               >
                 <div
                   className="pointer-events-none absolute top-0.5 left-0 rounded-full bg-background shadow-sm transition-[width,height,transform,opacity] duration-200 ease-out dark:bg-surface-3"
@@ -828,7 +863,7 @@ export default function NoteEditor({
                     SEGMENT_BUTTON_CLASS,
                     viewMode === "transcript"
                       ? "text-foreground"
-                      : "text-foreground/60 hover:text-foreground/80"
+                      : "text-muted-foreground hover:text-foreground/80"
                   )}
                 >
                   {isRecording ? <RecordingWave /> : <MessageSquareText size={12} />}
@@ -842,7 +877,7 @@ export default function NoteEditor({
                     SEGMENT_BUTTON_CLASS,
                     viewMode === "raw"
                       ? "text-foreground"
-                      : "text-foreground/60 hover:text-foreground/80"
+                      : "text-muted-foreground hover:text-foreground/80"
                   )}
                 >
                   <AlignLeft size={12} />
@@ -857,14 +892,14 @@ export default function NoteEditor({
                       SEGMENT_BUTTON_CLASS,
                       viewMode === "enhanced"
                         ? "text-foreground"
-                        : "text-foreground/60 hover:text-foreground/80"
+                        : "text-muted-foreground hover:text-foreground/80"
                     )}
                   >
                     <Sparkles size={12} />
                     {t("notes.editor.aiSummary")}
                     {enhancement.isStale && (
                       <span
-                        className="h-1 w-1 rounded-full bg-amber-400/60"
+                        className="h-1 w-1 rounded-full bg-warning"
                         title={t("notes.editor.staleIndicator")}
                       />
                     )}
@@ -872,7 +907,7 @@ export default function NoteEditor({
                 )}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               {canEditNote && (
                 <NoteRecordControl
                   isRecording={isRecording}
@@ -882,12 +917,12 @@ export default function NoteEditor({
                   onStop={onStopRecording}
                 />
               )}
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 {exportOptions.map((option) => (
                   <button
                     key={option.id}
                     onClick={option.onSelect}
-                    className="px-2 py-1 text-xs rounded border hover:bg-accent"
+                    className="focus-visible:ring-2 focus-visible:ring-ring px-2 py-1 text-caption rounded border hover:bg-accent"
                   >
                     {option.label}
                   </button>
@@ -897,95 +932,104 @@ export default function NoteEditor({
           </div>
         </div>
 
-        <div className="flex-1 relative min-h-0">
-          <div ref={contentScrollRef} className="h-full overflow-y-auto">
-            {viewMode === "transcript" && (hasChatSegments || isRecording) ? (
-              isRecording ? (
-                <LiveMeetingTranscriptChat
-                  contentClassName={PAGE_CONTENT_WIDTH_CLASS}
-                  speakerMappings={speakerMappings}
-                  speakerProfiles={speakerProfiles}
-                  participants={parsedParticipants}
-                  isDiarizing={isDiarizing}
-                  sessionDiarizationEnabled={sessionDiarizationEnabled}
-                  sessionExpectedCount={sessionExpectedCount}
-                  userTouchedStepper={userTouchedStepper}
-                  onSetSessionDiarizationEnabled={onSetSessionDiarizationEnabled}
-                  onSetSessionExpectedCount={onSetSessionExpectedCount}
-                  onMapSpeaker={handleMapSpeaker}
-                  onConfirmSuggestion={handleConfirmSuggestion}
-                  onDismissSuggestion={handleDismissSuggestion}
-                  onAttachSpeakerEmail={handleAttachSpeakerEmail}
+        <div className="relative col-start-1 row-start-2 min-h-0 min-w-0">
+          <div
+            ref={contentScrollRef}
+            className="overflow-y-auto"
+            style={{
+              height: "max(80px, calc(100% - max(var(--floating-inset, 0px), 9rem)))",
+            }}
+          >
+            {/* The viewport already excludes the controls. Nested editors must
+                not reserve the same floating inset again as content padding. */}
+            <div className="h-full" style={{ "--floating-inset": "0px" } as React.CSSProperties}>
+              {viewMode === "transcript" && (hasChatSegments || isRecording) ? (
+                isRecording ? (
+                  <LiveMeetingTranscriptChat
+                    contentClassName={PAGE_CONTENT_WIDTH_CLASS}
+                    speakerMappings={speakerMappings}
+                    speakerProfiles={speakerProfiles}
+                    participants={parsedParticipants}
+                    isDiarizing={isDiarizing}
+                    sessionDiarizationEnabled={sessionDiarizationEnabled}
+                    sessionExpectedCount={sessionExpectedCount}
+                    userTouchedStepper={userTouchedStepper}
+                    onSetSessionDiarizationEnabled={onSetSessionDiarizationEnabled}
+                    onSetSessionExpectedCount={onSetSessionExpectedCount}
+                    onMapSpeaker={handleMapSpeaker}
+                    onConfirmSuggestion={handleConfirmSuggestion}
+                    onDismissSuggestion={handleDismissSuggestion}
+                    onAttachSpeakerEmail={handleAttachSpeakerEmail}
+                  />
+                ) : (
+                  <MeetingTranscriptChat
+                    contentClassName={PAGE_CONTENT_WIDTH_CLASS}
+                    segments={displaySegments}
+                    speakerMappings={speakerMappings}
+                    speakerProfiles={knownSpeakers}
+                    participants={parsedParticipants}
+                    isDiarizing={isDiarizing}
+                    sessionDiarizationEnabled={sessionDiarizationEnabled}
+                    sessionExpectedCount={sessionExpectedCount}
+                    userTouchedStepper={userTouchedStepper}
+                    onSetSessionDiarizationEnabled={onSetSessionDiarizationEnabled}
+                    onSetSessionExpectedCount={onSetSessionExpectedCount}
+                    onMapSpeaker={handleMapSpeaker}
+                    onConfirmSuggestion={handleConfirmSuggestion}
+                    onDismissSuggestion={handleDismissSuggestion}
+                    onAttachSpeakerEmail={handleAttachSpeakerEmail}
+                    selectedSegmentIds={selectedSegmentIds}
+                    onToggleSelect={handleToggleSelect}
+                  />
+                )
+              ) : viewMode === "transcript" && hasMeetingTranscript ? (
+                <RichTextEditor value={note.transcript || ""} disabled />
+              ) : viewMode === "transcript" ? (
+                <EmptyStateCard
+                  icon={Mic}
+                  title={t("notes.editor.transcriptEmptyTitle")}
+                  description={t("notes.editor.transcriptEmptyDescription")}
+                  className={cn(PAGE_CONTENT_WIDTH_CLASS, "mt-2")}
+                >
+                  {canEditNote && recordingAllowed && (
+                    <Button
+                      variant="live"
+                      size="sm"
+                      onClick={onStartRecording}
+                      disabled={isProcessing}
+                    >
+                      <Mic size={13} />
+                      {t("notes.editor.startRecording")}
+                    </Button>
+                  )}
+                </EmptyStateCard>
+              ) : viewMode === "enhanced" && enhancement ? (
+                <RichTextEditor
+                  key="enhanced"
+                  onAskAi={handleAskAi}
+                  value={enhancement.content}
+                  onChange={handleEnhancedChange}
+                  disabled={!canEditNote}
+                  mentionPeople={mentionPeople}
                 />
               ) : (
-                <MeetingTranscriptChat
-                  contentClassName={PAGE_CONTENT_WIDTH_CLASS}
-                  segments={displaySegments}
-                  speakerMappings={speakerMappings}
-                  speakerProfiles={knownSpeakers}
-                  participants={parsedParticipants}
-                  isDiarizing={isDiarizing}
-                  sessionDiarizationEnabled={sessionDiarizationEnabled}
-                  sessionExpectedCount={sessionExpectedCount}
-                  userTouchedStepper={userTouchedStepper}
-                  onSetSessionDiarizationEnabled={onSetSessionDiarizationEnabled}
-                  onSetSessionExpectedCount={onSetSessionExpectedCount}
-                  onMapSpeaker={handleMapSpeaker}
-                  onConfirmSuggestion={handleConfirmSuggestion}
-                  onDismissSuggestion={handleDismissSuggestion}
-                  onAttachSpeakerEmail={handleAttachSpeakerEmail}
-                  selectedSegmentIds={selectedSegmentIds}
-                  onToggleSelect={handleToggleSelect}
+                <RichTextEditor
+                  key="raw"
+                  onAskAi={handleAskAi}
+                  value={note.content}
+                  onChange={handleContentChange}
+                  editorRef={editorRef}
+                  slash={slash}
+                  placeholder={t("notes.editor.startWriting")}
+                  disabled={!canEditNote || actionProcessingState === "processing"}
+                  mentionPeople={mentionPeople}
                 />
-              )
-            ) : viewMode === "transcript" && hasMeetingTranscript ? (
-              <RichTextEditor value={note.transcript || ""} disabled />
-            ) : viewMode === "transcript" ? (
-              <EmptyStateCard
-                icon={Mic}
-                title={t("notes.editor.transcriptEmptyTitle")}
-                description={t("notes.editor.transcriptEmptyDescription")}
-                className={cn(PAGE_CONTENT_WIDTH_CLASS, "mt-2")}
-              >
-                {canEditNote && recordingAllowed && (
-                  <Button
-                    variant="live"
-                    size="sm"
-                    onClick={onStartRecording}
-                    disabled={isProcessing}
-                  >
-                    <Mic size={13} />
-                    {t("notes.editor.startRecording")}
-                  </Button>
-                )}
-              </EmptyStateCard>
-            ) : viewMode === "enhanced" && enhancement ? (
-              <RichTextEditor
-                value={enhancement.content}
-                onChange={handleEnhancedChange}
-                disabled={!canEditNote}
-                mentionPeople={mentionPeople}
-              />
-            ) : (
-              <RichTextEditor
-                value={note.content}
-                onChange={handleContentChange}
-                editorRef={editorRef}
-                placeholder={t("notes.editor.startWriting")}
-                disabled={!canEditNote || actionProcessingState === "processing"}
-                mentionPeople={mentionPeople}
-              />
-            )}
+              )}
+            </div>
           </div>
           <ActionProcessingOverlay
             state={actionProcessingState ?? "idle"}
             actionName={actionName ?? null}
-          />
-          <div
-            className="absolute bottom-0 left-0 right-0 h-20 pointer-events-none"
-            style={{
-              background: "linear-gradient(to bottom, transparent, var(--color-background))",
-            }}
           />
           {!isRecording && selectedSegmentIds.size > 0 && (
             <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
@@ -1006,38 +1050,31 @@ export default function NoteEditor({
             actionPicker={isRecording || !canEditNote ? undefined : actionPicker}
             callout={
               showSummaryCallout && (
-                <Button className="h-9 gap-2 px-4 text-sm" onClick={onGenerateSummary}>
-                  <AlignLeft size={16} />
+                <Button
+                  variant="secondary"
+                  className="h-9 gap-2 px-4 text-ui"
+                  onClick={onGenerateSummary}
+                >
+                  <AlignLeft size={16} className="text-ai" />
                   {t("notes.editor.generateSummary")}
                 </Button>
               )
             }
             hideInput={chatMode !== "hidden"}
           />
-          {chatMode === "floating" && (
-            <EmbeddedChat
-              mode="floating"
-              floatingPanelRef={floatingChatPanelRef}
-              onModeChange={setChatMode}
-              messages={embeddedChat.messages}
-              agentState={embeddedChat.agentState}
-              onTextSubmit={embeddedChat.sendMessage}
-              onCancel={embeddedChat.cancelStream}
-              noteConversations={embeddedChat.noteConversations}
-              activeConversationId={embeddedChat.activeConversationId}
-              onSwitchConversation={embeddedChat.switchConversation}
-              onNewChat={embeddedChat.startNewChat}
-            />
-          )}
         </div>
       </div>
-      {chatMode === "sidebar" && (
+      {chatHasOpened && (
         <EmbeddedChat
-          mode="sidebar"
+          key={note.id}
+          mode={chatMode}
+          floatingPanelRef={floatingChatPanelRef}
           onModeChange={setChatMode}
           messages={embeddedChat.messages}
           agentState={embeddedChat.agentState}
           onTextSubmit={embeddedChat.sendMessage}
+          queueKey={embeddedQueueKey}
+          composerSeed={chatSeed}
           onCancel={embeddedChat.cancelStream}
           noteConversations={embeddedChat.noteConversations}
           activeConversationId={embeddedChat.activeConversationId}

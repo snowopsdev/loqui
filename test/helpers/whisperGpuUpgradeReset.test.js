@@ -9,10 +9,16 @@ let userDataDir = null;
 let appVersion = "1.9.1";
 
 require.cache[require.resolve("electron")] = {
-  exports: { app: { getPath: () => userDataDir, getVersion: () => appVersion } },
+  loaded: true,
+  exports: {
+    safeStorage: { isEncryptionAvailable: () => false },
+    app: { getPath: () => userDataDir, getVersion: () => appVersion },
+  },
 };
 
-const { resetWhisperGpuFailureOnUpgrade } = require("../../src/helpers/whisperGpuUpgradeReset.js");
+const { resetWhisperGpuFailureOnUpgrade } = require("../lib/scopedDiagnostics").assertQuietImport(
+  () => require("../../src/helpers/whisperGpuUpgradeReset.js")
+);
 
 function makeEnvManager() {
   const manager = { removals: [] };

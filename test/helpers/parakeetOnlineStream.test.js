@@ -1,4 +1,5 @@
 const test = require("node:test");
+require("./harness/inertElectron").install(test, ["sidecarPidFile"]);
 const assert = require("node:assert/strict");
 const { once } = require("node:events");
 

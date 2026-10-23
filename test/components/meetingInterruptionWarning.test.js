@@ -14,11 +14,16 @@ async function setup(t) {
     if (store) await React.act(async () => store.stopRecording());
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__interruptionToasts;
+    delete globalThis.__nativeNotices;
     delete globalThis.__interruptionDismissals;
   });
   const listeners = {};
   const noop = () => () => {};
   const api = {
+    showSystemNotification(payload) {
+      globalThis.__nativeNotices.push(payload);
+      return Promise.resolve({ success: true });
+    },
     checkSystemAudioAccess: async () => ({
       granted: true,
       status: "granted",
@@ -83,13 +88,31 @@ async function setup(t) {
     await React.act(async () => events.get("visibilitychange")?.());
   };
   globalThis.__interruptionToasts = [];
+  globalThis.__nativeNotices = [];
   globalThis.__interruptionDismissals = [];
   const vite = await createRendererServer(t, {
     cachePrefix: "pr2040-renderer-warning-review-",
-    mockModules: {
-      "/ui/useToast": `const toast = (props) => { globalThis.__interruptionToasts.push({ ...props, visibility: globalThis.document.visibilityState }); return String(globalThis.__interruptionToasts.length); }; const dismiss = (id) => globalThis.__interruptionDismissals.push(id); export const useToast = () => ({ toast, dismiss });`,
-    },
   });
+  const notices = await vite.ssrLoadModule("/components/ui/notices.ts");
+  notices.__setNoticeClockForTests();
+  t.after(() => notices.__setNoticeClockForTests());
+  const revisions = new Set();
+  let previous = [];
+  const unsubscribe = notices.subscribeNotices(() => {
+    const next = notices.getNotices();
+    for (const n of next) {
+      const revision = `${n.id}:${n.revision}`;
+      if (!revisions.has(revision)) {
+        revisions.add(revision);
+        globalThis.__interruptionToasts.push(n);
+      }
+    }
+    for (const n of previous)
+      if (!next.some((current) => current.id === n.id && current.revision === n.revision))
+        globalThis.__interruptionDismissals.push(n.id);
+    previous = next;
+  });
+  t.after(unsubscribe);
   const { default: Mount } = await vite.ssrLoadModule("/components/MeetingRecordingMount.tsx");
   store = await vite.ssrLoadModule("/stores/meetingRecordingStore.ts");
   root = createRoot(container);
@@ -165,7 +188,7 @@ test("audio resuming dismisses a visible quiet warning even after unmount", asyn
   assert.equal(globalThis.__interruptionToasts.length, 1);
   await render(false);
   await resume();
-  assert.deepEqual(globalThis.__interruptionDismissals, ["1"]);
+  assert.deepEqual(globalThis.__interruptionDismissals, ["meeting-interruption"]);
   await render(true);
   assert.equal(globalThis.__interruptionToasts.length, 1);
 });
@@ -181,7 +204,7 @@ test("hidden and covered warnings wait for a focused visible window", async (t) 
   assert.equal(globalThis.__interruptionToasts.length, 0);
   await focus(true);
   assert.equal(globalThis.__interruptionToasts.length, 1);
-  assert.equal(globalThis.__interruptionToasts[0].duration, 0);
+  assert.equal(globalThis.__interruptionToasts[0].persistent, true);
 });
 
 test("unmounted events deliver once on remount and repeated events replace the warning", async (t) => {
@@ -204,14 +227,14 @@ test("persistent warning offers a scoped stop and does not leak into the next se
   const { store, interrupt, render } = await setup(t);
   await interrupt();
   const warning = globalThis.__interruptionToasts[0];
-  assert.equal(warning.duration, 0);
-  assert.ok(warning.action);
-  await React.act(async () => warning.action.props.onClick());
+  assert.equal(warning.persistent, true);
+  assert.ok(warning.actions[0]);
+  await React.act(async () => warning.actions[0].onClick());
   assert.equal(store.useMeetingRecordingStore.getState().isRecording, false);
   await React.act(async () =>
     store.startRecording({ noteId: null, noteTitle: null, folderId: null, autoEndEligible: false })
   );
-  await React.act(async () => warning.action.props.onClick());
+  await React.act(async () => warning.actions[0].onClick());
   assert.equal(store.useMeetingRecordingStore.getState().isRecording, true);
   await render(false);
   await render(true);
@@ -237,12 +260,12 @@ test("latest pending event delivers once and cautious warnings do not offer stop
   await focus(true);
   assert.equal(globalThis.__interruptionToasts.length, 1);
   assert.equal(globalThis.__interruptionToasts[0].title, "Meeting audio has gone quiet");
-  assert.equal(globalThis.__interruptionToasts[0].action, undefined);
+  assert.equal(globalThis.__interruptionToasts[0].actions, undefined);
   await interrupt({ recovering: true });
-  assert.deepEqual(globalThis.__interruptionDismissals, ["1"]);
+  assert.deepEqual(globalThis.__interruptionDismissals, ["meeting-interruption"]);
   assert.equal(globalThis.__interruptionToasts[1].title, "Meeting audio interrupted");
-  assert.equal(globalThis.__interruptionToasts[1].action, undefined);
-  assert.equal(globalThis.__interruptionToasts[1].duration, 8000);
+  assert.equal(globalThis.__interruptionToasts[1].actions, undefined);
+  assert.equal(globalThis.__interruptionToasts[1].persistent, false);
 });
 
 test("locale changes do not replay delivered interruptions", async (t) => {
@@ -270,7 +293,7 @@ test("replacement while hidden dismisses the old warning and remains pending", a
   await interrupt();
   await focus(false);
   await interrupt();
-  assert.deepEqual(globalThis.__interruptionDismissals, ["1"]);
+  assert.deepEqual(globalThis.__interruptionDismissals, ["meeting-interruption"]);
   assert.equal(globalThis.__interruptionToasts.length, 1);
   await focus(true);
   assert.equal(globalThis.__interruptionToasts.length, 2);
@@ -281,5 +304,41 @@ test("stopping with Mount absent removes its persistent warning", async (t) => {
   await interrupt();
   await render(false);
   await React.act(async () => store.stopRecording());
-  assert.deepEqual(globalThis.__interruptionDismissals, ["1"]);
+  assert.deepEqual(globalThis.__interruptionDismissals, ["meeting-interruption"]);
+});
+
+test("a lost meeting audio source raises one native notification even while hidden", async (t) => {
+  const { interrupt, focus } = await setup(t);
+  globalThis.document.hidden = true;
+  globalThis.document.visibilityState = "hidden";
+  await interrupt();
+  assert.equal(globalThis.__interruptionToasts.length, 0, "the in-app warning still waits");
+  assert.equal(globalThis.__nativeNotices.length, 1);
+  assert.equal(globalThis.__nativeNotices[0].title, "Meeting audio stopped");
+  await focus(false);
+  assert.equal(globalThis.__nativeNotices.length, 1, "no replay on focus changes");
+});
+
+test("a recovering interruption stays in-app only", async (t) => {
+  const { interrupt } = await setup(t);
+  await interrupt({ recovering: true });
+  assert.equal(globalThis.__nativeNotices.length, 0);
+});
+
+test("a remount does not replay a delivered native notification", async (t) => {
+  const { interrupt, render } = await setup(t);
+  await interrupt({ reason: "gone_quiet" });
+  assert.equal(globalThis.__nativeNotices[0].title, "Meeting audio has gone quiet");
+  await render(false);
+  await render(true);
+  assert.equal(globalThis.__nativeNotices.length, 1);
+});
+
+test("losing the microphone mid-meeting raises a native notification", async (t) => {
+  const { store } = await setup(t);
+  await React.act(async () =>
+    store.useMeetingRecordingStore.setState({ micCaptureStatus: "unavailable" })
+  );
+  assert.equal(globalThis.__nativeNotices.length, 1);
+  assert.equal(globalThis.__nativeNotices[0].title, "Microphone disconnected");
 });

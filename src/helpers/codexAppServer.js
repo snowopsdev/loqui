@@ -111,6 +111,39 @@ class CodexAppServer extends EventEmitter {
     this.buffer = "";
     this.child = null;
     this.starting = null;
+    this.catalogGeneration = 0;
+    this.catalogAccount = null;
+    this.catalogConnected = false;
+    this.catalogModels = [];
+    this.catalogAccountChanges = 0;
+  }
+
+  _invalidateModelCatalog() {
+    this.catalogGeneration += 1;
+    this.catalogAccount = null;
+    this.catalogConnected = false;
+    this.catalogModels = [];
+  }
+
+  _acknowledgeCatalogAccount(account) {
+    // Kept only in main RAM; neither identity nor auth data crosses the read API.
+    const identity =
+      account?.type === "chatgpt" && typeof account.email === "string" && account.email.trim()
+        ? JSON.stringify({ type: account.type, email: account.email, planType: account.planType })
+        : null;
+    if (this.catalogAccountChanges) return;
+    if (identity !== this.catalogAccount) this._invalidateModelCatalog();
+    this.catalogAccount = identity;
+    this.catalogConnected = account?.type === "chatgpt";
+  }
+
+  modelCatalog() {
+    // Passive: no process, file, account/read, discovery or network operation.
+    const connected = !!(this.child && this.catalogConnected && !this.catalogAccountChanges);
+    return {
+      connected,
+      data: connected ? this.catalogModels.map((model) => ({ ...model })) : [],
+    };
   }
 
   async start() {
@@ -285,6 +318,7 @@ class CodexAppServer extends EventEmitter {
       return;
     }
     const params = message.params || {};
+    if (/^account\//.test(message.method)) this._invalidateModelCatalog();
     this.emit("notification", { method: message.method, params });
     const turn = this.turns.get(params.threadId);
     if (!turn) return;
@@ -359,26 +393,53 @@ class CodexAppServer extends EventEmitter {
   async status() {
     try {
       await this.start();
+      const generation = this.catalogGeneration;
       const result = await this.request("account/read", { refreshToken: false });
+      if (generation === this.catalogGeneration) this._acknowledgeCatalogAccount(result.account);
       return { available: true, version: this.version, account: result.account };
     } catch (error) {
+      this._invalidateModelCatalog();
       return { available: false, error: error.message, code: error.code };
     }
   }
   async login() {
-    await this.start();
-    return this.request("account/login/start", { type: "chatgpt" });
+    return this._changeCatalogAccount("account/login/start", { type: "chatgpt" });
   }
   async cancelLogin(loginId) {
     await this.start();
     return this.request("account/login/cancel", { loginId });
   }
   async logout() {
-    await this.start();
-    return this.request("account/logout");
+    return this._changeCatalogAccount("account/logout");
+  }
+  async _changeCatalogAccount(method, params) {
+    this.catalogAccountChanges += 1;
+    this._invalidateModelCatalog();
+    try {
+      await this.start();
+      return await this.request(method, params);
+    } finally {
+      this._invalidateModelCatalog();
+      this.catalogAccountChanges -= 1;
+    }
   }
   async models() {
+    try {
+      return await this._discoverModels();
+    } catch (error) {
+      this._invalidateModelCatalog();
+      throw error;
+    }
+  }
+  async _discoverModels() {
     await this.start();
+    // Only this existing explicit discovery action may populate the cache.
+    const before = this.catalogGeneration;
+    const account = await this.request("account/read", { refreshToken: false });
+    if (before !== this.catalogGeneration) return { data: [], nextCursor: null };
+    this._acknowledgeCatalogAccount(account.account);
+    const generation = this.catalogGeneration;
+    const identity = this.catalogAccount;
     const models = [];
     let cursor;
     do {
@@ -386,7 +447,19 @@ class CodexAppServer extends EventEmitter {
       models.push(...result.data);
       cursor = result.nextCursor;
     } while (cursor);
-    return { data: models, nextCursor: null };
+    // Recheck the same account after discovery. Account notifications/logout/
+    // disconnect invalidate even A→B→A while any request is in flight.
+    const current = await this.request("account/read", { refreshToken: false });
+    if (generation === this.catalogGeneration) this._acknowledgeCatalogAccount(current.account);
+    if (identity && identity === this.catalogAccount && generation === this.catalogGeneration) {
+      this.catalogModels = models
+        .filter((entry) => typeof entry.model === "string" && entry.model.trim())
+        .map(({ model, isDefault }) => ({ model, isDefault: isDefault === true }));
+      return { data: models, nextCursor: null };
+    }
+    // Preserve explicit discovery for accounts whose protocol omits identity,
+    // but never acknowledge those ids in the passive setup catalog.
+    return { data: generation === this.catalogGeneration ? models : [], nextCursor: null };
   }
   async rateLimits() {
     await this.start();
@@ -404,7 +477,9 @@ class CodexAppServer extends EventEmitter {
   }) {
     await this.start();
     if (signal?.aborted) throw failure("Request canceled.", "ABORT_ERR");
+    const generation = this.catalogGeneration;
     const account = await this.request("account/read", { refreshToken: false });
+    if (generation === this.catalogGeneration) this._acknowledgeCatalogAccount(account.account);
     if (account.account?.type !== "chatgpt")
       throw failure(
         "Connect a ChatGPT subscription in Codex settings before using this provider.",
@@ -485,6 +560,7 @@ class CodexAppServer extends EventEmitter {
   }
 
   _disconnect(error) {
+    this._invalidateModelCatalog();
     for (const request of this.pending.values()) {
       clearTimeout(request.timer);
       request.reject(error);

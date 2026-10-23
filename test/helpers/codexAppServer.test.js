@@ -440,3 +440,115 @@ test("a Codex process that never exits does not hang device erasure", async (t) 
   await server.erase();
   await assert.rejects(fs.stat(server.home), { code: "ENOENT" });
 });
+
+test("passive model catalog never starts a process or reads accounts and contains only explicitly discovered models", async (t) => {
+  const h = await setup(t);
+  assert.deepEqual(h.server.modelCatalog(), { connected: false, data: [] });
+  assert.equal(h.spawnOptions(), undefined);
+  assert.deepEqual(h.sent, []);
+  await h.server.status();
+  assert.deepEqual(h.server.modelCatalog(), { connected: true, data: [] });
+  const models = await h.server.models(); // existing explicit list-models action only
+  const expected = models.data.map(({ model, isDefault }) => ({
+    model,
+    isDefault: isDefault === true,
+  }));
+  const sentBefore = h.sent.length;
+  assert.deepEqual(h.server.modelCatalog(), { connected: true, data: expected });
+  const copy = h.server.modelCatalog();
+  copy.data[0].model = "renderer-mutation";
+  assert.deepEqual(h.server.modelCatalog().data, expected);
+  assert.equal(h.sent.length, sentBefore, "passive reads do not send account/read or model/list");
+});
+
+for (const invalidate of ["account-event", "logout", "login", "disconnect", "stop"]) {
+  test(`acknowledged Codex catalog cannot survive ${invalidate}`, async (t) => {
+    const h = await setup(t);
+    await h.server.models();
+    assert.ok(h.server.modelCatalog().data.length);
+    if (invalidate === "account-event")
+      h.server._message({ method: "account/updated", params: { authMode: "chatgpt" } });
+    if (invalidate === "logout") await h.server.logout();
+    if (invalidate === "login") await h.server.login();
+    if (invalidate === "disconnect") h.server._disconnect(new Error("fixture disconnect"));
+    if (invalidate === "stop") h.server.stop();
+    assert.deepEqual(h.server.modelCatalog(), { connected: false, data: [] });
+    if (invalidate !== "disconnect" && invalidate !== "stop") {
+      await h.server.status();
+      assert.deepEqual(
+        h.server.modelCatalog(),
+        { connected: true, data: [] },
+        "status cannot repopulate models"
+      );
+    }
+  });
+}
+
+test("account changes during explicit listing discard stale inventory, including ABA", async (t) => {
+  const h = await setup(t);
+  const request = h.server.request.bind(h.server);
+  h.server.request = async (method, params) => {
+    const result = await request(method, params);
+    if (method === "model/list") {
+      h.server._message({ method: "account/updated", params: {} });
+      await h.server.status();
+    }
+    return result;
+  };
+  const models = await h.server.models();
+  assert.deepEqual(
+    models.data,
+    [],
+    "invalidated discovery cannot return the previous account's ids"
+  );
+  assert.deepEqual(h.server.modelCatalog(), { connected: true, data: [] });
+});
+
+test("changed account/read and failed explicit discovery invalidate old acknowledged models", async (t) => {
+  const h = await setup(t);
+  await h.server.models();
+  const original = h.server.request.bind(h.server);
+  h.server.request = (method, params) =>
+    method === "account/read"
+      ? Promise.resolve({
+          account: { type: "chatgpt", email: "other@fixture.invalid", planType: "plus" },
+        })
+      : original(method, params);
+  await h.server.status();
+  assert.deepEqual(h.server.modelCatalog(), { connected: true, data: [] });
+  await h.server.models();
+  assert.ok(h.server.modelCatalog().data.length);
+  h.server.request = async () => {
+    throw new Error("explicit discovery failure");
+  };
+  await assert.rejects(h.server.models(), /explicit discovery failure/);
+  assert.deepEqual(h.server.modelCatalog(), { connected: false, data: [] });
+});
+
+test("in-flight status/discovery cannot restore a catalog during or after logout", async (t) => {
+  const h = await setup(t);
+  await h.server.models();
+  const original = h.server.request.bind(h.server);
+  let release;
+  h.server.request = (method, params) =>
+    method === "account/logout"
+      ? new Promise((resolve) => {
+          release = resolve;
+        })
+      : original(method, params);
+  const logout = h.server.logout();
+  await new Promise((resolve) => setImmediate(resolve));
+  await h.server.status();
+  await h.server.models();
+  assert.deepEqual(h.server.modelCatalog(), { connected: false, data: [] });
+  release({});
+  await logout;
+  assert.deepEqual(h.server.modelCatalog(), { connected: false, data: [] });
+});
+
+test("a connected account without a stable reported identity never acknowledges model ownership", async (t) => {
+  const h = await setup(t, { account: { account: { type: "chatgpt" } } });
+  const models = await h.server.models();
+  assert.deepEqual(models.data, fixture.models.data, "existing explicit discovery still works");
+  assert.deepEqual(h.server.modelCatalog(), { connected: true, data: [] });
+});

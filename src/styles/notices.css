@@ -1,0 +1,452 @@
+/* Notices (DESIGN.md "Notices"): receipt, notice, alert. */
+.notice-stack {
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+.notice-stack > * {
+  pointer-events: auto;
+}
+/* Beside the 40px pill on its inner side: pill inset 12 + 40 + 10 gap. The
+   pill docks to a physical screen edge (data-direction mirrors the dock, not
+   the text direction), so these anchors are physical on purpose; the panel
+   stack below is logical. */
+.notice-stack[data-placement="pill"] {
+  bottom: 12px;
+  left: 62px;
+  right: 10px;
+}
+.notice-stack[data-placement="pill"][data-direction="left"] {
+  left: 10px;
+  right: 62px;
+  align-items: flex-end;
+}
+.notice-stack[data-placement="panel"] {
+  bottom: 20px;
+  max-width: min(400px, calc(100vw - 40px));
+  inset-inline-end: 20px;
+  align-items: flex-end;
+}
+
+.notice-chip {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  border-radius: 16px;
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
+  font: 500 12px/1 var(--font-family-sans);
+  white-space: nowrap;
+  flex: none;
+  animation: notice-in var(--motion-base) var(--motion-ease-enter) both;
+  animation-delay: calc(var(--notice-stagger) * var(--motion-stagger));
+}
+.notice-chip__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  min-width: 0;
+  padding-inline: 6px 5px;
+}
+.notice-chip__more,
+.notice-chip__secondary {
+  flex: none;
+  height: 22px;
+  padding-inline: 8px;
+  border-radius: 999px;
+  color: var(--color-popover-foreground);
+  background: color-mix(in oklch, var(--color-foreground) 8%, transparent);
+  font: 600 11px/1 var(--font-family-sans);
+}
+.notice-chip__expanded {
+  min-width: 0;
+  padding: 0 10px 7px;
+  white-space: normal;
+}
+.notice-chip__expanded-title,
+.notice-chip__expanded-body {
+  margin-block: 5px;
+  font: 400 12px/1.4 var(--font-family-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  user-select: text;
+}
+.notice-chip__expanded-title {
+  font-weight: 600;
+}
+.notice-chip__more-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-block: 0 7px;
+  padding-inline: 33px 8px;
+}
+.notice-chip button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.notice-chip[data-kind="notice"] {
+  border-color: color-mix(in oklch, var(--color-warning) 55%, transparent);
+}
+.notice-chip[data-kind="alert"] {
+  border-color: color-mix(in oklch, var(--color-destructive) 60%, transparent);
+}
+.notice-chip__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in oklch, currentColor 10%, transparent);
+}
+.notice-chip[data-kind="receipt"] .notice-chip__icon {
+  color: var(--color-success);
+}
+.notice-chip[data-kind="notice"] .notice-chip__icon {
+  color: var(--color-warning);
+}
+.notice-chip[data-kind="alert"] .notice-chip__icon {
+  color: var(--color-destructive);
+}
+.notice-chip__title {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notice-chip__body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-muted-foreground);
+}
+.notice-chip__action {
+  flex: none;
+  height: 22px;
+  padding-inline: 8px;
+  border-radius: 999px;
+  background: var(--color-cta);
+  color: var(--color-cta-foreground);
+  font: 700 11px/1 var(--font-family-sans);
+}
+.notice-chip__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: var(--color-muted-foreground);
+  opacity: 0.7;
+}
+.notice-chip__close:hover,
+.notice-chip__close:focus-visible {
+  opacity: 1;
+}
+
+.notice-chip__close:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.words-card {
+  flex: none;
+  width: 100%;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 10px 11px;
+  border-radius: 20px;
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
+  animation: notice-in var(--motion-base) var(--motion-ease-enter) both;
+}
+.words-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font: 600 12px/1 var(--font-family-sans);
+  color: var(--color-popover-foreground);
+  background: color-mix(in oklch, var(--color-destructive) 14%, transparent);
+}
+.words-card__chip svg {
+  flex: none;
+  color: var(--color-destructive);
+}
+.words-card__words {
+  unicode-bidi: plaintext;
+  margin: 8px 0 9px;
+  padding-block: 8px;
+  padding-inline: 9px 24px;
+  border-radius: 11px;
+  background: color-mix(in oklch, var(--color-foreground) 7%, transparent);
+  font: 400 13px/1.4 var(--font-family-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: grab;
+  user-select: text;
+  transition:
+    transform var(--motion-instant) var(--motion-ease-std),
+    box-shadow var(--motion-instant) var(--motion-ease-std);
+}
+.words-card__words.is-drag {
+  transform: scale(1.03);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
+}
+.words-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.words-card__actions > button {
+  max-width: 100%;
+  min-height: 32px;
+  height: auto;
+  padding-block: 6px;
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.words-card__kbd {
+  margin-inline-start: 6px;
+  font: 700 10px/1 var(--font-family-sans);
+  opacity: 0.7;
+}
+.words-card__hint {
+  margin-top: 7px;
+  font: 500 12px/1.3 var(--font-family-sans);
+  color: var(--color-muted-foreground);
+}
+.words-card__copy-failed {
+  margin-top: 7px;
+  font: 600 12px/1.3 var(--font-family-sans);
+  color: var(--color-popover-foreground);
+}
+.words-card__more {
+  margin-top: 7px;
+  height: 22px;
+  padding-inline: 8px;
+  border-radius: 999px;
+  color: var(--color-popover-foreground);
+  background: color-mix(in oklch, var(--color-foreground) 8%, transparent);
+  font: 600 11px/1 var(--font-family-sans);
+}
+
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice-chip,
+  .words-card {
+    /* !important: index.css cuts every animation to 0.01ms under reduced motion; the fade must survive. */
+    animation: notice-fade var(--motion-fast) linear both !important;
+    animation-delay: 0ms !important;
+    transform: none;
+  }
+  .words-card__words.is-drag {
+    transform: none;
+  }
+}
+@keyframes notice-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Native work-area clamping can leave a narrower slot than a whole action
+   row. Let controls wrap so every action and close remain reachable. */
+@media (max-width: 320px) {
+  .notice-chip__row {
+    height: auto;
+    min-height: 32px;
+    flex-wrap: wrap;
+    padding-block: 5px;
+  }
+  .notice-chip__action,
+  .notice-chip__secondary {
+    max-width: 100%;
+    height: auto;
+    min-height: 22px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* VO-R11 B: fixed native frame, top-centre entry and hover-paused mini fold. */
+.meeting-notification-window {
+  padding: 6px 8px;
+}
+.meeting-notification-motion {
+  transition:
+    opacity var(--motion-fast) var(--motion-ease-exit),
+    transform var(--motion-fast) var(--motion-ease-exit);
+}
+.meeting-notification-motion--dragging {
+  transition: none;
+}
+.meeting-drop {
+  transform-origin: top center;
+  animation: meeting-drop var(--motion-hero) var(--motion-spring-settle) both;
+}
+@keyframes meeting-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-80px) scale(0.7);
+  }
+}
+.meeting-card {
+  position: relative;
+  width: 100%;
+  height: 80px;
+  padding-block: 8px 6px;
+  padding-inline: 26px 10px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-card, 0 4px 16px #0000001a);
+  backdrop-filter: blur(16px);
+  transition:
+    border-radius var(--motion-slow) var(--motion-ease-std),
+    padding var(--motion-slow) var(--motion-ease-std),
+    height var(--motion-slow) var(--motion-ease-std),
+    width var(--motion-slow) var(--motion-ease-std);
+}
+.meeting-card__close {
+  position: absolute;
+  inset-inline-start: 2px;
+  top: 2px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--color-foreground);
+  opacity: 0.65;
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.meeting-card__close:hover,
+.meeting-card__close:focus-visible {
+  opacity: 1;
+}
+.meeting-card__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 38px;
+}
+.meeting-card__copy {
+  flex: 1;
+  min-width: 0;
+  max-height: 38px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.meeting-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--color-foreground);
+}
+.meeting-card__body {
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--color-muted-foreground);
+}
+.meeting-card__privacy {
+  color: color-mix(in srgb, var(--color-success) 65%, var(--color-foreground));
+  font-size: 12px;
+  line-height: 14px;
+  max-height: 28px;
+  overflow: auto;
+  flex: 1;
+  min-width: 0;
+}
+.meeting-card__start {
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--motion-ease-std);
+  flex-shrink: 0;
+  max-width: 122px;
+  height: auto;
+  min-height: 32px;
+  padding: 4px 8px;
+  white-space: normal;
+  font-size: 12px;
+  line-height: 14px;
+}
+.meeting-card kbd {
+  font: 600 10px/12px var(--font-family-sans);
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}
+.meeting-card[data-phase="mini"] {
+  width: 224px;
+  height: 36px;
+  margin-inline: auto;
+  padding-block: 0;
+  padding-inline: 26px 8px;
+  border-radius: 9999px;
+}
+.meeting-card__mini {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 34px;
+  font: 600 12.5px/1 var(--font-family-sans);
+  color: var(--color-foreground);
+}
+.meeting-card__mini-label {
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+  white-space: nowrap;
+}
+.meeting-card__dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-live) 85%, var(--color-foreground));
+}
+@media (prefers-reduced-motion: reduce) {
+  .meeting-drop {
+    animation: notice-fade var(--motion-fast) linear both !important;
+    transform: none !important;
+  }
+  .meeting-card,
+  .meeting-notification-motion {
+    transition: opacity var(--motion-fast) linear;
+    transform: none !important;
+  }
+}
+
+.meeting-card button:focus-visible,
+.meeting-card__copy:focus-visible,
+.meeting-card__privacy:focus-visible {
+  outline: 2px solid var(--color-foreground);
+  outline-offset: 1px;
+}
+
+.meeting-card__footer {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}

@@ -25,8 +25,7 @@ async function renderer(t) {
 }
 
 async function render(vite, element) {
-  const { ToastProvider } = await vite.ssrLoadModule("/components/ui/Toast.tsx");
-  return renderToStaticMarkup(React.createElement(ToastProvider, null, element));
+  return renderToStaticMarkup(element);
 }
 
 test("all three model pickers restore the Oruk tab from the persisted Orukeet choice", async (t) => {
@@ -40,8 +39,7 @@ test("all three model pickers restore the Oruk tab from the persisted Orukeet ch
         selectedLocalProvider: "nvidia",
         selectedLocalModel: "orukeet-v0.1.0",
         useLocalWhisper: true,
-        onLocalModelSelect: noop,
-        onModeChange: noop,
+        onCommit: noop,
       })
     );
     assert.match(markup, />Orukeet</, transcriptionContext);
@@ -58,8 +56,7 @@ test("a saved stock Parakeet choice opens NVIDIA while retaining Oruk as a selec
       selectedLocalProvider: "nvidia",
       selectedLocalModel: "parakeet-tdt-0.6b-v3",
       useLocalWhisper: true,
-      onLocalModelSelect: noop,
-      onModeChange: noop,
+      onCommit: noop,
     })
   );
   assert.match(markup, />Oruk</);
@@ -76,7 +73,7 @@ test("adding Orukeet preserves fresh-install transcription modes and existing ba
   assert.equal(state.parakeetModel, "parakeet-unified-en-0.6b");
 });
 
-test("Oruk's model-picker tab follows the same unsupported-macOS fallback as Parakeet", async (t) => {
+test("change-driving FIX1: unsupported Oruk browse tab leaves disabled engines without a route fallback", async (t) => {
   const vite = await renderer(t);
   const container = installHookDom(t);
   globalThis.window.electronAPI.checkParakeetInstallation = async () => ({
@@ -88,30 +85,21 @@ test("Oruk's model-picker tab follows the same unsupported-macOS fallback as Par
   globalThis.window.electronAPI.onWhisperDownloadProgress = () => noop;
   globalThis.window.electronAPI.onParakeetDownloadProgress = () => noop;
   const { default: Picker } = await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx");
-  const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
-  const selectedProviders = [];
+  const commits = [];
   let tree;
   function Harness() {
     tree = Picker({
       selectedLocalProvider: "nvidia",
       selectedLocalModel: "orukeet-v0.1.0",
       useLocalWhisper: true,
-      onLocalModelSelect: noop,
-      onLocalProviderSelect: (provider) => selectedProviders.push(provider),
-      onModeChange: noop,
+      onCommit: (target) => commits.push(target),
     });
     return null;
   }
   const root = createRoot(container);
   try {
     await React.act(async () => {
-      root.render(
-        React.createElement(
-          ToastContext.Provider,
-          { value: { toast: noop } },
-          React.createElement(Harness)
-        )
-      );
+      root.render(React.createElement(Harness));
     });
     function find(node) {
       if (Array.isArray(node)) return node.map(find).find(Boolean);
@@ -128,7 +116,7 @@ test("Oruk's model-picker tab follows the same unsupported-macOS fallback as Par
       );
     }
     assert.equal(tabs.props.selectedId, "whisper");
-    assert.ok(selectedProviders.includes("whisper"));
+    assert.deepEqual(commits, [], "hardware capability must not commit a replacement provider");
   } finally {
     await React.act(async () => root.unmount());
   }

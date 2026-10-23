@@ -91,6 +91,7 @@ class UpdateManager extends EventEmitter {
   }
   preferences(patch) {
     if (this.restarting) throw Error("An update restart is already being prepared.");
+    const enabling = patch?.enabled === true && !this.prefs.enabled;
     if (typeof patch?.enabled === "boolean") this.prefs.enabled = patch.enabled;
     if (patch?.channel !== undefined && !["stable", "beta"].includes(patch.channel))
       throw Error("Unknown update channel");
@@ -107,6 +108,12 @@ class UpdateManager extends EventEmitter {
     }
     this.configureChannel();
     this.save();
+    // A manual check found an update while automatic updates were off; now
+    // that they are on, fetch it the same way a scheduled check would.
+    if (enabling && this.state.phase === "available") {
+      this.publish({ phase: "idle", availableVersion: undefined });
+      void this.check(true);
+    }
     return this.status();
   }
   completeSetup() {
@@ -122,10 +129,12 @@ class UpdateManager extends EventEmitter {
     void this.check(false);
   }
   async check(manual = true) {
+    // A manual check is an explicit request, so it runs even with automatic
+    // updates off. It then reports what is available and never downloads.
     if (
       !this.packaged ||
       !this.supported ||
-      !this.prefs.enabled ||
+      (!this.prefs.enabled && !manual) ||
       !this.prefs.onboarded ||
       this.running ||
       this.restarting ||
@@ -141,7 +150,7 @@ class UpdateManager extends EventEmitter {
     this.publish({ phase: "checking" });
     try {
       const result = await this.updater.checkForUpdates();
-      if (!this.prefs.enabled || channel !== this.prefs.channel) return this.status();
+      if (channel !== this.prefs.channel) return this.status();
       const semver = require("semver");
       const next = result?.updateInfo?.version;
       if (
@@ -149,16 +158,20 @@ class UpdateManager extends EventEmitter {
         semver.gt(next, this.version) &&
         (channel === "beta" || !semver.prerelease(next))
       ) {
-        this.downloadChannel = channel;
-        this.publish({ phase: "downloading", availableVersion: next });
-        const { CancellationToken } = require("builder-util-runtime");
-        this.cancel = new CancellationToken();
-        await this.updater.downloadUpdate(this.cancel);
+        if (!this.prefs.enabled) {
+          this.publish({ phase: "available", availableVersion: next });
+        } else {
+          this.downloadChannel = channel;
+          this.publish({ phase: "downloading", availableVersion: next });
+          const { CancellationToken } = require("builder-util-runtime");
+          this.cancel = new CancellationToken();
+          await this.updater.downloadUpdate(this.cancel);
+        }
       } else this.publish({ phase: "idle" });
       this.failures = 0;
     } catch {
       this.failures++;
-      if (this.prefs.enabled && channel === this.prefs.channel)
+      if ((this.prefs.enabled || manual) && channel === this.prefs.channel)
         this.publish({
           phase: "error",
           error: "Unable to update. Retry when online; your current version is unchanged.",

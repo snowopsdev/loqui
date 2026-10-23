@@ -81,13 +81,19 @@ test("renderer presentation consumes the shared live-transcript geometry", async
   });
 });
 
-test("DictationErrorCard reports content height at the shared expected width", async (t) => {
+test("WordsFirstCard reports full content height after wrapping", async (t) => {
+  const listeners = new Map();
   const card = {
+    addEventListener: (type, callback) => listeners.set(type, callback),
+    removeEventListener: (type, callback) => {
+      if (listeners.get(type) === callback) listeners.delete(type);
+    },
     getBoundingClientRect: () => ({ width: 500 }),
     offsetHeight: 120,
     scrollHeight: 137,
   };
   const reportedHeights = [];
+  let resize;
   const originalResizeObserver = globalThis.ResizeObserver;
   const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
   const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
@@ -96,6 +102,9 @@ test("DictationErrorCard reports content height at the shared expected width", a
   });
   globalThis.__dictationErrorCard = card;
   globalThis.ResizeObserver = class {
+    constructor(callback) {
+      resize = callback;
+    }
     observe() {}
     disconnect() {}
   };
@@ -106,6 +115,7 @@ test("DictationErrorCard reports content height at the shared expected width", a
   globalThis.cancelAnimationFrame = () => {};
   t.after(() => {
     globalThis.__dictationErrorCardCleanup?.();
+    assert.equal(listeners.size, 0, "measurement listener is released on unmount");
     delete globalThis.__dictationErrorCard;
     delete globalThis.__dictationErrorCardCleanup;
     if (originalResizeObserver === undefined) delete globalThis.ResizeObserver;
@@ -125,10 +135,14 @@ test("DictationErrorCard reports content height at the shared expected width", a
         export function jsxDEV(type, props, key) { return { type, props, key }; }
       `,
       "/components/icons": `
-        export function RotateCcw() { return null; }
+        export function AlertTriangle() { return null; }
         export function ScrollText() { return null; }
       `,
+      "/hooks/useCopyFeedback": `export const useCopyFeedback = () => ({ copied: false, copyText() {}, confirmCopied() {} });`,
+      "react-i18next": `export const useTranslation = () => ({ t: key => key });`,
+      "/button": `export function Button() { return null; }`,
       react: `
+        export function useState(initial) { return [initial, () => {}]; }
         export function useLayoutEffect(effect) {
           globalThis.__dictationErrorCardCleanup = effect();
         }
@@ -139,15 +153,29 @@ test("DictationErrorCard reports content height at the shared expected width", a
       "/voiceSurfaceGeometry.mjs": OVERRIDDEN_VOICE_SURFACE_GEOMETRY,
     },
   });
-  const { DictationErrorCard } = await vite.ssrLoadModule(
-    "/components/dictation/DictationErrorCard.tsx"
-  );
+  const { WordsFirstCard } = await vite.ssrLoadModule("/components/ui/WordsFirstCard.tsx");
 
-  DictationErrorCard({
-    actions: [],
-    onAction() {},
-    onPreferredHeightChange: (height) => reportedHeights.push(height),
+  WordsFirstCard({
+    notice: { id: "fixture", kind: "alert", title: "Could not paste", words: "kept words" },
+    onHeight: (height) => reportedHeights.push(height),
   });
 
   assert.deepEqual(reportedHeights, [137]);
+  // The beside-pill slot is narrower than the old full surface. A native
+  // width change must measure the newly wrapped content instead of waiting
+  // forever for the old surface width.
+  card.getBoundingClientRect = () => ({ width: 320 });
+  card.offsetHeight = 180;
+  card.scrollHeight = 207;
+  resize();
+  assert.deepEqual(reportedHeights, [137, 207]);
+  resize();
+  assert.deepEqual(reportedHeights, [137, 207], "unchanged observations do not resize again");
+  card.scrollHeight = 250;
+  listeners.get("toggle")();
+  assert.deepEqual(
+    reportedHeights,
+    [137, 207, 250],
+    "expanded diagnostics report their full height"
+  );
 });

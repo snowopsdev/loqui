@@ -1,9 +1,16 @@
+const { createMeetingPresence } = require("./meetingPresence");
 const { app, screen, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
+const {
+  requestFromRenderer,
+  UNDO_BRIDGE_TIMEOUT_MS,
+  UNDO_BRIDGE_BUDGET_MS,
+} = require("./rendererRequest");
 const debugLogger = require("./debugLogger");
 const { createLinuxWindowInputRegion } = require("./linuxWindowInputRegion");
 // Aliased: this class has an openExternalUrl method wrapping the helper.
 const { openExternalUrl: openUrlInExternalBrowser } = require("./externalUrlOpener");
 const HotkeyManager = require("./hotkeyManager");
+const { createHotkeyLeases } = require("./hotkeyLeases");
 const { isGlobeLikeHotkey } = HotkeyManager;
 const DragManager = require("./dragManager");
 const MainWindowPlacementCoordinator = require("./mainWindowPlacementCoordinator");
@@ -26,6 +33,14 @@ const {
 } = require("./dictationLifecycle");
 const { DEV_SERVER_PORT } = DevServerManager;
 const DRAG_MOVE_TOLERANCE_PX = 2;
+// At most 15 Hz; round up so the interval never exceeds that rate.
+const CONTROL_PANEL_LEVEL_INTERVAL_MS = Math.ceil(1000 / 15);
+const BRIDGE_STATE_MAX_LENGTH = 64;
+function toBridgeLifecycleState(state) {
+  return typeof state === "string" && state.length >= 1 && state.length <= BRIDGE_STATE_MAX_LENGTH
+    ? state
+    : DICTATION_LIFECYCLE.IDLE;
+}
 const {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
@@ -41,13 +56,92 @@ const {
 } = require("./windowConfig");
 const AGENT_DICTATION_PILL_SIZE = Object.freeze({ ...WINDOW_SIZES.BASE });
 const { centeredBounds, clampedBounds } = require("./onboardingWindowBounds");
-const { ONBOARDING_DEMO_KINDS, isOnboardingInputAllowed } = require("./onboardingInputPolicy");
+const {
+  ONBOARDING_DEMO_KINDS,
+  isOnboardingInputAllowed,
+  shouldReportDictationHotkey,
+} = require("./onboardingInputPolicy");
 const { createHotkeyRepeatGate } = require("./hotkeyRepeatGate");
 
+const { createSettingsLinkQueue } = require("./settingsLinks");
+
 class WindowManager {
+  sendUndoCancelDictation(sessionId = this.lastCancelledDictation?.sessionId ?? null) {
+    return requestFromRenderer({
+      ipcMain,
+      webContents: this.mainWindow?.webContents,
+      channel: "undo-cancel-request",
+      replyChannel: "undo-cancel-reply",
+      // R3-I1: an absolute deadline, set as the request leaves main, so the overlay's
+      // admission window ends before main's own 2 s timeout however late the request arrives.
+      payload: { sessionId, deadlineAt: Date.now() + UNDO_BRIDGE_BUDGET_MS },
+      timeoutMs: UNDO_BRIDGE_TIMEOUT_MS,
+      fallback: { restored: false, sessionId, reason: "unavailable" },
+    });
+  }
+
+  async flushDictationBeforeQuit({ timeoutMs }) {
+    const ack = await requestFromRenderer({
+      ipcMain,
+      webContents: this.mainWindow?.webContents,
+      channel: "dictation-flush-request",
+      replyChannel: "dictation-flush-reply",
+      timeoutMs,
+      fallback: false,
+    });
+    return ack === true;
+  }
+
+  getMeetingPresence() {
+    return this.meetingPresence.get();
+  }
+
+  _onMeetingPresenceChanged(presence) {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("meeting-recording-presence-changed", presence);
+    }
+    this.onMeetingPresenceChanged?.(presence);
+  }
+
+  _onMeetingOutcome(outcome) {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("meeting-recording-outcome", outcome);
+    }
+    this.onMeetingOutcome?.(outcome);
+  }
+
+  // Session-bound: a Stop from a stale tray item or notification, or for a
+  // session that already ended, does nothing.
+  requestStopMeetingRecording(sessionId) {
+    if (!sessionId || this.meetingPresence.get()?.sessionId !== sessionId) return false;
+    this.sendToControlPanel("meeting-recording-stop-requested", sessionId);
+    return true;
+  }
+
+  // D2: clicking the Linux recording notification brings up the pill with
+  // Stop visible. The pill (Task 17) shows the capsule for this session even
+  // when the on-screen recorder setting is off or the pill is auto-hidden.
+  revealMeetingRecorder(sessionId) {
+    if (!sessionId || this.meetingPresence.get()?.sessionId !== sessionId) return false;
+    this.showDictationPanel();
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("meeting-recorder-reveal-requested", sessionId);
+    }
+    return true;
+  }
+
   constructor() {
+    this.meetingPresence = createMeetingPresence({
+      onChange: (p) => this._onMeetingPresenceChanged(p),
+      onOwnerLost: (sessionId) =>
+        this._onMeetingOutcome({ sessionId, kind: "failed", reason: "ownerLost" }),
+    });
+    this.onMeetingPresenceChanged = null;
+    this.onMeetingOutcome = null;
     this.mainWindow = null;
+    this.lastCancelledDictation = null;
     this.controlPanelWindow = null;
+    this.settingsLinks = createSettingsLinkQueue();
     this._resizeMaskTokenCounter = 0;
     this._controlPanelVisibilityTimer = null;
     this._onboardingRestoreBounds = null;
@@ -57,6 +151,7 @@ class WindowManager {
     // committed the normal app. This covers the startup gap before React mounts.
     this._onboardingActive = true;
     this._onboardingDemoKind = null;
+    this._onboardingDemoSession = null;
     // Set by IPCHandlers so its demo session dies with the demo kind on every
     // teardown path (id-matched end, onboarding exit, control panel closed).
     this.onOnboardingDemoTeardown = null;
@@ -83,6 +178,7 @@ class WindowManager {
     };
     this.tray = null;
     this.hotkeyManager = new HotkeyManager();
+    this.hotkeyLeases = createHotkeyLeases({ hotkeyManager: this.hotkeyManager });
     this.dragManager = new DragManager();
     this._mainWindowPlacementCoordinator = new MainWindowPlacementCoordinator();
     this.isQuitting = false;
@@ -96,13 +192,18 @@ class WindowManager {
     this._isDictatingToggle = false;
     this._dictationLifecycleState = DICTATION_LIFECYCLE.IDLE;
     this._dictationInputKind = DICTATION_INPUT_KIND.DICTATION;
+    this._controlPanelDictationState = DICTATION_LIFECYCLE.IDLE;
+    this._controlPanelLevelSentAt = null;
     this._assistantPanelOpen = false;
     this._assistantPanelBusy = false;
     this._pendingMeetingNoteNavigation = null;
     this._pendingNoteNavigation = null;
+    this._meetingPrompt = null;
+    this._meetingPromptGeneration = 0;
 
     app.on("before-quit", () => {
       this.isQuitting = true;
+      this.dismissMeetingNotification({ notifyEngine: false });
       this.hotkeyManager.unregisterAll();
     });
   }
@@ -122,7 +223,7 @@ class WindowManager {
     });
 
     this.setMainWindowInteractivity(false);
-    this.registerMainWindowEvents();
+    this.registerMainWindowEvents(this.mainWindow.webContents.id);
     this.registerAssistantSelectionContextMenu();
 
     // Register load event handlers BEFORE loading to catch all events
@@ -391,7 +492,6 @@ class WindowManager {
     switch (sizeKey) {
       case "ASSISTANT":
         return fitAssistantWindowToWorkArea(WINDOW_SIZES.ASSISTANT, workArea);
-      case "DICTATION_ERROR":
       case "DICTATION_ERROR_WITH_TRANSCRIPT":
         return fitDictationErrorWindowToWorkArea(WINDOW_SIZES[sizeKey], workArea);
       case "ASSISTANT_CONTENT":
@@ -584,8 +684,22 @@ class WindowManager {
     // use down/up phases and resolve their primary hotkey from the active slot.
     return async (triggeredHotkey, phase) => {
       if (this.hotkeyManager.isInListeningMode()) {
+        this._onboardingNativePressed = false;
+        this._onboardingPressBinding = null;
         return;
       }
+      // A global tap accompanying an already-held native press is the same action.
+      if (
+        this._onboardingActive &&
+        this._onboardingNativePressed &&
+        phase !== "down" &&
+        phase !== "up"
+      )
+        return;
+      this.reportDictationHotkey(
+        phase === "down" || phase === "up" ? phase : "tap",
+        triggeredHotkey
+      );
       if (this.isDictationProcessing()) {
         return;
       }
@@ -644,7 +758,7 @@ class WindowManager {
 
     const targetPidPromise = this.textEditMonitor?.captureTargetPid?.();
     this.showDictationPanel({ reposition: true, targetPidPromise });
-    this.sendPrepareDictation();
+    const onboardingTake = this.sendPrepareDictation();
 
     const safetyTimeoutId = setTimeout(() => {
       if (this.macCompoundPushState?.active) {
@@ -656,6 +770,7 @@ class WindowManager {
     this.macCompoundPushState = {
       active: true,
       downTime,
+      onboardingTake,
       isRecording: false,
       requiredModifiers,
       safetyTimeoutId,
@@ -668,7 +783,7 @@ class WindowManager {
 
       if (!this.macCompoundPushState.isRecording) {
         this.macCompoundPushState.isRecording = true;
-        this.sendStartDictation();
+        this.sendStartDictation({ onboardingTake });
       }
     }, MIN_HOLD_DURATION_MS);
   }
@@ -686,13 +801,14 @@ class WindowManager {
       clearTimeout(this.macCompoundPushState.safetyTimeoutId);
     }
 
-    const wasRecording = this.macCompoundPushState.isRecording;
+    const { isRecording: wasRecording, onboardingTake } = this.macCompoundPushState;
     this.macCompoundPushState = null;
+    if (!this.isCurrentDictationInput({ onboardingTake })) return;
 
     if (wasRecording) {
-      this.sendStopDictation();
+      this.sendStopDictation({ onboardingTake });
     } else {
-      this.sendCancelDictationPreparation();
+      this.sendCancelDictationPreparation({ onboardingTake });
       this.hideDictationPanel();
     }
   }
@@ -716,15 +832,16 @@ class WindowManager {
       clearTimeout(this.macCompoundPushState.safetyTimeoutId);
     }
 
-    const wasRecording = this.macCompoundPushState.isRecording;
+    const { isRecording: wasRecording, onboardingTake } = this.macCompoundPushState;
     this.macCompoundPushState = null;
+    if (!this.isCurrentDictationInput({ onboardingTake })) return;
 
     this._notifyPushForceStopped(reason);
 
     if (wasRecording) {
-      this.sendStopDictation();
+      this.sendStopDictation({ onboardingTake });
     } else {
-      this.sendCancelDictationPreparation();
+      this.sendCancelDictationPreparation({ onboardingTake });
       this.hideDictationPanel();
     }
   }
@@ -782,7 +899,7 @@ class WindowManager {
     const downTime = Date.now();
 
     this.showDictationPanel({ reposition: true });
-    this.sendPrepareDictation();
+    const onboardingTake = this.sendPrepareDictation();
 
     const safetyTimeoutId = setTimeout(() => {
       if (!this.winPushState || this.winPushState.downTime !== downTime) return;
@@ -794,6 +911,7 @@ class WindowManager {
       active: true,
       key,
       downTime,
+      onboardingTake,
       isRecording: false,
       safetyTimeoutId,
     };
@@ -805,7 +923,7 @@ class WindowManager {
 
       if (!this.winPushState.isRecording) {
         this.winPushState.isRecording = true;
-        this.sendStartDictation();
+        this.sendStartDictation({ onboardingTake });
       }
     }, MIN_HOLD_DURATION_MS);
   }
@@ -826,15 +944,16 @@ class WindowManager {
       clearTimeout(this.winPushState.safetyTimeoutId);
     }
 
-    const wasRecording = this.winPushState.isRecording;
+    const { isRecording: wasRecording, onboardingTake } = this.winPushState;
     this.winPushState = null;
+    if (!this.isCurrentDictationInput({ onboardingTake })) return;
 
     if (reason !== "release") this._notifyPushForceStopped(reason);
 
     if (wasRecording) {
-      this.sendStopDictation();
+      this.sendStopDictation({ onboardingTake });
     } else {
-      this.sendCancelDictationPreparation();
+      this.sendCancelDictationPreparation({ onboardingTake });
       this.hideDictationPanel();
     }
   }
@@ -907,7 +1026,18 @@ class WindowManager {
   }
 
   _sendDictationToggle(channel, inputKind) {
-    if (!this._isOnboardingInputAllowed(inputKind)) return;
+    if (!this._isOnboardingInputAllowed(inputKind)) {
+      // Cached lifecycle only offers an existing owner's Stop control. Never
+      // send an ordinary toggle: the original overlay may already be idle.
+      if (
+        this._onboardingActive &&
+        !this._onboardingDemoSession &&
+        this._dictationLifecycleState === DICTATION_LIFECYCLE.RECORDING &&
+        this._dictationInputKind === inputKind
+      )
+        this.sendStopDictation({ onboardingTake: null });
+      return;
+    }
     if (this._shouldBlockDictationInput(inputKind)) {
       return;
     }
@@ -947,22 +1077,29 @@ class WindowManager {
       if (isStarting) {
         this.sendPrepareDictation({ inputKind });
       }
-      this.mainWindow.webContents.send(channel);
+      this.mainWindow.webContents.send(channel, this._onboardingTakePayload());
     }
   }
 
   setDictationLifecycleState(state, inputKind = DICTATION_INPUT_KIND.DICTATION) {
     const nextState = normalizeDictationLifecycle(state);
     const nextInputKind = normalizeDictationInputKind(inputKind);
+    const bridgeState = toBridgeLifecycleState(state);
     if (nextState === this._dictationLifecycleState && nextInputKind === this._dictationInputKind) {
+      if (bridgeState !== this._controlPanelDictationState) {
+        this._controlPanelDictationState = bridgeState;
+        this._sendControlPanelDictationState();
+      }
       return;
     }
 
     this._dictationLifecycleState = nextState;
     this._dictationInputKind = nextInputKind;
+    this._controlPanelDictationState = bridgeState;
     this._isDictatingToggle = isDictationRecording(nextState);
     this.meetingDetectionEngine?.setUserRecording(this._isDictatingToggle);
     this._sendAgentDictationPillState();
+    this._sendControlPanelDictationState();
     this.onDictationStateChanged?.();
   }
 
@@ -987,7 +1124,36 @@ class WindowManager {
     };
   }
 
+  getControlPanelDictationState() {
+    return { state: this._controlPanelDictationState, inputKind: this._dictationInputKind };
+  }
+
+  _sendControlPanelDictationState() {
+    this.sendToControlPanel("dictation-lifecycle-changed", this.getControlPanelDictationState());
+  }
+
+  _forwardControlPanelDictationLevel(level) {
+    const win = this.controlPanelWindow;
+    if (!win || win.isDestroyed() || win.webContents.isLoading()) return;
+    const now = Date.now();
+    if (
+      this._controlPanelLevelSentAt !== null &&
+      now - this._controlPanelLevelSentAt < CONTROL_PANEL_LEVEL_INTERVAL_MS
+    ) {
+      return;
+    }
+    this._controlPanelLevelSentAt = now;
+    win.webContents.send("dictation-level-changed", level);
+  }
+
   setDictationAudioLevel(level) {
+    const numericLevel = Number(level);
+    if (
+      Number.isFinite(numericLevel) &&
+      this._dictationLifecycleState === DICTATION_LIFECYCLE.RECORDING
+    ) {
+      this._forwardControlPanelDictationLevel(numericLevel);
+    }
     if (
       !this._assistantPanelOpen ||
       this._dictationLifecycleState !== DICTATION_LIFECYCLE.RECORDING ||
@@ -995,7 +1161,6 @@ class WindowManager {
     ) {
       return;
     }
-    const numericLevel = Number(level);
     if (!Number.isFinite(numericLevel)) return;
     const pillWindow = this.agentDictationPillWindow;
     if (!pillWindow || pillWindow.isDestroyed() || !this._agentDictationPillReady) return;
@@ -1029,7 +1194,13 @@ class WindowManager {
     this.mainWindow.webContents.send("open-assistant-panel");
   }
 
-  sendStartDictation() {
+  sendStartDictation(options = {}) {
+    const { onboardingTake } = options;
+    // Native hold timers carry the preparation they scheduled. Never borrow a
+    // new take when an old timer fires after leave/re-enter.
+    if (onboardingTake && !this._isCurrentOnboardingTake(onboardingTake)) return;
+    if (this._onboardingDemoSession && Object.hasOwn(options, "onboardingTake") && !onboardingTake)
+      return;
     if (!this._isOnboardingInputAllowed("dictation")) return;
     if (this._shouldBlockDictationInput("dictation")) {
       return;
@@ -1044,16 +1215,29 @@ class WindowManager {
       const targetPidPromise = this.textEditMonitor?.captureTargetPid?.();
       void this.selectionManager?.captureTarget?.();
       this.showDictationPanel({ reposition: true, targetPidPromise });
-      this.mainWindow.webContents.send("start-dictation");
+      if (this._onboardingDemoSession && !onboardingTake) this._prepareOnboardingTake();
+      this.mainWindow.webContents.send("start-dictation", this._onboardingTakePayload());
     }
   }
 
-  sendStopDictation() {
+  isCurrentDictationInput(options) {
+    if (!options || !Object.hasOwn(options, "onboardingTake")) return true;
+    const take = options.onboardingTake;
+    const session = this._onboardingDemoSession;
+    return take
+      ? session?.id === take.demoId &&
+          session?.takeId === take.takeId &&
+          session?.requestId === take.reservationId
+      : !session;
+  }
+
+  sendStopDictation(options) {
+    if (!this.isCurrentDictationInput(options)) return false;
     if (this.hotkeyManager.isInListeningMode()) {
       return;
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send("stop-dictation");
+      this.mainWindow.webContents.send("stop-dictation", options ?? this._onboardingTakePayload());
     }
   }
 
@@ -1069,34 +1253,55 @@ class WindowManager {
       return;
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send("prepare-dictation", { inputKind });
+      this._prepareOnboardingTake();
+      const onboardingTake = this._onboardingTakePayload()?.onboardingTake;
+      this.mainWindow.webContents.send("prepare-dictation", {
+        inputKind,
+        ...(onboardingTake ? { onboardingTake } : {}),
+      });
+      return onboardingTake;
     }
   }
 
-  sendCancelDictationPreparation() {
+  sendCancelDictationPreparation(options) {
+    if (!this.isCurrentDictationInput(options)) return false;
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send("cancel-dictation-preparation");
+      this.mainWindow.webContents.send(
+        "cancel-dictation-preparation",
+        options ?? this._onboardingTakePayload()
+      );
     }
   }
 
-  sendCancelDictation() {
+  sendCancelDictation(options) {
+    if (this.hotkeyManager.isInListeningMode()) return;
+    if (!this.isCurrentDictationInput(options)) return false;
+    if (options) {
+      this.sendCancelDictationPreparation(options);
+      this.sendCancelActiveDictation(options);
+      return true;
+    }
     if (this.hotkeyManager.isInListeningMode()) {
       return;
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send("cancel-dictation-preparation");
+      this.mainWindow.webContents.send(
+        "cancel-dictation-preparation",
+        options ?? this._onboardingTakePayload()
+      );
       this.mainWindow.webContents.send("cancel-hotkey-pressed");
     }
   }
 
-  // Unlike sendCancelDictation (a silent input reset: preparation and
-  // recording only), this also cancels a transcript still processing. The
-  // companion pill's cancel control lives in another window, but only the
-  // main window's renderer owns the recording state, so it decides what
-  // "cancel" means at arrival time.
-  sendCancelActiveDictation() {
+  // The original overlay interprets an explicit user's cancel for its current
+  // phase. Setup and physical press owners additionally carry their exact take.
+  sendCancelActiveDictation(options) {
+    if (!this.isCurrentDictationInput(options)) return false;
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send("cancel-dictation");
+      this.mainWindow.webContents.send(
+        "cancel-dictation",
+        options ?? this._onboardingTakePayload()
+      );
     }
   }
 
@@ -1408,7 +1613,7 @@ class WindowManager {
   }
 
   async showTranscriptionPreview(text) {
-    if (this._onboardingActive) return;
+    if (this._onboardingDemoKind) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     this.mainWindow.webContents.send("preview-text", text);
     this._sendAgentDictationPreview("preview-text", text);
@@ -1421,14 +1626,14 @@ class WindowManager {
   }
 
   appendTranscriptionPreview(text) {
-    if (this._onboardingActive) return;
+    if (this._onboardingDemoKind) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     this.mainWindow.webContents.send("preview-append", text);
     this._sendAgentDictationPreview("preview-append", text);
   }
 
   holdTranscriptionPreview(options = {}) {
-    if (this._onboardingActive) return;
+    if (this._onboardingDemoKind) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     const payload = {
       showCleanup: !!options.showCleanup,
@@ -1438,7 +1643,7 @@ class WindowManager {
   }
 
   completeTranscriptionPreview(text) {
-    if (this._onboardingActive) return;
+    if (this._onboardingDemoKind) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     const payload = { text };
     this.mainWindow.webContents.send("preview-result", payload);
@@ -1543,7 +1748,11 @@ class WindowManager {
   }
 
   showDictationPanel(options = {}) {
-    if (this._onboardingActive) return;
+    if (
+      this._onboardingActive &&
+      (this._onboardingDemoKind || this._dictationLifecycleState === "idle")
+    )
+      return;
     const { focus = false, reposition = false, targetPidPromise } = options;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     if (this._assistantPanelOpen) {
@@ -1574,20 +1783,17 @@ class WindowManager {
   setOnboardingActive(active) {
     const nextActive = active === true;
     if (nextActive === this._onboardingActive) {
-      if (nextActive) this._hideNormalAppSurfaces();
+      // Presentation never resets or hides an already admitted workspace owner.
       return true;
     }
 
     if (nextActive) {
       this._onboardingActive = true;
-      this.sendCancelDictation();
-      this._hideNormalAppSurfaces();
+      // Keep the original workspace stop/cancel and completion surfaces.
       return true;
     }
 
     this.endOnboardingDemo();
-    this.sendCancelDictation();
-    this.hideDictationPanel();
     this._onboardingActive = false;
     if (!this._floatingIconAutoHide) this.showDictationPanel();
     return true;
@@ -1600,13 +1806,14 @@ class WindowManager {
     this.dismissMeetingNotification({ flushQueued: false });
   }
 
-  beginOnboardingDemo(kind) {
+  beginOnboardingDemo(kind, session = null) {
     if (!ONBOARDING_DEMO_KINDS.has(kind)) return false;
     this._onboardingActive = true;
+    this._onboardingNativePressed = false;
     this._onboardingDemoKind = kind;
-    // A prior recording must not leak into a new correlated demo session.
-    this.sendCancelDictation();
-    this.hideDictationPanel();
+    this._onboardingDemoSession = session;
+    // Only the acknowledged original-overlay reservation permits this entry.
+    this._hideNormalAppSurfaces();
     return true;
   }
 
@@ -1616,22 +1823,167 @@ class WindowManager {
 
   stopOnboardingDemoRecording() {
     if (!this._onboardingDemoKind) return false;
-    this.sendStopDictation();
-    this.hideDictationPanel();
+    if (!this._onboardingDemoSession?.takeId) return false;
+    this.sendStopDictation(this._onboardingTakePayload());
     return true;
   }
 
+  _prepareOnboardingTake() {
+    this.onOnboardingCleanupRetire?.();
+    const session = this._onboardingDemoSession;
+    if (!session) return;
+    this._onboardingTakeSequence = (this._onboardingTakeSequence || 0) + 1;
+    session.takeId = String(this._onboardingTakeSequence);
+    session.sawListening = false;
+    session.takeClosed = false;
+    session.cancelRequested = false;
+    session.binding = this._onboardingPressBinding ?? null;
+    session.origin = session.binding ? "hotkey" : "button";
+    this._onboardingPressBinding = null;
+    const target = this.controlPanelWindow;
+    if (target && !target.isDestroyed())
+      target.webContents.send("onboarding-demo-event", {
+        demoId: session.id,
+        takeId: session.takeId,
+        kind: session.kind,
+        status: "preparing",
+        origin: session.origin,
+        ...(session.binding ? { binding: session.binding } : {}),
+      });
+  }
+
+  _onboardingTakePayload() {
+    const session = this._onboardingDemoSession;
+    return session?.takeId
+      ? {
+          onboardingTake: {
+            demoId: session.id,
+            takeId: session.takeId,
+            reservationId: session.requestId,
+            ...(session.context ? { expectedContext: session.context } : {}),
+          },
+        }
+      : undefined;
+  }
+
+  _isCurrentOnboardingTake(take) {
+    const session = this._onboardingDemoSession;
+    return (
+      session?.id === take.demoId &&
+      session?.requestId === take.reservationId &&
+      session?.takeId === take.takeId &&
+      !session.cancelRequested &&
+      !session.takeClosed
+    );
+  }
+
+  /** Setup observes actual shortcut presses, never shortcut-capture keystrokes. */
+  getDictationBinding(hotkey) {
+    const slot = this.hotkeyManager.slots?.get("dictation");
+    const key = hotkey || slot?.hotkeys?.[0];
+    const mode = this.getActivationMode();
+    if (
+      !slot ||
+      typeof slot.callback !== "function" ||
+      !slot.hotkeys?.includes(key) ||
+      !["tap", "push"].includes(mode)
+    )
+      return null;
+    return { hotkey: key, activationMode: mode };
+  }
+
+  reportDictationHotkey(phase, hotkey) {
+    if (this.hotkeyManager.isInListeningMode()) {
+      this._onboardingNativePressed = false;
+      this._onboardingPressBinding = null;
+      return false;
+    }
+    if (!shouldReportDictationHotkey(this._onboardingActive, this._onboardingDemoKind))
+      return false;
+    if (!["down", "up", "tap"].includes(phase)) return false;
+    const target = this.controlPanelWindow;
+    if (!target || target.isDestroyed()) return false;
+    if (phase === "down") this._onboardingNativePressed = true;
+    if (phase === "up") this._onboardingNativePressed = false;
+    const binding = this.getDictationBinding(hotkey);
+    if (phase !== "up") {
+      this._onboardingPressBinding = binding;
+      Promise.resolve().then(() => {
+        if (this._onboardingPressBinding === binding) this._onboardingPressBinding = null;
+      });
+    }
+    target.webContents.send("dictation-hotkey-event", {
+      phase,
+      at: Date.now(),
+      ...(binding ? { binding } : {}),
+    });
+    return true;
+  }
+
+  toggleOnboardingDemoRecording() {
+    if (this._onboardingDemoKind !== "dictation") return false;
+    this._onboardingPressBinding = null;
+    this.sendToggleDictation();
+    return true;
+  }
+
+  cancelOnboardingDemoRecording() {
+    if (this._onboardingDemoKind !== "dictation" || this._onboardingDemoSession?.cancelRequested)
+      return false;
+    this._cancelOnboardingTake();
+    return true;
+  }
+
+  _cancelOnboardingTake() {
+    const session = this._onboardingDemoSession;
+    if (!session?.takeId) return;
+    this.onOnboardingCleanupRetire?.();
+    const payload = this._onboardingTakePayload();
+    session.cancelRequested = true;
+    this.sendCancelDictationPreparation(payload);
+    this.sendCancelActiveDictation(payload);
+  }
+
+  async undoOnboardingDemoCancel(sessionId) {
+    const demo = this._onboardingDemoSession;
+    const held = this.lastCancelledDictation;
+    if (
+      this._onboardingDemoKind !== "dictation" ||
+      !demo ||
+      !held ||
+      this._onboardingUndoPending ||
+      demo.cancelSession !== held.sessionId ||
+      (sessionId !== undefined && sessionId !== held.sessionId)
+    )
+      return false;
+    const takeId = demo.takeId;
+    const pending = { demo, takeId, sessionId: held.sessionId };
+    this._onboardingUndoPending = pending;
+    try {
+      const result = await this.sendUndoCancelDictation(held.sessionId);
+      return (
+        this._onboardingDemoSession === demo &&
+        demo.takeId === takeId &&
+        result?.sessionId === held.sessionId &&
+        result.restored === true
+      );
+    } finally {
+      if (this._onboardingUndoPending === pending) this._onboardingUndoPending = null;
+    }
+  }
+
   endOnboardingDemo() {
-    // Before the early return on purpose: IPCHandlers' demo session must die
-    // on every teardown path even if the demo kind is already gone — a stale
-    // session broadcasts every later dictation on onboarding-demo-event.
-    this.onOnboardingDemoTeardown?.();
-    if (!this._onboardingDemoKind) return false;
-    // Leaving/retrying is cancellation, not a transcription request. The
-    // overlay owns AudioManager, so route cleanup must be delivered there.
-    this.sendCancelDictation();
-    this.hideDictationPanel();
+    const session = this._onboardingDemoSession;
+    const hadDemo = this._onboardingDemoKind !== null;
+    // Retire main eligibility before any cross-window delivery or window
+    // teardown can reenter. The teardown hook releases this exact nonce/take.
+    this._onboardingNativePressed = false;
+    this._onboardingPressBinding = null;
     this._onboardingDemoKind = null;
+    this._onboardingDemoSession = null;
+    this.onOnboardingDemoTeardown?.(session);
+    if (!hadDemo) return false;
+    this.hideDictationPanel();
     return true;
   }
 
@@ -1837,7 +2189,13 @@ class WindowManager {
   }
 
   showAgentDictationPill() {
-    if (this._onboardingActive) return;
+    // Cached lifecycle only preserves an existing workspace control surface;
+    // demo recording admission still requires the original overlay handshake.
+    if (
+      this._onboardingActive &&
+      (this._onboardingDemoKind || this._dictationLifecycleState === "idle")
+    )
+      return;
     if (!this._assistantPanelOpen || !this.mainWindow || this.mainWindow.isDestroyed()) return;
 
     let pillWindow = this.agentDictationPillWindow;
@@ -1962,7 +2320,7 @@ class WindowManager {
     return this.mainWindow.isVisible();
   }
 
-  registerMainWindowEvents() {
+  registerMainWindowEvents(ownerId = this.mainWindow?.webContents.id) {
     if (!this.mainWindow) {
       return;
     }
@@ -2014,6 +2372,7 @@ class WindowManager {
     this.mainWindow.on("move", () => this.positionAgentDictationPill());
 
     this.mainWindow.on("closed", () => {
+      this.hotkeyLeases.releaseOwner(ownerId);
       this.dragManager.cleanup();
       const pillWindow = this.agentDictationPillWindow;
       if (pillWindow && !pillWindow.isDestroyed()) pillWindow.close();
@@ -2027,8 +2386,32 @@ class WindowManager {
     }
   }
 
+  // Each asynchronous preparation and its shortcut belong to one prompt.
+  _beginMeetingPrompt(detectionId) {
+    this._endMeetingPrompt();
+    const generation = ++this._meetingPromptGeneration;
+    this._meetingPrompt = {
+      generation,
+      detectionId: detectionId ?? null,
+      ownerId: `main:meeting-prompt:${generation}`,
+      shown: false,
+      loaded: false,
+    };
+    return this._meetingPrompt;
+  }
+
+  _endMeetingPrompt() {
+    const prompt = this._meetingPrompt;
+    this._meetingPrompt = null;
+    this._meetingPromptGeneration += 1;
+    if (prompt) this.hotkeyLeases.releaseOwner(prompt.ownerId);
+    return prompt;
+  }
+
   async showMeetingNotification(promptData, { autoDismiss = true } = {}) {
-    if (this._onboardingActive) return false;
+    if (this._onboardingActive || this.isQuitting) return false;
+    const prompt = this._beginMeetingPrompt(promptData?.detectionId);
+    const isCurrent = () => this._meetingPrompt === prompt;
     if (this.notificationWindow && !this.notificationWindow.isDestroyed()) {
       const previousWindow = this.notificationWindow;
       this.notificationWindow = null;
@@ -2041,19 +2424,72 @@ class WindowManager {
       this._notificationReadyFallback = null;
     }
 
-    const display = screen.getPrimaryDisplay();
-    const position = WindowPositionUtil.getNotificationPosition(display);
+    let display;
+    try {
+      display = await this._resolveActiveDisplay();
+    } catch {
+      display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    }
+    if (!isCurrent()) return false;
+    const position = WindowPositionUtil.getNotchDropPosition(display);
+    let leaseReleased = false;
+    const lease = await this.hotkeyLeases.acquire({
+      slot: "meetingAccept",
+      ownerId: prompt.ownerId,
+      onPress: () => {
+        if (
+          !isCurrent() ||
+          !prompt.shown ||
+          !prompt.loaded ||
+          this.notificationWindow !== prompt.window ||
+          prompt.window.isDestroyed()
+        )
+          return;
+        void this.meetingDetectionEngine?.handleNotificationResponse?.(
+          prompt.detectionId,
+          promptData?.joinUrl ? "join" : "start"
+        );
+      },
+      onRelease: () => {
+        leaseReleased = true;
+        if (!isCurrent() || !this._pendingNotificationData) return;
+        this._pendingNotificationData = {
+          ...this._pendingNotificationData,
+          acceptHotkeyLabel: null,
+        };
+        const win = prompt.window;
+        if (prompt.loaded && win && !win.isDestroyed()) {
+          win.webContents.send("meeting-notification-data", this._pendingNotificationData);
+        }
+      },
+    });
+    if (!isCurrent()) {
+      this.hotkeyLeases.release(lease.leaseId, prompt.ownerId);
+      return false;
+    }
+    const data = {
+      ...promptData,
+      acceptHotkeyLabel:
+        lease.held && !leaseReleased
+          ? process.platform === "darwin"
+            ? "⌥⌘M"
+            : "Ctrl+Alt+M"
+          : null,
+    };
 
     const win = new BrowserWindow({
       ...NOTIFICATION_WINDOW_CONFIG,
       ...position,
     });
     this.notificationWindow = win;
+    prompt.window = win;
 
     // "closed" fires asynchronously, so a replaced prompt's window emits it
     // after the replacement already took over the reference and the countdown.
     win.on("closed", () => {
+      this.hotkeyLeases.releaseOwner(prompt.ownerId);
       if (this.notificationWindow !== win) return;
+      if (isCurrent()) this._endMeetingPrompt();
       const closedDetectionId = this._pendingNotificationData?.detectionId ?? null;
       this.notificationWindow = null;
       this._pendingNotificationData = null;
@@ -2067,6 +2503,12 @@ class WindowManager {
       }
     });
 
+    const promptLost = () => {
+      this.hotkeyLeases.releaseOwner(prompt.ownerId);
+      if (isCurrent() && this.notificationWindow === win) this.dismissMeetingNotification();
+    };
+    win.webContents.on("render-process-gone", promptLost);
+    win.webContents.on("destroyed", promptLost);
     win.setContentProtection(true);
 
     if (process.platform === "darwin") {
@@ -2077,7 +2519,7 @@ class WindowManager {
     // dictation panel and assistant pill.
     WindowPositionUtil.setupAlwaysOnTop(win, { level: "screen-saver" });
 
-    this._pendingNotificationData = promptData;
+    this._pendingNotificationData = data;
 
     // Everything past the load addresses `win` directly: a replacement taking
     // over mid-load must not have this prompt's data, countdown or force-show
@@ -2085,7 +2527,7 @@ class WindowManager {
     try {
       if (process.env.NODE_ENV === "development") {
         await DevServerManager.waitForDevServer();
-        if (this.notificationWindow !== win) return false;
+        if (!isCurrent() || this.notificationWindow !== win) return false;
         await win.loadURL(`${DevServerManager.DEV_SERVER_URL}?meeting-notification=true`);
       } else {
         const fileInfo = DevServerManager.getAppFilePath(false);
@@ -2096,23 +2538,36 @@ class WindowManager {
     } catch (error) {
       // A load aborted by our own replacement or dismissal is not a failure —
       // but the caller must still learn the notification never appeared.
-      if (this.notificationWindow !== win) return false;
+      if (!isCurrent() || this.notificationWindow !== win) return false;
       this.dismissMeetingNotification();
       throw error;
     }
-    if (this.notificationWindow !== win) return false;
+    if (!isCurrent() || this.notificationWindow !== win) return false;
     if (this._onboardingActive) {
       this.dismissMeetingNotification();
       return false;
     }
 
+    prompt.loaded = true;
+    win.webContents.on("did-start-navigation", (details) => {
+      if (details?.isMainFrame && !details.isSameDocument) promptLost();
+    });
+    // A release during load changed the pending snapshot; never restore `data`.
+    win.webContents.send("meeting-notification-data", this._pendingNotificationData);
     const readyFallback = setTimeout(() => {
       if (this._notificationReadyFallback !== readyFallback) return;
       this._notificationReadyFallback = null;
-      if (this._onboardingActive || this.notificationWindow !== win || win.isDestroyed()) return;
+      if (
+        !isCurrent() ||
+        this._onboardingActive ||
+        this.notificationWindow !== win ||
+        win.isDestroyed()
+      )
+        return;
       debugLogger.warn("Notification renderer did not signal ready, force-showing", {}, "meeting");
-      win.webContents.send("meeting-notification-data", promptData);
+      win.webContents.send("meeting-notification-data", this._pendingNotificationData);
       win.showInactive();
+      prompt.shown = true;
     }, 3000);
     this._notificationReadyFallback = readyFallback;
 
@@ -2138,11 +2593,16 @@ class WindowManager {
       clearTimeout(this._notificationReadyFallback);
       this._notificationReadyFallback = null;
     }
+    if (this._meetingPrompt?.window !== win || !this._meetingPrompt.loaded) return;
     win.showInactive();
+    this._meetingPrompt.shown = true;
   }
 
   dismissMeetingNotification({ notifyEngine = true, flushQueued = true } = {}) {
-    const notification = this._pendingNotificationData;
+    const prompt = this._endMeetingPrompt();
+    const notification =
+      this._pendingNotificationData ??
+      (prompt?.detectionId ? { detectionId: prompt.detectionId } : null);
     this._pendingNotificationData = null;
     if (this._notificationReadyFallback) {
       clearTimeout(this._notificationReadyFallback);
@@ -2237,11 +2697,19 @@ class WindowManager {
     }
   }
 
-  async openSettings() {
-    await this.createControlPanelWindow();
-    if (this.controlPanelWindow && !this.controlPanelWindow.isDestroyed()) {
-      this.controlPanelWindow.webContents.send("show-settings");
-    }
+  async openSettings(settingsPath = null) {
+    const { link, done } = this.settingsLinks.enqueue(settingsPath);
+    // Delivery can expire even while the first page is still loading.
+    void this.createControlPanelWindow()
+      .then(() => {
+        const current = this.settingsLinks.peek();
+        const panel = this.controlPanelWindow;
+        if (current?.id === link.id && panel && !panel.isDestroyed()) {
+          panel.webContents.send("show-settings", current);
+        }
+      })
+      .catch((error) => debugLogger.warn("Could not open Settings", { error: error?.message }));
+    return done;
   }
 
   showLoadFailureDialog(windowName, errorCode, errorDescription, validatedURL) {

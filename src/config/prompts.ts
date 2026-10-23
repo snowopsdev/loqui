@@ -4,6 +4,7 @@ export {
   resolvePrompt,
   getDefaultPromptText,
   appendDictionarySuffix,
+  appendCitationSuffix,
   appendScreenContextSuffix,
   wrapCleanupTranscript,
 } from "./prompts/index";
@@ -14,9 +15,16 @@ export function getCleanupSystemPrompt(
   agentName: string | null,
   customDictionary?: string[],
   language?: string,
-  uiLanguage?: string
+  uiLanguage?: string,
+  customPrompts?: Readonly<Record<string, string>>
 ): string {
-  return resolvePrompt("cleanup", { agentName, language, customDictionary, uiLanguage });
+  return resolvePrompt("cleanup", {
+    agentName,
+    language,
+    customDictionary,
+    uiLanguage,
+    customPrompts,
+  });
 }
 
 const TOOL_INSTRUCTIONS: Record<string, string> = {
@@ -65,8 +73,13 @@ function getLocalCalendarContext(): string {
   return `Current local date and time: ${formatLocalRfc3339(now)}. IANA time zone: ${timeZone}.`;
 }
 
-export function getAgentSystemPrompt(availableTools?: string[], noteContext?: string): string {
-  let prompt = resolvePrompt("chatAgent", { agentName: null });
+export function getAgentSystemPrompt(
+  availableTools?: string[],
+  noteContext?: string,
+  customPrompts?: Readonly<Record<string, string>>,
+  uiLanguage?: string
+): string {
+  let prompt = resolvePrompt("chatAgent", { agentName: null, customPrompts, uiLanguage });
 
   if (availableTools && availableTools.length > 0) {
     const toolLines = availableTools.map((name) => TOOL_INSTRUCTIONS[name]).filter(Boolean);

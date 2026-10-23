@@ -418,6 +418,9 @@ class MeetingDetectionEngine {
       detection.event = event;
     }
 
+    const runningApp =
+      this.meetingProcessDetector?.getDetectedProcesses?.()?.find((p) => p?.appName)?.appName ??
+      null;
     this.windowManager.showMeetingNotification({
       detectionId,
       source,
@@ -425,6 +428,7 @@ class MeetingDetectionEngine {
       event,
       variant,
       joinUrl,
+      appName: data?.appName ?? runningApp,
     });
   }
 

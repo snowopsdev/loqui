@@ -197,6 +197,11 @@ class HotkeyManager extends EventEmitter {
     return suggestions.filter((s) => s !== failedHotkey).slice(0, 3);
   }
 
+  // Temporary bindings must never persist in KGlobalAccel after a crash.
+  isTemporarySlot(slotName) {
+    return slotName === "cancel" || String(slotName).startsWith("temp:");
+  }
+
   async registerSlot(slotName, hotkeyInput, callback, options) {
     const hotkeys = parseHotkeyList(hotkeyInput);
     if (hotkeys.length === 0) {
@@ -212,7 +217,7 @@ class HotkeyManager extends EventEmitter {
     if (
       hotkeys.length > 1 &&
       (((this.useGnome || this.useHyprland) && LINUX_NATIVE_TAP_SLOTS.has(slotName)) ||
-        (this.useKDE && slotName !== "cancel"))
+        (this.useKDE && !this.isTemporarySlot(slotName)))
     ) {
       debugLogger.log(
         `[HotkeyManager] Slot "${slotName}" has ${hotkeys.length} hotkeys but this Linux desktop backend only applies the primary ("${hotkey}")`
@@ -268,7 +273,7 @@ class HotkeyManager extends EventEmitter {
     // On KDE (X11 or Wayland), route persistent slots through KGlobalAccel D-Bus.
     // Temporary slots like "cancel" stay on globalShortcut to avoid stale
     // KGlobalAccel registrations after crash (Escape would stop working system-wide).
-    if (this.useKDE && this.kdeManager && slotName !== "cancel") {
+    if (this.useKDE && this.kdeManager && !this.isTemporarySlot(slotName)) {
       this.unregisterSlot(slotName);
 
       const result = await this.kdeManager.registerKeybinding(
@@ -340,7 +345,7 @@ class HotkeyManager extends EventEmitter {
     if (!slot || !(slot.hotkeys?.length || slot.accelerators?.length)) return;
 
     // On KDE (X11 or Wayland), persistent slots are managed via KGlobalAccel
-    if (this.useKDE && this.kdeManager && slotName !== "cancel") {
+    if (this.useKDE && this.kdeManager && !this.isTemporarySlot(slotName)) {
       this.kdeManager.unregisterKeybinding(slotName).catch((err) => {
         debugLogger.warn(
           `[HotkeyManager] Error unregistering KDE keybinding for slot "${slotName}":`,

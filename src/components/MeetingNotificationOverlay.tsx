@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import type { MeetingNotificationData } from "../types/electron";
 import { MeetingNotificationCard } from "./MeetingNotificationCard";
 import {
+  MEETING_PROMPT_MINI_AFTER_MS,
   getMeetingNotificationPresentation,
   initializeMeetingNotificationOverlay,
   shouldDismissMeetingNotificationSwipe,
@@ -18,7 +19,7 @@ import {
 
 interface PointerSwipe {
   pointerId: number;
-  startX: number;
+  startY: number;
 }
 
 // Distance over which a dragged card fades to its minimum opacity.
@@ -30,10 +31,11 @@ export default function MeetingNotificationOverlay(): ReactElement {
   const [data, setData] = useState<MeetingNotificationData | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  // Live pointer offset while swiping; null when the card is at rest.
-  const [dragX, setDragX] = useState<number | null>(null);
-  // Which edge the card leaves through: +1 right (also the enter side), -1 left.
-  const [exitDirection, setExitDirection] = useState<1 | -1>(1);
+  // Live vertical pointer offset while swiping; null at rest.
+  const [dragY, setDragY] = useState<number | null>(null);
+  const [phase, setPhase] = useState<"card" | "mini" | "accepted">("card");
+  const responding = useRef(false);
+  const pendingDismiss = useRef<(() => void) | null>(null);
   const pointerSwipeRef = useRef<PointerSwipe | null>(null);
 
   useEffect(() => {
@@ -53,13 +55,23 @@ export default function MeetingNotificationOverlay(): ReactElement {
 
   const respond = useCallback(
     async (action: string): Promise<void> => {
-      if (!data) return;
+      if (!data || responding.current) return;
+      responding.current = true;
+      if (action !== "dismiss") setPhase("accepted");
+      // Main retires the prompt immediately; CSS owns the visual exit cadence.
+      const send = () => window.electronAPI?.meetingNotificationRespond?.(data.detectionId, action);
+      if (action === "dismiss") pendingDismiss.current = send;
+      else send();
       setIsVisible(false);
-      await new Promise<void>((resolve) => setTimeout(resolve, 200));
-      window.electronAPI?.meetingNotificationRespond?.(data.detectionId, action);
     },
     [data]
   );
+
+  useEffect(() => {
+    if (!isVisible || isHovered || phase !== "card") return;
+    const timer = setTimeout(() => setPhase("mini"), MEETING_PROMPT_MINI_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [isVisible, isHovered, phase]);
 
   const dismiss = useCallback((): void => {
     void respond("dismiss");
@@ -85,12 +97,13 @@ export default function MeetingNotificationOverlay(): ReactElement {
         !isVisible ||
         !event.isPrimary ||
         event.button !== 0 ||
-        (event.target instanceof Element && event.target.closest("button"))
+        (event.target instanceof Element &&
+          event.target.closest("button, .meeting-card__copy, .meeting-card__privacy"))
       ) {
         return;
       }
 
-      pointerSwipeRef.current = { pointerId: event.pointerId, startX: event.clientX };
+      pointerSwipeRef.current = { pointerId: event.pointerId, startY: event.clientY };
       event.currentTarget.setPointerCapture(event.pointerId);
     },
     [isVisible, presentation.dismissible]
@@ -99,7 +112,7 @@ export default function MeetingNotificationOverlay(): ReactElement {
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
     const swipe = pointerSwipeRef.current;
     if (!swipe || swipe.pointerId !== event.pointerId) return;
-    setDragX(event.clientX - swipe.startX);
+    setDragY(event.clientY - swipe.startY);
   }, []);
 
   const handlePointerUp = useCallback(
@@ -112,15 +125,14 @@ export default function MeetingNotificationOverlay(): ReactElement {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
-      const distance = event.clientX - swipe.startX;
-      // Releasing dragX re-enables the transition, so the card either springs
-      // back to rest or continues off-screen the way it was already moving.
-      setDragX(null);
+      const distance = event.clientY - swipe.startY;
+      // Releasing dragY re-enables the transition, so the card either springs
+      // back to rest or continues upwards off-screen.
+      setDragY(null);
 
       // The card may have been replaced mid-drag, so the dismissibility of the
       // card being released is what decides, not the one the swipe started on.
       if (shouldDismissMeetingNotificationSwipe(presentation.dismissible, distance)) {
-        setExitDirection(distance < 0 ? -1 : 1);
         dismiss();
       } else if (!isHovered) {
         window.electronAPI?.setNotificationInteractivity?.(false);
@@ -133,32 +145,32 @@ export default function MeetingNotificationOverlay(): ReactElement {
     (event: ReactPointerEvent<HTMLDivElement>): void => {
       if (pointerSwipeRef.current?.pointerId !== event.pointerId) return;
       pointerSwipeRef.current = null;
-      setDragX(null);
+      setDragY(null);
       if (!isHovered) window.electronAPI?.setNotificationInteractivity?.(false);
     },
     [isHovered]
   );
 
   const title = presentation.title ?? t(presentation.titleKey);
-  const body = t(presentation.bodyKey);
+  const body = t(presentation.bodyKey, presentation.bodyParams);
 
-  const isDragging = dragX !== null;
+  const isDragging = dragY !== null;
   const motionStyle: CSSProperties = isDragging
     ? {
-        transform: `translateX(${dragX}px)`,
+        transform: `translateY(${Math.min(0, dragY ?? 0)}px)`,
         opacity: Math.max(
           SWIPE_MIN_OPACITY,
-          1 - (Math.abs(dragX) / SWIPE_FADE_DISTANCE_PX) * (1 - SWIPE_MIN_OPACITY)
+          1 - (Math.abs(dragY) / SWIPE_FADE_DISTANCE_PX) * (1 - SWIPE_MIN_OPACITY)
         ),
       }
     : isVisible
-      ? { transform: "translateX(0) scale(1)", opacity: 1 }
-      : { transform: `translateX(${exitDirection * 120}%) scale(0.95)`, opacity: 0 };
+      ? { opacity: 1 }
+      : { transform: "translateY(-8px)", opacity: 0 };
 
   return (
     <div
-      className="meeting-notification-window w-full h-full bg-transparent p-3 select-none"
-      style={{ touchAction: presentation.dismissible ? "pan-y" : "auto" }}
+      className="meeting-notification-window w-full h-full bg-transparent select-none"
+      style={{ touchAction: presentation.dismissible ? "pan-x" : "auto" }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -166,10 +178,16 @@ export default function MeetingNotificationOverlay(): ReactElement {
     >
       <div
         className={[
-          "will-change-transform",
-          isDragging ? "" : "transition-[transform,opacity] duration-300 ease-out",
+          "meeting-notification-motion",
+          isDragging ? "meeting-notification-motion--dragging" : "",
         ].join(" ")}
         style={motionStyle}
+        onTransitionEnd={(event) => {
+          if (event.target !== event.currentTarget || event.propertyName !== "opacity") return;
+          const send = pendingDismiss.current;
+          pendingDismiss.current = null;
+          send?.();
+        }}
       >
         <MeetingNotificationCard
           title={title}
@@ -177,7 +195,10 @@ export default function MeetingNotificationOverlay(): ReactElement {
           startLabel={t(presentation.actionKey)}
           onStart={() => respond(presentation.action)}
           onDismiss={presentation.dismissible ? dismiss : undefined}
-          closeVisible={isHovered}
+          phase={phase}
+          privacyLine={presentation.privacyKey ? t(presentation.privacyKey) : undefined}
+          hotkeyLabel={data?.acceptHotkeyLabel ?? null}
+          miniLabel={t("meetingNotification.mini")}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         />

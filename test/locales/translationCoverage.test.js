@@ -16,11 +16,6 @@ const MESSAGE_KEY = /\bmessageKey\s*[:=]\s*(['"`])([A-Za-z0-9_.-]+)\1/g;
 const INTERPOLATION = /\{\{\s*([\w.]+)/g;
 const ARABIC_PLURAL_CATEGORIES = ["zero", "one", "two", "few", "many", "other"];
 const ARABIC_PLURAL_BASES = [
-  "settingsPage.workspace.members.description",
-  "settingsPage.workspace.teams.memberCount",
-  "settingsPage.workspace.teams.grantsAccessToSpaces",
-  "settingsPage.workspace.teams.deleteConfirmSpaceAccess",
-  "settingsPage.workspace.invites.expiresIn",
   "settingsPage.unifiedBilling.seatUpdated",
   "settingsPage.unifiedBilling.confirmSeats.description",
   "settingsPage.privacy.retentionDays",
@@ -46,7 +41,6 @@ const ARABIC_NUMBER_NEUTRAL_TEMPLATES = {
   "notes.spaces.members.addFailed": "عدد الأشخاص الذين تعذرت إضافتهم: {{failed}} من أصل {{total}}",
   "notes.upload.partialWarningCount":
     "عدد الأجزاء الصوتية التي تعذر تفريغها: {{failed}} من أصل {{total}}.",
-  "settingsPage.account.planDescriptions.trial": "عدد الأيام المتبقية: {{days}} - تفريغ غير محدود",
   "emailVerification.resendIn": "إعادة الإرسال بعد {{seconds}} ث",
   "insights.wpmCoverage": "استنادًا إلى نسبة {{count}}% من الكلمات المقاسة",
   "dictionary.promptLimitNotice":
@@ -240,5 +234,47 @@ test("Arabic plural counts resolve the exact CLDR form without English fallback"
         `${base} count=${count} did not use the Arabic ${category} form`
       );
     }
+  }
+});
+
+test("[change-driving] every locale labels the explicit Vertex authentication source choices", () => {
+  const names = ["authSource", "authSourceAdc", "authSourceApiKey"];
+  for (const lang of languages) {
+    const vertex = load(lang, "translation").reasoning.enterprise.vertex;
+    for (const name of names)
+      assert.ok(
+        typeof vertex[name] === "string" && vertex[name].trim(),
+        `${lang}: reasoning.enterprise.vertex.${name}`
+      );
+    assert.notEqual(
+      vertex.authSourceAdc,
+      vertex.authSourceApiKey,
+      `${lang}: ADC and API key are distinct choices`
+    );
+  }
+  const en = load("en", "translation").reasoning.enterprise.vertex;
+  assert.equal(en.authSource, "Authentication source");
+  assert.equal(en.authSourceAdc, "Application Default Credentials (ADC)");
+  assert.equal(en.authSourceApiKey, "API key");
+});
+
+test("history load failures are localized separately from absence, with explicit Retry in every locale", () => {
+  for (const lang of languages) {
+    const translation = load(lang, "translation");
+    const history = translation.home.history;
+    assert.ok(history.loadFailed?.trim(), `${lang}: loadFailed`);
+    assert.notEqual(history.loadFailed, history.olderMissing, lang);
+    assert.ok(translation.common.retry?.trim(), `${lang}: common.retry`);
+  }
+});
+
+test("mention preview errors, missing state and explicit Retry resolve distinctly in every locale", () => {
+  for (const locale of ["ar", "de", "en", "es", "fr", "it", "ja", "pt", "ru", "zh-CN", "zh-TW"]) {
+    const strings = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "../../src/locales", locale, "translation.json"), "utf8")
+    ).mention;
+    assert.ok(strings.error && strings.retry && strings.loading && strings.missing, locale);
+    assert.notEqual(strings.error, strings.missing, locale);
+    assert.equal(Object.keys(strings.groups).length, 5, locale);
   }
 });

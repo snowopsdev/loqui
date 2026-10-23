@@ -1,4 +1,7 @@
-import React, { Suspense, useCallback, useEffect, useState } from "react";
+import { subscribeSettingsDeepLinks } from "../utils/settingsDeepLink";
+import { useStartOnboardingListener } from "../hooks/useStartOnboarding";
+import WorkspacePresentation from "./WorkspacePresentation";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -20,10 +23,12 @@ import { useDialogs } from "../hooks/useDialogs";
 import { useHotkey } from "../hooks/useHotkey";
 
 import { AlertDialog, ConfirmDialog } from "./ui/dialog";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
 
 import { useSettings } from "../hooks/useSettings";
 
+import { sidebarWidth } from "../lib/sidebarMode";
+import { buildWorkspaceBreadcrumb } from "../lib/workspaceBreadcrumb";
 import { useCollapsibleSidebar } from "../hooks/useCollapsibleSidebar";
 
 import {
@@ -39,17 +44,27 @@ import {
   useShowDiscarded,
   useTranscriptions,
 } from "../stores/transcriptionStore";
-import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
+import { useControlPanelNavItems, viewTitleKey, type ControlPanelView } from "./controlPanelNav";
 import ControlPanelSidebar from "./ControlPanelSidebar";
 import ControlPanelTopBar from "./ControlPanelTopBar";
 import MeetingRecordingMount from "./MeetingRecordingMount";
 import MeetingRecordingPill from "./notes/MeetingRecordingPill";
-import NewNoteMenu from "./notes/NewNoteMenu";
+import CaptureControl from "./CaptureControl";
+import { useCaptureStatus } from "../hooks/useCaptureStatus";
 
-import { useCreateNote } from "../hooks/useCreateNote";
+import { takeAfterSetupIntent } from "../utils/afterSetupIntent";
+import { useCreateNote, type CreateNoteOptions } from "../hooks/useCreateNote";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
 import {
   initializeNotes,
+  initializeNotesTree,
+  useActiveNote,
+  useActiveFolderId,
+  useFolders,
+  invalidatePendingNoteNavigation,
+  openNoteById,
+  restoreLaunchNote,
+  holdContainerOverview,
   navigateToContainer,
   setActiveFolderId,
   setActiveNoteId,
@@ -58,12 +73,20 @@ import {
 import { isAccessibilitySkipped } from "../utils/permissions";
 import { getCachedPlatform } from "../utils/platform";
 import HistoryView from "./HistoryView";
-import BackgroundActionToastListener from "./notes/BackgroundActionToastListener";
+import BackgroundActionNoticeListener from "./notes/BackgroundActionNoticeListener";
 import FinishDictationSetupCard from "./FinishDictationSetupCard";
 
-const platform = getCachedPlatform();
+import { readPersistedWorkspace, writePersistedWorkspace } from "../lib/workspaceView";
+import { requestTranscriptFocus } from "../stores/homeViewStore";
+import { WorkspaceNavigationProvider, type WorkspaceNavigation } from "./workspaceNavigation";
+import type { ChatViewRequest } from "./chat/chatRequest";
+import {
+  resolveWorkspaceShortcut,
+  isDialogOpen,
+  type WorkspaceAction,
+} from "../lib/workspaceShortcuts";
 
-const SIDEBAR_WIDTH_PX = 208;
+const platform = getCachedPlatform();
 
 // Bump to force a one-time full semantic reindex on next launch (see the
 // reindex effect for the per-version history).
@@ -80,11 +103,29 @@ const ChatView = React.lazy(() => import("./chat/ChatView"));
 const CommandSearch = React.lazy(() => import("./CommandSearch"));
 
 interface ControlPanelProps {
+  /** Retain admitted owners during setup, but gate new workspace interaction. Plan06 carries both props. */
+  workspaceActive?: boolean;
+  /** Host increments synchronously at every setup request, before React commits. */
+  workspaceActivationEpoch?: React.RefObject<number>;
+  onReturnToWorkspace?: () => void;
   /** Open the settings modal at this section on mount (e.g. after onboarding). */
   initialSettingsSection?: string;
 }
 
-export default function ControlPanel({ initialSettingsSection }: ControlPanelProps = {}) {
+export default function ControlPanel({
+  initialSettingsSection,
+  workspaceActive = true,
+  workspaceActivationEpoch,
+  onReturnToWorkspace,
+}: ControlPanelProps = {}) {
+  const activeRef = useRef(workspaceActive);
+  activeRef.current = workspaceActive;
+  const interactionEpoch = useRef(0);
+  const invalidateActivation = useCallback(() => {
+    interactionEpoch.current += 1;
+  }, []);
+  // Also protects default hosts using the public request event without an epoch prop.
+  useStartOnboardingListener(invalidateActivation);
   const { t } = useTranslation();
   const history = useTranscriptions();
   const [isLoading, setIsLoading] = useState(true);
@@ -93,27 +134,93 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const [settingsSection, setSettingsSection] = useState<string | undefined>(
     initialSettingsSection
   );
+  const [settingsActivationId, setSettingsActivationId] = useState<string | undefined>();
   const [aiCTADismissed, setAiCTADismissed] = useState(
     () => localStorage.getItem("aiCTADismissed") === "true"
   );
 
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
-  const [activeView, setActiveView] = useState<ControlPanelView>("home");
+  const [initialWorkspace] = useState(() => readPersistedWorkspace(window.localStorage));
+  const lifetime = useRef(false);
+  useEffect(() => {
+    lifetime.current = true;
+    return () => {
+      lifetime.current = false;
+    };
+  }, []);
+  const [activeView, setView] = useState<ControlPanelView>(initialWorkspace.view);
+  const setActiveView = useCallback((view: ControlPanelView) => {
+    // View navigation may keep the current selection, but a late open cannot reclaim it.
+    invalidatePendingNoteNavigation();
+    setRestoring(false);
+    setView(view);
+  }, []);
+  const [restoring, setRestoring] = useState(
+    initialWorkspace.view === "personal-notes" && initialWorkspace.noteId != null
+  );
+  const restoreRef = useRef<Promise<unknown> | null>(null);
+  // Requests seed the composer and never send a message.
+  const [chatRequest, setChatRequest] = useState<ChatViewRequest | null>(null);
+  const requestNonceRef = useRef(0);
   const navItems = useControlPanelNavItems();
-  const {
-    collapsed: sidebarCollapsed,
-    peek: sidebarPeek,
-    toggle: toggleSidebar,
-    showPeek: showSidebarPeek,
-    hidePeek: hideSidebarPeek,
-    leaveToggle: leaveSidebarToggle,
-  } = useCollapsibleSidebar();
   const isMeetingMode = useIsMeetingMode();
   const isNarrowWindow = useIsNarrowWindow();
   const activeNoteId = useActiveNoteId();
+  useEffect(() => {
+    if (restoring) return;
+    writePersistedWorkspace(window.localStorage, {
+      view: activeView,
+      noteId: activeNoteId ?? null,
+    });
+  }, [activeView, activeNoteId, restoring]);
+
+  useEffect(() => {
+    if (initialWorkspace.view !== "personal-notes" || initialWorkspace.noteId == null) return;
+    // Reuse the same launch operation if StrictMode replays the effect.
+    restoreRef.current ??= restoreLaunchNote(initialWorkspace.noteId, {
+      isEligible: () => lifetime.current,
+      onMissing: () => notify({ kind: "notice", title: t("workspace.noteMissing") }),
+      onLoadError: (retry) =>
+        notify({
+          kind: "alert",
+          title: t("workspace.noteLoadError"),
+          persistent: true,
+          actions: [
+            {
+              label: t("common.retry"),
+              onClick: async () => {
+                const result = await retry();
+                if (lifetime.current && result !== "error" && result !== "superseded")
+                  setRestoring(false);
+              },
+            },
+          ],
+        }),
+    });
+    let mounted = true;
+    void restoreRef.current.then((result) => {
+      if (mounted && result !== "error") setRestoring(false);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [initialWorkspace, t]);
   const isSidePanelLayout =
     isMeetingMode || (isNarrowWindow && activeView === "personal-notes" && activeNoteId != null);
+  const { mode: sidebarMode, toggle: toggleSidebar } = useCollapsibleSidebar(isSidePanelLayout);
+  const activeNote = useActiveNote();
+  const activeFolderId = useActiveFolderId();
+  const folders = useFolders();
+  const breadcrumb = buildWorkspaceBreadcrumb({
+    view: activeView,
+    viewLabel: t(viewTitleKey(activeView)),
+    folderName: folders.find((folder) => folder.id === activeFolderId)?.name ?? null,
+    noteTitle: activeNote ? activeNote.title || t("notes.list.untitledNote") : null,
+  });
+  useEffect(() => {
+    void initializeNotesTree();
+  }, []);
   const recordingNoteId = useMeetingRecordingStore((s) => s.recordingNoteId);
   const recordingFolderId = useMeetingRecordingStore((s) => s.recordingFolderId);
   const [meetingRecordingRequest, setMeetingRecordingRequest] = useState<{
@@ -126,7 +233,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   );
 
   const { hotkey } = useHotkey();
-  const { toast } = useToast();
   const { useCleanupModel } = useSettings();
 
   // Suppressed while a deep-linked invitation is open so the two never stack.
@@ -134,12 +240,40 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   // Invitations are owner/admin-only (server-enforced), so the sidebar row
   // only exists when the user can manage a workspace.
 
+  const capture = useCaptureStatus();
   const { createNote } = useCreateNote();
   // The note is created before the view switches so Notes mounts with it already open.
-  const handleNewNote = useCallback(async () => {
-    await createNote();
-    setActiveView("personal-notes");
-  }, [createNote]);
+  const handleNewNote = useCallback(
+    async (options?: CreateNoteOptions) => {
+      await createNote(options);
+      if (!options?.canActivate || options.canActivate()) setActiveView("personal-notes");
+    },
+    [createNote, setActiveView]
+  );
+
+  // Plan06 must carry this Ready hand-off beside handleNewNote. The existing
+  // useCreateNote/meeting recorder owns creation and recording, including live capture.
+  // Run on each actual workspace return, never while the retained workspace is hidden.
+  useEffect(() => {
+    if (!workspaceActive) return;
+    const intent = takeAfterSetupIntent();
+    if (!intent) return;
+    if (intent.kind === "dictate-note") {
+      const interaction = interactionEpoch.current;
+      const setup = workspaceActivationEpoch?.current;
+      void handleNewNote({
+        canActivate: () =>
+          activeRef.current &&
+          interactionEpoch.current === interaction &&
+          workspaceActivationEpoch?.current === setup,
+        focusTitle: true,
+      });
+    } else {
+      setSettingsSection(intent.path);
+      setSettingsActivationId(crypto.randomUUID());
+      setShowSettings(true);
+    }
+  }, [handleNewNote, workspaceActive, workspaceActivationEpoch]);
 
   const policyMinAppVersion = null;
 
@@ -225,25 +359,19 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     return () => clearTimeout(timer);
   }, []);
 
+  const pendingMeetingNavigation = useRef(null);
+  const pendingNoteNavigation = useRef(null);
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const mod = platform === "darwin" ? e.metaKey : e.ctrlKey;
-      if (mod && e.key === "k") {
-        e.preventDefault();
-        setShowSearch(true);
-      } else if (mod && e.key === ",") {
-        e.preventDefault();
-        setShowSettings(true);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  useEffect(() => {
+    if (!workspaceActive) return;
     const drain = async () => {
-      const data = await window.electronAPI?.getPendingMeetingNoteNavigation?.();
+      const data =
+        pendingMeetingNavigation.current ??
+        (await window.electronAPI?.getPendingMeetingNoteNavigation?.());
+      pendingMeetingNavigation.current = data;
+      if (!activeRef.current) return;
+      pendingMeetingNavigation.current = null;
       if (!data) return;
+      invalidateActivation();
       setActiveFolderId(data.folderId);
       setActiveNoteId(data.noteId);
       setActiveView("personal-notes");
@@ -261,14 +389,24 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       }
     };
     drain();
-    const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(drain);
+    const cleanup = window.electronAPI?.onMeetingNoteNavigationPending?.(() => {
+      // Receipt is newer workspace work even while its IPC payload is pending.
+      invalidateActivation();
+      return drain();
+    });
     return () => cleanup?.();
-  }, []);
+  }, [workspaceActive, invalidateActivation, setActiveView]);
 
   useEffect(() => {
+    if (!workspaceActive) return;
     const drain = async () => {
-      const data = await window.electronAPI?.getPendingNoteNavigation?.();
+      const data =
+        pendingNoteNavigation.current ?? (await window.electronAPI?.getPendingNoteNavigation?.());
+      pendingNoteNavigation.current = data;
+      if (!activeRef.current) return;
+      pendingNoteNavigation.current = null;
       if (!data) return;
+      invalidateActivation();
       if (data.folderId) {
         setActiveFolderId(data.folderId);
         initializeNotes(null, 50, data.folderId);
@@ -277,31 +415,40 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       setActiveView("personal-notes");
     };
     drain();
-    const cleanup = window.electronAPI?.onNoteNavigationPending?.(drain);
-    return () => cleanup?.();
-  }, []);
-
-  useEffect(() => {
-    const cleanup = window.electronAPI?.onShowSettings?.(() => {
-      setShowSettings(true);
+    const cleanup = window.electronAPI?.onNoteNavigationPending?.(() => {
+      // Keep initial/return drains separate: an empty getter is not a new command.
+      invalidateActivation();
+      return drain();
     });
     return () => cleanup?.();
-  }, []);
+  }, [workspaceActive, invalidateActivation, setActiveView]);
+
+  useEffect(
+    () =>
+      subscribeSettingsDeepLinks(window.electronAPI, (section, activationId) => {
+        if (!activeRef.current) return;
+        invalidateActivation();
+        setSettingsSection(section);
+        setSettingsActivationId(activationId);
+        setShowSettings(true);
+      }),
+    [invalidateActivation]
+  );
 
   // When accessibility is missing on macOS, open the permissions settings page
   useEffect(() => {
     const cleanup = window.electronAPI?.onAccessibilityMissing?.(async () => {
-      if (isAccessibilitySkipped()) return;
+      if (!activeRef.current || isAccessibilitySkipped()) return;
       setSettingsSection("privacyData");
       setShowSettings(true);
-      toast({
+      notify({
+        kind: "notice",
         title: t("controlPanel.accessibilityMissing.title"),
-        description: t("controlPanel.accessibilityMissing.description"),
-        duration: 10000,
+        body: t("controlPanel.accessibilityMissing.description"),
       });
     });
     return () => cleanup?.();
-  }, [toast, t]);
+  }, [t]);
 
   const handleMeetingRecordingRequestHandled = useCallback(
     () => setMeetingRecordingRequest(null),
@@ -319,21 +466,20 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     async (text: string) => {
       try {
         await navigator.clipboard.writeText(text);
-        toast({
+        notify({
+          kind: "receipt",
           title: t("controlPanel.history.copiedTitle"),
-          description: t("controlPanel.history.copiedDescription"),
-          variant: "success",
-          duration: 2000,
+          body: t("controlPanel.history.copiedDescription"),
         });
       } catch (err) {
-        toast({
+        notify({
+          kind: "alert",
           title: t("controlPanel.history.couldNotCopyTitle"),
-          description: t("controlPanel.history.couldNotCopyDescription"),
-          variant: "destructive",
+          body: t("controlPanel.history.couldNotCopyDescription"),
         });
       }
     },
-    [toast, t]
+    [t]
   );
 
   const deleteTranscription = useCallback(
@@ -375,11 +521,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           if (result.success) {
             clearStore();
 
-            toast({
-              title: t("controlPanel.history.clearAllSuccess"),
-              variant: "success",
-              duration: 2000,
-            });
+            notify({ kind: "receipt", title: t("controlPanel.history.clearAllSuccess") });
           } else {
             showAlertDialog({
               title: t("controlPanel.history.clearAllErrorTitle"),
@@ -395,26 +537,20 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       },
       variant: "destructive",
     });
-  }, [showConfirmDialog, showAlertDialog, toast, t]);
+  }, [showConfirmDialog, showAlertDialog, t]);
 
   const showAudioInFolder = useCallback(
     async (id: number) => {
       try {
         const result = await window.electronAPI.showAudioInFolder(id);
         if (!result?.success) {
-          toast({
-            title: t("controlPanel.history.audioNotFound"),
-            variant: "destructive",
-          });
+          notify({ kind: "alert", title: t("controlPanel.history.audioNotFound") });
         }
       } catch {
-        toast({
-          title: t("controlPanel.history.audioNotFound"),
-          variant: "destructive",
-        });
+        notify({ kind: "alert", title: t("controlPanel.history.audioNotFound") });
       }
     },
-    [toast, t]
+    [t]
   );
 
   const retryTranscription = useCallback(
@@ -487,12 +623,13 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                     );
                     // The chain still translates the raw transcript, so say why cleanup
                     // was dropped rather than reporting a clean success (#2091).
-                    toast({
-                      title: t("app.toasts.cleanupFailed.title"),
-                      description: cleanupError.messageKey
+                    notify({
+                      kind: "notice",
+                      id: "cleanup-failed",
+                      title: t("notices.cleanupFailed.title"),
+                      body: cleanupError.messageKey
                         ? t(cleanupError.messageKey)
                         : cleanupError.message,
-                      variant: "destructive",
                     });
                   },
                   onEmptyTranslate: () =>
@@ -558,10 +695,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
               // The row keeps its raw transcript, so the retry must not look like it
               // cleaned anything — report why, the way dictation does (#2091).
               const failure = cleanupError as Error & { messageKey?: string };
-              toast({
-                title: t("app.toasts.cleanupFailed.title"),
-                description: failure.messageKey ? t(failure.messageKey) : failure.message,
-                variant: "destructive",
+              notify({
+                kind: "notice",
+                id: "cleanup-failed",
+                title: t("notices.cleanupFailed.title"),
+                body: failure.messageKey ? t(failure.messageKey) : failure.message,
               });
             }
           }
@@ -601,7 +739,8 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           }
 
           updateInStore(finalTranscription);
-          toast({
+          notify({
+            kind: "receipt",
             title: t(
               options?.isRecover
                 ? "controlPanel.history.discarded.recovered"
@@ -609,257 +748,373 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             ),
           });
         } else {
-          toast({
+          notify({
+            kind: "alert",
             title: t("controlPanel.history.retryError"),
-            description: result.messageKey ? t(result.messageKey) : result.error,
-            variant: "destructive",
+            body: result.messageKey ? t(result.messageKey) : result.error,
           });
         }
       } catch {
-        toast({
-          title: t("controlPanel.history.retryError"),
-          variant: "destructive",
-        });
+        notify({ kind: "alert", title: t("controlPanel.history.retryError") });
       }
     },
-    [toast, t, useCleanupModel]
+    [t, useCleanupModel]
   );
 
   const toggleShowDiscarded = useCallback(() => {
     loadTranscriptions(!showDiscarded);
   }, [loadTranscriptions, showDiscarded]);
 
+  const openNote = useCallback(
+    async (noteId: number, options?: { isEligible?: () => boolean }) => {
+      const isEligible = () => lifetime.current && (options?.isEligible?.() ?? true);
+      if (!isEligible()) return;
+      setActiveView("personal-notes");
+      await openNoteById(noteId, {
+        isEligible,
+        onMissing: () => notify({ kind: "notice", title: t("workspace.noteMissing") }),
+        onLoadError: (retry) =>
+          notify({
+            kind: "alert",
+            title: t("workspace.noteLoadError"),
+            persistent: true,
+            actions: [
+              {
+                label: t("common.retry"),
+                onClick: async () => {
+                  await retry();
+                },
+              },
+            ],
+          }),
+      });
+    },
+    [setActiveView, t]
+  );
+
+  const navigation = useMemo<WorkspaceNavigation>(
+    () => ({
+      openView: setActiveView,
+      openNote: (id, options) => void openNote(id, options),
+      openFolder: (spaceId, folderId) => {
+        setActiveView("personal-notes");
+        navigateToContainer(spaceId, folderId);
+        holdContainerOverview();
+      },
+      openTranscript: (id) => {
+        requestTranscriptFocus(id);
+        setActiveView("home");
+      },
+      openConversation: (conversationId) => {
+        setChatRequest({ kind: "open", conversationId, nonce: ++requestNonceRef.current });
+        setActiveView("chat");
+      },
+      startChat: (options) => {
+        setChatRequest({ kind: "new", draft: options?.draft, nonce: ++requestNonceRef.current });
+        setActiveView("chat");
+      },
+      focusAssistant: () => {
+        setChatRequest({ kind: "focus", nonce: ++requestNonceRef.current });
+        setActiveView("chat");
+      },
+      newNote: () => void handleNewNote({ record: false }),
+      recordMeeting: () => {
+        // Read current state even for callbacks retained across a recording activation.
+        const meeting = useMeetingRecordingStore.getState();
+        if (meeting.isRecording && meeting.recordingNoteId != null) {
+          void openNote(meeting.recordingNoteId);
+          return;
+        }
+        void handleNewNote({ record: true });
+      },
+      openUpload: () => setActiveView("upload"),
+      openSettings: (section) => {
+        setSettingsSection(section);
+        setShowSettings(true);
+      },
+      openSearch: () => setShowSearch(true),
+    }),
+    [openNote, handleNewNote, setActiveView]
+  );
+
+  const runShortcutRef = useRef<(action: WorkspaceAction) => void>(() => {});
+  runShortcutRef.current = (action) => {
+    switch (action) {
+      case "openSearch":
+        return setShowSearch(true);
+      case "openSettings":
+        return setShowSettings(true);
+      case "goHome":
+        return setActiveView("home");
+      case "goNotes":
+        return setActiveView("personal-notes");
+      case "goChat":
+        return setActiveView("chat");
+      case "toggleSidebar":
+        return toggleSidebar();
+      case "newNote":
+        return navigation.newNote();
+      case "newChat":
+        return navigation.startChat();
+      case "recordMeeting":
+        return navigation.recordMeeting();
+      case "uploadAudio":
+        return navigation.openUpload();
+      case "askAssistant":
+        return navigation.focusAssistant();
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!activeRef.current) return;
+      const action = resolveWorkspaceShortcut(event, {
+        platform,
+        dialogOpen: isDialogOpen(document),
+      });
+      if (!action) return;
+      invalidateActivation();
+      event.preventDefault();
+      runShortcutRef.current(action);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [invalidateActivation]);
+
   return (
-    <div className="h-screen bg-surface-window flex flex-col">
-      <MeetingRecordingMount />
-      <MeetingRecordingPill
-        activeView={activeView}
-        activeNoteId={activeNoteId}
-        onReturnToNote={() => {
-          setActiveView("personal-notes");
-          setActiveFolderId(recordingFolderId);
-          setActiveNoteId(recordingNoteId);
-        }}
-      />
-      <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={hideConfirmDialog}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
-        variant={confirmDialog.variant}
-      />
+    <WorkspaceNavigationProvider value={navigation}>
+      <WorkspacePresentation
+        active={workspaceActive}
+        onInteraction={invalidateActivation}
+        className="h-screen bg-surface-window flex flex-col"
+      >
+        <MeetingRecordingMount />
+        <MeetingRecordingPill
+          workspaceActive={workspaceActive}
+          activeView={activeView}
+          activeNoteId={activeNoteId}
+          onReturnToNote={() => {
+            if (!activeRef.current) {
+              onReturnToWorkspace?.();
+              return;
+            }
+            setActiveView("personal-notes");
+            setActiveFolderId(recordingFolderId);
+            setActiveNoteId(recordingNoteId);
+          }}
+        />
+        <ConfirmDialog
+          open={confirmDialog.open}
+          onOpenChange={hideConfirmDialog}
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          onConfirm={confirmDialog.onConfirm}
+          variant={confirmDialog.variant}
+        />
 
-      <AlertDialog
-        open={alertDialog.open}
-        onOpenChange={hideAlertDialog}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        onOk={() => {}}
-      />
+        <AlertDialog
+          open={alertDialog.open}
+          onOpenChange={hideAlertDialog}
+          title={alertDialog.title}
+          description={alertDialog.description}
+          onOk={() => {}}
+        />
 
-      {showSettings && (
+        {showSettings && (
+          <Suspense fallback={null}>
+            <SettingsModal
+              open={showSettings}
+              onOpenChange={(open) => {
+                setShowSettings(open);
+                if (!open) {
+                  setSettingsSection(undefined);
+                  setSettingsActivationId(undefined);
+                }
+              }}
+              initialSection={settingsSection}
+              activationId={settingsActivationId}
+            />
+          </Suspense>
+        )}
+
+        {/* Always mounted so the palette chunk is warm and Radix can play its exit animation. */}
         <Suspense fallback={null}>
-          <SettingsModal
-            open={showSettings}
-            onOpenChange={(open) => {
-              setShowSettings(open);
-              if (!open) setSettingsSection(undefined);
-            }}
-            initialSection={settingsSection}
+          <CommandSearch
+            open={showSearch}
+            onOpenChange={setShowSearch}
+            transcriptions={history}
+            onNoteSelect={(id) => navigation.openNote(id)}
+            onContainerSelect={navigation.openFolder}
+            onTranscriptSelect={navigation.openTranscript}
+            onConversationSelect={navigation.openConversation}
           />
         </Suspense>
-      )}
 
-      {/* Always mounted so the palette chunk is warm and Radix can play its exit animation. */}
-      <Suspense fallback={null}>
-        <CommandSearch
-          open={showSearch}
-          onOpenChange={setShowSearch}
-          transcriptions={history}
-          onNoteSelect={(id, folderId, spaceId) => {
-            if (folderId != null) setActiveFolderId(folderId);
-            else if (spaceId != null) navigateToContainer(spaceId, null);
-            setActiveNoteId(id);
-            setActiveView("personal-notes");
-          }}
-          onContainerSelect={(spaceId, folderId) => {
-            navigateToContainer(spaceId, folderId);
-            setActiveView("personal-notes");
-          }}
-          onTranscriptSelect={() => {
-            setActiveView("home");
-          }}
-        />
-      </Suspense>
-
-      <div className="flex flex-1 overflow-hidden relative">
-        <div
-          className="shrink-0 transition-[width] duration-300 ease-out"
-          style={{ width: sidebarCollapsed || isSidePanelLayout ? 0 : SIDEBAR_WIDTH_PX }}
-        />
-        <div
-          className={`absolute inset-y-0 start-0 z-30 transition-transform duration-300 ease-out ${
-            !isSidePanelLayout && (!sidebarCollapsed || sidebarPeek)
-              ? "translate-x-0"
-              : "ltr:-translate-x-full rtl:translate-x-full"
-          }${
-            sidebarCollapsed && sidebarPeek && !isSidePanelLayout
-              ? " shadow-[10px_0_40px_-18px_rgba(0,0,0,0.2)] rtl:shadow-[-10px_0_40px_-18px_rgba(0,0,0,0.2)]"
-              : ""
-          }`}
-          onMouseEnter={sidebarCollapsed ? showSidebarPeek : undefined}
-          onMouseLeave={sidebarCollapsed ? hideSidebarPeek : undefined}
-        >
-          <ControlPanelSidebar
-            activeView={activeView}
-            onViewChange={setActiveView}
-            onOpenSettings={() => {
-              setSettingsSection(undefined);
-              setShowSettings(true);
-            }}
-          />
-        </div>
-        <main className="flex-1 flex flex-col overflow-hidden p-2">
-          <div className="flex min-h-0 flex-1 flex-col overflow-clip rounded-(--radius-shell) border border-border bg-background dark:border-white/10">
-            <ControlPanelTopBar
-              title={navItems.find((item) => item.id === activeView)?.label ?? ""}
-              sidebarCollapsed={sidebarCollapsed}
-              onToggleSidebar={toggleSidebar}
-              onToggleMouseEnter={sidebarCollapsed ? showSidebarPeek : undefined}
-              onToggleMouseLeave={sidebarCollapsed ? leaveSidebarToggle : undefined}
-              onOpenSearch={() => setShowSearch(true)}
-              isSidePanelLayout={isSidePanelLayout}
-              onExitSidePanel={handleExitSidePanel}
-              actions={
-                <NewNoteMenu onNewNote={handleNewNote} onNewChat={() => setActiveView("chat")} />
-              }
+        <div className="flex flex-1 overflow-hidden relative">
+          <div
+            className="relative shrink-0 overflow-hidden transition-[width] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none"
+            style={{ width: sidebarWidth(sidebarMode) }}
+            inert={sidebarMode === "hidden"}
+          >
+            <ControlPanelSidebar
+              mode={sidebarMode}
+              capture={capture}
+              activeView={activeView}
+              onViewChange={(view) => {
+                invalidateActivation();
+                setActiveView(view);
+              }}
+              onOpenSettings={navigation.openSettings}
             />
-            <div className="scrollbar-hidden flex-1 overflow-y-auto">
-              {(gpuAccelAvailable.transcription || gpuAccelAvailable.intelligence) &&
-                activeView === "home" &&
-                !gpuBannerDismissed && (
-                  <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 mb-3")}>
-                    <div className="rounded-lg border border-primary/20 dark:border-primary/15 bg-primary/5 p-3">
-                      <div className="flex items-start gap-3">
-                        <div className="shrink-0 w-8 h-8 rounded-md bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
-                          <Zap size={16} className="text-primary" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-foreground mb-0.5">
-                            {t("controlPanel.gpu.bannerTitle")}
-                          </p>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            {t("controlPanel.gpu.bannerDescription")}
-                          </p>
-                          <div className="flex items-center gap-3">
-                            <Button
-                              variant="default"
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() => {
-                                setSettingsSection(
-                                  gpuAccelAvailable.transcription
-                                    ? "transcription"
-                                    : gpuAccelAvailable.intelligence === "dictationAgent"
-                                      ? "dictationAgent"
-                                      : "intelligence"
-                                );
-                                setShowSettings(true);
-                              }}
-                            >
-                              {t("controlPanel.gpu.enableButton")}
-                            </Button>
-                            <button
-                              onClick={() => {
-                                setGpuBannerDismissed(true);
-                                localStorage.setItem("gpuBannerDismissedUnified", "true");
-                              }}
-                              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              {t("controlPanel.gpu.dismissButton")}
-                            </button>
+          </div>
+          <main className="flex-1 flex flex-col overflow-hidden p-2">
+            <div className="flex min-h-0 flex-1 flex-col overflow-clip rounded-(--radius-shell) border border-border bg-background dark:border-white/10">
+              <ControlPanelTopBar
+                breadcrumb={breadcrumb}
+                sidebarMode={sidebarMode}
+                onToggleSidebar={toggleSidebar}
+                onOpenSearch={() => setShowSearch(true)}
+                isSidePanelLayout={isSidePanelLayout}
+                onExitSidePanel={handleExitSidePanel}
+                actions={
+                  <CaptureControl
+                    capture={capture}
+                    hotkey={hotkey}
+                    showChat={navItems.some((item) => item.id === "chat")}
+                  />
+                }
+              />
+              <div className="scrollbar-hidden flex-1 overflow-y-auto">
+                {(gpuAccelAvailable.transcription || gpuAccelAvailable.intelligence) &&
+                  activeView === "home" &&
+                  !gpuBannerDismissed && (
+                    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 mb-3")}>
+                      <div className="rounded-lg border border-border dark:border-border bg-foreground/5 p-3">
+                        <div className="flex items-start gap-3">
+                          <div className="shrink-0 w-8 h-8 rounded-md bg-ai/12 border border-ai/30 flex items-center justify-center">
+                            <Zap size={16} className="text-ai" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-foreground mb-0.5">
+                              {t("controlPanel.gpu.bannerTitle")}
+                            </p>
+                            <p className="text-xs text-muted-foreground mb-2">
+                              {t("controlPanel.gpu.bannerDescription")}
+                            </p>
+                            <div className="flex items-center gap-3">
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                  setSettingsSection(
+                                    gpuAccelAvailable.transcription
+                                      ? "transcription"
+                                      : gpuAccelAvailable.intelligence === "dictationAgent"
+                                        ? "dictationAgent"
+                                        : "intelligence"
+                                  );
+                                  setShowSettings(true);
+                                }}
+                              >
+                                {t("controlPanel.gpu.enableButton")}
+                              </Button>
+                              <button
+                                onClick={() => {
+                                  setGpuBannerDismissed(true);
+                                  localStorage.setItem("gpuBannerDismissedUnified", "true");
+                                }}
+                                className="focus-visible:ring-2 focus-visible:ring-ring text-caption text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                {t("controlPanel.gpu.dismissButton")}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  )}
+                {activeView === "home" && <FinishDictationSetupCard />}
+                {activeView === "home" && (
+                  <HistoryView
+                    capture={capture}
+                    history={history}
+                    isLoading={isLoading}
+                    hotkey={hotkey}
+                    aiCTADismissed={aiCTADismissed}
+                    setAiCTADismissed={setAiCTADismissed}
+                    useCleanupModel={useCleanupModel}
+                    copyToClipboard={copyToClipboard}
+                    deleteTranscription={deleteTranscription}
+                    clearAllTranscriptions={clearAllTranscriptions}
+                    onShowAudioInFolder={showAudioInFolder}
+                    onRetryTranscription={retryTranscription}
+                    showDiscarded={showDiscarded}
+                    onToggleDiscarded={toggleShowDiscarded}
+                    onOpenSettings={(section) => {
+                      setSettingsSection(section);
+                      setShowSettings(true);
+                    }}
+                    onOpenIntegrations={() => setActiveView("integrations")}
+                  />
                 )}
-              {activeView === "home" && <FinishDictationSetupCard />}
-              {activeView === "home" && (
-                <HistoryView
-                  history={history}
-                  isLoading={isLoading}
-                  hotkey={hotkey}
-                  aiCTADismissed={aiCTADismissed}
-                  setAiCTADismissed={setAiCTADismissed}
-                  useCleanupModel={useCleanupModel}
-                  copyToClipboard={copyToClipboard}
-                  deleteTranscription={deleteTranscription}
-                  clearAllTranscriptions={clearAllTranscriptions}
-                  onShowAudioInFolder={showAudioInFolder}
-                  onRetryTranscription={retryTranscription}
-                  showDiscarded={showDiscarded}
-                  onToggleDiscarded={toggleShowDiscarded}
-                  onOpenSettings={(section) => {
-                    setSettingsSection(section);
-                    setShowSettings(true);
-                  }}
-                  onOpenIntegrations={() => setActiveView("integrations")}
-                />
-              )}
-              {activeView === "insights" && (
-                <Suspense fallback={null}>
-                  <InsightsView />
-                </Suspense>
-              )}
-              {activeView === "chat" && (
-                <Suspense fallback={null}>
-                  <ChatView />
-                </Suspense>
-              )}
-              {activeView === "personal-notes" && (
-                <Suspense fallback={null}>
-                  <PersonalNotesView
-                    onOpenSettings={(section) => {
-                      setSettingsSection(section);
-                      setShowSettings(true);
-                    }}
-                    meetingRecordingRequest={meetingRecordingRequest}
-                    onMeetingRecordingRequestHandled={handleMeetingRecordingRequestHandled}
-                  />
-                </Suspense>
-              )}
-              {activeView === "dictionary" && (
-                <Suspense fallback={null}>
-                  <DictionaryView />
-                </Suspense>
-              )}
-              {activeView === "upload" && (
-                <Suspense fallback={null}>
-                  <UploadAudioView
-                    onNoteCreated={(noteId, folderId) => {
-                      setActiveNoteId(noteId);
-                      if (folderId) setActiveFolderId(folderId);
-                      setActiveView("personal-notes");
-                    }}
-                    onOpenSettings={(section) => {
-                      setSettingsSection(section);
-                      setShowSettings(true);
-                    }}
-                  />
-                </Suspense>
-              )}
-              {activeView === "integrations" && (
-                <Suspense fallback={null}>
-                  <IntegrationsView />
-                </Suspense>
-              )}
+                {activeView === "insights" && (
+                  <Suspense fallback={null}>
+                    <InsightsView />
+                  </Suspense>
+                )}
+                {activeView === "chat" && (
+                  <Suspense fallback={null}>
+                    <ChatView
+                      request={chatRequest}
+                      onRequestHandled={() => setChatRequest(null)}
+                      onOpenSettings={navigation.openSettings}
+                    />
+                  </Suspense>
+                )}
+                {activeView === "personal-notes" && (
+                  <Suspense fallback={null}>
+                    <PersonalNotesView
+                      onOpenSettings={(section) => {
+                        setSettingsSection(section);
+                        setShowSettings(true);
+                      }}
+                      meetingRecordingRequest={meetingRecordingRequest}
+                      onMeetingRecordingRequestHandled={handleMeetingRecordingRequestHandled}
+                    />
+                  </Suspense>
+                )}
+                {activeView === "dictionary" && (
+                  <Suspense fallback={null}>
+                    <DictionaryView />
+                  </Suspense>
+                )}
+                {activeView === "upload" && (
+                  <Suspense fallback={null}>
+                    <UploadAudioView
+                      onNoteCreated={(noteId, folderId) => {
+                        setActiveNoteId(noteId);
+                        if (folderId) setActiveFolderId(folderId);
+                        setActiveView("personal-notes");
+                      }}
+                      onOpenSettings={(section) => {
+                        setSettingsSection(section);
+                        setShowSettings(true);
+                      }}
+                    />
+                  </Suspense>
+                )}
+                {activeView === "integrations" && (
+                  <Suspense fallback={null}>
+                    <IntegrationsView />
+                  </Suspense>
+                )}
+              </div>
             </div>
-          </div>
-        </main>
-      </div>
-      <BackgroundActionToastListener />
-    </div>
+          </main>
+        </div>
+        <BackgroundActionNoticeListener />
+      </WorkspacePresentation>
+    </WorkspaceNavigationProvider>
   );
 }

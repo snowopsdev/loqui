@@ -3,6 +3,31 @@ const assert = require("node:assert/strict");
 const { createRequire } = require("node:module");
 const { createModel } = require("../../src/helpers/personalInference");
 
+function expectLegacyImageWarning(t, legacy = true) {
+  const warnings = [];
+  t.mock.method(process, "emitWarning", (message, options) => warnings.push({ message, options }));
+  t.after(() => {
+    if (!legacy) {
+      assert.deepEqual(warnings, [], "modern file content emits no legacy warning");
+      return;
+    }
+    const deprecated = warnings.filter((entry) => entry.options?.type === "DeprecationWarning");
+    assert.equal(deprecated.length, 1, "exactly one supported legacy image conversion warning");
+    const suffix =
+      'Deprecated: ""image" content part". The "image" content part type is deprecated. Use a "file" part with mediaType: \'image\' (or a more specific image/* subtype) instead.';
+    assert.ok(deprecated[0].message.startsWith("AI SDK Warning"));
+    assert.ok(deprecated[0].message.endsWith(suffix), deprecated[0].message);
+    const other = warnings.filter((entry) => entry !== deprecated[0]);
+    assert.ok(other.length <= 1);
+    for (const entry of other)
+      assert.deepEqual(entry, {
+        message:
+          "AI SDK Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.",
+        options: { type: "Warning" },
+      });
+  });
+}
+
 const pngBase64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6hGAAAAAASUVORK5CYII=";
 const pngUrl = `data:image/png;base64,${pngBase64}`;
@@ -36,6 +61,8 @@ const imageCases = [
   {
     provider: "vertex",
     model: "gemini-2.5-flash",
+    // This serialization fixture supplies an API key and must select that source explicitly.
+    enterprise: { vertexAuthSource: "apiKey" },
     image: (body) => body.contents[0].parts[1].inlineData.data,
     expected: pngBase64,
   },
@@ -68,51 +95,56 @@ const imageCases = [
 // AI SDK 7 can accept an older model's specificationVersion while silently
 // passing it incompatible file data. Test the real adapters' HTTP bodies:
 // checking only model discovery, text generation, or a mock model misses this.
-for (const scenario of imageCases) {
-  test(`${scenario.provider} preserves screenshot bytes through the SDK and application model factory`, async (t) => {
-    const { generateText } = await import("ai");
-    const bodies = [];
-    t.mock.method(globalThis, "fetch", async (input, init) => {
-      const body = init?.body ?? (input instanceof Request ? await input.text() : undefined);
-      assert.equal(typeof body, "string");
-      bodies.push(JSON.parse(body));
-      // Stop at serialization: no provider credentials or network are needed.
-      return new Response(JSON.stringify({ error: { message: "Fixture transport stopped" } }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
+for (const scenario of imageCases)
+  for (const contentType of ["file", "image"]) {
+    test(`${scenario.provider} preserves ${contentType} screenshot bytes through the SDK and application model factory`, async (t) => {
+      expectLegacyImageWarning(t, contentType === "image");
+      const { generateText } = await import("ai");
+      const bodies = [];
+      t.mock.method(globalThis, "fetch", async (input, init) => {
+        const body = init?.body ?? (input instanceof Request ? await input.text() : undefined);
+        assert.equal(typeof body, "string");
+        bodies.push(JSON.parse(body));
+        // Stop at serialization: no provider credentials or network are needed.
+        return new Response(JSON.stringify({ error: { message: "Fixture transport stopped" } }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
       });
+      const model = await createModel(
+        scenario.provider,
+        scenario.model,
+        "fixture-api-key",
+        scenario.baseUrl,
+        false,
+        scenario.enterprise
+      );
+      await assert.rejects(
+        generateText({
+          model,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this screenshot." },
+                // Exercise the installed SDK file-part protocol with identical screenshot bytes.
+                contentType === "image"
+                  ? { type: "image", image: pngUrl }
+                  : { type: "file", data: pngUrl, mediaType: "image/png" },
+              ],
+            },
+          ],
+          maxRetries: 0,
+        }),
+        { name: "AI_APICallError" }
+      );
+      assert.equal(bodies.length, 1, "the selected provider is called once without fallback");
+      assert.equal(scenario.image(bodies[0]), scenario.expected);
     });
-    const model = await createModel(
-      scenario.provider,
-      scenario.model,
-      "fixture-api-key",
-      scenario.baseUrl,
-      false,
-      scenario.enterprise
-    );
-    await assert.rejects(
-      generateText({
-        model,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Describe this screenshot." },
-              // This is the shape sent by ReasoningService's screenContext.
-              { type: "image", image: pngUrl },
-            ],
-          },
-        ],
-        maxRetries: 0,
-      }),
-      { name: "AI_APICallError" }
-    );
-    assert.equal(bodies.length, 1, "the selected provider is called once without fallback");
-    assert.equal(scenario.image(bodies[0]), scenario.expected);
-  });
-}
+  }
 
 test("Tinfoil's resolved adapter supports the installed SDK message protocol", async (t) => {
+  expectLegacyImageWarning(t);
   const { generateText } = await import("ai");
   // Resolve the exact adapter used by Tinfoil, including a nested dependency.
   // This checks SDK compatibility only. SecureClient's enclave attestation is

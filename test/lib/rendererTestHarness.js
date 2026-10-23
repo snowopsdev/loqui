@@ -23,6 +23,12 @@ function installBrowserGlobals(t, { initialStorage = {}, window: windowProps = {
     setInterval() {
       return 1;
     },
+    clearInterval() {},
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
     electronAPI: {},
     ...windowProps,
   };
@@ -95,6 +101,19 @@ function installHookDom(t) {
   return container;
 }
 
+// Vite 8's native resolve plugin keeps its JS callbacks as global handles after
+// close(), and they reach every environment's module graph. Empty the graphs so
+// a closed server stops pinning each evaluated renderer module graph (~50 MB);
+// a file that creates a server per test would otherwise exhaust the heap.
+function releaseModuleGraphs(server) {
+  for (const { moduleGraph } of Object.values(server.environments)) {
+    // Every lookup table, including the internal unresolved-URL map.
+    for (const table of Object.values(moduleGraph)) {
+      if (table instanceof Map || table instanceof Set) table.clear();
+    }
+  }
+}
+
 // mockModules maps an import-path suffix (e.g. "/utils/logger") to the ESM
 // source served in its place.
 async function createRendererServer(
@@ -133,10 +152,12 @@ async function createRendererServer(
         },
       },
     ],
-    server: { middlewareMode: true },
+    // SSR needs transforms only; middlewareMode still starts Vite 8 HMR by default.
+    server: { middlewareMode: true, ws: false, hmr: false },
   });
   t.after(async () => {
     await vite.close();
+    releaseModuleGraphs(vite);
     fs.rmSync(cacheDir, { recursive: true, force: true });
   });
   return vite;
@@ -167,6 +188,12 @@ function installMicCaptureGlobals(t) {
     gain: { value: 0 },
     fftSize: 0,
     smoothingTimeConstant: 0,
+    getFloatTimeDomainData(data) {
+      data.fill(0);
+    },
+    getByteTimeDomainData(data) {
+      data.fill(128);
+    },
   });
   class FakeAudioContext {
     constructor() {

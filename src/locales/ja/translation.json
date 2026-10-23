@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "言語",
-      "sectionDescription": "インターフェースと文字起こしの言語を個別に設定",
+      "sectionDescription": "Loquiのメニューとボタンで使う言語",
       "uiLabel": "インターフェース言語",
       "uiDescription": "Loqui のインターフェースで使用する言語を選択",
       "transcriptionLabel": "文字起こし言語",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "中国語が検出されたとき、ディクテーションの文字起こしを簡体字または繁体字に変換します。話し言葉は同じでも、Whisperはどちらか一方の字体だけを返します。",
       "chineseScriptAsTranscribed": "文字起こしのまま",
       "chineseScriptSimplified": "簡体字 (简体)",
-      "chineseScriptTraditional": "繁体字 (繁體)"
+      "chineseScriptTraditional": "繁体字 (繁體)",
+      "dictationSectionTitle": "話す言語",
+      "dictationSectionDescription": "音声入力で話す言語"
     },
     "noteFiles": {
       "title": "ノートをファイルとして保存",
@@ -57,6 +59,23 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui がこの会議を録音しています",
+    "notificationBody": "ここ、トレイメニュー、または Loqui のピルから停止できます。",
+    "notificationFallbackBody": "クリックして Loqui のピルを表示して停止するか、トレイメニューを使用してください。",
+    "stop": "停止",
+    "systemLost": "システム音声が途切れました",
+    "micLost": "マイクが途切れました",
+    "stopAria": "会議の録音を停止",
+    "groupAria": "会議レコーダー",
+    "saved": "会議を保存しました · {{elapsed}}",
+    "openNotes": "ノートを開く",
+    "failed": {
+      "save": "会議は停止しましたが、文字起こしを保存できませんでした。ノートを開いて保存された内容を確認してください。",
+      "stop": "会議の録音が正常に停止しませんでした。ノートを開いて確認してください。",
+      "ownerLost": "会議レコーダーが予期せず停止しました。ノートを開いて保存された内容を確認してください。"
+    }
+  },
   "tray": {
     "toggleDictation": {
       "show": "ディクテーションパネルを表示",
@@ -65,7 +84,12 @@
     "openControlPanel": "コントロールパネルを開く",
     "hideControlPanel": "コントロールパネルを非表示",
     "quit": "Loqui を終了",
-    "tooltip": "Loqui - 音声ディクテーション"
+    "tooltip": "Loqui - 音声ディクテーション",
+    "tooltipRecording": "Loqui — 会議を録音中",
+    "meetingRecording": "会議を録音中 · {{elapsed}}",
+    "meetingRecordingSystemLost": "録音中 · システム音声が途切れました",
+    "meetingRecordingMicLost": "録音中 · マイクが切断されました",
+    "stopMeetingRecording": "会議の録音を停止"
   },
   "menu": {
     "appLabel": "Loqui",
@@ -565,6 +589,12 @@
         "title": "ダウンロードが完了しませんでした",
         "description": "接続とディスクの空き容量を確認して、再試行してください。それでも失敗する場合は、管理者にお問い合わせください。"
       }
+    },
+    "download": {
+      "chip": "音声モデルをダウンロード中 · {{percent}}%",
+      "start": "モデルをダウンロード",
+      "inProgress": "ダウンロード中…",
+      "chipInstalling": "音声モデルをインストール中"
     }
   },
   "streaming": {
@@ -690,7 +720,8 @@
       "title": "必須モデルがありません",
       "description": "組織では、このデバイスにこれらのモデルが必要です：{{models}}。",
       "download": "ダウンロード"
-    }
+    },
+    "breadcrumb": "現在の場所"
   },
   "reasoning": {
     "mode": {
@@ -726,7 +757,16 @@
       "otherGroup": "その他",
       "noSearchResults": "「{{query}}」に一致するモデルはありません",
       "selectModelHint": "モデルが未選択です — 下のリストから選択してください。",
-      "keyRequiredHint": "推論には API キーが必要です — このプロバイダーを使用するには追加してください。"
+      "keyRequiredHint": "推論には API キーが必要です — このプロバイダーを使用するには追加してください。",
+      "listModels": "{{host}} のモデルを一覧表示",
+      "listModelsSendsKey": "モデル一覧の取得のため、{{slot}} を {{host}} に送信します。",
+      "listModelsNoKey": "キーは送信せず、{{host}} にモデル一覧を問い合わせます。",
+      "listModelsNeedsEndpoint": "先にエンドポイントを使用してからモデルを一覧表示してください。",
+      "listModelsSealed": "シールドモードが有効なため、エンドポイントへの問い合わせは行いません。",
+      "slotCustom": "{{task}} 用に保存したカスタムエンドポイントのキー",
+      "slotProvider": "保存済みの {{provider}} キー",
+      "currentModel": "現在のモデル: {{model}}",
+      "useDefault": "既定のエンドポイントを使用"
     },
     "getApiKey": "API キーを取得 ->",
     "selectModel": "モデルを選択",
@@ -805,8 +845,26 @@
       },
       "vertex": {
         "adcHelp": "Application Default Credentials を使用します。次を実行してください: gcloud auth application-default login",
-        "apikeyHelp": "Google AI Studio で取得した Vertex AI Express Mode の API キー。"
-      }
+        "apikeyHelp": "Google AI Studio で取得した Vertex AI Express Mode の API キー。",
+        "authSource": "認証情報の取得元",
+        "authSourceAdc": "アプリケーションのデフォルト認証情報 (ADC)",
+        "authSourceApiKey": "API キー"
+      },
+      "profileSaveFailed": "このプロファイルを保存できませんでした。入力内容は残っています。もう一度お試しください。",
+      "testConnectionAt": "{{host}} への接続をテスト",
+      "testSends": "{{fields}} と短いテストプロンプトを {{host}} に送信します。",
+      "testSendsNoKey": "クラウドのログイン情報を使って {{host}} に短いテストプロンプトを送信します。保存済みキーは送信しません。",
+      "testHostUnknown": "有効なエンドポイントまたはリージョンを入力してからテストしてください。",
+      "field": {
+        "key": "保存済みの API キー",
+        "accessKeyId": "アクセスキー ID",
+        "secretAccessKey": "シークレットアクセスキー",
+        "sessionToken": "セッショントークン",
+        "profile": "AWS プロファイルの認証情報",
+        "environmentKey": "Loqui の環境変数に設定された Vertex API キー（GOOGLE_VERTEX_API_KEY）"
+      },
+      "recipientChanged": "送信先または認証情報が変更されました。送信先を確認し、もう一度テストを押してください。",
+      "unsupportedAuthSource": "この接続テストは、静的な AWS プロファイルと、サービスアカウントまたは承認済みユーザーの ADC ファイルに対応しています。他の認証方式はここではテストできません。"
     },
     "tinfoil": {
       "modelRetiredTitle": "モデルが利用できません",
@@ -815,6 +873,10 @@
     },
     "corti": {
       "euOnly": "Corti のモデルは EU リージョンでのみ利用できます。"
+    },
+    "codex": {
+      "listModels": "ChatGPT のモデルを一覧表示（Codex アプリ経由）",
+      "listModelsTitle": "Codex アプリが ChatGPT へのログインを使ってモデルを問い合わせます。Loqui は保存済みキーを送信しません。"
     }
   },
   "transcription": {
@@ -848,6 +910,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil はストリーミングに Voxtral Mini 4B を、バッチ処理に Voxtral Small 24B を使用します。",
       "docsLink": "ドキュメントを見る"
+    },
+    "families": {
+      "orukHint": "Oruk は、Parakeet を多言語向けに微調整した Orukeet を公開しています。このデバイス上で実行されます。"
     }
   },
   "hooks": {
@@ -1357,7 +1422,6 @@
       "none": "なし",
       "outputLabel": "出力",
       "processing": "処理中...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "プロバイダー",
       "run": "テスト実行",
       "customEndpoint": "カスタムエンドポイント",
@@ -1378,47 +1442,38 @@
   "settingsModal": {
     "managedByOrg": "一部の設定は組織によって管理されています。",
     "groups": {
-      "account": "アカウント",
       "app": "アプリ",
       "aiModels": "AIモデル",
       "system": "システム"
     },
     "sections": {
-      "account": {
-        "description": "プロフィールとサインイン",
-        "label": "プロフィール"
-      },
-      "plansBilling": {
-        "description": "プラン、使用状況、請求",
-        "label": "プランと請求"
-      },
       "general": {
-        "description": "外観、サウンド、起動設定",
-        "label": "環境設定"
+        "description": "外観、サウンド、起動",
+        "label": "設定"
       },
       "hotkeys": {
-        "description": "ディクテーションホットキーと起動モード",
-        "label": "ホットキー"
+        "description": "ショートカット、マイク、貼り付け、言語",
+        "label": "音声入力"
       },
       "speechToText": {
-        "description": "ディクテーションとノート録音用エンジン",
-        "label": "音声認識"
+        "description": "音声入力とメモ用エンジン",
+        "label": "音声テキスト変換"
       },
       "llms": {
-        "description": "クリーンアップ、ノートのフォーマット、チャット用のモデル",
+        "description": "整形、アシスタント、チャット、端末内サポート",
         "label": "言語モデル"
       },
       "privacyData": {
-        "description": "プライバシー、権限、分析",
+        "description": "保持、保存、権限",
         "label": "プライバシーとデータ"
       },
       "system": {
-        "description": "更新、ストレージ、開発者ツール",
+        "description": "更新と開発者ツール",
         "label": "システム"
       },
-      "workspace": {
-        "description": "メンバー、チームスペース、API キー",
-        "label": "ワークスペース"
+      "routing": {
+        "label": "ルーティング",
+        "description": "各タスクが実行される場所"
       }
     },
     "title": "設定"
@@ -1444,230 +1499,6 @@
         "newCapacity": "新しい容量",
         "chargeToday": "本日の請求額",
         "confirm": "シートを追加"
-      }
-    },
-    "account": {
-      "badges": {
-        "free": "無料",
-        "limitReached": "上限到達",
-        "pastDue": "支払い遅延",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "トライアル"
-      },
-      "billing": {
-        "couldNotOpenDescription": "請求ページを開く際に問題が発生しました。もう一度お試しください。",
-        "couldNotOpenTitle": "請求を開けませんでした",
-        "manageBilling": "請求を管理",
-        "opening": "開いています...",
-        "updatePaymentMethod": "お支払い方法を更新",
-        "contactOwnerTitle": "ワークスペースのオーナーにご連絡ください",
-        "contactOwnerDescription": "このワークスペースの請求を更新できるのはオーナーのみです。"
-      },
-      "checkout": {
-        "couldNotOpenDescription": "購入ページを開く際に問題が発生しました。もう一度お試しください。",
-        "couldNotOpenTitle": "購入ページを開けませんでした",
-        "opening": "開いています...",
-        "upgradeToPro": "Pro にアップグレード"
-      },
-      "disabled": "無効",
-      "featuresDisabled": "アカウント機能が無効です",
-      "featuresDisabledDescription": ".env ファイルで VITE_AUTH_URL を設定してアカウント機能を有効にしてください。",
-      "notConfigured": "認証が設定されていません",
-      "notSignedIn": "サインインしていません",
-      "notSignedInDescription": "アカウントを作成してプレミアム機能をアンロックしましょう。",
-      "offline": "オフライン",
-      "pastDue": {
-        "description": "現在は無料プランをご利用中です。お支払い方法を更新して Pro に戻しましょう。",
-        "title": "お支払いを処理できませんでした"
-      },
-      "planDescriptions": {
-        "freeUsage": "今週 {{used}} / {{limit}} ワード使用済み",
-        "nextBilling": "次の請求日: {{date}}",
-        "pastDue": "今週 {{used}} / {{limit}} 無料ワード使用済み - お支払い方法を更新して Pro を復元",
-        "trial": "残り {{days}} 日 - 無制限の文字起こし",
-        "unlimited": "無制限"
-      },
-      "planLabels": {
-        "free": "無料",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "トライアル"
-      },
-      "pricing": {
-        "title": "プラン",
-        "billedYearly": "年払い",
-        "free": {
-          "name": "Free",
-          "price": "$0",
-          "period": "永久",
-          "features": [
-            "## Loqui Cloud",
-            "週2,000ワードの文字起こし",
-            "月5時間の会議録音",
-            "## 永久無料",
-            "無制限のローカルAIモデル",
-            "独自のAPIキーで無制限のクラウド文字起こし",
-            "100以上の言語に対応",
-            "カスタム辞書",
-            "データ保持なし",
-            "コミュニティサポート"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/月",
-          "annualPrice": "$80",
-          "annualPeriod": "/年",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "Free の全機能 +",
-          "features": [
-            "無制限のクラウド文字起こし",
-            "月20時間の会議録音",
-            "デバイス間の同期",
-            "公開リンクでノートを共有",
-            "個人APIアクセス",
-            "すべてのアプリでMCP統合",
-            "モバイルアプリ",
-            "メールサポート"
-          ],
-          "cta": "始める",
-          "switchToAnnual": "年払いに切り替え"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/月",
-          "annualPrice": "$160",
-          "annualPeriod": "/年",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "Pro の全機能 +",
-          "badge": "一番人気",
-          "features": [
-            "無制限の会議録音",
-            "ワークスペースのロールとメンバー管理",
-            "アシスタントモード",
-            "データとチャット",
-            "優先サポート"
-          ],
-          "cta": "始める",
-          "switchToAnnual": "年払いに切り替え"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "カスタム",
-          "subtitle": "高度なセキュリティとサポート向け",
-          "includesPrefix": "Business の全機能 +",
-          "features": [
-            "管理されたAPIクレジット",
-            "デバイス間のクラウド同期",
-            "チーム機能と管理",
-            "SSO とコンプライアンス",
-            "専任サポート"
-          ],
-          "cta": "営業に問い合わせる",
-          "upgradeCta": "Enterpriseにアップグレード",
-          "askOwner": "{{name}}さんにワークスペースのアップグレードを依頼してください。"
-        },
-        "currentPlan": "現在のプラン",
-        "coveredByWorkspace": "ワークスペースのプランに含まれています",
-        "upgrade": "アップグレード",
-        "downgrade": "ダウングレード",
-        "planSwitched": "プランが正常に更新されました",
-        "confirmSwitch": {
-          "title": "プラン変更の確認",
-          "description": "{{plan}}（{{interval}}）に変更",
-          "monthly": "月額",
-          "yearly": "年額",
-          "chargeToday": "本日のご請求",
-          "accountCredit": "アカウントクレジット",
-          "newPrice": "新しい料金",
-          "nextBilling": "次回請求日",
-          "mo": "mo",
-          "yr": "yr",
-          "cancel": "キャンセル",
-          "confirm": "確認"
-        }
-      },
-      "rollingWeeklyLimit": "週間利用上限（ローリング）",
-      "signOut": {
-        "failedDescription": "サインアウト中に問題が発生しました。もう一度お試しください。",
-        "failedTitle": "サインアウトできませんでした",
-        "signOut": "サインアウト",
-        "signingOut": "サインアウト中..."
-      },
-      "signedOutPlans": {
-        "button": "無料アカウントを作成"
-      },
-      "title": "アカウント",
-      "toasts": {
-        "approachingLimit": {
-          "description": "今週 {{used}} / {{limit}} 無料ワードを使用しました。Pro にアップグレードして無制限にご利用ください。",
-          "title": "週間利用上限に近づいています"
-        }
-      },
-      "trialCta": {
-        "button": "無料アカウントを作成",
-        "description": "無制限の文字起こし、優先処理など。",
-        "title": "Pro を 7 日間無料でお試し"
-      },
-      "user": "ユーザー",
-      "wordsRemaining": "残り {{remaining}}",
-      "deleteAccount": {
-        "label": "アカウントを削除",
-        "labelDescription": "アカウントと個人のクラウドデータを完全に削除します。他のローカルユーザーとワークスペース所有のコンテンツは保持されます。",
-        "button": "アカウントを削除",
-        "deleting": "削除中...",
-        "title": "アカウントを削除しますか？",
-        "description": "Loqui アカウントと個人データを完全に削除します。ワークスペース所有のコンテンツと他のローカルユーザーのデータはこのデバイスに残ります。",
-        "confirmText": "アカウントを削除",
-        "eraseDeviceLabel": "このデバイス上のすべてのデータも消去する",
-        "eraseDeviceDescription": "すべてのローカルユーザーのノートとワークスペースキャッシュ、ダウンロード済みモデル、設定、カレンダー接続、認証情報、録音を削除します。",
-        "eraseDeviceWarning": "このデバイス全体の消去は元に戻せず、すべてのローカルユーザーに影響します。",
-        "successTitle": "アカウントが削除されました",
-        "successDescription": "アカウントと個人データが削除されました。他のローカルユーザー、ワークスペース、モデル、デバイス設定は保持されました。",
-        "partialCleanupDescription": "アカウントは削除されましたが、一部のローカルクリーンアップを完了できませんでした。他のユーザーとワークスペース所有のコンテンツは保持されました。",
-        "failedTitle": "削除に失敗しました",
-        "failedDescription": "アカウントの削除を完了できませんでした。デバイス全体の消去は開始されていません。もう一度お試しください。"
-      },
-      "profile": {
-        "name": {
-          "label": "表示名",
-          "placeholder": "お名前",
-          "save": "保存",
-          "saving": "保存中...",
-          "saved": "表示名を更新しました",
-          "error": "名前を更新できませんでした"
-        },
-        "password": {
-          "label": "パスワード",
-          "description": "サインインに使用するパスワードを変更します。",
-          "change": "パスワードを変更",
-          "dialogTitle": "パスワードを変更",
-          "dialogDescription": "現在のパスワードを入力し、新しいパスワードを設定してください。",
-          "currentLabel": "現在のパスワード",
-          "newLabel": "新しいパスワード",
-          "confirmLabel": "新しいパスワード（確認）",
-          "minLength": "パスワードは 8 文字以上にしてください",
-          "mismatch": "パスワードが一致しません",
-          "revokeOthers": "他のデバイスでサインアウト",
-          "submit": "パスワードを更新",
-          "saving": "更新中...",
-          "cancel": "キャンセル",
-          "saved": "パスワードを更新しました"
-        },
-        "errors": {
-          "invalidPassword": "現在のパスワードが正しくありません。",
-          "passwordTooShort": "パスワードは 8 文字以上にしてください。",
-          "passwordTooLong": "パスワードが長すぎます。",
-          "noPassword": "このアカウントにはパスワードが設定されていません。",
-          "generic": "問題が発生しました。もう一度お試しください。"
-        }
-      },
-      "planUnavailable": {
-        "title": "プランを取得できません",
-        "description": "現在プランを読み込めませんでした。ご利用の権限は変わりません。"
       }
     },
     "agentConfig": {
@@ -1698,19 +1529,15 @@
       "enableTextCleanup": "テキスト補正を有効にする",
       "enableTextCleanupDescription": "AI がフィラーワードを除去し、文法と句読点を整える",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "クラウドプロバイダー",
         "local": "ローカル",
         "selfHosted": "セルフホスト",
-        "openwhisprDesc": "信頼できる精度。設定不要。",
         "providersDesc": "自分のAPIキーを使用。",
-        "localDesc": "端末上のモデル。完全プライベート。",
+        "localDesc": "このデバイス上で実行します。外部には何も送信されません。",
         "selfHostedDesc": "自前サーバーをネットワーク上に。",
         "enterprise": "エンタープライズ",
         "enterpriseDesc": "組織のクラウドアカウントを使用 (AWS, Azure, GCP)。"
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "信頼できる精度。設定不要。",
       "title": "AI テキスト補正",
       "toasts": {
         "switchedCloud": {
@@ -1854,7 +1681,14 @@
         "dictationSoundsDescription": "録音の開始・停止時に効果音を再生",
         "pauseMedia": "メディアを一時停止",
         "pauseMediaDescription": "ディクテーション開始時に音楽を自動的に一時停止",
-        "title": "サウンドエフェクト"
+        "title": "サウンドエフェクト",
+        "cueSet": "効果音の種類",
+        "cueSetSoft": "ソフト",
+        "cueSetClassic": "クラシック",
+        "cueVolume": "音量",
+        "cueVolumeLow": "小",
+        "cueVolumeMedium": "中",
+        "cueVolumeHigh": "大"
       },
       "notifications": {
         "title": "通知",
@@ -1864,7 +1698,9 @@
         "meetingDetection": "会議の検出",
         "meetingDetectionDescription": "会議が検出されたときに通知して録音を開始できるようにする",
         "calendarReminders": "カレンダーリマインダー",
-        "calendarRemindersDescription": "予定された会議がまもなく始まるときに通知する"
+        "calendarRemindersDescription": "予定された会議がまもなく始まるときに通知する",
+        "meetingRecorderOnScreen": "会議レコーダーを画面に表示",
+        "meetingRecorderOnScreenDescription": "会議の録音中、音声入力ピルにタイマーと停止ボタンを表示します。"
       },
       "clipboard": {
         "title": "クリップボード",
@@ -2059,8 +1895,6 @@
       "leaderboardDescription": "対象となるワークスペースと勤務先ドメインのリーダーボードに、名前、メールアドレス、アクティビティを表示します。文字起こしは非公開のままです。",
       "leaderboardRequiresAccount": "リーダーボードへの参加を管理するにはサインインしてください。",
       "leaderboardRequiresHistory": "リーダーボードに参加する前にデータ保持を有効にしてください。",
-      "usageAnalytics": "使用状況の分析",
-      "usageAnalyticsDescription": "匿名のパフォーマンスデータを共有して Loqui の改善にご協力ください。文字起こしの内容は送信されません。タイミングとエラーデータのみです。",
       "dataRetention": "データ保持",
       "dataRetentionDescription": "文字起こしと音声を履歴にローカル保存します。無効にすると、文字起こしは貼り付けられますが保存されません。",
       "transcriptRetention": "文字起こしの保持",
@@ -2080,9 +1914,15 @@
       "audioStorageFiles": "{{count}}ファイル、{{size}}",
       "audioStorageEmpty": "保存された音声ファイルはありません",
       "clearAllAudio": "すべての音声を削除",
-      "clearAllAudioConfirm": "保存されたすべての音声ファイルを削除しますか？この操作は元に戻せません。",
       "saveDiscarded": "破棄したディクテーションを保存",
-      "saveDiscardedDescription": "Escape でディクテーションをキャンセルしたとき、音声を履歴に残して後で復元できるようにします。データと音声の保持を有効にする必要があります。"
+      "saveDiscardedDescription": "Escape でディクテーションをキャンセルしたとき、音声を履歴に残して後で復元できるようにします。データと音声の保持を有効にする必要があります。",
+      "clearAllAudioTitle": "すべての音声を削除しますか？",
+      "clearAllAudioCounted": "保存済みの音声: {{summary}}。すべて削除しますか？元に戻せません。",
+      "clearAllAudioAction": "音声を削除",
+      "clearAllAudioDone": "保存済みの音声を削除しました",
+      "clearAllAudioFailed": "保存済みの音声の一部を削除できませんでした。もう一度試すか、他のアプリがファイルを使用していないか確認してください。",
+      "audioStorageChecking": "保存済みの音声を確認しています…",
+      "audioStorageUnavailable": "Loqui が音声フォルダーを読み取れなかったため、現在は保存済みの音声を表示または削除できません。"
     },
     "prompts": {
       "description": "テキスト補正と指示検出を行う統合システムプロンプトの表示、カスタマイズ、テスト",
@@ -2106,7 +1946,16 @@
         "dictationAgent": "音声アシスタント",
         "noteFormatting": "ノートのフォーマット",
         "chatIntelligence": "チャット",
-        "dictationTranslation": "翻訳"
+        "dictationTranslation": "翻訳",
+        "supportModels": "端末内サポート"
+      },
+      "supportModels": {
+        "title": "端末内サポートモデル",
+        "description": "この端末上で常に動作する小さなモデルです。これらの処理で録音やメモが端末の外に送られることはありません。",
+        "downloaded": "ダウンロード済み",
+        "checking": "確認中…",
+        "download": "{{size}} をダウンロード",
+        "statusUnavailable": "状態を確認できません"
       }
     },
     "noteFormatting": {
@@ -2118,19 +1967,15 @@
       "customSetupDescription": "独自のプロバイダーと API キーを使用。",
       "description": "Loqui の音声文字起こし方法を選択",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "クラウドプロバイダー",
         "local": "ローカル",
         "selfHosted": "セルフホスト",
-        "openwhisprDesc": "信頼できる精度。設定不要。",
         "providersDesc": "自分のAPIキーを使用。",
-        "localDesc": "端末上のモデル。完全プライベート。",
+        "localDesc": "このデバイス上で実行します。外部には何も送信されません。",
         "selfHostedDesc": "自前サーバーをネットワーク上に。",
         "enterprise": "エンタープライズクラウド",
         "enterpriseDesc": "音声は組織自身のクラウドに送信されます。"
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "信頼できる精度。設定不要。",
       "title": "音声テキスト変換",
       "toasts": {
         "switchedCloud": {
@@ -2225,207 +2070,16 @@
     "selfHosted": {
       "endpointUrl": "エンドポイント URL",
       "serverUrl": "サーバー URL",
-      "apiKeyOptional": "API キー（任意）"
-    },
-    "workspace": {
-      "title": "ワークスペース",
-      "description": "チームメイトとのコラボレーション、ノートの共有、ワークスペースへのアクセス管理を一括で行えます。",
-      "empty": {
-        "title": "最初のワークスペースを作成",
-        "description": "ワークスペースでは、チームメイトとのコラボレーションやノートの共有ができます。",
-        "create": "ワークスペースを作成"
-      },
-      "loadError": {
-        "title": "ワークスペースを読み込めませんでした",
-        "description": "接続を確認して、もう一度お試しください。",
-        "retry": "再試行"
-      },
-      "tab": {
-        "general": "一般",
-        "members": "メンバー",
-        "teams": "グループ",
-        "developer": "開発者"
-      },
-      "role": {
-        "owner": "オーナー",
-        "admin": "管理者",
-        "member": "メンバー"
-      },
-      "general": {
-        "nameLabel": "ワークスペース名",
-        "saved": "ワークスペースを更新しました",
-        "dangerTitle": "ワークスペースを削除",
-        "dangerDescription": "共有されているノート、フォルダ、連携がすべて削除されます。この操作は取り消せません。",
-        "delete": "ワークスペースを削除",
-        "confirmTitle": "{{name}} を削除しますか？",
-        "confirmDescription": "サブスクリプションがキャンセルされ、ワークスペースのすべてのデータが完全に削除されます。",
-        "deleting": "削除中…",
-        "deleted": "ワークスペースを削除しました",
-        "leaveTitle": "ワークスペースから退出",
-        "leaveDescription": "このワークスペースと共有ノートにアクセスできなくなります。",
-        "leave": "ワークスペースから退出",
-        "leaving": "退出中…",
-        "leaveConfirm": {
-          "title": "{{name}} から退出しますか？",
-          "description": "すぐにアクセスできなくなります。管理者が再度招待できます。"
-        },
-        "left": "{{name}} から退出しました"
-      },
-      "members": {
-        "title": "メンバー",
-        "description": "{{seats}} シート中 {{count}} シートを使用中。",
-        "invite": "招待",
-        "empty": "まだメンバーがいません。",
-        "loadError": "メンバーを読み込めませんでした。",
-        "roleUpdated": "役割を更新しました",
-        "removed": "{{name}} を削除しました",
-        "promote": "管理者にする",
-        "demote": "メンバーにする",
-        "transferOwnership": "オーナー権限を譲渡",
-        "remove": "ワークスペースから削除",
-        "removeConfirm": {
-          "title": "このメンバーを削除しますか？",
-          "description": "{{name}} はすぐに {{workspace}} にアクセスできなくなります。"
-        },
-        "transferConfirm": {
-          "title": "オーナー権限を譲渡しますか？",
-          "description": "{{name}} が {{workspace}} のオーナーになります。あなたの役割は管理者に変わり、元に戻せるのは新しいオーナーのみです。"
-        }
-      },
-      "joinRequests": {
-        "title": "参加リクエスト",
-        "approve": "承認",
-        "deny": "却下",
-        "approved": "{{name}} がワークスペースに参加しました",
-        "denied": "リクエストを却下しました",
-        "errorTitle": "リクエストを更新できませんでした"
-      },
-      "teams": {
-        "title": "グループ",
-        "description": "チームスペースへのアクセスをまとめて付与できるワークスペースメンバーのグループ。",
-        "new": "新しいグループ",
-        "empty": "グループはまだありません。",
-        "createFirst": "最初のグループを作成",
-        "addMembersLabel": "メンバーを追加",
-        "createTitle": "グループを作成",
-        "nameLabel": "グループ名",
-        "memberCount_one": "{{count}}人のメンバー",
-        "memberCount_other": "{{count}}人のメンバー",
-        "membersButton": "メンバー",
-        "grantsAccessToSpaces_one": "{{count}} 件のスペースへのアクセスを付与しています",
-        "grantsAccessToSpaces_other": "{{count}} 件のスペースへのアクセスを付与しています",
-        "couldNotCreate": "グループを作成できませんでした",
-        "created": "{{team}} を作成しました",
-        "deleted": "{{team}} を削除しました",
-        "deleteConfirmTitle": "{{team}} を削除しますか？",
-        "deleteConfirmDescription": "グループをアーカイブします。このグループが付与していたアクセスは失われます。",
-        "deleteConfirmSpaceAccess_one": "このグループは {{count}} 件のスペースへのアクセスを付与しています。メンバーはそのアクセスを失います。",
-        "deleteConfirmSpaceAccess_other": "このグループは {{count}} 件のスペースへのアクセスを付与しています。メンバーはそのアクセスを失います。",
-        "members": {
-          "title": "{{team}} のメンバー",
-          "removeConfirm": "{{name}} を {{team}} から外しますか？",
-          "leave": "グループから退出",
-          "leftTeam": "{{team}} から退出しました",
-          "leaveConfirm": "{{team}} から退出しますか？",
-          "leaveConfirmDescription": "直接追加されているか他のグループに含まれていない限り、このグループが付与するスペースへのアクセスを失います。"
-        }
-      },
-      "invites": {
-        "title": "保留中の招待",
-        "expiresIn_one": "有効期限まであと{{count}}日",
-        "expiresIn_other": "有効期限まであと{{count}}日",
-        "expired": "期限切れ",
-        "loadError": "招待を読み込めませんでした。",
-        "resend": "再送信",
-        "resending": "再送信中…",
-        "revoke": "取り消す",
-        "resent": "招待を再送信しました",
-        "resentNoEmail": "招待を更新しましたが、メールを配信できませんでした。",
-        "revoked": "招待を取り消しました",
-        "revokeFailed": "招待を取り消せませんでした",
-        "revokeConfirm": {
-          "title": "この招待を取り消しますか？",
-          "description": "{{email}} への招待リンクが無効になります。"
-        }
-      },
-      "billing": {
-        "plan": "プラン",
-        "seats": "シート",
-        "ownerOnly": "サブスクリプションを管理できるのはワークスペースのオーナーのみです。",
-        "nextInvoice": "次回の請求",
-        "manageStripe": "Stripe で管理",
-        "startSubscription": "サブスクリプションを開始",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "Free",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "有効",
-          "trialing": "トライアル中",
-          "past_due": "支払い期限超過",
-          "canceled": "キャンセル済み",
-          "incomplete": "未完了",
-          "unpaid": "未払い"
-        }
-      },
-      "developer": {
-        "title": "API キー",
-        "description": "このワークスペースに限定されたプログラムからのアクセス。",
-        "empty": "まだ API キーがありません。このワークスペースと連携するには作成してください。",
-        "loadError": "APIキーを読み込めませんでした。",
-        "new": "新規キー",
-        "create": "キーを作成",
-        "createTitle": "API キーを作成",
-        "createDescription": "このキーに必要な権限を選択してください。いつでも取り消せます。",
-        "nameLabel": "キー名",
-        "namePlaceholder": "本番環境の連携",
-        "revoke": "キーを取り消す",
-        "revoked": "キー {{name}} を取り消しました",
-        "lastUsed": "最終使用: {{date}}",
-        "neverUsed": "未使用",
-        "keyCreatedTitle": "API キーを作成しました",
-        "keyCreatedDescription": "このキーを今すぐコピーしてください。後で再表示することはできません。",
-        "revokeConfirm": {
-          "title": "このキーを取り消しますか？",
-          "description": "{{name}} はすぐに使用できなくなります。このキーを使用している連携は失敗するようになります。"
-        },
-        "scopes": {
-          "notes": {
-            "title": "ノート",
-            "read": "ノートの読み取り",
-            "write": "ノートの書き込み"
-          },
-          "folders": {
-            "title": "フォルダ",
-            "read": "フォルダの読み取り",
-            "write": "フォルダの書き込み"
-          },
-          "transcriptions": {
-            "title": "文字起こし",
-            "read": "文字起こしの読み取り"
-          },
-          "members": {
-            "title": "メンバー",
-            "read": "メンバーの読み取り",
-            "write": "メンバーの管理"
-          },
-          "billing": {
-            "title": "請求",
-            "read": "請求の読み取り"
-          },
-          "full": {
-            "title": "フルアクセス",
-            "admin": "ワークスペース管理者"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "Enterpriseコンソール",
-        "description": "SSO、ポリシー、メンバーをウェブで管理",
-        "open": "コンソールを開く"
-      }
+      "apiKeyOptional": "API キー（任意）",
+      "test": "テスト",
+      "testing": "テスト中…",
+      "testTitle": "{{host}} にモデル一覧を問い合わせます。キーは送信しません。",
+      "testOk_one": "接続済み · {{count}} モデル",
+      "testOk_other": "接続済み · {{count}} モデル",
+      "testFail": "{{host}} のモデル一覧を取得できませんでした。アドレスとサーバーの動作を確認してください。",
+      "testHttpsRequired": "http:// は自分のネットワーク内のアドレスでのみ使用できます。",
+      "sharedReadOnly": "音声アップロードはディクテーションのサーバーを使います。音声からテキスト › ディクテーションで変更してください。",
+      "notSet": "未設定"
     },
     "enterpriseCheckout": {
       "title": "Enterpriseにアップグレード",
@@ -2454,6 +2108,19 @@
       "upgradeCta": "今すぐアップグレード",
       "upgradedTitle": "Enterpriseにアップグレードしました",
       "upgradedDescription": "{{workspace}}はEnterpriseになりました。"
+    },
+    "reviewSetup": {
+      "title": "音声入力の設定を見直す",
+      "description": "既存のメモや認証情報を変更せずに、セットアップの流れに戻ります。",
+      "action": "セットアップを開く"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "開発中のプロトタイプです。いつでもオフにできます。",
+      "table": {
+        "label": "テーブル",
+        "description": "スペース用のキャンバス。メモ、音声入力、回答を広げてつなげられます。カードの配置はこのデバイスに保存され、要約と質問はチャットのプロバイダーを使います。"
+      }
     }
   },
   "models": {
@@ -2597,7 +2264,11 @@
       "contextTooLarge": "このコンピューターでは長すぎて {{model}} が読み取れません。約 {{needed}} トークンのコンテキストが必要ですが、メモリに収まるのは {{max}} までです。クラウドモデルを使うか、選択範囲を短くして実行してください。",
       "contextTooLargeGeneric": "このコンピューターでは長すぎて {{model}} が読み取れません。クラウドモデルを使うか、選択範囲を短くして実行してください。",
       "localServerUnavailable": "このコンピューターでは {{model}} を起動できませんでした。もう一度試すか、クラウドモデルに切り替えてください。"
-    }
+    },
+    "downloadingNamed": "{{model}} をダウンロード中",
+    "installingNamed": "{{model}} をインストール中",
+    "deleteNamed": "{{model}} を削除",
+    "listLabel": "モデル"
   },
   "notes": {
     "sidebar": {
@@ -2772,7 +2443,7 @@
       "transcriptEmptyDescription": "録音ボタンを押すと文字起こしが始まります。話した内容がここにリアルタイムで表示されます。",
       "startRecording": "録音を開始",
       "generateSummary": "AI要約を生成",
-      "startWriting": "書き始める..."
+      "startWriting": "入力、音声入力、または貼り付け。/ キーでブロックやアクションを表示します。"
     },
     "participants": {
       "attendee": "名の参加者",
@@ -2906,7 +2577,6 @@
       "newFolder": "新しいフォルダ",
       "folderName": "フォルダ名",
       "create": "作成",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "カスタム",
       "selectFolder": "フォルダを選択",
       "transcriptionFailed": "文字起こしに失敗しました",
@@ -2963,7 +2633,9 @@
       "urlFileTooLarge": "ファイルが大きすぎてダウンロードできません。最大サイズは500 MBです。",
       "urlYoutubeBlocked": "YouTubeがお使いのネットワークからのダウンロードを一時的にブロックしています。しばらくしてからもう一度お試しください。",
       "customEndpointInvalid": "カスタム文字起こしエンドポイントが未設定か無効です。設定から更新してください。",
-      "streamingOnlyProvider": "このプロバイダーはライブ文字起こしのみに対応しています。ファイルのアップロードや再実行には別のプロバイダーを選択してください。"
+      "streamingOnlyProvider": "このプロバイダーはライブ文字起こしのみに対応しています。ファイルのアップロードや再実行には別のプロバイダーを選択してください。",
+      "needsModel": "アップロードには文字起こしモデルが必要です。",
+      "chooseModel": "文字起こしモデルを選択"
     },
     "meeting": {
       "title": "議事録",
@@ -3100,6 +2772,60 @@
       "author": {
         "you": "自分"
       }
+    },
+    "actionsModelHint": {
+      "title": "アクションには AI モデルが必要です",
+      "choose": "モデルを選択",
+      "needsProvider": "アクションには AI プロバイダーが必要です",
+      "chooseProvider": "プロバイダーを選択",
+      "needsKey": "アクションには {{provider}} の API キーが必要です",
+      "addKey": "キーを追加",
+      "needsUrl": "アクションにはサーバーのアドレスが必要です",
+      "addUrl": "アドレスを追加",
+      "sealed": "シールモードがオンの間、アクションは一時停止します",
+      "unreachable": "アクションがノート用モデルに接続できません",
+      "openSettings": "設定を開く"
+    },
+    "slash": {
+      "label": "ブロックを挿入",
+      "empty": "一致するブロックがありません",
+      "aiNeedsModel": "アクションにはAIモデルが必要です",
+      "setupAi": "ノートAIを設定…",
+      "ai": {
+        "needsModel": "設定でノートモデルをダウンロードしてください",
+        "needsKey": "設定でAPIキーを追加してください",
+        "needsUrl": "設定でサーバーアドレスを追加してください",
+        "off": "設定でノートAIがオフになっています",
+        "unreachable": "ノートモデルに接続できません",
+        "unknown": "ノートモデルを確認中…"
+      },
+      "manageActions": "アクションを管理…",
+      "groups": {
+        "text": "テキスト",
+        "ai": "AI",
+        "insert": "挿入"
+      },
+      "items": {
+        "h1": "見出し1",
+        "h2": "見出し2",
+        "h3": "見出し3",
+        "bullet": "箇条書き",
+        "numbered": "番号付きリスト",
+        "todo": "タスクリスト",
+        "quote": "引用",
+        "code": "コード",
+        "timestamp": "タイムスタンプ",
+        "dictation": "ここに音声入力",
+        "mention": "メンション"
+      }
+    },
+    "bubble": {
+      "bold": "太字",
+      "italic": "斜体",
+      "link": "リンク",
+      "linkUrl": "リンク先アドレス",
+      "linkInvalid": "ウェブまたはメールのアドレスを入力してください",
+      "askAi": "AI に質問"
     }
   },
   "dictionary": {
@@ -3156,7 +2882,8 @@
     "emptyDescription": "{{agentName}}に正しく認識してほしい言葉を追加しましょう。名前、ツール、略語など。",
     "addFirstWord": "最初の単語を追加",
     "importList": "リストをインポート",
-    "agentDefault": "デフォルトで追加済み"
+    "agentDefault": "デフォルトで追加済み",
+    "exportAction": "エクスポート"
   },
   "referral": {
     "title": "紹介して特典をゲット",
@@ -3354,12 +3081,18 @@
       "saved": "画像をダウンロードしました。",
       "failed": "共有カードを作成できませんでした。",
       "unnamedMember": "チームメイト"
-    }
+    },
+    "openHistory": "履歴を開く",
+    "openDictations": "履歴に音声入力を表示",
+    "focusHeatmap": "アクティビティチャートに移動"
   },
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "スペース",
+      "recent": "最近のノート",
+      "voice": "音声"
     },
     "navigation": "Main navigation",
     "insights": "統計",
@@ -3385,7 +3118,8 @@
     "notSignedIn": "未サインイン",
     "chat": "チャット",
     "collapse": "サイドバーを折りたたむ",
-    "expand": "サイドバーを展開"
+    "expand": "サイドバーを展開",
+    "calendars": "カレンダー"
   },
   "chat": {
     "newChat": "新しいチャット",
@@ -3407,7 +3141,27 @@
     "searchChats": "チャットを検索",
     "searchTitle": "会話を検索",
     "searchDescription": "すべての会話を検索",
-    "newChatEmpty": "ノートや文字起こし、その他なんでも聞いてください"
+    "newChatEmpty": "ノートや文字起こし、その他なんでも聞いてください",
+    "assistant": "アシスタント",
+    "sources": {
+      "label": "参照元",
+      "note": "ノート",
+      "meeting": "会議"
+    },
+    "model": {
+      "changeHint": "設定で変更"
+    },
+    "rail": {
+      "label": "コンテキスト",
+      "toggle": "コンテキスト",
+      "inScope": "対象範囲",
+      "found": "自動で見つかった項目",
+      "emptyScope": "@ を入力してノート、会議、フォルダーを追加します。アシスタントはノートを自動で検索することもあります。",
+      "unpin": "{{label}} をコンテキストから削除",
+      "activity": "アクティビティ",
+      "noActivity": "まだありません",
+      "addContext": "コンテキストを追加"
+    }
   },
   "support": {
     "documentation": "ドキュメント",
@@ -3429,7 +3183,19 @@
     "edit": "編集",
     "add": "追加",
     "editButton": "編集",
-    "addButton": "追加"
+    "addButton": "追加",
+    "saveFailed": "このキーを保存できませんでした。入力内容は残っています。もう一度お試しください。",
+    "removeFailed": "このキーを削除できませんでした。保存されたままです。",
+    "removed": "キーを削除しました。",
+    "removedCredential": "認証情報のすべてのフィールドを削除しました。",
+    "removeCredential": "認証情報を削除（すべてのフィールド）",
+    "restored": "キーを復元しました。",
+    "undo": "元に戻す",
+    "undoLabel": "キーの削除を元に戻す",
+    "undoExpired": "元に戻せる時間を過ぎました。キーを追加し直してください。",
+    "undoReplaced": "新しいキーが保存されたため、削除したキーは復元されませんでした。",
+    "undoUnknown": "この削除は元に戻せません。キーを追加し直してください。",
+    "undoRetry": "キーを復元できませんでした。もう一度「元に戻す」を押してください。"
   },
   "gpu": {
     "transcriptionBanner": "GPU で文字起こしを高速化",
@@ -3509,15 +3275,20 @@
       "visionModelDescription": "スクリーンショット付きのコマンドを、画像対応の別モデルに振り分けます。",
       "permissionTitle": "画面収録",
       "permissionDescription": "画面をキャプチャするには macOS の画面収録の許可が必要です。",
-      "relaunchHint": "画面収録の許可は Loqui の実行中に付与されました。スクリーンショットのキャプチャを開始するには、Loqui を終了して再度開いてください。"
+      "relaunchHint": "画面収録の許可は Loqui の実行中に付与されました。スクリーンショットのキャプチャを開始するには、Loqui を終了して再度開いてください。",
+      "goesToDevice": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 スクリーンショットはこのデバイス上の {{model}} に渡され、このデバイス内にとどまります。 Loqui は画像を保存せず、ログにも記録しません。",
+      "goesToDeviceNoModel": "画面コンテキストの実行先はこのデバイスですが、モデルは未指定です。録音前に音声アシスタントと視覚モデルの設定を確認してください。",
+      "goesToServer": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 その後、{{host}} にあるサーバーが次の内容を受け取ります：{{payload}}。 Loqui はスクリーンショットを保存せず、ログにも記録しません。",
+      "goesToServerNoHost": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 その後、サーバーが次の内容を受け取ります：{{payload}}。 Loqui はスクリーンショットを保存せず、ログにも記録しません。",
+      "goesToProvider": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 その後、{{provider}}（{{host}}）が次の内容を受け取ります：{{payload}}。 Loqui はスクリーンショットを保存せず、ログにも記録しません。",
+      "goesToProviderNoHost": "音声アシスタントの録音を開始すると、Loqui はカーソルがあるディスプレイを撮影します。 {{provider}} が受け取る内容：{{payload}}。 Loqui はスクリーンショットを保存せず、ログにも記録しません。",
+      "destinationUnspecified": "画面コンテキストの送信先が設定されていません。録音前に音声アシスタントと視覚モデルの設定を確認してください。"
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "Loqui が管理するアシスタントを使用。API キーは不要です。",
       "providers": "自分の API キーを使用",
       "providersDesc": "自分の API キーで OpenAI、Anthropic、Gemini、Groq に接続します。",
       "local": "ローカル",
-      "localDesc": "端末上でローカル LLM を実行。完全プライベート。",
+      "localDesc": "このデバイス上でローカルモデルを実行します。外部には何も送信されません。",
       "selfHosted": "セルフホスト",
       "selfHostedDesc": "セルフホストの OpenAI 互換エンドポイントを指定します。",
       "enterprise": "エンタープライズ",
@@ -3534,13 +3305,11 @@
       "systemPromptDescription": "アシスタントへのカスタム指示",
       "systemPromptPlaceholder": "カスタムシステムプロンプトを入力...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "クラウドプロバイダー",
         "local": "ローカル",
         "selfHosted": "セルフホスト",
-        "openwhisprDesc": "信頼できる精度。設定不要。",
         "providersDesc": "独自のAPIキーを使用。",
-        "localDesc": "デバイス上のモデル。完全プライベート。",
+        "localDesc": "このデバイス上で実行します。外部には何も送信されません。",
         "selfHostedDesc": "ネットワーク上の自分のサーバー。",
         "enterprise": "エンタープライズ",
         "enterpriseDesc": "組織のクラウドアカウントを使用 (AWS, Azure, GCP)。"
@@ -3556,7 +3325,13 @@
       "thinking": "考え中...",
       "typeMessage": "メッセージを入力...",
       "send": "送信",
-      "voiceDraftStreamingOnly": "現在の文字起こしプロバイダーはライブ音声入力のみに対応しているため、音声入力は利用できません。設定 → 音声テキスト変換 で別のプロバイダーを選択してください。"
+      "voiceDraftStreamingOnly": "現在の文字起こしプロバイダーはライブ音声入力のみに対応しているため、音声入力は利用できません。設定 → 音声テキスト変換 で別のプロバイダーを選択してください。",
+      "queued": "返信が終わると送信されます",
+      "unqueue": "完了時に送信しない",
+      "queueDropped": "送信されていません: 会話またはモデルが変わりました。ここに送るには Enter を押してください。",
+      "unsent": "前のメッセージは送信されませんでした。",
+      "restoreUnsent": "戻す",
+      "discardUnsent": "破棄"
     },
     "tools": {
       "search_notesName": "ノートを検索",
@@ -3585,7 +3360,8 @@
       "copiedToClipboard": "クリップボードにコピーしました",
       "openNote": "ノートを開く",
       "unknownTool": "不明なツール: {{name}}",
-      "invalidArgs": "{{name}} のツール引数が無効です"
+      "invalidArgs": "{{name}} のツール引数が無効です",
+      "summary_other": "{{count}}件のノートを検索しました"
     }
   },
   "assistant": {
@@ -3761,7 +3537,8 @@
     "openSettings": "システム設定を開く",
     "connectCalendar": "カレンダーを接続",
     "connectCalendarDescription": "Loqui を離れずに会議を確認して参加できます。",
-    "connectCalendarButton": "カレンダーを接続"
+    "connectCalendarButton": "カレンダーを接続",
+    "todayLabel": "今日"
   },
   "notesView": {
     "searchPlaceholder": "ノートを検索…",
@@ -3835,15 +3612,46 @@
     "sections": {
       "notes": "ノート",
       "transcripts": "文字起こし",
-      "jumpTo": "移動"
+      "jumpTo": "移動",
+      "suggested": "おすすめ",
+      "recent": "最近の項目",
+      "commands": "コマンド",
+      "meetings": "会議",
+      "chats": "チャット",
+      "folders": "フォルダー"
     },
     "noResults": "結果なし",
     "emptyState": "入力して検索",
     "footer": {
       "navigate": "移動",
       "open": "開く",
-      "dismiss": "閉じる"
-    }
+      "dismiss": "閉じる",
+      "scope": "検索範囲",
+      "close": "閉じる"
+    },
+    "placeholderAll": "ノートや会議を検索、またはコマンドを実行…",
+    "commands": {
+      "newNote": "新規ノート",
+      "startDictation": "音声入力を開始",
+      "askAssistant": "アシスタントに質問",
+      "goNotes": "ノートへ移動",
+      "goHome": "ホームへ移動",
+      "goChat": "チャットへ移動",
+      "recordMeeting": "会議を録音",
+      "uploadAudio": "音声をアップロード…",
+      "newChat": "新規チャット",
+      "openSettings": "設定を開く",
+      "switchSpeechModel": "音声モデルを切り替え…",
+      "toggleTheme": "ダークテーマを切り替え"
+    },
+    "askAssistant": "アシスタントに質問：「{{query}}」",
+    "nothingMatches": "「{{query}}」に一致する項目はありません。",
+    "meta": {
+      "meeting": "会議",
+      "chat": "チャット"
+    },
+    "clear": "検索をクリア",
+    "seeAllTranscripts_other": "履歴で全{{count}}件を表示"
   },
   "emojiPicker": {
     "search": "絵文字を検索…",
@@ -4054,7 +3862,12 @@
       "underway": "会議はすでに進行中のようです。メモを取りますか？"
     },
     "start": "メモを取る",
-    "join": "参加して文字起こし"
+    "join": "参加して文字起こし",
+    "bodyApp": "{{app}}で会議を検出しました。",
+    "privacy": "このデバイス上で検出しました。まだ録音していません。",
+    "mini": "会議ですか？ メモを開始",
+    "accepted": "メモを作成中",
+    "dismiss": "閉じる"
   },
   "codexConnection": {
     "title": "ChatGPT subscription (Codex)",
@@ -4066,7 +3879,10 @@
     "cancel": "サインインをキャンセル",
     "connect": "ChatGPT を接続",
     "refresh": "更新",
-    "loginFailed": "サインインを完了できませんでした。"
+    "loginFailed": "サインインを完了できませんでした。",
+    "signedInStored": "この端末で ChatGPT にログイン済みです。状態を確認するとアカウントと残りの使用量が表示されます。",
+    "checkStatus": "ChatGPT の状態を確認",
+    "checkStatusTitle": "Codex アプリを起動し、ChatGPT にログイン状態と残りの使用量を問い合わせます。Loqui 起動後の初回確認では、Codex が公式リリースかどうか GitHub にも問い合わせます。保存済みキーは送信しません。"
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",
@@ -4119,6 +3935,7 @@
     "beta": "Beta and stable",
     "downloading": "Downloading update: {{percent}}%",
     "ready": "Loqui {{version}} is ready. Finish active work before restarting.",
+    "available": "Loqui {{version}} が利用可能です。自動アップデートをオンにしてインストールするか、GitHub からダウンロードしてください。",
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"
@@ -4129,5 +3946,1081 @@
     "remote": "{{provider}} に送信",
     "unknownProvider": "不明なプロバイダー",
     "customEndpoint": "カスタムエンドポイント"
+  },
+  "routes": {
+    "groups": {
+      "speech": "音声",
+      "text": "テキスト",
+      "support": "このデバイスのみ"
+    },
+    "names": {
+      "dictationStt": "音声入力",
+      "noteRecordingStt": "ノート録音",
+      "uploadStt": "音声アップロード",
+      "dictationCleanup": "音声入力の整形",
+      "voiceAssistant": "音声アシスタント",
+      "assistantVision": "アシスタントの画像認識",
+      "translation": "翻訳",
+      "noteFormatting": "ノート整形",
+      "chat": "チャット",
+      "speakerId": "話者識別",
+      "semanticSearch": "意味検索"
+    },
+    "subtitles": {
+      "dictationStt": "タップして任意のアプリに音声入力",
+      "noteRecordingStt": "会議と音声メモ",
+      "uploadStt": "読み込んだファイルを文字起こし",
+      "dictationCleanup": "つなぎ言葉や句読点を修正",
+      "voiceAssistant": "質問すると回答が届きます",
+      "assistantVision": "アシスタントへのリクエストに添付するスクリーンショット",
+      "translation": "ある言語で話し、別の言語で貼り付け",
+      "noteFormatting": "要約とアクション項目",
+      "chat": "ノートについて質問",
+      "speakerId": "会議で誰が何を話したかを識別",
+      "semanticSearch": "意味でノートを検索"
+    },
+    "payload": {
+      "audio": "あなたの音声",
+      "audioFile": "音声ファイル",
+      "meetingAudio": "マイクと通話からの会議音声",
+      "dictionary": "辞書の単語とスニペットのトリガー",
+      "dictionaryWords": "辞書の単語",
+      "transcript": "文字起こしのテキスト",
+      "request": "音声でのリクエスト",
+      "selectedText": "選択したテキスト",
+      "history": "最近の会話",
+      "lookups": "検索したノートとカレンダーの詳細",
+      "noteText": "ノートのテキスト",
+      "meetingTranscript": "話者名付きの会議の文字起こし",
+      "participants": "参加者の名前とメールアドレス",
+      "screenshot": "画面のスクリーンショット",
+      "webSearch": "プロバイダーがウェブ検索を行うための許可",
+      "messages": "あなたのメッセージ",
+      "metadataNote": "言語やモデル名などの設定も送信されます。"
+    },
+    "runsOn": "{{task}}の実行先",
+    "place": {
+      "chooseProvider": "プロバイダーを選択"
+    },
+    "selection": {
+      "current": "現在",
+      "selected": "選択済み",
+      "staged": "保留中（未適用）"
+    },
+    "state": {
+      "ready": "準備完了",
+      "off": "オフ",
+      "checking": "確認中…",
+      "download": "{{size}}をダウンロード",
+      "chooseModel": "モデルを選択",
+      "addKey": "APIキーを追加",
+      "chooseProvider": "プロバイダーを選択",
+      "addUrl": "サーバーURLを追加",
+      "sealed": "一時停止 · シールモード",
+      "retired": "サービス終了 · 再選択してください",
+      "unsupported": "このタスクでは利用できません",
+      "cantReach": "サーバーに接続できません"
+    },
+    "toast": {
+      "local": "{{task}}はこのデバイスで実行されるようになりました。",
+      "sends": "{{task}}は{{payload}}を{{destination}}に送信するようになりました。",
+      "whenOn": "{{task}}をオンにすると{{destination}}を使用します。",
+      "off": "{{task}}はオフです。何も送信されません。",
+      "saved": "{{task}}の設定を保存しました。",
+      "thisDevice": "このデバイス",
+      "server": "ご利用のサーバー",
+      "serverAt": "{{host}}のサーバー",
+      "chooseModel": "モデルを選択して完了してください。",
+      "signInNext": "次に{{provider}}にサインインしてください。サインインするまで何も送信されません。",
+      "alsoChanges": "{{tasks}}も変更されます。",
+      "undo": "元に戻す",
+      "undoStaged": "元に戻す操作が保留中です。確認してから適用してください。"
+    }
+  },
+  "staging": {
+    "region": "保留中の経路変更",
+    "heading": "送信前に確認",
+    "coupled": "あわせて変更",
+    "sends": "送信する内容：{{payload}}",
+    "staysOnDevice": "このデバイス内に保持",
+    "offNote": "オフです。有効にすると使用されます。",
+    "setupHere": "適用する前にここで {{provider}} を設定してください。適用するまで何も送信されません。",
+    "discard": "破棄",
+    "apply": "適用",
+    "blocked": {
+      "needsKey": "{{provider}} には先にキーが必要です。",
+      "chooseProvider": "プロバイダーを選ぶと送信内容を確認できます。",
+      "needsUrl": "有効なサーバーアドレスを入力してください。",
+      "needsModel": "先にモデルをダウンロードしてください。",
+      "chooseModel": "先にモデルを選んでください。",
+      "signIn": "先に {{provider}} にサインインしてください。適用するまで何も送信されません。",
+      "sealed": "封印モードが有効です。このデバイス外への経路は一時停止しています。",
+      "unknown": "保存済みのキーとモデルを確認中です。しばらくしてから再試行してください。",
+      "unsupported": "このプロバイダーではこのタスクを実行できません。"
+    },
+    "provider": "プロバイダー",
+    "model": "モデル",
+    "modelId": "モデルID",
+    "useModel": "このモデルを使用",
+    "keySaved": "キー保存済み",
+    "noKey": "キーなし",
+    "cloud": {
+      "title": "{{task}} をクラウドプロバイダーに送信しますか？",
+      "body": "プロバイダーを選んでください。適用するまで何も送信されません。"
+    },
+    "server": {
+      "title": "{{task}} を自分のサーバーに送信しますか？",
+      "body": "サーバーアドレスを入力してください。適用するまで何も送信されません。"
+    },
+    "sharedWithDictation": "音声アップロードはディクテーションのサーバー {{url}} を使用します。「音声認識 › ディクテーション」で変更してください。",
+    "serverUrl": "サーバーアドレス",
+    "endpointUrl": "エンドポイントURL",
+    "useEndpoint": "このエンドポイントを使用",
+    "useServer": "このサーバーを使用",
+    "url": {
+      "empty": "ベースURLを貼り付けるか入力してください。",
+      "invalid": "まだウェブアドレスとして認識できません。https:// または http:// で始めてください。",
+      "insecure": "暗号化されない http:// は自分のネットワーク内のアドレスでのみ使用できます。https:// を使用してください。",
+      "http": "http:// は暗号化されません。自分のネットワーク内では使用できます。",
+      "ok": "問題ありません。"
+    }
+  },
+  "patchbay": {
+    "title": "ルーティング",
+    "description": "各タスクと現在の実行先を表示します。このデバイスへの変更はすぐに適用され、元に戻せます。サーバーやプロバイダーへの変更は、確認して適用するまで保留されます。",
+    "tasks": "タスク",
+    "destinations": "実行先",
+    "openSettings": "{{task}}設定を開く",
+    "sealed": "密閉モードがオンになっています。タスクはこのデバイスでのみ実行できます。",
+    "undo": "元に戻す",
+    "kind": {
+      "speech": "スピーチ",
+      "text": "テキスト"
+    },
+    "hint": {
+      "idle": "タスクを選択し、それを実行する場所を選択します。",
+      "pickDestination": "{{task}} を送信先… 強調表示された宛先を選択します。",
+      "pickTaskFirst": "まずタスクを選択し、次にそれを実行する場所を選択します。",
+      "already": "{{task}} はすでに {{place}} 実行されています。",
+      "off": "{{task}} はオフになっています。設定でオンにしてください。",
+      "moved": "{{task}} は現在 {{place}} 実行されています。",
+      "movedOff": "{{task}} はオフです。有効にすると {{place}} 実行されます。",
+      "movedAlso": "また変更されました: {{tasks}}。",
+      "staged": "以下の {{task}} → {{destination}} を確認し、適用してください。適用するまで何も送信されません。",
+      "undone": "{{task}} は元の場所に戻りました。",
+      "undoStaged": "元の実行先に戻す変更を以下で確認し、適用してください。",
+      "notApplied": "何も変わりませんでした。",
+      "failed": "ルートを変更できませんでした: {{error}}"
+    },
+    "locked": {
+      "speakerId": "このデバイスにロックされています: 話者の識別にはデバイス上の録音が必要です。",
+      "semanticSearch": "このデバイスにロックされています: 埋め込みはローカルに留まるため、検索によってメモがどこにも送信されることはありません。"
+    },
+    "no": {
+      "capability": "{{provider}} は Loqui でこのタスクを実行できません。",
+      "visionCloudOnly": "現在、スクリーンショットはクラウド ビジョン モデルにのみ送信できます。",
+      "meetingServer": "録画にはまだ独自のサーバーを使用できないことに注意してください。",
+      "sealed": "密閉モードでは、このタスクがこのデバイス上に保持されます。",
+      "uploadServer": "ファイルのアップロードにはディクテーション用に設定されたサーバーを使用します。そこで変更してください。",
+      "serverKind": "{{server}} は {{kind}} タスク用に設定されていません。 「サーバーの追加」を使用してアドレスを入力します。"
+    },
+    "place": {
+      "device": "このデバイス上で",
+      "server": "{{host}} のサーバー上で",
+      "anyServer": "あなたのサーバー上で",
+      "endpoint": "{{name}}（{{host}}）で",
+      "provider": "{{provider}} で"
+    },
+    "dest": {
+      "serverAt": "{{host}} のサーバー",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "サーバーを追加する",
+      "addServerHint": "次にアドレスを入力します",
+      "nothingLeaves": "外部には何も送信されません",
+      "yourServer": "あなた自身のサーバー",
+      "unencrypted": "http、暗号化されていない",
+      "hosted": "ホスト型プロバイダー",
+      "keySaved": "APIキーが保存されました",
+      "noKey": "キーはまだ保存されていません",
+      "keyRejected": "キーが拒否されました",
+      "keyUnknown": "保存されたキーを確認しています…"
+    },
+    "leaves": {
+      "none": "このデバイスから外部へ送信されるものはありません。",
+      "prefix": "このデバイスから外部へ送信されるもの:",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_other": "{{count}} タスク",
+    "meter": {
+      "label_other": "{{total}} タスクのうち {{count}} がこのデバイスに残ります",
+      "headline_other": "{{total}} タスクのうち {{count}} がこのデバイスに残ります",
+      "network_other": "{{count}} タスクはサーバー上で実行"
+    }
+  },
+  "keyring": {
+    "reminder": {
+      "title": "{{provider}} のキーを更新する時期です",
+      "body": "このキーの保存から90日後に通知するよう Loqui に設定しました。設定でキーを更新してください。"
+    },
+    "fields": {
+      "environmentKey": "Loqui の環境変数に設定された API キー（GOOGLE_VERTEX_API_KEY）",
+      "key": "APIキー",
+      "clientId": "クライアントID",
+      "clientSecret": "クライアントシークレット",
+      "accessKeyId": "アクセスキーID",
+      "secretAccessKey": "シークレットアクセスキー",
+      "sessionToken": "セッショントークン",
+      "profile": "AWSプロファイルの認証情報"
+    },
+    "title": "キーリング",
+    "subtitle": "保存済み認証情報とその動作状況です。結果はこのデバイスに保存されます。",
+    "verify": "検証",
+    "verifyLabel": "{{identity}}を検証",
+    "verifyAll": "すべて検証",
+    "verifyingAll": "{{total}}件中{{current}}件目を検証中…",
+    "verifyTooltip": "「{{identity}}」の保存済み{{fields}}を{{host}}に送信して検証します。",
+    "verifyTarget": "検証では{{fields}}を{{host}}に送信します",
+    "verifyTargetUnknown": "検証先はまだ不明です",
+    "verifyTooltipNoHost": "保存済み認証情報「{{identity}}」をプロバイダーに送信して検証します。",
+    "verifyAllTooltip": "以下の保存済み認証情報を各プロバイダーに順番に送信します。",
+    "checking": "確認中…",
+    "never": "未検証",
+    "lastVerified": "最終検証：{{when}}",
+    "rejected": "拒否されました（{{status}}）。キーを変更してください。",
+    "rejectedNoStatus": "拒否されました。キーを変更してください。",
+    "unreachable": "{{host}}に接続できませんでした。キーは保持されていますが、未検証です。",
+    "unreachableNoHost": "プロバイダーに接続できませんでした。キーは保持されていますが、未検証です。",
+    "paused": "一時停止中：{{tasks}}",
+    "superseded": "検証中にキーが変更されたため、結果は破棄されました。再度検証してください。",
+    "verifyFailed": "検証できませんでした。もう一度お試しください。",
+    "invalidCortiOptions": "何も送信されませんでした。音声設定のCortiリージョン「{{environment}}」またはテナント「{{tenant}}」が無効です。修正してから再度検証してください。",
+    "loadFailed": "リストを更新できませんでした。以前読み込んだ内容を表示しています。",
+    "remind": "90日後に通知",
+    "remindLabel": "90日後に{{identity}}の更新を通知する",
+    "sealed": "シールドモードがオンのため、検証を一時停止しています。",
+    "empty": "保存済み認証情報はありません。認証が必要なタスクは、ルーティングに「APIキーを追加」と表示されます。",
+    "identity": {
+      "cortiText": "{{provider}} · テキストAPIキー",
+      "cortiSpeech": "{{provider}} · 音声クライアントIDとシークレット"
+    },
+    "status": {
+      "verified": "検証済み",
+      "unverified": "まだ検証されていません",
+      "rejected": "拒否されました",
+      "unreachable": "検証できませんでした"
+    },
+    "unknown": "保存済み認証情報の状態を取得できません。",
+    "recipientChanged": "認証情報または送信先が変更されました。更新された送信先を確認し、もう一度「検証」を押してください。",
+    "unavailable": "検証を利用できません。保存済み認証情報の状態を確認できませんでした。"
+  },
+  "cartridge": {
+    "groupLabel": "言語モデル",
+    "speechGroupLabel": "音声モデル",
+    "speed": "速度",
+    "quality": "品質",
+    "memory": "メモリ使用量",
+    "meter": "{{label}}：5段階中{{value}}",
+    "estimate": "実測値がない場合、指標はファイルサイズから推定します。何もアップロードされません。",
+    "context": "{{k}}k コンテキスト",
+    "tight": "このデバイスではメモリに余裕がありません",
+    "tooLarge": "このデバイスには大きすぎます：約{{needs}}が必要ですが、このデバイスのメモリは{{total}}です",
+    "notDownloaded": "未ダウンロード",
+    "download": "ダウンロード",
+    "downloadNamed": "{{name}}をダウンロード",
+    "downloading": "{{name}}をダウンロード中",
+    "cancel": "{{name}}のダウンロードをキャンセル",
+    "delete": "{{name}}を削除",
+    "inUseBy": "使用中のタスク",
+    "showFewer": "表示を減らす",
+    "showAll_other": "すべて表示（{{count}}件）"
+  },
+  "storage": {
+    "title": "ストレージ",
+    "loading": "集計中…",
+    "countFailed": "集計できませんでした。集計が完了するまで削除できません。",
+    "countAgain": "再集計",
+    "delete": "削除…",
+    "deleting": "削除中…",
+    "open": "開く",
+    "retry": "再試行",
+    "danger": "危険な操作",
+    "failed": {
+      "partial": "{{total}} 件中 {{deleted}} 件を削除しました。{{remaining}} 件を削除できませんでした。",
+      "unknown": "Loqui は削除された内容を確認できませんでした。再試行の前に再集計してください。",
+      "stale": "この画面を開いた後に保存内容が変わりました。件数が同じ場合もあります。削除する前に現在の内容と件数を確認してください。",
+      "historyRows": "文字起こし：{{total}} 件中 {{deleted}} 件を削除しました。",
+      "historyAudio": "音声ファイル：{{total}} 件中 {{deleted}} 件を削除しました。{{remaining}} 件を削除できませんでした。",
+      "historyAudioUnknown": "音声ファイル：Loqui は削除された件数を確認できませんでした。"
+    },
+    "audio": {
+      "title": "音声入力の録音",
+      "empty": "保存された音声ファイルはありません",
+      "summary_other": "{{count}} ファイル · {{size}}",
+      "confirmTitle_other": "録音 {{count}} 件を削除しますか？",
+      "confirmBody_other": "このフォルダー内の録音 {{count}} 件（{{size}}）を完全に削除します。文字起こしに紐づいていない録音も含まれます。文字起こしは残ります。プロバイダーに送信済みのコピーには影響しません。",
+      "confirmButton_other": "録音 {{count}} 件を削除",
+      "done_other": "録音 {{count}} 件を削除しました。"
+    },
+    "models": {
+      "title": "ダウンロード済みモデル",
+      "empty": "ダウンロード済みモデルはありません",
+      "summary_other": "{{count}} モデル · {{size}}",
+      "confirmTitle_other": "モデル {{count}} 件を削除しますか？",
+      "confirmBody_other": "このフォルダー内のダウンロード済みモデル {{count}} 件（{{size}}）を完全に削除します。これらを使うタスクでは、モデルの再選択が必要になります。",
+      "confirmButton_other": "モデル {{count}} 件を削除",
+      "done_other": "モデル {{count}} 件を削除しました。",
+      "familyFailed": "{{family}} を削除できませんでした。",
+      "families": {
+        "whisper": "Whisper 音声モデル",
+        "parakeet": "Parakeet 音声モデル",
+        "llm": "ローカル言語モデル"
+      }
+    },
+    "history": {
+      "title": "文字起こし履歴",
+      "empty": "保存された文字起こしや音声はありません",
+      "summary_other": "文字起こし {{count}} 件",
+      "summaryWithHidden_other": "文字起こし {{count}} 件（{{hidden}}を含む）",
+      "hidden_other": "破棄または削除済み {{count}} 件",
+      "transcripts_other": "文字起こし {{count}} 件",
+      "transcriptsWithHidden_other": "文字起こし {{count}} 件（{{discarded}}、{{deleted}}）",
+      "discarded_other": "破棄済み {{count}} 件",
+      "softDeleted_other": "削除済み {{count}} 件",
+      "audioFiles_other": "音声ファイル {{count}} 件（{{size}}）",
+      "audioFilesShort_other": "音声ファイル {{count}} 件",
+      "confirmTitle": "文字起こし履歴をすべて削除しますか？",
+      "confirmBody": "{{transcripts}}と{{audio}}を完全に削除し、このデバイスの Insights カウンターをリセットします。プロバイダーに送信済みのコピーには影響しません。",
+      "confirmButton": "{{transcripts}}と{{audio}}を削除",
+      "done_other": "文字起こし {{count}} 件と保存されたすべての音声を削除しました。"
+    },
+    "reset": {
+      "title": "Loqui をリセット",
+      "description": "設定、履歴、音声、ダウンロード済みモデル、保存済みプロバイダーキーを削除します。",
+      "button": "リセット…",
+      "confirmTitle": "Loqui をリセットしますか？",
+      "confirmBody": "設定、履歴、音声、ダウンロード済みモデル、保存済みプロバイダーキーを削除し、Loqui を再起動します。この操作は取り消せません。",
+      "confirmButton": "Loqui をリセット",
+      "typeLabel": "確認のため「{{word}}」と入力してください",
+      "word": "リセット",
+      "running": "リセット中…",
+      "failed": "リセットが完了しなかったため、Loqui は自動で再起動しません。次の処理に失敗しました：",
+      "done": "リセットが完了しました。Loqui を再起動しています…"
+    }
+  },
+  "settingsSearch": {
+    "title": "検索結果",
+    "placeholder": "設定を検索",
+    "count_other": "{{count}} 件の結果",
+    "none": "「{{query}}」に一致する設定はありません。「マイク」「保持」「クラウド」を試してください。",
+    "items": {
+      "assistantEnabled": {
+        "description": "音声で質問して回答を得る"
+      },
+      "storage": {
+        "description": "このデバイスの音声、モデル、履歴"
+      }
+    }
+  },
+  "notices": {
+    "messageDetails": "メッセージと操作",
+    "dismiss": "閉じる",
+    "wordsCard": {
+      "copy": "コピー",
+      "copied": "コピーしました",
+      "copyFailed": "コピーできませんでした",
+      "copyFailedHint": "クリップボードにコピーできませんでした。文章はここに残っています。選択するか、ドラッグしてください。",
+      "hint": "文章をアプリにドラッグするか、もう一度貼り付けてください。",
+      "dragHint": "入力していた欄にドラッグ",
+      "more_other": "未送信の文章がほかに{{count}}件"
+    },
+    "pasted": "貼り付けました",
+    "actions": {
+      "pasteAgain": "もう一度貼り付ける"
+    },
+    "cleanupFailed": {
+      "title": "文章を整えずに貼り付けました",
+      "retry": "文章の整形を再試行",
+      "settings": "設定",
+      "cleaned": "整形した文章をコピーしました",
+      "cleanedBody": "必要な場所に貼り付けてください。",
+      "noChanges": "文章に変更はありませんでした",
+      "retryFailed": "文章の整形に再び失敗しました。元の文章はそのままです。",
+      "noModel": "設定で文章整形用のモデルを選択してください。",
+      "unavailable": "元の文章整形処理は利用できなくなりました。元の文章はここに残っています。"
+    },
+    "modelChanged": {
+      "title": "モデルが変更されました",
+      "accept": "承認",
+      "choose": "別のモデルを選ぶ"
+    },
+    "pasteFailed": "文章を貼り付けられませんでした",
+    "undo": {
+      "sealed": "元に戻せません：シールドモードが有効で、この録音の経路はデバイス外にデータを送信します。",
+      "routeUnavailable": "元に戻せません：この録音で使用していた経路は利用できなくなりました。",
+      "noAudio": "元に戻せません：録音に音声がありませんでした。",
+      "busy": "現在の音声入力を終えてから、元に戻してください。",
+      "expired": "元に戻せる時間を過ぎました。この録音はすでに破棄されています。",
+      "notReady": "録音データを受信中です。もう一度「元に戻す」を試してください。",
+      "unavailable": "元に戻すための音声入力ウィンドウに接続できませんでした。"
+    }
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "この録音の送信先を確認できませんでした。内容は保持されています。再試行するには設定で元の送信先に戻すか、新しく録音してください。",
+      "recipientChanged": "この録音の送信先は録音開始時のものに固定されています。内容は保持されています。再試行するには設定で元の送信先に戻すか、新しく録音してください。",
+      "recipientTitle": "録音の送信先を利用できません",
+      "streamingUnavailable": "この録音のリアルタイム文字起こしを開始できませんでした。設定で選択したプロバイダーを確認して、もう一度お試しください。",
+      "restoreFailed": "録音を復元できませんでした。再試行できるよう音声は保持されています。"
+    }
+  },
+  "pill": {
+    "tooltip": {
+      "hold": "話すには {{hotkey}} を長押し",
+      "press": "開始するには {{hotkey}} を押す"
+    },
+    "caption": {
+      "remoteAudio": "{{provider}} はすでに音声を受信しました。",
+      "remoteText": "{{provider}} はすでにテキストを受信しました。",
+      "remoteImage": "{{provider}} はすでに画像を受信しました。",
+      "remoteSeveral": "{{provider}} はすでにこの音声入力の一部を受信しました。",
+      "mayHaveAudio": "{{provider}} は音声を受信した可能性があります。",
+      "mayHaveText": "{{provider}} はテキストを受信した可能性があります。",
+      "mayHaveImage": "{{provider}} は画像を受信した可能性があります。",
+      "mayHaveSeveral": "{{provider}} はこの音声入力の一部を受信した可能性があります。",
+      "sealedPaused": "音声入力を一時停止中：シールドモードが有効です"
+    },
+    "stage": {
+      "transcribing": "文字起こし中…",
+      "cleaning": "テキストを整形中",
+      "discardedUndo": "破棄済み · 元に戻す",
+      "paused": "一時停止中",
+      "pasted_other": "貼り付け済み · {{count}} 語"
+    },
+    "locality": {
+      "sealed": "シールドモードによりブロックされています",
+      "remote": "送信先：{{provider}}"
+    },
+    "route": {
+      "speech": "音声: {{where}}",
+      "speechOff": "音声: オフ",
+      "cleanup": "整形: {{where}}",
+      "cleanupOff": "整形: オフ",
+      "translation": "翻訳: {{where}}",
+      "translationOff": "翻訳: オフ",
+      "agent": "エージェント: {{where}}",
+      "agentOff": "エージェント: オフ",
+      "vision": "画面のコンテキスト: {{where}}",
+      "visionOff": "画面のコンテキスト: オフ"
+    },
+    "agent": {
+      "listening": "エージェント · 聞き取り中",
+      "screenContext": "画面コンテキスト有効 · 送信予定先：{{where}}",
+      "thinking": "思考中 · 送信予定先：{{where}}",
+      "thinkingScreenContext": "画面コンテキストを使って思考中 · 送信予定先：{{where}}"
+    }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "復元できる録音があります",
+      "transcribe": "録音を文字起こし",
+      "discard": "録音を破棄"
+    }
+  },
+  "setupFlow": {
+    "progress": {
+      "nav": "設定の進行状況",
+      "dictate": "音声入力を始める",
+      "personalize": "自分好みにする",
+      "ready": "準備完了",
+      "label": "{{phase}} · {{step}}",
+      "goTo": "{{step}}へ移動"
+    },
+    "steps": {
+      "welcome": "こんにちは",
+      "speech": "音声",
+      "try": "何か話してみましょう",
+      "cleanup": "テキスト補正",
+      "shortcuts": "ショートカット",
+      "finish": "準備完了"
+    },
+    "units": {
+      "mb": "{{value}} MB",
+      "gb": "{{value}} GB"
+    },
+    "download": {
+      "eta": {
+        "seconds": "約{{count}}秒",
+        "minutes": "約{{count}}分"
+      },
+      "chip": "ダウンロード中 {{percent}}% · 残り{{eta}}",
+      "chipNoEta": "ダウンロード中 {{percent}}%",
+      "chipInstalling": "音声モデルをインストール中",
+      "chipCancelling": "ダウンロードを停止中…",
+      "chipCancelled": "ダウンロードをキャンセルしました",
+      "chipReady": "音声モデルの準備完了",
+      "chipFailed": "ダウンロードに失敗しました",
+      "received": "{{total}}中{{done}}",
+      "stoppedKept": "{{percent}}%でダウンロードが停止しました。進行状況は保持されています。",
+      "stoppedRestart": "{{percent}}%でダウンロードが停止しました。再試行すると最初からダウンロードします。",
+      "cancelledLine": "ダウンロードをキャンセルしました。ダウンロード済みのデータは保持されません。",
+      "downloadAgain": "もう一度ダウンロード",
+      "retry": "再試行",
+      "cancel": "キャンセル",
+      "readyTitle": "音声モデルの準備完了",
+      "failedTitle": "音声モデルをダウンロードできませんでした",
+      "announcePercent": "音声モデルのダウンロードは{{percent}}パーセント完了しています。",
+      "announceReady": "音声モデルの準備完了",
+      "checking": "音声モデルを確認中…",
+      "voiceModel": "音声モデル",
+      "stoppedUnknown": "{{percent}}%で停止しました。残っているダウンロードデータのサイズを確認できませんでした。",
+      "cleanupFailed": "ダウンロードは停止しましたが、一部のダウンロードファイルを削除できませんでした。"
+    },
+    "brand": "Loquiの設定",
+    "back": "戻る",
+    "skipStep": "この手順をスキップ",
+    "continue": "続ける",
+    "finishLater": "後で完了する",
+    "lookAroundFirst": "先に見てみる",
+    "instrument": {
+      "idle": "いつでも始められます",
+      "downloading": "ダウンロード中 · {{percent}}% · {{total}}中{{done}}",
+      "goodLevel": "聞き取り中 · 音量は適切です",
+      "waiting": "聞き取り中 · 声を待っています",
+      "processing": "文字にしています…",
+      "heard": "声が聞こえました",
+      "downloadError": "ダウンロードが停止しました",
+      "micError": "Loquiにマイクの音声が届きません",
+      "nothingHeard": "音声が聞こえません。マイクを確認してください。",
+      "error": "うまくいきませんでした。もう一度お試しください。"
+    },
+    "rail": {
+      "welcome": {
+        "title": "話すだけで、Loquiが入力。",
+        "bodyMac": "どこでも音声入力でき、ノートや会議を一か所にまとめられます。Macの外へ送る内容は自分で選べます。",
+        "bodyOther": "どこでも音声入力でき、ノートや会議を一か所にまとめられます。コンピュータの外へ送る内容は自分で選べます。"
+      },
+      "speech": {
+        "title": "Loquiの聞き取り方を選びましょう。",
+        "bodyMac": "おすすめの音声モデルです。このMacで動作し、オフラインでも使えます。",
+        "bodyOther": "おすすめの音声モデルです。このコンピュータで動作し、オフラインでも使えます。"
+      },
+      "try": {
+        "title": "何か話してみましょう",
+        "bodyMac": "このテストの内容は、ほかのアプリに貼り付けられず、履歴にも保存されません。",
+        "bodyOther": "このテストの内容は、ほかのアプリに貼り付けられず、履歴にも保存されません。"
+      },
+      "cleanup": {
+        "title": "読みやすい文章に。",
+        "bodyMac": "テキスト補正で自分の言葉がどう変わるか見てから選びましょう。",
+        "bodyOther": "テキスト補正で自分の言葉がどう変わるか見てから選びましょう。"
+      },
+      "shortcuts": {
+        "title": "どのアプリからでも話せます。",
+        "bodyMac": "どこでもショートカットを押して使えます。ほかのアプリと競合する場合は変更してください。",
+        "bodyOther": "どこでもショートカットを押して使えます。ほかのアプリと競合する場合は変更してください。"
+      },
+      "finish": {
+        "title": "現在の設定状況です。",
+        "bodyMac": "以下はすべて現在の状態を表しています。",
+        "bodyOther": "以下はすべて現在の状態を表しています。"
+      }
+    },
+    "hello": {
+      "start": "始める",
+      "micTitle": "Loquiに声を届けましょう",
+      "micBody": "Loquiが聞くのは音声入力中だけです。この画面では録音されません。",
+      "allowMic": "マイクを許可",
+      "micReady": "{{device}}で聞き取り中",
+      "micReadyGeneric": "マイクで聞き取り中",
+      "micLabel": "マイク",
+      "systemDefault": "システムのデフォルト",
+      "builtIn": "内蔵マイク",
+      "unnamedMic": "名前のないマイク",
+      "notHearing": "声が届きませんか？別のマイクを選んでください。",
+      "savedMicMissing": "保存したマイクが接続されていないため、Loquiはシステムのデフォルトを使っています。",
+      "deniedTitle": "Loquiはマイクを使用できません",
+      "deniedBodyMac": "システム設定で許可してから戻ってください。戻るとLoquiが再確認します。",
+      "deniedBodyOther": "システムのプライバシーまたはサウンド設定で許可してから戻ってください。戻るとLoquiが再確認します。",
+      "openSettings": "システム設定を開く",
+      "recheck": "許可しました",
+      "unavailableTitle": "Loquiはマイクを開けません",
+      "unavailableBody": "ほかのアプリが使用しているか、入力デバイスが接続されていない可能性があります。",
+      "retryOpen": "もう一度試す",
+      "openSound": "サウンド設定を開く",
+      "starting": "マイクを開いています…"
+    },
+    "privacy": {
+      "title": "プライバシーの初期設定",
+      "historyTitle": "ローカル履歴を保持",
+      "historyBodyMac": "文字起こしをこのMacに保存します。「プライバシーとデータ」でいつでも変更できます。",
+      "historyBodyOther": "文字起こしをこのコンピュータに保存します。「プライバシーとデータ」でいつでも変更できます。",
+      "updatesTitle": "アップデートを自動ダウンロード",
+      "updatesBody": "署名済みリリースを毎日確認します。再起動のタイミングは自分で選べます。"
+    },
+    "voice": {
+      "checkingMac": "このMacを確認中…",
+      "checkingOther": "このコンピュータを確認中…",
+      "title": "おすすめの音声モデルを選びました。",
+      "unsupportedTitle": "自分に合った音声モデルを選びましょう。",
+      "why": {
+        "englishMac": "Macの言語が英語のため、英語を選びました。",
+        "englishOther": "コンピュータの言語が英語のため、英語を選びました。",
+        "languageMac": "Macの言語が{{language}}のため、{{voice}}を選びました。",
+        "languageOther": "コンピュータの言語が{{language}}のため、{{voice}}を選びました。",
+        "multilingualMac": "Macが{{languages}}を使うため、{{voice}}を選びました。",
+        "multilingualOther": "コンピュータが{{languages}}を使うため、{{voice}}を選びました。",
+        "unsupported": "Loquiのデバイス上の音声モデルは、まだ{{language}}を認識できません。近いものを選ぶか、後で設定からクラウドの音声モデルを追加してください。"
+      },
+      "noticed": "検出した情報",
+      "signals": {
+        "systemLanguage": "システム言語",
+        "memory": "メモリ",
+        "freeSpace": "空き容量",
+        "graphics": "グラフィックス"
+      },
+      "gpu": {
+        "appleSilicon": "Appleシリコン",
+        "nvidia": "NVIDIAグラフィックス",
+        "unknown": "検出されませんでした"
+      },
+      "unknown": "不明",
+      "diskShort": "この音声モデルのインストールには約{{needed}}の空き容量が必要です。現在の空き容量は{{free}}です。",
+      "recommended": "おすすめ",
+      "installed": "このデバイスにインストール済み",
+      "notRight": "合いませんか？自分で選ぶ",
+      "pickerLabel": "音声モデル",
+      "lockedWhileDownloading": "別の音声モデルを選ぶには、ダウンロードをキャンセルしてください。",
+      "languageLocked": "言語を変えるには、ダウンロードをキャンセルしてください。",
+      "cantHear": "{{language}}を認識できません",
+      "blocked": {
+        "mismatch": "この音声モデルは{{language}}を認識できません。下から別のものを選んでください。",
+        "none": "{{language}}を認識できるデバイス上の音声モデルはまだありません。対応言語を選ぶか、後で設定からクラウドの音声モデルを追加してください。"
+      },
+      "download": "ダウンロード（{{size}}）",
+      "outcomes": {
+        "fastEnglish": {
+          "name": "英語をすばやく認識",
+          "description": "英語をすばやく正確に認識します。話し終えてから約1秒で文字が表示されます。"
+        },
+        "manyLanguages": {
+          "name": "多くの言語に対応",
+          "description": "25言語を認識し、自動判別します。日中に使う言語を切り替えても対応できます。"
+        },
+        "liveCaptions": {
+          "name": "リアルタイム字幕",
+          "description": "話している間に文字が表示されます。会議や長い音声入力に最適です。"
+        },
+        "liveMultilingual": {
+          "name": "リアルタイムで、さらに多くの言語に",
+          "description": "日本語、アラビア語、ヒンディー語など15言語で、話している間に文字が表示されます。"
+        }
+      }
+    },
+    "tour": {
+      "label": "ダウンロードを待つ間に",
+      "title": "ダウンロードを待つ間にLoquiをご紹介します。",
+      "skip": "紹介をスキップ",
+      "skipped": "音声モデルの準備ができたらテストを始めます。",
+      "noVoice": "先に音声モデルを選んでください。このデバイス上で動作します。",
+      "chooseVoice": "音声モデルを選ぶ",
+      "slideOf": "{{total}}件中{{current}}件目",
+      "previous": "前のヒント",
+      "next": "次のヒント",
+      "tip": "ヒント{{number}}",
+      "shortcut": {
+        "title": "ショートカットを使う",
+        "tap": "{{key}}を押して話し始め、もう一度押すと終了します。",
+        "push": "{{key}}を押したまま話し、離すと終了します。"
+      },
+      "privacy": {
+        "title": "言葉の行き先",
+        "bodyMac": "プロバイダーを選ばない限り、このMacから何も送信されません。",
+        "bodyOther": "プロバイダーを選ばない限り、このコンピュータから何も送信されません。",
+        "nodes": {
+          "mic": "マイク",
+          "loqui": "Loqui",
+          "model": "音声認識モデル",
+          "notes": "ノート"
+        }
+      },
+      "demo": {
+        "title": "話すと文字に",
+        "body": "テキスト補正で、つなぎ言葉や句読点を整えられます。次の手順で選べます。",
+        "raw": "えーとお昼までに下書きを送るようにリマインドして",
+        "final": "お昼までに下書きを送るようにリマインドして。"
+      },
+      "readyTitle": "準備完了。何か話してみましょう。",
+      "readyBody": "音声モデルはこのデバイス上にあります。",
+      "carouselRole": "カルーセル",
+      "slideRole": "スライド"
+    },
+    "cleanupAuthority": {
+      "unavailable": "元のテキスト補正は利用できなくなりました。元の言葉は保持されています。",
+      "changed": "テキスト補正の送信先または認証情報が変更されました。元の言葉は保持されています。",
+      "unsupported": "選択した {{provider}} の認証元はテキスト補正用に保持できません。元の言葉は保持されています。",
+      "failed": "テキスト補正に失敗しました。元の言葉は保持されています。",
+      "busy": "テキスト補正はすでに実行中です。"
+    },
+    "try": {
+      "idle": {
+        "tap": "{{key}}を押して何か話してください。もう一度押すと終了します。",
+        "push": "{{key}}を押したまま何か話してください。離すと終了します。"
+      },
+      "keycap": {
+        "tap": "押して話す",
+        "push": "押している間に話す"
+      },
+      "listening": "聞き取り中",
+      "processing": "文字にしています…",
+      "shortcutWorks": "ショートカットは使えます",
+      "heardYou": "Loquiに声が届きました",
+      "discarded": "破棄しました。",
+      "undo": "元に戻す",
+      "silent": "何も聞こえません。別のマイクが選ばれていませんか？",
+      "noAudioTitle": "音声が聞こえませんでした",
+      "noAudioBody": "正しいマイクが選ばれ、ミュートされていないことを確認してから、もう一度お試しください。",
+      "memoryTitle": "この音声モデルには空きメモリが足りません",
+      "memoryBody": "アプリをいくつか閉じるか、より小さな音声モデルを選んでください。",
+      "chooseSmaller": "別の音声モデルを選ぶ",
+      "changeMic": "マイクを変更",
+      "otherTitle": "この録音はうまくいきませんでした",
+      "otherBody": "もう一度お試しください。設定は変わっていません。",
+      "again": "もう一度試す",
+      "cleanupFailed": "テキスト補正は実行されませんでした。これは元のテキストです。",
+      "retryFailed": "テキスト補正は今回も実行されませんでした。これは元のテキストです。",
+      "retryCleanup": "テキスト補正を再試行",
+      "cleanupOff": "テキスト補正をオフにする",
+      "wordsSafe": "どちらの場合も元の言葉は保持されます。",
+      "accessibilityTitle": "ショートカットにはアクセシビリティの許可が必要です",
+      "accessibilityBody": "macOSでLoquiがグローバルショートカットを認識するには許可が必要です。Loqui内の音声入力は許可なしでも使えます。",
+      "grantAccess": "アクセスを許可",
+      "useButton": "代わりにボタンを使う",
+      "start": "録音を開始",
+      "stop": "停止",
+      "privacyLine": "どこにも貼り付けず、保存もしません。",
+      "bandTitle": "あなたの声です。Loquiがこのデバイス上で認識しました。",
+      "makeItYours": "自分好みにする",
+      "startUsing": "Loquiを使い始める",
+      "cancel": "録音を破棄",
+      "cleanupUnsupported": "この認証元はテキスト補正用に保持できません。元の言葉は保持されています。",
+      "controlUnavailable": "録音の操作に応答がありませんでした。停止または破棄をもう一度試してください。"
+    },
+    "cleanup": {
+      "title": "テキスト補正の効果を見る",
+      "label": "テキスト補正",
+      "options": {
+        "none": "なし",
+        "local": "デバイス上",
+        "codex": "ChatGPT",
+        "provider": "APIキー"
+      },
+      "original": "元のテキスト",
+      "withCleanup": "テキスト補正あり",
+      "nothingChanges": "変更なし",
+      "running": "文を補正中…",
+      "wordsSent_other": "{{count}}語を{{provider}}に送信することになります",
+      "sentNotice_other": "このプレビューのために{{count}}語を{{provider}}に送信しました",
+      "tryMine_other": "自分の文で試す · {{count}}語を{{provider}}に送信",
+      "exampleNotice": "サンプルのテキストです。何も送信されていません。",
+      "localExampleNotice": "サンプルのテキストです。このデバイスでローカルのテキスト補正が使えるようになると、ここに自分の文が表示されます。",
+      "example": {
+        "original": "えーとお昼までに下書きをマヤに送ろうそれとあの木曜日の部屋を予約するようにリマインドして",
+        "local": "お昼までに下書きをマヤに送ろう。それと、木曜日の部屋を予約するようにリマインドして。",
+        "codex": "お昼までに下書きをマヤに送ろう。木曜日の部屋を予約するようにリマインドして。",
+        "provider": "マヤにお昼までに下書きを送ろう。それから、木曜日の部屋を予約するようにリマインドして。"
+      },
+      "listModels": "ChatGPT のモデル一覧を取得",
+      "modelListFailed": "ChatGPT のモデル一覧を取得できませんでした。もう一度お試しください。",
+      "now": {
+        "off": "テキスト補正はオフです。話した言葉がそのまま残ります。",
+        "checking": "テキスト補正が使えるか確認中…",
+        "ready": "{{name}}でテキスト補正がオンになっています。",
+        "readyNetwork": "{{provider}}の{{name}}でテキスト補正がオンになっています。",
+        "needsKey": "設定で{{provider}}のキーを追加すると、テキスト補正をオンにできます。それまでは話した言葉がそのまま残ります。",
+        "needsConnection": "上でChatGPTに接続すると、テキスト補正をオンにできます。それまでは話した言葉がそのまま残ります。",
+        "needsModel": "ローカルのテキスト補正モデルは、まだこのデバイスにありません。設定の「言語モデル」からダウンロードしてください（1.3 GB）。",
+        "unreachable": "現在、Loquiは{{provider}}に接続できません。話した言葉はそのまま保持されます。",
+        "modelSetup": "ChatGPT に接続済みです。モデル一覧を取得して、テキスト整形に使うモデルを選んでください。",
+        "review": "変更を確認してから「適用」を選んでください。"
+      },
+      "reuse": "ほかのテキスト機能にもこの選択を使う",
+      "exampleInProgress": "リクエストの実行中はサンプルが表示されます。補正に成功した場合にのみ、自分の結果が表示されます。",
+      "attemptNotice_other": "{{count}}語を{{provider}}に送信することを許可しました。試行は失敗しましたが、すでに届いている可能性があります。元の言葉は変わっていません。",
+      "previousAttemptNotice_other": "以前、{{count}}語を{{provider}}に送信することを許可しました。このプレビューを変更しても、そのリクエストは取り消されません。元の言葉は保持されています。"
+    },
+    "shortcut": {
+      "title": "ショートカットを試しましょう。",
+      "testerLabel": "ショートカットのテスト。{{key}}を押してください。",
+      "hint": "{{key}}を押してください。短く押すと開始・停止し、長押しすると押している間だけ話せます。",
+      "fills": "こんにちは、動作しています。",
+      "works": "ショートカットは正常です",
+      "detected": {
+        "tap": "短押しで開始・停止を検出",
+        "hold": "長押しで話す操作を検出"
+      },
+      "suggest": {
+        "push": "キーの長押しを検出しました。長押しで話すモードに切り替えますか？",
+        "tap": "キーの短押しを検出しました。短押しで開始・停止するモードに切り替えますか？"
+      },
+      "switch": "切り替える",
+      "change": "ショートカットを変更",
+      "changeHelp": "どのアプリでも、このキーを押して話せます。他のアプリと競合する場合は変更してください。",
+      "autoPaste": "自動貼り付け",
+      "autoPasteBodyMac": "カーソルの位置に文字を貼り付けます。macOSではアクセシビリティの許可が必要です。",
+      "autoPasteBodyOther": "カーソルの位置に文字を貼り付けます。",
+      "accessibilityBody": "macOSでは、許可した後にのみLoquiがショートカットを検出し、貼り付けられます。今すぐ許可するか、後で設定から許可できます。"
+    },
+    "ready": {
+      "titleProven": "音声入力できました。",
+      "titleConfigured": "設定できました。一度試して確認しましょう。",
+      "titlePending_one": "あと少し：残り{{count}}項目です。",
+      "titlePending_other": "あと少し：残り{{count}}項目です。",
+      "subAllLocalMac": "最初の音声入力に成功しました。すべてこのMacで動作します。",
+      "subAllLocalOther": "最初の音声入力に成功しました。すべてこのコンピュータで動作します。",
+      "subProven": "最初の音声入力に成功しました。",
+      "subConfigured": "一度音声入力して、この設定を確認しましょう。",
+      "subPending": "残りの項目を完了しましょう。各項目から設定場所を開けます。",
+      "rows": {
+        "speech": "音声",
+        "microphone": "マイク",
+        "shortcut": "ショートカット",
+        "cleanup": "テキスト補正"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}、最初の音声入力を認識しました",
+          "checking": "確認中…",
+          "configured": "{{voice}}、まだ試していません",
+          "downloading": "ダウンロード中です",
+          "needsModel": "音声モデルをダウンロード",
+          "unavailable": "設定でセットアップを完了"
+        },
+        "microphone": {
+          "heard": "動作しています",
+          "allowed": "許可済み、音声は未確認",
+          "denied": "システム設定で許可",
+          "untested": "何か話して確認"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}、押すと開始・停止",
+            "push": "{{key}}、押している間に話す"
+          },
+          "configured": {
+            "tap": "{{key}}、まだ試していません",
+            "push": "{{key}}、まだ試していません"
+          },
+          "needsAccessibility": "アクセシビリティを許可",
+          "checkAccessibility": "アクセシビリティの許可を確認"
+        },
+        "cleanup": {
+          "off": "オフ。後で追加できます",
+          "checking": "確認中です",
+          "needsConnection": "ChatGPTに接続",
+          "needsKey": "設定で{{provider}}のキーを追加",
+          "needsModel": "設定でローカルモデルをダウンロード",
+          "unreachable": "{{provider}}に接続できません",
+          "configured": "{{name}}で設定済み",
+          "configuredNetwork": "{{provider}}で{{name}}を設定済み",
+          "modelSetup": "テキスト整形用の ChatGPT モデル一覧を取得",
+          "review": "変更を確認してから「適用」を選んでください。"
+        }
+      },
+      "dictateNote": "ノートに音声入力",
+      "openWorkspace": "ワークスペースを開く",
+      "noteLocal": "ノートはこのデバイスで文字起こしされます。",
+      "noteSends": "ノートの音声は{{provider}}に送信されます。",
+      "noteChecking": "ノートの文字起こし方法を確認中…",
+      "noteBlocked": {
+        "microphone": "ノートにはマイクが必要です。",
+        "unsupported": "ノートの録音に、自前のサーバーなど、まだ対応していないサービスが設定されています。",
+        "sealed": "封印モードが有効なため、ノートの録音は{{provider}}に接続できません。",
+        "needsModel": "ノートの録音には、このデバイス上の音声モデルが必要です。",
+        "needsKey": "ノートの録音には{{provider}}のキーが必要です。",
+        "needsUrl": "ノートの録音にはサーバーアドレスが必要です。",
+        "unreachable": "Loquiはノートの録音用に{{provider}}へ接続できません。"
+      },
+      "fixNote": "修正する",
+      "noteNetwork": "ノートの音声は{{provider}}に送信する設定です。"
+    },
+    "resume": {
+      "title": "設定を完了する",
+      "body": "ワークスペースは利用できます。いつでも続きから設定を再開できます。",
+      "items": {
+        "finishDictating": "初めての音声入力を試す",
+        "cleanup": "テキスト補正を選ぶ",
+        "shortcut": "ショートカットを試す"
+      },
+      "resume": "設定を再開",
+      "dismiss": "設定チェックリストを閉じる",
+      "label": "設定チェックリスト"
+    }
+  },
+  "workspace": {
+    "noteMissing": "そのノートは削除されたか、このワークスペースの外に移動されました。",
+    "noteLoadError": "このノートを読み込めませんでした。もう一度お試しください。"
+  },
+  "capture": {
+    "group": "キャプチャ",
+    "moreOptions": "その他のキャプチャオプション",
+    "actions": {
+      "dictate": "Loquiに音声入力",
+      "recordMeeting": "会議を録音",
+      "upload": "音声をアップロード…",
+      "newNote": "新しいノート",
+      "newChat": "新しいチャット"
+    },
+    "short": {
+      "dictate": "音声入力",
+      "recordMeeting": "録音",
+      "upload": "アップロード",
+      "newNote": "新しいノート",
+      "newChat": "新しいチャット"
+    },
+    "listening": "聞き取り中 {{time}}",
+    "stopListening": "聞き取りを停止",
+    "stopRecording": "録音を停止",
+    "cleaningUp": "文章を整えています…"
+  },
+  "micCard": {
+    "ready": "準備完了",
+    "setUp": "音声入力を設定",
+    "listening": "聞き取り中",
+    "listeningFor": "聞き取り中 {{time}}",
+    "cleaningUp": "文章を整えています…",
+    "offline": "マイクがオフラインです",
+    "offlinePermission": "マイクへのアクセスが無効です",
+    "offlineDevice": "マイクが接続されていません",
+    "nextCapture": "次回の録音",
+    "role": {
+      "dictation": "音声入力",
+      "meeting": "会議",
+      "assistant": "アシスタント",
+      "translation": "翻訳"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "音声入力の状態",
+      "ready": "準備完了",
+      "setUp": "音声入力を設定",
+      "listening": "聞き取り中",
+      "listeningFor": "聞き取り中 {{time}}",
+      "cleaningUp": "整形中…",
+      "offline": "マイク未接続",
+      "hold": "<kbd>{{key}}</kbd>を押し続けて音声入力",
+      "press": "<kbd>{{key}}</kbd>を押して音声入力",
+      "nextNow": "{{title}}は開催中です",
+      "nextAt": "{{title}}は{{time}}から",
+      "takeNotes": "ノートを取る",
+      "nextIn_other": "{{title}}まで{{count}}分"
+    },
+    "history": {
+      "filterLabel": "履歴を絞り込む",
+      "filterPlaceholder": "このリストを絞り込む",
+      "chipsLabel": "表示",
+      "menu": "履歴のオプション",
+      "showDiscarded": "破棄した録音を表示",
+      "clearAll": "すべて削除…",
+      "expand": "展開",
+      "collapse": "折りたたむ",
+      "meetingRow": "会議",
+      "noteRow": "ノート",
+      "nothingMatches": "「{{query}}」に一致する項目はありません。",
+      "clearFilter": "絞り込みを解除",
+      "olderMissing": "この音声入力は履歴にありません。",
+      "chips": {
+        "all": "すべて",
+        "dictations": "音声入力",
+        "meetings": "会議",
+        "notes": "ノート",
+        "failed": "失敗"
+      },
+      "dayCount_other": "音声入力 {{count}} 件",
+      "words_other": "{{count}} 語",
+      "session_other": "セッション · 録音 {{count}} 件 · {{duration}}",
+      "sessionNoDuration_other": "セッション · 録音 {{count}} 件",
+      "loadFailed": "この音声入力を読み込めませんでした。もう一度お試しください。"
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "ユーザー",
+      "note": "ノート",
+      "meeting": "会議",
+      "dictation": "音声入力",
+      "folder": "フォルダー"
+    },
+    "empty": "メンションできる項目がありません",
+    "loading": "読み込み中…",
+    "missing": "この項目は削除されました。",
+    "open": "開く",
+    "insertQuote": "引用を挿入",
+    "folderMeta": "フォルダー",
+    "error": "この項目を読み込めませんでした。",
+    "retry": "再試行",
+    "pickerLabel": "項目をメンション"
+  },
+  "table": {
+    "view": {
+      "label": "表示",
+      "list": "リスト",
+      "table": "テーブル"
+    },
+    "canvasLabel": "キャンバス: {{space}}",
+    "canvasRole": "キャンバス",
+    "zoomIn": "拡大",
+    "zoomOut": "縮小",
+    "resetView": "表示をリセット",
+    "zoomLevel": "{{percent}}%",
+    "hint": "カードや背景をドラッグ。Shift を押しながらドラッグで選択。Ctrl または ⌘ とホイールでズーム。矢印キーでカード間を移動し、Shift と矢印で少しずつ動かします。",
+    "kind": {
+      "note": "メモ",
+      "meeting": "ミーティング",
+      "dictation": "音声入力",
+      "chat": "回答"
+    },
+    "card": {
+      "label": "{{kind}}: {{title}}",
+      "untitled": "無題",
+      "answerPending": "回答を待っています…"
+    },
+    "inbox": {
+      "title": "受信箱",
+      "description": "最近のキャプチャと、種類ごとに最大50件の最近外した項目。テーブルにドラッグするか Enter を押します。すべての内容は履歴とリストで確認できます。",
+      "empty": "新着なし"
+    },
+    "selection": {
+      "count": "選択中: {{count}}",
+      "summarise": "要約",
+      "ask": "これについて質問",
+      "group": "メモにまとめる",
+      "remove": "テーブルから外す",
+      "summarisePrompt": "選択した項目を数文で要約してください。",
+      "limit": "AI 操作は最大 {{limit}} 枚のカードまでです。",
+      "busy": "ほかの操作を実行中です。"
+    },
+    "groupedNote": {
+      "title": "テーブルからまとめたメモ"
+    },
+    "status": {
+      "full": "テーブルに置けるカードは 500 枚までです。先にいくつか外してください。",
+      "truncated": "配置済みのカードを優先して最大500枚を表示しています。ほかの内容はリストと履歴で確認できます。",
+      "saveFailed": "変更を保存できませんでした。内容は保持されています。"
+    },
+    "ask": {
+      "open": "質問",
+      "close": "閉じる",
+      "pinned": "固定したカード: {{count}}",
+      "wholeTable": "テーブル全体について質問",
+      "sendFailed": "メッセージは送信されませんでした。文章と参照元は下に保持されています。準備ができたら再試行してください。",
+      "invalidated": "送信先が変わりました。メッセージは送信されていません。再試行する前に送信先を確認してください。",
+      "retry": "この参照元で再試行"
+    },
+    "detail": {
+      "close": "全文を閉じる",
+      "loading": "全文を読み込み中…",
+      "failed": "全文を読み込めませんでした。閉じてからもう一度開いてください。"
+    }
   }
 }

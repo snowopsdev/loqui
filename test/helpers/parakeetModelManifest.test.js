@@ -25,17 +25,19 @@ function setup(t, options = {}) {
   const realRequire = createRequire(managerFile);
   const timeout = new AbortController();
   let downloadControl;
-  const fakeFs = options.writeError
-    ? {
-        ...fs,
-        promises: {
-          ...fs.promises,
-          writeFile: async () => {
-            throw new Error("disk full");
+  const fakeFs =
+    options.fakeFs ??
+    (options.writeError
+      ? {
+          ...fs,
+          promises: {
+            ...fs.promises,
+            writeFile: async () => {
+              throw new Error("disk full");
+            },
           },
-        },
-      }
-    : fs;
+        }
+      : fs);
   const stubs = {
     fs: fakeFs,
     "./debugLogger": {
@@ -64,6 +66,7 @@ function setup(t, options = {}) {
     },
     "./downloadUtils": {
       async downloadFile(url, target, { signal }) {
+        if (options.downloadAbort) throw options.downloadAbort;
         calls.downloads.push(url);
         if (options.cancel) {
           signal.aborted = true;
@@ -353,3 +356,37 @@ test("manifest collection does not hijack a running model server", async (t) => 
   assert.equal(h.calls.warms, 0);
   assert.equal(h.calls.manifests.length, 1);
 });
+
+for (const archiveStat of [18, null, 0]) {
+  test(`cancelled download preserves helper evidence plus failed archive cleanup (${archiveStat})`, async (t) => {
+    const fakeFs = {
+      ...fs,
+      promises: {
+        ...fs.promises,
+        unlink: async () => {
+          throw Object.assign(new Error("locked"), { code: "EBUSY" });
+        },
+        stat: async () => {
+          if (archiveStat === null) throw Object.assign(new Error("denied"), { code: "EACCES" });
+          if (archiveStat === 0) throw Object.assign(new Error("absent"), { code: "ENOENT" });
+          return { size: archiveStat };
+        },
+      },
+    };
+    const h = setup(t, {
+      fakeFs,
+      downloadAbort: Object.assign(new Error("abort"), {
+        isAbort: true,
+        keptBytes: 7,
+        cleanupFailed: true,
+      }),
+    });
+    await assert.rejects(h.manager.downloadParakeetModel(MODEL), (error) => {
+      assert.equal(error.code, "DOWNLOAD_CANCELLED");
+      assert.equal(error.keptBytes, archiveStat === null ? null : 7 + archiveStat);
+      assert.equal(error.cleanupFailed, true);
+      return true;
+    });
+    assert.equal(h.manager.currentDownloadProcess, null);
+  });
+}

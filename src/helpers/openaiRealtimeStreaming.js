@@ -1,3 +1,9 @@
+const {
+  egressOpen,
+  discardPendingAudio,
+  zeroAudio,
+  sendContentFrame,
+} = require("./streamingHandOff");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -53,6 +59,22 @@ async function createSocketWithTimeout(createSocket, timeoutMs) {
 }
 
 class OpenAIRealtimeStreaming {
+  setLifecycleGate(gate) {
+    this._lifecycleGate = gate;
+  }
+  _lifecycleOpen() {
+    return this._lifecycleGate?.() !== false;
+  }
+  setEgressGate(gate) {
+    this._egressGate = gate;
+  }
+  discardPendingAudio() {
+    discardPendingAudio(this);
+  }
+  _egressOpen() {
+    return egressOpen(this);
+  }
+
   constructor() {
     this.ws = null;
     this.isConnected = false;
@@ -97,6 +119,7 @@ class OpenAIRealtimeStreaming {
   // covers the token-fetch + handshake window so sendAudio() doesn't drop
   // frames while a connection is still being established.
   beginConnecting() {
+    this.discardPendingAudio();
     this.bufferingAudio = true;
     this.coldStartBuffer = [];
     this.coldStartBufferSize = 0;
@@ -107,6 +130,10 @@ class OpenAIRealtimeStreaming {
   }
 
   async connect(options = {}) {
+    if (!this._lifecycleOpen())
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
     const {
       apiKey,
       model,
@@ -159,6 +186,13 @@ class OpenAIRealtimeStreaming {
       throw err;
     }
 
+    if (!this._lifecycleOpen()) {
+      ws.close();
+      this.discardPendingAudio();
+      throw Object.assign(new Error("Streaming operation ended"), {
+        messageKey: "voiceOverlay.errors.streamingUnavailable",
+      });
+    }
     return new Promise((resolve, reject) => {
       this.pendingResolve = resolve;
       this.pendingReject = reject;
@@ -531,6 +565,10 @@ class OpenAIRealtimeStreaming {
   }
 
   sendAudio(pcmBuffer) {
+    if (!this._egressOpen()) {
+      this.discardPendingAudio();
+      return false;
+    }
     const isOpen = this.ws?.readyState === WebSocket.OPEN;
 
     if (!isOpen) {
@@ -542,6 +580,24 @@ class OpenAIRealtimeStreaming {
       return false;
     }
 
+    const forwardOwned = (input) => {
+      let audio;
+      try {
+        audio = this._resampleToInputRate(input);
+        const sent = sendContentFrame(
+          this,
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: audio.toString("base64"),
+          })
+        );
+        if (sent) this.audioBytesSent += audio.length;
+        return sent;
+      } finally {
+        zeroAudio(input);
+        if (audio && audio !== input) zeroAudio(audio);
+      }
+    };
     if (this.coldStartBuffer.length > 0) {
       debugLogger.debug(
         `${this.providerLabel} flushing cold-start buffer`,
@@ -550,23 +606,14 @@ class OpenAIRealtimeStreaming {
           bytes: this.coldStartBufferSize,
         })
       );
-      for (const buf of this.coldStartBuffer) {
-        const audio = this._resampleToInputRate(buf);
-        this.ws.send(
-          JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
-        );
-        this.audioBytesSent += audio.length;
+      try {
+        for (const buf of this.coldStartBuffer) if (!forwardOwned(buf)) return false;
+      } finally {
+        // Includes untouched remainders if resampling, receipt or ws.send throws.
+        this.discardPendingAudio();
       }
-      this.coldStartBuffer = [];
-      this.coldStartBufferSize = 0;
     }
-
-    const audio = this._resampleToInputRate(Buffer.from(pcmBuffer));
-    this.ws.send(
-      JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
-    );
-    this.audioBytesSent += audio.length;
-    return true;
+    return forwardOwned(Buffer.from(pcmBuffer));
   }
 
   async disconnect({ commit = true } = {}) {
@@ -649,6 +696,7 @@ class OpenAIRealtimeStreaming {
   }
 
   cleanup() {
+    this.discardPendingAudio();
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
     clearTimeout(this._sessionTimer);

@@ -668,10 +668,15 @@ class ModelManager {
     // every dictation would otherwise pay for two HTTP round trips.
     if ((estimatedTokens + reserveTokens) * PREFLIGHT_MEASURE_FACTOR <= running) return maxTokens;
 
-    const usable = (await this.serverManager.usableContextSize()) ?? running;
+    options.execution?.assertLive();
+    const usable = (await this.serverManager.usableContextSize(options.execution)) ?? running;
+    options.execution?.assertLive();
     const exactTokens = await this.serverManager.countPromptTokens(messages, {
       disableThinking: options.disableThinking,
+      signal: options.execution?.signal,
+      execution: options.execution,
     });
+    options.execution?.assertLive();
 
     // A measurement we could not take must never fail the request; the
     // estimate already sized the window, and an overflow would still surface
@@ -697,7 +702,9 @@ class ModelManager {
     if (grown > usable) await startServer(grown);
 
     const nowUsable =
-      (await this.serverManager.usableContextSize()) ?? this.serverManager.contextSize ?? grown;
+      (await this.serverManager.usableContextSize(options.execution)) ??
+      this.serverManager.contextSize ??
+      grown;
     if (neededTokens <= nowUsable) return maxTokens;
 
     // The window is as big as this machine allows and the prompt still does not
@@ -755,6 +762,7 @@ class ModelManager {
   }
 
   async _runInference(modelId, prompt, options = {}) {
+    options.execution?.assertLive();
     this.ensureInitialized();
     const startTime = Date.now();
     debugLogger.logReasoning("INFERENCE_START", {
@@ -779,6 +787,20 @@ class ModelManager {
     }
 
     const modelPath = path.join(this.modelsDir, modelInfo.model.fileName);
+    const assertLoadedModel = () => {
+      options.execution?.assertLive();
+      if (
+        options.execution &&
+        (!this.serverManager.ready || this.serverManager.modelPath !== modelPath)
+      )
+        throw Object.assign(new Error("The captured local model is no longer loaded."), {
+          code: "RECIPIENT_CHANGED",
+        });
+    };
+    const transportExecution = options.execution && {
+      ...options.execution,
+      assertLive: assertLoadedModel,
+    };
     debugLogger.logReasoning("INFERENCE_MODEL_PATH", {
       modelPath,
       modelName: modelInfo.model.name,
@@ -794,6 +816,7 @@ class ModelManager {
       );
     }
 
+    options.execution?.assertLive();
     // Build messages for chat completion
     const messages = [
       { role: "system", content: options.systemPrompt || "" },
@@ -850,11 +873,18 @@ class ModelManager {
         this.currentServerModelId === modelId
           ? this.serverManager.contextSize
           : null;
-      const startAt = async (size) =>
-        this.serverManager.start(
-          modelPath,
-          await this.serverStartOptions(modelInfo, { contextSize: size, cacheRamMiB })
-        );
+      const startAt = async (size) => {
+        const serverOptions = await this.serverStartOptions(modelInfo, {
+          contextSize: size,
+          cacheRamMiB,
+        });
+        options.execution?.assertLive();
+        await this.serverManager.start(modelPath, {
+          ...serverOptions,
+          ...(options.execution ? { signal: options.execution.signal } : {}),
+        });
+        options.execution?.assertLive();
+      };
       // llama.cpp's startup dump is the diagnostic, so it goes to the log here
       // and nowhere else: details crosses IPC to the renderer, which neither
       // reads it nor should carry a stderr blob and absolute model paths.
@@ -899,6 +929,7 @@ class ModelManager {
           throw unavailable(restoreError);
         }
       }
+      if (options.execution) assertLoadedModel();
       this.currentServerModelId = modelId;
     };
 
@@ -928,7 +959,7 @@ class ModelManager {
     const grantedMaxTokens = await this._ensurePromptFits({
       modelInfo,
       messages,
-      options,
+      options: transportExecution ? { ...options, execution: transportExecution } : options,
       estimatedTokens,
       maxTokens,
       contextFloor,
@@ -943,7 +974,10 @@ class ModelManager {
     });
 
     try {
+      if (options.execution) assertLoadedModel();
       const result = await this.serverManager.inference(messages, {
+        signal: options.execution?.signal,
+        privateText: !!options.execution,
         temperature: options.temperature ?? 0.7,
         // The preflight may have traded output room for prompt room; sending
         // the original value would put the request back over the window.
@@ -956,7 +990,9 @@ class ModelManager {
       debugLogger.logReasoning("INFERENCE_SUCCESS", {
         totalTimeMs: totalTime,
         resultLength: result.length,
-        resultPreview: result.substring(0, 200) + (result.length > 200 ? "..." : ""),
+        ...(options.execution
+          ? {}
+          : { resultPreview: result.substring(0, 200) + (result.length > 200 ? "..." : "") }),
       });
 
       return result;
@@ -968,6 +1004,11 @@ class ModelManager {
       });
       // A typed failure (a context overflow, say) must keep its identity, or
       // the renderer cannot translate it and the user sees raw server text.
+      if (
+        options.execution &&
+        ["RECIPIENT_CHANGED", "CLEANUP_OPERATION_UNAVAILABLE"].includes(error.code)
+      )
+        throw error;
       if (error.code === "CONTEXT_TOO_LARGE") {
         throw new ModelError(error.message, "CONTEXT_TOO_LARGE", {
           modelId,

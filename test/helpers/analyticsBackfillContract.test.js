@@ -1,7 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const IPCHandlers = require("../../src/helpers/ipcHandlers");
+const { IPCHandlers, diagnostics } = require("./harness/ipcPrototype").loadIpcPrototype(test);
+test.beforeEach(() => {
+  diagnostics.length = 0;
+});
 
 function completeBatch(overrides = {}) {
   return {
@@ -83,6 +86,13 @@ test("a failed history pass is absorbed and remains retryable", async () => {
     scanned: 0,
   });
   assert.equal(attempts, 2);
+  assert.equal(diagnostics.length, 1, "the expected failed scan is diagnosed");
+  assert.ok(
+    diagnostics.every(
+      ([message, details]) =>
+        message === "Analytics history backfill failed" && details.error === "broken history row"
+    )
+  );
 });
 
 test("concurrent readers share one pass and completed history stays checkpointed", async () => {

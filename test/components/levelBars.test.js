@@ -202,3 +202,14 @@ test("sampler starts in the reduced rate and survives a missing matchMedia", asy
   stop();
   assert.equal(bare.timers.size, 0);
 });
+
+test("tone onLive paints paper bars for a --color-live surface; brand stays the default (Plan 05 extension, §5)", async () => {
+  const { LevelBars } = await loadComponent();
+  const brand = renderStatic(LevelBars, { readLevel: () => 0, height: 20 });
+  assert.ok(brand.includes("linear-gradient(180deg, #ff6a36, #e6007a)"));
+  assert.ok(brand.includes('data-tone="brand"'));
+  const onLive = renderStatic(LevelBars, { readLevel: () => 0, height: 20, tone: "onLive" });
+  assert.equal(onLive.includes("linear-gradient"), false);
+  assert.equal(onLive.split("var(--color-background)").length - 1, 5);
+  assert.ok(onLive.includes('data-tone="onLive"'));
+});

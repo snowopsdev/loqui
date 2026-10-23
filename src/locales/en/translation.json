@@ -2,7 +2,7 @@
   "settings": {
     "language": {
       "sectionTitle": "Language",
-      "sectionDescription": "Set interface and transcription languages independently",
+      "sectionDescription": "The language Loqui's menus and buttons use",
       "uiLabel": "Interface language",
       "uiDescription": "Choose the language used throughout Loqui's interface",
       "transcriptionLabel": "Transcription language",
@@ -11,7 +11,9 @@
       "chineseScriptDescription": "When Chinese is detected, convert dictated transcripts to Simplified or Traditional characters. Spoken Chinese is the same either way; Whisper only returns one script.",
       "chineseScriptAsTranscribed": "Keep as transcribed",
       "chineseScriptSimplified": "Simplified (简体)",
-      "chineseScriptTraditional": "Traditional (繁體)"
+      "chineseScriptTraditional": "Traditional (繁體)",
+      "dictationSectionTitle": "Spoken language",
+      "dictationSectionDescription": "The language you speak when you dictate"
     },
     "noteFiles": {
       "title": "Save notes as files",
@@ -57,6 +59,23 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "Loqui is recording this meeting",
+    "notificationBody": "Stop it here, from the tray, or from the Loqui pill.",
+    "notificationFallbackBody": "Click to show the Loqui pill and stop it there, or use the tray menu.",
+    "stop": "Stop",
+    "systemLost": "System audio lost",
+    "micLost": "Microphone lost",
+    "stopAria": "Stop meeting recording",
+    "groupAria": "Meeting recorder",
+    "saved": "Meeting saved · {{elapsed}}",
+    "openNotes": "Open notes",
+    "failed": {
+      "save": "The meeting stopped, but its transcript could not be saved. Open the note to check what was kept.",
+      "stop": "The meeting recording did not stop cleanly. Open the note to check it.",
+      "ownerLost": "The meeting recorder stopped unexpectedly. Open the note to check what was kept."
+    }
+  },
   "tray": {
     "toggleDictation": {
       "show": "Show Dictation Panel",
@@ -65,7 +84,12 @@
     "openControlPanel": "Open Control Panel",
     "hideControlPanel": "Hide Control Panel",
     "quit": "Quit Loqui",
-    "tooltip": "Loqui - Voice Dictation"
+    "tooltip": "Loqui - Voice Dictation",
+    "tooltipRecording": "Loqui — recording a meeting",
+    "meetingRecording": "Recording meeting · {{elapsed}}",
+    "meetingRecordingSystemLost": "Recording · system audio lost",
+    "meetingRecordingMicLost": "Recording · microphone lost",
+    "stopMeetingRecording": "Stop meeting recording"
   },
   "menu": {
     "appLabel": "Loqui",
@@ -565,6 +589,12 @@
         "title": "A download didn't finish",
         "description": "Check your connection and free disk space, then retry. If it keeps failing, contact your administrator."
       }
+    },
+    "download": {
+      "chip": "Downloading voice model · {{percent}}%",
+      "start": "Download model",
+      "inProgress": "Downloading…",
+      "chipInstalling": "Installing voice model"
     }
   },
   "streaming": {
@@ -690,7 +720,8 @@
       "title": "Required models missing",
       "description": "Your organization requires these models on this device: {{models}}.",
       "download": "Download"
-    }
+    },
+    "breadcrumb": "Location"
   },
   "reasoning": {
     "mode": {
@@ -726,7 +757,16 @@
       "otherGroup": "Other",
       "noSearchResults": "No models match \"{{query}}\"",
       "selectModelHint": "No model selected yet — choose one from the list below.",
-      "keyRequiredHint": "An API key is required for inference — add one to use this provider."
+      "keyRequiredHint": "An API key is required for inference — add one to use this provider.",
+      "listModels": "List models from {{host}}",
+      "listModelsSendsKey": "Sends {{slot}} to {{host}} to ask for its model list.",
+      "listModelsNoKey": "Sends no key. Asks {{host}} for its model list.",
+      "listModelsNeedsEndpoint": "Use an endpoint first, then list its models.",
+      "listModelsSealed": "Sealed mode is on, so nothing is asked of the endpoint.",
+      "slotCustom": "the custom-endpoint key saved for {{task}}",
+      "slotProvider": "your saved {{provider}} key",
+      "currentModel": "Current model: {{model}}",
+      "useDefault": "Use the default endpoint"
     },
     "getApiKey": "Get your API key ->",
     "selectModel": "Select Model",
@@ -752,9 +792,9 @@
       "apiKeyMode": "API Key",
       "region": "Region",
       "profile": "Profile Name",
-      "accessKeyId": "Access Key ID",
-      "secretAccessKey": "Secret Access Key",
-      "sessionToken": "Session Token (optional)",
+      "accessKeyId": "AWS access key ID",
+      "secretAccessKey": "Secret access key",
+      "sessionToken": "Session token (optional)",
       "endpoint": "Endpoint URL",
       "deploymentName": "Deployment Name",
       "apiVersion": "API Version",
@@ -805,8 +845,26 @@
       },
       "vertex": {
         "adcHelp": "Uses Application Default Credentials. Run: gcloud auth application-default login",
-        "apikeyHelp": "Vertex AI Express Mode API key from Google AI Studio."
-      }
+        "apikeyHelp": "Vertex AI Express Mode API key from Google AI Studio.",
+        "authSource": "Authentication source",
+        "authSourceAdc": "Application Default Credentials (ADC)",
+        "authSourceApiKey": "API key"
+      },
+      "profileSaveFailed": "Couldn't save this profile. Your entry is still here — try again.",
+      "testConnectionAt": "Test connection to {{host}}",
+      "testSends": "Sends {{fields}} and a short test prompt to {{host}}.",
+      "testSendsNoKey": "Sends a short test prompt to {{host}} using your cloud sign-in. No saved key is sent.",
+      "testHostUnknown": "Enter a valid endpoint or region, then test.",
+      "field": {
+        "key": "your saved API key",
+        "accessKeyId": "your access key ID",
+        "secretAccessKey": "your secret access key",
+        "sessionToken": "your session token",
+        "profile": "your AWS profile's credentials",
+        "environmentKey": "the Vertex API key set in Loqui's environment (GOOGLE_VERTEX_API_KEY)"
+      },
+      "recipientChanged": "The destination or credentials changed. Review the destination and click Test again.",
+      "unsupportedAuthSource": "This connection test supports static AWS profiles and service-account or authorized-user ADC files. Other authentication sources cannot be tested here."
     },
     "tinfoil": {
       "modelRetiredTitle": "Model no longer available",
@@ -815,6 +873,10 @@
     },
     "corti": {
       "euOnly": "Corti's models are only available in the EU region."
+    },
+    "codex": {
+      "listModels": "List models from ChatGPT (via the Codex app)",
+      "listModelsTitle": "The Codex app asks ChatGPT for its model list using your ChatGPT sign-in. Loqui sends no saved key."
     }
   },
   "transcription": {
@@ -848,6 +910,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil streams using Voxtral Mini 4B, and batches with Voxtral Small 24B.",
       "docsLink": "Read the docs"
+    },
+    "families": {
+      "orukHint": "Oruk publishes Orukeet, a multilingual Parakeet fine-tune. It runs on this device."
     }
   },
   "hooks": {
@@ -1164,7 +1229,8 @@
     "openSettings": "Open System Settings",
     "connectCalendar": "Connect your calendar",
     "connectCalendarDescription": "See your meetings and join them without leaving Loqui.",
-    "connectCalendarButton": "Connect Calendar"
+    "connectCalendarButton": "Connect Calendar",
+    "todayLabel": "Today"
   },
   "cleanupPrompt": "Cleanup",
   "developerSection": {
@@ -1450,7 +1516,6 @@
       "none": "None",
       "outputLabel": "Output",
       "processing": "Processing...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "Provider",
       "run": "Run Test",
       "customEndpoint": "Custom endpoint",
@@ -1471,252 +1536,43 @@
   "settingsModal": {
     "managedByOrg": "Some settings are managed by your organization.",
     "groups": {
-      "account": "Account",
       "app": "App",
       "aiModels": "AI Models",
       "system": "System"
     },
     "sections": {
-      "account": {
-        "description": "Profile & sign in",
-        "label": "Profile"
-      },
-      "plansBilling": {
-        "description": "Plans, usage & billing",
-        "label": "Plans & Billing"
-      },
-      "workspace": {
-        "description": "Members, team spaces & API keys",
-        "label": "Workspace"
-      },
       "general": {
-        "description": "Appearance, sounds & startup",
+        "description": "Appearance, sounds, startup",
         "label": "Preferences"
       },
       "hotkeys": {
-        "description": "Dictation hotkey & activation",
-        "label": "Hotkeys"
+        "description": "Hotkeys, microphone, paste, language",
+        "label": "Dictation"
       },
       "speechToText": {
-        "description": "Engines for dictation & note recording",
+        "description": "Engines for dictation and notes",
         "label": "Speech-to-Text"
       },
       "llms": {
-        "description": "Models for chat, cleanup & summaries",
+        "description": "Cleanup, assistant, chat, on-device support",
         "label": "Language Models"
       },
       "privacyData": {
-        "description": "Privacy, permissions & analytics",
+        "description": "Retention, storage, permissions",
         "label": "Privacy & Data"
       },
       "system": {
-        "description": "Updates, storage & developer tools",
+        "description": "Updates and developer tools",
         "label": "System"
+      },
+      "routing": {
+        "label": "Routing",
+        "description": "Where each task runs"
       }
     },
     "title": "Settings"
   },
   "settingsPage": {
-    "workspace": {
-      "title": "Workspace",
-      "description": "Collaborate with teammates, share notes, and manage workspace access in one place.",
-      "empty": {
-        "title": "Create your first workspace",
-        "description": "Workspaces let you collaborate with teammates and share notes.",
-        "create": "Create workspace"
-      },
-      "loadError": {
-        "title": "Couldn't load workspaces",
-        "description": "Check your connection and try again.",
-        "retry": "Retry"
-      },
-      "tab": {
-        "general": "General",
-        "members": "Members",
-        "teams": "Groups",
-        "developer": "Developer"
-      },
-      "role": {
-        "owner": "Owner",
-        "admin": "Admin",
-        "member": "Member"
-      },
-      "general": {
-        "nameLabel": "Workspace name",
-        "saved": "Workspace updated",
-        "dangerTitle": "Delete workspace",
-        "dangerDescription": "All shared notes, folders, and integrations will be deleted. This cannot be undone.",
-        "delete": "Delete workspace",
-        "confirmTitle": "Delete {{name}}?",
-        "confirmDescription": "This cancels the subscription and removes all workspace data permanently.",
-        "deleting": "Deleting…",
-        "deleted": "Workspace deleted",
-        "leaveTitle": "Leave workspace",
-        "leaveDescription": "You'll lose access to this workspace and its shared notes.",
-        "leave": "Leave workspace",
-        "leaving": "Leaving…",
-        "leaveConfirm": {
-          "title": "Leave {{name}}?",
-          "description": "You'll lose access immediately. An admin can invite you back."
-        },
-        "left": "You left {{name}}"
-      },
-      "members": {
-        "title": "Members",
-        "description": "{{count}} of {{seats}} seats used.",
-        "invite": "Invite",
-        "empty": "No members yet.",
-        "loadError": "Couldn't load members.",
-        "roleUpdated": "Role updated",
-        "removed": "Removed {{name}}",
-        "promote": "Make admin",
-        "demote": "Make member",
-        "transferOwnership": "Transfer ownership",
-        "remove": "Remove from workspace",
-        "removeConfirm": {
-          "title": "Remove this member?",
-          "description": "{{name}} will lose access to {{workspace}} immediately."
-        },
-        "transferConfirm": {
-          "title": "Transfer ownership?",
-          "description": "{{name}} becomes the owner of {{workspace}}. Your role changes to admin and only the new owner can transfer it back."
-        }
-      },
-      "joinRequests": {
-        "title": "Requests to join",
-        "approve": "Approve",
-        "deny": "Deny",
-        "approved": "{{name}} joined the workspace",
-        "denied": "Request denied",
-        "errorTitle": "Could not update the request"
-      },
-      "teams": {
-        "title": "Groups",
-        "description": "Groups of workspace members that can be given access to team spaces together.",
-        "new": "New group",
-        "empty": "No groups yet.",
-        "createFirst": "Create your first group",
-        "addMembersLabel": "Add members",
-        "createTitle": "Create group",
-        "nameLabel": "Group name",
-        "memberCount_one": "{{count}} member",
-        "memberCount_other": "{{count}} members",
-        "membersButton": "Members",
-        "grantsAccessToSpaces_one": "Grants access to {{count}} space",
-        "grantsAccessToSpaces_other": "Grants access to {{count}} spaces",
-        "couldNotCreate": "Couldn't create group",
-        "created": "Created {{team}}",
-        "deleted": "Deleted {{team}}",
-        "deleteConfirmTitle": "Delete {{team}}?",
-        "deleteConfirmDescription": "This archives the group. Its members lose any access it granted.",
-        "deleteConfirmSpaceAccess_one": "This group grants access to {{count}} space. Its members will lose that access.",
-        "deleteConfirmSpaceAccess_other": "This group grants access to {{count}} spaces. Its members will lose that access.",
-        "members": {
-          "title": "Members of {{team}}",
-          "removeConfirm": "Remove {{name}} from {{team}}?",
-          "leave": "Leave group",
-          "leftTeam": "You left {{team}}",
-          "leaveConfirm": "Leave {{team}}?",
-          "leaveConfirmDescription": "You'll lose access to the spaces this group is assigned to unless you were added directly or another group includes you."
-        }
-      },
-      "invites": {
-        "title": "Pending invitations",
-        "expiresIn_one": "Expires in {{count}} day",
-        "expiresIn_other": "Expires in {{count}} days",
-        "expired": "Expired",
-        "loadError": "Couldn't load invitations.",
-        "resend": "Resend",
-        "resending": "Resending…",
-        "revoke": "Revoke",
-        "resent": "Invitation resent",
-        "resentNoEmail": "Invitation updated, but the email couldn't be delivered.",
-        "revoked": "Invitation revoked",
-        "revokeFailed": "Could not revoke invitation",
-        "revokeConfirm": {
-          "title": "Revoke this invitation?",
-          "description": "The invitation link for {{email}} will stop working."
-        }
-      },
-      "billing": {
-        "plan": "Plan",
-        "seats": "Seats",
-        "ownerOnly": "Only the workspace owner can manage the subscription.",
-        "nextInvoice": "Next invoice",
-        "manageStripe": "Manage in Stripe",
-        "startSubscription": "Start subscription",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "Free",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "Active",
-          "trialing": "Trialing",
-          "past_due": "Past due",
-          "canceled": "Canceled",
-          "incomplete": "Incomplete",
-          "unpaid": "Unpaid"
-        }
-      },
-      "developer": {
-        "title": "API keys",
-        "description": "Programmatic access scoped to this workspace.",
-        "empty": "No API keys yet. Create one to integrate with this workspace.",
-        "loadError": "Couldn't load API keys.",
-        "new": "New key",
-        "create": "Create key",
-        "createTitle": "Create API key",
-        "createDescription": "Choose the permissions this key needs. You can revoke it any time.",
-        "nameLabel": "Key name",
-        "namePlaceholder": "Production integration",
-        "revoke": "Revoke key",
-        "revoked": "Revoked {{name}}",
-        "lastUsed": "Last used {{date}}",
-        "neverUsed": "Never used",
-        "keyCreatedTitle": "API key created",
-        "keyCreatedDescription": "Copy this key now — you won't be able to see it again.",
-        "revokeConfirm": {
-          "title": "Revoke this key?",
-          "description": "{{name}} will stop working immediately. Any integration using it will start failing."
-        },
-        "scopes": {
-          "notes": {
-            "title": "Notes",
-            "read": "Read notes",
-            "write": "Write notes"
-          },
-          "folders": {
-            "title": "Folders",
-            "read": "Read folders",
-            "write": "Write folders"
-          },
-          "transcriptions": {
-            "title": "Transcriptions",
-            "read": "Read transcriptions"
-          },
-          "members": {
-            "title": "Members",
-            "read": "Read members",
-            "write": "Manage members"
-          },
-          "billing": {
-            "title": "Billing",
-            "read": "Read billing"
-          },
-          "full": {
-            "title": "Full access",
-            "admin": "Workspace admin"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "Enterprise console",
-        "description": "Manage SSO, policies, and members on the web",
-        "open": "Open console"
-      }
-    },
     "unifiedBilling": {
       "workspaceTitle": "Workspace billing",
       "workspaceDescription": "Each workspace has its own plan, seats, and billing owner.",
@@ -1737,230 +1593,6 @@
         "newCapacity": "New capacity",
         "chargeToday": "Charge today",
         "confirm": "Add seat"
-      }
-    },
-    "account": {
-      "badges": {
-        "free": "Free",
-        "limitReached": "Limit reached",
-        "pastDue": "Past due",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "Trial"
-      },
-      "billing": {
-        "couldNotOpenDescription": "We had trouble opening the billing page. Please try again.",
-        "couldNotOpenTitle": "Couldn't open billing",
-        "manageBilling": "Manage Billing",
-        "opening": "Opening...",
-        "updatePaymentMethod": "Update Payment Method",
-        "contactOwnerTitle": "Contact your workspace owner",
-        "contactOwnerDescription": "Only the workspace owner can update billing for this workspace."
-      },
-      "checkout": {
-        "couldNotOpenDescription": "We had trouble opening the checkout page. Please try again.",
-        "couldNotOpenTitle": "Couldn't open checkout",
-        "opening": "Opening...",
-        "upgradeToPro": "Upgrade to Pro"
-      },
-      "disabled": "Disabled",
-      "featuresDisabled": "Account Features Disabled",
-      "featuresDisabledDescription": "Set VITE_AUTH_URL in your .env file to enable account features.",
-      "notConfigured": "Authentication is not configured",
-      "notSignedIn": "Not signed in",
-      "notSignedInDescription": "Create an account to unlock premium features.",
-      "offline": "Offline",
-      "pastDue": {
-        "description": "You're on the free plan for now. Update your payment method to get back to Pro.",
-        "title": "We couldn't process your payment"
-      },
-      "planDescriptions": {
-        "freeUsage": "{{used}} / {{limit}} words this week",
-        "nextBilling": "Next billing: {{date}}",
-        "pastDue": "{{used}} / {{limit}} free words this week - update payment to restore Pro",
-        "trial": "{{days}} days remaining - unlimited transcriptions",
-        "unlimited": "Unlimited"
-      },
-      "planLabels": {
-        "free": "Free",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "Trial"
-      },
-      "pricing": {
-        "title": "Plans",
-        "billedYearly": "Billed yearly",
-        "free": {
-          "name": "Free",
-          "price": "$0",
-          "period": "forever",
-          "features": [
-            "## Loqui Cloud",
-            "2,000 words/week transcription",
-            "5 hours of meeting recordings/month",
-            "## Always free",
-            "Unlimited local AI models",
-            "Unlimited cloud transcription with your own API keys",
-            "100+ languages supported",
-            "Custom dictionary",
-            "Zero data retention",
-            "Community support"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/mo",
-          "annualPrice": "$80",
-          "annualPeriod": "/yr",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "All Free features +",
-          "features": [
-            "Unlimited cloud transcription",
-            "20 hours of meeting recordings/month",
-            "Sync across devices",
-            "Share notes with public links",
-            "Personal API access",
-            "MCP integration in all your apps",
-            "Mobile app",
-            "Email support"
-          ],
-          "cta": "Get Started",
-          "switchToAnnual": "Switch to Annual"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/mo",
-          "annualPrice": "$160",
-          "annualPeriod": "/yr",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "All Pro features +",
-          "badge": "Most Popular",
-          "features": [
-            "Unlimited meeting recordings",
-            "Workspace roles & member management",
-            "Assistant mode",
-            "Chat over your data",
-            "Priority support"
-          ],
-          "cta": "Get Started",
-          "switchToAnnual": "Switch to Annual"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "Custom",
-          "subtitle": "For advanced security & support",
-          "includesPrefix": "All Business features +",
-          "features": [
-            "Managed API credits",
-            "Cloud sync across devices",
-            "Team features & admin",
-            "SSO & compliance",
-            "Dedicated support"
-          ],
-          "cta": "Contact Sales",
-          "upgradeCta": "Upgrade to Enterprise",
-          "askOwner": "Ask {{name}} to upgrade your workspace."
-        },
-        "currentPlan": "Current plan",
-        "coveredByWorkspace": "Included with your workspace plan",
-        "upgrade": "Upgrade",
-        "downgrade": "Downgrade",
-        "planSwitched": "Plan updated successfully",
-        "confirmSwitch": {
-          "title": "Confirm plan change",
-          "description": "Switch to {{plan}} ({{interval}})",
-          "monthly": "monthly",
-          "yearly": "yearly",
-          "chargeToday": "Charge today",
-          "accountCredit": "Account credit",
-          "newPrice": "New price",
-          "nextBilling": "Next billing",
-          "mo": "mo",
-          "yr": "yr",
-          "cancel": "Cancel",
-          "confirm": "Confirm"
-        }
-      },
-      "rollingWeeklyLimit": "Rolling weekly limit",
-      "signOut": {
-        "failedDescription": "Something went wrong signing out. Please try again.",
-        "failedTitle": "Couldn't sign out",
-        "signOut": "Sign Out",
-        "signingOut": "Signing out..."
-      },
-      "title": "Account",
-      "toasts": {
-        "approachingLimit": {
-          "description": "You've used {{used}} of {{limit}} free words this week. Upgrade to Pro for unlimited use.",
-          "title": "Approaching weekly limit"
-        }
-      },
-      "trialCta": {
-        "button": "Create Free Account",
-        "description": "Unlimited transcriptions, priority processing, and more.",
-        "title": "Try Pro free for 7 days"
-      },
-      "signedOutPlans": {
-        "button": "Create Free Account"
-      },
-      "user": "User",
-      "wordsRemaining": "{{remaining}} remaining",
-      "deleteAccount": {
-        "label": "Delete Account",
-        "labelDescription": "Permanently delete your account and personal cloud data. Other local users and workspace-owned content are preserved.",
-        "button": "Delete My Account",
-        "deleting": "Deleting...",
-        "title": "Delete Your Account?",
-        "description": "This permanently deletes your Loqui account and personal data. Workspace-owned content and data belonging to other local users stay on this device.",
-        "confirmText": "Delete Account",
-        "eraseDeviceLabel": "Also erase all data from this device",
-        "eraseDeviceDescription": "Deletes every local user's notes and workspace cache, downloaded models, settings, calendar connections, credentials, and recordings.",
-        "eraseDeviceWarning": "This device-wide erasure cannot be undone and affects every local user.",
-        "successTitle": "Account Deleted",
-        "successDescription": "Your account and personal data were deleted. Other local users, workspaces, models, and device settings were preserved.",
-        "partialCleanupDescription": "Your account was deleted, but some local cleanup could not finish. Other users and workspace-owned content were preserved.",
-        "failedTitle": "Deletion Failed",
-        "failedDescription": "Account deletion could not complete. No device-wide erasure was started. Please try again."
-      },
-      "profile": {
-        "name": {
-          "label": "Display name",
-          "placeholder": "Your name",
-          "save": "Save",
-          "saving": "Saving...",
-          "saved": "Display name updated",
-          "error": "Couldn't update your name"
-        },
-        "password": {
-          "label": "Password",
-          "description": "Change the password you use to sign in.",
-          "change": "Change password",
-          "dialogTitle": "Change password",
-          "dialogDescription": "Enter your current password and choose a new one.",
-          "currentLabel": "Current password",
-          "newLabel": "New password",
-          "confirmLabel": "Confirm new password",
-          "minLength": "Password must be at least 8 characters",
-          "mismatch": "Passwords don't match",
-          "revokeOthers": "Sign out other devices",
-          "submit": "Update password",
-          "saving": "Updating...",
-          "cancel": "Cancel",
-          "saved": "Password updated"
-        },
-        "errors": {
-          "invalidPassword": "Your current password is incorrect.",
-          "passwordTooShort": "Password must be at least 8 characters.",
-          "passwordTooLong": "Password is too long.",
-          "noPassword": "No password is set for this account.",
-          "generic": "Something went wrong. Please try again."
-        }
-      },
-      "planUnavailable": {
-        "title": "Plan unavailable",
-        "description": "We couldn't load your plan right now. Your access is unchanged."
       }
     },
     "agentConfig": {
@@ -1991,19 +1623,15 @@
       "enableTextCleanup": "Enable text cleanup",
       "enableTextCleanupDescription": "Use AI to remove filler words, fix grammar, and polish punctuation",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Cloud Providers",
         "local": "Local",
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
-        "openwhisprDesc": "Reliable accuracy. No setup needed.",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "On-device models. Fully private.",
+        "localDesc": "Runs on this device. Nothing leaves it.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "Reliable accuracy. No setup needed.",
       "title": "AI Text Enhancement",
       "toasts": {
         "switchedCloud": {
@@ -2147,7 +1775,14 @@
         "dictationSoundsDescription": "Play a tone when recording starts and stops",
         "pauseMedia": "Pause media",
         "pauseMediaDescription": "Automatically pause music when dictation starts",
-        "title": "Sound Effects"
+        "title": "Sound Effects",
+        "cueSet": "Sound style",
+        "cueSetSoft": "Soft",
+        "cueSetClassic": "Classic",
+        "cueVolume": "Volume",
+        "cueVolumeLow": "Low",
+        "cueVolumeMedium": "Medium",
+        "cueVolumeHigh": "High"
       },
       "notifications": {
         "title": "Notifications",
@@ -2157,7 +1792,9 @@
         "meetingDetection": "Meeting detection",
         "meetingDetectionDescription": "Notify when a meeting is detected so you can start recording",
         "calendarReminders": "Calendar reminders",
-        "calendarRemindersDescription": "Notify when a scheduled meeting is about to start"
+        "calendarRemindersDescription": "Notify when a scheduled meeting is about to start",
+        "meetingRecorderOnScreen": "Show meeting recorder on screen",
+        "meetingRecorderOnScreenDescription": "While a meeting records, the dictation pill shows a timer and a Stop button."
       },
       "clipboard": {
         "title": "Clipboard",
@@ -2345,8 +1982,6 @@
       "cloudNotesMigrationDone": "All notes backed up",
       "description": "Control what data leaves your device. Everything is off by default.",
       "title": "Privacy",
-      "usageAnalytics": "Usage analytics",
-      "usageAnalyticsDescription": "Help us improve Loqui by sharing anonymous performance metrics. We never send transcription content — only timing and error data.",
       "insightsSync": "Sync personal Insights",
       "insightsSyncDescription": "Sync word counts, the date and exact time of each dictation, durations, and model types across your devices. Transcript content is never included. When you're signed in, clearing history also removes these counters from this device and your account.",
       "insightsSyncRequiresAccount": "Sign in to sync content-free Insights data across your devices.",
@@ -2364,7 +1999,6 @@
       "audioStorageFiles": "{{count}} files, {{size}}",
       "audioStorageEmpty": "No audio files stored",
       "clearAllAudio": "Clear All Audio",
-      "clearAllAudioConfirm": "Delete all stored audio files? This cannot be undone.",
       "dataRetention": "Data Retention",
       "dataRetentionDescription": "Store transcriptions and audio locally in your history. When disabled, transcriptions are pasted but not saved.",
       "transcriptRetention": "Transcript Retention",
@@ -2375,7 +2009,14 @@
       "lastSynced": "Last synced {{time}}",
       "minutesAgo": "{{count}}m ago",
       "saveDiscarded": "Save discarded dictations",
-      "saveDiscardedDescription": "When you cancel a dictation with Escape, keep its audio in history so you can recover it. Requires data and audio retention to be on."
+      "saveDiscardedDescription": "When you cancel a dictation with Escape, keep its audio in history so you can recover it. Requires data and audio retention to be on.",
+      "clearAllAudioTitle": "Clear all audio?",
+      "clearAllAudioCounted": "Stored audio: {{summary}}. Delete all of it? This cannot be undone.",
+      "clearAllAudioAction": "Delete audio",
+      "clearAllAudioDone": "Stored audio deleted",
+      "clearAllAudioFailed": "Not all stored audio was deleted. Try again, or check that no other app is using the files.",
+      "audioStorageChecking": "Checking stored audio…",
+      "audioStorageUnavailable": "Loqui couldn't read its audio folder, so it can't show or clear stored audio right now."
     },
     "prompts": {
       "description": "View, customize, and test the unified system prompt that powers text cleanup and instruction detection",
@@ -2399,7 +2040,16 @@
         "dictationAgent": "Voice Assistant",
         "noteFormatting": "Note Formatting",
         "chatIntelligence": "Chat",
-        "dictationTranslation": "Translation"
+        "dictationTranslation": "Translation",
+        "supportModels": "On-device support"
+      },
+      "supportModels": {
+        "title": "On-device support models",
+        "description": "Small models that always run on this device. Your recordings and notes never leave it for these tasks.",
+        "downloaded": "Downloaded",
+        "checking": "Checking…",
+        "download": "Download {{size}}",
+        "statusUnavailable": "Status unavailable"
       }
     },
     "noteFormatting": {
@@ -2411,19 +2061,15 @@
       "customSetupDescription": "Use your own provider and API key.",
       "description": "Choose how Loqui transcribes your voice",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Cloud Providers",
         "local": "Local",
         "selfHosted": "Self-Hosted",
-        "openwhisprDesc": "Reliable accuracy. No setup needed.",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "On-device models. Fully private.",
+        "localDesc": "Runs on this device. Nothing leaves it.",
         "selfHostedDesc": "Your own server on your network.",
         "enterprise": "Enterprise cloud",
         "enterpriseDesc": "Audio goes to your organization's own cloud."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "Reliable accuracy. No setup needed.",
       "title": "Speech to Text",
       "toasts": {
         "switchedCloud": {
@@ -2518,7 +2164,16 @@
     "selfHosted": {
       "endpointUrl": "Endpoint URL",
       "serverUrl": "Server URL",
-      "apiKeyOptional": "API Key (optional)"
+      "apiKeyOptional": "API Key (optional)",
+      "test": "Test",
+      "testing": "Testing…",
+      "testTitle": "Asks {{host}} for its model list. No key is sent.",
+      "testOk_one": "Connected · {{count}} model",
+      "testOk_other": "Connected · {{count}} models",
+      "testFail": "Couldn't list models at {{host}}. Check the address and that the server is running.",
+      "testHttpsRequired": "Plain http:// works only for addresses on your own network.",
+      "sharedReadOnly": "Audio upload uses the dictation server. Change it under Speech-to-Text › Dictation.",
+      "notSet": "Not set"
     },
     "enterpriseCheckout": {
       "title": "Upgrade to Enterprise",
@@ -2547,6 +2202,19 @@
       "upgradeCta": "Upgrade now",
       "upgradedTitle": "Upgraded to Enterprise",
       "upgradedDescription": "{{workspace}} is now on Enterprise."
+    },
+    "reviewSetup": {
+      "title": "Review dictation setup",
+      "description": "Return to the focused setup flow without changing your existing notes or credentials.",
+      "action": "Open setup"
+    },
+    "labs": {
+      "title": "Labs",
+      "description": "Prototypes that are still being shaped. You can turn them off at any time.",
+      "table": {
+        "label": "The Table",
+        "description": "A canvas view for a space: spread notes, dictations and answers out and link them. Card positions stay on this device; Summarise and Ask use your chat provider."
+      }
     }
   },
   "models": {
@@ -2690,12 +2358,19 @@
       "contextTooLarge": "This is too long for {{model}} to read on this computer. It needs about {{needed}} tokens of context, but only {{max}} fit in memory. Try a cloud model, or run the action on a shorter selection.",
       "contextTooLargeGeneric": "This is too long for {{model}} to read on this computer. Try a cloud model, or run the action on a shorter selection.",
       "localServerUnavailable": "{{model}} couldn't be started on this computer. Try again, or switch to a cloud model."
-    }
+    },
+    "downloadingNamed": "Downloading {{model}}",
+    "installingNamed": "Installing {{model}}",
+    "deleteNamed": "Delete {{model}}",
+    "listLabel": "Models"
   },
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "Spaces",
+      "recent": "Recent",
+      "voice": "Voice"
     },
     "navigation": "Main navigation",
     "home": "Home",
@@ -2721,7 +2396,8 @@
     "notSignedIn": "Not signed in",
     "chat": "Chat",
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar"
+    "expand": "Expand sidebar",
+    "calendars": "Calendars"
   },
   "insights": {
     "title": "Insights",
@@ -2847,7 +2523,10 @@
       "saved": "Image downloaded.",
       "failed": "The share card couldn't be created.",
       "unnamedMember": "Teammate"
-    }
+    },
+    "openHistory": "Open History",
+    "openDictations": "Show dictations in History",
+    "focusHeatmap": "Go to the activity chart"
   },
   "workspaces": {
     "switcher": {
@@ -2945,7 +2624,27 @@
     "searchChats": "Search chats",
     "searchTitle": "Search conversations",
     "searchDescription": "Search across all your conversations",
-    "newChatEmpty": "Ask about your notes, transcripts, or anything else"
+    "newChatEmpty": "Ask about your notes, transcripts, or anything else",
+    "assistant": "Assistant",
+    "sources": {
+      "label": "Sources",
+      "note": "Note",
+      "meeting": "Meeting"
+    },
+    "model": {
+      "changeHint": "Change in Settings"
+    },
+    "rail": {
+      "label": "Context",
+      "toggle": "Context",
+      "inScope": "In scope",
+      "found": "Found automatically",
+      "emptyScope": "Type @ to add a note, meeting or folder. The assistant also searches your notes on its own.",
+      "unpin": "Remove {{label}} from context",
+      "activity": "Activity",
+      "noActivity": "Nothing yet",
+      "addContext": "Add context"
+    }
   },
   "referral": {
     "title": "Refer and earn rewards",
@@ -3218,7 +2917,7 @@
       "transcriptEmptyDescription": "Hit record to start transcribing. Everything said shows up here as it happens.",
       "startRecording": "Start recording",
       "generateSummary": "Generate AI Summary",
-      "startWriting": "Start writing...",
+      "startWriting": "Type, dictate or paste. Press / for blocks and actions.",
       "staleIndicator": "Content has changed since enhancement",
       "live": "Live",
       "transcript": "Transcript",
@@ -3261,7 +2960,6 @@
       "newFolder": "New Folder",
       "folderName": "Folder name",
       "create": "Create",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "Custom",
       "selectFolder": "Select folder",
       "transcriptionFailed": "Transcription failed",
@@ -3318,7 +3016,9 @@
       "urlFileTooLarge": "File is too large to download. The maximum size is 500 MB.",
       "urlYoutubeBlocked": "YouTube is temporarily blocking downloads from your network. Try again in a little while.",
       "customEndpointInvalid": "Custom transcription endpoint is not configured or invalid. Update it in Settings.",
-      "streamingOnlyProvider": "This provider only supports live transcription. Choose another provider for file uploads and retries."
+      "streamingOnlyProvider": "This provider only supports live transcription. Choose another provider for file uploads and retries.",
+      "needsModel": "Uploads need a transcription model.",
+      "chooseModel": "Choose a transcription model"
     },
     "meeting": {
       "title": "Meeting Notes",
@@ -3520,6 +3220,60 @@
       "author": {
         "you": "You"
       }
+    },
+    "actionsModelHint": {
+      "title": "Actions need an AI model",
+      "choose": "Choose a model",
+      "needsProvider": "Actions need an AI provider",
+      "chooseProvider": "Choose a provider",
+      "needsKey": "Actions need an API key for {{provider}}",
+      "addKey": "Add the key",
+      "needsUrl": "Actions need your server's address",
+      "addUrl": "Add the address",
+      "sealed": "Actions are paused while Sealed mode is on",
+      "unreachable": "Actions can't reach the notes model",
+      "openSettings": "Open Settings"
+    },
+    "slash": {
+      "label": "Insert block",
+      "empty": "No blocks match",
+      "aiNeedsModel": "Actions need an AI model",
+      "setupAi": "Set up notes AI…",
+      "ai": {
+        "needsModel": "Download the notes model in Settings",
+        "needsKey": "Add an API key in Settings",
+        "needsUrl": "Add a server address in Settings",
+        "off": "Notes AI is turned off in Settings",
+        "unreachable": "The notes model can't be reached",
+        "unknown": "Checking the notes model…"
+      },
+      "manageActions": "Manage actions…",
+      "groups": {
+        "text": "Text",
+        "ai": "AI",
+        "insert": "Insert"
+      },
+      "items": {
+        "h1": "Heading 1",
+        "h2": "Heading 2",
+        "h3": "Heading 3",
+        "bullet": "Bullet list",
+        "numbered": "Numbered list",
+        "todo": "To-do list",
+        "quote": "Quote",
+        "code": "Code",
+        "timestamp": "Time stamp",
+        "dictation": "Dictation here",
+        "mention": "Mention"
+      }
+    },
+    "bubble": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "link": "Link",
+      "linkUrl": "Link address",
+      "linkInvalid": "Use a web or email address",
+      "askAi": "Ask AI"
     }
   },
   "dictionary": {
@@ -3576,7 +3330,8 @@
     "emptyDescription": "Add words for {{agentName}} to always get right: names, tools, acronyms.",
     "addFirstWord": "Add your first word",
     "importList": "Import a list",
-    "agentDefault": "Added by default"
+    "agentDefault": "Added by default",
+    "exportAction": "Export"
   },
   "support": {
     "documentation": "Documentation",
@@ -3598,7 +3353,19 @@
     "edit": "Edit API key",
     "add": "Add API key",
     "editButton": "edit",
-    "addButton": "add"
+    "addButton": "add",
+    "saveFailed": "Couldn't save this key. Your entry is still here — try again.",
+    "removeFailed": "Couldn't remove this key. It is still saved.",
+    "removed": "Key removed.",
+    "removedCredential": "Credential removed (all of its fields).",
+    "removeCredential": "Remove credential (all fields)",
+    "restored": "Key restored.",
+    "undo": "Undo",
+    "undoLabel": "Undo removing the key",
+    "undoExpired": "Too late to undo. Add the key again.",
+    "undoReplaced": "A newer key was saved, so the removed one was not restored.",
+    "undoUnknown": "This removal can no longer be undone. Add the key again.",
+    "undoRetry": "Couldn't restore the key. Try Undo again."
   },
   "gpu": {
     "transcriptionBanner": "Speed up transcription with GPU acceleration",
@@ -3678,15 +3445,20 @@
       "visionModelDescription": "Route commands that include a screenshot to a different, vision-capable model.",
       "permissionTitle": "Screen Recording",
       "permissionDescription": "macOS requires Screen Recording permission to capture your screen.",
-      "relaunchHint": "Screen Recording was granted while Loqui was running. Quit and reopen Loqui to start capturing screenshots."
+      "relaunchHint": "Screen Recording was granted while Loqui was running. Quit and reopen Loqui to start capturing screenshots.",
+      "goesToDevice": "When a voice assistant recording starts, Loqui captures the display your cursor is on. The screenshot goes to {{model}} on this device and stays there. Loqui never saves or logs it.",
+      "goesToDeviceNoModel": "Screen context is configured for this device, but its model is unspecified. Review the voice assistant and vision model settings before recording.",
+      "goesToServer": "When a voice assistant recording starts, Loqui captures the display your cursor is on. Your server at {{host}} then receives {{payload}}. Loqui never saves or logs the screenshot.",
+      "goesToServerNoHost": "When a voice assistant recording starts, Loqui captures the display your cursor is on. Your server then receives {{payload}}. Loqui never saves or logs the screenshot.",
+      "goesToProvider": "When a voice assistant recording starts, Loqui captures the display your cursor is on. {{provider}} ({{host}}) then receives {{payload}}. Loqui never saves or logs the screenshot.",
+      "goesToProviderNoHost": "When a voice assistant recording starts, Loqui captures the display your cursor is on. {{provider}} then receives {{payload}}. Loqui never saves or logs the screenshot.",
+      "destinationUnspecified": "The screen-context destination is not configured. Review the voice assistant and vision model settings before recording."
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "Use the Loqui-managed assistant — no API key needed.",
       "providers": "Bring your own key",
       "providersDesc": "Connect to OpenAI, Anthropic, Gemini, or Groq with your own API key.",
       "local": "Local",
-      "localDesc": "Run a local LLM on your device — fully private.",
+      "localDesc": "Runs a local model on this device. Nothing leaves it.",
       "selfHosted": "Self-hosted",
       "selfHostedDesc": "Point at a self-hosted OpenAI-compatible endpoint.",
       "enterprise": "Enterprise",
@@ -3703,14 +3475,12 @@
       "systemPromptDescription": "Custom instructions for the assistant",
       "systemPromptPlaceholder": "Enter custom system prompt...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "Cloud Providers",
         "local": "Local",
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
-        "openwhisprDesc": "Reliable accuracy. No setup needed.",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "On-device models. Fully private.",
+        "localDesc": "Runs on this device. Nothing leaves it.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       }
@@ -3725,7 +3495,13 @@
       "thinking": "Thinking...",
       "typeMessage": "Type a message...",
       "send": "Send",
-      "voiceDraftStreamingOnly": "Voice input isn't available with your transcription provider: it only supports live dictation. Choose another provider in Settings → Speech to Text."
+      "voiceDraftStreamingOnly": "Voice input isn't available with your transcription provider: it only supports live dictation. Choose another provider in Settings → Speech to Text.",
+      "queued": "Sends when the reply finishes",
+      "unqueue": "Don't send when done",
+      "queueDropped": "Not sent: the conversation or model changed. Press Enter to send it here.",
+      "unsent": "Your earlier message wasn't sent.",
+      "restoreUnsent": "Put it back",
+      "discardUnsent": "Discard"
     },
     "tools": {
       "search_notesName": "Search notes",
@@ -3754,7 +3530,9 @@
       "copiedToClipboard": "Copied to your clipboard",
       "openNote": "Open note",
       "unknownTool": "Unknown tool: {{name}}",
-      "invalidArgs": "Invalid tool arguments for {{name}}"
+      "invalidArgs": "Invalid tool arguments for {{name}}",
+      "summary_one": "Searched {{count}} note",
+      "summary_other": "Searched {{count}} notes"
     }
   },
   "assistant": {
@@ -3964,15 +3742,47 @@
     "sections": {
       "notes": "Notes",
       "transcripts": "Transcripts",
-      "jumpTo": "Jump to"
+      "jumpTo": "Jump to",
+      "suggested": "Suggested",
+      "recent": "Recent",
+      "commands": "Commands",
+      "meetings": "Meetings",
+      "chats": "Chats",
+      "folders": "Folders"
     },
     "noResults": "No results",
     "emptyState": "Start typing to search",
     "footer": {
       "navigate": "Navigate",
       "open": "Open",
-      "dismiss": "Dismiss"
-    }
+      "dismiss": "Dismiss",
+      "scope": "Scope",
+      "close": "Close"
+    },
+    "placeholderAll": "Search notes, meetings, or run a command…",
+    "commands": {
+      "newNote": "New note",
+      "startDictation": "Start dictation",
+      "askAssistant": "Ask the assistant",
+      "goNotes": "Go to Notes",
+      "goHome": "Go to Home",
+      "goChat": "Go to Chat",
+      "recordMeeting": "Record meeting",
+      "uploadAudio": "Upload audio…",
+      "newChat": "New chat",
+      "openSettings": "Open settings",
+      "switchSpeechModel": "Switch speech model…",
+      "toggleTheme": "Toggle dark theme"
+    },
+    "askAssistant": "Ask the assistant: “{{query}}”",
+    "nothingMatches": "Nothing matches “{{query}}”.",
+    "meta": {
+      "meeting": "Meeting",
+      "chat": "Chat"
+    },
+    "clear": "Clear search",
+    "seeAllTranscripts_one": "See {{count}} match in History",
+    "seeAllTranscripts_other": "See all {{count}} in History"
   },
   "emojiPicker": {
     "search": "Search emoji…",
@@ -4054,7 +3864,12 @@
       "underway": "It sounds like your meeting is underway. Want to take notes?"
     },
     "start": "Take notes",
-    "join": "Join & transcribe"
+    "join": "Join & transcribe",
+    "bodyApp": "Meeting in {{app}} detected.",
+    "privacy": "Detected on this device. Nothing recorded yet.",
+    "mini": "Meeting? Start notes",
+    "accepted": "Taking notes",
+    "dismiss": "Dismiss"
   },
   "localModels": {
     "importedProvider": "Imported GGUF",
@@ -4082,7 +3897,10 @@
     "cancel": "Cancel sign-in",
     "connect": "Connect ChatGPT",
     "refresh": "Refresh",
-    "loginFailed": "Sign-in could not be completed."
+    "loginFailed": "Sign-in could not be completed.",
+    "signedInStored": "Signed in to ChatGPT on this device. Check ChatGPT status to see the account and remaining usage.",
+    "checkStatus": "Check ChatGPT status",
+    "checkStatusTitle": "Starts the Codex app, which asks ChatGPT (via the Codex app) for your sign-in and remaining usage. The first check after Loqui starts also asks GitHub to confirm the Codex app is an official release. Loqui sends no saved key."
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",
@@ -4119,6 +3937,7 @@
     "beta": "Beta and stable",
     "downloading": "Downloading update: {{percent}}%",
     "ready": "Loqui {{version}} is ready. Finish active work before restarting.",
+    "available": "Loqui {{version}} is available. Turn on automatic updates to install it, or download it from GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"
@@ -4129,5 +3948,1119 @@
     "remote": "Sent to {{provider}}",
     "unknownProvider": "Unknown provider",
     "customEndpoint": "Custom endpoint"
+  },
+  "routes": {
+    "groups": {
+      "speech": "Speech",
+      "text": "Text",
+      "support": "This device only"
+    },
+    "names": {
+      "dictationStt": "Dictation",
+      "noteRecordingStt": "Note recording",
+      "uploadStt": "Audio upload",
+      "dictationCleanup": "Dictation cleanup",
+      "voiceAssistant": "Voice assistant",
+      "assistantVision": "Assistant vision",
+      "translation": "Translation",
+      "noteFormatting": "Note formatting",
+      "chat": "Chat",
+      "speakerId": "Speaker identification",
+      "semanticSearch": "Semantic search"
+    },
+    "subtitles": {
+      "dictationStt": "Tap-to-talk into any app",
+      "noteRecordingStt": "Meetings and voice notes",
+      "uploadStt": "Transcribe an imported file",
+      "dictationCleanup": "Fix fillers and punctuation",
+      "voiceAssistant": "Ask, then it answers",
+      "assistantVision": "Screenshots sent with assistant requests",
+      "translation": "Dictate in one language, paste in another",
+      "noteFormatting": "Summaries and action items",
+      "chat": "Ask questions about your notes",
+      "speakerId": "Who said what in meetings",
+      "semanticSearch": "Find notes by meaning"
+    },
+    "payload": {
+      "audio": "your audio",
+      "audioFile": "the audio file",
+      "meetingAudio": "meeting audio from your microphone and the call",
+      "dictionary": "your dictionary words and snippet triggers",
+      "dictionaryWords": "your dictionary words",
+      "transcript": "your transcript text",
+      "request": "your spoken request",
+      "selectedText": "text you have selected",
+      "history": "recent conversation",
+      "lookups": "notes and calendar details it looks up",
+      "noteText": "your note text",
+      "meetingTranscript": "the meeting transcript with speaker names",
+      "participants": "attendee names and email addresses",
+      "screenshot": "a screenshot of your screen",
+      "webSearch": "permission for the provider to search the web",
+      "messages": "your messages",
+      "metadataNote": "Settings such as language and model names are sent too."
+    },
+    "runsOn": "{{task}} runs on",
+    "place": {
+      "chooseProvider": "Choose a provider"
+    },
+    "selection": {
+      "current": "Current",
+      "selected": "Selected",
+      "staged": "Staged, not active"
+    },
+    "state": {
+      "ready": "Ready",
+      "off": "Off",
+      "checking": "Checking…",
+      "download": "Download {{size}}",
+      "chooseModel": "Choose a model",
+      "addKey": "Add API key",
+      "chooseProvider": "Choose a provider",
+      "addUrl": "Add server URL",
+      "sealed": "Paused · Sealed mode",
+      "retired": "Service retired · choose again",
+      "unsupported": "Not available for this task",
+      "cantReach": "Can't reach the server"
+    },
+    "toast": {
+      "local": "{{task}} now runs on this device.",
+      "sends": "{{task}} now sends {{payload}} to {{destination}}.",
+      "whenOn": "{{task}} will use {{destination}} when you turn it on.",
+      "off": "{{task}} is off. Nothing is sent.",
+      "saved": "{{task}} settings saved.",
+      "thisDevice": "this device",
+      "server": "your server",
+      "serverAt": "your server at {{host}}",
+      "chooseModel": "Choose a model to finish.",
+      "signInNext": "Sign in to {{provider}} next. Nothing is sent until you do.",
+      "alsoChanges": "Also changes {{tasks}}.",
+      "undo": "Undo",
+      "undoStaged": "Undo is staged. Review it, then apply."
+    }
+  },
+  "staging": {
+    "region": "Pending route change",
+    "heading": "Review before anything is sent",
+    "coupled": "Also changes",
+    "sends": "Sends {{payload}}",
+    "staysOnDevice": "Stays on this device",
+    "offNote": "Off. Used when you turn it on.",
+    "setupHere": "Set up {{provider}} here before applying. Nothing is sent until you apply.",
+    "discard": "Discard",
+    "apply": "Apply",
+    "blocked": {
+      "needsKey": "{{provider}} needs a key first.",
+      "chooseProvider": "Choose a provider to see what will be sent.",
+      "needsUrl": "Enter a valid server address.",
+      "needsModel": "Download the model first.",
+      "chooseModel": "Choose a model first.",
+      "signIn": "Sign in to {{provider}} first. Nothing is sent until you apply.",
+      "sealed": "Sealed mode is on. Routes that leave this device are paused.",
+      "unknown": "Still checking saved keys and models. Try again in a moment.",
+      "unsupported": "This provider can't run this task."
+    },
+    "provider": "Provider",
+    "model": "Model",
+    "modelId": "Model ID",
+    "useModel": "Use this model",
+    "keySaved": "key saved",
+    "noKey": "no key",
+    "cloud": {
+      "title": "Send {{task}} to a cloud provider?",
+      "body": "Pick a provider. Nothing is sent until you apply."
+    },
+    "server": {
+      "title": "Send {{task}} to your own server?",
+      "body": "Enter the server address. Nothing is sent until you apply."
+    },
+    "sharedWithDictation": "Audio upload uses the dictation server, {{url}}. Change it under Speech-to-Text › Dictation.",
+    "serverUrl": "Server address",
+    "endpointUrl": "Endpoint URL",
+    "useEndpoint": "Use this endpoint",
+    "useServer": "Use this server",
+    "url": {
+      "empty": "Paste or type the base URL.",
+      "invalid": "That isn't a web address yet. Start with https:// or http://.",
+      "insecure": "Plain http:// works only for addresses on your own network. Use https://.",
+      "http": "http:// isn't encrypted. Fine on your own network.",
+      "ok": "Looks good."
+    }
+  },
+  "patchbay": {
+    "title": "Routing",
+    "description": "Every task, and where it runs right now. Moves to this device apply at once and can be undone. Moves to a server or a provider wait for you to review and apply them.",
+    "tasks": "Tasks",
+    "destinations": "Destinations",
+    "openSettings": "Open {{task}} settings",
+    "sealed": "Sealed mode is on. Tasks can only run on this device.",
+    "undo": "Undo",
+    "kind": {
+      "speech": "speech",
+      "text": "text"
+    },
+    "hint": {
+      "idle": "Choose a task, then where it should run.",
+      "pickDestination": "Send {{task}} to… choose a highlighted destination.",
+      "pickTaskFirst": "Choose a task first, then where it should run.",
+      "already": "{{task}} already runs {{place}}.",
+      "off": "{{task}} is switched off. Turn it on in its settings.",
+      "moved": "{{task}} now runs {{place}}.",
+      "movedOff": "{{task}} is off. When you turn it on, it will run {{place}}.",
+      "movedAlso": "Also changed: {{tasks}}.",
+      "staged": "Review {{task}} → {{destination}} below, then apply it. Nothing is sent until you do.",
+      "undone": "{{task}} is back where it was.",
+      "undoStaged": "Moving back needs your review below.",
+      "notApplied": "Nothing changed.",
+      "failed": "Couldn't change the route: {{error}}"
+    },
+    "locked": {
+      "speakerId": "Locked to this device: speaker identification needs your recordings on-device.",
+      "semanticSearch": "Locked to this device: embeddings stay local, so search never sends your notes anywhere."
+    },
+    "no": {
+      "capability": "{{provider}} can't run this task in Loqui.",
+      "visionCloudOnly": "Screenshots can only go to a cloud vision model today.",
+      "meetingServer": "Note recording can't use your own server yet.",
+      "sealed": "Sealed mode keeps this task on this device.",
+      "uploadServer": "File upload uses the server set for Dictation. Change it there.",
+      "serverKind": "{{server}} hasn't been set up for {{kind}} tasks. Use “Add a server” to enter its address."
+    },
+    "place": {
+      "device": "on this device",
+      "server": "on your server at {{host}}",
+      "anyServer": "on your server",
+      "endpoint": "on {{name}} at {{host}}",
+      "provider": "on {{provider}}"
+    },
+    "dest": {
+      "serverAt": "Server at {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "Add a server",
+      "addServerHint": "You enter its address next",
+      "nothingLeaves": "Nothing leaves",
+      "yourServer": "Your own server",
+      "unencrypted": "http, not encrypted",
+      "hosted": "Hosted provider",
+      "keySaved": "API key saved",
+      "noKey": "No key saved yet",
+      "keyRejected": "Key rejected",
+      "keyUnknown": "Checking saved keys…"
+    },
+    "taskCount_one": "{{count}} task",
+    "taskCount_other": "{{count}} tasks",
+    "meter": {
+      "label_one": "{{count}} of {{total}} task stays on this device",
+      "label_other": "{{count}} of {{total}} tasks stay on this device",
+      "headline_one": "{{count}} of {{total}} task stays on this device",
+      "headline_other": "{{count}} of {{total}} tasks stay on this device",
+      "network_one": "{{count}} on your server",
+      "network_other": "{{count}} on your server"
+    },
+    "leaves": {
+      "none": "Nothing leaves this device.",
+      "prefix": "Leaves this device:",
+      "item": "{{task}} → {{destination}}"
+    }
+  },
+  "keyring": {
+    "reminder": {
+      "title": "Time to rotate your {{provider}} key",
+      "body": "You asked Loqui to remind you 90 days after saving this key. Replace it in Settings."
+    },
+    "fields": {
+      "environmentKey": "API key from Loqui's environment (GOOGLE_VERTEX_API_KEY)",
+      "key": "API key",
+      "clientId": "client ID",
+      "clientSecret": "client secret",
+      "accessKeyId": "access key ID",
+      "secretAccessKey": "secret access key",
+      "sessionToken": "session token",
+      "profile": "AWS profile credentials"
+    },
+    "title": "Keyring",
+    "subtitle": "Saved credentials and whether they still work. Results stay on this device.",
+    "verify": "Verify",
+    "verifyLabel": "Verify {{identity}}",
+    "verifyAll": "Verify all",
+    "verifyingAll": "Verifying {{current}} of {{total}}…",
+    "verifyTooltip": "Sends the saved {{fields}} of “{{identity}}” to {{host}} to check it.",
+    "verifyTarget": "Verify sends {{fields}} to {{host}}",
+    "verifyTargetUnknown": "Verify target not known yet",
+    "verifyTooltipNoHost": "Sends the saved credential “{{identity}}” to its provider to check it.",
+    "verifyAllTooltip": "Sends each saved credential below to its own provider, one at a time.",
+    "checking": "Checking…",
+    "never": "Never verified",
+    "lastVerified": "Last verified {{when}}",
+    "rejected": "Rejected ({{status}}). Replace the key.",
+    "rejectedNoStatus": "Rejected. Replace the key.",
+    "unreachable": "Couldn't reach {{host}}. Key kept, not verified.",
+    "unreachableNoHost": "Couldn't reach the provider. Key kept, not verified.",
+    "paused": "Paused: {{tasks}}",
+    "superseded": "The key changed while it was being checked, so that result was discarded. Verify again.",
+    "verifyFailed": "Couldn't verify. Try again.",
+    "invalidCortiOptions": "Nothing was sent: the Corti region “{{environment}}” or tenant “{{tenant}}” in Speech settings isn't valid. Fix it, then verify again.",
+    "loadFailed": "Couldn't refresh this list. Showing what was loaded before.",
+    "remind": "Remind in 90 days",
+    "remindLabel": "Remind me to rotate {{identity}} in 90 days",
+    "sealed": "Sealed mode is on, so verification is paused.",
+    "empty": "No saved credentials. Tasks that need one show “Add API key” in Routing.",
+    "identity": {
+      "cortiText": "{{provider}} · text API key",
+      "cortiSpeech": "{{provider}} · speech client ID and secret"
+    },
+    "status": {
+      "verified": "Verified",
+      "unverified": "Not verified yet",
+      "rejected": "Rejected",
+      "unreachable": "Couldn't verify"
+    },
+    "unknown": "Saved credential status is unavailable.",
+    "recipientChanged": "The credential or recipient changed. Review the updated target, then press Verify again.",
+    "unavailable": "Verification is unavailable. The saved credential status could not be confirmed."
+  },
+  "cartridge": {
+    "groupLabel": "Language model",
+    "speechGroupLabel": "Speech model",
+    "speed": "Speed",
+    "quality": "Quality",
+    "memory": "Memory use",
+    "meter": "{{label}} {{value}} of 5",
+    "estimate": "Meters are estimates from file size unless measured. Nothing is uploaded.",
+    "context": "{{k}}k context",
+    "tight": "Tight on this device",
+    "tooLarge": "Too large for this device: needs about {{needs}}, this device has {{total}}",
+    "notDownloaded": "Not downloaded yet",
+    "download": "Download",
+    "downloadNamed": "Download {{name}}",
+    "downloading": "Downloading {{name}}",
+    "cancel": "Cancel downloading {{name}}",
+    "delete": "Delete {{name}}",
+    "inUseBy": "In use by",
+    "showAll_one": "Show all {{count}}",
+    "showAll_other": "Show all {{count}}",
+    "showFewer": "Show fewer"
+  },
+  "storage": {
+    "title": "Storage",
+    "loading": "Counting…",
+    "countFailed": "Couldn't count. Nothing can be deleted until it is counted.",
+    "countAgain": "Count again",
+    "delete": "Delete…",
+    "deleting": "Deleting…",
+    "open": "Open",
+    "retry": "Try again",
+    "danger": "Danger zone",
+    "failed": {
+      "partial": "Deleted {{deleted}} of {{total}}. {{remaining}} could not be deleted.",
+      "unknown": "Loqui couldn't confirm what was deleted. Count again before you try again.",
+      "stale": "The stored items changed after you opened this, even if the counts stayed the same. Review the current items and counts before deleting.",
+      "historyRows": "Transcripts: deleted {{deleted}} of {{total}}.",
+      "historyAudio": "Audio files: deleted {{deleted}} of {{total}}. {{remaining}} could not be deleted.",
+      "historyAudioUnknown": "Audio files: Loqui couldn't confirm how many were deleted."
+    },
+    "audio": {
+      "title": "Dictation audio",
+      "empty": "No audio files stored",
+      "summary_one": "{{count}} file · {{size}}",
+      "summary_other": "{{count}} files · {{size}}",
+      "confirmTitle_one": "Delete {{count}} recording?",
+      "confirmTitle_other": "Delete {{count}} recordings?",
+      "confirmBody_one": "This permanently deletes {{count}} recording ({{size}}) from this folder, including any that no transcript links to. Transcripts stay. Copies already sent to a provider are not affected.",
+      "confirmBody_other": "This permanently deletes {{count}} recordings ({{size}}) from this folder, including any that no transcript links to. Transcripts stay. Copies already sent to a provider are not affected.",
+      "confirmButton_one": "Delete {{count}} recording",
+      "confirmButton_other": "Delete {{count}} recordings",
+      "done_one": "Deleted {{count}} recording.",
+      "done_other": "Deleted {{count}} recordings."
+    },
+    "models": {
+      "title": "Downloaded models",
+      "empty": "None downloaded",
+      "summary_one": "{{count}} model · {{size}}",
+      "summary_other": "{{count}} models · {{size}}",
+      "confirmTitle_one": "Delete {{count}} model?",
+      "confirmTitle_other": "Delete {{count}} models?",
+      "confirmBody_one": "This permanently deletes {{count}} downloaded model ({{size}}) from this folder. Tasks that use it will ask you to choose a model again.",
+      "confirmBody_other": "This permanently deletes {{count}} downloaded models ({{size}}) from this folder. Tasks that use them will ask you to choose a model again.",
+      "confirmButton_one": "Delete {{count}} model",
+      "confirmButton_other": "Delete {{count}} models",
+      "done_one": "Deleted {{count}} model.",
+      "done_other": "Deleted {{count}} models.",
+      "familyFailed": "{{family}} could not be deleted.",
+      "families": {
+        "whisper": "Whisper speech models",
+        "parakeet": "Parakeet speech models",
+        "llm": "Local language models"
+      }
+    },
+    "history": {
+      "title": "Transcript history",
+      "empty": "No transcripts or audio saved",
+      "summary_one": "{{count}} transcript",
+      "summary_other": "{{count}} transcripts",
+      "summaryWithHidden_one": "{{count}} transcript, including {{hidden}}",
+      "summaryWithHidden_other": "{{count}} transcripts, including {{hidden}}",
+      "hidden_one": "{{count}} discarded or deleted",
+      "hidden_other": "{{count}} discarded or deleted",
+      "transcripts_one": "{{count}} transcript",
+      "transcripts_other": "{{count}} transcripts",
+      "transcriptsWithHidden_one": "{{count}} transcript ({{discarded}}, {{deleted}})",
+      "transcriptsWithHidden_other": "{{count}} transcripts ({{discarded}}, {{deleted}})",
+      "discarded_one": "{{count}} discarded",
+      "discarded_other": "{{count}} discarded",
+      "softDeleted_one": "{{count}} deleted",
+      "softDeleted_other": "{{count}} deleted",
+      "audioFiles_one": "{{count}} audio file ({{size}})",
+      "audioFiles_other": "{{count}} audio files ({{size}})",
+      "audioFilesShort_one": "{{count}} audio file",
+      "audioFilesShort_other": "{{count}} audio files",
+      "confirmTitle": "Delete all transcript history?",
+      "confirmBody": "This permanently deletes {{transcripts}} and {{audio}}, and resets the Insights counters on this device. Copies already sent to a provider are not affected.",
+      "confirmButton": "Delete {{transcripts}} and {{audio}}",
+      "done_one": "Deleted {{count}} transcript and all saved audio.",
+      "done_other": "Deleted {{count}} transcripts and all saved audio."
+    },
+    "reset": {
+      "title": "Reset Loqui",
+      "description": "Deletes settings, history, audio, downloaded models and saved provider keys.",
+      "button": "Reset…",
+      "confirmTitle": "Reset Loqui?",
+      "confirmBody": "This deletes settings, history, audio, downloaded models and your saved provider keys, then restarts Loqui. It cannot be undone.",
+      "confirmButton": "Reset Loqui",
+      "typeLabel": "Type “{{word}}” to confirm",
+      "word": "reset",
+      "running": "Resetting…",
+      "failed": "Reset did not finish, so Loqui will not restart on its own. These steps failed:",
+      "done": "Reset complete. Loqui is restarting…"
+    }
+  },
+  "settingsSearch": {
+    "title": "Search results",
+    "placeholder": "Search settings",
+    "count_one": "{{count}} result",
+    "count_other": "{{count}} results",
+    "none": "No setting matches “{{query}}”. Try “mic”, “retention” or “cloud”.",
+    "items": {
+      "assistantEnabled": {
+        "description": "Ask by voice and get an answer"
+      },
+      "storage": {
+        "description": "Audio, models and history on this device"
+      }
+    }
+  },
+  "notices": {
+    "messageDetails": "Message and actions",
+    "dismiss": "Dismiss",
+    "wordsCard": {
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Couldn’t copy",
+      "copyFailedHint": "The clipboard didn’t take it. Your words are still here: select or drag them.",
+      "hint": "Drag the words into your app, or paste again.",
+      "dragHint": "Drag into the field you were typing in",
+      "more_one": "{{count}} more unsent",
+      "more_other": "{{count}} more unsent"
+    },
+    "pasted": "Pasted",
+    "actions": {
+      "pasteAgain": "Paste again"
+    },
+    "cleanupFailed": {
+      "title": "Pasted without cleanup",
+      "retry": "Retry cleanup",
+      "settings": "Settings",
+      "cleaned": "Cleaned text copied",
+      "cleanedBody": "Paste it where you want it.",
+      "noChanges": "Cleanup made no changes",
+      "retryFailed": "Cleanup failed again. Your words are unchanged.",
+      "noModel": "Choose a cleanup model in Settings.",
+      "unavailable": "The original cleanup operation is no longer available. Your words are still here."
+    },
+    "modelChanged": {
+      "title": "Model changed",
+      "accept": "Accept",
+      "choose": "Choose another"
+    },
+    "pasteFailed": "Couldn’t paste your words",
+    "undo": {
+      "sealed": "Undo blocked: Sealed mode is on and this recording's route leaves the device.",
+      "routeUnavailable": "Couldn't undo: the route this was recorded for is no longer available.",
+      "noAudio": "Couldn't undo: the recording was empty.",
+      "busy": "Finish the current dictation, then undo.",
+      "expired": "Too late to undo: that recording was already discarded.",
+      "notReady": "The recording is still arriving. Try Undo again.",
+      "unavailable": "Couldn't reach the dictation window to undo."
+    }
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "This recording’s destination could not be verified. Your words are preserved. Restore the original destination in Settings to retry, or start a new recording.",
+      "recipientChanged": "This recording is pinned to its original destination. Your words are preserved. Restore that destination in Settings to retry, or start a new recording.",
+      "recipientTitle": "Recording destination unavailable",
+      "streamingUnavailable": "Live transcription could not start for this recording. Check the selected provider in Settings and try again.",
+      "restoreFailed": "The recording could not be restored. Your audio is preserved for another try."
+    }
+  },
+  "pill": {
+    "tooltip": {
+      "hold": "Hold {{hotkey}} to talk",
+      "press": "Press {{hotkey}} to start"
+    },
+    "caption": {
+      "remoteAudio": "{{provider}} already received audio.",
+      "remoteText": "{{provider}} already received text.",
+      "remoteImage": "{{provider}} already received an image.",
+      "remoteSeveral": "{{provider}} already received part of this dictation.",
+      "mayHaveAudio": "{{provider}} may have received audio.",
+      "mayHaveText": "{{provider}} may have received text.",
+      "mayHaveImage": "{{provider}} may have received an image.",
+      "mayHaveSeveral": "{{provider}} may have received part of this dictation.",
+      "sealedPaused": "Dictation paused: Sealed mode is on"
+    },
+    "stage": {
+      "transcribing": "Transcribing…",
+      "cleaning": "Cleaning up",
+      "discardedUndo": "Discarded · Undo",
+      "paused": "Paused",
+      "pasted_one": "Pasted · {{count}} word",
+      "pasted_other": "Pasted · {{count}} words"
+    },
+    "locality": {
+      "sealed": "Blocked by Sealed mode",
+      "remote": "Sends to {{provider}}"
+    },
+    "route": {
+      "speech": "Speech: {{where}}",
+      "speechOff": "Speech: off",
+      "cleanup": "Cleanup: {{where}}",
+      "cleanupOff": "Cleanup: off",
+      "translation": "Translation: {{where}}",
+      "translationOff": "Translation: off",
+      "agent": "Agent: {{where}}",
+      "agentOff": "Agent: off",
+      "vision": "Screen context: {{where}}",
+      "visionOff": "Screen context: off"
+    },
+    "agent": {
+      "listening": "Agent · listening",
+      "screenContext": "Screen context on · intended for {{where}}",
+      "thinking": "Thinking · intended for {{where}}",
+      "thinkingScreenContext": "Thinking with screen context · intended for {{where}}"
+    }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "Recordings ready to recover",
+      "transcribe": "Transcribe recordings",
+      "discard": "Discard recordings"
+    }
+  },
+  "setupFlow": {
+    "progress": {
+      "nav": "Setup progress",
+      "dictate": "Get dictating",
+      "personalize": "Make it yours",
+      "ready": "Ready",
+      "label": "{{phase}} · {{step}}",
+      "goTo": "Go to {{step}}"
+    },
+    "steps": {
+      "welcome": "Hello",
+      "speech": "Voice",
+      "try": "Say something",
+      "cleanup": "Cleanup",
+      "shortcuts": "Shortcut",
+      "finish": "Ready"
+    },
+    "units": {
+      "mb": "{{value}} MB",
+      "gb": "{{value}} GB"
+    },
+    "download": {
+      "eta": {
+        "seconds": "about {{count}} s",
+        "minutes": "about {{count}} min"
+      },
+      "chip": "Downloading {{percent}}% · {{eta}} left",
+      "chipNoEta": "Downloading {{percent}}%",
+      "chipInstalling": "Installing voice model",
+      "chipCancelling": "Stopping the download…",
+      "chipCancelled": "Download cancelled",
+      "chipReady": "Voice model ready",
+      "chipFailed": "Download failed",
+      "received": "{{done}} of {{total}}",
+      "stoppedKept": "Download stopped at {{percent}}%. Your progress is kept.",
+      "stoppedRestart": "Download stopped at {{percent}}%. Retry starts it again.",
+      "cancelledLine": "You cancelled the download. Nothing is kept.",
+      "downloadAgain": "Download again",
+      "retry": "Retry",
+      "cancel": "Cancel",
+      "readyTitle": "Voice model ready",
+      "failedTitle": "The voice model didn't download",
+      "announcePercent": "Voice model download {{percent}} percent.",
+      "announceReady": "Voice model ready.",
+      "checking": "Checking your voice…",
+      "voiceModel": "Voice model",
+      "stoppedUnknown": "Stopped at {{percent}}%. The remaining download size could not be checked.",
+      "cleanupFailed": "The download stopped, but some download files could not be removed."
+    },
+    "brand": "Loqui setup",
+    "back": "Back",
+    "skipStep": "Skip this step",
+    "continue": "Continue",
+    "finishLater": "Finish later",
+    "lookAroundFirst": "Look around first",
+    "instrument": {
+      "idle": "Ready when you are",
+      "downloading": "Downloading · {{percent}}% · {{done}} of {{total}}",
+      "goodLevel": "Listening · good level",
+      "waiting": "Listening · waiting for your voice",
+      "processing": "Writing it down…",
+      "heard": "Heard you",
+      "downloadError": "Download stopped",
+      "micError": "Loqui can't hear your microphone",
+      "nothingHeard": "Nothing heard. Check your microphone.",
+      "error": "That didn't work. Try again."
+    },
+    "rail": {
+      "welcome": {
+        "title": "Talk. Loqui types.",
+        "bodyMac": "Dictate anywhere, keep notes and meetings in one place, and choose exactly what ever leaves your Mac.",
+        "bodyOther": "Dictate anywhere, keep notes and meetings in one place, and choose exactly what ever leaves your computer."
+      },
+      "speech": {
+        "title": "Pick how Loqui listens.",
+        "bodyMac": "One recommended voice. It runs on this Mac and works offline.",
+        "bodyOther": "One recommended voice. It runs on this computer and works offline."
+      },
+      "try": {
+        "title": "Say something.",
+        "bodyMac": "This test is not pasted into another app or saved to history.",
+        "bodyOther": "This test is not pasted into another app or saved to history."
+      },
+      "cleanup": {
+        "title": "Make it read well.",
+        "bodyMac": "See what cleanup does to your own words, then choose.",
+        "bodyOther": "See what cleanup does to your own words, then choose."
+      },
+      "shortcuts": {
+        "title": "Talk from any app.",
+        "bodyMac": "Press your shortcut anywhere. Change it if it clashes with another app.",
+        "bodyOther": "Press your shortcut anywhere. Change it if it clashes with another app."
+      },
+      "finish": {
+        "title": "Here is where you are.",
+        "bodyMac": "Everything below is true right now.",
+        "bodyOther": "Everything below is true right now."
+      }
+    },
+    "hello": {
+      "start": "Get started",
+      "micTitle": "Let Loqui hear you",
+      "micBody": "Loqui listens only while you dictate. Nothing on this screen is recorded.",
+      "allowMic": "Allow microphone",
+      "micReady": "{{device}} is listening",
+      "micReadyGeneric": "Your microphone is listening",
+      "micLabel": "Microphone",
+      "systemDefault": "System default",
+      "builtIn": "Built-in microphone",
+      "unnamedMic": "Unnamed microphone",
+      "notHearing": "Not hearing you? Choose another microphone.",
+      "savedMicMissing": "Your saved microphone isn't connected, so Loqui is using the system default.",
+      "deniedTitle": "Loqui can't use your microphone",
+      "deniedBodyMac": "Allow it in System Settings, then come back. Loqui checks again when you return.",
+      "deniedBodyOther": "Allow it in your system's privacy or sound settings, then come back. Loqui checks again when you return.",
+      "openSettings": "Open System Settings",
+      "recheck": "I've turned it on",
+      "unavailableTitle": "Loqui can't open your microphone",
+      "unavailableBody": "Another app may be using it, or no input device is connected.",
+      "retryOpen": "Try again",
+      "openSound": "Open Sound settings",
+      "starting": "Opening your microphone…"
+    },
+    "privacy": {
+      "title": "Privacy defaults",
+      "historyTitle": "Keep local history",
+      "historyBodyMac": "Save transcripts on this Mac. Change anytime in Privacy & Data.",
+      "historyBodyOther": "Save transcripts on this computer. Change anytime in Privacy & Data.",
+      "updatesTitle": "Download updates automatically",
+      "updatesBody": "Check signed releases daily. You choose when to restart."
+    },
+    "voice": {
+      "checkingMac": "Looking at this Mac…",
+      "checkingOther": "Looking at this computer…",
+      "title": "We picked a voice for you.",
+      "unsupportedTitle": "Choose the voice that fits you best.",
+      "why": {
+        "englishMac": "We picked English because your Mac is set to English.",
+        "englishOther": "We picked English because your computer is set to English.",
+        "languageMac": "We picked {{voice}} because your Mac is set to {{language}}.",
+        "languageOther": "We picked {{voice}} because your computer is set to {{language}}.",
+        "multilingualMac": "We picked {{voice}} because your Mac uses {{languages}}.",
+        "multilingualOther": "We picked {{voice}} because your computer uses {{languages}}.",
+        "unsupported": "Loqui's on-device voices don't hear {{language}} yet. Choose the closest one, or add a cloud voice later in Settings."
+      },
+      "noticed": "What we noticed",
+      "signals": {
+        "systemLanguage": "System language",
+        "memory": "Memory",
+        "freeSpace": "Free space",
+        "graphics": "Graphics"
+      },
+      "gpu": {
+        "appleSilicon": "Apple silicon",
+        "nvidia": "NVIDIA graphics",
+        "unknown": "Not detected"
+      },
+      "unknown": "Unknown",
+      "diskShort": "This voice needs about {{needed}} free while it installs. {{free}} is free.",
+      "recommended": "Recommended for you",
+      "installed": "Installed on this device",
+      "notRight": "Not right? Choose yourself",
+      "pickerLabel": "Voices",
+      "lockedWhileDownloading": "Cancel the download to choose another voice.",
+      "languageLocked": "Cancel the download to change the language.",
+      "cantHear": "Doesn't hear {{language}}",
+      "blocked": {
+        "mismatch": "This voice doesn't hear {{language}}. Choose one below.",
+        "none": "No on-device voice hears {{language}} yet. Choose a language it supports, or add a cloud voice later in Settings."
+      },
+      "download": "Download ({{size}})",
+      "outcomes": {
+        "fastEnglish": {
+          "name": "Fast and English",
+          "description": "Quick and accurate for English. Words appear about a second after you stop."
+        },
+        "manyLanguages": {
+          "name": "Many languages",
+          "description": "Hears and auto-detects 25 languages, so you can switch mid-day."
+        },
+        "liveCaptions": {
+          "name": "Live captions",
+          "description": "Words appear as you speak. Best for meetings and long dictation."
+        },
+        "liveMultilingual": {
+          "name": "Live, more languages",
+          "description": "Words appear as you speak, in 15 languages including Japanese, Arabic and Hindi."
+        }
+      }
+    },
+    "tour": {
+      "label": "While that downloads",
+      "title": "While that downloads, meet Loqui.",
+      "skip": "Skip tour",
+      "skipped": "We'll start the test as soon as your voice is ready.",
+      "noVoice": "Choose a voice first. It runs on this device.",
+      "chooseVoice": "Choose a voice",
+      "slideOf": "{{current}} of {{total}}",
+      "previous": "Previous tip",
+      "next": "Next tip",
+      "tip": "Tip {{number}}",
+      "shortcut": {
+        "title": "Use your shortcut",
+        "tap": "Press {{key}} to start talking, and press it again to finish.",
+        "push": "Hold {{key}} and talk. Let go to finish."
+      },
+      "privacy": {
+        "title": "Where your words go",
+        "bodyMac": "Nothing leaves this Mac unless you choose a provider.",
+        "bodyOther": "Nothing leaves this computer unless you choose a provider.",
+        "nodes": {
+          "mic": "Mic",
+          "loqui": "Loqui",
+          "model": "Speech model",
+          "notes": "Notes"
+        }
+      },
+      "demo": {
+        "title": "Say it, get text",
+        "body": "Cleanup can tidy filler words and punctuation. You choose it next.",
+        "raw": "um remind me to send the draft before lunch",
+        "final": "Remind me to send the draft before lunch."
+      },
+      "readyTitle": "Ready. Say something.",
+      "readyBody": "Your voice model is on this device.",
+      "carouselRole": "carousel",
+      "slideRole": "slide"
+    },
+    "cleanupAuthority": {
+      "unavailable": "The original cleanup is no longer available. Your original words are preserved.",
+      "changed": "The cleanup destination or credential changed. Your original words are preserved.",
+      "unsupported": "The selected {{provider}} authentication source cannot be retained for cleanup. Your original words are preserved.",
+      "failed": "Cleanup failed. Your original words are preserved.",
+      "busy": "Cleanup is already running."
+    },
+    "try": {
+      "idle": {
+        "tap": "Press {{key}} and say something. Press it again to finish.",
+        "push": "Hold {{key}} and say something. Let go to finish."
+      },
+      "keycap": {
+        "tap": "press to talk",
+        "push": "hold to talk"
+      },
+      "listening": "Listening",
+      "processing": "Writing it down…",
+      "shortcutWorks": "Shortcut works",
+      "heardYou": "Loqui heard you",
+      "discarded": "Discarded.",
+      "undo": "Undo",
+      "silent": "We're not hearing anything. Wrong microphone?",
+      "noAudioTitle": "We didn't hear anything",
+      "noAudioBody": "Check that the right microphone is selected and not muted, then try again.",
+      "memoryTitle": "This voice needs more memory than is free",
+      "memoryBody": "Close some apps, or choose a smaller voice.",
+      "chooseSmaller": "Choose another voice",
+      "changeMic": "Change microphone",
+      "otherTitle": "That take didn't work",
+      "otherBody": "Try again. Your setup is unchanged.",
+      "again": "Try again",
+      "cleanupFailed": "Cleanup didn't run. This is your original text.",
+      "retryFailed": "Cleanup still didn't run. This is your original text.",
+      "retryCleanup": "Retry cleanup",
+      "cleanupOff": "Turn cleanup off",
+      "wordsSafe": "Your words are safe either way.",
+      "accessibilityTitle": "The shortcut needs Accessibility access",
+      "accessibilityBody": "macOS only lets Loqui hear a global shortcut after you allow it. Dictating inside Loqui works without it.",
+      "grantAccess": "Grant access",
+      "useButton": "Use a button instead",
+      "start": "Start recording",
+      "stop": "Stop",
+      "privacyLine": "Not pasted anywhere, not saved.",
+      "bandTitle": "That was you. Loqui heard it on your device.",
+      "makeItYours": "Make it yours",
+      "startUsing": "Start using Loqui",
+      "cancel": "Discard take",
+      "cleanupUnsupported": "This cleanup authentication source cannot be retained. Your original words are preserved.",
+      "controlUnavailable": "The recording control did not respond. Try Stop or Discard again."
+    },
+    "cleanup": {
+      "title": "See what cleanup does",
+      "label": "Cleanup",
+      "options": {
+        "none": "None",
+        "local": "Local",
+        "codex": "ChatGPT",
+        "provider": "API key"
+      },
+      "original": "Original",
+      "withCleanup": "With cleanup",
+      "nothingChanges": "Nothing changes",
+      "running": "Cleaning up your sentence…",
+      "wordsSent_other": "{{count}} words would be sent to {{provider}}",
+      "wordsSent_one": "{{count}} word would be sent to {{provider}}",
+      "sentNotice_other": "Your {{count}} words were sent to {{provider}} for this preview",
+      "sentNotice_one": "Your {{count}} word was sent to {{provider}} for this preview",
+      "tryMine_other": "Try it on my sentence · sends {{count}} words to {{provider}}",
+      "tryMine_one": "Try it on my sentence · sends {{count}} word to {{provider}}",
+      "exampleNotice": "Example text. Nothing was sent.",
+      "localExampleNotice": "Example text. Your own sentence appears here once local cleanup is ready on this device.",
+      "example": {
+        "original": "um let's send the draft to maya before lunch and uh remind me to book the room for thursday",
+        "local": "Let's send the draft to Maya before lunch and remind me to book the room for Thursday.",
+        "codex": "Let's send the draft to Maya before lunch. Remind me to book the room for Thursday.",
+        "provider": "Let's send Maya the draft before lunch, and remind me to book the room for Thursday."
+      },
+      "listModels": "List ChatGPT models",
+      "modelListFailed": "Could not list ChatGPT models. Try again.",
+      "now": {
+        "off": "Cleanup is off. Your words stay exactly as you said them.",
+        "checking": "Checking that cleanup is available…",
+        "ready": "Cleanup is on with {{name}}.",
+        "readyNetwork": "Cleanup is on with {{name}} at {{provider}}.",
+        "needsKey": "Add your {{provider}} key in Settings to turn cleanup on. Until then, your words stay as you said them.",
+        "needsConnection": "Connect ChatGPT above to turn cleanup on. Until then, your words stay as you said them.",
+        "needsModel": "The local cleanup model isn't on this device yet. Download it in Settings, Language Models (1.3 GB).",
+        "unreachable": "Loqui can't reach {{provider}} right now. Your words are kept as you said them.",
+        "modelSetup": "ChatGPT is connected. List its models to choose one for cleanup.",
+        "review": "Review this change, then choose Apply."
+      },
+      "reuse": "Also use this choice for other text features",
+      "exampleInProgress": "Example text while your request runs. Your result appears only when cleanup succeeds.",
+      "attemptNotice_other": "You allowed {{count}} words to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
+      "attemptNotice_one": "You allowed {{count}} word to be sent to {{provider}}. The attempt failed; delivery may have occurred. Your original words are unchanged.",
+      "previousAttemptNotice_other": "Earlier, you allowed {{count}} words to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept.",
+      "previousAttemptNotice_one": "Earlier, you allowed {{count}} word to be sent to {{provider}}. Changing this preview does not recall that request. Your original words are kept."
+    },
+    "shortcut": {
+      "title": "Try your shortcut.",
+      "testerLabel": "Shortcut tester. Press {{key}}.",
+      "hint": "Press {{key}}. A quick tap starts and stops; holding talks while you hold.",
+      "fills": "Hello, it works.",
+      "works": "Shortcut works",
+      "detected": {
+        "tap": "Tap to start and stop detected",
+        "hold": "Hold to talk detected"
+      },
+      "suggest": {
+        "push": "You held the key. Switch to hold to talk?",
+        "tap": "You tapped the key. Switch to tap to start and stop?"
+      },
+      "switch": "Switch",
+      "change": "Change shortcut",
+      "changeHelp": "Press this anywhere to talk. Change it if it clashes with another app.",
+      "autoPaste": "Automatic paste",
+      "autoPasteBodyMac": "Paste your words where the cursor is. Needs Accessibility access on macOS.",
+      "autoPasteBodyOther": "Paste your words where the cursor is.",
+      "accessibilityBody": "macOS only lets Loqui hear the shortcut and paste after you allow it. You can grant it now or later in Settings."
+    },
+    "ready": {
+      "titleProven": "You're dictating.",
+      "titleConfigured": "You're set up. Try it once to be sure.",
+      "titlePending_one": "Almost set: {{count}} thing left.",
+      "titlePending_other": "Almost set: {{count}} things left.",
+      "subAllLocalMac": "Your first dictation worked. Everything runs on this Mac.",
+      "subAllLocalOther": "Your first dictation worked. Everything runs on this computer.",
+      "subProven": "Your first dictation worked.",
+      "subConfigured": "Try dictation once to confirm this setup.",
+      "subPending": "Finish these and you're ready. Each one opens where it's fixed.",
+      "rows": {
+        "speech": "Voice",
+        "microphone": "Microphone",
+        "shortcut": "Shortcut",
+        "cleanup": "Cleanup"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}, heard your first dictation",
+          "checking": "Checking…",
+          "configured": "{{voice}}, not tried yet",
+          "downloading": "Still downloading",
+          "needsModel": "Download a voice",
+          "unavailable": "Finish setting it up in Settings"
+        },
+        "microphone": {
+          "heard": "Working",
+          "allowed": "Allowed, not heard yet",
+          "denied": "Allow in System Settings",
+          "untested": "Say something to test it"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}, tap to start and stop",
+            "push": "{{key}}, hold to talk"
+          },
+          "configured": {
+            "tap": "{{key}}, not tried yet",
+            "push": "{{key}}, not tried yet"
+          },
+          "needsAccessibility": "Grant Accessibility",
+          "checkAccessibility": "Check Accessibility access"
+        },
+        "cleanup": {
+          "off": "Off. Add it later",
+          "checking": "Still checking",
+          "needsConnection": "Connect ChatGPT",
+          "needsKey": "Add your {{provider}} key in Settings",
+          "needsModel": "Download the local model in Settings",
+          "unreachable": "Can't reach {{provider}}",
+          "configured": "Set up with {{name}}",
+          "configuredNetwork": "Set up at {{provider}} with {{name}}",
+          "modelSetup": "List ChatGPT models for cleanup",
+          "review": "Review this change, then choose Apply."
+        }
+      },
+      "dictateNote": "Dictate into a note",
+      "openWorkspace": "Open workspace",
+      "noteLocal": "Notes are transcribed on this device.",
+      "noteSends": "Notes send audio to {{provider}}.",
+      "noteChecking": "Checking how notes are transcribed…",
+      "noteBlocked": {
+        "microphone": "Notes need your microphone.",
+        "unsupported": "Note recording is set to a service notes can't use yet, such as a self-hosted server.",
+        "sealed": "Sealed mode is on, so note recording can't reach {{provider}}.",
+        "needsModel": "Note recording needs a voice model on this device.",
+        "needsKey": "Note recording needs your {{provider}} key.",
+        "needsUrl": "Note recording needs a server address.",
+        "unreachable": "Loqui can't reach {{provider}} for note recording."
+      },
+      "fixNote": "Fix this",
+      "noteNetwork": "Notes are set to send audio to {{provider}}."
+    },
+    "resume": {
+      "title": "Finish setting up",
+      "body": "Your workspace is ready. Pick up where you left off whenever you like.",
+      "items": {
+        "finishDictating": "Get your first dictation working",
+        "cleanup": "Choose text cleanup",
+        "shortcut": "Try your shortcut"
+      },
+      "resume": "Resume setup",
+      "dismiss": "Dismiss setup checklist",
+      "label": "Setup checklist"
+    }
+  },
+  "workspace": {
+    "noteMissing": "That note was deleted or moved out of this workspace.",
+    "noteLoadError": "Could not load this note. Try again."
+  },
+  "capture": {
+    "group": "Capture",
+    "moreOptions": "More capture options",
+    "actions": {
+      "dictate": "Dictate into Loqui",
+      "recordMeeting": "Record meeting",
+      "upload": "Upload audio…",
+      "newNote": "New note",
+      "newChat": "New chat"
+    },
+    "short": {
+      "dictate": "Dictate",
+      "recordMeeting": "Record",
+      "upload": "Upload",
+      "newNote": "New note",
+      "newChat": "New chat"
+    },
+    "listening": "Listening {{time}}",
+    "stopListening": "Stop listening",
+    "stopRecording": "Stop recording",
+    "cleaningUp": "Cleaning up…"
+  },
+  "micCard": {
+    "ready": "Ready",
+    "setUp": "Set up dictation",
+    "listening": "Listening",
+    "listeningFor": "Listening {{time}}",
+    "cleaningUp": "Cleaning up…",
+    "offline": "Mic offline",
+    "offlinePermission": "Microphone access is off",
+    "offlineDevice": "Microphone disconnected",
+    "nextCapture": "Next capture",
+    "role": {
+      "dictation": "Dictation",
+      "meeting": "Meeting",
+      "assistant": "Assistant",
+      "translation": "Translation"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "Dictation status",
+      "ready": "Ready",
+      "setUp": "Set up dictation",
+      "listening": "Listening",
+      "listeningFor": "Listening {{time}}",
+      "cleaningUp": "Cleaning up…",
+      "offline": "Mic offline",
+      "hold": "Hold <kbd>{{key}}</kbd> to dictate",
+      "press": "Press <kbd>{{key}}</kbd> to dictate",
+      "nextNow": "{{title}} is on now",
+      "nextAt": "{{title}} at {{time}}",
+      "takeNotes": "Take notes",
+      "nextIn_one": "{{title}} in {{count}} min",
+      "nextIn_other": "{{title}} in {{count}} min"
+    },
+    "history": {
+      "filterLabel": "Filter history",
+      "filterPlaceholder": "Filter this list",
+      "chipsLabel": "Show",
+      "menu": "History options",
+      "showDiscarded": "Show discarded",
+      "clearAll": "Clear all…",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "meetingRow": "Meeting",
+      "noteRow": "Note",
+      "nothingMatches": "Nothing matches “{{query}}”.",
+      "clearFilter": "Clear filter",
+      "olderMissing": "That dictation is no longer in your history.",
+      "chips": {
+        "all": "All",
+        "dictations": "Dictations",
+        "meetings": "Meetings",
+        "notes": "Notes",
+        "failed": "Failed"
+      },
+      "dayCount_one": "{{count}} dictation",
+      "words_one": "{{count}} word",
+      "session_one": "Session · {{count}} capture · {{duration}}",
+      "dayCount_other": "{{count}} dictations",
+      "words_other": "{{count}} words",
+      "session_other": "Session · {{count}} captures · {{duration}}",
+      "sessionNoDuration_one": "Session · {{count}} capture",
+      "sessionNoDuration_other": "Session · {{count}} captures",
+      "loadFailed": "Could not load that dictation. Try again."
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "People",
+      "note": "Notes",
+      "meeting": "Meetings",
+      "dictation": "Dictations",
+      "folder": "Folders"
+    },
+    "empty": "Nothing to mention",
+    "loading": "Loading…",
+    "missing": "This item no longer exists.",
+    "open": "Open",
+    "insertQuote": "Insert quote",
+    "folderMeta": "Folder",
+    "error": "This item could not be loaded.",
+    "retry": "Retry",
+    "pickerLabel": "Mention an item"
+  },
+  "table": {
+    "view": {
+      "label": "View",
+      "list": "List",
+      "table": "Table"
+    },
+    "canvasLabel": "Canvas: {{space}}",
+    "canvasRole": "canvas",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "resetView": "Reset view",
+    "zoomLevel": "{{percent}}%",
+    "hint": "Drag cards or the background. Shift-drag to select. Ctrl or ⌘ with the wheel zooms. Arrow keys move between cards; Shift with arrows nudges.",
+    "kind": {
+      "note": "Note",
+      "meeting": "Meeting",
+      "dictation": "Dictation",
+      "chat": "Answer"
+    },
+    "card": {
+      "label": "{{kind}}: {{title}}",
+      "untitled": "Untitled",
+      "answerPending": "Waiting for the answer…"
+    },
+    "inbox": {
+      "title": "Inbox",
+      "description": "Recent captures and up to 50 recently removed items of each kind. Drag one onto the table or press Enter. All content remains available in History and List.",
+      "empty": "Nothing new"
+    },
+    "selection": {
+      "count": "Selected: {{count}}",
+      "summarise": "Summarise",
+      "ask": "Ask about these",
+      "group": "Group into note",
+      "remove": "Remove from table",
+      "summarisePrompt": "Summarise the selected items in a few sentences.",
+      "limit": "AI actions work on up to {{limit}} cards.",
+      "busy": "Another action is in progress."
+    },
+    "groupedNote": {
+      "title": "Grouped from the table"
+    },
+    "status": {
+      "full": "The table holds up to 500 cards. Remove some first.",
+      "truncated": "Showing up to 500 cards, with arranged cards first. More content is available in List and History.",
+      "saveFailed": "Couldn’t save that change. Your content is preserved."
+    },
+    "ask": {
+      "open": "Ask",
+      "close": "Close",
+      "pinned": "Pinned cards: {{count}}",
+      "wholeTable": "Asking about the whole table",
+      "sendFailed": "Your message was not sent. The words and sources are kept below; retry when ready.",
+      "invalidated": "The destination changed. Your message was not sent; review the destination before retrying.",
+      "retry": "Retry with these sources"
+    },
+    "detail": {
+      "close": "Close full text",
+      "loading": "Loading full text…",
+      "failed": "Couldn’t load the full text. Close and open it again to retry."
+    }
   }
 }

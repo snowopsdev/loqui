@@ -1,3 +1,14 @@
+import { useTotalMemory } from "../hooks/useTotalMemory";
+import { cartridgeFromLocalModel, usedByMap } from "./ui/cartridgeMath";
+import { ModelCartridgeGrid } from "./ui/ModelCartridgeGrid";
+import { credentialSlotForStoreKey } from "../lib/credentialSlots";
+import type { RouteTarget } from "../lib/routePlanner";
+import { STT_CONTEXT_ROUTE, useResolvedRoutes } from "../lib/routes";
+import { RouteStateChip } from "./settings/routing/RouteChips";
+import { EndpointDraft } from "./settings/routing/EndpointDraft";
+import { useRouteChange } from "./settings/routing/useRouteChange";
+import { unavailableSecretSave } from "../lib/credentialSlots";
+import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API_ENDPOINTS, normalizeBaseUrl } from "../config/constants";
@@ -22,18 +33,10 @@ import { useSettingsStore } from "../stores/settingsStore";
 import type { ParakeetCheckResult } from "../types/electron";
 import { createExternalLinkHandler } from "../utils/externalLinks";
 import logger from "../utils/logger";
-import {
-  MODEL_PICKER_COLORS,
-  type ColorScheme,
-  type ModelPickerStyles,
-} from "../utils/modelPickerStyles";
 import { getCachedPlatform } from "../utils/platform";
 import { getRemoteProviderIcon } from "../utils/providerIcons";
-import {
-  reconcileCloudProviderSelection,
-  type TranscriptionPolicyContext,
-} from "../utils/providerSelection";
-import { Check, CircleAlert, Cloud, Download, Lock, Trash2, X, Zap } from "./icons";
+import { type TranscriptionPolicyContext } from "../utils/providerSelection";
+import { Check, CircleAlert, Cloud, Lock, Zap } from "./icons";
 import ApiKeyInput from "./ui/ApiKeyInput";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/dialog";
@@ -41,7 +44,6 @@ import { DownloadProgressBar } from "./ui/DownloadProgressBar";
 import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 import { Input } from "./ui/input";
 import ModelCardList from "./ui/ModelCardList";
-import { ProviderIcon } from "./ui/ProviderIcon";
 import { ProviderTabs } from "./ui/ProviderTabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
@@ -51,185 +53,17 @@ interface LocalModel {
   downloaded?: boolean;
 }
 
-interface LocalModelCardProps {
-  modelId: string;
-  name: string;
-  description: string;
-  size: string;
-  actualSizeMb?: number;
-  isSelected: boolean;
-  isDownloaded: boolean;
-  isDownloading: boolean;
-  isCancelling: boolean;
-  isInstalling: boolean;
-  recommended?: boolean;
-  provider: string;
-  languageLabel?: string;
-  modelCardUrl?: string;
-  onSelect: () => void;
-  onDelete: () => void;
-  onDownload: () => void;
-  onCancel: () => void;
-  styles: ModelPickerStyles;
-}
-
-function LocalModelCard({
-  modelId,
-  name,
-  description,
-  size,
-  actualSizeMb,
-  isSelected,
-  isDownloaded,
-  isDownloading,
-  isCancelling,
-  isInstalling,
-  recommended,
-  provider,
-  languageLabel,
-  modelCardUrl,
-  onSelect,
-  onDelete,
-  onDownload,
-  onCancel,
-  styles: cardStyles,
-}: LocalModelCardProps) {
-  const { t } = useTranslation();
-  const handleClick = () => {
-    if (isDownloaded && !isSelected) {
-      onSelect();
-    }
-  };
-
-  return (
-    <div
-      onClick={handleClick}
-      className={`relative w-full text-start overflow-hidden rounded-md border transition-colors duration-200 group ${
-        isSelected ? cardStyles.modelCard.selected : cardStyles.modelCard.default
-      } ${isDownloaded && !isSelected ? "cursor-pointer" : ""}`}
-    >
-      <div className="flex items-center gap-1.5 p-2">
-        <div className="shrink-0">
-          {isDownloaded ? (
-            <div
-              className={`w-1.5 h-1.5 rounded-full ${
-                isSelected
-                  ? "bg-primary shadow-[0_0_6px_rgb(255_90_31_/_0.6)] animate-[pulse-glow_2s_ease-in-out_infinite]"
-                  : "bg-success shadow-[0_0_4px_rgba(34,197,94,0.5)]"
-              }`}
-            />
-          ) : isDownloading ? (
-            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.5)] animate-[spinner-rotate_1s_linear_infinite]" />
-          ) : (
-            <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/20" />
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          <ProviderIcon provider={provider} className="w-3.5 h-3.5 shrink-0" />
-          <span className="font-semibold text-sm text-foreground truncate tracking-tight">
-            {name}
-          </span>
-          <span className="text-xs text-muted-foreground/70 tabular-nums shrink-0">
-            {actualSizeMb ? `${actualSizeMb}MB` : size}
-          </span>
-          {recommended && (
-            <span className={cardStyles.badges.recommended}>{t("common.recommended")}</span>
-          )}
-          {languageLabel && (
-            <span className="text-xs text-muted-foreground/70 font-medium shrink-0">
-              {languageLabel}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          {isDownloaded ? (
-            <>
-              {isSelected && (
-                <span className="text-xs font-medium text-primary px-2 py-0.5 bg-primary/10 rounded-sm">
-                  {t("common.active")}
-                </span>
-              )}
-              <Button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                size="icon"
-                variant="ghost"
-                className="size-6 text-muted-foreground/70 hover:text-destructive opacity-0 group-hover:opacity-100 transition-[color,opacity,transform] active:scale-95"
-              >
-                <Trash2 size={12} />
-              </Button>
-            </>
-          ) : isDownloading ? (
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCancel();
-              }}
-              disabled={isCancelling || isInstalling}
-              size="sm"
-              variant="outline"
-              className="h-6 px-2.5 text-xs text-destructive border-destructive/25 hover:bg-destructive/8"
-            >
-              <X size={11} className="me-0.5" />
-              {isCancelling ? "..." : t("common.cancel")}
-            </Button>
-          ) : (
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDownload();
-              }}
-              size="sm"
-              variant="default"
-              className="h-6 px-2.5 text-xs"
-            >
-              <Download size={11} className="me-1" />
-              {t("common.download")}
-            </Button>
-          )}
-        </div>
-      </div>
-      {modelCardUrl && (
-        <a
-          href={modelCardUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => {
-            event.stopPropagation();
-            createExternalLinkHandler(modelCardUrl)(event);
-          }}
-          className="inline-block ms-7 mb-2 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-        >
-          {t("transcription.modelCard")}
-        </a>
-      )}
-    </div>
-  );
-}
-
 interface TranscriptionModelPickerProps {
-  /** Settings scope whose provider/model keys this picker edits. */
+  /** Settings scope this picker edits; its route is STT_CONTEXT_ROUTE[context]. */
   transcriptionContext?: TranscriptionPolicyContext;
   selectedCloudProvider: string;
-  /**
-   * Policy reconciliation only — a user-driven pick goes through
-   * switchCloudTranscriptionProvider so the outgoing model survives the swap.
-   */
-  onCloudProviderSelect: (providerId: string) => void;
   selectedCloudModel: string;
-  onCloudModelSelect: (modelId: string) => void;
   selectedLocalModel: string;
-  onLocalModelSelect: (modelId: string, providerId?: string) => void;
   selectedLocalProvider?: string;
-  onLocalProviderSelect?: (providerId: string) => void;
+  /** Every committed pick (cloud model, custom endpoint, local model, mode) goes to the route planner. */
+  onCommit: (target: RouteTarget) => void;
   useLocalWhisper: boolean;
-  onModeChange: (useLocal: boolean) => void;
   cloudTranscriptionBaseUrl?: string;
-  setCloudTranscriptionBaseUrl?: (url: string) => void;
   className?: string;
   variant?: "onboarding" | "settings";
   mode?: "cloud" | "local";
@@ -372,29 +206,71 @@ function ModeToggle({ useLocalWhisper, onModeChange }: ModeToggleProps) {
   );
 }
 
+// Typed text stays local until the field is left or Enter is pressed, then
+// commits once through the route planner (never one request per keystroke).
+function CommitOnLeaveInput({
+  value,
+  placeholder,
+  onCommit,
+}: {
+  value: string;
+  placeholder?: string;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const dirty = useRef(false);
+  const touched = useRef(false);
+  useEffect(() => {
+    if (!dirty.current || value === draftRef.current) {
+      dirty.current = false;
+      setDraft(value);
+    }
+  }, [value]);
+  const commit = () => {
+    if (!touched.current) return;
+    touched.current = false;
+    onCommit(draft);
+  };
+  return (
+    <Input
+      dir="ltr"
+      value={draft}
+      onChange={(e) => {
+        dirty.current = true;
+        touched.current = true;
+        setDraft(e.target.value);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+      }}
+      placeholder={placeholder}
+      className="h-8 text-sm"
+    />
+  );
+}
+
 export default function TranscriptionModelPicker({
   transcriptionContext = "dictation",
   selectedCloudProvider,
-  onCloudProviderSelect,
   selectedCloudModel,
-  onCloudModelSelect,
   selectedLocalModel,
-  onLocalModelSelect,
   selectedLocalProvider = "whisper",
-  onLocalProviderSelect,
+  onCommit,
   useLocalWhisper,
-  onModeChange,
   cloudTranscriptionBaseUrl = "",
-  setCloudTranscriptionBaseUrl,
   className = "",
-  variant = "settings",
   mode,
   streamingOnly = false,
 }: TranscriptionModelPickerProps) {
   const { t } = useTranslation();
-  const switchCloudTranscriptionProvider = useSettingsStore(
-    (s) => s.switchCloudTranscriptionProvider
-  );
+  const { requestPatch } = useRouteChange();
+  const routeId = STT_CONTEXT_ROUTE[transcriptionContext];
+  const totalMemory = useTotalMemory();
+  const routes = useResolvedRoutes();
+
   const openaiApiKey = useSettingsStore((s) => s.openaiApiKey);
   const setOpenaiApiKey = useSettingsStore((s) => s.setOpenaiApiKey);
   const groqApiKey = useSettingsStore((s) => s.groqApiKey);
@@ -410,9 +286,7 @@ export default function TranscriptionModelPicker({
   const cortiClientSecret = useSettingsStore((s) => s.cortiClientSecret);
   const setCortiClientSecret = useSettingsStore((s) => s.setCortiClientSecret);
   const cortiEnvironment = useSettingsStore((s) => s.cortiEnvironment);
-  const setCortiEnvironment = useSettingsStore((s) => s.setCortiEnvironment);
   const cortiTenant = useSettingsStore((s) => s.cortiTenant);
-  const setCortiTenant = useSettingsStore((s) => s.setCortiTenant);
   const tinfoilApiKey = useSettingsStore((s) => s.tinfoilApiKey);
   const setTinfoilApiKey = useSettingsStore((s) => s.setTinfoilApiKey);
   const deepgramApiKey = useSettingsStore((s) => s.deepgramApiKey);
@@ -475,25 +349,17 @@ export default function TranscriptionModelPicker({
 
   useEffect(() => {
     if (parakeetCapability?.supported !== false) return;
-
-    // Tabs are pure browse state, so the browsed tab and the committed
-    // provider must each leave the sherpa tabs on their own: moving the tab off
-    // the disabled entry keeps the UI usable, while committing "whisper"
-    // is what actually reroutes transcription on unsupported Macs.
+    // Only browse state leaves the disabled hardware entry. The saved route
+    // stays exactly as chosen until an explicit supported model selection.
     if (usesParakeetManager(internalLocalProvider)) setInternalLocalProvider("whisper");
-    if (isSherpaLocalProvider(selectedLocalProvider)) onLocalProviderSelect?.("whisper");
-  }, [internalLocalProvider, onLocalProviderSelect, parakeetCapability, selectedLocalProvider]);
+  }, [internalLocalProvider, parakeetCapability]);
 
   const localModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const parakeetModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const loadLocalModelsRef = useRef<(() => Promise<void>) | null>(null);
   const loadParakeetModelsRef = useRef<(() => Promise<void>) | null>(null);
-  const selectedLocalModelRef = useRef(selectedLocalModel);
-  const onLocalModelSelectRef = useRef(onLocalModelSelect);
 
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
-  const colorScheme: ColorScheme = variant === "settings" ? "purple" : "blue";
-  const styles = useMemo(() => MODEL_PICKER_COLORS[colorScheme], [colorScheme]);
 
   // streamingOnly is Note Recording's picker, so it offers the streaming
   // providers note recording can actually run — not every streaming provider.
@@ -535,34 +401,12 @@ export default function TranscriptionModelPicker({
     [parakeetCapability, t]
   );
 
-  useEffect(() => {
-    selectedLocalModelRef.current = selectedLocalModel;
-  }, [selectedLocalModel]);
-  useEffect(() => {
-    onLocalModelSelectRef.current = onLocalModelSelect;
-  }, [onLocalModelSelect]);
-
-  const validateAndSelectModel = useCallback((loadedModels: LocalModel[]) => {
-    const current = selectedLocalModelRef.current;
-    if (!current) return;
-
-    // The whisper list loads on a mere browse of the Whisper tab, so the
-    // committed selection can be a foreign id (a Parakeet model while nvidia
-    // is committed) — only replace ids this list owns.
-    const currentEntry = loadedModels.find((m) => m.model === current);
-    if (!currentEntry || currentEntry.downloaded) return;
-
-    const downloaded = loadedModels.filter((m) => m.downloaded);
-    onLocalModelSelectRef.current(downloaded[0]?.model ?? "", "whisper");
-  }, []);
-
   const loadLocalModels = useCallback(() => {
     const load = async () => {
       try {
         const result = await window.electronAPI?.listWhisperModels();
         if (result?.success) {
           setLocalModels(result.models);
-          validateAndSelectModel(result.models);
         }
       } catch (error) {
         logger.error("Failed to load models", { error }, "models");
@@ -573,7 +417,7 @@ export default function TranscriptionModelPicker({
     const queuedLoad = localModelsLoadQueueRef.current.then(load);
     localModelsLoadQueueRef.current = queuedLoad;
     return queuedLoad;
-  }, [validateAndSelectModel]);
+  }, []);
 
   const loadParakeetModels = useCallback(() => {
     const load = async () => {
@@ -593,70 +437,12 @@ export default function TranscriptionModelPicker({
     return queuedLoad;
   }, []);
 
-  const effectiveCloudSelection = useMemo(() => {
-    // Every provider's URL counts as known, including policy-blocked ones and
-    // the ones this scope does not offer: otherwise such a provider's stored URL
-    // reads as a custom endpoint and reconciliation would keep pointing "custom"
-    // at what policy — or this scope — just denied.
-    const knownProviderUrls = new Set(
-      getTranscriptionProviders().map((provider) => normalizeBaseUrl(provider.baseUrl))
-    );
-    const normalizedBaseUrl = normalizeBaseUrl(cloudTranscriptionBaseUrl);
-    const hasCustomUrl = Boolean(
-      normalizedBaseUrl &&
-      normalizedBaseUrl !== normalizeBaseUrl(API_ENDPOINTS.TRANSCRIPTION_BASE) &&
-      !knownProviderUrls.has(normalizedBaseUrl)
-    );
-    // Reconcile null means the input needs no correction — echo the browsed
-    // input, not the committed pair, or browsing to the Custom tab (always
-    // reconciled as valid) would never display it.
-    return (
-      reconcileCloudProviderSelection({
-        selectedProvider: browsedCloudProvider ?? selectedCloudProvider,
-        selectedModel: selectedCloudModel,
-        allowedProviders: cloudProviders,
-        customAllowed: !streamingOnly,
-        hasCustomUrl,
-      }) ?? {
-        provider: browsedCloudProvider ?? selectedCloudProvider,
-        model: selectedCloudModel,
-      }
-    );
-  }, [
-    cloudProviders,
-    cloudTranscriptionBaseUrl,
-    browsedCloudProvider,
-    selectedCloudProvider,
-    selectedCloudModel,
-    streamingOnly,
-  ]);
-  const displayedCloudProvider = effectiveCloudSelection.provider;
-  const displayedCloudModel = effectiveCloudSelection.model;
+  const displayedCloudProvider = browsedCloudProvider ?? selectedCloudProvider;
+  const displayedCloudModel = selectedCloudModel;
+  const invalidCommitted =
+    !browsedCloudProvider && !cloudProviderTabs.some((p) => p.id === selectedCloudProvider);
 
-  useEffect(() => {
-    if (
-      effectiveLocal ||
-      browsedCloudProvider ||
-      (effectiveCloudSelection.provider === selectedCloudProvider &&
-        effectiveCloudSelection.model === selectedCloudModel)
-    ) {
-      return;
-    }
-    if (effectiveCloudSelection.provider !== selectedCloudProvider) {
-      onCloudProviderSelect(effectiveCloudSelection.provider);
-    }
-    if (effectiveCloudSelection.model !== selectedCloudModel) {
-      onCloudModelSelect(effectiveCloudSelection.model);
-    }
-  }, [
-    effectiveCloudSelection,
-    effectiveLocal,
-    browsedCloudProvider,
-    onCloudModelSelect,
-    onCloudProviderSelect,
-    selectedCloudModel,
-    selectedCloudProvider,
-  ]);
+  // Display only: invalid persisted selections remain unchanged.
 
   useEffect(() => {
     loadLocalModelsRef.current = loadLocalModels;
@@ -841,10 +627,9 @@ export default function TranscriptionModelPicker({
   });
 
   const handleModeChange = useCallback(
-    (isLocal: boolean) => {
-      onModeChange(isLocal);
-    },
-    [onModeChange]
+    (isLocal: boolean) =>
+      onCommit(isLocal ? { mode: "local" } : { mode: "providers", provider: "" }),
+    [onCommit]
   );
 
   const handleCloudProviderChange = useCallback((providerId: string) => {
@@ -860,30 +645,31 @@ export default function TranscriptionModelPicker({
     [localProviderTabs]
   );
 
+  // One commit through the planner: the browsed provider with the clicked model.
+  // Same recipient → instant with Undo; a new recipient waits for Apply.
   const handleCloudModelSelect = useCallback(
     (modelId: string) => {
-      if (displayedCloudProvider !== selectedCloudProvider) {
-        switchCloudTranscriptionProvider(transcriptionContext, displayedCloudProvider);
-      }
-      onCloudModelSelect(modelId);
+      onCommit(
+        displayedCloudProvider === "custom"
+          ? {
+              mode: "providers",
+              provider: "custom",
+              baseUrl: normalizeBaseUrl(cloudTranscriptionBaseUrl),
+              model: modelId,
+            }
+          : { mode: "providers", provider: displayedCloudProvider, model: modelId }
+      );
       setBrowsedCloudProvider(null);
     },
-    [
-      displayedCloudProvider,
-      onCloudModelSelect,
-      selectedCloudProvider,
-      switchCloudTranscriptionProvider,
-      transcriptionContext,
-    ]
+    [cloudTranscriptionBaseUrl, displayedCloudProvider, onCommit]
   );
 
   const handleWhisperModelSelect = useCallback(
     (modelId: string) => {
       setInternalLocalProvider("whisper");
-      onLocalProviderSelect?.("whisper");
-      onLocalModelSelect(modelId, "whisper");
+      onCommit({ mode: "local", provider: "whisper", model: modelId });
     },
-    [onLocalModelSelect, onLocalProviderSelect]
+    [onCommit]
   );
 
   const handleParakeetModelSelect = useCallback(
@@ -891,40 +677,10 @@ export default function TranscriptionModelPicker({
       const organization = getASRModelOrganization(modelId);
       const provider = organization === "cohere" ? "cohere" : "nvidia";
       setInternalLocalProvider(organization);
-      onLocalProviderSelect?.(provider);
-      onLocalModelSelect(modelId, provider);
+      onCommit({ mode: "local", provider, model: modelId });
     },
-    [onLocalModelSelect, onLocalProviderSelect]
+    [onCommit]
   );
-
-  const handleBaseUrlBlur = useCallback(() => {
-    if (!setCloudTranscriptionBaseUrl || selectedCloudProvider !== "custom") return;
-
-    const trimmed = (cloudTranscriptionBaseUrl || "").trim();
-    if (!trimmed) return;
-
-    const normalized = normalizeBaseUrl(trimmed);
-
-    if (normalized && normalized !== cloudTranscriptionBaseUrl) {
-      setCloudTranscriptionBaseUrl(normalized);
-    }
-    if (normalized) {
-      for (const provider of cloudProviders) {
-        const providerNormalized = normalizeBaseUrl(provider.baseUrl);
-        if (normalized === providerNormalized) {
-          switchCloudTranscriptionProvider(transcriptionContext, provider.id);
-          break;
-        }
-      }
-    }
-  }, [
-    cloudTranscriptionBaseUrl,
-    selectedCloudProvider,
-    setCloudTranscriptionBaseUrl,
-    switchCloudTranscriptionProvider,
-    transcriptionContext,
-    cloudProviders,
-  ]);
 
   const handleDelete = useCallback(
     (modelId: string) => {
@@ -936,14 +692,13 @@ export default function TranscriptionModelPicker({
             const result = await window.electronAPI?.listWhisperModels();
             if (result?.success) {
               setLocalModels(result.models);
-              validateAndSelectModel(result.models);
             }
           });
         },
         variant: "destructive",
       });
     },
-    [showConfirmDialog, deleteModel, validateAndSelectModel, t]
+    [showConfirmDialog, deleteModel, t]
   );
 
   const currentCloudProvider = useMemo<TranscriptionProviderData | undefined>(
@@ -975,8 +730,24 @@ export default function TranscriptionModelPicker({
     geminiApiKey: setGeminiApiKey,
     cortiClientId: setCortiClientId,
     cortiClientSecret: setCortiClientSecret,
-    cortiEnvironment: setCortiEnvironment,
-    cortiTenant: setCortiTenant,
+    cortiEnvironment: (value) => void requestPatch(routeId, { cortiEnvironment: value }),
+    cortiTenant: (value) => void requestPatch(routeId, { cortiTenant: value }),
+    tinfoilApiKey: setTinfoilApiKey,
+    deepgramApiKey: setDeepgramApiKey,
+    assemblyaiApiKey: setAssemblyaiApiKey,
+  };
+  // Key fields need the acknowledged save; credentialSetters also holds the
+  // non-secret Corti region/tenant setters, so it stays (value) => void.
+  const credentialSecretSavers: Partial<
+    Record<ProviderCredentialField["key"], AcknowledgedSecretSave>
+  > = {
+    openaiApiKey: setOpenaiApiKey,
+    groqApiKey: setGroqApiKey,
+    xaiApiKey: setXaiApiKey,
+    mistralApiKey: setMistralApiKey,
+    geminiApiKey: setGeminiApiKey,
+    cortiClientId: setCortiClientId,
+    cortiClientSecret: setCortiClientSecret,
     tinfoilApiKey: setTinfoilApiKey,
     deepgramApiKey: setDeepgramApiKey,
     assemblyaiApiKey: setAssemblyaiApiKey,
@@ -1039,48 +810,50 @@ export default function TranscriptionModelPicker({
           }))
         : localModels;
 
-    return (
-      <div className="space-y-0.5">
-        {modelsToRender.map((model) => {
-          const modelId = model.model;
-          const info = WHISPER_MODEL_INFO[modelId] ?? {
-            name: modelId,
-            description: t("transcription.fallback.whisperModelDescription"),
-            size: t("common.unknown"),
-            recommended: false,
-          };
+    const cards = modelsToRender.map((model) => {
+      const info = WHISPER_MODEL_INFO[model.model] ?? {
+        name: model.model,
+        sizeMb: undefined,
+        recommended: false,
+      };
+      // size_mb is only reported once a file exists; fall back to the registry.
+      const sizeMb = model.size_mb ?? info.sizeMb;
+      return cartridgeFromLocalModel(
+        {
+          id: model.model,
+          name: info.name,
+          sizeBytes: sizeMb ? sizeMb * 1_000_000 : undefined,
+          recommended: info.recommended,
+        },
+        {
+          downloaded: model.downloaded ?? false,
+          downloading: isDownloadingModel(model.model),
+          cancelling: isCancellingModel(model.model),
+          installing: whisperDownloads[model.model]?.phase === "installing",
+          progress: whisperDownloads[model.model]?.progress,
+        }
+      );
+    });
 
-          return (
-            <LocalModelCard
-              key={modelId}
-              modelId={modelId}
-              name={info.name}
-              description={info.description}
-              size={info.size}
-              actualSizeMb={model.size_mb}
-              isSelected={modelId === selectedLocalModel}
-              isDownloaded={model.downloaded ?? false}
-              isDownloading={isDownloadingModel(modelId)}
-              isCancelling={isCancellingModel(modelId)}
-              isInstalling={whisperDownloads[modelId]?.phase === "installing"}
-              recommended={info.recommended}
-              provider="whisper"
-              onSelect={() => handleWhisperModelSelect(modelId)}
-              onDelete={() => handleDelete(modelId)}
-              onDownload={() =>
-                downloadModel(modelId, (downloadedId) => {
-                  setLocalModels((prev) =>
-                    prev.map((m) => (m.model === downloadedId ? { ...m, downloaded: true } : m))
-                  );
-                  handleWhisperModelSelect(downloadedId);
-                })
-              }
-              onCancel={() => cancelDownload(modelId)}
-              styles={styles}
-            />
-          );
-        })}
-      </div>
+    return (
+      <ModelCartridgeGrid
+        label={t("cartridge.speechGroupLabel")}
+        models={cards}
+        selectedId={selectedLocalModel}
+        totalMemoryBytes={totalMemory}
+        usedBy={usedByMap(cards, routes, (id) => t(`routes.names.${id}`))}
+        onSelect={handleWhisperModelSelect}
+        onDelete={handleDelete}
+        onDownload={(modelId) =>
+          downloadModel(modelId, (downloadedId) => {
+            setLocalModels((prev) =>
+              prev.map((m) => (m.model === downloadedId ? { ...m, downloaded: true } : m))
+            );
+            handleWhisperModelSelect(downloadedId);
+          })
+        }
+        onCancel={cancelDownload}
+      />
     );
   };
 
@@ -1115,60 +888,88 @@ export default function TranscriptionModelPicker({
         : parakeetModels
     ).filter((model) => getASRModelOrganization(model.model) === internalLocalProvider);
 
-    return (
-      <div className="space-y-0.5">
-        {modelsToRender.map((model) => {
-          const modelId = model.model;
-          const info = PARAKEET_MODEL_INFO[modelId] ?? {
-            name: modelId,
-            description: t("transcription.fallback.parakeetModelDescription"),
-            modelCardUrl: undefined,
-            size: t("common.unknown"),
-            language: "en",
-            recommended: false,
-          };
+    const cards = modelsToRender.map((model) => {
+      const info = PARAKEET_MODEL_INFO[model.model] ?? {
+        name: model.model,
+        modelCardUrl: undefined,
+        sizeMb: undefined,
+        recommended: false,
+      };
+      const sizeMb = model.size_mb ?? info.sizeMb;
+      return cartridgeFromLocalModel(
+        {
+          id: model.model,
+          name: info.name,
+          sizeBytes: sizeMb ? sizeMb * 1_000_000 : undefined,
+          recommended: info.recommended,
+        },
+        {
+          downloaded: model.downloaded ?? false,
+          downloading: isDownloadingParakeetModel(model.model),
+          cancelling: isCancellingParakeetModel(model.model),
+          installing: parakeetDownloads[model.model]?.phase === "installing",
+          progress: parakeetDownloads[model.model]?.progress,
+          href: info.modelCardUrl,
+          hrefLabel: info.modelCardUrl ? t("transcription.modelCard") : undefined,
+        }
+      );
+    });
 
-          return (
-            <LocalModelCard
-              key={modelId}
-              modelId={modelId}
-              name={info.name}
-              description={info.description}
-              size={info.size}
-              actualSizeMb={model.size_mb}
-              isSelected={modelId === selectedLocalModel}
-              isDownloaded={model.downloaded ?? false}
-              isDownloading={isDownloadingParakeetModel(modelId)}
-              isCancelling={isCancellingParakeetModel(modelId)}
-              isInstalling={parakeetDownloads[modelId]?.phase === "installing"}
-              recommended={info.recommended}
-              provider={getASRModelOrganization(modelId)}
-              modelCardUrl={info.modelCardUrl}
-              onSelect={() => handleParakeetModelSelect(modelId)}
-              onDelete={() => handleParakeetDelete(modelId)}
-              onDownload={() =>
-                downloadParakeetModel(modelId, (downloadedId) => {
-                  setParakeetModels((prev) =>
-                    prev.map((m) => (m.model === downloadedId ? { ...m, downloaded: true } : m))
-                  );
-                  handleParakeetModelSelect(downloadedId);
-                })
-              }
-              onCancel={() => cancelParakeetDownload(modelId)}
-              styles={styles}
-            />
-          );
-        })}
-      </div>
+    return (
+      <ModelCartridgeGrid
+        label={t("cartridge.speechGroupLabel")}
+        models={cards}
+        selectedId={selectedLocalModel}
+        totalMemoryBytes={totalMemory}
+        usedBy={usedByMap(cards, routes, (id) => t(`routes.names.${id}`))}
+        onSelect={handleParakeetModelSelect}
+        onDelete={handleParakeetDelete}
+        onDownload={(modelId) =>
+          downloadParakeetModel(modelId, (downloadedId) => {
+            setParakeetModels((prev) =>
+              prev.map((m) => (m.model === downloadedId ? { ...m, downloaded: true } : m))
+            );
+            handleParakeetModelSelect(downloadedId);
+          })
+        }
+        onCancel={cancelParakeetDownload}
+      />
     );
   };
 
   return (
     <div className={`space-y-2 ${className}`}>
+      {effectiveLocal && !["whisper", "nvidia", "cohere"].includes(selectedLocalProvider) && (
+        <p dir="ltr" data-invalid-selection className="text-xs text-muted-foreground">
+          {selectedLocalProvider} · {selectedLocalModel}
+        </p>
+      )}
+      {effectiveLocal &&
+        isSherpaLocalProvider(selectedLocalProvider) &&
+        parakeetCapability?.supported === false && (
+          <div role="status" className="space-y-1.5" data-unsupported-local-selection>
+            <p dir="ltr" className="text-xs text-muted-foreground">
+              {selectedLocalProvider} · {selectedLocalModel}
+            </p>
+            <RouteStateChip state={{ status: "unreachable", detail: "unsupported" }} />
+            <p className="text-xs text-muted-foreground">
+              {parakeetCapability.minimumMacOSVersion
+                ? t("transcription.parakeet.requiresMacOS", {
+                    version: parakeetCapability.minimumMacOSVersion,
+                  })
+                : t("transcription.parakeet.unavailable")}
+            </p>
+          </div>
+        )}
       {!mode && <ModeToggle useLocalWhisper={effectiveLocal} onModeChange={handleModeChange} />}
 
       {!effectiveLocal ? (
         <>
+          {invalidCommitted && (
+            <p dir="ltr" className="text-xs text-muted-foreground" data-invalid-selection>
+              {selectedCloudProvider} · {selectedCloudModel}
+            </p>
+          )}
           {cloudProviderTabs.length > 0 && (
             <ProviderTabs
               providers={cloudProviderTabs}
@@ -1183,41 +984,32 @@ export default function TranscriptionModelPicker({
             <div>
               {displayedCloudProvider === "custom" ? (
                 <div className="space-y-2">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-foreground">
-                      {t("transcription.endpointUrl")}
-                    </label>
-                    <Input
-                      dir="ltr"
-                      value={cloudTranscriptionBaseUrl}
-                      onChange={(e) => setCloudTranscriptionBaseUrl?.(e.target.value)}
-                      onBlur={handleBaseUrlBlur}
-                      placeholder="https://your-api.example.com/v1"
-                      className="h-8 text-sm"
-                    />
-                  </div>
+                  <EndpointDraft
+                    label={t("transcription.endpointUrl")}
+                    url={cloudTranscriptionBaseUrl}
+                    urlPlaceholder="https://your-api.example.com/v1"
+                    model={selectedCloudProvider === "custom" ? selectedCloudModel : ""}
+                    modelLabel={t("common.model")}
+                    modelPlaceholder="whisper-1"
+                    useLabel={t("staging.useEndpoint")}
+                    onUse={({ url, model }) => {
+                      onCommit({
+                        mode: "providers",
+                        provider: "custom",
+                        baseUrl: normalizeBaseUrl(url),
+                        model,
+                      });
+                      setBrowsedCloudProvider(null);
+                    }}
+                  />
 
                   <ApiKeyInput
                     apiKey={customTranscriptionApiKey}
+                    credentialId="custom:transcription"
                     setApiKey={setCustomTranscriptionApiKey}
                     label={t("transcription.apiKeyOptional")}
                     helpText=""
                   />
-
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-foreground">
-                      {t("common.model")}
-                    </label>
-                    <Input
-                      dir="ltr"
-                      value={
-                        selectedCloudProvider === displayedCloudProvider ? displayedCloudModel : ""
-                      }
-                      onChange={(e) => handleCloudModelSelect(e.target.value)}
-                      placeholder="whisper-1"
-                      className="h-8 text-sm"
-                    />
-                  </div>
 
                   {/azure\.com/i.test(cloudTranscriptionBaseUrl || "") && (
                     <p className="text-xs text-muted-foreground">{t("transcription.azureHint")}</p>
@@ -1242,7 +1034,8 @@ export default function TranscriptionModelPicker({
                       {field.input === "secret" ? (
                         <ApiKeyInput
                           apiKey={credentialValues[field.key]}
-                          setApiKey={credentialSetters[field.key]}
+                          credentialId={credentialSlotForStoreKey(field.key)}
+                          setApiKey={credentialSecretSavers[field.key] ?? unavailableSecretSave}
                           label=""
                           helpText=""
                         />
@@ -1263,12 +1056,10 @@ export default function TranscriptionModelPicker({
                           </SelectContent>
                         </Select>
                       ) : (
-                        <Input
-                          dir="ltr"
+                        <CommitOnLeaveInput
                           value={credentialValues[field.key]}
-                          onChange={(e) => credentialSetters[field.key](e.target.value)}
+                          onCommit={credentialSetters[field.key]}
                           placeholder={field.placeholder}
-                          className="h-8 text-sm"
                         />
                       )}
                     </div>
@@ -1312,6 +1103,11 @@ export default function TranscriptionModelPicker({
             onSelect={handleLocalProviderChange}
             colorScheme="purple"
           />
+          {internalLocalProvider === "oruk" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("transcription.families.orukHint")}
+            </p>
+          )}
 
           {progressDisplay}
 
@@ -1365,7 +1161,7 @@ export default function TranscriptionModelPicker({
                         onClick={handleGpuDelete}
                         size="sm"
                         variant="ghost"
-                        className="h-6 shrink-0 px-2 text-xs text-muted-foreground hover:text-destructive"
+                        className="h-6 shrink-0 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-background"
                       >
                         {t("gpu.remove")}
                       </Button>
@@ -1400,7 +1196,7 @@ export default function TranscriptionModelPicker({
                         onClick={handleGpuDelete}
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-background"
                       >
                         {t("gpu.remove")}
                       </Button>

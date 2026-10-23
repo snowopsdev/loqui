@@ -33,10 +33,6 @@ async function createDownloadRenderer(t, electronAPI) {
         const t = (key) => key;
         export function useTranslation() { return { t }; }
       `,
-      "/components/ui/useToast": `
-        const context = { toast() {} };
-        export function useToast() { return context; }
-      `,
       "/stores/settingsStore": `
         export function clearMissingLocalModelSelections() {}
         export function isCloudCleanupMode() { return false; }
@@ -46,8 +42,11 @@ async function createDownloadRenderer(t, electronAPI) {
       "/ui/ProviderIcon": `export function ProviderIcon() { return null; }`,
     },
   });
+  const notices = await vite.ssrLoadModule("/components/ui/notices.ts");
+  t.after(() => notices.__setNoticeClockForTests());
   return {
     vite,
+    notices,
     async render(Component) {
       root ??= createRoot(container);
       await React.act(async () => root.render(React.createElement(Component)));
@@ -121,6 +120,16 @@ test("remount restores concurrent LLM downloads and cancellation settles only it
 
   await React.act(async () => download.cancelDownload("model-a"));
   assert.deepEqual(cancellations, ["model-a"]);
+  assert.deepEqual(
+    renderer.notices.getNotices().map(({ kind, title, body }) => ({ kind, title, body })),
+    [
+      {
+        kind: "receipt",
+        title: "hooks.modelDownload.downloadCancelled.title",
+        body: "hooks.modelDownload.downloadCancelled.description",
+      },
+    ]
+  );
   assert.equal(download.isCancellingModel("model-a"), true);
   assert.equal(download.isCancellingModel("model-b"), false);
 
@@ -248,6 +257,16 @@ for (const modelType of ["whisper", "parakeet", "llm"]) {
     await renderer.render(Harness);
     await React.act(async () => download.downloadModel("requested-model"));
     assert.equal(download.isDownloadingModel("requested-model"), false);
+    assert.deepEqual(
+      renderer.notices.getNotices().map(({ kind, title, body }) => ({ kind, title, body })),
+      [
+        {
+          kind: "notice",
+          title: "hooks.modelDownload.downloadInProgress.title",
+          body: "hooks.modelDownload.downloadInProgress.description",
+        },
+      ]
+    );
     assert.equal(download.downloadingModel, modelType === "llm" ? null : "active-model");
     if (modelType !== "llm") assert.equal(download.downloadProgress.percentage, 42);
   });

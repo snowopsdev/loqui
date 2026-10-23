@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef } from "react";
+import React, { createContext, useContext, useEffect, useRef } from "react";
 import { initializeSettings, useSettingsStore } from "../stores/settingsStore";
 import type {
   ChineseScriptPreference,
@@ -8,7 +8,7 @@ import type {
 } from "../types/electron";
 import logger from "../utils/logger";
 import type { Snippet } from "../utils/snippets";
-import { useLocalStorage } from "./useLocalStorage";
+import { useAutoLearnCorrections } from "./useAutoLearnCorrections";
 
 export interface TranscriptionSettings {
   uiLanguage: string;
@@ -156,28 +156,7 @@ function useSettingsInternal() {
   }, [applySnippetsFromExternal]);
 
   // Auto-learn corrections from user edits in external apps
-  const [autoLearnCorrections, setAutoLearnCorrectionsRaw] = useLocalStorage(
-    "autoLearnCorrections",
-    true,
-    {
-      serialize: String,
-      deserialize: (value: string) => value !== "false",
-    }
-  );
-
-  const setAutoLearnCorrections = useCallback(
-    (enabled: boolean) => {
-      setAutoLearnCorrectionsRaw(enabled);
-      window.electronAPI?.setAutoLearnEnabled?.(enabled);
-    },
-    [setAutoLearnCorrectionsRaw]
-  );
-
-  // Sync auto-learn state to main process on mount
-  useEffect(() => {
-    window.electronAPI?.setAutoLearnEnabled?.(autoLearnCorrections);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [autoLearnCorrections, setAutoLearnCorrections] = useAutoLearnCorrections();
 
   // Retention periods are enforced by the main process cleanup sweep
   const { audioRetentionDays, transcriptRetentionDays, dataRetentionEnabled } = store;
@@ -364,8 +343,14 @@ function useSettingsInternal() {
     setNotifyMeetingDetection: store.setNotifyMeetingDetection,
     notifyCalendarReminders: store.notifyCalendarReminders,
     setNotifyCalendarReminders: store.setNotifyCalendarReminders,
+    showMeetingRecorderOnScreen: store.showMeetingRecorderOnScreen,
+    setShowMeetingRecorderOnScreen: store.setShowMeetingRecorderOnScreen,
     audioCuesEnabled: store.audioCuesEnabled,
     setAudioCuesEnabled: store.setAudioCuesEnabled,
+    dictationCueSet: store.dictationCueSet,
+    setDictationCueSet: store.setDictationCueSet,
+    dictationCueVolume: store.dictationCueVolume,
+    setDictationCueVolume: store.setDictationCueVolume,
     pauseMediaOnDictation: store.pauseMediaOnDictation,
     setPauseMediaOnDictation: store.setPauseMediaOnDictation,
     floatingIconAutoHide: store.floatingIconAutoHide,

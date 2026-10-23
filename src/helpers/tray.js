@@ -1,4 +1,8 @@
-const { Tray, Menu, nativeImage, app } = require("electron");
+const { createFreedesktopClient } = require("./freedesktopNotifications");
+const { LinuxRecordingNotification } = require("./linuxRecordingNotification");
+const { buildTrayRecordingItems } = require("./meetingPresence");
+const { createRecordingTrayIcon } = require("./trayRecordingIcon");
+const { Tray, Menu, nativeImage, app, Notification } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const debugLogger = require("./debugLogger");
@@ -6,12 +10,122 @@ const dockManager = require("./dockManager");
 const { i18nMain } = require("./i18nMain");
 
 class TrayManager {
-  constructor() {
+  constructor({
+    now = Date.now,
+    setInterval: startTimer = setInterval,
+    clearInterval: stopTimer = clearInterval,
+  } = {}) {
+    this.now = now;
+    this.startRecordingTimer = startTimer;
+    this.stopRecordingTimer = stopTimer;
+    this.recordingTimer = null;
+    this.recordingTimerSession = null;
+    this.meetingPresence = null;
+    this.linuxNotificationPromise = null;
+    this.meetingNotification = null;
+    this.meetingNotificationGeneration = 0;
+    this.meetingNotificationShutdown = false;
+    this.baseIcon = null;
+    this.platform = process.platform;
+    this.createNotificationClient = createFreedesktopClient;
+    this.ElectronNotification = null;
     this.tray = null;
     this.mainWindow = null;
     this.controlPanelWindow = null;
     this.windowManager = null;
     this.attachedControlPanels = new WeakSet();
+  }
+
+  // One instance, created once. Presence generations also guard the wait
+  // for client creation: no stale callback may call show(), even briefly,
+  // after its meeting ended or a newer meeting replaced it.
+  _linuxNotification() {
+    this.linuxNotificationPromise ??= (async () => {
+      const client = await Promise.resolve()
+        .then(() => this.createNotificationClient())
+        .catch(() => null);
+      return (this.meetingNotification = new LinuxRecordingNotification({
+        client,
+        ElectronNotification: this.ElectronNotification ?? Notification,
+        onStop: (sessionId) => this.windowManager?.requestStopMeetingRecording(sessionId),
+        // D2: a click brings up the pill with Stop visible, for that session.
+        onOpen: (sessionId) => this.windowManager?.revealMeetingRecorder(sessionId),
+      }));
+    })();
+    return this.linuxNotificationPromise;
+  }
+
+  setMeetingPresence(presence) {
+    if (this.meetingNotificationShutdown) return;
+    const previous = this.meetingPresence;
+    this.meetingPresence = presence;
+    const changed = (presence?.sessionId ?? null) !== (previous?.sessionId ?? null);
+    if (changed) {
+      this.meetingNotificationGeneration += 1;
+      // Fence the existing notification synchronously, before any promise callback.
+      void this.meetingNotification?.close();
+    }
+    const generation = this.meetingNotificationGeneration;
+    if (this.platform === "linux") {
+      if (this.tray && this.baseIcon) {
+        this.tray.setImage(presence ? createRecordingTrayIcon(this.baseIcon) : this.baseIcon);
+      }
+      if (presence && presence.sessionId !== previous?.sessionId) {
+        void this._linuxNotification().then((n) => {
+          if (
+            generation !== this.meetingNotificationGeneration ||
+            this.meetingPresence?.sessionId !== presence.sessionId
+          ) {
+            // Close the newly created instance if recording ended. A newer
+            // meeting owns its own callback; never close its notification.
+            if (!this.meetingPresence) return n.close();
+            return;
+          }
+          return n.show({
+            sessionId: presence.sessionId,
+            title: i18nMain.t("meetingRecorder.notificationTitle"),
+            body: i18nMain.t("meetingRecorder.notificationBody"),
+            stopLabel: i18nMain.t("meetingRecorder.stop"),
+            fallbackBody: i18nMain.t("meetingRecorder.notificationFallbackBody"),
+          });
+        });
+      } else if (!presence && previous) {
+        void this._linuxNotification().then((n) => {
+          if (generation === this.meetingNotificationGeneration && !this.meetingPresence)
+            return n.close();
+        });
+      }
+    }
+    this.updateTrayMenu();
+  }
+
+  _clearRecordingTimer() {
+    if (this.recordingTimer !== null) this.stopRecordingTimer(this.recordingTimer);
+    this.recordingTimer = null;
+    this.recordingTimerSession = null;
+  }
+
+  _syncRecordingTimer() {
+    const sessionId =
+      !this.meetingNotificationShutdown && this.tray && this.meetingPresence?.sessionId;
+    if (sessionId && this.recordingTimerSession === sessionId) return;
+    this._clearRecordingTimer();
+    if (!sessionId) return;
+    this.recordingTimerSession = sessionId;
+    this.recordingTimer = this.startRecordingTimer(() => {
+      if (this.recordingTimerSession === sessionId && this.meetingPresence?.sessionId === sessionId)
+        this.updateTrayMenu();
+    }, 1000);
+    this.recordingTimer.unref?.();
+  }
+
+  teardownMeetingNotification() {
+    this.meetingNotificationShutdown = true;
+    this._clearRecordingTimer();
+    this.meetingNotificationGeneration += 1;
+    this.meetingPresence = null;
+    void this.meetingNotification?.close();
+    return this.linuxNotificationPromise?.then((n) => n.close()) ?? Promise.resolve();
   }
 
   setWindows(mainWindow, controlPanelWindow) {
@@ -133,6 +247,7 @@ class TrayManager {
   async createTray() {
     try {
       const trayIcon = await this.loadTrayIcon();
+      this.baseIcon = trayIcon;
       if (!trayIcon || trayIcon.isEmpty()) {
         debugLogger.error("Failed to load tray icon", undefined, "tray");
         return;
@@ -252,10 +367,24 @@ class TrayManager {
   }
 
   buildContextMenuTemplate() {
+    const sessionId = this.meetingPresence?.sessionId;
+    const recording = buildTrayRecordingItems(this.meetingPresence, {
+      t: (k, o) => i18nMain.t(k, o),
+      now: this.now(),
+    }).map((item) =>
+      item.action === "stop"
+        ? {
+            label: item.label,
+            click: () => this.windowManager?.requestStopMeetingRecording(sessionId),
+          }
+        : { label: item.label, enabled: false }
+    );
+    const lead = recording.length ? [...recording, { type: "separator" }] : [];
     const dictationVisible = this.windowManager?.isDictationPanelVisible?.() ?? false;
     const dictating = this.windowManager?.isDictating?.() ?? false;
 
     return [
+      ...lead,
       {
         label: dictating
           ? i18nMain.t("app.commandMenu.stopListening")
@@ -310,10 +439,13 @@ class TrayManager {
   }
 
   updateTrayMenu() {
+    this._syncRecordingTimer();
     if (!this.tray) return;
 
     const contextMenu = Menu.buildFromTemplate(this.buildContextMenuTemplate());
-    this.tray.setToolTip(i18nMain.t("tray.tooltip"));
+    this.tray.setToolTip(
+      i18nMain.t(this.meetingPresence ? "tray.tooltipRecording" : "tray.tooltip")
+    );
     this.tray.setContextMenu(contextMenu);
   }
 
@@ -331,6 +463,7 @@ class TrayManager {
     this.tray.on("destroyed", () => {
       debugLogger.debug("Tray icon destroyed", undefined, "tray");
       this.tray = null;
+      this._clearRecordingTimer();
     });
   }
 }

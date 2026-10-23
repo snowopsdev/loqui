@@ -1,56 +1,39 @@
 import {
+  getSetupCleanupRevision,
+  subscribeSetupCleanupRevision,
+} from "../stores/setupCleanupAdmission";
+import { useTranslation } from "react-i18next";
+import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type ComponentType,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { useSettingsStore, reasoningModelBelongsToProvider } from "../stores/settingsStore";
+import { INFERENCE_SCOPES } from "../config/inferenceScopes";
+import type { SettingsPatch } from "../lib/providerSwitchPlans";
+import { useRouteDraftStore } from "../stores/routeDraftStore";
+import { useRouteChange } from "./settings/routing/useRouteChange";
+import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
+import { micPickerModel, selectionFor, type AudioInput } from "../utils/onboardingMic";
+import { HelloStep } from "./onboarding/HelloStep";
+import { useMicrophoneAccess } from "./onboarding/useMicrophoneAccess";
+import { useMicLevelPreview } from "./onboarding/useMicLevelPreview";
+import { MeetLoquiTour } from "./onboarding/MeetLoquiTour";
+import { TryStage, usePrefersReducedMotion } from "./onboarding/TryStage";
 import {
-  useSettingsStore,
-  selectResolvedLLMConfig,
-  setResolvedLLMConfig,
-  reasoningModelBelongsToProvider,
-} from "../stores/settingsStore";
-import { usePermissions } from "../hooks/usePermissions";
-import { useToast } from "./ui/useToast";
-import { Button } from "./ui/button";
-import { Toggle } from "./ui/toggle";
-import LanguageSelector from "./ui/LanguageSelector";
-import { HotkeyListInput } from "./ui/HotkeyListInput";
-import CodexConnection from "./CodexConnection";
-import WelcomeScreen from "./onboarding/WelcomeScreen";
-import { LoquiBrand } from "./LoquiBrand";
-import { ArrowRight, Check } from "lucide-react";
-import "../styles/onboarding-guided.css";
-import { getDefaultHotkey } from "../utils/hotkeys";
+  shouldAnnounceOffStep,
+  voiceFailedNotice,
+  voiceReadyNotice,
+} from "./onboarding/onboardingNotices";
+import { useOnboardingNotifier } from "./onboarding/useOnboardingNotifier";
+import "../styles/onboarding.css";
+import { getDefaultHotkey, parseHotkeyList } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
-import { useAudioRecording } from "../hooks/useAudioRecording";
-import {
-  DEFAULT_ONBOARDING_SPEECH_MODEL_ID,
-  ONBOARDING_SPEECH_MODELS,
-  firstCompatibleSpeechModel,
-  supportsSpeechLanguage,
-} from "../utils/onboardingSpeechModels";
-import {
-  Mic,
-  CheckCircle2,
-  CircleAlert,
-  Cpu,
-  Download,
-  Keyboard,
-  ShieldCheck,
-  Sparkles,
-  Wand2,
-} from "./icons";
-import type {
-  OnboardingPreviewConfig,
-  OnboardingProgress,
-  OnboardingReadiness,
-  OnboardingScenario,
-  OnboardingStep,
-} from "../utils/onboardingState";
+import type { OnboardingPreviewConfig, OnboardingStep } from "../utils/onboardingState";
 import {
   onboardingPreviewStorageKey,
   readOnboardingProgress,
@@ -65,68 +48,71 @@ import {
 import modelRegistryData from "../models/modelRegistryData.json";
 import { pickDefaultModelId } from "../models/providerDefaultModel";
 
+import {
+  markVisited,
+  nextStep,
+  previousStep,
+  type OnboardingCompleteOptions,
+} from "../utils/onboardingFlow";
+import { OnboardingShell, type OnboardingShellProps } from "./onboarding/OnboardingShell";
+import type { InstrumentRailProps } from "./onboarding/InstrumentRail";
+
+import { SETTLE_MS, DRAW_MS, dockMark, type InstrumentMode } from "./onboarding/instrumentMath";
+import { keycapLabel } from "../utils/onboardingShortcut";
+import { trialContext } from "../utils/onboardingTrialContext";
+import { getParakeetModelInfo } from "../models/ModelRegistry";
+import { useTrialSession } from "./onboarding/useTrialSession";
+import {
+  useDictationHotkey,
+  useShortcutDemo,
+  bindingMatches,
+} from "./onboarding/useDictationHotkey";
+import { useHotkeyModeInfo } from "../hooks/useHotkeyModeInfo";
+import { ShortcutStep } from "./onboarding/ShortcutStep";
+import { useAccessibilityGate } from "./onboarding/useAccessibilityGate";
+import { useTicker } from "./onboarding/useTicker";
+import { HotkeyTrial } from "./onboarding/HotkeyTrial";
+import { SuccessBand } from "./onboarding/SuccessBand";
+import {
+  detectVoice,
+  isOnboardingVoice,
+  modelDownloadBytes,
+  reconcileVoice,
+  shouldApplyDetectedVoice,
+  spokenLocalesFor,
+  voiceSupportsAll,
+} from "../utils/onboardingDetection";
+import { byteParts } from "../utils/onboardingDownload";
+import { useSystemProfile } from "./onboarding/useSystemProfile";
+import { useVoiceDownload } from "./onboarding/useVoiceDownload";
+import { VoiceStep } from "./onboarding/VoiceStep";
+import { DownloadChip } from "./onboarding/DownloadChip";
+import { resolveRoutes, routeSnapshotFromSettings, useResolvedRoute } from "../lib/routes";
+import { noteActionState, summarizeReadiness } from "../utils/onboardingReadiness";
+import { ReadyStep } from "./onboarding/ReadyStep";
+import { providerDisplayLabel } from "../lib/locality";
+import { CleanupStep, type CleanupRemoteAttempt } from "./onboarding/CleanupStep";
+import { createSetupCleanupOperation } from "./onboarding/cleanupRunner";
+import {
+  captureSetupCleanupSelection,
+  isSetupCleanupSelectionCurrent,
+  revokeSetupCleanupSelection,
+} from "../services/capturedCleanupOperation";
+
+interface StepView {
+  rail: InstrumentRailProps;
+  primary?: OnboardingShellProps["primary"];
+  onSkip?: () => void;
+  finishLaterLabel?: string;
+  content: ReactNode;
+}
+
 interface Props {
-  onComplete: (options?: { openSettings?: boolean }) => void;
+  onComplete: (options?: OnboardingCompleteOptions) => void;
   onExplore?: () => void;
   initialStep?: OnboardingStep;
   previewConfig?: OnboardingPreviewConfig;
 }
-
-const STEPS: Array<{ id: OnboardingStep; label: string }> = [
-  { id: "welcome", label: "Welcome" },
-  { id: "speech", label: "Speech" },
-  { id: "cleanup", label: "Cleanup" },
-  { id: "try", label: "Try dictation" },
-  { id: "shortcuts", label: "Use anywhere" },
-  { id: "finish", label: "Ready" },
-];
-
-const GUIDED_STEP_COPY: Record<
-  Exclude<OnboardingStep, "welcome">,
-  { title: string; description: string; cues: string[] }
-> = {
-  speech: {
-    title: "Choose the voice you use most.",
-    description:
-      "Pick a language and a local speech model. Download it only when you're ready to try dictation.",
-    cues: [
-      "Choose your spoken language",
-      "Pick a compatible local model",
-      "Download it when you decide",
-    ],
-  },
-  cleanup: {
-    title: "Make the transcript easier to read.",
-    description:
-      "Speech recognition writes your words. Cleanup can improve formatting, but your original transcript stays available.",
-    cues: [
-      "Cleanup is optional",
-      "Local and remote choices stay separate",
-      "The original words remain available",
-    ],
-  },
-  try: {
-    title: "Make one short dictation.",
-    description:
-      "Test recording inside Loqui first. This trial is not pasted into another app or saved to history.",
-    cues: ["Start when you are ready", "Speak one short sentence", "Review the words inside Loqui"],
-  },
-  shortcuts: {
-    title: "Keep Loqui one shortcut away.",
-    description:
-      "Shortcut and automatic paste are optional. You can always record inside the Loqui workspace.",
-    cues: [
-      "Keep or change the shortcut",
-      "Choose whether to paste automatically",
-      "Review platform permission needs",
-    ],
-  },
-  finish: {
-    title: "Your workspace is ready when you are.",
-    description: "Enter Loqui now. Unfinished setup stays available when you want to return.",
-    cues: ["Open the workspace", "Return to unfinished setup", "Add advanced features later"],
-  },
-};
 
 const cleanupModelCatalog: CleanupModelCatalog = {
   owns: reasoningModelBelongsToProvider,
@@ -134,929 +120,33 @@ const cleanupModelCatalog: CleanupModelCatalog = {
     pickDefaultModelId(modelRegistryData.cloudProviders.find((entry) => entry.id === provider)),
 };
 
-const SAMPLE_TRANSCRIPT = "Let's make the next step obvious and keep the work moving.";
-
-function displayModelSize(size: string): string {
-  return size.replace(/(\d)(MB|GB)$/, "$1 $2");
-}
-
-function StepShell({
-  step,
-  children,
-  onBack,
-  onContinue,
-  onSkip,
-  continueLabel = "Continue",
-  skipLabel = "Continue later",
-  continueDisabled = false,
-}: {
-  step: Exclude<OnboardingStep, "welcome">;
-  children: ReactNode;
-  onBack: () => void;
-  onContinue: () => void;
-  onSkip?: () => void;
-  continueLabel?: string;
-  skipLabel?: string;
-  continueDisabled?: boolean;
-}) {
-  const index = STEPS.findIndex((item) => item.id === step);
-  const mainRef = useRef<HTMLElement>(null);
-  const copy = GUIDED_STEP_COPY[step];
-
-  useEffect(() => {
-    mainRef.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
-  }, [step]);
-
-  return (
-    <div className="onboarding-welcome onboarding-guided">
-      <header className="onboarding-welcome-header">
-        <div className="onboarding-welcome-brand">
-          <span className="onboarding-welcome-brand-mark" aria-hidden="true">
-            <LoquiBrand decorative />
-          </span>
-          <span className="onboarding-welcome-brand-copy">
-            <strong>Loqui setup</strong>
-            <small>A local-first voice workspace</small>
-          </span>
-        </div>
-        <div
-          className="onboarding-welcome-progress"
-          role="status"
-          aria-label={`${STEPS[index].label}, step ${index + 1} of ${STEPS.length}`}
-        >
-          <div className="onboarding-welcome-progress-label">
-            <span>
-              Step {index + 1} of {STEPS.length}
-            </span>
-            <strong>{STEPS[index].label}</strong>
-          </div>
-          <div className="onboarding-welcome-progress-track" aria-hidden="true">
-            {STEPS.map((item, itemIndex) => (
-              <i key={item.id} className={itemIndex <= index ? "is-current" : ""} />
-            ))}
-          </div>
-        </div>
-      </header>
-      <main ref={mainRef} className="onboarding-welcome-split onboarding-guided-split">
-        <section className="onboarding-welcome-story onboarding-guided-story">
-          <div className="onboarding-welcome-intro">
-            <h1 tabIndex={-1}>{copy.title}</h1>
-            <p>{copy.description}</p>
-          </div>
-          <div className="onboarding-guided-cues">
-            {copy.cues.map((cue) => (
-              <div key={cue}>
-                <span aria-hidden="true">
-                  <Check size={14} strokeWidth={2.6} />
-                </span>
-                {cue}
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="onboarding-guided-controls" aria-label={`${STEPS[index].label} setup`}>
-          {children}
-        </section>
-      </main>
-      <footer className="onboarding-welcome-actions">
-        <button className="onboarding-welcome-back" type="button" onClick={onBack}>
-          Back
-        </button>
-        <div>
-          {onSkip && (
-            <button className="onboarding-welcome-explore" type="button" onClick={onSkip}>
-              {skipLabel}
-            </button>
-          )}
-          <button
-            className="onboarding-welcome-primary"
-            type="button"
-            onClick={onContinue}
-            disabled={continueDisabled}
-          >
-            {continueLabel} <ArrowRight size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-function ChoiceCard({
-  selected,
-  icon: Icon,
-  title,
-  description,
-  badge,
-  compact = false,
-  disabled = false,
-  onClick,
-}: {
-  selected: boolean;
-  icon: ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-  badge?: string;
-  compact?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      data-recommended={badge === "Recommended" || undefined}
-      className={`onboarding-guided-choice w-full rounded-xl border p-4 text-start transition-colors ${compact ? "onboarding-guided-choice-compact" : ""} ${disabled ? "cursor-not-allowed opacity-50" : selected ? "border-primary bg-primary/8 ring-1 ring-primary/20" : "border-border bg-card hover:bg-muted/50"}`}
-      aria-pressed={selected}
-    >
-      <div className="flex items-start gap-3">
-        {!compact && (
-          <span
-            className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
-          >
-            <Icon className="h-4 w-4" />
-          </span>
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            {title}
-            {badge && (
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                {badge}
-              </span>
-            )}
-          </span>
-          <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-            {description}
-          </span>
-        </span>
-        <span
-          className={`mt-1 h-4 w-4 rounded-full border-2 ${selected ? "border-primary bg-primary ring-2 ring-primary/20" : "border-muted-foreground/35"}`}
-          aria-hidden="true"
-        />
-      </div>
-    </button>
-  );
-}
-
-function StatusLine({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      {ok ? (
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-      ) : (
-        <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-      )}
-      <div>
-        <p className="text-sm font-medium">{label}</p>
-        <p className="text-xs text-muted-foreground">{detail}</p>
-      </div>
-    </div>
-  );
-}
-
-function SpeechStep({
-  previewConfig,
-  speechModelReady,
-  downloadState,
-  selectedModel,
-  onSelectModel,
-  onDownload,
-}: {
-  previewConfig?: OnboardingPreviewConfig;
-  speechModelReady: boolean;
-  downloadState: "idle" | "downloading" | "ready" | "error";
-  selectedModel: string;
-  onSelectModel: (model: string) => void;
-  onDownload: () => void;
-}) {
-  const spokenLanguages = useSettingsStore((s) => s.spokenLanguages);
-  const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
-  const setSpokenLanguages = useSettingsStore((s) => s.setSpokenLanguages);
-  const setPreferredLanguage = useSettingsStore((s) => s.setPreferredLanguage);
-  const language =
-    spokenLanguages[0] || (preferredLanguage === "auto" ? "en-US" : preferredLanguage) || "en-US";
-  const selected =
-    ONBOARDING_SPEECH_MODELS.find((model) => model.id === selectedModel) ??
-    ONBOARDING_SPEECH_MODELS[0];
-  const selectedSupportsLanguage = supportsSpeechLanguage(selected.id, language);
-  const compatibleModel = firstCompatibleSpeechModel(language);
-  const anyModelSupportsLanguage = Boolean(compatibleModel);
-  const recommendedModel = supportsSpeechLanguage(DEFAULT_ONBOARDING_SPEECH_MODEL_ID, language)
-    ? DEFAULT_ONBOARDING_SPEECH_MODEL_ID
-    : compatibleModel;
-  useEffect(() => {
-    if (downloadState === "downloading") return;
-    if (supportsSpeechLanguage(selectedModel, language)) return;
-    const compatible = firstCompatibleSpeechModel(language);
-    if (compatible) onSelectModel(compatible);
-  }, [downloadState, language, onSelectModel, selectedModel]);
-  return (
-    <div className="onboarding-guided-work">
-      <section className="space-y-3" aria-labelledby="spoken-language-heading">
-        <div className="flex items-center gap-2">
-          <h2 id="spoken-language-heading" className="text-sm font-semibold">
-            What language will you speak?
-          </h2>
-        </div>
-        <LanguageSelector
-          value={language}
-          onChange={(value) => {
-            setSpokenLanguages([value]);
-            setPreferredLanguage(value);
-          }}
-        />
-        <p className="text-xs text-muted-foreground">
-          {anyModelSupportsLanguage
-            ? "Only models that support this language can be selected."
-            : "Orukeet and the NVIDIA models do not cover this language. You can choose multilingual Whisper in Speech-to-Text settings after setup."}
-        </p>
-      </section>
-      <section className="space-y-3" aria-labelledby="speech-model-heading">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 id="speech-model-heading" className="text-sm font-semibold">
-              Local speech model
-            </h2>
-          </div>
-          {previewConfig && (
-            <span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">
-              Preview: {previewConfig.scenario}
-            </span>
-          )}
-        </div>
-        <div className="onboarding-guided-model-list">
-          {ONBOARDING_SPEECH_MODELS.map((model) => {
-            const supported = supportsSpeechLanguage(model.id, language);
-            const languageDescription =
-              model.supportedLanguages.length === 1
-                ? "English"
-                : `${model.supportedLanguages.length} languages`;
-            return (
-              <ChoiceCard
-                key={model.id}
-                selected={selectedModel === model.id}
-                disabled={!supported || downloadState === "downloading"}
-                compact
-                icon={Cpu}
-                title={model.name}
-                description={`${model.organization === "oruk" ? "Oruk" : "NVIDIA"} · ${displayModelSize(model.size)} · ${languageDescription}${model.runtime === "online" ? " · Streaming" : ""}`}
-                badge={supported && model.id === recommendedModel ? "Recommended" : undefined}
-                onClick={() => onSelectModel(model.id)}
-              />
-            );
-          })}
-        </div>
-      </section>
-      {downloadState === "downloading" && (
-        <p className="text-xs text-muted-foreground">
-          Model choices are available when this download finishes.
-        </p>
-      )}
-      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold">
-              {speechModelReady && selectedSupportsLanguage
-                ? `${selected.name} is ready`
-                : downloadState === "downloading"
-                  ? "Downloading speech model…"
-                  : "Download the selected model"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {speechModelReady && selectedSupportsLanguage
-                ? "You can try a dictation next."
-                : !selectedSupportsLanguage
-                  ? "Choose a supported model or language before downloading."
-                  : downloadState === "error"
-                    ? "The download was interrupted. Retry when you are ready."
-                    : `${displayModelSize(selected.size)} download · CPU execution remains available.`}
-            </p>
-          </div>
-          {speechModelReady && selectedSupportsLanguage ? (
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-          ) : (
-            <Button
-              onClick={onDownload}
-              disabled={downloadState === "downloading" || !selectedSupportsLanguage}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              {downloadState === "downloading" ? "Downloading…" : "Download model"}
-            </Button>
-          )}
-        </div>
-        {downloadState === "downloading" && (
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full w-2/3 animate-pulse rounded-full bg-primary" />
-          </div>
-        )}
-      </div>
-      {!speechModelReady && (
-        <p className="text-xs text-muted-foreground">
-          You can continue later and explore notes without a speech model. Dictation stays pending
-          until the model is ready.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function CleanupStep({
-  previewConfig,
-  onChoice,
-  cleanupStatus,
-  selectedChoice,
-}: {
-  previewConfig?: OnboardingPreviewConfig;
-  onChoice: (choice: CleanupChoice) => void;
-  cleanupStatus: CleanupStatus;
-  selectedChoice: CleanupChoice;
-}) {
-  const selected = selectedChoice;
-  const reuseStorageKey = previewConfig
-    ? `${onboardingPreviewStorageKey(previewConfig)}.reuseCleanup`
-    : "loqui.onboarding.reuseCleanup";
-  const [reuse, setReuse] = useState(() => localStorage.getItem(reuseStorageKey) === "true");
-  const codexUnavailable =
-    previewConfig?.scenario === "codex-missing" || previewConfig?.scenario === "codex-expired";
-  const providerInvalid = previewConfig?.scenario === "invalid-provider-key";
-  return (
-    <div className="onboarding-guided-work">
-      <div className="onboarding-guided-section-head">
-        <h2>How should Loqui handle cleanup?</h2>
-        <span>Optional</span>
-      </div>
-      <div className="onboarding-guided-cleanup-list">
-        <ChoiceCard
-          selected={selected === "none"}
-          icon={Wand2}
-          title="No cleanup"
-          description="Keep the raw transcript. Fastest and fully offline."
-          onClick={() => onChoice("none")}
-        />
-        <ChoiceCard
-          selected={selected === "local"}
-          icon={Cpu}
-          title="Local model"
-          description="Use Qwen3.5 2B on this device after you download it."
-          badge="Recommended"
-          onClick={() => onChoice("local")}
-        />
-        <ChoiceCard
-          selected={selected === "codex"}
-          icon={Sparkles}
-          title="ChatGPT subscription"
-          description="Use Codex for text through your ChatGPT sign-in."
-          onClick={() => onChoice("codex")}
-        />
-        <ChoiceCard
-          selected={selected === "provider"}
-          icon={Wand2}
-          title="Provider API key"
-          description="Use a direct provider key configured in Language Models."
-          onClick={() => onChoice("provider")}
-        />
-      </div>
-      {cleanupStatus !== "skipped" && (
-        <div className="onboarding-guided-panel p-4">
-          <StatusLine
-            ok={cleanupStatus === "ready"}
-            label={
-              cleanupStatus === "checking"
-                ? "Checking cleanup connection…"
-                : cleanupStatus === "ready"
-                  ? "Cleanup is ready"
-                  : cleanupStatus === "failed"
-                    ? "Cleanup needs attention"
-                    : "Cleanup is still pending"
-            }
-            detail={
-              cleanupStatus === "ready"
-                ? "Loqui will use this choice only after the connection or model check succeeds."
-                : cleanupStatus === "failed"
-                  ? "Retry the connection or choose No cleanup. Your raw transcript remains available."
-                  : "You can continue setup. Loqui will not silently activate an unavailable cleanup provider."
-            }
-          />
-        </div>
-      )}
-      {selected === "codex" && (
-        <div className="space-y-2">
-          <CodexConnection onSignedInChange={() => onChoice("codex")} />
-          {codexUnavailable && (
-            <p role="alert" className="text-xs text-destructive">
-              Codex is unavailable in this scenario. Retry sign-in or choose another cleanup option.
-            </p>
-          )}
-        </div>
-      )}
-      {selected === "provider" && (
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-sm font-semibold">Provider keys stay separate</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            OpenAI, Anthropic, Gemini, Groq, OpenRouter, and custom compatible endpoints are
-            configured in Language Models. No key is entered during this step.
-          </p>
-          {providerInvalid && (
-            <p role="alert" className="mt-2 text-xs text-destructive">
-              The simulated provider key was rejected. The raw transcript remains available.
-            </p>
-          )}
-        </div>
-      )}
-      {selected === "local" && (
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-sm font-semibold">Local cleanup is opt-in</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            The model is not downloaded until you start its download in Language Models.
-          </p>
-        </div>
-      )}
-      {previewConfig?.scenario === "cleanup-failed" && (
-        <p role="alert" className="text-xs text-destructive">
-          The cleanup request will fail in this preview. The original transcript will remain intact.
-        </p>
-      )}
-      <label className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
-        <input
-          type="checkbox"
-          dir="ltr"
-          checked={reuse}
-          onChange={(event) => {
-            setReuse(event.target.checked);
-            localStorage.setItem(reuseStorageKey, String(event.target.checked));
-          }}
-          className="mt-0.5"
-        />
-        <span>
-          <span className="block text-sm font-semibold">
-            Also use this choice for other text features
-          </span>
-          <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-            Apply it only to unconfigured chat, translation, voice assistant, note formatting, and
-            meeting-summary tasks. Existing choices stay unchanged.
-          </span>
-        </span>
-      </label>
-    </div>
-  );
-}
-
-function BrowserTrial({
-  scenario,
-  ready,
-  onFinished,
-}: {
-  scenario: OnboardingScenario;
-  ready: boolean;
-  onFinished: (text: string, cleaned: boolean) => void;
-}) {
-  const [state, setState] = useState<"idle" | "recording" | "processing" | "success" | "error">(
-    "idle"
-  );
-  const [text, setText] = useState("");
-  const error =
-    scenario === "microphone-denied"
-      ? "Microphone permission was denied. You can continue later and grant it from Settings."
-      : scenario === "insufficient-memory"
-        ? "The selected model could not start because there is not enough memory. Choose a smaller model in Settings."
-        : "This preview requires the desktop app to access your microphone.";
-  const start = () => {
-    if (!ready) return;
-    setState("recording");
-    window.setTimeout(() => {
-      if (scenario === "microphone-denied" || scenario === "insufficient-memory") {
-        setState("error");
-        return;
-      }
-      setState("processing");
-      window.setTimeout(() => {
-        const cleaned = scenario !== "cleanup-failed";
-        const finalText = cleaned
-          ? SAMPLE_TRANSCRIPT
-          : "um let's make the next step obvious and keep the work moving";
-        setText(finalText);
-        setState("success");
-        onFinished(finalText, cleaned);
-      }, 350);
-    }, 550);
-  };
-  return (
-    <div className="space-y-4">
-      <div className="onboarding-guided-record rounded-xl border border-border bg-card p-5">
-        <div className="onboarding-guided-record-intro flex items-start gap-3">
-          <span
-            className={`onboarding-guided-record-icon flex h-10 w-10 items-center justify-center rounded-xl ${state === "recording" ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
-          >
-            <Mic className="h-5 w-5" />
-          </span>
-          <div className="onboarding-guided-record-copy flex-1">
-            <p className="text-sm font-semibold">
-              {state === "recording"
-                ? "Listening…"
-                : state === "processing"
-                  ? "Preparing your transcript…"
-                  : state === "success"
-                    ? "Your first dictation"
-                    : "Try a short dictation"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {state === "error"
-                ? error
-                : scenario === "microphone-denied" && state === "idle"
-                  ? "Microphone permission was denied in this scenario. Start to review the recovery state."
-                  : scenario === "insufficient-memory" && state === "idle"
-                    ? "Insufficient memory is simulated for this model. Start to review the recovery state."
-                    : !ready
-                      ? "Download a speech model on the previous step before testing dictation."
-                      : state === "idle"
-                        ? "Say a sentence about what you want to work on today."
-                        : state === "recording"
-                          ? "Speak naturally, then press Stop."
-                          : state === "processing"
-                            ? "The result stays inside Loqui during setup."
-                            : "This trial was not pasted or saved to history."}
-            </p>
-          </div>
-        </div>
-        {state === "recording" && (
-          <div className="mt-5 flex h-10 items-end gap-1" aria-label="Microphone input level">
-            {Array.from({ length: 22 }, (_, index) => (
-              <span
-                key={index}
-                className="w-1.5 animate-pulse rounded-full bg-primary"
-                style={{
-                  height: `${10 + ((index * 17) % 28)}px`,
-                  animationDelay: `${index * 35}ms`,
-                }}
-              />
-            ))}
-          </div>
-        )}
-        {state === "success" && (
-          <div className="mt-4 rounded-lg bg-muted/50 p-3 text-sm leading-relaxed">{text}</div>
-        )}
-        {state === "error" && (
-          <p
-            role="alert"
-            className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-xs text-destructive"
-          >
-            {error}
-          </p>
-        )}
-        <div className="onboarding-guided-record-actions mt-5 flex items-center gap-3">
-          <Button
-            onClick={start}
-            disabled={!ready || state === "recording" || state === "processing"}
-          >
-            {state === "success"
-              ? "Try again"
-              : state === "recording"
-                ? "Listening…"
-                : "Start recording"}
-          </Button>
-          {state === "recording" && (
-            <Button variant="outline" onClick={() => setState("processing")}>
-              Stop
-            </Button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DesktopTrial({
-  ready,
-  onFinished,
-}: {
-  ready: boolean;
-  onFinished: (text: string, cleaned: boolean) => void;
-}) {
-  const { toast } = useToast();
-  const [demoId] = useState(() => `onboarding-${Date.now().toString(36)}`);
-  const [partial, setPartial] = useState("");
-  const [result, setResult] = useState("");
-  const [error, setError] = useState("");
-  const onDemoEvent = useCallback((event: { status: string; text?: string; message?: string }) => {
-    if (event.status === "partial" || event.status === "processing") setPartial(event.text ?? "");
-    if (event.status === "success") setResult(event.text ?? "");
-    if (event.status === "error") setError(event.message ?? "Recording failed.");
-  }, []);
-  const recording = useAudioRecording(toast, { trialMode: true, onDemoEvent });
-  useEffect(() => {
-    void window.electronAPI?.beginOnboardingDemo?.({ id: demoId, kind: "dictation" });
-    return () => {
-      void window.electronAPI?.endOnboardingDemo?.(demoId);
-    };
-  }, [demoId]);
-  useEffect(() => {
-    if (recording.transcript) {
-      setResult(recording.transcript);
-      onFinished(recording.transcript, false);
-    }
-  }, [onFinished, recording.transcript]);
-  const start = async () => {
-    setError("");
-    await recording.toggleListening();
-  };
-  return (
-    <div className="space-y-4">
-      <div className="onboarding-guided-record rounded-xl border border-border bg-card p-5">
-        <div className="onboarding-guided-record-intro flex items-start gap-3">
-          <span
-            className={`onboarding-guided-record-icon flex h-10 w-10 items-center justify-center rounded-xl ${recording.isRecording ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
-          >
-            <Mic className="h-5 w-5" />
-          </span>
-          <div className="onboarding-guided-record-copy">
-            <p className="text-sm font-semibold">
-              {recording.isRecording
-                ? "Listening…"
-                : recording.isProcessing
-                  ? "Preparing your transcript…"
-                  : result
-                    ? "Your first dictation"
-                    : "Try a short dictation"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {!ready
-                ? "Download a speech model on the previous step before testing dictation."
-                : recording.isRecording
-                  ? "Speak naturally, then use Stop when you are done."
-                  : result
-                    ? "This trial stays inside Loqui and is not saved to history."
-                    : "Request microphone access only when you start."}
-            </p>
-          </div>
-        </div>
-        {recording.isRecording && (
-          <div className="mt-5 flex h-10 items-end gap-1" aria-label="Microphone input level">
-            {Array.from({ length: 22 }, (_, index) => (
-              <span
-                key={index}
-                className="w-1.5 animate-pulse rounded-full bg-primary"
-                style={{
-                  height: `${10 + ((index * 17) % 28)}px`,
-                  animationDelay: `${index * 35}ms`,
-                }}
-              />
-            ))}
-          </div>
-        )}
-        {(partial || result) && (
-          <div className="mt-4 rounded-lg bg-muted/50 p-3 text-sm leading-relaxed">
-            {result || partial}
-          </div>
-        )}
-        {error && (
-          <p role="alert" className="mt-4 text-xs text-destructive">
-            {error}
-          </p>
-        )}
-        <div className="onboarding-guided-record-actions mt-5 flex items-center gap-3">
-          <Button
-            variant="live"
-            onClick={start}
-            disabled={!ready || recording.isRecording || recording.isProcessing}
-          >
-            {result ? "Try again" : "Start recording"}
-          </Button>
-          {recording.isRecording && (
-            <Button variant="outline" onClick={() => void recording.stopRecording()}>
-              Stop
-            </Button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ShortcutsStep({
-  platform,
-  permissions,
-}: {
-  platform: "darwin" | "linux" | "win32";
-  permissions: ReturnType<typeof usePermissions>;
-}) {
-  const dictationKey = useSettingsStore((s) => s.dictationKey);
-  const setDictationKey = useSettingsStore((s) => s.setDictationKey);
-  const autoPasteEnabled = useSettingsStore((s) => s.autoPasteEnabled);
-  const setAutoPasteEnabled = useSettingsStore((s) => s.setAutoPasteEnabled);
-  const hotkey = dictationKey || getDefaultHotkey();
-  const simulatedDenied = Boolean(
-    window.loquiBrowserPreview && window.loquiBrowserPreviewConfig?.scenario === "microphone-denied"
-  );
-  const accessibilityReady = simulatedDenied
-    ? false
-    : permissions.accessibilityPermissionGranted || platform !== "darwin";
-  return (
-    <div className="onboarding-guided-work">
-      <div className="onboarding-guided-section-head">
-        <h2>Use Loqui outside this window</h2>
-        <span>Optional</span>
-      </div>
-      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
-        <div className="flex items-start gap-3">
-          <Keyboard className="mt-0.5 h-5 w-5 text-primary" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold">Dictation shortcut</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              The registered default is platform-specific. Change it here if it conflicts with
-              another app.
-            </p>
-            <div className="mt-3">
-              <HotkeyListInput
-                value={hotkey}
-                onChange={(value) => {
-                  setDictationKey(value);
-                }}
-                required
-                maxHotkeys={1}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold">Automatic paste</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              When enabled, completed dictation is pasted into the focused app. You can turn this
-              off later.
-            </p>
-          </div>
-          <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
-        </div>
-      </div>
-      {platform === "darwin" && (
-        <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
-          <div className="flex items-start gap-3">
-            <ShieldCheck className="mt-0.5 h-5 w-5 text-primary" />
-            <div className="flex-1">
-              <p className="text-sm font-semibold">Accessibility permission</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                macOS needs this for global shortcuts and pasting into other apps.
-              </p>
-              {accessibilityReady ? (
-                <p className="mt-3 text-xs font-medium text-emerald-600">Permission ready.</p>
-              ) : (
-                <Button
-                  className="mt-3"
-                  size="sm"
-                  onClick={() => {
-                    if (window.loquiBrowserPreview) return;
-                    void permissions.requestAccessibilityPermission();
-                  }}
-                >
-                  Grant access
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      {platform === "linux" && (
-        <p className="rounded-lg border border-border/70 bg-muted/25 p-3 text-xs text-muted-foreground">
-          Linux paste support depends on your desktop session. Loqui will show the exact helper
-          guidance in Settings if a paste tool is missing.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function FinishStep({
-  readiness,
-  onResume,
-}: {
-  readiness: OnboardingReadiness;
-  onResume: (step: OnboardingStep) => void;
-}) {
-  const items: Array<[keyof OnboardingReadiness, string, string, OnboardingStep]> = [
-    ["speech", "Speech model", "Choose and download a local speech model.", "speech"],
-    ["microphone", "Microphone", "Start a trial recording to confirm access.", "try"],
-    ["cleanup", "Text cleanup", "Optional. Raw transcripts work without it.", "cleanup"],
-    ["shortcut", "Shortcut and paste", "Optional for using Loqui in other apps.", "shortcuts"],
-  ];
-  return (
-    <div className="onboarding-guided-work">
-      <div className="onboarding-guided-section-head">
-        <h2>Your setup at a glance</h2>
-        <span>Finish anytime</span>
-      </div>
-      <div className="onboarding-guided-readiness space-y-2">
-        {items.map(([key, label, detail, step]) => {
-          const state = readiness[key];
-          const ok = state === "ready" || state === "skipped";
-          const status =
-            state === "ready"
-              ? "Ready"
-              : state === "skipped"
-                ? "Optional"
-                : state === "checking"
-                  ? "Checking"
-                  : state === "failed"
-                    ? "Needs attention"
-                    : "Pending";
-          const description =
-            state === "ready"
-              ? key === "speech"
-                ? "Local model ready."
-                : key === "microphone"
-                  ? "Trial dictation captured."
-                  : `${label} is ready.`
-              : state === "skipped"
-                ? key === "cleanup"
-                  ? "Raw transcripts work without cleanup."
-                  : "Record inside Loqui without automatic paste."
-                : detail;
-          return (
-            <button
-              type="button"
-              key={key}
-              onClick={() => onResume(step)}
-              className="onboarding-guided-readiness-row flex w-full items-start gap-3 rounded-xl border border-border bg-card p-4 text-start hover:bg-muted/40"
-            >
-              <span className="mt-0.5">
-                {ok ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                ) : (
-                  <CircleAlert className="h-4 w-4 text-amber-500" />
-                )}
-              </span>
-              <span className="flex-1">
-                <span className="block text-sm font-semibold">{label}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{description}</span>
-              </span>
-              <span className="text-xs text-muted-foreground">{status}</span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-xs leading-relaxed text-muted-foreground">
-        <p className="font-semibold text-foreground">Next</p>
-        <p className="mt-1">
-          Open Notes to edit a sample note, or use Record from the workspace. Meetings, calendar
-          connections, search models, and advanced providers can be configured later.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export default function OnboardingFlow({
   onComplete,
   onExplore,
   initialStep,
   previewConfig,
 }: Props) {
-  const preview = Boolean(import.meta.env.DEV && window.loquiBrowserPreview);
-  const config = previewConfig ?? window.loquiBrowserPreviewConfig;
+  const config = previewConfig;
   const progressStorageKey = config ? onboardingPreviewStorageKey(config) : undefined;
   const storedProgress = useMemo(
     () => readOnboardingProgress(progressStorageKey),
     [progressStorageKey]
   );
-  const [progress, setProgress] = useState<OnboardingProgress>(storedProgress);
-  const [step, setStep] = useState<OnboardingStep>(
-    initialStep ?? config?.step ?? storedProgress.step
+  const firstStep = initialStep ?? config?.step ?? storedProgress.step;
+  const [step, setStep] = useState<OnboardingStep>(firstStep);
+  const [visited, setVisited] = useState<OnboardingStep[]>(() =>
+    markVisited(storedProgress.visited, firstStep)
   );
-  const [selectedModel, setSelectedModel] = useState(() => {
-    const saved = config
-      ? localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechModel`)
-      : useSettingsStore.getState().parakeetModel;
-    return ONBOARDING_SPEECH_MODELS.some((model) => model.id === saved)
-      ? saved!
-      : DEFAULT_ONBOARDING_SPEECH_MODEL_ID;
-  });
-  const selectedModelRef = useRef(selectedModel);
-  const [speechModelReady, setSpeechModelReady] = useState(
-    () =>
-      config?.scenario === "ready" ||
-      Boolean(
-        config &&
-        localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
-          selectedModel
-      )
+  useEffect(() => {
+    writeOnboardingProgress({ step, visited }, progressStorageKey);
+  }, [progressStorageKey, step, visited]);
+  const { t } = useTranslation();
+  const { requestPatch: requestRoutePatch } = useRouteChange();
+  useSyncExternalStore(
+    subscribeSetupCleanupRevision,
+    getSetupCleanupRevision,
+    getSetupCleanupRevision
   );
-  const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "ready" | "error">(
-    () =>
-      config?.scenario === "downloading" || config?.scenario === "download-interrupted"
-        ? "downloading"
-        : config?.scenario === "ready" ||
-            Boolean(
-              config &&
-              localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
-                selectedModel
-            )
-          ? "ready"
-          : "idle"
-  );
-  const [trialResult, setTrialResult] = useState("");
   const [updatesEnabled, setUpdatesEnabled] = useState(true);
   const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);
   const cleanupMode = useSettingsStore((s) => s.cleanupMode);
@@ -1064,19 +154,54 @@ export default function OnboardingFlow({
   const autoPasteEnabled = useSettingsStore((s) => s.autoPasteEnabled);
   const dataRetentionEnabled = useSettingsStore((s) => s.dataRetentionEnabled);
   const setDataRetentionEnabled = useSettingsStore((s) => s.setDataRetentionEnabled);
-  const spokenLanguages = useSettingsStore((s) => s.spokenLanguages);
-  const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
-  const permissions = usePermissions(undefined, { macAccessibilityChecksEnabled: true });
-  const platform =
+  const platform = (
     config?.platform === "macos"
       ? "darwin"
       : config?.platform === "linux"
         ? "linux"
-        : getCachedPlatform();
-  const scenario = config?.scenario ?? "fresh";
-  const speechLanguage =
-    spokenLanguages[0] || (preferredLanguage === "auto" ? "en-US" : preferredLanguage) || "en-US";
-  const selectedSpeechSupported = supportsSpeechLanguage(selectedModel, speechLanguage);
+        : getCachedPlatform()
+  ) as "darwin" | "linux" | "win32";
+  const device = platform === "darwin" ? "Mac" : "Other";
+  // T12: the existing dictation preference is the only microphone selection authority.
+  const mic = useMicrophoneAccess();
+  const micMode = useSettingsStore((s) => s.microphoneSelectionMode);
+  const micId = useSettingsStore((s) => s.selectedMicDeviceId);
+  const micLabel = useSettingsStore((s) => s.selectedMicDeviceLabel);
+  const [helloInputs, setHelloInputs] = useState<AudioInput[]>([]);
+  const micPicker = micPickerModel(helloInputs, micMode, micId, micLabel);
+  const helloPreview = useMicLevelPreview(
+    step === "welcome" && mic.access === "granted",
+    micPicker.previewDeviceId
+  );
+  // T18 consumes this device-bound evidence. Never transfer an old device's proof.
+  const micSelection = JSON.stringify([micMode, micId, micLabel, micPicker.previewDeviceId]);
+  const [micHeardSelection, setMicHeard] = useState<string | null>(null);
+  const listeningSelection = useRef<string | null>(null);
+  useEffect(() => {
+    setMicHeard(null);
+  }, [micSelection]);
+  useEffect(() => setHelloInputs(helloPreview.inputs), [helloPreview.inputs]);
+  useEffect(() => {
+    if (helloPreview.status !== "live") listeningSelection.current = null;
+    else {
+      listeningSelection.current ??= micSelection;
+      if (helloPreview.heardVoice && listeningSelection.current === micSelection)
+        setMicHeard(micSelection);
+    }
+  }, [helloPreview.status, helloPreview.heardVoice, micSelection]);
+  const micHeard = micHeardSelection === micSelection;
+  const pickMicrophone = (value: string) => {
+    setMicHeard(null);
+    const { mode, device: picked } = selectionFor(value, helloInputs);
+    const store = useSettingsStore.getState();
+    if (picked) store.setSelectedMicDevice(picked.deviceId, picked.label);
+    store.setMicrophoneSelectionMode(mode);
+  };
+  const changeUpdates = (value: boolean) => {
+    setUpdatesEnabled(value);
+    void window.electronAPI?.updates?.preferences?.({ enabled: value });
+  };
+
   const initialCleanupChoice: CleanupChoice = !useCleanupModel
     ? "none"
     : cleanupMode === "local"
@@ -1092,29 +217,6 @@ export default function OnboardingFlow({
   );
 
   useEffect(() => {
-    if (preview) return;
-    let cancelled = false;
-    const check = window.electronAPI?.checkParakeetModelStatus;
-    if (!check) return;
-    void check(selectedModel)
-      .then((result) => {
-        if (!cancelled) setSpeechModelReady(Boolean(result?.downloaded));
-      })
-      .catch(() => {
-        if (!cancelled) setSpeechModelReady(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [preview, selectedModel]);
-
-  useEffect(() => {
-    if (!preview || scenario !== "download-interrupted" || downloadState !== "downloading") return;
-    const timer = window.setTimeout(() => setDownloadState("error"), 700);
-    return () => window.clearTimeout(timer);
-  }, [downloadState, preview, scenario]);
-
-  useEffect(() => {
     if (!window.electronAPI?.updates?.status) return;
     void window.electronAPI.updates
       .status()
@@ -1124,68 +226,252 @@ export default function OnboardingFlow({
       .catch(() => {});
   }, []);
 
-  const persist = useCallback(
-    (next: Partial<OnboardingProgress>) => {
-      const value = writeOnboardingProgress(next, progressStorageKey);
-      setProgress(value);
-      return value;
+  const goTo = useCallback((next: OnboardingStep) => {
+    revokeSetupCleanupSelection();
+    cleanupRequestRef.current += 1;
+    setCleanupStatus((status) => (status === "checking" ? "pending" : status));
+    setStep(next);
+    setVisited((current) => markVisited(current, next));
+  }, []);
+  const finish = useCallback(
+    (options?: OnboardingCompleteOptions) => {
+      closedRef.current = true;
+      cleanupRequestRef.current += 1;
+      writeOnboardingProgress({ completed: true, step: "finish" }, progressStorageKey);
+      onComplete(options);
     },
-    [progressStorageKey]
+    [onComplete, progressStorageKey]
   );
-
-  const goTo = useCallback(
-    (next: OnboardingStep) => {
-      setStep(next);
-      persist({ step: next });
-    },
-    [persist]
-  );
-
-  const explore = useCallback(() => {
-    persist({ explored: true, step });
+  const finishLater = useCallback(() => {
+    closedRef.current = true;
+    cleanupRequestRef.current += 1;
+    writeOnboardingProgress({ explored: true, step, visited }, progressStorageKey);
     onExplore?.();
     onComplete();
-  }, [onComplete, onExplore, persist, step]);
+  }, [onComplete, onExplore, progressStorageKey, step, visited]);
+  const skip = () => {
+    const next = nextStep(step);
+    if (next) goTo(next);
+    else finish();
+  };
+  const back = () => {
+    const previous = previousStep(step);
+    if (previous) goTo(previous);
+  };
+  const advance = () => {
+    skip();
+  };
 
-  const finish = useCallback(() => {
-    persist({ completed: true, step: "finish" });
-    onComplete();
-  }, [onComplete, persist]);
+  // Shared motion preference and the requested key; only main can acknowledge registration.
+  const reducedMotion = usePrefersReducedMotion();
+  const settingsHotkey =
+    parseHotkeyList(useSettingsStore((s) => s.dictationKey || s.activeDictationKey))[0] ||
+    getDefaultHotkey();
+  const hotkeyLabel = keycapLabel(settingsHotkey, platform);
+  const activationMode = useSettingsStore((s) => s.activationMode);
 
-  const downloadModel = useCallback(() => {
-    const requestedModel = selectedModel;
-    setDownloadState("downloading");
-    if (preview) {
-      window.setTimeout(() => {
-        const ready = scenario !== "download-interrupted";
-        if (selectedModelRef.current === requestedModel) {
-          setDownloadState(ready ? "ready" : "error");
-          setSpeechModelReady(ready);
+  // [T13] Voice: detection, explicit commit, per-model download
+  const profile = useSystemProfile();
+  const pick = useMemo(() => (profile ? detectVoice(profile) : null), [profile]);
+  // undefined = untouched, so the detected pick applies; null = deliberately no compatible voice
+  // (a language no on-device voice hears). Only undefined falls back to detection (R2-I04).
+  const [chosenModel, setChosenModel] = useState<string | null | undefined>(() => {
+    const stored = localStorage.getItem("parakeetModel");
+    return !shouldApplyDetectedVoice(stored) && isOnboardingVoice(stored) ? stored : undefined;
+  });
+  const [chosenLanguage, setChosenLanguage] = useState<string | null>(null);
+  const spokenLanguages = chosenLanguage
+    ? [chosenLanguage]
+    : spokenLocalesFor(profile?.locales ?? [], pick?.languages ?? []);
+  const selectedModel = chosenModel === undefined ? (pick?.modelId ?? null) : chosenModel;
+  const voiceCompatible =
+    selectedModel !== null && voiceSupportsAll(selectedModel, spokenLanguages);
+  const voiceDownload = useVoiceDownload(selectedModel);
+  const selectedVoiceRef = useRef(selectedModel);
+  selectedVoiceRef.current = selectedModel;
+  const voiceState = voiceDownload.state;
+  const voiceStatus = voiceState.status;
+  const voiceBusy =
+    voiceStatus === "downloading" || voiceStatus === "installing" || voiceStatus === "cancelling";
+  const changeModel = (modelId: string) => {
+    if (voiceBusy || !isOnboardingVoice(modelId) || !voiceSupportsAll(modelId, spokenLanguages))
+      return;
+    useRouteDraftStore.getState().discard();
+    setChosenModel(modelId);
+  };
+  const changeLanguage = (language: string) => {
+    if (voiceBusy) return; // locked while a transfer runs (I03)
+    useRouteDraftStore.getState().discard();
+    setChosenLanguage(language);
+    setChosenModel(reconcileVoice(selectedModel, [language]).modelId);
+  };
+  // I02: dictation becomes local, including from self-hosted. Meeting and upload routes stay as they are.
+  const commitVoice = async (): Promise<boolean> => {
+    if (
+      !selectedModel ||
+      !voiceCompatible ||
+      voiceStatus === "checking" ||
+      voiceStatus === "cancelling"
+    )
+      return false;
+    const store = useSettingsStore.getState();
+    const result = await requestRoutePatch("dictationStt", {
+      transcriptionMode: "local",
+      useLocalWhisper: true,
+      localTranscriptionProvider: "nvidia",
+      parakeetModel: selectedModel,
+    });
+    if (typeof result === "string" || (!result.applied && result.plan.kind !== "noop"))
+      return false;
+    store.setSpokenLanguages(spokenLanguages);
+    if (spokenLanguages[0]) store.setPreferredLanguage(spokenLanguages[0]);
+    return true;
+  };
+  const voicePrimary = async () => {
+    if (!(await commitVoice())) return;
+    if (voiceStatus === "idle" || voiceStatus === "error" || voiceStatus === "cancelled")
+      voiceDownload.start();
+    goTo("try");
+  };
+  const transcriptionMode = useSettingsStore((s) => s.transcriptionMode);
+  const localProvider = useSettingsStore((s) => s.localTranscriptionProvider);
+  const parakeetModel = useSettingsStore((s) => s.parakeetModel);
+  // F04: installation is a candidate fact, never authority to admit recording.
+  // Plan03's resolved route remains the readiness authority; no new renderer readiness flags.
+  const dictationRoute = useResolvedRoute("dictationStt");
+  const voiceCommitted =
+    voiceCompatible &&
+    transcriptionMode === "local" &&
+    localProvider === "nvidia" &&
+    parakeetModel === selectedModel;
+  const useLocalSpeech = useSettingsStore((s) => s.useLocalWhisper);
+  const localVoiceActive =
+    useLocalSpeech &&
+    dictationRoute.model === (selectedModel ? getParakeetModelInfo(selectedModel)?.name : null) &&
+    voiceStatus === "ready" &&
+    voiceCommitted &&
+    dictationRoute.locality === "device" &&
+    dictationRoute.host === null &&
+    dictationRoute.state.status === "ready";
+  // T15: current Plan03 route admits the overlay demo; setup never captures audio.
+  const context = useSettingsStore(trialContext);
+  const expectedBinding = { hotkey: settingsHotkey, activationMode };
+  const trialSession = useTrialSession(
+    step === "try" && localVoiceActive,
+    context,
+    expectedBinding
+  );
+  const trial = trialSession.state;
+  const lastTake = trialSession.lastTake;
+  const trialProofCurrent = localVoiceActive && lastTake?.context === context;
+  const keycap = useDictationHotkey(
+    step === "try" || step === "shortcuts" || step === "finish",
+    expectedBinding
+  );
+  const shortcutProofCurrent =
+    trialProofCurrent &&
+    lastTake?.usedHotkey === true &&
+    bindingMatches(lastTake.binding, expectedBinding) &&
+    bindingMatches(keycap.binding, expectedBinding);
+  useShortcutDemo(step === "shortcuts");
+  const modeInfo = useHotkeyModeInfo("dictation", settingsHotkey);
+  // Current main acknowledgement fences both mirrored presses and historical trial proof.
+  const shortcutProven =
+    bindingMatches(keycap.binding, expectedBinding) &&
+    ((keycap.presses > 0 && keycap.lastStyle !== null) || shortcutProofCurrent);
+  const accessibility = useAccessibilityGate(
+    platform,
+    step === "try" || step === "shortcuts" || step === "finish"
+  );
+  const nowMs = useTicker(trial.phase === "recording" || trial.phase === "cancelled");
+  const [docked, setDocked] = useState(false);
+  useEffect(() => {
+    if (trial.successes < 1 || docked) return;
+    if (reducedMotion) {
+      setDocked(true);
+      return;
+    }
+    const timer = setTimeout(
+      () => dockMark(() => setDocked(true), { reducedMotion, doc: document }),
+      SETTLE_MS + DRAW_MS
+    );
+    return () => clearTimeout(timer);
+  }, [docked, reducedMotion, trial.successes]);
+  const downloadRail: InstrumentMode | null =
+    voiceState.status === "downloading"
+      ? {
+          kind: "download",
+          percent: voiceState.percent,
+          downloadedBytes: voiceState.downloadedBytes,
+          totalBytes: voiceState.totalBytes,
         }
-        if (config && ready)
-          localStorage.setItem(
-            `${onboardingPreviewStorageKey(config)}.speechReadyModel`,
-            requestedModel
-          );
-      }, 500);
+      : voiceStatus === "error"
+        ? { kind: "error", reason: "download" }
+        : null;
+  const voiceSize = byteParts(selectedModel ? (modelDownloadBytes(selectedModel) ?? 0) : 0);
+
+  // Fence notices and announcements to an observed transfer for this model.
+  // Installed snapshots and navigation cannot create or replay a receipt.
+  const {
+    milestone: voiceMilestone,
+    transferId: voiceTransferId,
+    start: startVoiceDownload,
+  } = voiceDownload;
+  const notify = useOnboardingNotifier();
+  const transfers = useRef(
+    new Map<string, { id: number; settled: boolean; milestones: Set<number> }>()
+  );
+  const [announcement, setAnnouncement] = useState("");
+  useEffect(() => {
+    if (!selectedModel || voiceTransferId === null) return;
+    let transfer = transfers.current.get(selectedModel);
+    if (transfer?.id !== voiceTransferId) {
+      transfer = { id: voiceTransferId, settled: false, milestones: new Set() };
+      transfers.current.set(selectedModel, transfer);
+      setAnnouncement("");
+    }
+    if (transfer.settled) return;
+    if (voiceStatus === "downloading" || voiceStatus === "installing") {
+      const milestone = voiceMilestone;
+      if (milestone !== null && !transfer.milestones.has(milestone)) {
+        transfer.milestones.add(milestone);
+        setAnnouncement(t("setupFlow.download.announcePercent", { percent: milestone }));
+      }
       return;
     }
-    const download = window.electronAPI?.downloadParakeetModel;
-    if (!download) {
-      setDownloadState("error");
-      return;
+    if (voiceStatus !== "ready" && voiceStatus !== "error" && voiceStatus !== "cancelled") return;
+    transfer.settled = true;
+    if (voiceStatus === "ready") {
+      setAnnouncement(t("setupFlow.download.announceReady"));
+      if (shouldAnnounceOffStep(step)) notify(voiceReadyNotice(t));
+    } else if (voiceState.status === "error" && shouldAnnounceOffStep(step)) {
+      const failedModel = selectedModel;
+      notify(
+        voiceFailedNotice(t, voiceState.message, () => {
+          const store = useSettingsStore.getState();
+          if (
+            store.transcriptionMode === "local" &&
+            store.localTranscriptionProvider === "nvidia" &&
+            store.parakeetModel === failedModel &&
+            selectedVoiceRef.current === failedModel
+          ) {
+            startVoiceDownload();
+          } else goTo("speech");
+        })
+      );
     }
-    void download(requestedModel)
-      .then((result) => {
-        if (selectedModelRef.current !== requestedModel) return;
-        const ready = Boolean(result?.success && result?.downloaded);
-        setSpeechModelReady(ready);
-        setDownloadState(ready ? "ready" : "error");
-      })
-      .catch(() => {
-        if (selectedModelRef.current === requestedModel) setDownloadState("error");
-      });
-  }, [config, preview, scenario, selectedModel]);
+  }, [
+    goTo,
+    notify,
+    selectedModel,
+    step,
+    t,
+    voiceMilestone,
+    voiceTransferId,
+    startVoiceDownload,
+    voiceState,
+    voiceStatus,
+  ]);
 
   const cleanupRequestRef = useRef(0);
   const closedRef = useRef(false);
@@ -1200,229 +486,401 @@ export default function OnboardingFlow({
   const chooseCleanup = useCallback(
     async (choice: CleanupChoice) => {
       if (closedRef.current) return;
-      // Each pick supersedes the one before it: a check still in flight for an
-      // earlier option must not activate cleanup after the user moved on.
       const request = ++cleanupRequestRef.current;
+      // Explicit setup intent supersedes the existing review/request, including
+      // a coalesced A→B→A pick. It never becomes execution authority by itself.
+      revokeSetupCleanupSelection();
+      useRouteDraftStore.getState().discard();
       setCleanupChoice(choice);
+      let availabilityRevision: number | null = getSetupCleanupRevision();
       await applyCleanupChoice({
         choice,
         settings: useSettingsStore.getState(),
         bridge: window.electronAPI,
         catalog: cleanupModelCatalog,
-        preview,
-        scenario,
         setStatus: setCleanupStatus,
-        isCurrent: () => cleanupRequestRef.current === request,
+        isCurrent: () =>
+          !closedRef.current &&
+          cleanupRequestRef.current === request &&
+          (availabilityRevision === null || availabilityRevision === getSetupCleanupRevision()),
+        requestPatch: async (choicePatch) => {
+          // The planner takes over request/commit ownership once availability
+          // has settled. Its own commit may advance the selection revision.
+          availabilityRevision = null;
+          const patch: SettingsPatch = { ...choicePatch };
+          const reuseKey = config
+            ? `${onboardingPreviewStorageKey(config)}.reuseCleanup`
+            : "loqui.onboarding.reuseCleanup";
+          if (choicePatch.useCleanupModel && localStorage.getItem(reuseKey) === "true") {
+            const state = useSettingsStore.getState();
+            for (const scope of [
+              "chatIntelligence",
+              "dictationTranslation",
+              "dictationAgent",
+              "noteFormatting",
+            ] as const) {
+              const keys = INFERENCE_SCOPES[scope].storeKeys;
+              if (state[keys.model]) continue;
+              Object.assign(patch, {
+                [keys.mode]: choicePatch.cleanupMode,
+                [keys.provider]: choicePatch.cleanupProvider,
+                [keys.model]: choicePatch.cleanupModel,
+                [keys.cloudMode]: state.cleanupCloudMode,
+                [keys.cloudBaseUrl]: state.cleanupCloudBaseUrl,
+                [keys.remoteUrl]: state.cleanupRemoteUrl,
+              });
+            }
+          }
+          const result = await requestRoutePatch("dictationCleanup", patch);
+          return result === "staged"
+            ? "review"
+            : typeof result === "string" || (!result.applied && result.plan.kind !== "noop")
+              ? "failed"
+              : "ready";
+        },
       });
     },
-    [preview, scenario]
+    [config, requestRoutePatch]
   );
+  // Review never grants consent for the uncommitted choice. Apply/Discard
+  // re-read the committed route, while the shared bar retains its exact Undo.
+  const cleanupDraft = useRouteDraftStore((s) => s.draft);
+  useEffect(() => {
+    if (cleanupDraft?.routeId === "dictationCleanup") return;
+    if (cleanupStatus !== "review") return;
+    const committed = useSettingsStore.getState();
+    setCleanupChoice(
+      !committed.useCleanupModel
+        ? "none"
+        : committed.cleanupMode === "local"
+          ? "local"
+          : committed.cleanupProvider === "codex"
+            ? "codex"
+            : "provider"
+    );
+    setCleanupStatus(committed.useCleanupModel ? "ready" : "skipped");
+  }, [cleanupDraft, useCleanupModel, cleanupStatus]);
 
-  const applyCleanupToOtherTasks = useCallback(() => {
-    const reuseStorageKey = config
-      ? `${onboardingPreviewStorageKey(config)}.reuseCleanup`
-      : "loqui.onboarding.reuseCleanup";
-    if (
-      cleanupChoice === "none" ||
-      cleanupStatus !== "ready" ||
-      localStorage.getItem(reuseStorageKey) !== "true"
-    )
-      return;
-    const source = selectResolvedLLMConfig(useSettingsStore.getState(), "dictationCleanup");
-    const scopes = [
-      "chatIntelligence",
-      "dictationTranslation",
-      "dictationAgent",
-      "noteFormatting",
-    ] as const;
-    scopes.forEach((scope) => {
-      const current = selectResolvedLLMConfig(useSettingsStore.getState(), scope);
-      if (current.model) return;
-      setResolvedLLMConfig(scope, {
-        mode: source.mode,
-        provider: source.provider,
-        model: source.model,
-        cloudMode: source.cloudMode,
-        cloudBaseUrl: source.cloudBaseUrl,
-        remoteUrl: source.remoteUrl,
-      });
-    });
-  }, [cleanupChoice, cleanupStatus, config]);
-
-  const onTrialFinished = useCallback((text: string) => {
-    setTrialResult(text);
-  }, []);
-
-  const disableCleanupForTrial = useCallback(() => {
-    void chooseCleanup("none");
-  }, [chooseCleanup]);
-
-  const readiness = useMemo<OnboardingReadiness>(() => {
-    const cleanupFailed =
-      scenario === "cleanup-failed" ||
-      (cleanupChoice === "codex" &&
-        (scenario === "codex-missing" || scenario === "codex-expired")) ||
-      (cleanupChoice === "provider" && scenario === "invalid-provider-key");
-    return {
-      microphone: trialResult ? "ready" : scenario === "microphone-denied" ? "failed" : "pending",
-      speech:
-        speechModelReady && selectedSpeechSupported
-          ? "ready"
-          : downloadState === "error"
-            ? "failed"
-            : "pending",
-      cleanup:
-        cleanupChoice === "none"
-          ? "skipped"
-          : cleanupFailed || cleanupStatus === "failed"
-            ? "failed"
-            : cleanupStatus === "ready"
-              ? "ready"
-              : cleanupStatus === "checking"
-                ? "checking"
-                : "pending",
-      shortcut: !autoPasteEnabled
-        ? "skipped"
-        : platform === "darwin"
-          ? permissions.accessibilityPermissionGranted
-            ? "ready"
-            : "pending"
-          : "ready",
-    };
-  }, [
-    downloadState,
-    permissions.accessibilityPermissionGranted,
+  const reuseStorageKey = progressStorageKey
+    ? `${progressStorageKey}.reuseCleanup`
+    : "loqui.onboarding.reuseCleanup";
+  const [reuseCleanup, setReuseCleanup] = useState(
+    () => localStorage.getItem(reuseStorageKey) === "true"
+  );
+  // Setup-session disclosure survives step unmounts. No content, result,
+  // running state, consent or operation authority is retained here.
+  const [lastCleanupRemoteAttempt, setLastCleanupRemoteAttempt] =
+    useState<CleanupRemoteAttempt | null>(null);
+  const cleanupRoute = useResolvedRoute("dictationCleanup");
+  const choiceProviderId =
+    cleanupChoice === "codex" ? "codex" : cleanupChoice === "provider" ? "openai" : null;
+  const cleanupProviderLabel =
+    cleanupStatus !== "ready"
+      ? providerDisplayLabel(choiceProviderId, t)
+      : cleanupRoute.locality === "network"
+        ? (cleanupRoute.host ?? providerDisplayLabel(null, t))
+        : providerDisplayLabel(cleanupRoute.providerId ?? choiceProviderId, t);
+  const cleanupSelection = captureSetupCleanupSelection();
+  const noteRoute = useResolvedRoute("noteRecordingStt");
+  const summary = summarizeReadiness({
+    speechRoute: dictationRoute,
+    noteRoute,
+    localVoiceActive,
+    voiceDownload: voiceStatus,
+    microphone: mic.access,
+    micHeard,
+    trialSucceeded: trialProofCurrent,
     platform,
-    scenario,
-    autoPasteEnabled,
+    accessibilityGranted: accessibility.granted,
+    shortcutProven,
+    shortcutLabel: hotkeyLabel,
+    activationMode,
     cleanupChoice,
     cleanupStatus,
-    speechModelReady,
-    selectedSpeechSupported,
-    trialResult,
-  ]);
-
-  const handleContinue = () => {
-    if (step === "welcome") return goTo("speech");
-    if (step === "speech") return goTo("cleanup");
-    if (step === "cleanup") {
-      applyCleanupToOtherTasks();
-      return goTo("try");
-    }
-    if (step === "try") return goTo("shortcuts");
-    if (step === "shortcuts") return goTo("finish");
-    return finish();
+    cleanupRoute,
+    cleanupProviderLabel,
+  });
+  const noteAction = noteActionState({ route: noteRoute, microphone: mic.access });
+  const noteMicrophone = useRef(mic.access);
+  noteMicrophone.current = mic.access;
+  // Re-read Plan03 at the action boundary: a stale rendered button grants nothing.
+  const dictateNote = () => {
+    const latest = resolveRoutes(routeSnapshotFromSettings(useSettingsStore.getState())).find(
+      (route) => route.id === "noteRecordingStt"
+    );
+    if (
+      !latest ||
+      noteActionState({ route: latest, microphone: noteMicrophone.current }).status !== "ready"
+    )
+      return;
+    finish({ next: { kind: "dictate-note" } });
   };
+  const stepView = (): StepView => {
+    if (step === "shortcuts")
+      return {
+        rail: {
+          title: t("setupFlow.rail.shortcuts.title"),
+          body: t(`setupFlow.rail.shortcuts.body${device}`),
+          mode: downloadRail ?? { kind: "idle" },
+        },
+        primary: { label: t("setupFlow.continue"), onClick: advance },
+        onSkip: skip,
+        finishLaterLabel: t("setupFlow.finishLater"),
+        content: (
+          <ShortcutStep
+            platform={platform}
+            hotkey={settingsHotkey}
+            hotkeyLabel={hotkeyLabel}
+            activationMode={activationMode}
+            pushSupported={modeInfo.loaded && modeInfo.supportsPushToTalk}
+            keycap={keycap}
+            accessibilityMissing={accessibility.granted === false}
+            onGrantAccessibility={accessibility.request}
+            autoPasteEnabled={autoPasteEnabled}
+            onAutoPasteChange={(value) => useSettingsStore.getState().setAutoPasteEnabled(value)}
+            onActivationModeChange={(mode) => useSettingsStore.getState().setActivationMode(mode)}
+            onHotkeyChange={(value) => useSettingsStore.getState().setDictationKey(value)}
+          />
+        ),
+      };
 
-  const handleBack = () => {
-    const index = STEPS.findIndex((item) => item.id === step);
-    if (index > 0) goTo(STEPS[index - 1].id);
-  };
+    if (step === "cleanup")
+      return {
+        rail: {
+          title: t("setupFlow.rail.cleanup.title"),
+          body: t(`setupFlow.rail.cleanup.body${device}`),
+          mode: downloadRail ?? { kind: "idle" },
+        },
+        primary: { label: t("setupFlow.continue"), onClick: advance },
+        onSkip: skip,
+        finishLaterLabel: t("setupFlow.finishLater"),
+        content: (
+          <>
+            <CleanupStep
+              choice={cleanupChoice}
+              status={cleanupStatus}
+              onChoose={chooseCleanup}
+              userText={lastTake?.rawText ?? lastTake?.text ?? null}
+              route={cleanupRoute}
+              providerLabel={cleanupProviderLabel}
+              lastRemoteAttempt={lastCleanupRemoteAttempt}
+              onRemoteAttempt={setLastCleanupRemoteAttempt}
+              selection={cleanupSelection}
+              isSelectionCurrent={isSetupCleanupSelectionCurrent}
+              runCleanup={createSetupCleanupOperation}
+              reuse={reuseCleanup}
+              onReuseChange={(value) => {
+                setReuseCleanup(value);
+                localStorage.setItem(reuseStorageKey, String(value));
+                if (cleanupChoice !== "none") void chooseCleanup(cleanupChoice);
+              }}
+            />
+            <StagedRouteBar placement="inline" shortcut={false} />
+          </>
+        ),
+      };
 
-  const handleSkip = () => {
-    if (step === "finish") return finish();
-    explore();
-  };
-
-  const simulatedTrialReady =
-    preview && !["fresh", "downloading", "download-interrupted"].includes(scenario);
-  const trialReady = selectedSpeechSupported && (speechModelReady || simulatedTrialReady);
-  const trial = preview ? (
-    <BrowserTrial scenario={scenario} ready={trialReady} onFinished={onTrialFinished} />
-  ) : (
-    <DesktopTrial ready={trialReady} onFinished={onTrialFinished} />
-  );
-
-  let content: ReactNode = null;
-  if (step === "speech")
-    content = (
-      <SpeechStep
-        previewConfig={config}
-        speechModelReady={speechModelReady && selectedSpeechSupported}
-        downloadState={downloadState}
-        selectedModel={selectedModel}
-        onSelectModel={(model) => {
-          selectedModelRef.current = model;
-          setSelectedModel(model);
-          if (config) {
-            localStorage.setItem(`${onboardingPreviewStorageKey(config)}.speechModel`, model);
-          } else {
-            const store = useSettingsStore.getState();
-            store.setUseLocalWhisper(true);
-            store.setLocalTranscriptionProvider("nvidia");
-            store.setParakeetModel(model);
+    if (step === "welcome")
+      return {
+        rail: {
+          title: t(`setupFlow.rail.${step}.title`),
+          body: t(`setupFlow.rail.${step}.body${device}`),
+          mode:
+            helloPreview.status === "live"
+              ? { kind: "listening", heardVoice: helloPreview.heardVoice }
+              : { kind: "idle" },
+          readLevel: helloPreview.readLevel,
+        },
+        primary: { label: t("setupFlow.hello.start"), onClick: advance },
+        finishLaterLabel: t("setupFlow.lookAroundFirst"),
+        content: (
+          <HelloStep
+            platform={platform}
+            access={mic.access}
+            preview={helloPreview}
+            picker={micPicker}
+            onPickMicrophone={pickMicrophone}
+            onAllow={() => void mic.request()}
+            onRecheck={() => void mic.check()}
+          />
+        ),
+      };
+    if (step === "speech")
+      return {
+        rail: {
+          title: t(`setupFlow.rail.${step}.title`),
+          body: t(`setupFlow.rail.${step}.body${device}`),
+          mode: downloadRail ?? { kind: "idle" },
+        },
+        primary: {
+          label:
+            voiceStatus === "ready" || voiceBusy
+              ? t("setupFlow.continue")
+              : t("setupFlow.voice.download", {
+                  size: t(`setupFlow.units.${voiceSize.unit}`, { value: voiceSize.value }),
+                }),
+          onClick: voicePrimary,
+          disabled: !voiceCompatible || voiceStatus === "checking" || voiceStatus === "cancelling",
+          describedBy: voiceCompatible ? undefined : "onb-voice-blocked",
+        },
+        onSkip: skip,
+        finishLaterLabel: t("setupFlow.finishLater"),
+        content: (
+          <VoiceStep
+            platform={platform}
+            profile={profile}
+            pick={pick}
+            selectedModel={selectedModel}
+            onSelectModel={changeModel}
+            language={chosenLanguage ?? spokenLanguages[0] ?? profile?.locales[0] ?? "en-US"}
+            onLanguageChange={changeLanguage}
+            spokenLanguages={spokenLanguages}
+            languageLocked={voiceBusy}
+            compatible={voiceCompatible}
+            blockedId="onb-voice-blocked"
+            download={voiceState}
+            onStartDownload={voiceDownload.start}
+            onCancelDownload={() => void voiceDownload.cancel()}
+          />
+        ),
+      };
+    if (step === "try")
+      return {
+        rail: {
+          title: t("setupFlow.rail.try.title"),
+          body: t(`setupFlow.rail.try.body${device}`),
+          mode: !localVoiceActive
+            ? (downloadRail ?? { kind: "idle" })
+            : trial.phase === "recording"
+              ? { kind: "listening", heardVoice: trial.heardVoice }
+              : trial.phase === "processing"
+                ? { kind: "processing" }
+                : trial.phase === "success"
+                  ? { kind: "success" }
+                  : trial.phase === "error"
+                    ? {
+                        kind: "error",
+                        reason:
+                          trial.errorKind === "microphone"
+                            ? "microphone"
+                            : trial.errorKind === "noAudio"
+                              ? "noAudio"
+                              : "other",
+                      }
+                    : { kind: "idle" },
+          readLevel: trialSession.readLevel,
+        },
+        onSkip: skip,
+        finishLaterLabel: t("setupFlow.finishLater"),
+        content: (
+          <TryStage
+            key={selectedModel}
+            download={voiceState}
+            voiceCommitted={voiceCommitted}
+            trialReady={localVoiceActive}
+            onStart={() => (voiceCommitted ? voiceDownload.start() : goTo("speech"))}
+            onCancel={() => void voiceDownload.cancel()}
+            onChooseVoice={() => goTo("speech")}
+            tour={
+              <MeetLoquiTour
+                hotkeyLabel={hotkeyLabel}
+                activationMode={activationMode}
+                platform={platform}
+                reducedMotion={reducedMotion}
+              />
+            }
+          >
+            <div
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Escape" &&
+                  (trial.phase === "recording" || trial.phase === "processing")
+                )
+                  void trialSession.cancel();
+              }}
+            >
+              <HotkeyTrial
+                platform={platform}
+                trial={trial}
+                nowMs={nowMs}
+                hotkeyLabel={hotkeyLabel}
+                activationMode={activationMode}
+                keycap={keycap}
+                usedHotkey={trialSession.usedHotkey}
+                accessibilityMissing={accessibility.granted !== true}
+                cleanupCode={trialSession.cleanupCode}
+                available={trialSession.available}
+                controlError={trialSession.controlError}
+                undoAvailable={trialSession.undoAvailable}
+                onUndo={() => void trialSession.undo()}
+                onToggle={() => void trialSession.toggle()}
+                onCancel={() => void trialSession.cancel()}
+                onGrantAccessibility={accessibility.request}
+                onRetryCleanup={() => void trialSession.retryCleanup()}
+                onTurnCleanupOff={() => void chooseCleanup("none")}
+                onBackToVoice={() => goTo("speech")}
+                onChangeMicrophone={() => goTo("welcome")}
+              />
+            </div>
+            {trialProofCurrent ? (
+              <SuccessBand onPersonalize={() => goTo("cleanup")} onFinish={() => goTo("finish")} />
+            ) : null}
+          </TryStage>
+        ),
+      };
+    return {
+      rail: {
+        title: t("setupFlow.rail.finish.title"),
+        body: t(`setupFlow.rail.finish.body${device}`),
+        mode: downloadRail ?? { kind: "idle" },
+      },
+      content: (
+        <ReadyStep
+          platform={platform}
+          summary={summary}
+          note={noteAction}
+          noteProviderLabel={
+            noteRoute.locality === "network" && noteRoute.host
+              ? noteRoute.host
+              : providerDisplayLabel(noteAction.providerId, t)
           }
-          const ready =
-            config?.scenario === "ready" ||
-            Boolean(
-              config &&
-              localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
-                model
-            );
-          setSpeechModelReady(ready);
-          setDownloadState(ready ? "ready" : "idle");
-        }}
-        onDownload={downloadModel}
-      />
-    );
-  if (step === "cleanup")
-    content = (
-      <CleanupStep
-        previewConfig={config}
-        onChoice={chooseCleanup}
-        cleanupStatus={cleanupStatus}
-        selectedChoice={cleanupChoice}
-      />
-    );
-  if (step === "try")
-    content = (
-      <div className="onboarding-guided-work">
-        <div className="onboarding-guided-section-head">
-          <h2>Record inside Loqui</h2>
-          <span>Practice</span>
-        </div>
-        {trial}
-        <div className="onboarding-guided-panel p-4 text-xs leading-relaxed text-muted-foreground">
-          No automatic paste. Trial audio and text are not saved to history. Microphone access is
-          requested only when you start.
-        </div>
-        {cleanupChoice !== "none" && (
-          <Button variant="ghost" onClick={disableCleanupForTrial}>
-            Try without cleanup
-          </Button>
-        )}
-      </div>
-    );
-  if (step === "shortcuts")
-    content = <ShortcutsStep platform={platform} permissions={permissions} />;
-  if (step === "finish") content = <FinishStep readiness={readiness} onResume={goTo} />;
-
-  if (step === "welcome") {
-    return (
-      <WelcomeScreen
-        updatesEnabled={updatesEnabled}
-        onUpdatesChange={(value) => {
-          setUpdatesEnabled(value);
-          void window.electronAPI?.updates?.preferences?.({ enabled: value });
-        }}
-        dataRetentionEnabled={dataRetentionEnabled}
-        onDataRetentionChange={setDataRetentionEnabled}
-        onContinue={handleContinue}
-        onExplore={handleSkip}
-      />
-    );
-  }
-
+          onResume={goTo}
+          onDictateNote={dictateNote}
+          onOpenSettings={(path) => finish({ next: { kind: "open-settings", path } })}
+          onOpenWorkspace={() => finish()}
+          privacy={{
+            historyEnabled: dataRetentionEnabled,
+            onHistoryChange: setDataRetentionEnabled,
+            updatesEnabled,
+            onUpdatesChange: changeUpdates,
+          }}
+        />
+      ),
+    };
+  };
+  const view = stepView();
   return (
-    <StepShell
+    <OnboardingShell
       step={step}
-      onBack={handleBack}
-      onContinue={handleContinue}
-      onSkip={step === "finish" ? undefined : handleSkip}
-      continueLabel={step === "finish" ? "Open workspace" : "Continue"}
-      skipLabel="Explore first"
+      visited={visited}
+      platform={platform}
+      rail={view.rail}
+      docked={docked}
+      onNavigate={goTo}
+      onBack={step === "welcome" ? undefined : back}
+      onSkip={view.onSkip}
+      finishLater={
+        view.finishLaterLabel ? { label: view.finishLaterLabel, onClick: finishLater } : undefined
+      }
+      primary={view.primary}
+      announcement={announcement}
+      footerStart={
+        step === "speech" || step === "try" ? undefined : (
+          <DownloadChip state={voiceState} onStart={voiceDownload.start} />
+        )
+      }
     >
-      {content}
-    </StepShell>
+      {view.content}
+    </OnboardingShell>
   );
 }

@@ -337,7 +337,11 @@
       "contextTooLarge": "هذا أطول من أن يقرأه {{model}} على هذا الكمبيوتر. عدد الرموز المطلوبة من السياق: نحو {{needed}}، لكن ما يتسع في الذاكرة: {{max}} فقط. جرّب نموذجًا سحابيًا، أو نفّذ الإجراء على تحديد أقصر.",
       "contextTooLargeGeneric": "هذا أطول من أن يقرأه {{model}} على هذا الكمبيوتر. جرّب نموذجًا سحابيًا، أو نفّذ الإجراء على تحديد أقصر.",
       "localServerUnavailable": "تعذّر تشغيل {{model}} على هذا الكمبيوتر. حاول مرة أخرى، أو بدّل إلى نموذج سحابي."
-    }
+    },
+    "downloadingNamed": "جارٍ تنزيل {{model}}",
+    "installingNamed": "جارٍ تثبيت {{model}}",
+    "deleteNamed": "حذف {{model}}",
+    "listLabel": "النماذج"
   },
   "reasoning": {
     "mode": {
@@ -373,7 +377,16 @@
       "otherGroup": "أخرى",
       "noSearchResults": "لا توجد نماذج تتطابق مع \"{{query}}\"",
       "selectModelHint": "لم يتم تحديد أي نموذج بعد — اختر واحدًا من القائمة أدناه.",
-      "keyRequiredHint": "مفتاح API مطلوب للاستدلال — أضف واحدًا لاستخدام هذا المزود."
+      "keyRequiredHint": "مفتاح API مطلوب للاستدلال — أضف واحدًا لاستخدام هذا المزود.",
+      "listModels": "عرض نماذج {{host}}",
+      "listModelsSendsKey": "يرسل {{slot}} إلى {{host}} لطلب قائمة النماذج.",
+      "listModelsNoKey": "لا يرسل مفتاحًا. يطلب قائمة النماذج من {{host}}.",
+      "listModelsNeedsEndpoint": "استخدم نقطة نهاية أولًا ثم اعرض نماذجها.",
+      "listModelsSealed": "الوضع المغلق مفعّل، لذلك لا تُرسل طلبات إلى نقطة النهاية.",
+      "slotCustom": "مفتاح نقطة النهاية المخصصة المحفوظ للمهمة {{task}}",
+      "slotProvider": "مفتاح {{provider}} المحفوظ",
+      "currentModel": "النموذج الحالي: {{model}}",
+      "useDefault": "استخدام نقطة النهاية الافتراضية"
     },
     "getApiKey": "احصل على مفتاح API الخاص بك ←",
     "selectModel": "تحديد النموذج",
@@ -452,8 +465,26 @@
       },
       "vertex": {
         "adcHelp": "يستخدم بيانات الاعتماد الافتراضية للتطبيق. قم بتشغيل: gcloud auth application-default login",
-        "apikeyHelp": "مفتاح Vertex AI Express Mode API من Google AI Studio."
-      }
+        "apikeyHelp": "مفتاح Vertex AI Express Mode API من Google AI Studio.",
+        "authSource": "مصدر المصادقة",
+        "authSourceAdc": "بيانات اعتماد التطبيق التلقائية (ADC)",
+        "authSourceApiKey": "مفتاح واجهة برمجة التطبيقات"
+      },
+      "profileSaveFailed": "تعذّر حفظ هذا الملف الشخصي. ما أدخلته لا يزال هنا — حاول مرة أخرى.",
+      "testConnectionAt": "اختبار الاتصال مع {{host}}",
+      "testSends": "يرسل {{fields}} وموجه اختبار قصيرًا إلى {{host}}.",
+      "testSendsNoKey": "يرسل موجه اختبار قصيرًا إلى {{host}} باستخدام تسجيل الدخول السحابي. لا يرسل مفتاحًا محفوظًا.",
+      "testHostUnknown": "أدخل نقطة نهاية أو منطقة صالحة ثم اختبر الاتصال.",
+      "field": {
+        "key": "مفتاح API المحفوظ",
+        "accessKeyId": "معرّف مفتاح الوصول",
+        "secretAccessKey": "مفتاح الوصول السري",
+        "sessionToken": "رمز الجلسة",
+        "profile": "بيانات اعتماد ملف AWS الشخصي",
+        "environmentKey": "مفتاح Vertex API المحدد في بيئة Loqui ‏(GOOGLE_VERTEX_API_KEY)"
+      },
+      "recipientChanged": "تغيّرت الوجهة أو بيانات الاعتماد. راجع الوجهة واضغط على اختبار مرة أخرى.",
+      "unsupportedAuthSource": "يدعم اختبار الاتصال ملفات تعريف AWS الثابتة وملفات ADC لحسابات الخدمة أو المستخدمين المعتمدين. لا يمكن اختبار مصادر المصادقة الأخرى هنا."
     },
     "tinfoil": {
       "modelRetiredTitle": "النموذج لم يعد متاحًا",
@@ -462,6 +493,10 @@
     },
     "corti": {
       "euOnly": "نماذج Corti متوفرة فقط في منطقة الاتحاد الأوروبي."
+    },
+    "codex": {
+      "listModels": "عرض نماذج ChatGPT (عبر تطبيق Codex)",
+      "listModelsTitle": "يطلب تطبيق Codex قائمة النماذج من ChatGPT باستخدام تسجيل دخولك. لا يرسل Loqui مفتاحًا محفوظًا."
     }
   },
   "controlPanel": {
@@ -574,7 +609,8 @@
       "title": "النماذج المطلوبة مفقودة",
       "description": "تتطلب مؤسستك هذه النماذج على هذا الجهاز: {{models}}.",
       "download": "تنزيل"
-    }
+    },
+    "breadcrumb": "الموقع"
   },
   "integrations": {
     "title": "التكاملات (Integrations)",
@@ -906,7 +942,8 @@
     "addFirstWord": "أضف كلمتك الأولى",
     "importList": "استيراد قائمة",
     "agentDefault": "تمت الإضافة افتراضيًا",
-    "promptLimitNotice": "عدد أحرف قاموسك: {{chars}}. لا تقرأ نماذج Groq وWhisper سوى بضع مئات من الأحرف الأخيرة منه، لذا تعمل القوائم الأقصر بشكل أفضل معها. أما النماذج الأخرى فتحصل على القائمة كاملة."
+    "promptLimitNotice": "عدد أحرف قاموسك: {{chars}}. لا تقرأ نماذج Groq وWhisper سوى بضع مئات من الأحرف الأخيرة منه، لذا تعمل القوائم الأقصر بشكل أفضل معها. أما النماذج الأخرى فتحصل على القائمة كاملة.",
+    "exportAction": "تصدير"
   },
   "promptStudio": {
     "common": {
@@ -955,7 +992,6 @@
       "none": "لا شيء",
       "outputLabel": "المخرجات",
       "processing": "جاري المعالجة...",
-      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "المزود",
       "run": "تشغيل الاختبار",
       "customEndpoint": "نقطة نهاية مخصصة",
@@ -1176,15 +1212,20 @@
       "visionModelDescription": "توجيه الأوامر التي تتضمن لقطة شاشة إلى نموذج مختلف قادر على الرؤية.",
       "permissionTitle": "تسجيل الشاشة",
       "permissionDescription": "يتطلب macOS إذن تسجيل الشاشة لالتقاط شاشتك.",
-      "relaunchHint": "تم منح إذن تسجيل الشاشة أثناء تشغيل Loqui. قم بإنهاء Loqui وإعادة فتحه لبدء التقاط لقطات الشاشة."
+      "relaunchHint": "تم منح إذن تسجيل الشاشة أثناء تشغيل Loqui. قم بإنهاء Loqui وإعادة فتحه لبدء التقاط لقطات الشاشة.",
+      "goesToDevice": "عند بدء تسجيل للمساعد الصوتي، يلتقط Loqui صورة للشاشة التي يوجد عليها المؤشر. تُرسل لقطة الشاشة إلى {{model}} على هذا الجهاز وتبقى عليه. لا يحفظها Loqui ولا يسجلها في السجلات مطلقًا.",
+      "goesToDeviceNoModel": "سياق الشاشة مُعدّ لهذا الجهاز، لكن النموذج غير محدد. راجع إعدادات المساعد الصوتي ونموذج الرؤية قبل التسجيل.",
+      "goesToServer": "عند بدء تسجيل للمساعد الصوتي، يلتقط Loqui صورة للشاشة التي يوجد عليها المؤشر. ثم يتلقى خادمك على {{host}} ما يلي: {{payload}}. لا يحفظ Loqui لقطة الشاشة ولا يسجلها في السجلات مطلقًا.",
+      "goesToServerNoHost": "عند بدء تسجيل للمساعد الصوتي، يلتقط Loqui صورة للشاشة التي يوجد عليها المؤشر. ثم يتلقى خادمك ما يلي: {{payload}}. لا يحفظ Loqui لقطة الشاشة ولا يسجلها في السجلات مطلقًا.",
+      "goesToProvider": "عند بدء تسجيل للمساعد الصوتي، يلتقط Loqui صورة للشاشة التي يوجد عليها المؤشر. ثم يتلقى {{provider}} ‏({{host}}) ما يلي: {{payload}}. لا يحفظ Loqui لقطة الشاشة ولا يسجلها في السجلات مطلقًا.",
+      "goesToProviderNoHost": "عند بدء تسجيل للمساعد الصوتي، يلتقط Loqui صورة للشاشة التي يوجد عليها المؤشر. ثم يتلقى {{provider}} ما يلي: {{payload}}. لا يحفظ Loqui لقطة الشاشة ولا يسجلها في السجلات مطلقًا.",
+      "destinationUnspecified": "لم تُضبط وجهة سياق الشاشة. راجع إعدادات المساعد الصوتي ونموذج الرؤية قبل التسجيل."
     },
     "modes": {
-      "openwhispr": "Loqui Cloud",
-      "openwhisprDesc": "استخدم المساعد المُدار بواسطة Loqui — لا حاجة لمفتاح API.",
       "providers": "إحضار مفتاحك الخاص",
       "providersDesc": "اتصل بـ OpenAI أو Anthropic أو Gemini أو Groq باستخدام مفتاح API الخاص بك.",
       "local": "محلي",
-      "localDesc": "قم بتشغيل LLM محلي على جهازك — خاص بالكامل.",
+      "localDesc": "يشغّل نموذجًا محليًا على هذا الجهاز. لا تُرسل أي بيانات خارجه.",
       "selfHosted": "مستضاف ذاتيًا",
       "selfHostedDesc": "اتصل بنقطة نهاية مستضافة ذاتيًا ومتوافقة مع OpenAI.",
       "enterprise": "للمؤسسات",
@@ -1201,14 +1242,12 @@
       "systemPromptDescription": "تعليمات مخصصة للمساعد",
       "systemPromptPlaceholder": "أدخل مطالبة النظام المخصصة...",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "مزودو الخدمات السحابية",
         "local": "محلي",
         "selfHosted": "مستضاف ذاتيًا",
         "enterprise": "للمؤسسات",
-        "openwhisprDesc": "دقة موثوقة. لا يتطلب أي إعداد.",
         "providersDesc": "أحضر مفتاح API الخاص بك.",
-        "localDesc": "نماذج على الجهاز. خاصة بالكامل.",
+        "localDesc": "يعمل على هذا الجهاز. لا تُرسل أي بيانات خارجه.",
         "selfHostedDesc": "الخادم الخاص بك على شبكتك.",
         "enterpriseDesc": "استخدم الحساب السحابي لمؤسستك (AWS، Azure، GCP)."
       }
@@ -1223,7 +1262,13 @@
       "thinking": "جاري التفكير...",
       "typeMessage": "اكتب رسالة...",
       "send": "إرسال",
-      "voiceDraftStreamingOnly": "الإدخال الصوتي غير متاح مع مزود التفريغ الخاص بك: فهو يدعم الإملاء المباشر فقط. اختر مزودًا آخر في الإعدادات ← تحويل الكلام إلى نص (Speech to Text)."
+      "voiceDraftStreamingOnly": "الإدخال الصوتي غير متاح مع مزود التفريغ الخاص بك: فهو يدعم الإملاء المباشر فقط. اختر مزودًا آخر في الإعدادات ← تحويل الكلام إلى نص (Speech to Text).",
+      "queued": "سيُرسل عند انتهاء الرد",
+      "unqueue": "عدم الإرسال عند الانتهاء",
+      "queueDropped": "لم يُرسل: تغيّرت المحادثة أو النموذج. اضغط Enter لإرساله هنا.",
+      "unsent": "لم تُرسل رسالتك السابقة.",
+      "restoreUnsent": "إعادته",
+      "discardUnsent": "تجاهل"
     },
     "tools": {
       "search_notesName": "البحث في الملاحظات",
@@ -1252,7 +1297,13 @@
       "copiedToClipboard": "تم النسخ إلى حافظتك",
       "openNote": "فتح الملاحظة",
       "unknownTool": "أداة غير معروفة: {{name}}",
-      "invalidArgs": "وسيطات غير صالحة للأداة {{name}}"
+      "invalidArgs": "وسيطات غير صالحة للأداة {{name}}",
+      "summary_zero": "تم البحث في {{count}} ملاحظة",
+      "summary_one": "تم البحث في {{count}} ملاحظة",
+      "summary_two": "تم البحث في {{count}} ملاحظتين",
+      "summary_few": "تم البحث في {{count}} ملاحظات",
+      "summary_many": "تم البحث في {{count}} ملاحظة",
+      "summary_other": "تم البحث في {{count}} ملاحظة"
     }
   },
   "noteEditor": {
@@ -1390,7 +1441,8 @@
     "openSettings": "فتح إعدادات النظام",
     "connectCalendar": "اربط تقويمك",
     "connectCalendarDescription": "شاهد اجتماعاتك وانضم إليها دون مغادرة Loqui.",
-    "connectCalendarButton": "ربط التقويم"
+    "connectCalendarButton": "ربط التقويم",
+    "todayLabel": "اليوم"
   },
   "notes": {
     "sidebar": {
@@ -1599,7 +1651,7 @@
       "transcriptEmptyDescription": "اضغط على تسجيل لبدء النسخ. كل ما يُقال يظهر هنا لحظيًا.",
       "startRecording": "بدء التسجيل",
       "generateSummary": "إنشاء ملخص بالذكاء الاصطناعي",
-      "startWriting": "ابدأ الكتابة...",
+      "startWriting": "اكتب أو أملِ أو الصق. اضغط / للكتل والإجراءات.",
       "staleIndicator": "تم تغيير المحتوى منذ التحسين",
       "live": "مباشر",
       "transcript": "النص المفرَّغ",
@@ -1641,7 +1693,6 @@
       "newFolder": "مجلد جديد",
       "folderName": "اسم المجلد",
       "create": "إنشاء",
-      "openwhisprCloud": "Loqui Cloud",
       "custom": "مخصص",
       "selectFolder": "تحديد مجلد",
       "transcriptionFailed": "فشل التفريغ",
@@ -1699,7 +1750,9 @@
       "urlYoutubeBlocked": "يحظر YouTube التنزيلات من شبكتك مؤقتًا. حاول مرة أخرى بعد قليل.",
       "customEndpointInvalid": "نقطة نهاية التفريغ المخصصة غير مهيأة أو غير صالحة. قم بتحديثها في الإعدادات.",
       "streamingOnlyProvider": "هذا المزود يدعم التفريغ المباشر فقط. اختر مزودًا آخر لرفع الملفات وإعادة المحاولة.",
-      "diarizationWarning": "تعذر تطبيق تحديد المتحدثين. حُفظ النص المفرَّغ دون تسميات المتحدثين."
+      "diarizationWarning": "تعذر تطبيق تحديد المتحدثين. حُفظ النص المفرَّغ دون تسميات المتحدثين.",
+      "needsModel": "تحتاج عمليات الرفع إلى نموذج للتفريغ النصي.",
+      "chooseModel": "اختر نموذجًا للتفريغ النصي"
     },
     "meeting": {
       "title": "ملاحظات الاجتماع",
@@ -1915,6 +1968,60 @@
       "author": {
         "you": "أنت"
       }
+    },
+    "actionsModelHint": {
+      "title": "تحتاج الإجراءات إلى نموذج ذكاء اصطناعي",
+      "choose": "اختر نموذجًا",
+      "needsProvider": "تحتاج الإجراءات إلى موفّر ذكاء اصطناعي",
+      "chooseProvider": "اختر موفّرًا",
+      "needsKey": "تحتاج الإجراءات إلى مفتاح API لـ {{provider}}",
+      "addKey": "أضف المفتاح",
+      "needsUrl": "تحتاج الإجراءات إلى عنوان خادمك",
+      "addUrl": "أضف العنوان",
+      "sealed": "الإجراءات متوقفة مؤقتًا ما دام الوضع المحكم مفعّلًا",
+      "unreachable": "يتعذّر على الإجراءات الوصول إلى نموذج الملاحظات",
+      "openSettings": "افتح الإعدادات"
+    },
+    "slash": {
+      "label": "إدراج كتلة",
+      "empty": "لا توجد كتل مطابقة",
+      "aiNeedsModel": "تحتاج الإجراءات إلى نموذج ذكاء اصطناعي",
+      "setupAi": "إعداد ذكاء الملاحظات…",
+      "ai": {
+        "needsModel": "نزّل نموذج الملاحظات من الإعدادات",
+        "needsKey": "أضف مفتاح API في الإعدادات",
+        "needsUrl": "أضف عنوان خادم في الإعدادات",
+        "off": "ذكاء الملاحظات معطّل في الإعدادات",
+        "unreachable": "يتعذر الوصول إلى نموذج الملاحظات",
+        "unknown": "جارٍ التحقق من نموذج الملاحظات…"
+      },
+      "manageActions": "إدارة الإجراءات…",
+      "groups": {
+        "text": "نص",
+        "ai": "ذكاء اصطناعي",
+        "insert": "إدراج"
+      },
+      "items": {
+        "h1": "عنوان 1",
+        "h2": "عنوان 2",
+        "h3": "عنوان 3",
+        "bullet": "قائمة نقطية",
+        "numbered": "قائمة مرقّمة",
+        "todo": "قائمة مهام",
+        "quote": "اقتباس",
+        "code": "شفرة",
+        "timestamp": "طابع زمني",
+        "dictation": "إملاء هنا",
+        "mention": "إشارة"
+      }
+    },
+    "bubble": {
+      "bold": "عريض",
+      "italic": "مائل",
+      "link": "رابط",
+      "linkUrl": "عنوان الرابط",
+      "linkInvalid": "استخدم عنوان ويب أو بريد إلكتروني",
+      "askAi": "اسأل الذكاء الاصطناعي"
     }
   },
   "onboarding": {
@@ -2276,231 +2383,15 @@
         "title": "لم يكتمل التنزيل",
         "description": "تحقق من اتصالك والمساحة الخالية على القرص، ثم أعد المحاولة. إذا استمر الفشل، فاتصل بالمسؤول."
       }
+    },
+    "download": {
+      "chip": "جارٍ تنزيل نموذج الصوت · {{percent}}%",
+      "start": "تنزيل النموذج",
+      "inProgress": "جارٍ التنزيل…",
+      "chipInstalling": "جارٍ تثبيت نموذج الصوت"
     }
   },
   "settingsPage": {
-    "workspace": {
-      "title": "مساحة العمل",
-      "description": "تعاون مع زملائك، وشارك الملاحظات، وقم بإدارة الوصول إلى مساحة العمل في مكان واحد.",
-      "empty": {
-        "title": "أنشئ مساحة العمل الأولى الخاصة بك",
-        "description": "تتيح لك مساحات العمل التعاون مع زملائك ومشاركة الملاحظات.",
-        "create": "إنشاء مساحة عمل"
-      },
-      "loadError": {
-        "title": "تعذر تحميل مساحات العمل",
-        "description": "تحقق من اتصالك وحاول مرة أخرى.",
-        "retry": "إعادة المحاولة"
-      },
-      "tab": {
-        "general": "عام",
-        "members": "الأعضاء",
-        "teams": "المجموعات",
-        "developer": "للمطورين"
-      },
-      "role": {
-        "owner": "مالك",
-        "admin": "مسؤول",
-        "member": "عضو"
-      },
-      "general": {
-        "nameLabel": "اسم مساحة العمل",
-        "saved": "تم تحديث مساحة العمل",
-        "dangerTitle": "حذف مساحة العمل",
-        "dangerDescription": "سيتم حذف جميع الملاحظات المشتركة والمجلدات وعمليات التكامل. لا يمكن التراجع عن هذا الإجراء.",
-        "delete": "حذف مساحة العمل",
-        "confirmTitle": "حذف {{name}}؟",
-        "confirmDescription": "هذا يلغي الاشتراك ويزيل جميع بيانات مساحة العمل بشكل دائم.",
-        "deleting": "جاري الحذف…",
-        "deleted": "تم حذف مساحة العمل",
-        "leaveTitle": "مغادرة مساحة العمل",
-        "leaveDescription": "ستفقد إمكانية الوصول إلى مساحة العمل هذه وملاحظاتها المشتركة.",
-        "leave": "مغادرة مساحة العمل",
-        "leaving": "جاري المغادرة…",
-        "leaveConfirm": {
-          "title": "مغادرة {{name}}؟",
-          "description": "ستفقد إمكانية الوصول على الفور. يمكن لمسؤول دعوتك مرة أخرى."
-        },
-        "left": "لقد غادرت {{name}}"
-      },
-      "members": {
-        "title": "الأعضاء",
-        "description": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_zero": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_one": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_two": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_few": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_many": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "description_other": "المقاعد المستخدمة: {{count}} من أصل {{seats}}.",
-        "invite": "دعوة",
-        "empty": "لا يوجد أعضاء بعد.",
-        "loadError": "تعذر تحميل الأعضاء.",
-        "roleUpdated": "تم تحديث الدور",
-        "removed": "تمت إزالة {{name}}",
-        "promote": "تعيين كمسؤول",
-        "demote": "تعيين كعضو",
-        "transferOwnership": "نقل الملكية",
-        "remove": "إزالة من مساحة العمل",
-        "removeConfirm": {
-          "title": "إزالة هذا العضو؟",
-          "description": "سيفقد {{name}} إمكانية الوصول إلى {{workspace}} على الفور."
-        },
-        "transferConfirm": {
-          "title": "نقل الملكية؟",
-          "description": "سيصبح {{name}} مالك {{workspace}}. سيتغير دورك إلى مسؤول ويمكن للمالك الجديد فقط إعادته."
-        }
-      },
-      "joinRequests": {
-        "title": "طلبات الانضمام",
-        "approve": "موافقة",
-        "deny": "رفض",
-        "approved": "انضم {{name}} إلى مساحة العمل",
-        "denied": "تم رفض الطلب",
-        "errorTitle": "تعذر تحديث الطلب"
-      },
-      "teams": {
-        "title": "المجموعات",
-        "description": "مجموعات من أعضاء مساحة العمل يمكن منحها الوصول إلى مساحات الفريق معًا.",
-        "new": "مجموعة جديدة",
-        "empty": "لا توجد مجموعات بعد.",
-        "createFirst": "أنشئ مجموعتك الأولى",
-        "addMembersLabel": "إضافة أعضاء",
-        "createTitle": "إنشاء مجموعة",
-        "nameLabel": "اسم المجموعة",
-        "memberCount_zero": "{{count}} أعضاء",
-        "memberCount_one": "{{count}} عضو",
-        "memberCount_two": "{{count}} عضوان",
-        "memberCount_few": "{{count}} أعضاء",
-        "memberCount_many": "{{count}} عضوًا",
-        "memberCount_other": "{{count}} عضو",
-        "membersButton": "الأعضاء",
-        "grantsAccessToSpaces_zero": "يمنح الوصول إلى {{count}} مساحات",
-        "grantsAccessToSpaces_one": "يمنح الوصول إلى {{count}} مساحة",
-        "grantsAccessToSpaces_two": "يمنح الوصول إلى {{count}} مساحتين",
-        "grantsAccessToSpaces_few": "يمنح الوصول إلى {{count}} مساحات",
-        "grantsAccessToSpaces_many": "يمنح الوصول إلى {{count}} مساحةً",
-        "grantsAccessToSpaces_other": "يمنح الوصول إلى {{count}} مساحة",
-        "couldNotCreate": "تعذر إنشاء المجموعة",
-        "created": "تم إنشاء {{team}}",
-        "deleted": "تم حذف {{team}}",
-        "deleteConfirmTitle": "حذف {{team}}؟",
-        "deleteConfirmDescription": "هذا يؤرشف المجموعة. سيفقد أعضاؤها أي وصول منحته إياهم.",
-        "deleteConfirmSpaceAccess_zero": "تمنح هذه المجموعة الوصول إلى {{count}} مساحات. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_one": "تمنح هذه المجموعة الوصول إلى {{count}} مساحة. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_two": "تمنح هذه المجموعة الوصول إلى {{count}} مساحتين. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_few": "تمنح هذه المجموعة الوصول إلى {{count}} مساحات. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_many": "تمنح هذه المجموعة الوصول إلى {{count}} مساحةً. سيفقد أعضاؤها هذا الوصول.",
-        "deleteConfirmSpaceAccess_other": "تمنح هذه المجموعة الوصول إلى {{count}} مساحة. سيفقد أعضاؤها هذا الوصول.",
-        "members": {
-          "title": "أعضاء {{team}}",
-          "removeConfirm": "إزالة {{name}} من {{team}}؟",
-          "leave": "مغادرة المجموعة",
-          "leftTeam": "لقد غادرت {{team}}",
-          "leaveConfirm": "مغادرة {{team}}؟",
-          "leaveConfirmDescription": "ستفقد إمكانية الوصول إلى المساحات المخصصة لهذه المجموعة ما لم تكن مضافًا مباشرةً أو تضمك مجموعة أخرى."
-        }
-      },
-      "invites": {
-        "title": "الدعوات المعلقة",
-        "expiresIn_zero": "تنتهي صلاحيتها خلال {{count}} أيام",
-        "expiresIn_one": "تنتهي صلاحيتها خلال {{count}} يوم",
-        "expiresIn_two": "تنتهي صلاحيتها خلال {{count}} يومين",
-        "expiresIn_few": "تنتهي صلاحيتها خلال {{count}} أيام",
-        "expiresIn_many": "تنتهي صلاحيتها خلال {{count}} يومًا",
-        "expiresIn_other": "تنتهي صلاحيتها خلال {{count}} يوم",
-        "expired": "منتهية الصلاحية",
-        "loadError": "تعذر تحميل الدعوات.",
-        "resend": "إعادة الإرسال",
-        "resending": "جاري إعادة الإرسال…",
-        "revoke": "إبطال الدعوة",
-        "resent": "تمت إعادة إرسال الدعوة",
-        "resentNoEmail": "تم تحديث الدعوة، لكن تعذر تسليم البريد الإلكتروني.",
-        "revoked": "تم إبطال الدعوة",
-        "revokeFailed": "تعذر إبطال الدعوة",
-        "revokeConfirm": {
-          "title": "إبطال هذه الدعوة؟",
-          "description": "سيتوقف رابط الدعوة لـ {{email}} عن العمل."
-        }
-      },
-      "billing": {
-        "plan": "الخطة",
-        "seats": "المقاعد",
-        "ownerOnly": "يمكن لمالك مساحة العمل فقط إدارة الاشتراك.",
-        "nextInvoice": "الفاتورة القادمة",
-        "manageStripe": "إدارة في Stripe",
-        "startSubscription": "بدء الاشتراك",
-        "planLabel": {
-          "business": "Business",
-          "pro": "Pro",
-          "free": "مجاني",
-          "enterprise": "Enterprise"
-        },
-        "status": {
-          "active": "نشط",
-          "trialing": "في فترة تجريبية",
-          "past_due": "متأخر الدفع",
-          "canceled": "ملغى",
-          "incomplete": "غير مكتمل",
-          "unpaid": "غير مدفوع"
-        }
-      },
-      "developer": {
-        "title": "مفاتيح API",
-        "description": "وصول برمجي مخصص لمساحة العمل هذه.",
-        "empty": "لا توجد مفاتيح API بعد. أنشئ واحدًا للدمج مع مساحة العمل هذه.",
-        "loadError": "تعذر تحميل مفاتيح API.",
-        "new": "مفتاح جديد",
-        "create": "إنشاء مفتاح",
-        "createTitle": "إنشاء مفتاح API",
-        "createDescription": "اختر الأذونات التي يحتاجها هذا المفتاح. يمكنك إبطاله في أي وقت.",
-        "nameLabel": "اسم المفتاح",
-        "namePlaceholder": "تكامل الإنتاج",
-        "revoke": "إبطال المفتاح",
-        "revoked": "تم إبطال {{name}}",
-        "lastUsed": "آخر استخدام في {{date}}",
-        "neverUsed": "لم يُستخدم أبدًا",
-        "keyCreatedTitle": "تم إنشاء مفتاح API",
-        "keyCreatedDescription": "انسخ هذا المفتاح الآن — لن تتمكن من رؤيته مرة أخرى.",
-        "revokeConfirm": {
-          "title": "إبطال هذا المفتاح؟",
-          "description": "سيتوقف {{name}} عن العمل على الفور. سيفشل أي تكامل يستخدمه."
-        },
-        "scopes": {
-          "notes": {
-            "title": "الملاحظات",
-            "read": "قراءة الملاحظات",
-            "write": "كتابة الملاحظات"
-          },
-          "folders": {
-            "title": "المجلدات",
-            "read": "قراءة المجلدات",
-            "write": "كتابة المجلدات"
-          },
-          "transcriptions": {
-            "title": "النصوص المفرَّغة",
-            "read": "قراءة النصوص المفرَّغة"
-          },
-          "members": {
-            "title": "الأعضاء",
-            "read": "قراءة الأعضاء",
-            "write": "إدارة الأعضاء"
-          },
-          "billing": {
-            "title": "الفوترة",
-            "read": "قراءة الفوترة"
-          },
-          "full": {
-            "title": "وصول كامل",
-            "admin": "مسؤول مساحة العمل"
-          }
-        }
-      },
-      "enterpriseConsole": {
-        "title": "وحدة تحكم Enterprise",
-        "description": "إدارة SSO والسياسات والأعضاء على الويب",
-        "open": "فتح وحدة التحكم"
-      }
-    },
     "unifiedBilling": {
       "workspaceTitle": "فوترة مساحة العمل",
       "workspaceDescription": "لكل مساحة عمل خطة ومقاعد ومالك فوترة خاص بها.",
@@ -2531,230 +2422,6 @@
         "confirm": "إضافة مقعد"
       }
     },
-    "account": {
-      "badges": {
-        "free": "مجاني",
-        "limitReached": "تم بلوغ الحد الأقصى",
-        "pastDue": "متأخر الدفع",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "تجريبي"
-      },
-      "billing": {
-        "couldNotOpenDescription": "واجهنا مشكلة في فتح صفحة الفوترة. يرجى المحاولة مرة أخرى.",
-        "couldNotOpenTitle": "تعذر فتح الفوترة",
-        "manageBilling": "إدارة الفوترة",
-        "opening": "جاري الفتح...",
-        "updatePaymentMethod": "تحديث طريقة الدفع",
-        "contactOwnerTitle": "اتصل بمالك مساحة العمل الخاصة بك",
-        "contactOwnerDescription": "يمكن لمالك مساحة العمل فقط تحديث الفوترة لمساحة العمل هذه."
-      },
-      "checkout": {
-        "couldNotOpenDescription": "واجهنا مشكلة في فتح صفحة الدفع. يرجى المحاولة مرة أخرى.",
-        "couldNotOpenTitle": "تعذر فتح صفحة الدفع",
-        "opening": "جاري الفتح...",
-        "upgradeToPro": "الترقية إلى Pro"
-      },
-      "disabled": "معطل",
-      "featuresDisabled": "ميزات الحساب معطلة",
-      "featuresDisabledDescription": "قم بتعيين VITE_AUTH_URL في ملف .env الخاص بك لتمكين ميزات الحساب.",
-      "notConfigured": "لم يتم تكوين المصادقة",
-      "notSignedIn": "لم يتم تسجيل الدخول",
-      "notSignedInDescription": "أنشئ حسابًا للوصول إلى الميزات المميزة.",
-      "offline": "غير متصل بالإنترنت",
-      "pastDue": {
-        "description": "أنت على الخطة المجانية في الوقت الحالي. قم بتحديث طريقة الدفع الخاصة بك للعودة إلى Pro.",
-        "title": "لم نتمكن من معالجة دفعتك"
-      },
-      "planDescriptions": {
-        "freeUsage": "{{used}} من {{limit}} كلمة هذا الأسبوع",
-        "nextBilling": "الفوترة القادمة: {{date}}",
-        "pastDue": "{{used}} من {{limit}} كلمة مجانية هذا الأسبوع - قم بتحديث الدفع لاستعادة Pro",
-        "trial": "عدد الأيام المتبقية: {{days}} - تفريغ غير محدود",
-        "unlimited": "غير محدود"
-      },
-      "planLabels": {
-        "free": "مجاني",
-        "pro": "Pro",
-        "business": "Business",
-        "trial": "تجريبي"
-      },
-      "pricing": {
-        "title": "الخطط",
-        "billedYearly": "تدفع سنويًا",
-        "free": {
-          "name": "مجاني",
-          "price": "$0",
-          "period": "إلى الأبد",
-          "features": [
-            "## Loqui Cloud",
-            "2,000 كلمة/أسبوع للتفريغ",
-            "5 ساعات من تسجيلات الاجتماعات/شهر",
-            "## مجانًا دائمًا",
-            "نماذج ذكاء اصطناعي محلية غير محدودة",
-            "تفريغ سحابي غير محدود باستخدام مفاتيح API الخاصة بك",
-            "دعم أكثر من 100 لغة",
-            "قاموس مخصص",
-            "عدم الاحتفاظ بالبيانات",
-            "دعم مجتمعي"
-          ]
-        },
-        "pro": {
-          "name": "Pro",
-          "monthlyPrice": "$8",
-          "monthlyPeriod": "/شهر",
-          "annualPrice": "$80",
-          "annualPeriod": "/سنة",
-          "annualEquivalent": "$6.67",
-          "includesPrefix": "جميع ميزات الخطة المجانية +",
-          "features": [
-            "تفريغ سحابي غير محدود",
-            "20 ساعة من تسجيلات الاجتماعات/شهر",
-            "مزامنة عبر الأجهزة",
-            "مشاركة الملاحظات بروابط عامة",
-            "وصول شخصي عبر API",
-            "تكامل MCP في جميع تطبيقاتك",
-            "تطبيق الجوال",
-            "دعم عبر البريد الإلكتروني"
-          ],
-          "cta": "البدء",
-          "switchToAnnual": "التبديل إلى السنوي"
-        },
-        "business": {
-          "name": "Business",
-          "monthlyPrice": "$16",
-          "monthlyPeriod": "/شهر",
-          "annualPrice": "$160",
-          "annualPeriod": "/سنة",
-          "annualEquivalent": "$13.33",
-          "includesPrefix": "جميع ميزات Pro +",
-          "badge": "الأكثر شيوعًا",
-          "features": [
-            "تسجيلات اجتماعات غير محدودة",
-            "أدوار مساحة العمل وإدارة الأعضاء",
-            "وضع المساعد",
-            "الدردشة حول بياناتك",
-            "دعم ذو أولوية"
-          ],
-          "cta": "البدء",
-          "switchToAnnual": "التبديل إلى السنوي"
-        },
-        "enterprise": {
-          "name": "Enterprise",
-          "price": "مخصص",
-          "subtitle": "للأمان والدعم المتقدمين",
-          "includesPrefix": "جميع ميزات خطة Business +",
-          "features": [
-            "أرصدة API مُدارة",
-            "مزامنة سحابية عبر الأجهزة",
-            "ميزات الفريق والمسؤول",
-            "SSO والامتثال",
-            "دعم مخصص"
-          ],
-          "cta": "اتصل بالمبيعات",
-          "upgradeCta": "الترقية إلى Enterprise",
-          "askOwner": "اطلب من {{name}} ترقية مساحة العمل الخاصة بك."
-        },
-        "currentPlan": "الخطة الحالية",
-        "coveredByWorkspace": "مضمنة في خطة مساحة العمل الخاصة بك",
-        "upgrade": "ترقية",
-        "downgrade": "تخفيض الخطة",
-        "planSwitched": "تم تحديث الخطة بنجاح",
-        "confirmSwitch": {
-          "title": "تأكيد تغيير الخطة",
-          "description": "التبديل إلى {{plan}} ({{interval}})",
-          "monthly": "شهريًا",
-          "yearly": "سنويًا",
-          "chargeToday": "رسوم اليوم",
-          "accountCredit": "رصيد الحساب",
-          "newPrice": "السعر الجديد",
-          "nextBilling": "الفوترة القادمة",
-          "mo": "شهر",
-          "yr": "سنة",
-          "cancel": "إلغاء",
-          "confirm": "تأكيد"
-        }
-      },
-      "rollingWeeklyLimit": "حد أسبوعي متجدد",
-      "signOut": {
-        "failedDescription": "حدث خطأ أثناء تسجيل الخروج. يرجى المحاولة مرة أخرى.",
-        "failedTitle": "تعذر تسجيل الخروج",
-        "signOut": "تسجيل الخروج",
-        "signingOut": "جاري تسجيل الخروج..."
-      },
-      "title": "الحساب",
-      "toasts": {
-        "approachingLimit": {
-          "description": "لقد استخدمت {{used}} من أصل {{limit}} كلمة مجانية هذا الأسبوع. قم بالترقية إلى Pro للاستخدام غير المحدود.",
-          "title": "الاقتراب من الحد الأسبوعي"
-        }
-      },
-      "trialCta": {
-        "button": "إنشاء حساب مجاني",
-        "description": "تفريغ غير محدود، ومعالجة ذات أولوية، والمزيد.",
-        "title": "جرب Pro مجانًا لمدة 7 أيام"
-      },
-      "signedOutPlans": {
-        "button": "إنشاء حساب مجاني"
-      },
-      "user": "المستخدم",
-      "wordsRemaining": "متبقي {{remaining}}",
-      "deleteAccount": {
-        "label": "حذف الحساب",
-        "labelDescription": "حذف حسابك وبياناتك السحابية الشخصية نهائيًا. ستبقى بيانات المستخدمين المحليين الآخرين والمحتوى المملوك لمساحة العمل محفوظة.",
-        "button": "حذف حسابي",
-        "deleting": "جاري الحذف...",
-        "title": "هل تريد حذف حسابك؟",
-        "description": "يؤدي هذا إلى حذف حساب Loqui وبياناتك الشخصية نهائيًا. سيبقى المحتوى المملوك لمساحة العمل وبيانات المستخدمين المحليين الآخرين على هذا الجهاز.",
-        "eraseDeviceLabel": "مسح جميع البيانات من هذا الجهاز أيضًا",
-        "eraseDeviceDescription": "يحذف ملاحظات جميع المستخدمين المحليين وبيانات مساحة العمل المخزنة مؤقتًا والنماذج التي تم تنزيلها والإعدادات واتصالات التقويم وبيانات الاعتماد والتسجيلات.",
-        "eraseDeviceWarning": "لا يمكن التراجع عن هذا المسح الشامل للجهاز، وهو يؤثر على جميع المستخدمين المحليين.",
-        "confirmText": "حذف الحساب",
-        "successTitle": "تم حذف الحساب",
-        "successDescription": "تم حذف حسابك وبياناتك الشخصية. بقيت بيانات المستخدمين المحليين الآخرين ومساحات العمل والنماذج وإعدادات الجهاز محفوظة.",
-        "failedTitle": "فشل الحذف",
-        "failedDescription": "تعذر إكمال حذف الحساب. لم تبدأ عملية مسح شاملة للجهاز. يُرجى المحاولة مرة أخرى.",
-        "partialCleanupDescription": "تم حذف حسابك، لكن تعذر إكمال بعض عمليات التنظيف المحلي. تم الاحتفاظ ببيانات المستخدمين الآخرين والمحتوى المملوك لمساحة العمل."
-      },
-      "profile": {
-        "name": {
-          "label": "اسم العرض",
-          "placeholder": "اسمك",
-          "save": "حفظ",
-          "saving": "جاري الحفظ...",
-          "saved": "تم تحديث اسم العرض",
-          "error": "تعذر تحديث اسمك"
-        },
-        "password": {
-          "label": "كلمة المرور",
-          "description": "غيّر كلمة المرور التي تستخدمها لتسجيل الدخول.",
-          "change": "تغيير كلمة المرور",
-          "dialogTitle": "تغيير كلمة المرور",
-          "dialogDescription": "أدخل كلمة المرور الحالية واختر كلمة مرور جديدة.",
-          "currentLabel": "كلمة المرور الحالية",
-          "newLabel": "كلمة المرور الجديدة",
-          "confirmLabel": "تأكيد كلمة المرور الجديدة",
-          "minLength": "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل",
-          "mismatch": "كلمات المرور غير متطابقة",
-          "revokeOthers": "تسجيل الخروج من الأجهزة الأخرى",
-          "submit": "تحديث كلمة المرور",
-          "saving": "جاري التحديث...",
-          "cancel": "إلغاء",
-          "saved": "تم تحديث كلمة المرور"
-        },
-        "errors": {
-          "invalidPassword": "كلمة المرور الحالية غير صحيحة.",
-          "passwordTooShort": "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل.",
-          "passwordTooLong": "كلمة المرور طويلة جدًا.",
-          "noPassword": "لم يتم تعيين كلمة مرور لهذا الحساب.",
-          "generic": "حدث خطأ ما. يرجى المحاولة مرة أخرى."
-        }
-      },
-      "planUnavailable": {
-        "title": "الخطة غير متاحة",
-        "description": "لم نتمكن من تحميل خطتك في الوقت الحالي. وصولك لم يتغير."
-      }
-    },
     "agentConfig": {
       "agentName": "اسم المساعد",
       "description": "قم بتسمية مساعدك الذكي حتى تتمكن من مخاطبته مباشرة أثناء الإملاء",
@@ -2783,19 +2450,15 @@
       "enableTextCleanup": "تمكين تنظيف النص",
       "enableTextCleanupDescription": "استخدم الذكاء الاصطناعي لإزالة كلمات الحشو، وإصلاح القواعد، وتنسيق علامات الترقيم",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "مزودو الخدمات السحابية",
         "local": "محلي",
         "selfHosted": "مستضاف ذاتيًا",
         "enterprise": "مؤسسي",
-        "openwhisprDesc": "دقة موثوقة. لا حاجة للإعداد.",
         "providersDesc": "أحضر مفتاح API الخاص بك.",
-        "localDesc": "نماذج على الجهاز. خاصة بالكامل.",
+        "localDesc": "يعمل على هذا الجهاز. لا تُرسل أي بيانات خارجه.",
         "selfHostedDesc": "خادمك الخاص على شبكتك.",
         "enterpriseDesc": "استخدم الحساب السحابي لمؤسستك (AWS، Azure، GCP)."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "دقة موثوقة. لا حاجة للإعداد.",
       "title": "تحسين النص بالذكاء الاصطناعي",
       "toasts": {
         "switchedCloud": {
@@ -2939,7 +2602,14 @@
         "dictationSoundsDescription": "تشغيل نغمة عند بدء التسجيل وإيقافه",
         "pauseMedia": "إيقاف مؤقت للوسائط",
         "pauseMediaDescription": "إيقاف الموسيقى مؤقتًا تلقائيًا عند بدء الإملاء",
-        "title": "المؤثرات الصوتية"
+        "title": "المؤثرات الصوتية",
+        "cueSet": "نمط الصوت",
+        "cueSetSoft": "ناعم",
+        "cueSetClassic": "كلاسيكي",
+        "cueVolume": "مستوى الصوت",
+        "cueVolumeLow": "منخفض",
+        "cueVolumeMedium": "متوسط",
+        "cueVolumeHigh": "مرتفع"
       },
       "notifications": {
         "title": "الإشعارات",
@@ -2949,7 +2619,9 @@
         "meetingDetection": "اكتشاف الاجتماع",
         "meetingDetectionDescription": "إعلام عند اكتشاف اجتماع حتى تتمكن من بدء التسجيل",
         "calendarReminders": "تذكيرات التقويم",
-        "calendarRemindersDescription": "إعلام عند اقتراب موعد بدء اجتماع مجدول"
+        "calendarRemindersDescription": "إعلام عند اقتراب موعد بدء اجتماع مجدول",
+        "meetingRecorderOnScreen": "إظهار مسجّل الاجتماع على الشاشة",
+        "meetingRecorderOnScreenDescription": "أثناء تسجيل الاجتماع، يعرض شريط الإملاء مؤقّتًا وزر إيقاف."
       },
       "clipboard": {
         "title": "الحافظة",
@@ -3137,8 +2809,6 @@
       "cloudNotesMigrationDone": "تم نسخ جميع الملاحظات احتياطيًا",
       "description": "تحكم في البيانات التي تغادر جهازك. كل شيء متوقف افتراضيًا.",
       "title": "الخصوصية",
-      "usageAnalytics": "تحليلات الاستخدام",
-      "usageAnalyticsDescription": "ساعدنا في تحسين Loqui من خلال مشاركة مقاييس الأداء المجهولة. لا نرسل أبدًا محتوى التفريغ — فقط بيانات التوقيت والأخطاء.",
       "audioRetention": "الاحتفاظ بالصوت",
       "audioRetentionDescription": "تخزين صوت الإملاء محليًا لإعادة التفريغ والتنزيل. يتم حذف الملفات تلقائيًا بعد فترة الاحتفاظ. لا يتم تخزين صوت الاجتماعات أبدًا.",
       "audioRetentionDisabled": "معطل",
@@ -3159,7 +2829,6 @@
       "audioStorageFiles_other": "{{count}} ملف، {{size}}",
       "audioStorageEmpty": "لا توجد ملفات صوتية مخزنة",
       "clearAllAudio": "مسح كل الصوت",
-      "clearAllAudioConfirm": "هل تريد حذف جميع الملفات الصوتية المخزنة؟ لا يمكن التراجع عن هذا.",
       "dataRetention": "الاحتفاظ بالبيانات",
       "dataRetentionDescription": "تخزين النصوص المفرَّغة والصوت محليًا في سجلك. عند التعطيل، يتم لصق النصوص المفرَّغة ولكن لا يتم حفظها.",
       "transcriptRetention": "الاحتفاظ بالنصوص المفرَّغة",
@@ -3189,7 +2858,14 @@
       "insightsSyncRequiresHistory": "فعّل الاحتفاظ بالبيانات لتسجيل الإحصاءات قبل مزامنتها عبر أجهزتك.",
       "leaderboardDescription": "اعرض اسمك وبريدك الإلكتروني ونشاطك على لوائح المتصدرين المؤهلة لمساحة العمل ونطاق العمل. تبقى النصوص المفرَّغة خاصة.",
       "leaderboardRequiresAccount": "سجّل الدخول لإدارة المشاركة في لوائح المتصدرين.",
-      "leaderboardRequiresHistory": "فعّل الاحتفاظ بالبيانات قبل الانضمام إلى لوائح المتصدرين."
+      "leaderboardRequiresHistory": "فعّل الاحتفاظ بالبيانات قبل الانضمام إلى لوائح المتصدرين.",
+      "clearAllAudioTitle": "مسح كل الصوت؟",
+      "clearAllAudioCounted": "الصوت المخزّن: {{summary}}. هل تريد حذفه كله؟ لا يمكن التراجع عن ذلك.",
+      "clearAllAudioAction": "حذف الصوت",
+      "clearAllAudioDone": "تم حذف الصوت المخزّن",
+      "clearAllAudioFailed": "لم يُحذف كل الصوت المخزّن. حاول مرة أخرى، أو تأكد من أن أي تطبيق آخر لا يستخدم الملفات.",
+      "audioStorageChecking": "جارٍ التحقق من الصوت المخزّن…",
+      "audioStorageUnavailable": "تعذّر على Loqui قراءة مجلد الصوت، لذا لا يمكنه عرض الصوت المخزّن أو مسحه الآن."
     },
     "prompts": {
       "description": "عرض وتخصيص واختبار موجه النظام الموحد الذي يشغل تنظيف النص واكتشاف التعليمات",
@@ -3213,7 +2889,16 @@
         "dictationAgent": "المساعد الصوتي",
         "noteFormatting": "تنسيق الملاحظات",
         "chatIntelligence": "الدردشة",
-        "dictationTranslation": "الترجمة"
+        "dictationTranslation": "الترجمة",
+        "supportModels": "دعم على الجهاز"
+      },
+      "supportModels": {
+        "title": "نماذج الدعم على الجهاز",
+        "description": "نماذج صغيرة تعمل دائمًا على هذا الجهاز. لا تغادر تسجيلاتك وملاحظاتك الجهاز لهذه المهام.",
+        "downloaded": "تم التنزيل",
+        "checking": "جارٍ التحقق…",
+        "download": "تنزيل {{size}}",
+        "statusUnavailable": "حالة التوفر غير متاحة"
       }
     },
     "noteFormatting": {
@@ -3225,19 +2910,15 @@
       "customSetupDescription": "استخدم المزود ومفتاح API الخاص بك.",
       "description": "اختر كيف يفرّغ Loqui صوتك",
       "modes": {
-        "openwhispr": "Loqui Cloud",
         "providers": "مزودو الخدمات السحابية",
         "local": "محلي",
         "selfHosted": "مستضاف ذاتيًا",
-        "openwhisprDesc": "دقة موثوقة. لا حاجة للإعداد.",
         "providersDesc": "أحضر مفتاح API الخاص بك.",
-        "localDesc": "نماذج على الجهاز. خاصة بالكامل.",
+        "localDesc": "يعمل على هذا الجهاز. لا تُرسل أي بيانات خارجه.",
         "selfHostedDesc": "خادمك الخاص على شبكتك.",
         "enterprise": "السحابة المؤسسية",
         "enterpriseDesc": "يُرسَل الصوت إلى السحابة الخاصة بمؤسستك."
       },
-      "openwhisprCloud": "Loqui Cloud",
-      "openwhisprCloudDescription": "دقة موثوقة. لا حاجة للإعداد.",
       "title": "تحويل الكلام إلى نص",
       "toasts": {
         "switchedCloud": {
@@ -3332,7 +3013,20 @@
     "selfHosted": {
       "endpointUrl": "عنوان URL لنقطة النهاية",
       "serverUrl": "عنوان URL للخادم",
-      "apiKeyOptional": "مفتاح API (اختياري)"
+      "apiKeyOptional": "مفتاح API (اختياري)",
+      "test": "اختبار",
+      "testing": "جارٍ الاختبار…",
+      "testTitle": "يطلب قائمة النماذج من {{host}}. لا يُرسل مفتاح.",
+      "testOk_one": "متصل · {{count}} نموذج",
+      "testOk_other": "متصل · {{count}} نموذج",
+      "testFail": "تعذّر عرض نماذج {{host}}. تحقق من العنوان وتشغيل الخادم.",
+      "testHttpsRequired": "يعمل http:// فقط مع العناوين داخل شبكتك.",
+      "sharedReadOnly": "يستخدم رفع الصوت خادم الإملاء. غيّره ضمن تحويل الكلام إلى نص › الإملاء.",
+      "notSet": "غير محدد",
+      "testOk_zero": "متصل · {{count}} نموذج",
+      "testOk_two": "متصل · {{count}} نموذج",
+      "testOk_few": "متصل · {{count}} نموذج",
+      "testOk_many": "متصل · {{count}} نموذج"
     },
     "enterpriseCheckout": {
       "title": "الترقية إلى Enterprise",
@@ -3365,6 +3059,19 @@
       "upgradeCta": "الترقية الآن",
       "upgradedTitle": "تمت الترقية إلى Enterprise",
       "upgradedDescription": "أصبحت {{workspace}} الآن على Enterprise."
+    },
+    "reviewSetup": {
+      "title": "مراجعة إعداد الإملاء",
+      "description": "ارجع إلى خطوات الإعداد دون تغيير ملاحظاتك أو بيانات الاعتماد الحالية.",
+      "action": "فتح الإعداد"
+    },
+    "labs": {
+      "title": "المختبر",
+      "description": "نماذج أولية ما زالت قيد التشكيل. يمكنك إيقافها في أي وقت.",
+      "table": {
+        "label": "الطاولة",
+        "description": "لوحة لمساحة: افرد الملاحظات والإملاءات والإجابات واربط بينها. تبقى مواضع البطاقات على هذا الجهاز، ويستخدم التلخيص والسؤال مزوّد الدردشة لديك."
+      }
     }
   },
   "settings": {
@@ -3395,7 +3102,7 @@
     },
     "language": {
       "sectionTitle": "اللغة",
-      "sectionDescription": "تعيين لغات الواجهة والتفريغ الصوتي بشكل مستقل",
+      "sectionDescription": "اللغة التي تستخدمها قوائم Loqui وأزرارها",
       "uiLabel": "لغة الواجهة",
       "uiDescription": "اختر اللغة المستخدمة في واجهة Loqui",
       "transcriptionLabel": "لغة التفريغ الصوتي",
@@ -3404,7 +3111,9 @@
       "chineseScriptDescription": "عند اكتشاف اللغة الصينية، سيتم تحويل النص المُملى إلى أحرف مبسطة أو تقليدية. اللغة الصينية المنطوقة هي نفسها في كلتا الحالتين؛ لا يُرجع Whisper سوى نظام كتابة واحد.",
       "chineseScriptAsTranscribed": "الإبقاء على النص كما تم تفريغه",
       "chineseScriptSimplified": "مبسطة (简体)",
-      "chineseScriptTraditional": "تقليدية (繁體)"
+      "chineseScriptTraditional": "تقليدية (繁體)",
+      "dictationSectionTitle": "اللغة المنطوقة",
+      "dictationSectionDescription": "اللغة التي تتحدث بها عند الإملاء"
     },
     "noteFiles": {
       "title": "حفظ الملاحظات كملفات",
@@ -3425,6 +3134,23 @@
       }
     }
   },
+  "meetingRecorder": {
+    "notificationTitle": "يسجّل Loqui هذا الاجتماع",
+    "notificationBody": "أوقف التسجيل من هنا أو من قائمة علبة النظام أو شريط Loqui العائم.",
+    "notificationFallbackBody": "انقر لإظهار شريط Loqui العائم وإيقاف التسجيل منه، أو استخدم قائمة علبة النظام.",
+    "stop": "إيقاف",
+    "systemLost": "انقطع صوت النظام",
+    "micLost": "انقطع الميكروفون",
+    "stopAria": "إيقاف تسجيل الاجتماع",
+    "groupAria": "مسجّل الاجتماع",
+    "saved": "تم حفظ الاجتماع · {{elapsed}}",
+    "openNotes": "فتح الملاحظات",
+    "failed": {
+      "save": "توقف الاجتماع، لكن تعذّر حفظ نصه. افتح الملاحظة للتحقق مما تم الاحتفاظ به.",
+      "stop": "لم يتوقف تسجيل الاجتماع بشكل سليم. افتح الملاحظة للتحقق منه.",
+      "ownerLost": "توقف مسجّل الاجتماع بشكل غير متوقع. افتح الملاحظة للتحقق مما تم الاحتفاظ به."
+    }
+  },
   "tray": {
     "toggleDictation": {
       "show": "إظهار لوحة الإملاء",
@@ -3433,7 +3159,12 @@
     "openControlPanel": "فتح لوحة التحكم",
     "hideControlPanel": "إخفاء لوحة التحكم",
     "quit": "إنهاء Loqui",
-    "tooltip": "Loqui - الإملاء الصوتي"
+    "tooltip": "Loqui - الإملاء الصوتي",
+    "tooltipRecording": "Loqui — جارٍ تسجيل اجتماع",
+    "meetingRecording": "جارٍ تسجيل الاجتماع · {{elapsed}}",
+    "meetingRecordingSystemLost": "جارٍ التسجيل · انقطع صوت النظام",
+    "meetingRecordingMicLost": "جارٍ التسجيل · انقطع الميكروفون",
+    "stopMeetingRecording": "إيقاف تسجيل الاجتماع"
   },
   "menu": {
     "appLabel": "Loqui",
@@ -3618,6 +3349,9 @@
     "tinfoil": {
       "transportNote": "يستخدم Tinfoil نموذج Voxtral Mini 4B للتفريغ المباشر (البث)، ونموذج Voxtral Small 24B للمعالجة الدفعية.",
       "docsLink": "قراءة الوثائق"
+    },
+    "families": {
+      "orukHint": "تنشر Oruk نموذج Orukeet، وهو إصدار من Parakeet مُحسّن لعدة لغات. يعمل على هذا الجهاز."
     }
   },
   "cleanupPrompt": "التنظيف",
@@ -3742,47 +3476,38 @@
   "settingsModal": {
     "managedByOrg": "تتم إدارة بعض الإعدادات بواسطة مؤسستك.",
     "groups": {
-      "account": "الحساب",
       "app": "التطبيق",
       "aiModels": "نماذج الذكاء الاصطناعي",
       "system": "النظام"
     },
     "sections": {
-      "account": {
-        "description": "الملف الشخصي وتسجيل الدخول",
-        "label": "الملف الشخصي"
-      },
-      "plansBilling": {
-        "description": "الخطط والاستخدام والفواتير",
-        "label": "الخطط والفواتير"
-      },
-      "workspace": {
-        "description": "الأعضاء، مساحات الفريق ومفاتيح API",
-        "label": "مساحة العمل"
-      },
       "general": {
         "description": "المظهر والأصوات وبدء التشغيل",
         "label": "التفضيلات"
       },
       "hotkeys": {
-        "description": "اختصارات الإملاء والتفعيل",
-        "label": "اختصارات لوحة المفاتيح"
+        "description": "اختصارات لوحة المفاتيح والميكروفون واللصق واللغة",
+        "label": "الإملاء"
       },
       "speechToText": {
-        "description": "محركات الإملاء وتسجيل الملاحظات",
+        "description": "محركات الإملاء والملاحظات",
         "label": "تحويل الكلام إلى نص"
       },
       "llms": {
-        "description": "نماذج الدردشة والتنظيف والملخصات",
-        "label": "النماذج اللغوية"
+        "description": "التنقيح والمساعد والدردشة والدعم المحلي",
+        "label": "نماذج اللغة"
       },
       "privacyData": {
-        "description": "الخصوصية والأذونات والتحليلات",
+        "description": "الاحتفاظ والتخزين والأذونات",
         "label": "الخصوصية والبيانات"
       },
       "system": {
-        "description": "التحديثات والتخزين وأدوات المطورين",
+        "description": "التحديثات وأدوات المطور",
         "label": "النظام"
+      },
+      "routing": {
+        "label": "التوجيه",
+        "description": "حيث يتم تشغيل كل مهمة"
       }
     },
     "title": "الإعدادات"
@@ -3790,7 +3515,10 @@
   "sidebar": {
     "sections": {
       "workspace": "Workspace",
-      "library": "Library"
+      "library": "Library",
+      "spaces": "المساحات",
+      "recent": "الأخيرة",
+      "voice": "الصوت"
     },
     "navigation": "Main navigation",
     "home": "الرئيسية",
@@ -3816,7 +3544,8 @@
     "chat": "الدردشة",
     "collapse": "طي الشريط الجانبي",
     "expand": "توسيع الشريط الجانبي",
-    "insights": "الإحصاءات"
+    "insights": "الإحصاءات",
+    "calendars": "التقويمات"
   },
   "insights": {
     "title": "الإحصاءات",
@@ -3978,7 +3707,10 @@
       "saved": "تم تنزيل الصورة.",
       "failed": "تعذر إنشاء بطاقة المشاركة.",
       "unnamedMember": "زميل"
-    }
+    },
+    "openHistory": "فتح السجل",
+    "openDictations": "عرض الإملاءات في السجل",
+    "focusHeatmap": "الانتقال إلى مخطط النشاط"
   },
   "chat": {
     "newChat": "محادثة جديدة",
@@ -4000,7 +3732,27 @@
     "searchChats": "البحث في المحادثات",
     "searchTitle": "البحث في المحادثات",
     "searchDescription": "البحث في جميع محادثاتك",
-    "newChatEmpty": "اسأل عن ملاحظاتك أو نصوصك المفرَّغة أو أي شيء آخر"
+    "newChatEmpty": "اسأل عن ملاحظاتك أو نصوصك المفرَّغة أو أي شيء آخر",
+    "assistant": "المساعد",
+    "sources": {
+      "label": "المصادر",
+      "note": "ملاحظة",
+      "meeting": "اجتماع"
+    },
+    "model": {
+      "changeHint": "التغيير في الإعدادات"
+    },
+    "rail": {
+      "label": "السياق",
+      "toggle": "السياق",
+      "inScope": "ضمن النطاق",
+      "found": "عُثر عليها تلقائيًا",
+      "emptyScope": "اكتب @ لإضافة ملاحظة أو اجتماع أو مجلد. يبحث المساعد أيضًا في ملاحظاتك من تلقاء نفسه.",
+      "unpin": "إزالة {{label}} من السياق",
+      "activity": "النشاط",
+      "noActivity": "لا شيء بعد",
+      "addContext": "إضافة سياق"
+    }
   },
   "support": {
     "documentation": "الوثائق",
@@ -4022,7 +3774,19 @@
     "edit": "تعديل مفتاح API",
     "add": "إضافة مفتاح API",
     "editButton": "تعديل",
-    "addButton": "إضافة"
+    "addButton": "إضافة",
+    "saveFailed": "تعذّر حفظ هذا المفتاح. ما أدخلته لا يزال هنا — حاول مرة أخرى.",
+    "removeFailed": "تعذّرت إزالة هذا المفتاح. لا يزال محفوظًا.",
+    "removed": "أُزيل المفتاح.",
+    "removedCredential": "أُزيلت بيانات الاعتماد (جميع حقولها).",
+    "removeCredential": "إزالة بيانات الاعتماد (جميع الحقول)",
+    "restored": "استُعيد المفتاح.",
+    "undo": "تراجع",
+    "undoLabel": "التراجع عن إزالة المفتاح",
+    "undoExpired": "انتهت مهلة التراجع. أضف المفتاح مجددًا.",
+    "undoReplaced": "حُفظ مفتاح أحدث، لذا لم يُستعد المفتاح الذي أُزيل.",
+    "undoUnknown": "لم يعد بالإمكان التراجع عن هذه الإزالة. أضف المفتاح مجددًا.",
+    "undoRetry": "تعذرت استعادة المفتاح. اضغط على «تراجع» مجددًا."
   },
   "gpu": {
     "transcriptionBanner": "اجعل التفريغ الصوتي أسرع باستخدام تسريع GPU",
@@ -4086,15 +3850,51 @@
     "sections": {
       "notes": "الملاحظات",
       "transcripts": "النصوص المفرَّغة",
-      "jumpTo": "الانتقال إلى"
+      "jumpTo": "الانتقال إلى",
+      "suggested": "مقترح",
+      "recent": "الأخيرة",
+      "commands": "الأوامر",
+      "meetings": "الاجتماعات",
+      "chats": "المحادثات",
+      "folders": "المجلدات"
     },
     "noResults": "لا توجد نتائج",
     "emptyState": "ابدأ الكتابة للبحث",
     "footer": {
       "navigate": "تنقل",
       "open": "فتح",
-      "dismiss": "تجاهل"
-    }
+      "dismiss": "تجاهل",
+      "scope": "النطاق",
+      "close": "إغلاق"
+    },
+    "placeholderAll": "ابحث في الملاحظات والاجتماعات أو شغّل أمرًا…",
+    "commands": {
+      "newNote": "ملاحظة جديدة",
+      "startDictation": "بدء الإملاء",
+      "askAssistant": "اسأل المساعد",
+      "goNotes": "الانتقال إلى الملاحظات",
+      "goHome": "الانتقال إلى الرئيسية",
+      "goChat": "الانتقال إلى المحادثة",
+      "recordMeeting": "تسجيل اجتماع",
+      "uploadAudio": "رفع ملف صوتي…",
+      "newChat": "محادثة جديدة",
+      "openSettings": "فتح الإعدادات",
+      "switchSpeechModel": "تغيير نموذج الكلام…",
+      "toggleTheme": "تبديل المظهر الداكن"
+    },
+    "askAssistant": "اسأل المساعد: «{{query}}»",
+    "nothingMatches": "لا توجد نتائج تطابق «{{query}}».",
+    "meta": {
+      "meeting": "اجتماع",
+      "chat": "محادثة"
+    },
+    "clear": "مسح البحث",
+    "seeAllTranscripts_zero": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_one": "عرض نتيجة واحدة ({{count}}) في السجل",
+    "seeAllTranscripts_two": "عرض النتيجتين ({{count}}) في السجل",
+    "seeAllTranscripts_few": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_many": "عرض كل النتائج وعددها {{count}} في السجل",
+    "seeAllTranscripts_other": "عرض كل النتائج وعددها {{count}} في السجل"
   },
   "emojiPicker": {
     "search": "ابحث عن رمز تعبيري…",
@@ -4176,7 +3976,12 @@
       "underway": "يبدو أن اجتماعك جارٍ بالفعل. هل ترغب في تدوين الملاحظات؟"
     },
     "start": "تدوين الملاحظات",
-    "join": "انضمام وتفريغ صوتي"
+    "join": "انضمام وتفريغ صوتي",
+    "bodyApp": "تم اكتشاف اجتماع في {{app}}.",
+    "privacy": "تم الاكتشاف على هذا الجهاز. لم يُسجَّل شيء بعد.",
+    "mini": "اجتماع؟ ابدأ تدوين الملاحظات",
+    "accepted": "جارٍ تدوين الملاحظات",
+    "dismiss": "تجاهل"
   },
   "codexConnection": {
     "title": "ChatGPT subscription (Codex)",
@@ -4188,7 +3993,10 @@
     "cancel": "Cancel sign-in",
     "connect": "Connect ChatGPT",
     "refresh": "Refresh",
-    "loginFailed": "Sign-in could not be completed."
+    "loginFailed": "Sign-in could not be completed.",
+    "signedInStored": "تم تسجيل الدخول إلى ChatGPT على هذا الجهاز. تحقق من الحالة لعرض الحساب والاستخدام المتبقي.",
+    "checkStatus": "التحقق من حالة ChatGPT",
+    "checkStatusTitle": "يشغّل تطبيق Codex للاستعلام من ChatGPT عن تسجيل الدخول والاستخدام المتبقي. يتحقق أول فحص بعد تشغيل Loqui أيضًا من GitHub للتأكد من أن Codex إصدار رسمي. لا يُرسل مفتاح محفوظ."
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",
@@ -4241,6 +4049,7 @@
     "beta": "Beta and stable",
     "downloading": "Downloading update: {{percent}}%",
     "ready": "Loqui {{version}} is ready. Finish active work before restarting.",
+    "available": "Loqui {{version}} متاح. فعّل التحديثات التلقائية لتثبيته، أو نزّله من GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"
@@ -4251,5 +4060,1275 @@
     "remote": "يُرسل إلى {{provider}}",
     "unknownProvider": "مزوّد غير معروف",
     "customEndpoint": "نقطة نهاية مخصصة"
+  },
+  "routes": {
+    "groups": {
+      "speech": "الكلام",
+      "text": "النص",
+      "support": "على هذا الجهاز فقط"
+    },
+    "names": {
+      "dictationStt": "الإملاء",
+      "noteRecordingStt": "تسجيل الملاحظات",
+      "uploadStt": "رفع الصوت",
+      "dictationCleanup": "تنقيح الإملاء",
+      "voiceAssistant": "المساعد الصوتي",
+      "assistantVision": "رؤية المساعد",
+      "translation": "الترجمة",
+      "noteFormatting": "تنسيق الملاحظات",
+      "chat": "المحادثة",
+      "speakerId": "تحديد المتحدثين",
+      "semanticSearch": "البحث الدلالي"
+    },
+    "subtitles": {
+      "dictationStt": "انقر للإملاء في أي تطبيق",
+      "noteRecordingStt": "الاجتماعات والملاحظات الصوتية",
+      "uploadStt": "نسخ ملف مستورد",
+      "dictationCleanup": "تصحيح الحشو وعلامات الترقيم",
+      "voiceAssistant": "اسأل واحصل على إجابة",
+      "assistantVision": "لقطات شاشة تُرسل مع طلبات المساعد",
+      "translation": "أملِ بلغة والصق بلغة أخرى",
+      "noteFormatting": "الملخصات وبنود العمل",
+      "chat": "اطرح أسئلة حول ملاحظاتك",
+      "speakerId": "معرفة من قال ماذا في الاجتماعات",
+      "semanticSearch": "العثور على الملاحظات حسب المعنى"
+    },
+    "payload": {
+      "audio": "الصوت الخاص بك",
+      "audioFile": "الملف الصوتي",
+      "meetingAudio": "صوت الاجتماع من الميكروفون والمكالمة",
+      "dictionary": "كلمات قاموسك ومحفزات المقاطع النصية",
+      "dictionaryWords": "كلمات قاموسك",
+      "transcript": "نص التفريغ الخاص بك",
+      "request": "طلبك المنطوق",
+      "selectedText": "النص الذي حددته",
+      "history": "المحادثة الأخيرة",
+      "lookups": "الملاحظات وتفاصيل التقويم التي يبحث عنها",
+      "noteText": "نص ملاحظتك",
+      "meetingTranscript": "نص الاجتماع مع أسماء المتحدثين",
+      "participants": "أسماء الحاضرين وعناوين بريدهم الإلكتروني",
+      "screenshot": "لقطة لشاشتك",
+      "webSearch": "الإذن للمزوّد بالبحث على الويب",
+      "messages": "رسائلك",
+      "metadataNote": "تُرسل أيضًا إعدادات مثل اللغة وأسماء النماذج."
+    },
+    "runsOn": "يعمل {{task}} على",
+    "place": {
+      "chooseProvider": "اختر موفّرًا"
+    },
+    "selection": {
+      "current": "الحالي",
+      "selected": "محدد",
+      "staged": "مُجهّز، غير نشط"
+    },
+    "state": {
+      "ready": "جاهز",
+      "off": "متوقف",
+      "checking": "جارٍ التحقق…",
+      "download": "نزّل {{size}}",
+      "chooseModel": "اختر نموذجًا",
+      "addKey": "أضف مفتاح API",
+      "chooseProvider": "اختر موفّرًا",
+      "addUrl": "أضف عنوان الخادم",
+      "sealed": "متوقف مؤقتًا · الوضع المحكم",
+      "retired": "توقفت الخدمة · اختر مجددًا",
+      "unsupported": "غير متاح لهذه المهمة",
+      "cantReach": "تعذر الوصول إلى الخادم"
+    },
+    "toast": {
+      "local": "تعمل {{task}} الآن على هذا الجهاز.",
+      "sends": "ترسل {{task}} الآن {{payload}} إلى {{destination}}.",
+      "whenOn": "ستستخدم {{task}} الوجهة {{destination}} عند تشغيلها.",
+      "off": "تم إيقاف {{task}}. لا يتم إرسال أي شيء.",
+      "saved": "تم حفظ إعدادات {{task}}.",
+      "thisDevice": "هذا الجهاز",
+      "server": "خادمك",
+      "serverAt": "خادمك على {{host}}",
+      "chooseModel": "اختر نموذجًا للإكمال.",
+      "signInNext": "سجّل الدخول إلى {{provider}} بعد ذلك. لن يتم إرسال أي شيء حتى تسجّل الدخول.",
+      "alsoChanges": "يغيّر أيضًا {{tasks}}.",
+      "undo": "تراجع",
+      "undoStaged": "التراجع جاهز للمراجعة. راجعه، ثم طبّقه."
+    }
+  },
+  "staging": {
+    "region": "تغيير مسار معلّق",
+    "heading": "راجع قبل إرسال أي شيء",
+    "coupled": "يتغير أيضًا",
+    "sends": "يرسل {{payload}}",
+    "staysOnDevice": "يبقى على هذا الجهاز",
+    "offNote": "متوقف. يُستخدم عند تشغيله.",
+    "setupHere": "أعدّ {{provider}} هنا قبل التطبيق. لن يُرسل شيء حتى تطبّق.",
+    "discard": "تجاهل",
+    "apply": "تطبيق",
+    "blocked": {
+      "needsKey": "يحتاج {{provider}} إلى مفتاح أولًا.",
+      "chooseProvider": "اختر مزودًا لمعرفة ما سيُرسل.",
+      "needsUrl": "أدخل عنوان خادم صالحًا.",
+      "needsModel": "نزّل النموذج أولًا.",
+      "chooseModel": "اختر نموذجًا أولًا.",
+      "signIn": "سجّل الدخول إلى {{provider}} أولًا. لن يُرسل شيء حتى تطبّق.",
+      "sealed": "وضع العزل مفعّل. المسارات التي تغادر هذا الجهاز متوقفة مؤقتًا.",
+      "unknown": "جارٍ التحقق من المفاتيح والنماذج المحفوظة. حاول بعد قليل.",
+      "unsupported": "لا يستطيع هذا المزود تنفيذ هذه المهمة."
+    },
+    "provider": "المزود",
+    "model": "النموذج",
+    "modelId": "معرّف النموذج",
+    "useModel": "استخدام هذا النموذج",
+    "keySaved": "المفتاح محفوظ",
+    "noKey": "لا يوجد مفتاح",
+    "cloud": {
+      "title": "هل تريد إرسال {{task}} إلى مزود سحابي؟",
+      "body": "اختر مزودًا. لن يُرسل شيء حتى تطبّق."
+    },
+    "server": {
+      "title": "هل تريد إرسال {{task}} إلى خادمك الخاص؟",
+      "body": "أدخل عنوان الخادم. لن يُرسل شيء حتى تطبّق."
+    },
+    "sharedWithDictation": "يستخدم رفع الصوت خادم الإملاء، {{url}}. غيّره ضمن تحويل الكلام إلى نص › الإملاء.",
+    "serverUrl": "عنوان الخادم",
+    "endpointUrl": "رابط نقطة الاتصال",
+    "useEndpoint": "استخدام نقطة الاتصال هذه",
+    "useServer": "استخدام هذا الخادم",
+    "url": {
+      "empty": "الصق عنوان URL الأساسي أو اكتبه.",
+      "invalid": "هذا ليس عنوان ويب صالحًا بعد. ابدأ بـ https:// أو http://.",
+      "insecure": "يعمل http:// غير المشفّر فقط لعناوين شبكتك الخاصة. استخدم https://.",
+      "http": "اتصال http:// غير مشفّر. مناسب على شبكتك الخاصة.",
+      "ok": "يبدو جيدًا."
+    }
+  },
+  "patchbay": {
+    "title": "التوجيه",
+    "description": "كل مهمة ومكان تشغيلها الآن. تُطبّق التغييرات إلى هذا الجهاز فورًا ويمكن التراجع عنها. أما التغييرات إلى خادم أو مزوّد فتنتظر مراجعتك وتطبيقك لها.",
+    "tasks": "المهام",
+    "destinations": "الوجهات",
+    "openSettings": "افتح إعدادات {{task}}",
+    "sealed": "الوضع المختوم قيد التشغيل. لا يمكن تشغيل المهام إلا على هذا الجهاز.",
+    "undo": "تراجع",
+    "kind": {
+      "speech": "صوت",
+      "text": "نص"
+    },
+    "hint": {
+      "idle": "اختر مهمة، ثم المكان الذي يجب تشغيله فيه.",
+      "pickDestination": "أرسل {{task}} إلى... اختر وجهة مميزة.",
+      "pickTaskFirst": "اختر مهمة أولاً، ثم المكان الذي يجب تشغيلها فيه.",
+      "already": "يتم تشغيل {{task}} بالفعل {{place}}.",
+      "off": "ميزة «{{task}}» متوقفة. فعّلها في إعداداتها.",
+      "moved": "يتم الآن تشغيل {{task}} {{place}}.",
+      "movedOff": "ميزة «{{task}}» متوقفة. بعد تفعيلها، سيتم تشغيلها {{place}}.",
+      "movedAlso": "تم التغيير أيضًا: {{tasks}}.",
+      "staged": "قم بمراجعة {{task}} → {{destination}} أدناه، ثم قم بتطبيقه. لا يتم إرسال أي شيء حتى تفعل ذلك.",
+      "undone": "{{task}} عاد إلى حيث كان.",
+      "undoStaged": "راجع التغيير أدناه لتطبيق العودة إلى المسار السابق.",
+      "notApplied": "لم يتغير شيء.",
+      "failed": "تعذر تغيير المسار: {{error}}"
+    },
+    "locked": {
+      "speakerId": "مقفل على هذا الجهاز: يحتاج تعريف مكبر الصوت إلى تسجيلاتك على الجهاز.",
+      "semanticSearch": "مقفل على هذا الجهاز: تظل عمليات التضمين محلية، لذا لا يرسل البحث ملاحظاتك إلى أي مكان أبدًا."
+    },
+    "no": {
+      "capability": "لا يمكن لـ {{provider}} تشغيل هذه المهمة في Loqui.",
+      "visionCloudOnly": "يمكن أن تنتقل لقطات الشاشة إلى نموذج الرؤية السحابية فقط اليوم.",
+      "meetingServer": "لا يمكن لتسجيل الملاحظات استخدام الخادم الخاص بك بعد.",
+      "sealed": "يحتفظ الوضع المختوم بهذه المهمة على هذا الجهاز.",
+      "uploadServer": "يستخدم تحميل الملف الخادم المعين للإملاء. تغييره هناك.",
+      "serverKind": "لم يتم إعداد {{server}} لمهام {{kind}}. استخدم \"إضافة خادم\" لإدخال عنوانه."
+    },
+    "place": {
+      "device": "على هذا الجهاز",
+      "server": "على الخادم الخاص بك على {{host}}",
+      "anyServer": "على الخادم الخاص بك",
+      "endpoint": "على {{name}} في {{host}}",
+      "provider": "على {{provider}}"
+    },
+    "dest": {
+      "serverAt": "الخادم في {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "إضافة خادم",
+      "addServerHint": "ستدخل عنوانه في الخطوة التالية",
+      "nothingLeaves": "لا يُرسل شيء إلى الخارج",
+      "yourServer": "الخادم الخاص بك",
+      "unencrypted": "http، غير مشفرة",
+      "hosted": "مزود مستضاف",
+      "keySaved": "تم حفظ مفتاح API",
+      "noKey": "لم يتم حفظ أي مفتاح حتى الآن",
+      "keyRejected": "تم رفض المفتاح",
+      "keyUnknown": "جارٍ التحقق من المفاتيح المحفوظة…"
+    },
+    "leaves": {
+      "none": "لا يُرسل أي شيء خارج هذا الجهاز.",
+      "prefix": "ما يُرسل خارج هذا الجهاز:",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_zero": "{{count}} المهام",
+    "taskCount_one": "مهمة {{count}}",
+    "taskCount_two": "{{count}} المهام",
+    "taskCount_few": "{{count}} المهام",
+    "taskCount_many": "{{count}} المهام",
+    "taskCount_other": "{{count}} المهام",
+    "meter": {
+      "label_zero": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "label_one": "تظل المهمة {{count}} من {{total}} على هذا الجهاز",
+      "label_two": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "label_few": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "label_many": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "label_other": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "headline_zero": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "headline_one": "تظل المهمة {{count}} من {{total}} على هذا الجهاز",
+      "headline_two": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "headline_few": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "headline_many": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "headline_other": "{{count}} من {{total}} تبقى المهام على هذا الجهاز",
+      "network_zero": "{{count}} على الخادم الخاص بك",
+      "network_one": "{{count}} على الخادم الخاص بك",
+      "network_two": "{{count}} على الخادم الخاص بك",
+      "network_few": "{{count}} على الخادم الخاص بك",
+      "network_many": "{{count}} على الخادم الخاص بك",
+      "network_other": "{{count}} على الخادم الخاص بك"
+    }
+  },
+  "keyring": {
+    "reminder": {
+      "title": "حان وقت تغيير مفتاح {{provider}}",
+      "body": "طلبت من Loqui تذكيرك بعد 90 يومًا من حفظ هذا المفتاح. استبدله في الإعدادات."
+    },
+    "fields": {
+      "environmentKey": "مفتاح API من بيئة Loqui ‏(GOOGLE_VERTEX_API_KEY)",
+      "key": "مفتاح API",
+      "clientId": "معرّف العميل",
+      "clientSecret": "سر العميل",
+      "accessKeyId": "معرّف مفتاح الوصول",
+      "secretAccessKey": "مفتاح الوصول السري",
+      "sessionToken": "رمز الجلسة",
+      "profile": "بيانات اعتماد ملف AWS"
+    },
+    "title": "سلسلة المفاتيح",
+    "subtitle": "بيانات الاعتماد المحفوظة وحالة عملها. تبقى النتائج على هذا الجهاز.",
+    "verify": "تحقق",
+    "verifyLabel": "التحقق من {{identity}}",
+    "verifyAll": "التحقق من الكل",
+    "verifyingAll": "جارٍ التحقق من {{current}} من أصل {{total}}…",
+    "verifyTooltip": "يرسل حقول {{fields}} المحفوظة لـ «{{identity}}» إلى {{host}} للتحقق منها.",
+    "verifyTarget": "يرسل التحقق {{fields}} إلى {{host}}",
+    "verifyTargetUnknown": "وجهة التحقق غير معروفة بعد",
+    "verifyTooltipNoHost": "يرسل بيانات الاعتماد المحفوظة «{{identity}}» إلى مزوّدها للتحقق منها.",
+    "verifyAllTooltip": "يرسل بيانات الاعتماد المحفوظة أدناه إلى مزوّديها، كلًّا على حدة.",
+    "checking": "جارٍ التحقق…",
+    "never": "لم يُتحقق منها من قبل",
+    "lastVerified": "آخر تحقق: {{when}}",
+    "rejected": "رُفضت ({{status}}). استبدل المفتاح.",
+    "rejectedNoStatus": "رُفضت. استبدل المفتاح.",
+    "unreachable": "تعذر الوصول إلى {{host}}. احتُفظ بالمفتاح ولم يُتحقق منه.",
+    "unreachableNoHost": "تعذر الوصول إلى المزوّد. احتُفظ بالمفتاح ولم يُتحقق منه.",
+    "paused": "متوقف مؤقتًا: {{tasks}}",
+    "superseded": "تغير المفتاح أثناء التحقق، لذا أُهملت النتيجة. تحقق مجددًا.",
+    "verifyFailed": "تعذر التحقق. حاول مجددًا.",
+    "invalidCortiOptions": "لم يُرسل شيء: منطقة Corti «{{environment}}» أو المستأجر «{{tenant}}» في إعدادات الصوت غير صالح. صحّح الإعداد ثم تحقق مجددًا.",
+    "loadFailed": "تعذر تحديث هذه القائمة. تُعرض البيانات التي حُمّلت سابقًا.",
+    "remind": "التذكير بعد 90 يومًا",
+    "remindLabel": "تذكيري بتجديد {{identity}} بعد 90 يومًا",
+    "sealed": "الوضع المحكم مفعّل، لذا توقف التحقق مؤقتًا.",
+    "empty": "لا توجد بيانات اعتماد محفوظة. تُظهر المهام التي تحتاج إليها «إضافة مفتاح API» في التوجيه.",
+    "identity": {
+      "cortiText": "{{provider}} · مفتاح API للنص",
+      "cortiSpeech": "{{provider}} · معرّف عميل الصوت وسره"
+    },
+    "status": {
+      "verified": "تم التحقق",
+      "unverified": "لم يُتحقق منها بعد",
+      "rejected": "مرفوضة",
+      "unreachable": "تعذر التحقق"
+    },
+    "unknown": "حالة بيانات الاعتماد المحفوظة غير متاحة.",
+    "recipientChanged": "تغيرت بيانات الاعتماد أو الجهة المستلمة. راجع الوجهة المحدّثة، ثم اضغط على «تحقق» مجددًا.",
+    "unavailable": "التحقق غير متاح. تعذر تأكيد حالة بيانات الاعتماد المحفوظة."
+  },
+  "cartridge": {
+    "groupLabel": "نموذج اللغة",
+    "speechGroupLabel": "نموذج الكلام",
+    "speed": "السرعة",
+    "quality": "الجودة",
+    "memory": "استخدام الذاكرة",
+    "meter": "{{label}}: {{value}} من 5",
+    "estimate": "المؤشرات تقديرات حسب حجم الملف ما لم تُقَس. لا يتم رفع أي شيء.",
+    "context": "سياق {{k}} ألف رمز",
+    "tight": "قد يستهلك معظم موارد هذا الجهاز",
+    "tooLarge": "أكبر من قدرة هذا الجهاز: يحتاج إلى نحو {{needs}}، والجهاز لديه {{total}}",
+    "notDownloaded": "لم يتم تنزيله بعد",
+    "download": "تنزيل",
+    "downloadNamed": "تنزيل {{name}}",
+    "downloading": "جارٍ تنزيل {{name}}",
+    "cancel": "إلغاء تنزيل {{name}}",
+    "delete": "حذف {{name}}",
+    "inUseBy": "تستخدمه",
+    "showFewer": "عرض أقل",
+    "showAll_zero": "عرض كل النماذج ({{count}})",
+    "showAll_one": "عرض كل النماذج ({{count}})",
+    "showAll_two": "عرض كل النماذج ({{count}})",
+    "showAll_few": "عرض كل النماذج ({{count}})",
+    "showAll_many": "عرض كل النماذج ({{count}})",
+    "showAll_other": "عرض كل النماذج ({{count}})"
+  },
+  "storage": {
+    "title": "التخزين",
+    "loading": "جارٍ العد…",
+    "countFailed": "تعذّر العد. لا يمكن حذف أي شيء حتى يكتمل العد.",
+    "countAgain": "العد مجددًا",
+    "delete": "حذف…",
+    "deleting": "جارٍ الحذف…",
+    "open": "فتح",
+    "retry": "إعادة المحاولة",
+    "danger": "منطقة الخطر",
+    "failed": {
+      "partial": "تم حذف {{deleted}} من {{total}}. تعذّر حذف {{remaining}}.",
+      "unknown": "تعذّر على Loqui تأكيد ما تم حذفه. أعد العد قبل المحاولة مجددًا.",
+      "stale": "تغيّرت العناصر المخزنة بعد فتح هذه النافذة، حتى لو بقي العدد نفسه. راجع العناصر والأعداد الحالية قبل الحذف.",
+      "historyRows": "النصوص المفرّغة: تم حذف {{deleted}} من {{total}}.",
+      "historyAudio": "الملفات الصوتية: تم حذف {{deleted}} من {{total}}. تعذّر حذف {{remaining}}.",
+      "historyAudioUnknown": "الملفات الصوتية: تعذّر على Loqui تأكيد عدد الملفات التي تم حذفها."
+    },
+    "audio": {
+      "title": "صوت الإملاء",
+      "empty": "لا توجد ملفات صوتية مخزنة",
+      "summary_zero": "عدد الملفات: {{count}} · {{size}}",
+      "summary_one": "عدد الملفات: {{count}} · {{size}}",
+      "summary_two": "عدد الملفات: {{count}} · {{size}}",
+      "summary_few": "عدد الملفات: {{count}} · {{size}}",
+      "summary_many": "عدد الملفات: {{count}} · {{size}}",
+      "summary_other": "عدد الملفات: {{count}} · {{size}}",
+      "confirmTitle_zero": "هل تريد حذف التسجيلات ({{count}})؟",
+      "confirmTitle_one": "هل تريد حذف التسجيلات ({{count}})؟",
+      "confirmTitle_two": "هل تريد حذف التسجيلات ({{count}})؟",
+      "confirmTitle_few": "هل تريد حذف التسجيلات ({{count}})؟",
+      "confirmTitle_many": "هل تريد حذف التسجيلات ({{count}})؟",
+      "confirmTitle_other": "هل تريد حذف التسجيلات ({{count}})؟",
+      "confirmBody_zero": "سيؤدي هذا إلى حذف التسجيلات من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}})، بما فيها التسجيلات غير المرتبطة بأي نص مفرّغ. ستبقى النصوص المفرّغة. لن تتأثر النسخ التي أُرسلت بالفعل إلى موفّر خدمة.",
+      "confirmBody_one": "سيؤدي هذا إلى حذف التسجيلات من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}})، بما فيها التسجيلات غير المرتبطة بأي نص مفرّغ. ستبقى النصوص المفرّغة. لن تتأثر النسخ التي أُرسلت بالفعل إلى موفّر خدمة.",
+      "confirmBody_two": "سيؤدي هذا إلى حذف التسجيلات من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}})، بما فيها التسجيلات غير المرتبطة بأي نص مفرّغ. ستبقى النصوص المفرّغة. لن تتأثر النسخ التي أُرسلت بالفعل إلى موفّر خدمة.",
+      "confirmBody_few": "سيؤدي هذا إلى حذف التسجيلات من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}})، بما فيها التسجيلات غير المرتبطة بأي نص مفرّغ. ستبقى النصوص المفرّغة. لن تتأثر النسخ التي أُرسلت بالفعل إلى موفّر خدمة.",
+      "confirmBody_many": "سيؤدي هذا إلى حذف التسجيلات من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}})، بما فيها التسجيلات غير المرتبطة بأي نص مفرّغ. ستبقى النصوص المفرّغة. لن تتأثر النسخ التي أُرسلت بالفعل إلى موفّر خدمة.",
+      "confirmBody_other": "سيؤدي هذا إلى حذف التسجيلات من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}})، بما فيها التسجيلات غير المرتبطة بأي نص مفرّغ. ستبقى النصوص المفرّغة. لن تتأثر النسخ التي أُرسلت بالفعل إلى موفّر خدمة.",
+      "confirmButton_zero": "حذف التسجيلات ({{count}})",
+      "confirmButton_one": "حذف التسجيلات ({{count}})",
+      "confirmButton_two": "حذف التسجيلات ({{count}})",
+      "confirmButton_few": "حذف التسجيلات ({{count}})",
+      "confirmButton_many": "حذف التسجيلات ({{count}})",
+      "confirmButton_other": "حذف التسجيلات ({{count}})",
+      "done_zero": "عدد التسجيلات المحذوفة: {{count}}.",
+      "done_one": "عدد التسجيلات المحذوفة: {{count}}.",
+      "done_two": "عدد التسجيلات المحذوفة: {{count}}.",
+      "done_few": "عدد التسجيلات المحذوفة: {{count}}.",
+      "done_many": "عدد التسجيلات المحذوفة: {{count}}.",
+      "done_other": "عدد التسجيلات المحذوفة: {{count}}."
+    },
+    "models": {
+      "title": "النماذج المنزّلة",
+      "empty": "لا توجد نماذج منزّلة",
+      "summary_zero": "عدد النماذج: {{count}} · {{size}}",
+      "summary_one": "عدد النماذج: {{count}} · {{size}}",
+      "summary_two": "عدد النماذج: {{count}} · {{size}}",
+      "summary_few": "عدد النماذج: {{count}} · {{size}}",
+      "summary_many": "عدد النماذج: {{count}} · {{size}}",
+      "summary_other": "عدد النماذج: {{count}} · {{size}}",
+      "confirmTitle_zero": "هل تريد حذف النماذج ({{count}})؟",
+      "confirmTitle_one": "هل تريد حذف النماذج ({{count}})؟",
+      "confirmTitle_two": "هل تريد حذف النماذج ({{count}})؟",
+      "confirmTitle_few": "هل تريد حذف النماذج ({{count}})؟",
+      "confirmTitle_many": "هل تريد حذف النماذج ({{count}})؟",
+      "confirmTitle_other": "هل تريد حذف النماذج ({{count}})؟",
+      "confirmBody_zero": "سيؤدي هذا إلى حذف النماذج المنزّلة من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}}). ستطلب منك المهام التي تستخدمها اختيار نموذج مجددًا.",
+      "confirmBody_one": "سيؤدي هذا إلى حذف النماذج المنزّلة من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}}). ستطلب منك المهام التي تستخدمها اختيار نموذج مجددًا.",
+      "confirmBody_two": "سيؤدي هذا إلى حذف النماذج المنزّلة من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}}). ستطلب منك المهام التي تستخدمها اختيار نموذج مجددًا.",
+      "confirmBody_few": "سيؤدي هذا إلى حذف النماذج المنزّلة من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}}). ستطلب منك المهام التي تستخدمها اختيار نموذج مجددًا.",
+      "confirmBody_many": "سيؤدي هذا إلى حذف النماذج المنزّلة من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}}). ستطلب منك المهام التي تستخدمها اختيار نموذج مجددًا.",
+      "confirmBody_other": "سيؤدي هذا إلى حذف النماذج المنزّلة من هذا المجلد نهائيًا (عددها {{count}}، وحجمها {{size}}). ستطلب منك المهام التي تستخدمها اختيار نموذج مجددًا.",
+      "confirmButton_zero": "حذف النماذج ({{count}})",
+      "confirmButton_one": "حذف النماذج ({{count}})",
+      "confirmButton_two": "حذف النماذج ({{count}})",
+      "confirmButton_few": "حذف النماذج ({{count}})",
+      "confirmButton_many": "حذف النماذج ({{count}})",
+      "confirmButton_other": "حذف النماذج ({{count}})",
+      "done_zero": "عدد النماذج المحذوفة: {{count}}.",
+      "done_one": "عدد النماذج المحذوفة: {{count}}.",
+      "done_two": "عدد النماذج المحذوفة: {{count}}.",
+      "done_few": "عدد النماذج المحذوفة: {{count}}.",
+      "done_many": "عدد النماذج المحذوفة: {{count}}.",
+      "done_other": "عدد النماذج المحذوفة: {{count}}.",
+      "familyFailed": "تعذّر حذف {{family}}.",
+      "families": {
+        "whisper": "نماذج الصوت Whisper",
+        "parakeet": "نماذج الصوت Parakeet",
+        "llm": "نماذج اللغة المحلية"
+      }
+    },
+    "history": {
+      "title": "سجل النصوص المفرّغة",
+      "empty": "لا توجد نصوص مفرّغة أو ملفات صوتية محفوظة",
+      "summary_zero": "عدد النصوص المفرّغة: {{count}}",
+      "summary_one": "عدد النصوص المفرّغة: {{count}}",
+      "summary_two": "عدد النصوص المفرّغة: {{count}}",
+      "summary_few": "عدد النصوص المفرّغة: {{count}}",
+      "summary_many": "عدد النصوص المفرّغة: {{count}}",
+      "summary_other": "عدد النصوص المفرّغة: {{count}}",
+      "summaryWithHidden_zero": "عدد النصوص المفرّغة: {{count}}، منها {{hidden}}",
+      "summaryWithHidden_one": "عدد النصوص المفرّغة: {{count}}، منها {{hidden}}",
+      "summaryWithHidden_two": "عدد النصوص المفرّغة: {{count}}، منها {{hidden}}",
+      "summaryWithHidden_few": "عدد النصوص المفرّغة: {{count}}، منها {{hidden}}",
+      "summaryWithHidden_many": "عدد النصوص المفرّغة: {{count}}، منها {{hidden}}",
+      "summaryWithHidden_other": "عدد النصوص المفرّغة: {{count}}، منها {{hidden}}",
+      "hidden_zero": "عدد النصوص المستبعدة أو المحذوفة: {{count}}",
+      "hidden_one": "عدد النصوص المستبعدة أو المحذوفة: {{count}}",
+      "hidden_two": "عدد النصوص المستبعدة أو المحذوفة: {{count}}",
+      "hidden_few": "عدد النصوص المستبعدة أو المحذوفة: {{count}}",
+      "hidden_many": "عدد النصوص المستبعدة أو المحذوفة: {{count}}",
+      "hidden_other": "عدد النصوص المستبعدة أو المحذوفة: {{count}}",
+      "transcripts_zero": "عدد النصوص المفرّغة: {{count}}",
+      "transcripts_one": "عدد النصوص المفرّغة: {{count}}",
+      "transcripts_two": "عدد النصوص المفرّغة: {{count}}",
+      "transcripts_few": "عدد النصوص المفرّغة: {{count}}",
+      "transcripts_many": "عدد النصوص المفرّغة: {{count}}",
+      "transcripts_other": "عدد النصوص المفرّغة: {{count}}",
+      "transcriptsWithHidden_zero": "عدد النصوص المفرّغة: {{count}} ({{discarded}}، {{deleted}})",
+      "transcriptsWithHidden_one": "عدد النصوص المفرّغة: {{count}} ({{discarded}}، {{deleted}})",
+      "transcriptsWithHidden_two": "عدد النصوص المفرّغة: {{count}} ({{discarded}}، {{deleted}})",
+      "transcriptsWithHidden_few": "عدد النصوص المفرّغة: {{count}} ({{discarded}}، {{deleted}})",
+      "transcriptsWithHidden_many": "عدد النصوص المفرّغة: {{count}} ({{discarded}}، {{deleted}})",
+      "transcriptsWithHidden_other": "عدد النصوص المفرّغة: {{count}} ({{discarded}}، {{deleted}})",
+      "discarded_zero": "المستبعدة: {{count}}",
+      "discarded_one": "المستبعدة: {{count}}",
+      "discarded_two": "المستبعدة: {{count}}",
+      "discarded_few": "المستبعدة: {{count}}",
+      "discarded_many": "المستبعدة: {{count}}",
+      "discarded_other": "المستبعدة: {{count}}",
+      "softDeleted_zero": "المحذوفة: {{count}}",
+      "softDeleted_one": "المحذوفة: {{count}}",
+      "softDeleted_two": "المحذوفة: {{count}}",
+      "softDeleted_few": "المحذوفة: {{count}}",
+      "softDeleted_many": "المحذوفة: {{count}}",
+      "softDeleted_other": "المحذوفة: {{count}}",
+      "audioFiles_zero": "عدد الملفات الصوتية: {{count}} ({{size}})",
+      "audioFiles_one": "عدد الملفات الصوتية: {{count}} ({{size}})",
+      "audioFiles_two": "عدد الملفات الصوتية: {{count}} ({{size}})",
+      "audioFiles_few": "عدد الملفات الصوتية: {{count}} ({{size}})",
+      "audioFiles_many": "عدد الملفات الصوتية: {{count}} ({{size}})",
+      "audioFiles_other": "عدد الملفات الصوتية: {{count}} ({{size}})",
+      "audioFilesShort_zero": "عدد الملفات الصوتية: {{count}}",
+      "audioFilesShort_one": "عدد الملفات الصوتية: {{count}}",
+      "audioFilesShort_two": "عدد الملفات الصوتية: {{count}}",
+      "audioFilesShort_few": "عدد الملفات الصوتية: {{count}}",
+      "audioFilesShort_many": "عدد الملفات الصوتية: {{count}}",
+      "audioFilesShort_other": "عدد الملفات الصوتية: {{count}}",
+      "confirmTitle": "هل تريد حذف سجل النصوص المفرّغة بالكامل؟",
+      "confirmBody": "سيؤدي هذا إلى حذف {{transcripts}} و{{audio}} نهائيًا وإعادة ضبط عدّادات Insights على هذا الجهاز. لن تتأثر النسخ التي أُرسلت بالفعل إلى موفّر خدمة.",
+      "confirmButton": "حذف {{transcripts}} و{{audio}}",
+      "done_zero": "تم حذف النصوص المفرّغة ({{count}}) وكل الملفات الصوتية المحفوظة.",
+      "done_one": "تم حذف النصوص المفرّغة ({{count}}) وكل الملفات الصوتية المحفوظة.",
+      "done_two": "تم حذف النصوص المفرّغة ({{count}}) وكل الملفات الصوتية المحفوظة.",
+      "done_few": "تم حذف النصوص المفرّغة ({{count}}) وكل الملفات الصوتية المحفوظة.",
+      "done_many": "تم حذف النصوص المفرّغة ({{count}}) وكل الملفات الصوتية المحفوظة.",
+      "done_other": "تم حذف النصوص المفرّغة ({{count}}) وكل الملفات الصوتية المحفوظة."
+    },
+    "reset": {
+      "title": "إعادة ضبط Loqui",
+      "description": "يحذف الإعدادات والسجل والصوت والنماذج المنزّلة ومفاتيح موفّري الخدمة المحفوظة.",
+      "button": "إعادة الضبط…",
+      "confirmTitle": "هل تريد إعادة ضبط Loqui؟",
+      "confirmBody": "سيؤدي هذا إلى حذف الإعدادات والسجل والصوت والنماذج المنزّلة ومفاتيح موفّري الخدمة المحفوظة، ثم إعادة تشغيل Loqui. لا يمكن التراجع عن هذا الإجراء.",
+      "confirmButton": "إعادة ضبط Loqui",
+      "typeLabel": "اكتب «{{word}}» للتأكيد",
+      "word": "ضبط",
+      "running": "جارٍ إعادة الضبط…",
+      "failed": "لم تكتمل إعادة الضبط، لذلك لن يُعاد تشغيل Loqui تلقائيًا. فشلت الخطوات التالية:",
+      "done": "اكتملت إعادة الضبط. جارٍ إعادة تشغيل Loqui…"
+    }
+  },
+  "settingsSearch": {
+    "title": "نتائج البحث",
+    "placeholder": "البحث في الإعدادات",
+    "count_zero": "{{count}} نتيجة",
+    "count_one": "{{count}} نتيجة",
+    "count_two": "{{count}} نتيجتان",
+    "count_few": "{{count}} نتائج",
+    "count_many": "{{count}} نتيجة",
+    "count_other": "{{count}} نتيجة",
+    "none": "لا يوجد إعداد يطابق «{{query}}». جرّب «الميكروفون» أو «الاحتفاظ» أو «سحابي».",
+    "items": {
+      "assistantEnabled": {
+        "description": "اسأل بصوتك واحصل على إجابة"
+      },
+      "storage": {
+        "description": "الصوت والنماذج والسجل على هذا الجهاز"
+      }
+    }
+  },
+  "notices": {
+    "messageDetails": "الرسالة والإجراءات",
+    "dismiss": "تجاهل",
+    "wordsCard": {
+      "copy": "نسخ",
+      "copied": "تم النسخ",
+      "copyFailed": "تعذّر النسخ",
+      "copyFailedHint": "لم تقبل الحافظة النص. كلماتك ما زالت هنا: حدّدها أو اسحبها.",
+      "hint": "اسحب الكلمات إلى تطبيقك، أو حاول لصقها مرة أخرى.",
+      "dragHint": "اسحب إلى الحقل الذي كنت تكتب فيه",
+      "more_zero": "{{count}} نصوص أخرى لم تُرسل",
+      "more_one": "{{count}} نص آخر لم يُرسل",
+      "more_two": "{{count}} نصان آخران لم يُرسلا",
+      "more_few": "{{count}} نصوص أخرى لم تُرسل",
+      "more_many": "{{count}} نصًا آخر لم يُرسل",
+      "more_other": "{{count}} نص آخر لم يُرسل"
+    },
+    "pasted": "تم اللصق",
+    "actions": {
+      "pasteAgain": "اللصق مرة أخرى"
+    },
+    "cleanupFailed": {
+      "title": "تم اللصق دون تنقيح",
+      "retry": "إعادة محاولة التنقيح",
+      "settings": "الإعدادات",
+      "cleaned": "تم نسخ النص المنقح",
+      "cleanedBody": "الصقه حيث تريد.",
+      "noChanges": "لم يُجرِ التنقيح أي تغييرات",
+      "retryFailed": "فشل التنقيح مرة أخرى. كلماتك لم تتغير.",
+      "noModel": "اختر نموذج تنقيح من الإعدادات.",
+      "unavailable": "لم تعد عملية التنقيح الأصلية متاحة. كلماتك ما زالت هنا."
+    },
+    "modelChanged": {
+      "title": "تم تغيير النموذج",
+      "accept": "قبول",
+      "choose": "اختيار نموذج آخر"
+    },
+    "pasteFailed": "تعذر لصق كلماتك",
+    "undo": {
+      "sealed": "تعذّر التراجع: الوضع المحكم مفعّل ومسار هذا التسجيل يرسل البيانات خارج الجهاز.",
+      "routeUnavailable": "تعذّر التراجع: المسار الذي أُجري هذا التسجيل له لم يعد متاحًا.",
+      "noAudio": "تعذّر التراجع: كان التسجيل فارغًا.",
+      "busy": "أنهِ الإملاء الحالي، ثم تراجع.",
+      "expired": "فات أوان التراجع: تم تجاهل ذلك التسجيل بالفعل.",
+      "notReady": "لا يزال التسجيل يصل. جرّب التراجع مجددًا.",
+      "unavailable": "تعذّر الوصول إلى نافذة الإملاء للتراجع."
+    }
+  },
+  "voiceOverlay": {
+    "errors": {
+      "recipientUnknown": "تعذّر التحقق من وجهة هذا التسجيل. تم الاحتفاظ بكلماتك. أعد الوجهة الأصلية في الإعدادات للمحاولة مجددًا، أو ابدأ تسجيلًا جديدًا.",
+      "recipientChanged": "هذا التسجيل مرتبط بوجهته الأصلية. تم الاحتفاظ بكلماتك. أعد تلك الوجهة في الإعدادات للمحاولة مجددًا، أو ابدأ تسجيلًا جديدًا.",
+      "recipientTitle": "وجهة التسجيل غير متاحة",
+      "streamingUnavailable": "تعذّر بدء التفريغ المباشر لهذا التسجيل. تحقّق من المزوّد المحدد في الإعدادات وحاول مجددًا.",
+      "restoreFailed": "تعذّرت استعادة التسجيل. تم الاحتفاظ بالصوت للمحاولة مرة أخرى."
+    }
+  },
+  "pill": {
+    "tooltip": {
+      "hold": "اضغط باستمرار على {{hotkey}} للتحدث",
+      "press": "اضغط على {{hotkey}} للبدء"
+    },
+    "caption": {
+      "remoteAudio": "تلقّى {{provider}} الصوت بالفعل.",
+      "remoteText": "تلقّى {{provider}} النص بالفعل.",
+      "remoteImage": "تلقّى {{provider}} صورة بالفعل.",
+      "remoteSeveral": "تلقّى {{provider}} جزءًا من هذا الإملاء بالفعل.",
+      "mayHaveAudio": "ربما تلقّى {{provider}} الصوت.",
+      "mayHaveText": "ربما تلقّى {{provider}} النص.",
+      "mayHaveImage": "ربما تلقّى {{provider}} صورة.",
+      "mayHaveSeveral": "ربما تلقّى {{provider}} جزءًا من هذا الإملاء.",
+      "sealedPaused": "الإملاء متوقف مؤقتًا: وضع العزل مفعّل"
+    },
+    "stage": {
+      "transcribing": "جارٍ التفريغ…",
+      "cleaning": "جارٍ تنقيح النص",
+      "discardedUndo": "تم التجاهل · تراجع",
+      "paused": "متوقف مؤقتًا",
+      "pasted_zero": "تم اللصق · {{count}} كلمة",
+      "pasted_one": "تم اللصق · {{count}} كلمة",
+      "pasted_two": "تم اللصق · {{count}} كلمتان",
+      "pasted_few": "تم اللصق · {{count}} كلمات",
+      "pasted_many": "تم اللصق · {{count}} كلمة",
+      "pasted_other": "تم اللصق · {{count}} كلمة"
+    },
+    "locality": {
+      "sealed": "محظور بسبب وضع العزل",
+      "remote": "يُرسل إلى {{provider}}"
+    },
+    "route": {
+      "speech": "الكلام: {{where}}",
+      "speechOff": "الكلام: معطّل",
+      "cleanup": "التنقيح: {{where}}",
+      "cleanupOff": "التنقيح: معطّل",
+      "translation": "الترجمة: {{where}}",
+      "translationOff": "الترجمة: معطّل",
+      "agent": "الوكيل: {{where}}",
+      "agentOff": "الوكيل: معطّل",
+      "vision": "سياق الشاشة: {{where}}",
+      "visionOff": "سياق الشاشة: معطّل"
+    },
+    "agent": {
+      "listening": "الوكيل · يستمع",
+      "screenContext": "سياق الشاشة مفعّل · الوجهة المقصودة {{where}}",
+      "thinking": "يفكّر · الوجهة المقصودة {{where}}",
+      "thinkingScreenContext": "يفكّر مع سياق الشاشة · الوجهة المقصودة {{where}}"
+    }
+  },
+  "sealedMode": {
+    "recovery": {
+      "availableTitle": "تسجيلات جاهزة للاستعادة",
+      "transcribe": "تفريغ التسجيلات نصيًا",
+      "discard": "حذف التسجيلات"
+    }
+  },
+  "setupFlow": {
+    "progress": {
+      "nav": "تقدّم الإعداد",
+      "dictate": "ابدأ الإملاء",
+      "personalize": "خصّصه كما تريد",
+      "ready": "جاهز",
+      "label": "{{phase}} · {{step}}",
+      "goTo": "انتقل إلى {{step}}"
+    },
+    "steps": {
+      "welcome": "مرحبًا",
+      "speech": "الصوت",
+      "try": "قل شيئًا",
+      "cleanup": "تنظيف النص",
+      "shortcuts": "الاختصار",
+      "finish": "جاهز"
+    },
+    "units": {
+      "mb": "{{value}} MB",
+      "gb": "{{value}} GB"
+    },
+    "download": {
+      "eta": {
+        "seconds": "نحو {{count}} ث",
+        "minutes": "نحو {{count}} د"
+      },
+      "chip": "جارٍ التنزيل {{percent}}٪ · المتبقي {{eta}}",
+      "chipNoEta": "جارٍ التنزيل {{percent}}٪",
+      "chipInstalling": "جارٍ تثبيت نموذج الصوت",
+      "chipCancelling": "جارٍ إيقاف التنزيل…",
+      "chipCancelled": "أُلغي التنزيل",
+      "chipReady": "نموذج الصوت جاهز",
+      "chipFailed": "فشل التنزيل",
+      "received": "{{done}} من {{total}}",
+      "stoppedKept": "توقف التنزيل عند {{percent}}٪. تم الاحتفاظ بتقدّمك.",
+      "stoppedRestart": "توقف التنزيل عند {{percent}}٪. ستبدأ إعادة المحاولة من البداية.",
+      "cancelledLine": "ألغيت التنزيل. لم يُحتفظ بشيء.",
+      "downloadAgain": "نزّل مجددًا",
+      "retry": "أعد المحاولة",
+      "cancel": "إلغاء",
+      "readyTitle": "نموذج الصوت جاهز",
+      "failedTitle": "لم يُنزَّل نموذج الصوت",
+      "announcePercent": "اكتمل تنزيل نموذج الصوت بنسبة {{percent}} بالمئة.",
+      "announceReady": "نموذج الصوت جاهز",
+      "checking": "جارٍ التحقق من نموذج الصوت…",
+      "voiceModel": "نموذج الصوت",
+      "stoppedUnknown": "توقف عند {{percent}}٪. تعذّر التحقق من حجم بيانات التنزيل المتبقية.",
+      "cleanupFailed": "توقف التنزيل، لكن تعذّرت إزالة بعض ملفاته."
+    },
+    "brand": "إعداد Loqui",
+    "back": "رجوع",
+    "skipStep": "تخطَّ هذه الخطوة",
+    "continue": "متابعة",
+    "finishLater": "الإكمال لاحقًا",
+    "lookAroundFirst": "استكشف أولًا",
+    "instrument": {
+      "idle": "جاهز متى شئت",
+      "downloading": "جارٍ التنزيل · {{percent}}٪ · {{done}} من {{total}}",
+      "goodLevel": "جارٍ الاستماع · مستوى جيد",
+      "waiting": "جارٍ الاستماع · بانتظار صوتك",
+      "processing": "جارٍ كتابة ما قلته…",
+      "heard": "سمعناك",
+      "downloadError": "توقف التنزيل",
+      "micError": "لا يستطيع Loqui سماع الميكروفون",
+      "nothingHeard": "لم نسمع شيئًا. تحقق من الميكروفون.",
+      "error": "لم تنجح المحاولة. حاول مجددًا."
+    },
+    "rail": {
+      "welcome": {
+        "title": "تحدّث، وLoqui يكتب.",
+        "bodyMac": "أملِ من أي مكان، واجمع الملاحظات والاجتماعات في مكان واحد، واختر بدقة ما يُسمح له بمغادرة جهاز Mac الخاص بك.",
+        "bodyOther": "أملِ من أي مكان، واجمع الملاحظات والاجتماعات في مكان واحد، واختر بدقة ما يُسمح له بمغادرة الكمبيوتر الخاص بك."
+      },
+      "speech": {
+        "title": "اختر كيف يستمع إليك Loqui.",
+        "bodyMac": "نوصي بصوت واحد. يعمل على جهاز Mac هذا دون اتصال بالإنترنت.",
+        "bodyOther": "نوصي بصوت واحد. يعمل على هذا الكمبيوتر دون اتصال بالإنترنت."
+      },
+      "try": {
+        "title": "قل شيئًا",
+        "bodyMac": "لا يُلصق هذا الاختبار في تطبيق آخر ولا يُحفظ في السجل.",
+        "bodyOther": "لا يُلصق هذا الاختبار في تطبيق آخر ولا يُحفظ في السجل."
+      },
+      "cleanup": {
+        "title": "اجعل النص أسهل قراءة.",
+        "bodyMac": "شاهد أثر تنظيف النص على كلماتك، ثم اختر.",
+        "bodyOther": "شاهد أثر تنظيف النص على كلماتك، ثم اختر."
+      },
+      "shortcuts": {
+        "title": "تحدّث من أي تطبيق.",
+        "bodyMac": "اضغط على اختصارك من أي مكان. غيّره إذا تعارض مع تطبيق آخر.",
+        "bodyOther": "اضغط على اختصارك من أي مكان. غيّره إذا تعارض مع تطبيق آخر."
+      },
+      "finish": {
+        "title": "هذا ما وصلت إليه.",
+        "bodyMac": "كل ما يلي يعكس الحالة الحالية.",
+        "bodyOther": "كل ما يلي يعكس الحالة الحالية."
+      }
+    },
+    "hello": {
+      "start": "ابدأ",
+      "micTitle": "اسمح لـ Loqui بسماعك",
+      "micBody": "يستمع Loqui فقط أثناء الإملاء. لا يُسجَّل شيء في هذه الشاشة.",
+      "allowMic": "السماح بالميكروفون",
+      "micReady": "{{device}} يستمع",
+      "micReadyGeneric": "الميكروفون يستمع",
+      "micLabel": "الميكروفون",
+      "systemDefault": "الافتراضي للنظام",
+      "builtIn": "الميكروفون المدمج",
+      "unnamedMic": "ميكروفون بلا اسم",
+      "notHearing": "لا نسمعك؟ اختر ميكروفونًا آخر.",
+      "savedMicMissing": "الميكروفون المحفوظ غير متصل، لذا يستخدم Loqui الميكروفون الافتراضي للنظام.",
+      "deniedTitle": "لا يمكن لـ Loqui استخدام الميكروفون",
+      "deniedBodyMac": "اسمح بالوصول في إعدادات النظام، ثم عُد. سيتحقق Loqui مجددًا عند عودتك.",
+      "deniedBodyOther": "اسمح بالوصول في إعدادات الخصوصية أو الصوت في نظامك، ثم عُد. سيتحقق Loqui مجددًا عند عودتك.",
+      "openSettings": "فتح إعدادات النظام",
+      "recheck": "فعّلت الوصول",
+      "unavailableTitle": "يتعذر على Loqui فتح الميكروفون",
+      "unavailableBody": "قد يستخدمه تطبيق آخر، أو لا يوجد جهاز إدخال متصل.",
+      "retryOpen": "حاول مرة أخرى",
+      "openSound": "فتح إعدادات الصوت",
+      "starting": "جارٍ فتح الميكروفون…"
+    },
+    "privacy": {
+      "title": "إعدادات الخصوصية الافتراضية",
+      "historyTitle": "الاحتفاظ بسجل محلي",
+      "historyBodyMac": "احفظ النصوص المفرّغة على جهاز Mac هذا. يمكنك تغيير ذلك في الخصوصية والبيانات متى شئت.",
+      "historyBodyOther": "احفظ النصوص المفرّغة على هذا الكمبيوتر. يمكنك تغيير ذلك في الخصوصية والبيانات متى شئت.",
+      "updatesTitle": "تنزيل التحديثات تلقائيًا",
+      "updatesBody": "التحقق يوميًا من الإصدارات الموقّعة. أنت تختار وقت إعادة التشغيل."
+    },
+    "voice": {
+      "checkingMac": "جارٍ فحص جهاز Mac هذا…",
+      "checkingOther": "جارٍ فحص هذا الكمبيوتر…",
+      "title": "اخترنا لك صوتًا.",
+      "unsupportedTitle": "اختر الصوت الأنسب لك.",
+      "why": {
+        "englishMac": "اخترنا الإنجليزية لأن لغة جهاز Mac الخاص بك هي الإنجليزية.",
+        "englishOther": "اخترنا الإنجليزية لأن لغة الكمبيوتر الخاص بك هي الإنجليزية.",
+        "languageMac": "اخترنا {{voice}} لأن لغة جهاز Mac الخاص بك هي {{language}}.",
+        "languageOther": "اخترنا {{voice}} لأن لغة الكمبيوتر الخاص بك هي {{language}}.",
+        "multilingualMac": "اخترنا {{voice}} لأن جهاز Mac الخاص بك يستخدم {{languages}}.",
+        "multilingualOther": "اخترنا {{voice}} لأن الكمبيوتر الخاص بك يستخدم {{languages}}.",
+        "unsupported": "أصوات Loqui المحلية لا تتعرف على {{language}} بعد. اختر أقرب صوت، أو أضف صوتًا سحابيًا لاحقًا في الإعدادات."
+      },
+      "noticed": "ما رصدناه",
+      "signals": {
+        "systemLanguage": "لغة النظام",
+        "memory": "الذاكرة",
+        "freeSpace": "المساحة المتاحة",
+        "graphics": "الرسوميات"
+      },
+      "gpu": {
+        "appleSilicon": "شريحة Apple",
+        "nvidia": "رسوميات NVIDIA",
+        "unknown": "لم تُكتشف"
+      },
+      "unknown": "غير معروف",
+      "diskShort": "يحتاج هذا الصوت إلى نحو {{needed}} من المساحة المتاحة أثناء التثبيت. المتاح {{free}}.",
+      "recommended": "موصى به لك",
+      "installed": "مثبّت على هذا الجهاز",
+      "notRight": "غير مناسب؟ اختر بنفسك",
+      "pickerLabel": "الأصوات",
+      "lockedWhileDownloading": "ألغِ التنزيل لاختيار صوت آخر.",
+      "languageLocked": "ألغِ التنزيل لتغيير اللغة.",
+      "cantHear": "لا يتعرف على {{language}}",
+      "blocked": {
+        "mismatch": "هذا الصوت لا يتعرف على {{language}}. اختر صوتًا آخر أدناه.",
+        "none": "لا يوجد صوت محلي يتعرف على {{language}} بعد. اختر لغة مدعومة، أو أضف صوتًا سحابيًا لاحقًا في الإعدادات."
+      },
+      "download": "تنزيل ({{size}})",
+      "outcomes": {
+        "fastEnglish": {
+          "name": "سريع وبالإنجليزية",
+          "description": "سريع ودقيق للإنجليزية. تظهر الكلمات بعد نحو ثانية من توقفك عن الكلام."
+        },
+        "manyLanguages": {
+          "name": "لغات عديدة",
+          "description": "يتعرف على 25 لغة ويحددها تلقائيًا، لتتمكن من التبديل بينها خلال يومك."
+        },
+        "liveCaptions": {
+          "name": "نص مباشر للكلام",
+          "description": "تظهر الكلمات أثناء كلامك. الأنسب للاجتماعات والإملاء الطويل."
+        },
+        "liveMultilingual": {
+          "name": "مباشر وبلغات أكثر",
+          "description": "تظهر الكلمات أثناء كلامك، بـ15 لغة منها اليابانية والعربية والهندية."
+        }
+      }
+    },
+    "tour": {
+      "label": "أثناء التنزيل",
+      "title": "تعرّف إلى Loqui أثناء التنزيل.",
+      "skip": "تخطَّ الجولة",
+      "skipped": "سنبدأ الاختبار بمجرد أن يصبح الصوت جاهزًا.",
+      "noVoice": "اختر صوتًا أولًا. يعمل على هذا الجهاز.",
+      "chooseVoice": "اختر صوتًا",
+      "slideOf": "{{current}} من {{total}}",
+      "previous": "النصيحة السابقة",
+      "next": "النصيحة التالية",
+      "tip": "نصيحة {{number}}",
+      "shortcut": {
+        "title": "استخدم اختصارك",
+        "tap": "اضغط على {{key}} لبدء الكلام، واضغط عليه مجددًا للإنهاء.",
+        "push": "استمر بالضغط على {{key}} وتحدّث. ارفع إصبعك للإنهاء."
+      },
+      "privacy": {
+        "title": "إلى أين تذهب كلماتك",
+        "bodyMac": "لا يغادر شيء جهاز Mac هذا إلا إذا اخترت مزوّدًا.",
+        "bodyOther": "لا يغادر شيء هذا الكمبيوتر إلا إذا اخترت مزوّدًا.",
+        "nodes": {
+          "mic": "ميكروفون",
+          "loqui": "Loqui",
+          "model": "نموذج الكلام",
+          "notes": "ملاحظات"
+        }
+      },
+      "demo": {
+        "title": "تحدّث لتحصل على نص",
+        "body": "يمكن لتنظيف النص إزالة كلمات الحشو وضبط علامات الترقيم. ستختاره في الخطوة التالية.",
+        "raw": "أمم ذكّرني بإرسال المسودة قبل الغداء",
+        "final": "ذكّرني بإرسال المسودة قبل الغداء."
+      },
+      "readyTitle": "جاهز. قل شيئًا.",
+      "readyBody": "نموذج الصوت موجود على هذا الجهاز.",
+      "carouselRole": "عرض دوّار",
+      "slideRole": "شريحة"
+    },
+    "cleanupAuthority": {
+      "unavailable": "لم يعد تنظيف النص الأصلي متاحًا. كلماتك الأصلية محفوظة.",
+      "changed": "تغيّرت وجهة تنظيف النص أو بيانات الاعتماد. كلماتك الأصلية محفوظة.",
+      "unsupported": "لا يمكن الاحتفاظ بمصدر المصادقة المحدد لـ {{provider}} لتنظيف النص. كلماتك الأصلية محفوظة.",
+      "failed": "تعذّر تنظيف النص. كلماتك الأصلية محفوظة.",
+      "busy": "تنظيف النص قيد التشغيل بالفعل."
+    },
+    "try": {
+      "idle": {
+        "tap": "اضغط على {{key}} وقل شيئًا. اضغط عليه مجددًا للإنهاء.",
+        "push": "استمر بالضغط على {{key}} وقل شيئًا. ارفع إصبعك للإنهاء."
+      },
+      "keycap": {
+        "tap": "اضغط للتحدث",
+        "push": "استمر بالضغط للتحدث"
+      },
+      "listening": "جارٍ الاستماع",
+      "processing": "جارٍ كتابة ما قلته…",
+      "shortcutWorks": "الاختصار يعمل",
+      "heardYou": "سمعك Loqui",
+      "discarded": "تم التجاهل.",
+      "undo": "تراجع",
+      "silent": "لا نسمع شيئًا. هل اخترت الميكروفون الخطأ؟",
+      "noAudioTitle": "لم نسمع شيئًا",
+      "noAudioBody": "تحقق من اختيار الميكروفون الصحيح ومن أنه غير مكتوم، ثم حاول مجددًا.",
+      "memoryTitle": "يحتاج هذا الصوت إلى ذاكرة أكثر من المتاح",
+      "memoryBody": "أغلق بعض التطبيقات، أو اختر صوتًا أصغر.",
+      "chooseSmaller": "اختر صوتًا آخر",
+      "changeMic": "غيّر الميكروفون",
+      "otherTitle": "لم تنجح هذه المحاولة",
+      "otherBody": "حاول مجددًا. لم تتغير إعداداتك.",
+      "again": "حاول مرة أخرى",
+      "cleanupFailed": "لم يُنفَّذ تنظيف النص. هذا نصك الأصلي.",
+      "retryFailed": "ما زال تنظيف النص لم يُنفَّذ. هذا نصك الأصلي.",
+      "retryCleanup": "أعد محاولة تنظيف النص",
+      "cleanupOff": "أوقف تنظيف النص",
+      "wordsSafe": "كلماتك محفوظة في كلتا الحالتين.",
+      "accessibilityTitle": "يحتاج الاختصار إلى إذن تسهيلات الاستخدام",
+      "accessibilityBody": "لا يسمح macOS لـ Loqui بالتعرف على اختصار عام إلا بعد موافقتك. يعمل الإملاء داخل Loqui دون هذا الإذن.",
+      "grantAccess": "امنح الإذن",
+      "useButton": "استخدم زرًا بدلًا من ذلك",
+      "start": "ابدأ التسجيل",
+      "stop": "إيقاف",
+      "privacyLine": "لا يُلصق في أي مكان ولا يُحفظ.",
+      "bandTitle": "هذا كان صوتك. تعرّف عليه Loqui على جهازك.",
+      "makeItYours": "خصّصه كما تريد",
+      "startUsing": "ابدأ استخدام Loqui",
+      "cancel": "تجاهل المحاولة",
+      "cleanupUnsupported": "لا يمكن الاحتفاظ بمصدر المصادقة هذا لتنظيف النص. كلماتك الأصلية محفوظة.",
+      "controlUnavailable": "لم يستجب التحكم في التسجيل. حاول الإيقاف أو التجاهل مجددًا."
+    },
+    "cleanup": {
+      "title": "شاهد أثر تنظيف النص",
+      "label": "تنظيف النص",
+      "options": {
+        "none": "بلا تنظيف",
+        "local": "على الجهاز",
+        "codex": "ChatGPT",
+        "provider": "مفتاح API"
+      },
+      "original": "النص الأصلي",
+      "withCleanup": "مع تنظيف النص",
+      "nothingChanges": "لا شيء يتغير",
+      "running": "جارٍ تنظيف جملتك…",
+      "wordsSent_zero": "لن تُرسل أي كلمات ({{count}}) إلى {{provider}} عند التجربة",
+      "wordsSent_one": "ستُرسل كلمة واحدة ({{count}}) إلى {{provider}} عند التجربة",
+      "wordsSent_two": "ستُرسل كلمتان ({{count}}) إلى {{provider}} عند التجربة",
+      "wordsSent_few": "ستُرسل {{count}} كلمات إلى {{provider}} عند التجربة",
+      "wordsSent_many": "ستُرسل {{count}} كلمة إلى {{provider}} عند التجربة",
+      "wordsSent_other": "ستُرسل {{count}} كلمة إلى {{provider}} عند التجربة",
+      "sentNotice_zero": "لم تُرسل أي كلمات ({{count}}) إلى {{provider}} لهذه المعاينة",
+      "sentNotice_one": "أُرسلت كلمتك الواحدة ({{count}}) إلى {{provider}} لهذه المعاينة",
+      "sentNotice_two": "أُرسلت كلمتاك ({{count}}) إلى {{provider}} لهذه المعاينة",
+      "sentNotice_few": "أُرسلت كلماتك البالغ عددها {{count}} كلمات إلى {{provider}} لهذه المعاينة",
+      "sentNotice_many": "أُرسلت كلماتك البالغ عددها {{count}} كلمة إلى {{provider}} لهذه المعاينة",
+      "sentNotice_other": "أُرسلت كلماتك البالغ عددها {{count}} كلمة إلى {{provider}} لهذه المعاينة",
+      "tryMine_zero": "جرّب على جملتي · لا يرسل أي كلمات ({{count}}) إلى {{provider}}",
+      "tryMine_one": "جرّب على جملتي · يرسل كلمة واحدة ({{count}}) إلى {{provider}}",
+      "tryMine_two": "جرّب على جملتي · يرسل كلمتين ({{count}}) إلى {{provider}}",
+      "tryMine_few": "جرّب على جملتي · يرسل {{count}} كلمات إلى {{provider}}",
+      "tryMine_many": "جرّب على جملتي · يرسل {{count}} كلمة إلى {{provider}}",
+      "tryMine_other": "جرّب على جملتي · يرسل {{count}} كلمة إلى {{provider}}",
+      "exampleNotice": "نص توضيحي. لم يُرسل شيء.",
+      "localExampleNotice": "نص للتوضيح. تظهر جملتك هنا بمجرد أن يصبح تنظيف النص المحلي جاهزًا على هذا الجهاز.",
+      "example": {
+        "original": "أمم لنرسل المسودة إلى مايا قبل الغداء و يعني ذكّرني بحجز الغرفة ليوم الخميس",
+        "local": "لنرسل المسودة إلى مايا قبل الغداء وذكّرني بحجز الغرفة ليوم الخميس.",
+        "codex": "لنرسل المسودة إلى مايا قبل الغداء. ذكّرني بحجز الغرفة ليوم الخميس.",
+        "provider": "لنرسل إلى مايا المسودة قبل الغداء، وذكّرني بحجز الغرفة ليوم الخميس."
+      },
+      "listModels": "عرض نماذج ChatGPT",
+      "modelListFailed": "تعذّر عرض نماذج ChatGPT. حاول مجددًا.",
+      "now": {
+        "off": "تنظيف النص متوقف. تبقى كلماتك كما قلتها تمامًا.",
+        "checking": "جارٍ التحقق من توفر تنظيف النص…",
+        "ready": "تنظيف النص مفعّل باستخدام {{name}}.",
+        "readyNetwork": "تنظيف النص مفعّل باستخدام {{name}} على {{provider}}.",
+        "needsKey": "أضف مفتاح {{provider}} في الإعدادات لتفعيل تنظيف النص. حتى ذلك الحين، تبقى كلماتك كما قلتها.",
+        "needsConnection": "اربط ChatGPT أعلاه لتفعيل تنظيف النص. حتى ذلك الحين، تبقى كلماتك كما قلتها.",
+        "needsModel": "نموذج تنظيف النص المحلي غير موجود على هذا الجهاز بعد. نزّله من الإعدادات، نماذج اللغة (1.3 GB).",
+        "unreachable": "لا يستطيع Loqui الوصول إلى {{provider}} الآن. تبقى كلماتك كما قلتها.",
+        "modelSetup": "تم توصيل ChatGPT. اعرض نماذجه لاختيار نموذج لتنقيح النص.",
+        "review": "راجع هذا التغيير، ثم اختر «تطبيق»."
+      },
+      "reuse": "استخدم هذا الاختيار أيضًا لميزات النص الأخرى",
+      "exampleInProgress": "نص للتوضيح أثناء تنفيذ طلبك. لا تظهر نتيجتك إلا إذا نجح تنظيف النص.",
+      "attemptNotice_zero": "سمحت بإرسال نص من {{count}} كلمة إلى {{provider}}. فشلت المحاولة؛ وربما تم تسليم الطلب. كلماتك الأصلية لم تتغير.",
+      "attemptNotice_one": "سمحت بإرسال كلمة واحدة ({{count}}) إلى {{provider}}. فشلت المحاولة؛ وربما تم التسليم. كلماتك الأصلية لم تتغير.",
+      "attemptNotice_two": "سمحت بإرسال كلمتين ({{count}}) إلى {{provider}}. فشلت المحاولة؛ وربما تم التسليم. كلماتك الأصلية لم تتغير.",
+      "attemptNotice_few": "سمحت بإرسال {{count}} كلمات إلى {{provider}}. فشلت المحاولة؛ وربما تم التسليم. كلماتك الأصلية لم تتغير.",
+      "attemptNotice_many": "سمحت بإرسال {{count}} كلمة إلى {{provider}}. فشلت المحاولة؛ وربما تم التسليم. كلماتك الأصلية لم تتغير.",
+      "attemptNotice_other": "سمحت بإرسال {{count}} كلمة إلى {{provider}}. فشلت المحاولة؛ وربما تم التسليم. كلماتك الأصلية لم تتغير.",
+      "previousAttemptNotice_zero": "سمحت سابقًا بإرسال نص من {{count}} كلمة إلى {{provider}}. تغيير هذه المعاينة لا يسحب ذلك الطلب. كلماتك الأصلية محفوظة.",
+      "previousAttemptNotice_one": "سمحت سابقًا بإرسال كلمة واحدة ({{count}}) إلى {{provider}}. تغيير هذه المعاينة لا يسحب ذلك الطلب. كلماتك الأصلية محفوظة.",
+      "previousAttemptNotice_two": "سمحت سابقًا بإرسال كلمتين ({{count}}) إلى {{provider}}. تغيير هذه المعاينة لا يسحب ذلك الطلب. كلماتك الأصلية محفوظة.",
+      "previousAttemptNotice_few": "سمحت سابقًا بإرسال {{count}} كلمات إلى {{provider}}. تغيير هذه المعاينة لا يسحب ذلك الطلب. كلماتك الأصلية محفوظة.",
+      "previousAttemptNotice_many": "سمحت سابقًا بإرسال {{count}} كلمة إلى {{provider}}. تغيير هذه المعاينة لا يسحب ذلك الطلب. كلماتك الأصلية محفوظة.",
+      "previousAttemptNotice_other": "سمحت سابقًا بإرسال {{count}} كلمة إلى {{provider}}. تغيير هذه المعاينة لا يسحب ذلك الطلب. كلماتك الأصلية محفوظة."
+    },
+    "shortcut": {
+      "title": "جرّب اختصارك.",
+      "testerLabel": "اختبار الاختصار. اضغط على {{key}}.",
+      "hint": "اضغط على {{key}}. ضغطة سريعة تبدأ التسجيل وتوقفه؛ والضغط المطوّل يتيح التحدث ما دمت تضغط على المفتاح.",
+      "fills": "مرحبًا، إنه يعمل.",
+      "works": "الاختصار يعمل",
+      "detected": {
+        "tap": "تم اكتشاف ضغطة لبدء التسجيل وإيقافه",
+        "hold": "تم اكتشاف ضغط مطوّل للتحدث"
+      },
+      "suggest": {
+        "push": "لقد ضغطت مطوّلًا على المفتاح. هل تريد التبديل إلى الضغط المطوّل للتحدث؟",
+        "tap": "لقد ضغطت سريعًا على المفتاح. هل تريد التبديل إلى الضغط لبدء التسجيل وإيقافه؟"
+      },
+      "switch": "تبديل",
+      "change": "تغيير الاختصار",
+      "changeHelp": "اضغط على هذا الاختصار من أي مكان للتحدث. غيّره إذا تعارض مع تطبيق آخر.",
+      "autoPaste": "اللصق التلقائي",
+      "autoPasteBodyMac": "الصق كلماتك في موضع المؤشر. يتطلب ذلك إذن تسهيلات الاستخدام على macOS.",
+      "autoPasteBodyOther": "الصق كلماتك في موضع المؤشر.",
+      "accessibilityBody": "لا يسمح macOS لتطبيق Loqui بالتعرف على الاختصار واللصق إلا بعد موافقتك. يمكنك منح الإذن الآن أو لاحقًا في الإعدادات."
+    },
+    "ready": {
+      "titleProven": "أنت تملي الآن.",
+      "titleConfigured": "اكتمل الإعداد. جرّبه مرة للتأكد.",
+      "titlePending_one": "أوشكنا على الانتهاء: بقي بند واحد ({{count}}).",
+      "titlePending_other": "أوشكنا على الانتهاء: بقي {{count}} بند.",
+      "subAllLocalMac": "نجح إملاؤك الأول. كل شيء يعمل على جهاز Mac هذا.",
+      "subAllLocalOther": "نجح إملاؤك الأول. كل شيء يعمل على هذا الكمبيوتر.",
+      "subProven": "نجح إملاؤك الأول.",
+      "subConfigured": "جرّب الإملاء مرة للتأكد من هذا الإعداد.",
+      "subPending": "أكمل هذه البنود. يفتح كل بند مكان إصلاحه.",
+      "rows": {
+        "speech": "الصوت",
+        "microphone": "الميكروفون",
+        "shortcut": "الاختصار",
+        "cleanup": "تنظيف النص"
+      },
+      "details": {
+        "speech": {
+          "proven": "{{voice}}، تم التعرّف على إملائك الأول",
+          "checking": "جارٍ التحقق…",
+          "configured": "{{voice}}، لم يُجرّب بعد",
+          "downloading": "التنزيل مستمر",
+          "needsModel": "نزّل نموذج صوت",
+          "unavailable": "أكمل التهيئة في الإعدادات"
+        },
+        "microphone": {
+          "heard": "يعمل",
+          "allowed": "مسموح، ولم يُسمع صوت بعد",
+          "denied": "اسمح به في إعدادات النظام",
+          "untested": "قل شيئًا للاختبار"
+        },
+        "shortcut": {
+          "proven": {
+            "tap": "{{key}}، اضغط للبدء والإيقاف",
+            "push": "{{key}}، استمر بالضغط للتحدث"
+          },
+          "configured": {
+            "tap": "{{key}}، لم يُجرّب بعد",
+            "push": "{{key}}، لم يُجرّب بعد"
+          },
+          "needsAccessibility": "امنح إذن تسهيلات الاستخدام",
+          "checkAccessibility": "تحقق من إذن تسهيلات الاستخدام"
+        },
+        "cleanup": {
+          "off": "متوقف. أضفه لاحقًا",
+          "checking": "ما زال التحقق جاريًا",
+          "needsConnection": "اربط ChatGPT",
+          "needsKey": "أضف مفتاح {{provider}} في الإعدادات",
+          "needsModel": "نزّل النموذج المحلي في الإعدادات",
+          "unreachable": "يتعذر الوصول إلى {{provider}}",
+          "configured": "تمت التهيئة باستخدام {{name}}",
+          "configuredNetwork": "تمت التهيئة لدى {{provider}} باستخدام {{name}}",
+          "modelSetup": "اعرض نماذج ChatGPT لتنقيح النص",
+          "review": "راجع هذا التغيير، ثم اختر «تطبيق»."
+        }
+      },
+      "dictateNote": "أملِ في ملاحظة",
+      "openWorkspace": "افتح مساحة العمل",
+      "noteLocal": "تُفرَّغ الملاحظات على هذا الجهاز.",
+      "noteSends": "ترسل الملاحظات الصوت إلى {{provider}}.",
+      "noteChecking": "جارٍ التحقق من طريقة تفريغ الملاحظات…",
+      "noteBlocked": {
+        "microphone": "تحتاج الملاحظات إلى الميكروفون.",
+        "unsupported": "تسجيل الملاحظات مضبوط على خدمة لا تدعمها الملاحظات بعد، مثل خادم مستضاف ذاتيًا.",
+        "sealed": "وضع الإغلاق مفعّل، لذا لا يمكن لتسجيل الملاحظات الوصول إلى {{provider}}.",
+        "needsModel": "يحتاج تسجيل الملاحظات إلى نموذج صوت على هذا الجهاز.",
+        "needsKey": "يحتاج تسجيل الملاحظات إلى مفتاح {{provider}}.",
+        "needsUrl": "يحتاج تسجيل الملاحظات إلى عنوان خادم.",
+        "unreachable": "لا يستطيع Loqui الوصول إلى {{provider}} لتسجيل الملاحظات."
+      },
+      "fixNote": "أصلح هذا",
+      "noteNetwork": "الملاحظات مضبوطة لإرسال الصوت إلى {{provider}}.",
+      "titlePending_zero": "أوشكنا على الانتهاء: لم يبق أي بند ({{count}}).",
+      "titlePending_two": "أوشكنا على الانتهاء: بقي بندان ({{count}}).",
+      "titlePending_few": "أوشكنا على الانتهاء: بقي {{count}} بنود.",
+      "titlePending_many": "أوشكنا على الانتهاء: بقي {{count}} بندًا."
+    },
+    "resume": {
+      "title": "أكمل الإعداد",
+      "body": "مساحة عملك جاهزة. تابع من حيث توقفت متى شئت.",
+      "items": {
+        "finishDictating": "ابدأ بإملاء نصك الأول",
+        "cleanup": "اختر تنظيف النص",
+        "shortcut": "جرّب اختصارك"
+      },
+      "resume": "متابعة الإعداد",
+      "dismiss": "إخفاء قائمة الإعداد",
+      "label": "قائمة الإعداد"
+    }
+  },
+  "workspace": {
+    "noteMissing": "حُذفت هذه الملاحظة أو نُقلت إلى خارج مساحة العمل هذه.",
+    "noteLoadError": "تعذّر تحميل هذه الملاحظة. حاول مرة أخرى."
+  },
+  "capture": {
+    "group": "التقاط",
+    "moreOptions": "المزيد من خيارات الالتقاط",
+    "actions": {
+      "dictate": "الإملاء في Loqui",
+      "recordMeeting": "تسجيل اجتماع",
+      "upload": "رفع ملف صوتي…",
+      "newNote": "ملاحظة جديدة",
+      "newChat": "محادثة جديدة"
+    },
+    "short": {
+      "dictate": "إملاء",
+      "recordMeeting": "تسجيل",
+      "upload": "رفع",
+      "newNote": "ملاحظة جديدة",
+      "newChat": "محادثة جديدة"
+    },
+    "listening": "جارٍ الاستماع {{time}}",
+    "stopListening": "إيقاف الاستماع",
+    "stopRecording": "إيقاف التسجيل",
+    "cleaningUp": "جارٍ تنقيح النص…"
+  },
+  "micCard": {
+    "ready": "جاهز",
+    "setUp": "إعداد الإملاء",
+    "listening": "جارٍ الاستماع",
+    "listeningFor": "جارٍ الاستماع {{time}}",
+    "cleaningUp": "جارٍ التنقيح…",
+    "offline": "الميكروفون غير متاح",
+    "offlinePermission": "الوصول إلى الميكروفون متوقف",
+    "offlineDevice": "الميكروفون غير متصل",
+    "nextCapture": "التسجيل التالي",
+    "role": {
+      "dictation": "الإملاء",
+      "meeting": "الاجتماع",
+      "assistant": "المساعد",
+      "translation": "الترجمة"
+    }
+  },
+  "home": {
+    "ready": {
+      "region": "حالة الإملاء",
+      "ready": "جاهز",
+      "setUp": "إعداد الإملاء",
+      "listening": "جارٍ الاستماع",
+      "listeningFor": "جارٍ الاستماع {{time}}",
+      "cleaningUp": "جارٍ التنقيح…",
+      "offline": "الميكروفون غير متصل",
+      "hold": "اضغط مطولًا على <kbd>{{key}}</kbd> للإملاء",
+      "press": "اضغط على <kbd>{{key}}</kbd> للإملاء",
+      "nextNow": "{{title}} جارٍ الآن",
+      "nextAt": "{{title}} في {{time}}",
+      "takeNotes": "تدوين ملاحظات",
+      "nextIn_zero": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_one": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_two": "{{title}} بعد {{count}} دقيقتين",
+      "nextIn_few": "{{title}} بعد {{count}} دقائق",
+      "nextIn_many": "{{title}} بعد {{count}} دقيقة",
+      "nextIn_other": "{{title}} بعد {{count}} دقيقة"
+    },
+    "history": {
+      "filterLabel": "تصفية السجل",
+      "filterPlaceholder": "تصفية هذه القائمة",
+      "chipsLabel": "عرض",
+      "menu": "خيارات السجل",
+      "showDiscarded": "عرض التسجيلات المستبعدة",
+      "clearAll": "مسح الكل…",
+      "expand": "توسيع",
+      "collapse": "طي",
+      "meetingRow": "اجتماع",
+      "noteRow": "ملاحظة",
+      "nothingMatches": "لا توجد نتائج تطابق «{{query}}».",
+      "clearFilter": "مسح التصفية",
+      "olderMissing": "لم يعد هذا الإملاء موجودًا في سجلك.",
+      "chips": {
+        "all": "الكل",
+        "dictations": "الإملاءات",
+        "meetings": "الاجتماعات",
+        "notes": "الملاحظات",
+        "failed": "فشل"
+      },
+      "dayCount_zero": "{{count}} إملاء",
+      "words_zero": "{{count}} كلمة",
+      "session_zero": "جلسة · {{count}} تسجيل · {{duration}}",
+      "dayCount_one": "{{count}} إملاء",
+      "words_one": "{{count}} كلمة",
+      "session_one": "جلسة · {{count}} تسجيل · {{duration}}",
+      "dayCount_two": "{{count}} إملاءان",
+      "words_two": "{{count}} كلمتان",
+      "session_two": "جلسة · {{count}} تسجيلان · {{duration}}",
+      "dayCount_few": "{{count}} إملاءات",
+      "words_few": "{{count}} كلمات",
+      "session_few": "جلسة · {{count}} تسجيلات · {{duration}}",
+      "dayCount_many": "{{count}} إملاءً",
+      "words_many": "{{count}} كلمةً",
+      "session_many": "جلسة · {{count}} تسجيلًا · {{duration}}",
+      "dayCount_other": "{{count}} إملاء",
+      "words_other": "{{count}} كلمة",
+      "session_other": "جلسة · {{count}} تسجيل · {{duration}}",
+      "sessionNoDuration_zero": "جلسة · {{count}} تسجيل",
+      "sessionNoDuration_one": "جلسة · {{count}} تسجيل",
+      "sessionNoDuration_two": "جلسة · {{count}} تسجيلان",
+      "sessionNoDuration_few": "جلسة · {{count}} تسجيلات",
+      "sessionNoDuration_many": "جلسة · {{count}} تسجيلًا",
+      "sessionNoDuration_other": "جلسة · {{count}} تسجيل",
+      "loadFailed": "تعذّر تحميل هذا الإملاء. حاول مرة أخرى."
+    }
+  },
+  "mention": {
+    "groups": {
+      "person": "الأشخاص",
+      "note": "الملاحظات",
+      "meeting": "الاجتماعات",
+      "dictation": "الإملاءات",
+      "folder": "المجلدات"
+    },
+    "empty": "لا توجد عناصر للإشارة إليها",
+    "loading": "جارٍ التحميل…",
+    "missing": "لم يعد هذا العنصر موجودًا.",
+    "open": "فتح",
+    "insertQuote": "إدراج اقتباس",
+    "folderMeta": "مجلد",
+    "error": "تعذّر تحميل هذا العنصر.",
+    "retry": "إعادة المحاولة",
+    "pickerLabel": "الإشارة إلى عنصر"
+  },
+  "table": {
+    "view": {
+      "label": "العرض",
+      "list": "قائمة",
+      "table": "طاولة"
+    },
+    "canvasLabel": "لوحة: {{space}}",
+    "canvasRole": "لوحة",
+    "zoomIn": "تكبير",
+    "zoomOut": "تصغير",
+    "resetView": "إعادة ضبط العرض",
+    "zoomLevel": "{{percent}}٪",
+    "hint": "اسحب البطاقات أو الخلفية. اسحب مع Shift للتحديد. Ctrl أو ⌘ مع العجلة للتكبير. تنتقل الأسهم بين البطاقات، ومع Shift تحرّكها قليلًا.",
+    "kind": {
+      "note": "ملاحظة",
+      "meeting": "اجتماع",
+      "dictation": "إملاء",
+      "chat": "إجابة"
+    },
+    "card": {
+      "label": "{{kind}}: {{title}}",
+      "untitled": "بلا عنوان",
+      "answerPending": "بانتظار الإجابة…"
+    },
+    "inbox": {
+      "title": "الوارد",
+      "description": "التقاطات حديثة وما يصل إلى 50 عنصرًا أُزيل مؤخرًا من كل نوع. اسحب عنصرًا إلى الطاولة أو اضغط Enter. يظل كل المحتوى متاحًا في السجل والقائمة.",
+      "empty": "لا جديد"
+    },
+    "selection": {
+      "count": "المحدد: {{count}}",
+      "summarise": "تلخيص",
+      "ask": "اسأل عن هذه",
+      "group": "تجميع في ملاحظة",
+      "remove": "إزالة من الطاولة",
+      "summarisePrompt": "لخّص العناصر المحددة في بضع جمل.",
+      "limit": "تعمل إجراءات الذكاء الاصطناعي على {{limit}} بطاقة كحد أقصى.",
+      "busy": "هناك إجراء آخر قيد التنفيذ."
+    },
+    "groupedNote": {
+      "title": "مجمّعة من الطاولة"
+    },
+    "status": {
+      "full": "تتسع الطاولة لـ 500 بطاقة كحد أقصى. أزل بعضها أولًا.",
+      "truncated": "يُعرض ما يصل إلى 500 بطاقة، مع البطاقات المرتبة أولًا. يتوفر المزيد من المحتوى في القائمة والسجل.",
+      "saveFailed": "تعذّر حفظ هذا التغيير. محتواك محفوظ."
+    },
+    "ask": {
+      "open": "اسأل",
+      "close": "إغلاق",
+      "pinned": "البطاقات المثبتة: {{count}}",
+      "wholeTable": "السؤال عن الطاولة كلها",
+      "sendFailed": "لم تُرسل رسالتك. النص والمصادر محفوظة أدناه؛ أعد المحاولة عند الجاهزية.",
+      "invalidated": "تغيّرت الوجهة. لم تُرسل رسالتك؛ راجع الوجهة قبل إعادة المحاولة.",
+      "retry": "إعادة المحاولة بهذه المصادر"
+    },
+    "detail": {
+      "close": "إغلاق النص الكامل",
+      "loading": "جارٍ تحميل النص الكامل…",
+      "failed": "تعذّر تحميل النص الكامل. أغلقه وافتحه مجددًا للمحاولة."
+    }
   }
 }

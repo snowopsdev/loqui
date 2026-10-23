@@ -20,6 +20,11 @@ function assertValidTarget(environment, tenant) {
   }
 }
 
+function cortiTokenUrl({ environment, tenant }) {
+  assertValidTarget(environment, tenant);
+  return `https://auth.${environment}.corti.app/realms/${tenant}/protocol/openid-connect/token`;
+}
+
 async function getCortiToken({ environment, tenant, clientId, clientSecret }, fetchImpl) {
   assertValidTarget(environment, tenant);
 
@@ -40,20 +45,17 @@ async function getCortiToken({ environment, tenant, clientId, clientSecret }, fe
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), TOKEN_FETCH_TIMEOUT_MS);
   try {
-    const response = await doFetch(
-      `https://auth.${environment}.corti.app/realms/${tenant}/protocol/openid-connect/token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "client_credentials",
-          client_id: clientId,
-          client_secret: clientSecret,
-          scope: "openid",
-        }).toString(),
-        signal: controller.signal,
-      }
-    );
+    const response = await doFetch(cortiTokenUrl({ environment, tenant }), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: clientId,
+        client_secret: clientSecret,
+        scope: "openid",
+      }).toString(),
+      signal: controller.signal,
+    });
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
@@ -75,4 +77,4 @@ async function getCortiToken({ environment, tenant, clientId, clientSecret }, fe
   }
 }
 
-module.exports = { getCortiToken };
+module.exports = { getCortiToken, cortiTokenUrl };

@@ -242,6 +242,7 @@ export default function SearchableModelList({
                       className={`pb-0.5 rounded-md ${isActive ? "ring-1 ring-primary/50" : ""}`}
                     >
                       <ModelCard
+                        selectionRole="none"
                         model={row.data}
                         isSelected={row.data.value === selectedModel}
                         onSelect={onModelSelect}

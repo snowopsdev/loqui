@@ -1,13 +1,17 @@
+import { createPreviewTable } from "./previewTable";
+import { normalizeRouteVerificationOptions } from "../helpers/routeVerificationOptions.mjs";
 import type { NoteItem, SpaceItem, TranscriptionItem } from "../types/electron";
 import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes";
 import type { UpdateStatus } from "../types/updates";
 import product from "../config/product.json";
 import { version } from "../../package.json";
 import { parseOnboardingPreviewConfig } from "../utils/onboardingState";
+import { createOnboardingScenarioBridge } from "./onboardingScenarioBridge";
 
 declare global {
   interface Window {
     loquiBrowserPreview?: boolean;
+    loquiPreviewBridge?: { simulateHotkey(phase: "down" | "up"): void; reset(): void };
   }
 }
 
@@ -54,7 +58,9 @@ function makeNote(
 
 // An explicit, in-memory bridge for UI review. No IPC, network proxy, filesystem,
 // provider credentials or model downloads are exposed by this adapter.
-function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
+function createBrowserPreviewAPI(
+  setup: ReturnType<typeof createOnboardingScenarioBridge>
+): Partial<Window["electronAPI"]> {
   let notes = [
     makeNote(
       1,
@@ -122,6 +128,24 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     error: desktopMessage,
   };
   let snippets: Awaited<ReturnType<Window["electronAPI"]["getSnippets"]>> = [];
+  let enterpriseVersion = 0;
+  let enterpriseCurrent: import("../types/electron").EnterpriseRouteSettings = {
+    bedrockRegion: "us-east-1",
+    azureEndpoint: "",
+    vertexProject: "",
+    vertexLocation: "us-central1",
+    vertexAuthSource: "adc",
+  };
+  const enterpriseState = () => ({
+    current: enterpriseCurrent,
+    version: enterpriseVersion,
+    facts: {
+      bedrockEndpoint: { set: false, host: null },
+      bedrockProfile: false,
+      vertexApiKeyEnv: false,
+      vertexProjectEnv: false,
+    },
+  });
   const listeners = new Map<string, Set<(value: any) => void>>();
   const on = (event: string) => (callback: (value: any) => void) => {
     const group = listeners.get(event) ?? new Set();
@@ -136,15 +160,23 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     notes.filter((note) =>
       `${note.title} ${note.content}`.toLowerCase().includes(query.toLowerCase())
     );
+  const capturedText = setup.textOperations;
   const personalInference: PersonalInferenceAPI = {
-    codexStatus: async () => ({ available: false, error: desktopMessage, code: "BROWSER_PREVIEW" }),
+    captureTextOperation: capturedText.captureTextOperation,
+    runTextOperation: capturedText.runTextOperation,
+    retireTextOperation: capturedText.retireTextOperation,
+    describeModels: async () => {
+      throw new Error("unavailable");
+    },
+    codexStatus: setup.cleanupChecks.codexStatus,
     codexLogin: unavailable,
     codexCancelLogin: unavailable,
     codexLogout: unavailable,
-    codexModels: async () => ({ data: [], nextCursor: null }),
+    codexModels: setup.cleanupChecks.codexModels,
+    codexModelCatalog: setup.cleanupChecks.codexModelCatalog,
     codexRateLimits: async () => ({}),
     models: async () => ({ data: [] }),
-    credentialStatus: async () => ({ configured: false }),
+    credentialStatus: setup.cleanupChecks.credentialStatus,
     credentialSave: unavailable,
     textGenerate: unavailable,
     textStream: unavailable,
@@ -152,8 +184,55 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     textToolResult: unavailable,
     onTextEvent: unsubscribe,
   };
+  const keyring: Window["electronAPI"]["keyring"] = {
+    list: async () => [],
+    routeHealth: async (options) => ({
+      options: normalizeRouteVerificationOptions(options),
+      current: [],
+      health: [],
+    }),
+    verify: unavailable,
+    describeVerify: async () => ({ hosts: [], fields: [] }),
+    verifyConnection: unavailable,
+    setReminder: unavailable,
+    onChanged: unsubscribe,
+  };
+  const credentials: Window["electronAPI"]["credentials"] = {
+    list: setup.cleanupFacts.credentials,
+    save: async () => ({ ok: false, error: "unsupported" }),
+    remove: async () => ({ ok: false, error: "unsupported" }),
+    undoRemove: async () => ({ ok: false, reason: "unknown" }),
+    onChanged: unsubscribe,
+  };
   return {
+    acquirePillHotkey: async () => ({ leaseId: 0, held: false }),
+    releasePillHotkey: async () => {},
+    onPillHotkeyPressed: unsubscribe,
+    onPillHotkeyReleased: unsubscribe,
+    onUndoCancelRequest: unsubscribe,
+    replyUndoCancel: () => {},
+    onDictationFlushRequest: unsubscribe,
+    replyDictationFlush: () => {},
     personalInference,
+    processLocalReasoning: capturedText.processLocalReasoning,
+    probeSelfHosted: async () => ({ ok: false as const, code: "network" as const }),
+    getEnterpriseRouteState: async () => enterpriseState(),
+    onEnterpriseRouteChanged: on("enterprise-route-changed"),
+    saveEnterpriseRoutePatch: async ({ patch, expected }) => {
+      if (Object.keys(expected).some((key) => expected[key] !== enterpriseCurrent[key]))
+        return {
+          success: false,
+          conflict: true,
+          current: enterpriseCurrent,
+          version: enterpriseVersion,
+        };
+      enterpriseCurrent = { ...enterpriseCurrent, ...patch };
+      enterpriseVersion++;
+      emit("enterprise-route-changed", enterpriseState());
+      return { success: true, current: enterpriseCurrent, version: enterpriseVersion };
+    },
+    credentials,
+    keyring,
     updates: {
       status: async () => ({ ...updateStatus }),
       preferences: async (patch) => {
@@ -194,6 +273,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     getNotes: async (type) =>
       notes.filter((note) => !type || note.note_type === type).map((note) => ({ ...note })),
     getSpaceNotes: async () => notes.map((note) => ({ ...note })),
+    ...createPreviewTable({ notes: () => notes, history: () => history }),
     getNote: async (id) => notes.find((note) => note.id === id) ?? null,
     saveNote: async (title, content, type) => {
       const note = makeNote(
@@ -253,27 +333,19 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     checkWhisperInstallation: async () => ({ installed: false, working: false }),
     listWhisperModels: async () => ({ success: true, models: [], cache_dir: "Desktop app only" }),
     listParakeetModels: async () => ({ success: true, models: [], cache_dir: "Desktop app only" }),
-    checkParakeetModelStatus: async (modelName) => ({
-      success: true,
-      model: modelName,
-      downloaded: window.loquiBrowserPreviewConfig?.scenario === "ready",
-    }),
-    modelGetAll: async () => [],
-    modelGetActiveDownloads: async () => [],
+    modelGetAll: setup.cleanupFacts.models,
     modelCheckRuntime: async () => ({ available: false, error: desktopMessage }),
     onModelDownloadProgress: unsubscribe,
     onWhisperDownloadProgress: unsubscribe,
-    onParakeetDownloadProgress: unsubscribe,
     modelDownload: unavailable,
     downloadWhisperModel: unavailable,
-    downloadParakeetModel: unavailable,
     modelImportGguf: unavailable,
     modelTestLoad: unavailable,
     getSearchModelStatus: async () => ({ downloaded: false }),
     getDiarizationModelStatus: async () => ({ available: false, modelsDownloaded: false }),
     downloadDiarizationModels: unavailable,
     downloadSearchModel: unavailable,
-    getAudioStorageUsage: async () => ({ fileCount: 0, totalBytes: 0 }),
+    getAudioStorageUsage: async () => ({ fileCount: 0, totalBytes: 0, readable: true }),
     getModelCacheRoot: async () => "Desktop app only",
     noteFilesGetDefaultPath: async () => "Desktop app only",
     getAutoStartEnabled: async () => ({ enabled: false, requiresApproval: false }),
@@ -291,14 +363,16 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     },
     selectAudioFile: async () => ({ canceled: true, filePaths: [] }),
     downloadUrlAudio: async () => ({ success: false, error: desktopMessage }),
+    reportMeetingRecordingPresence: () => {},
+    reportMeetingRecordingOutcome: () => {},
+    showControlPanel: async () => {},
+    getMeetingRecordingPresence: async () => null,
+    onMeetingRecordingPresenceChanged: unsubscribe,
+    onMeetingRecordingOutcome: unsubscribe,
+    requestStopMeetingRecording: async () => {},
+    onMeetingRecordingStopRequested: unsubscribe,
+    onMeetingRecorderRevealRequested: unsubscribe,
     getSpeakerMappings: async () => [],
-    checkMicrophoneAccess: async () => ({
-      granted: window.loquiBrowserPreviewConfig?.scenario !== "microphone-denied",
-      status: "preview",
-    }),
-    checkAccessibilityPermission: async () =>
-      window.loquiBrowserPreviewConfig?.platform !== "macos",
-    openAccessibilitySettings: async () => ({ success: true }),
     checkPasteTools: async () => ({
       platform: window.loquiBrowserPreviewConfig?.platform === "macos" ? "darwin" : "linux",
       available: window.loquiBrowserPreviewConfig?.platform !== "macos",
@@ -306,6 +380,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
       requiresPermission: window.loquiBrowserPreviewConfig?.platform === "macos",
       tools: [],
     }),
+    ...setup.api,
   };
 }
 
@@ -315,7 +390,11 @@ export function installBrowserPreview() {
   window.loquiBrowserPreviewConfig = parseOnboardingPreviewConfig(window.location.search);
   // Only the explicit subset above is supplied. Optional desktop features remain
   // absent rather than pretending an unsupported operation succeeded.
-  window.electronAPI = createBrowserPreviewAPI() as Window["electronAPI"];
+  const setup = createOnboardingScenarioBridge(
+    () => window.loquiBrowserPreviewConfig ?? parseOnboardingPreviewConfig(window.location.search)
+  );
+  window.loquiPreviewBridge = { simulateHotkey: setup.simulateHotkey, reset: setup.reset };
+  window.electronAPI = createBrowserPreviewAPI(setup) as Window["electronAPI"];
   const url = new URL(window.location.href);
   url.searchParams.set("panel", "true");
   window.history.replaceState(null, "", url);

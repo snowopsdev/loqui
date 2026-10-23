@@ -20,6 +20,7 @@ interface NoteState {
   // tree's space rows show true totals without loading containers.
   spaceRootCounts: Record<number, number>;
   notesByContainer: Record<string, NoteItem[]>;
+  openedNotes: Record<number, NoteItem>;
   expandedContainers: Set<string>;
   activeContext: ActiveContext | null;
   activeNoteId: number | null;
@@ -52,6 +53,7 @@ const useNoteStore = create<NoteState>()(() => ({
   folderCounts: {},
   spaceRootCounts: {},
   notesByContainer: {},
+  openedNotes: {},
   expandedContainers: readExpandedContainers(),
   activeContext: null,
   activeNoteId: null,
@@ -65,6 +67,23 @@ let loadGeneration = 0;
 let treeLoadGeneration = 0;
 let spacesLoadGeneration = 0;
 let foldersLoadGeneration = 0;
+
+let noteNavigationGeneration = 0;
+// The current intentional read owns selection while pending or retryable.
+// Eligibility also releases the initializer when the caller's lifetime ends.
+let noteReadOwner: (() => boolean) | null = null;
+let landOnOverview = false;
+
+/** Request ownership for deferred tree moves, including view and A→B→A intents. */
+export function getNoteNavigationGeneration(): number {
+  return noteNavigationGeneration;
+}
+
+/** A confirmed reset or newer view intent supersedes pending opens, preserving content. */
+export function invalidatePendingNoteNavigation(): void {
+  noteNavigationGeneration += 1;
+  noteReadOwner = null;
+}
 
 // Folder navigation requested before folders load; consumed once by initializeNotesTree.
 let pendingFolderPreset: number | null = null;
@@ -94,7 +113,7 @@ function findNoteInState(state: NoteState, id: number): NoteItem | null {
     const note = items.find((n) => n.id === id);
     if (note) return note;
   }
-  return state.notes.find((n) => n.id === id) ?? null;
+  return state.notes.find((n) => n.id === id) ?? state.openedNotes[id] ?? null;
 }
 
 /** Apply a notesByContainer replacement, mirroring the active container into the flat `notes` list. */
@@ -159,11 +178,14 @@ function ensureIpcListeners() {
   if (window.electronAPI.onFolderDeleted) {
     const dispose = window.electronAPI.onFolderDeleted(({ id }) => {
       if (id == null) return;
+      invalidatePendingNoteNavigation();
       const state = useNoteStore.getState();
       const key = folderContainerKey(id);
+      invalidateContainerLoad(key);
       const teardown = teardownNoteContainers(state, [key]);
       persistExpandedContainers(teardown.expandedContainers);
       const extra: Partial<NoteState> = {
+        openedNotes: teardown.openedNotes,
         expandedContainers: teardown.expandedContainers,
         activeNoteId: teardown.activeNoteId,
       };
@@ -219,10 +241,16 @@ export async function loadFolders(): Promise<FolderItem[]> {
 const containerLoadGenerations = new Map<string, number>();
 const containerLoadsInFlight = new Map<string, Promise<NoteItem[]>>();
 
+function invalidateContainerLoad(key: string): void {
+  containerLoadGenerations.set(key, (containerLoadGenerations.get(key) ?? 0) + 1);
+  containerLoadsInFlight.delete(key);
+}
+
 async function loadContainerNotes(
   key: string,
   noteType: string | null = null,
-  limit = DEFAULT_LIMIT
+  limit = DEFAULT_LIMIT,
+  isEligible: () => boolean = () => true
 ): Promise<NoteItem[]> {
   const gen = (containerLoadGenerations.get(key) ?? 0) + 1;
   containerLoadGenerations.set(key, gen);
@@ -234,7 +262,7 @@ async function loadContainerNotes(
         ? ((await window.electronAPI.getNotes(noteType, limit, id)) ?? [])
         : ((await window.electronAPI.getNotes(noteType, limit, null, id)) ?? []);
     // A newer load for this container may have resolved first.
-    if (containerLoadGenerations.get(key) === gen) {
+    if (containerLoadGenerations.get(key) === gen && isEligible()) {
       applyContainers({ ...useNoteStore.getState().notesByContainer, [key]: items });
     }
     return items;
@@ -247,22 +275,58 @@ async function loadContainerNotes(
   }
 }
 
-async function ensureContainerLoaded(key: string): Promise<NoteItem[]> {
+async function ensureContainerLoaded(key: string, isEligible?: () => boolean): Promise<NoteItem[]> {
   const cached = useNoteStore.getState().notesByContainer[key];
   if (cached) return cached;
-  return containerLoadsInFlight.get(key) ?? loadContainerNotes(key);
+  return (
+    containerLoadsInFlight.get(key) ?? loadContainerNotes(key, null, DEFAULT_LIMIT, isEligible)
+  );
 }
 
-export function setContainerExpanded(key: string, expanded: boolean): void {
+/** An incidental pick may only use the page still committed to its original context. */
+function firstSelectableContainerNote(
+  context: ActiveContext,
+  notes: NoteItem[],
+  navigationGeneration: number,
+  containerGeneration: number | undefined
+): NoteItem | undefined {
+  const state = useNoteStore.getState();
+  const key = contextContainerKey(context);
+  if (
+    navigationGeneration !== noteNavigationGeneration ||
+    containerGeneration !== containerLoadGenerations.get(key) ||
+    state.activeNoteId != null ||
+    state.activeContext?.spaceId !== context.spaceId ||
+    state.activeContext.folderId !== context.folderId ||
+    state.notesByContainer[key] !== notes
+  ) {
+    return undefined;
+  }
+  return notes.find(
+    (note) =>
+      !note.deleted_at && note.space_id === context.spaceId && noteContainerKey(note) === key
+  );
+}
+
+export function setContainerExpanded(
+  key: string,
+  expanded: boolean,
+  isEligible?: () => boolean
+): void {
+  if (isEligible && !isEligible()) return;
   const current = useNoteStore.getState().expandedContainers;
   if (current.has(key) !== expanded) {
     const next = new Set(current);
     if (expanded) next.add(key);
     else next.delete(key);
     useNoteStore.setState({ expandedContainers: next });
-    persistExpandedContainers(next);
+    if (!isEligible || isEligible()) persistExpandedContainers(next);
   }
-  if (expanded) void ensureContainerLoaded(key);
+  if (expanded && (!isEligible || isEligible())) {
+    // Navigation's read failure is reported by its explicit note read. A page
+    // prefetch must neither reject unhandled nor claim that the note is missing.
+    void ensureContainerLoaded(key, isEligible).catch(() => {});
+  }
 }
 
 export function toggleContainerExpanded(key: string): void {
@@ -270,9 +334,13 @@ export function toggleContainerExpanded(key: string): void {
 }
 
 /** Expand the containers that make a space/folder (and its notes) visible in the tree. */
-export function revealContainer(spaceId: number, folderId: number | null): void {
-  setContainerExpanded(spaceContainerKey(spaceId), true);
-  if (folderId != null) setContainerExpanded(folderContainerKey(folderId), true);
+export function revealContainer(
+  spaceId: number,
+  folderId: number | null,
+  isEligible?: () => boolean
+): void {
+  setContainerExpanded(spaceContainerKey(spaceId), true, isEligible);
+  if (folderId != null) setContainerExpanded(folderContainerKey(folderId), true, isEligible);
 }
 
 export function setActiveContext(spaceId: number, folderId: number | null): void {
@@ -293,6 +361,7 @@ export function setActiveContext(spaceId: number, folderId: number | null): void
  */
 export async function initializeNotesTree(): Promise<void> {
   const gen = ++treeLoadGeneration;
+  const navigationGeneration = noteNavigationGeneration;
   ensureIpcListeners();
   useNoteStore.setState({ isTreeLoading: true });
   try {
@@ -328,7 +397,10 @@ export async function initializeNotesTree(): Promise<void> {
     // The store stays IPC-maintained across mounts, so an existing container
     // entry is current — reuse it (or revealContainer's in-flight load)
     // instead of fetching the same container twice on every init.
-    const notes = await ensureContainerLoaded(contextContainerKey(context));
+    const key = contextContainerKey(context);
+    const loading = ensureContainerLoaded(key);
+    const containerGeneration = containerLoadGenerations.get(key);
+    const notes = await loading;
     if (gen !== treeLoadGeneration) return;
     // Containers restored as expanded from a previous session must load their
     // notes too, or they render expanded-but-empty until re-toggled.
@@ -339,8 +411,14 @@ export async function initializeNotesTree(): Promise<void> {
     useNoteStore.getState().expandedContainers.forEach((key) => {
       if (validKeys.has(key)) void ensureContainerLoaded(key);
     });
-    if (getActiveNoteIdValue() == null && notes.length > 0) {
-      setActiveNoteId(notes[0].id);
+    if (!noteReadOwner?.() && !landOnOverview) {
+      const first = firstSelectableContainerNote(
+        context,
+        notes,
+        navigationGeneration,
+        containerGeneration
+      );
+      if (first) useNoteStore.setState({ activeNoteId: first.id });
     }
   } finally {
     if (gen === treeLoadGeneration) useNoteStore.setState({ isTreeLoading: false });
@@ -381,6 +459,8 @@ function addNote(note: NoteItem): void {
 
 function updateNoteInStore(note: NoteItem): void {
   if (!note) return;
+  const opened = useNoteStore.getState().openedNotes;
+  if (opened[note.id]) useNoteStore.setState({ openedNotes: { ...opened, [note.id]: note } });
   const state = useNoteStore.getState();
   const targetKey = noteContainerKey(note);
   const notesByContainer = { ...state.notesByContainer };
@@ -408,12 +488,23 @@ function updateNoteInStore(note: NoteItem): void {
 
 function removeNote(id: number): void {
   if (id == null) return;
+  // Deletion can arrive before getNote resolves, before this id is cached.
+  invalidatePendingNoteNavigation();
+  // note-deleted carries only an id, which may be absent from every loaded
+  // page. Retire all outstanding page reads before eviction; preserve loaded
+  // content and let requests admitted after this event commit normally.
+  loadGeneration += 1;
+  for (const key of containerLoadsInFlight.keys()) invalidateContainerLoad(key);
   const state = useNoteStore.getState();
   const result = removeNoteFromLists(state, id);
-  if (!result.changed) return;
+  const openedNotes = { ...state.openedNotes };
+  const wasOpened = id in openedNotes;
+  delete openedNotes[id];
+  if (!result.changed && !wasOpened && state.activeNoteId !== id) return;
   // applyContainers only mirrors the active container into `notes`; pass the
   // filtered flat list explicitly so flat-only notes disappear too.
-  const extra: Partial<NoteState> = { notes: result.notes };
+  const extra: Partial<NoteState> = { notes: result.notes, openedNotes };
+  if (!result.changed && state.activeNoteId === id) extra.activeNoteId = null;
   if (result.activeNoteId !== state.activeNoteId) {
     extra.activeNoteId = result.activeNoteId;
   }
@@ -446,28 +537,44 @@ export async function deleteFolder(id: number): Promise<{ success: boolean; erro
   const result = await window.electronAPI.deleteFolder(id);
   if (!result.success) return result;
 
+  invalidatePendingNoteNavigation();
+  const navigationGeneration = noteNavigationGeneration;
   const state = useNoteStore.getState();
   const folder = state.folders.find((f) => f.id === id);
   const key = folderContainerKey(id);
+  invalidateContainerLoad(key);
   const teardown = teardownNoteContainers(state, [key]);
   persistExpandedContainers(teardown.expandedContainers);
   useNoteStore.setState({
     notesByContainer: teardown.notesByContainer,
+    openedNotes: teardown.openedNotes,
     expandedContainers: teardown.expandedContainers,
     activeNoteId: teardown.activeNoteId,
   });
 
   await loadFolders();
-  if (getActiveFolderIdValue() === id && folder) {
+  if (
+    navigationGeneration === noteNavigationGeneration &&
+    getActiveFolderIdValue() === id &&
+    folder
+  ) {
     const { folders } = useNoteStore.getState();
     const spaceFolders = folders.filter((f) => f.space_id === folder.space_id);
     const fallback = findDefaultFolder(spaceFolders) ?? spaceFolders[0];
-    setActiveContext(folder.space_id, fallback?.id ?? null);
+    const context = { spaceId: folder.space_id, folderId: fallback?.id ?? null };
+    setActiveContext(context.spaceId, context.folderId);
     if (getActiveNoteIdValue() == null) {
-      const notes = await ensureContainerLoaded(
-        fallback ? folderContainerKey(fallback.id) : spaceContainerKey(folder.space_id)
+      const key = contextContainerKey(context);
+      const loading = ensureContainerLoaded(key);
+      const containerGeneration = containerLoadGenerations.get(key);
+      const notes = await loading;
+      const first = firstSelectableContainerNote(
+        context,
+        notes,
+        navigationGeneration,
+        containerGeneration
       );
-      if (notes.length > 0) setActiveNoteId(notes[0].id);
+      if (first) setActiveNoteId(first.id);
     }
   }
 
@@ -511,6 +618,8 @@ export async function updateSpaceMeta(
 /** Local purge (dev override); store cleanup happens via the space-purged broadcast. */
 
 export function setActiveNoteId(id: number | null): void {
+  invalidatePendingNoteNavigation();
+  if (id != null) landOnOverview = false;
   if (useNoteStore.getState().activeNoteId === id) return;
   useNoteStore.setState({ activeNoteId: id });
 }
@@ -530,6 +639,15 @@ export function navigateToContainer(spaceId: number, folderId: number | null): v
   }
   setActiveContext(spaceId, null);
   revealContainer(spaceId, null);
+}
+
+/**
+ * A deliberate Space or folder overview (tree row, palette, Insights) stays the
+ * overview when Notes mounts afterwards, from Home or Chat as from Notes.
+ * Selecting or opening a note releases it.
+ */
+export function holdContainerOverview(): void {
+  if (useNoteStore.getState().activeNoteId == null) landOnOverview = true;
 }
 
 export function setActiveFolderId(id: number | null): void {
@@ -617,3 +735,89 @@ export function useActiveNote(): NoteItem | null {
 
 // Whole-map subscription for list surfaces (the tree gates per-note actions
 // on loaded ACLs); per-note consumers should prefer useShareCacheEntry.
+
+export type OpenNoteResult = "opened" | "missing" | "superseded" | "error";
+
+export interface NoteOpenOptions {
+  /** The original caller's lifetime; a different owner cannot revive it. */
+  isEligible?: () => boolean;
+  onMissing?: () => void;
+  onLoadError?: (retry: () => Promise<OpenNoteResult>) => void;
+}
+
+async function fetchLiveNote(id: number): Promise<NoteItem | null> {
+  const note = await window.electronAPI.getNote(id);
+  return note && !note.deleted_at ? note : null;
+}
+
+function holdAndSelect(note: NoteItem, isEligible: () => boolean): void {
+  const state = useNoteStore.getState();
+  const inPage = Object.values(state.notesByContainer).some((items) =>
+    items.some((n) => n.id === note.id)
+  );
+  if (!isEligible()) return;
+  // Commit the held note, context and selection together. Store subscribers
+  // cannot retire this intent between separate selection mutations.
+  useNoteStore.setState({
+    ...(!inPage ? { openedNotes: { ...state.openedNotes, [note.id]: note } } : {}),
+    activeContext: { spaceId: note.space_id, folderId: note.folder_id ?? null },
+    notes: state.notesByContainer[noteContainerKey(note)] ?? [],
+    activeNoteId: note.id,
+  });
+  if (isEligible()) revealContainer(note.space_id, note.folder_id ?? null, isEligible);
+}
+
+async function readAndOpenNote(
+  id: number,
+  restore: boolean,
+  options: NoteOpenOptions
+): Promise<OpenNoteResult> {
+  if (options.isEligible && !options.isEligible()) return "superseded";
+  ensureIpcListeners();
+  const generation = ++noteNavigationGeneration;
+  const isEligible = () =>
+    generation === noteNavigationGeneration && (options.isEligible?.() ?? true);
+  let failed = false;
+  noteReadOwner = isEligible;
+  const attempt = async (): Promise<OpenNoteResult> => {
+    if (!isEligible()) return "superseded";
+    failed = false;
+    try {
+      const note =
+        (!restore && findNoteInState(useNoteStore.getState(), id)) || (await fetchLiveNote(id));
+      if (!isEligible()) return "superseded";
+      if (!note) {
+        if (restore && isEligible()) landOnOverview = true;
+        if (isEligible()) options.onMissing?.();
+        return "missing";
+      }
+      if (isEligible()) landOnOverview = false;
+      holdAndSelect(note, isEligible);
+      return isEligible() ? "opened" : "superseded";
+    } catch {
+      if (!isEligible()) return "superseded";
+      failed = true;
+      // Preserve the prior selection/overview while this read is retryable;
+      // incidental tree initialization cannot choose an unrelated first note.
+      options.onLoadError?.(async () => {
+        if (!failed || !isEligible()) return "superseded";
+        return attempt();
+      });
+      return "error";
+    } finally {
+      if (!failed && noteReadOwner === isEligible) noteReadOwner = null;
+    }
+  };
+  return attempt();
+}
+
+export function openNoteById(id: number, options: NoteOpenOptions = {}): Promise<OpenNoteResult> {
+  return readAndOpenNote(id, false, options);
+}
+
+export function restoreLaunchNote(
+  id: number,
+  options: NoteOpenOptions = {}
+): Promise<OpenNoteResult> {
+  return readAndOpenNote(id, true, options);
+}

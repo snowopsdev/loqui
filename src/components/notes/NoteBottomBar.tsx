@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import { SendIcon } from "../ui/SendIcon";
 import { GLASS_SURFACE } from "../ui/glass";
+import { useNoticeBottomBoundary } from "../ui/useNoticePlacement";
 
 // While recording, the bar sits over the live streaming transcript, and every
 // partial would force backdrop-blur to re-blur the strip; the capsule trades
@@ -36,6 +37,8 @@ export default function NoteBottomBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasText = inputText.trim().length > 0;
+  // Notices stay above the Ask capsule; a hidden capsule yields to the chat panel's composer.
+  useNoticeBottomBoundary(containerRef, !hideInput);
 
   const handleSubmit = useCallback(() => {
     const text = inputText.trim();
@@ -104,7 +107,7 @@ export default function NoteBottomBar({
               ? "max-w-0 opacity-0 ps-0 pe-0 border-transparent shadow-none pointer-events-none"
               : "max-w-[600px] opacity-100 ps-4 pe-1.5",
             isExpanded
-              ? "border-black/15 dark:border-white/22 ring-[3px] ring-primary/8"
+              ? "border-black/15 dark:border-white/22 ring-2 ring-ring"
               : !hideInput && "border-black/10 dark:border-white/14"
           )}
         >
@@ -120,9 +123,10 @@ export default function NoteBottomBar({
             tabIndex={hideInput ? -1 : undefined}
             placeholder={t("embeddedChat.askPlaceholder")}
             className={cn(
+              "focus-visible:ring-2 focus-visible:ring-ring",
               "input-inline flex-1 bg-transparent outline-none min-w-0 p-0 caret-primary",
-              "text-[13px] text-foreground",
-              "placeholder:text-foreground/45 dark:placeholder:text-foreground/45"
+              "text-ui text-foreground",
+              "placeholder:text-muted-foreground dark:placeholder:text-muted-foreground"
             )}
           />
 
@@ -131,6 +135,7 @@ export default function NoteBottomBar({
               onClick={handleSubmit}
               disabled={askDisabled}
               className={cn(
+                "focus-visible:ring-2 focus-visible:ring-ring",
                 "flex items-center justify-center w-7 h-7 rounded-full shrink-0",
                 "animate-[scale-in_0.15s_ease-out_backwards]",
                 "transition-all duration-150",

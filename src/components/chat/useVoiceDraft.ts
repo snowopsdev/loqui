@@ -13,6 +13,7 @@ import { getBaseLanguageCode } from "../../utils/languageSupport";
 export type VoiceDraftStatus = "idle" | "recording" | "transcribing";
 
 interface UseVoiceDraftOptions {
+  active?: boolean;
   onTranscript: (text: string) => void;
   onError: (message: string) => void;
 }
@@ -22,7 +23,7 @@ interface UseVoiceDraftOptions {
  * transcription pipeline (all providers, no LLM pass). The transcript is
  * handed back for the caller to place into the input.
  */
-export function useVoiceDraft({ onTranscript, onError }: UseVoiceDraftOptions) {
+export function useVoiceDraft({ active = true, onTranscript, onError }: UseVoiceDraftOptions) {
   const settings = useSettings();
   const {
     useLocalWhisper,
@@ -52,6 +53,16 @@ export function useVoiceDraft({ onTranscript, onError }: UseVoiceDraftOptions) {
   const levelBufRef = useRef<Float32Array<ArrayBuffer> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const discardRef = useRef(false);
+  const activityRef = useRef({ active, generation: 0 });
+  if (activityRef.current.active !== active) {
+    activityRef.current = { active, generation: activityRef.current.generation + 1 };
+  }
+  const startingRef = useRef(false);
+  const isCurrent = useCallback(
+    (generation: number) =>
+      activityRef.current.active && generation === activityRef.current.generation,
+    []
+  );
 
   const buildConfig = (): FileTranscriptionConfig => ({
     useLocalWhisper,
@@ -110,41 +121,54 @@ export function useVoiceDraft({ onTranscript, onError }: UseVoiceDraftOptions) {
     contextRef.current = null;
   }, []);
 
-  const finishRecording = useCallback(async () => {
-    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-    chunksRef.current = [];
-    teardownCapture();
+  const finishRecording = useCallback(
+    async (generation: number) => {
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      chunksRef.current = [];
+      teardownCapture();
 
-    if (discardRef.current || blob.size === 0) {
-      setStatus("idle");
-      return;
-    }
-
-    setStatus("transcribing");
-    let tempPath: string | null = null;
-    try {
-      const buffer = await blob.arrayBuffer();
-      const saved = await window.electronAPI.saveTempAudio(buffer);
-      tempPath = saved.path;
-      const result = await transcribeFile(tempPath, buildConfigRef.current(), false);
-      const text = result.text?.trim();
-      if (!result.success || !text) {
-        onErrorRef.current(result.error || "");
-      } else {
-        onTranscriptRef.current(text);
+      if (!isCurrent(generation) || discardRef.current || blob.size === 0) {
+        if (isCurrent(generation)) setStatus("idle");
+        return;
       }
-    } catch (error) {
-      onErrorRef.current(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (tempPath) void window.electronAPI.deleteTempAudio(tempPath);
-      setStatus("idle");
-    }
-  }, [teardownCapture]);
+
+      setStatus("transcribing");
+      let tempPath: string | null = null;
+      try {
+        const buffer = await blob.arrayBuffer();
+        if (!isCurrent(generation)) return;
+        const saved = await window.electronAPI.saveTempAudio(buffer);
+        tempPath = saved.path;
+        if (!isCurrent(generation)) return;
+        const result = await transcribeFile(tempPath, buildConfigRef.current(), false);
+        if (!isCurrent(generation)) return;
+        const text = result.text?.trim();
+        if (!result.success || !text) {
+          onErrorRef.current(result.error || "");
+        } else {
+          onTranscriptRef.current(text);
+        }
+      } catch (error) {
+        if (isCurrent(generation))
+          onErrorRef.current(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (tempPath) void window.electronAPI.deleteTempAudio(tempPath);
+        if (isCurrent(generation)) setStatus("idle");
+      }
+    },
+    [isCurrent, teardownCapture]
+  );
 
   const start = useCallback(async () => {
-    if (recorderRef.current) return;
+    if (!activityRef.current.active || recorderRef.current || startingRef.current) return;
+    const generation = activityRef.current.generation;
+    startingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!isCurrent(generation)) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const context = new AudioContext();
       const source = context.createMediaStreamSource(stream);
       const analyser = context.createAnalyser();
@@ -163,7 +187,7 @@ export function useVoiceDraft({ onTranscript, onError }: UseVoiceDraftOptions) {
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
-      recorder.onstop = () => void finishRecording();
+      recorder.onstop = () => void finishRecording(generation);
       recorder.start(1000);
 
       recorderRef.current = recorder;
@@ -173,27 +197,37 @@ export function useVoiceDraft({ onTranscript, onError }: UseVoiceDraftOptions) {
       setStatus("recording");
     } catch (error) {
       teardownCapture();
-      onErrorRef.current(error instanceof Error ? error.message : String(error));
+      if (isCurrent(generation))
+        onErrorRef.current(error instanceof Error ? error.message : String(error));
+    } finally {
+      startingRef.current = false;
     }
-  }, [finishRecording, teardownCapture]);
+  }, [finishRecording, isCurrent, teardownCapture]);
 
   const stop = useCallback(() => {
     recorderRef.current?.stop();
   }, []);
 
   const cancel = useCallback(() => {
+    activityRef.current.generation += 1;
     discardRef.current = true;
     recorderRef.current?.stop();
+    setStatus("idle");
   }, []);
 
+  useEffect(() => {
+    if (!active) cancel();
+  }, [active, cancel]);
+
   // Discard silently if the surface unmounts mid-take.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    activityRef.current.active = active;
+    return () => {
+      activityRef.current = { active: false, generation: activityRef.current.generation + 1 };
       discardRef.current = true;
       recorderRef.current?.stop();
-    },
-    []
-  );
+    };
+  }, [active]);
 
   return { status, elapsed, readLevel, start, stop, cancel, streamingOnlyProvider };
 }

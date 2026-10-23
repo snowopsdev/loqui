@@ -2,6 +2,9 @@ import { create } from "zustand";
 
 export interface CleanupFailure {
   message: string;
+  rawText?: string;
+  /** Task 6 binds immutable operation authority; never resolve live settings on Retry. */
+  retryCleanup?: (rawText: string) => Promise<string>;
   messageKey?: string;
   messageParams?: Record<string, string | number>;
   action?: string;

@@ -1,4 +1,12 @@
+import { useRouteDraftStore } from "../stores/routeDraftStore";
+import { StagedRoutePanel } from "./settings/routing/StagedRoutePanel";
+import { RoutingSection } from "./settings/routing/RoutingSection";
+import { stagedTargetForMode } from "./settings/routing/stagedTarget";
+import { useRouteChange, useRouteCommit } from "./settings/routing/useRouteChange";
+import { RouteSwitch } from "./settings/routing/RouteSwitch";
+import { StorageList } from "./settings/StorageList";
 import UpdateSettings from "./settings/UpdateSettings";
+import LabsSettings from "./settings/LabsSettings";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -9,7 +17,7 @@ import {
   Copy,
   Cpu,
   FileAudio,
-  FolderOpen,
+  HardDrive,
   Info,
   Key,
   Languages,
@@ -27,6 +35,8 @@ import {
   Wand2,
 } from "./icons";
 import LocalSupportModels from "./settings/LocalSupportModels";
+import { LLM_SUB_TABS, SPEECH_SUB_TABS } from "../lib/settingsPaths";
+import { useResolvedRoute } from "../lib/routes";
 import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -89,17 +99,22 @@ import LanguageSelector from "./ui/LanguageSelector";
 import LinuxPttSetupInfo from "./ui/LinuxPttSetupInfo";
 import PromptStudio from "./ui/PromptStudio";
 import { ProviderTabs } from "./ui/ProviderTabs";
-import { InferenceModeSelector, SettingsRow } from "./ui/SettingsSection";
+import {
+  InferenceModeSelector,
+  SectionHeader,
+  SettingsPanel,
+  SettingsPanelRow,
+  SettingsRow,
+} from "./ui/SettingsSection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Toggle } from "./ui/toggle";
 import { useSettingsLayout } from "./ui/useSettingsLayout";
-import { useToast } from "./ui/useToast";
+import { notify } from "./ui/notices";
 
 import { initializeNotesTree, loadFolders } from "../stores/noteStore.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
-import { clearMissingLocalModelSelections, useSettingsStore } from "../stores/settingsStore";
-import { formatBytes } from "../utils/formatBytes";
+import { useSettingsStore } from "../stores/settingsStore";
 
 import { useInferenceModeOptions } from "../hooks/useInferenceOptions";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
@@ -109,13 +124,17 @@ import { getTranscriptionProvider } from "../models/ModelRegistry";
 import { supportsLiveTranscriptionPreview } from "../utils/transcriptionPreview";
 
 export type SettingsSectionType =
-  "general" | "hotkeys" | "speechToText" | "llms" | "privacyData" | "system";
+  "general" | "hotkeys" | "routing" | "speechToText" | "llms" | "privacyData" | "system";
 
 interface SettingsPageProps {
   activeSection?: SettingsSectionType;
   onNavigateToSection?: (section: SettingsSectionType) => void;
+  /** Jump to a "<section>/<subTab>" location inside the open modal. */
+  onNavigateToPath?: (path: string) => void;
   /** When a legacy section ID was used (e.g. `meetings`), land on the matching sub-tab. */
   initialSubTab?: string;
+  /** Reapply an unchanged deep-linked sub-tab for a new acknowledged request. */
+  activationId?: string;
 }
 
 const UI_LANGUAGE_OPTIONS: import("./ui/LanguageSelector").LanguageOption[] = [
@@ -138,56 +157,6 @@ const RETENTION_SELECT_CLASS =
   "h-7 rounded border border-border/70 bg-surface-1/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-sm hover:border-border-hover hover:bg-surface-2/70 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 transition-colors duration-200";
 
 const noop = () => {};
-
-function SettingsPanel({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={`rounded-lg border border-border/70 dark:border-border-subtle/70 bg-card/50 dark:bg-surface-2/50 backdrop-blur-sm divide-y divide-border/60 dark:divide-border-subtle/50 ${className}`}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SettingsPanelRow({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const { isCompact } = useSettingsLayout();
-
-  return (
-    <div className={`${isCompact ? "px-3 py-2.5" : "px-4 py-3"} ${className}`}>{children}</div>
-  );
-}
-
-function SectionHeader({
-  title,
-  description,
-  note,
-}: {
-  title: string;
-  description?: string;
-  note?: string;
-}) {
-  return (
-    <div className="mb-3">
-      <h3 className="text-xs font-semibold text-foreground tracking-tight">{title}</h3>
-      {description && (
-        <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{description}</p>
-      )}
-      {note && <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{note}</p>}
-    </div>
-  );
-}
 
 interface GranolaImportPreview {
   total: number;
@@ -427,73 +396,37 @@ function GranolaImportSection({
 
 interface TranscriptionSectionProps {
   startOnboarding: () => void;
-  cloudTranscriptionMode: string;
-  setCloudTranscriptionMode: (mode: string) => void;
-  useLocalWhisper: boolean;
-  setUseLocalWhisper: (value: boolean) => void;
-  updateTranscriptionSettings: (settings: { useLocalWhisper: boolean }) => void;
   cloudTranscriptionProvider: string;
-  setCloudTranscriptionProvider: (provider: string) => void;
   cloudTranscriptionModel: string;
-  setCloudTranscriptionModel: (model: string) => void;
   localTranscriptionProvider: string;
-  setLocalTranscriptionProvider: (provider: LocalTranscriptionProvider) => void;
   whisperModel: string;
-  setWhisperModel: (model: string) => void;
   parakeetModel: string;
-  setParakeetModel: (model: string) => void;
   cohereModel: string;
-  setCohereModel: (model: string) => void;
   cloudTranscriptionBaseUrl?: string;
-  setCloudTranscriptionBaseUrl: (url: string) => void;
   transcriptionMode: InferenceMode;
-  setTranscriptionMode: (mode: InferenceMode) => void;
   remoteTranscriptionUrl: string;
-  setRemoteTranscriptionUrl: (url: string) => void;
   remoteTranscriptionModel: string;
-  setRemoteTranscriptionModel: (model: string) => void;
   showTranscriptionPreview: boolean;
   setShowTranscriptionPreview: (value: boolean) => void;
-  toast: (opts: {
-    title: string;
-    description: string;
-    variant?: "default" | "destructive" | "success";
-    duration?: number;
-  }) => void;
 }
 
 function TranscriptionSection({
   startOnboarding,
-  cloudTranscriptionMode,
-  setCloudTranscriptionMode,
-  useLocalWhisper,
-  setUseLocalWhisper,
-  updateTranscriptionSettings,
   cloudTranscriptionProvider,
-  setCloudTranscriptionProvider,
   cloudTranscriptionModel,
-  setCloudTranscriptionModel,
   localTranscriptionProvider,
-  setLocalTranscriptionProvider,
   whisperModel,
-  setWhisperModel,
   parakeetModel,
-  setParakeetModel,
   cohereModel,
-  setCohereModel,
   cloudTranscriptionBaseUrl,
-  setCloudTranscriptionBaseUrl,
   transcriptionMode,
-  setTranscriptionMode,
   remoteTranscriptionUrl,
-  setRemoteTranscriptionUrl,
   remoteTranscriptionModel,
-  setRemoteTranscriptionModel,
   showTranscriptionPreview,
   setShowTranscriptionPreview,
-  toast,
 }: TranscriptionSectionProps) {
   const { t } = useTranslation();
+  const dictationRoute = useResolvedRoute("dictationStt");
 
   const {
     modes: transcriptionModes,
@@ -523,43 +456,24 @@ function TranscriptionSection({
     ],
     transcriptionMode
   );
+  const { request, requestPatch } = useRouteChange();
+  const stagedMode = useRouteDraftStore((s) =>
+    s.draft?.routeId === "dictationStt" && s.draft.kind === "target" ? s.draft.target.mode : null
+  );
+  // SET-R3 B: the planner decides. On-device results apply now with Undo;
+  // off-device ones wait for Apply. Re-picking the active mode cancels only
+  // this route’s pending intent and matching draft.
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
-
-    if (mode === effectiveTranscriptionMode) return;
-    setTranscriptionMode(mode);
-    setUseLocalWhisper(mode === "local");
-    updateTranscriptionSettings({ useLocalWhisper: mode === "local" });
-    setCloudTranscriptionMode("byok");
-
-    const toastKey = (
-      {
-        providers: "switchedProviders",
-        local: "switchedLocal",
-        "self-hosted": "switchedSelfHosted",
-      } as Partial<Record<InferenceMode, string>>
-    )[mode];
-    toast({
-      title: t(`settingsPage.transcription.toasts.${toastKey}.title`),
-      description: t(`settingsPage.transcription.toasts.${toastKey}.description`),
-      variant: "success",
-      duration: 3000,
-    });
+    if (mode === effectiveTranscriptionMode) {
+      void requestPatch("dictationStt", {});
+      return;
+    }
+    void request(
+      "dictationStt",
+      stagedTargetForMode(mode, "dictationStt", useSettingsStore.getState())
+    );
   };
-
-  const handleLocalModelSelect = useCallback(
-    (modelId: string, providerId?: string) => {
-      const provider = providerId ?? localTranscriptionProvider;
-      if (provider === "nvidia") {
-        setParakeetModel(modelId);
-      } else if (provider === "cohere") {
-        setCohereModel(modelId);
-      } else {
-        setWhisperModel(modelId);
-      }
-    },
-    [localTranscriptionProvider, setParakeetModel, setCohereModel, setWhisperModel]
-  );
 
   const selectedCloudModelStreams = Boolean(
     getTranscriptionProvider(cloudTranscriptionProvider)?.models.some(
@@ -584,12 +498,11 @@ function TranscriptionSection({
     </SettingsPanel>
   );
 
-  const renderTranscriptionPicker = (mode?: "cloud" | "local") => (
+  const commitDictation = useRouteCommit("dictationStt");
+  const renderTranscriptionPicker = (mode: "cloud" | "local") => (
     <TranscriptionModelPicker
       selectedCloudProvider={cloudTranscriptionProvider}
-      onCloudProviderSelect={setCloudTranscriptionProvider}
       selectedCloudModel={cloudTranscriptionModel}
-      onCloudModelSelect={setCloudTranscriptionModel}
       selectedLocalModel={
         localTranscriptionProvider === "nvidia"
           ? parakeetModel
@@ -597,49 +510,29 @@ function TranscriptionSection({
             ? cohereModel
             : whisperModel
       }
-      onLocalModelSelect={handleLocalModelSelect}
       selectedLocalProvider={localTranscriptionProvider}
-      onLocalProviderSelect={setLocalTranscriptionProvider}
-      useLocalWhisper={mode === "local" || (!mode && useLocalWhisper)}
-      onModeChange={
-        mode
-          ? noop
-          : (isLocal) => {
-              setUseLocalWhisper(isLocal);
-              updateTranscriptionSettings({ useLocalWhisper: isLocal });
-              if (isLocal) setCloudTranscriptionMode("byok");
-            }
-      }
+      onCommit={commitDictation}
+      useLocalWhisper={mode === "local"}
       mode={mode}
       cloudTranscriptionBaseUrl={cloudTranscriptionBaseUrl}
-      setCloudTranscriptionBaseUrl={setCloudTranscriptionBaseUrl}
       variant="settings"
     />
   );
 
-  // Local decoding still serves meetings and uploads under a managed-config
-  // error, so this stays a card alongside the rest of the section (including
-  // the GPU selector below) instead of an early return that hides it.
+  // Local decoding still serves meetings and uploads under a managed-config error, so this section stays whole (including the GPU selector) instead of an early return that hides it. The way back to the setup flow is a link below the engine controls.
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-        <div>
-          <p className="text-sm font-medium">Review dictation setup</p>
-          <p className="text-xs text-muted-foreground">
-            Return to the focused setup flow without changing your existing notes or credentials.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={startOnboarding}>
-          Open setup
-        </Button>
-      </div>
       {
         <>
           <InferenceModeSelector
+            label={t("routes.runsOn", { task: t("routes.names.dictationStt") })}
             modes={transcriptionModes}
             activeMode={effectiveTranscriptionMode}
+            stagedMode={stagedMode}
             onSelect={handleTranscriptionModeSelect}
+            routeState={dictationRoute.state}
           />
+          <StagedRoutePanel routeId="dictationStt" />
 
           {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
           {effectiveTranscriptionMode === "local" && renderTranscriptionPicker("local")}
@@ -649,9 +542,10 @@ function TranscriptionSection({
             <SelfHostedPanel
               service="transcription"
               url={remoteTranscriptionUrl}
-              onUrlChange={setRemoteTranscriptionUrl}
+              onUse={({ url, model }) =>
+                void commitDictation({ mode: "self-hosted", remoteUrl: url, model })
+              }
               model={remoteTranscriptionModel}
-              onModelChange={setRemoteTranscriptionModel}
             />
           )}
         </>
@@ -659,26 +553,24 @@ function TranscriptionSection({
 
       {/* Local decoding still serves meetings and uploads, so the GPU choice stays reachable. */}
       <GpuDeviceSelector purpose="transcription" />
+      <p className="text-xs text-muted-foreground">
+        <button
+          type="button"
+          onClick={startOnboarding}
+          className="rounded-sm font-medium text-link underline-offset-2 outline-none hover:text-link-hover hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t("settingsPage.reviewSetup.title")}
+        </button>
+        {" · "}
+        {t("settingsPage.reviewSetup.description")}
+      </p>
     </div>
   );
 }
 
 interface AiModelsSectionProps {
   useCleanupModel: boolean;
-  setUseCleanupModel: (value: boolean) => void;
-  toast: (opts: {
-    title: string;
-    description: string;
-    variant?: "default" | "destructive" | "success";
-    duration?: number;
-  }) => void;
 }
-
-const CLEANUP_MODE_TOAST_KEY: Partial<Record<InferenceMode, string>> = {
-  providers: "switchedProviders",
-  local: "switchedLocal",
-  "self-hosted": "switchedSelfHosted",
-};
 
 function NoteFormattingSettings() {
   const { t } = useTranslation();
@@ -702,35 +594,26 @@ function NoteFormattingSettings() {
   );
 }
 
-function AiModelsSection({ useCleanupModel, setUseCleanupModel, toast }: AiModelsSectionProps) {
+function AiModelsSection({ useCleanupModel }: AiModelsSectionProps) {
   const { t } = useTranslation();
-
-  const handleCleanupModeChange = (mode: InferenceMode) => {
-    const toastKey = CLEANUP_MODE_TOAST_KEY[mode];
-    toast({
-      title: t(`settingsPage.aiModels.toasts.${toastKey}.title`),
-      description: t(`settingsPage.aiModels.toasts.${toastKey}.description`),
-      variant: "success",
-      duration: 3000,
-    });
-  };
 
   return (
     <div className="space-y-4">
       <SettingsPanel>
-        <SettingsPanelRow>
+        <SettingsPanelRow settingId="cleanupEnabled">
           <SettingsRow
             label={t("settingsPage.aiModels.enableTextCleanup")}
             description={t("settingsPage.aiModels.enableTextCleanupDescription")}
           >
-            <Toggle checked={useCleanupModel} onChange={setUseCleanupModel} />
+            <RouteSwitch routeId="dictationCleanup" settingKey="useCleanupModel" />
           </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>
 
+      {!useCleanupModel && <StagedRoutePanel routeId="dictationCleanup" />}
       {useCleanupModel && (
         <>
-          <InferenceConfigEditor scope="dictationCleanup" onModeChange={handleCleanupModeChange} />
+          <InferenceConfigEditor scope="dictationCleanup" />
           <GpuDeviceSelector purpose="intelligence" />
         </>
       )}
@@ -738,30 +621,24 @@ function AiModelsSection({ useCleanupModel, setUseCleanupModel, toast }: AiModel
   );
 }
 
-type SpeechTab = "dictation" | "noteRecording" | "upload";
-type LlmTab =
-  | "dictationCleanup"
-  | "dictationAgent"
-  | "dictationTranslation"
-  | "noteFormatting"
-  | "chatIntelligence";
+type SpeechTab = (typeof SPEECH_SUB_TABS)[number];
+type LlmTab = (typeof LLM_SUB_TABS)[number];
 
-const SPEECH_TABS: SpeechTab[] = ["dictation", "noteRecording", "upload"];
-const LLM_TABS: LlmTab[] = [
-  "dictationCleanup",
-  "dictationAgent",
-  "dictationTranslation",
-  "noteFormatting",
-  "chatIntelligence",
-];
+const SPEECH_TABS: readonly SpeechTab[] = SPEECH_SUB_TABS;
+const LLM_TABS: readonly LlmTab[] = LLM_SUB_TABS;
 const AGENT_LLM_TABS = new Set<LlmTab>(["dictationAgent", "chatIntelligence"]);
 
-function useSubTab<T extends string>(storageKey: string, options: readonly T[], initial?: T) {
+function useSubTab<T extends string>(
+  storageKey: string,
+  options: readonly T[],
+  initial?: T,
+  activationId?: string
+) {
   const [tab, setTab] = useLocalStorage<T>(storageKey, initial ?? options[0]);
   useEffect(() => {
     if (initial && initial !== tab) setTab(initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial]);
+  }, [initial, activationId]);
   const safeTab = options.includes(tab) ? tab : options[0];
   return [safeTab, setTab] as const;
 }
@@ -796,17 +673,24 @@ function TabPanel({ active, children }: { active: boolean; children: React.React
 
 function SpeechToTextTabs({
   initialTab,
+  activationId,
   renderDictation,
   renderNoteRecording,
   renderUpload,
 }: {
+  activationId?: string;
   initialTab?: SpeechTab;
   renderDictation: () => React.ReactNode;
   renderNoteRecording: () => React.ReactNode;
   renderUpload: () => React.ReactNode;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useSubTab<SpeechTab>("settings.speechToTextTab", SPEECH_TABS, initialTab);
+  const [tab, setTab] = useSubTab<SpeechTab>(
+    "settings.speechToTextTab",
+    SPEECH_TABS,
+    initialTab,
+    activationId
+  );
 
   const subTabs = [
     { id: "dictation", name: t("settingsPage.speechToText.tabs.dictation") },
@@ -816,10 +700,7 @@ function SpeechToTextTabs({
 
   return (
     <div className="space-y-4">
-      <SectionHeader
-        title={t("settingsPage.speechToText.title")}
-        description={t("settingsPage.speechToText.description")}
-      />
+      <SectionHeader description={t("settingsPage.speechToText.description")} />
       <ProviderTabs
         providers={subTabs}
         selectedId={tab}
@@ -843,23 +724,32 @@ function SpeechToTextTabs({
 
 function LlmsTabs({
   initialTab,
+  activationId,
   renderDictationCleanup,
   renderDictationAgent,
   renderDictationTranslation,
   renderNoteFormatting,
   renderChatIntelligence,
+  renderSupportModels,
 }: {
+  activationId?: string;
   initialTab?: LlmTab;
   renderDictationCleanup: () => React.ReactNode;
   renderDictationAgent: () => React.ReactNode;
   renderDictationTranslation: () => React.ReactNode;
   renderNoteFormatting: () => React.ReactNode;
   renderChatIntelligence: () => React.ReactNode;
+  renderSupportModels: () => React.ReactNode;
 }) {
   const { t } = useTranslation();
 
   const visibleTabIds = LLM_TABS;
-  const [tab, setTab] = useSubTab<LlmTab>("settings.llmsTab", visibleTabIds, initialTab);
+  const [tab, setTab] = useSubTab<LlmTab>(
+    "settings.llmsTab",
+    visibleTabIds,
+    initialTab,
+    activationId
+  );
 
   const subTabs = [
     { id: "dictationCleanup", name: t("settingsPage.llms.tabs.dictationCleanup") },
@@ -867,14 +757,12 @@ function LlmsTabs({
     { id: "dictationTranslation", name: t("settingsPage.llms.tabs.dictationTranslation") },
     { id: "noteFormatting", name: t("settingsPage.llms.tabs.noteFormatting") },
     { id: "chatIntelligence", name: t("settingsPage.llms.tabs.chatIntelligence") },
+    { id: "supportModels", name: t("settingsPage.llms.tabs.supportModels") },
   ].filter((item) => visibleTabIds.includes(item.id as LlmTab));
 
   return (
     <div className="space-y-4">
-      <SectionHeader
-        title={t("settingsPage.llms.title")}
-        description={t("settingsPage.llms.description")}
-      />
+      <SectionHeader description={t("settingsPage.llms.description")} />
       <ProviderTabs
         providers={subTabs}
         selectedId={tab}
@@ -884,6 +772,7 @@ function LlmsTabs({
           if (id === "dictationAgent") return <Sparkles className="w-3.5 h-3.5" />;
           if (id === "dictationTranslation") return <Languages className="w-3.5 h-3.5" />;
           if (id === "noteFormatting") return <BookOpen className="w-3.5 h-3.5" />;
+          if (id === "supportModels") return <HardDrive className="w-3.5 h-3.5" />;
           return <MessageSquare className="w-3.5 h-3.5" />;
         }}
       />
@@ -892,6 +781,7 @@ function LlmsTabs({
       <TabPanel active={tab === "dictationTranslation"}>{renderDictationTranslation()}</TabPanel>
       <TabPanel active={tab === "noteFormatting"}>{renderNoteFormatting()}</TabPanel>
       {<TabPanel active={tab === "chatIntelligence"}>{renderChatIntelligence()}</TabPanel>}
+      <TabPanel active={tab === "supportModels"}>{renderSupportModels()}</TabPanel>
     </div>
   );
 }
@@ -963,7 +853,9 @@ function GpuDeviceSelector({ purpose }: { purpose: "transcription" | "intelligen
 export default function SettingsPage({
   activeSection = "general",
   onNavigateToSection,
+  onNavigateToPath,
   initialSubTab,
+  activationId,
 }: SettingsPageProps) {
   const { isCompact } = useSettingsLayout();
   const {
@@ -998,16 +890,7 @@ export default function SettingsPage({
     setMicrophoneSelectionMode,
     setSelectedMicDevice,
     setMicWarmHoldSeconds,
-    setUseLocalWhisper,
     setUiLanguage,
-    setWhisperModel,
-    setLocalTranscriptionProvider,
-    setParakeetModel,
-    setCohereModel,
-    setCloudTranscriptionProvider,
-    setCloudTranscriptionModel,
-    setCloudTranscriptionBaseUrl,
-    setUseCleanupModel,
     setDictationKey,
     meetingKey,
     setMeetingKey,
@@ -1016,22 +899,24 @@ export default function SettingsPage({
     autoLearnCorrections,
     setAutoLearnCorrections,
     updateTranscriptionSettings,
-    updateCleanupSettings,
     cloudTranscriptionMode,
     setCloudTranscriptionMode,
     transcriptionMode,
-    setTranscriptionMode,
     remoteTranscriptionUrl,
-    setRemoteTranscriptionUrl,
     remoteTranscriptionModel,
-    setRemoteTranscriptionModel,
     notificationsEnabled,
     setNotificationsEnabled,
     notifyMeetingDetection,
     setNotifyMeetingDetection,
     notifyCalendarReminders,
     setNotifyCalendarReminders,
+    showMeetingRecorderOnScreen,
+    setShowMeetingRecorderOnScreen,
     audioCuesEnabled,
+    dictationCueSet,
+    setDictationCueSet,
+    dictationCueVolume,
+    setDictationCueVolume,
     setAudioCuesEnabled,
     pauseMediaOnDictation,
     setPauseMediaOnDictation,
@@ -1091,42 +976,12 @@ export default function SettingsPage({
 
   const startOnboarding = useStartOnboarding();
   const { t, i18n } = useTranslation();
-  const { toast } = useToast();
 
   const [currentVersion, setCurrentVersion] = useState<string>("");
-  const [isRemovingModels, setIsRemovingModels] = useState(false);
-  const [cachePathHint, setCachePathHint] = useState(
-    typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)
-      ? "%USERPROFILE%\\.cache\\loqui-snowopsdev"
-      : "~/.cache/loqui-snowopsdev"
-  );
-  useEffect(() => {
-    window.electronAPI
-      ?.getModelCacheRoot?.()
-      .then((root) => {
-        if (root) setCachePathHint(root);
-      })
-      .catch(() => {});
-  }, []);
-
   const { checkWhisperInstallation } = useWhisper();
   const permissionsHook = usePermissions(showAlertDialog);
   const systemAudio = useSystemAudioPermission();
   useClipboard(showAlertDialog);
-  const [audioStorageUsage, setAudioStorageUsage] = useState<{
-    fileCount: number;
-    totalBytes: number;
-  }>({ fileCount: 0, totalBytes: 0 });
-
-  useEffect(() => {
-    if (activeSection !== "privacyData") return;
-    window.electronAPI
-      ?.getAudioStorageUsage?.()
-      .then((usage: { fileCount: number; totalBytes: number }) => {
-        if (usage) setAudioStorageUsage(usage);
-      })
-      .catch(() => {});
-  }, [activeSection]);
 
   // Lazy keep-alive: mount AI sections only after the user has visited them once,
   // then keep them mounted so model-download progress and IPC listeners survive
@@ -1142,17 +997,6 @@ export default function SettingsPage({
   if (activeSection === "llms" && !hasMountedLlms) {
     setHasMountedLlms(true);
   }
-
-  const handleClearAllAudio = async () => {
-    if (!window.electronAPI?.deleteAllAudio) return;
-    try {
-      await window.electronAPI.deleteAllAudio();
-      setAudioStorageUsage({ fileCount: 0, totalBytes: 0 });
-      toast({ title: t("settingsPage.privacy.clearAllAudio"), variant: "default" });
-    } catch {
-      // silent fail
-    }
-  };
 
   // Wayland paste tool status for diagnostics.
   const [ydotoolStatus, setYdotoolStatus] = useState<{
@@ -1376,16 +1220,16 @@ export default function SettingsPage({
     try {
       const result = await window.electronAPI?.noteFilesRebuild?.();
       if (result && !result.success) {
-        toast({
+        notify({
+          kind: "alert",
           title: t("settings.noteFiles.rebuildError.title"),
-          description: result.error || t("settings.noteFiles.rebuildError.description"),
-          variant: "destructive",
+          body: result.error || t("settings.noteFiles.rebuildError.description"),
         });
       }
     } finally {
       setNoteFilesRebuilding(false);
     }
-  }, [toast, t]);
+  }, [t]);
 
   useEffect(() => {
     let mounted = true;
@@ -1422,16 +1266,16 @@ export default function SettingsPage({
   useEffect(() => {
     const cleanup = window.electronAPI?.onLinuxPttPermissionDenied?.(() => {
       setLinuxPttAvailable(false);
-      toast({
+      notify({
+        kind: "alert",
         title: t("settingsPage.general.hotkey.linuxPttPermissionTitle"),
-        description: t("settingsPage.general.hotkey.linuxPttPermissionDescription"),
-        variant: "destructive",
-        duration: 15000,
+        body: t("settingsPage.general.hotkey.linuxPttPermissionDescription"),
+        persistent: true,
       });
       setActivationMode("tap");
     });
     return () => cleanup?.();
-  }, [toast, t, setActivationMode]);
+  }, [t, setActivationMode]);
 
   const resetAccessibilityPermissions = () => {
     const message = t("settingsPage.permissions.resetAccessibility.description");
@@ -1444,54 +1288,6 @@ export default function SettingsPage({
       },
     });
   };
-
-  const handleRemoveModels = useCallback(() => {
-    if (isRemovingModels) return;
-
-    showConfirmDialog({
-      title: t("settingsPage.developer.removeModels.title"),
-      description: t("settingsPage.developer.removeModels.description", { path: cachePathHint }),
-      confirmText: t("settingsPage.developer.removeModels.confirmText"),
-      variant: "destructive",
-      onConfirm: async () => {
-        setIsRemovingModels(true);
-        try {
-          const results = await Promise.allSettled([
-            window.electronAPI?.deleteAllWhisperModels?.(),
-            window.electronAPI?.deleteAllParakeetModels?.(),
-            window.electronAPI?.modelDeleteAll?.(),
-          ]);
-
-          const anyFailed = results.some(
-            (r) =>
-              r.status === "rejected" || (r.status === "fulfilled" && r.value && !r.value.success)
-          );
-
-          if (anyFailed) {
-            showAlertDialog({
-              title: t("settingsPage.developer.removeModels.failedTitle"),
-              description: t("settingsPage.developer.removeModels.failedDescription"),
-            });
-          } else {
-            // Every local model is gone, so no local selection can still resolve.
-            clearMissingLocalModelSelections(() => false);
-            window.dispatchEvent(new Event("openwhispr-models-cleared"));
-            showAlertDialog({
-              title: t("settingsPage.developer.removeModels.successTitle"),
-              description: t("settingsPage.developer.removeModels.successDescription"),
-            });
-          }
-        } catch {
-          showAlertDialog({
-            title: t("settingsPage.developer.removeModels.failedTitle"),
-            description: t("settingsPage.developer.removeModels.failedDescriptionShort"),
-          });
-        } finally {
-          setIsRemovingModels(false);
-        }
-      },
-    });
-  }, [isRemovingModels, cachePathHint, showConfirmDialog, showAlertDialog, t]);
 
   const renderWhisperVadSettings = () => (
     <div>
@@ -1634,7 +1430,7 @@ export default function SettingsPage({
                 description={t("settingsPage.general.appearance.description")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="theme">
                   <SettingsRow
                     label={t("settingsPage.general.appearance.theme")}
                     description={t("settingsPage.general.appearance.themeDescription")}
@@ -1690,12 +1486,53 @@ export default function SettingsPage({
             <div>
               <SectionHeader title={t("settingsPage.general.soundEffects.title")} />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="audioCues">
                   <SettingsRow
                     label={t("settingsPage.general.soundEffects.dictationSounds")}
                     description={t("settingsPage.general.soundEffects.dictationSoundsDescription")}
                   >
                     <Toggle checked={audioCuesEnabled} onChange={setAudioCuesEnabled} />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow settingId="dictationCueSet">
+                  <SettingsRow label={t("settingsPage.general.soundEffects.cueSet")}>
+                    <select
+                      aria-label={t("settingsPage.general.soundEffects.cueSet")}
+                      value={dictationCueSet}
+                      disabled={!audioCuesEnabled}
+                      onChange={(e) => setDictationCueSet(e.target.value as "soft" | "classic")}
+                      className="h-7 rounded border border-input-border bg-background px-2.5 text-xs font-medium text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="soft">
+                        {t("settingsPage.general.soundEffects.cueSetSoft")}
+                      </option>
+                      <option value="classic">
+                        {t("settingsPage.general.soundEffects.cueSetClassic")}
+                      </option>
+                    </select>
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow settingId="dictationCueVolume">
+                  <SettingsRow label={t("settingsPage.general.soundEffects.cueVolume")}>
+                    <select
+                      aria-label={t("settingsPage.general.soundEffects.cueVolume")}
+                      value={dictationCueVolume}
+                      disabled={!audioCuesEnabled}
+                      onChange={(e) =>
+                        setDictationCueVolume(e.target.value as "low" | "medium" | "high")
+                      }
+                      className="h-7 rounded border border-input-border bg-background px-2.5 text-xs font-medium text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="low">
+                        {t("settingsPage.general.soundEffects.cueVolumeLow")}
+                      </option>
+                      <option value="medium">
+                        {t("settingsPage.general.soundEffects.cueVolumeMedium")}
+                      </option>
+                      <option value="high">
+                        {t("settingsPage.general.soundEffects.cueVolumeHigh")}
+                      </option>
+                    </select>
                   </SettingsRow>
                 </SettingsPanelRow>
                 <SettingsPanelRow>
@@ -1716,7 +1553,7 @@ export default function SettingsPage({
                 description={t("settingsPage.general.notifications.description")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="notifications">
                   <SettingsRow
                     label={t("settingsPage.general.notifications.disableAll")}
                     description={t("settingsPage.general.notifications.disableAllDescription")}
@@ -1727,7 +1564,7 @@ export default function SettingsPage({
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="meetingDetection">
                   <SettingsRow
                     label={t("settingsPage.general.notifications.meetingDetection")}
                     description={t(
@@ -1741,7 +1578,20 @@ export default function SettingsPage({
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="meetingRecorderOnScreen">
+                  <SettingsRow
+                    label={t("settingsPage.general.notifications.meetingRecorderOnScreen")}
+                    description={t(
+                      "settingsPage.general.notifications.meetingRecorderOnScreenDescription"
+                    )}
+                  >
+                    <Toggle
+                      checked={showMeetingRecorderOnScreen}
+                      onChange={setShowMeetingRecorderOnScreen}
+                    />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow settingId="calendarReminders">
                   <SettingsRow
                     label={t("settingsPage.general.notifications.calendarReminders")}
                     description={t(
@@ -1752,32 +1602,6 @@ export default function SettingsPage({
                       checked={notifyCalendarReminders}
                       onChange={setNotifyCalendarReminders}
                       disabled={!notificationsEnabled}
-                    />
-                  </SettingsRow>
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-
-            {/* Clipboard */}
-            <div>
-              <SectionHeader title={t("settingsPage.general.clipboard.title")} />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.general.clipboard.autoPaste")}
-                    description={t("settingsPage.general.clipboard.autoPasteDescription")}
-                  >
-                    <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
-                  </SettingsRow>
-                </SettingsPanelRow>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.general.clipboard.keepInClipboard")}
-                    description={t("settingsPage.general.clipboard.keepInClipboardDescription")}
-                  >
-                    <Toggle
-                      checked={keepTranscriptionInClipboard}
-                      onChange={setKeepTranscriptionInClipboard}
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
@@ -1852,7 +1676,7 @@ export default function SettingsPage({
                 description={t("settingsPage.general.floatingIcon.description")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="floatingIcon">
                   <SettingsRow
                     label={t("settingsPage.general.floatingIcon.autoHide")}
                     description={t("settingsPage.general.floatingIcon.autoHideDescription")}
@@ -1896,7 +1720,7 @@ export default function SettingsPage({
                 description={t("settings.language.sectionDescription")}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="uiLanguage">
                   <SettingsRow
                     label={t("settings.language.uiLabel")}
                     description={t("settings.language.uiDescription")}
@@ -1909,7 +1733,297 @@ export default function SettingsPage({
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+
+            {/* Startup */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.startup.title")}
+                description={t("settingsPage.general.startup.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow settingId="launchAtLogin">
+                  <SettingsRow
+                    label={t("settingsPage.general.startup.launchAtLogin")}
+                    description={t("settingsPage.general.startup.launchAtLoginDescription")}
+                  >
+                    <Toggle
+                      checked={autoStartEnabled}
+                      onChange={(checked: boolean) => handleAutoStartChange(checked)}
+                      disabled={autoStartLoading}
+                    />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                {autoStartNeedsApproval && (
+                  <SettingsPanelRow>
+                    <Alert
+                      variant="warning"
+                      className="dark:bg-amber-950/50 dark:border-amber-800 dark:text-amber-200 dark:[&>svg]:text-amber-400"
+                    >
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>
+                        {t("settingsPage.general.startup.needsApproval.title")}
+                      </AlertTitle>
+                      <AlertDescription className="space-y-2">
+                        <p>{t("settingsPage.general.startup.needsApproval.description")}</p>
+                        <Button
+                          onClick={() => void window.electronAPI?.openLoginItemsSettings?.()}
+                          variant="outline"
+                          size="sm"
+                        >
+                          {t("settingsPage.general.startup.needsApproval.action")}
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  </SettingsPanelRow>
+                )}
+                <SettingsPanelRow settingId="startMinimized">
+                  <SettingsRow
+                    label={t("settingsPage.general.startup.startMinimized")}
+                    description={t("settingsPage.general.startup.startMinimizedDescription")}
+                  >
+                    <Toggle checked={startMinimized} onChange={setStartMinimized} />
+                  </SettingsRow>
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+          </div>
+        );
+
+      case "hotkeys":
+        return (
+          <div className="space-y-6">
+            {isUsingHyprland && hyprlandConfigStatus && !hyprlandConfigStatus.canWrite && (
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertTitle>
+                  {t("settingsPage.general.hotkey.hyprlandConfigWriteWarningTitle")}
+                </AlertTitle>
+                <AlertDescription>
+                  <BidiInterpolatedText
+                    text={t("settingsPage.general.hotkey.hyprlandConfigWriteWarningDescription", {
+                      path: BIDI_VALUE_TOKEN,
+                    })}
+                    value={hyprlandConfigStatus.path}
+                  />
+                </AlertDescription>
+              </Alert>
+            )}
+            {/* Dictation Hotkey */}
+            <div data-setting-id="dictationHotkey">
+              <SectionHeader
+                title={t("settingsPage.general.hotkey.title")}
+                description={t("settingsPage.general.hotkey.description")}
+                note={isUsingHyprland && t("settingsPage.general.hotkey.hyprlandUnbindDescription")}
+              />
+              <SettingsPanel>
                 <SettingsPanelRow>
+                  <HotkeyListInput
+                    value={dictationKey}
+                    onChange={(list) => registerHotkey(list)}
+                    validate={validateDictationHotkey}
+                    disabled={isHotkeyRegistering}
+                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                    required
+                    footerEnd={
+                      effectiveDefaultHotkey &&
+                      dictationKey &&
+                      dictationKey !== effectiveDefaultHotkey ? (
+                        <button
+                          onClick={() => registerHotkey(effectiveDefaultHotkey)}
+                          disabled={isHotkeyRegistering}
+                          className="text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-50"
+                        >
+                          <BidiInterpolatedText
+                            text={t("settingsPage.general.hotkey.resetToDefault", {
+                              hotkey: BIDI_VALUE_TOKEN,
+                            })}
+                            value={formatHotkeyLabel(effectiveDefaultHotkey)}
+                          />
+                        </button>
+                      ) : null
+                    }
+                  />
+                </SettingsPanelRow>
+
+                {(!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
+                  <SettingsPanelRow>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-muted-foreground/80">
+                        {t("settingsPage.general.hotkey.activationMode")}
+                      </span>
+                      <ActivationModeSelector
+                        value={activationMode}
+                        onChange={setActivationMode}
+                        pushDisabledReason={
+                          !supportsPushToTalk
+                            ? pushToTalkUnavailableReason || t("windows.pttUnavailable")
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {getCachedPlatform() === "linux" && activationMode === "push" && (
+                      <LinuxPttSetupInfo isAvailable={linuxPttAvailable} />
+                    )}
+                  </SettingsPanelRow>
+                )}
+              </SettingsPanel>
+            </div>
+            {/* Voice Agent Hotkey */}
+            {
+              <div>
+                <SectionHeader
+                  title={t("settingsPage.general.voiceAgentHotkey.title")}
+                  description={t("settingsPage.general.voiceAgentHotkey.description")}
+                />
+                <SettingsPanel>
+                  <SettingsPanelRow>
+                    <HotkeyListInput
+                      value={voiceAgentKey}
+                      onChange={(list) => commitAgentHotkey(setVoiceAgentKey, list)}
+                      onClear={() => commitAgentHotkey(setVoiceAgentKey, "")}
+                      validate={validateVoiceAgentHotkey}
+                      disabled={isAgentHotkeyCommitting}
+                      maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                    />
+                  </SettingsPanelRow>
+                </SettingsPanel>
+              </div>
+            }
+            {/* Translation Hotkey */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.translationHotkey.title")}
+                description={t("settingsPage.general.translationHotkey.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <HotkeyListInput
+                    value={translationKey}
+                    onChange={(list) => commitAgentHotkey(setTranslationKey, list)}
+                    onClear={() => commitAgentHotkey(setTranslationKey, "")}
+                    validate={validateTranslationHotkey}
+                    disabled={isAgentHotkeyCommitting}
+                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                  />
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+            {/* Meeting Mode Hotkey */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.meetingHotkey.title")}
+                description={t("settingsPage.general.meetingHotkey.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <HotkeyListInput
+                    value={meetingKey}
+                    onChange={(list) => registerMeetingHotkey(list)}
+                    onClear={async (): Promise<boolean> => {
+                      const result = await window.electronAPI?.registerMeetingHotkey?.("");
+                      if (!result?.success) {
+                        showAlertDialog({
+                          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
+                          description:
+                            result?.message ||
+                            t("hooks.hotkeyRegistration.errors.couldNotRegister"),
+                        });
+                        return false;
+                      }
+                      setMeetingKey("");
+                      return true;
+                    }}
+                    validate={validateMeetingHotkey}
+                    disabled={isMeetingHotkeyRegistering}
+                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                  />
+                </SettingsPanelRow>
+                <SettingsPanelRow className="flex items-center justify-between gap-3 border-t border-border/70 dark:border-white/10">
+                  <span className="text-xs text-muted-foreground/80">
+                    {t("settingsPage.general.meetingHotkey.layoutLabel")}
+                  </span>
+                  <Select
+                    value={meetingHotkeyLayoutMode}
+                    onValueChange={(value) =>
+                      setMeetingHotkeyLayoutMode(value as "side-panel" | "full-width")
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-36 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        value="full-width"
+                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
+                      >
+                        {t("settingsPage.general.meetingHotkey.layoutFullWidth")}
+                      </SelectItem>
+                      <SelectItem
+                        value="side-panel"
+                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
+                      >
+                        {t("settingsPage.general.meetingHotkey.layoutSidePanel")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+            {/* Microphone */}
+            <div data-setting-id="microphone">
+              <SectionHeader
+                title={t("settingsPage.general.microphone.title")}
+                description={t("settingsPage.general.microphone.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <MicrophoneSettings
+                    microphoneSelectionMode={microphoneSelectionMode}
+                    selectedMicDeviceId={selectedMicDeviceId}
+                    selectedMicDeviceLabel={selectedMicDeviceLabel}
+                    micWarmHoldSeconds={micWarmHoldSeconds}
+                    onSelectionModeChange={setMicrophoneSelectionMode}
+                    onDeviceSelect={setSelectedMicDevice}
+                    onMicWarmHoldSecondsChange={setMicWarmHoldSeconds}
+                  />
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+            {/* Clipboard */}
+            <div>
+              <SectionHeader title={t("settingsPage.general.clipboard.title")} />
+              <SettingsPanel>
+                <SettingsPanelRow settingId="autoPaste">
+                  <SettingsRow
+                    label={t("settingsPage.general.clipboard.autoPaste")}
+                    description={t("settingsPage.general.clipboard.autoPasteDescription")}
+                  >
+                    <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow settingId="keepInClipboard">
+                  <SettingsRow
+                    label={t("settingsPage.general.clipboard.keepInClipboard")}
+                    description={t("settingsPage.general.clipboard.keepInClipboardDescription")}
+                  >
+                    <Toggle
+                      checked={keepTranscriptionInClipboard}
+                      onChange={setKeepTranscriptionInClipboard}
+                    />
+                  </SettingsRow>
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+            {/* Transcription language */}
+            <div>
+              <SectionHeader
+                title={t("settings.language.dictationSectionTitle")}
+                description={t("settings.language.dictationSectionDescription")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow settingId="transcriptionLanguage">
                   <SettingsRow
                     label={t("settings.language.transcriptionLabel")}
                     description={t("settings.language.transcriptionDescription")}
@@ -1953,82 +2067,7 @@ export default function SettingsPage({
                   </SettingsPanelRow>
                 )}
               </SettingsPanel>
-            </div>
-
-            {/* Startup */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.startup.title")}
-                description={t("settingsPage.general.startup.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.general.startup.launchAtLogin")}
-                    description={t("settingsPage.general.startup.launchAtLoginDescription")}
-                  >
-                    <Toggle
-                      checked={autoStartEnabled}
-                      onChange={(checked: boolean) => handleAutoStartChange(checked)}
-                      disabled={autoStartLoading}
-                    />
-                  </SettingsRow>
-                </SettingsPanelRow>
-                {autoStartNeedsApproval && (
-                  <SettingsPanelRow>
-                    <Alert
-                      variant="warning"
-                      className="dark:bg-amber-950/50 dark:border-amber-800 dark:text-amber-200 dark:[&>svg]:text-amber-400"
-                    >
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertTitle>
-                        {t("settingsPage.general.startup.needsApproval.title")}
-                      </AlertTitle>
-                      <AlertDescription className="space-y-2">
-                        <p>{t("settingsPage.general.startup.needsApproval.description")}</p>
-                        <Button
-                          onClick={() => void window.electronAPI?.openLoginItemsSettings?.()}
-                          variant="outline"
-                          size="sm"
-                        >
-                          {t("settingsPage.general.startup.needsApproval.action")}
-                        </Button>
-                      </AlertDescription>
-                    </Alert>
-                  </SettingsPanelRow>
-                )}
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.general.startup.startMinimized")}
-                    description={t("settingsPage.general.startup.startMinimizedDescription")}
-                  >
-                    <Toggle checked={startMinimized} onChange={setStartMinimized} />
-                  </SettingsRow>
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-
-            {/* Microphone */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.microphone.title")}
-                description={t("settingsPage.general.microphone.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <MicrophoneSettings
-                    microphoneSelectionMode={microphoneSelectionMode}
-                    selectedMicDeviceId={selectedMicDeviceId}
-                    selectedMicDeviceLabel={selectedMicDeviceLabel}
-                    micWarmHoldSeconds={micWarmHoldSeconds}
-                    onSelectionModeChange={setMicrophoneSelectionMode}
-                    onDeviceSelect={setSelectedMicDevice}
-                    onMicWarmHoldSecondsChange={setMicWarmHoldSeconds}
-                  />
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-
+            </div>{" "}
             {/* Dictionary */}
             <div>
               <SectionHeader
@@ -2037,7 +2076,7 @@ export default function SettingsPage({
                 })}
               />
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="autoLearn">
                   <SettingsRow
                     label={t("settingsPage.dictionary.autoLearnTitle", {
                       defaultValue: "Auto-learn from corrections",
@@ -2052,7 +2091,6 @@ export default function SettingsPage({
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>
-
             {/* Wayland Paste Diagnostics — only on Linux + Wayland */}
             {ydotoolStatus?.isLinux && ydotoolStatus?.isWayland && (
               <div>
@@ -2553,191 +2591,8 @@ EOF`,
           </div>
         );
 
-      case "hotkeys":
-        return (
-          <div className="space-y-6">
-            {isUsingHyprland && hyprlandConfigStatus && !hyprlandConfigStatus.canWrite && (
-              <Alert>
-                <Info className="h-4 w-4" />
-                <AlertTitle>
-                  {t("settingsPage.general.hotkey.hyprlandConfigWriteWarningTitle")}
-                </AlertTitle>
-                <AlertDescription>
-                  <BidiInterpolatedText
-                    text={t("settingsPage.general.hotkey.hyprlandConfigWriteWarningDescription", {
-                      path: BIDI_VALUE_TOKEN,
-                    })}
-                    value={hyprlandConfigStatus.path}
-                  />
-                </AlertDescription>
-              </Alert>
-            )}
-            {/* Dictation Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.hotkey.title")}
-                description={t("settingsPage.general.hotkey.description")}
-                note={isUsingHyprland && t("settingsPage.general.hotkey.hyprlandUnbindDescription")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={dictationKey}
-                    onChange={(list) => registerHotkey(list)}
-                    validate={validateDictationHotkey}
-                    disabled={isHotkeyRegistering}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                    required
-                    footerEnd={
-                      effectiveDefaultHotkey &&
-                      dictationKey &&
-                      dictationKey !== effectiveDefaultHotkey ? (
-                        <button
-                          onClick={() => registerHotkey(effectiveDefaultHotkey)}
-                          disabled={isHotkeyRegistering}
-                          className="text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-50"
-                        >
-                          <BidiInterpolatedText
-                            text={t("settingsPage.general.hotkey.resetToDefault", {
-                              hotkey: BIDI_VALUE_TOKEN,
-                            })}
-                            value={formatHotkeyLabel(effectiveDefaultHotkey)}
-                          />
-                        </button>
-                      ) : null
-                    }
-                  />
-                </SettingsPanelRow>
-
-                {(!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
-                  <SettingsPanelRow>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs text-muted-foreground/80">
-                        {t("settingsPage.general.hotkey.activationMode")}
-                      </span>
-                      <ActivationModeSelector
-                        value={activationMode}
-                        onChange={setActivationMode}
-                        pushDisabledReason={
-                          !supportsPushToTalk
-                            ? pushToTalkUnavailableReason || t("windows.pttUnavailable")
-                            : undefined
-                        }
-                      />
-                    </div>
-                    {getCachedPlatform() === "linux" && activationMode === "push" && (
-                      <LinuxPttSetupInfo isAvailable={linuxPttAvailable} />
-                    )}
-                  </SettingsPanelRow>
-                )}
-              </SettingsPanel>
-            </div>
-
-            {/* Voice Agent Hotkey */}
-            {
-              <div>
-                <SectionHeader
-                  title={t("settingsPage.general.voiceAgentHotkey.title")}
-                  description={t("settingsPage.general.voiceAgentHotkey.description")}
-                />
-                <SettingsPanel>
-                  <SettingsPanelRow>
-                    <HotkeyListInput
-                      value={voiceAgentKey}
-                      onChange={(list) => commitAgentHotkey(setVoiceAgentKey, list)}
-                      onClear={() => commitAgentHotkey(setVoiceAgentKey, "")}
-                      validate={validateVoiceAgentHotkey}
-                      disabled={isAgentHotkeyCommitting}
-                      maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                    />
-                  </SettingsPanelRow>
-                </SettingsPanel>
-              </div>
-            }
-
-            {/* Translation Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.translationHotkey.title")}
-                description={t("settingsPage.general.translationHotkey.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={translationKey}
-                    onChange={(list) => commitAgentHotkey(setTranslationKey, list)}
-                    onClear={() => commitAgentHotkey(setTranslationKey, "")}
-                    validate={validateTranslationHotkey}
-                    disabled={isAgentHotkeyCommitting}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-
-            {/* Meeting Mode Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.meetingHotkey.title")}
-                description={t("settingsPage.general.meetingHotkey.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={meetingKey}
-                    onChange={(list) => registerMeetingHotkey(list)}
-                    onClear={async (): Promise<boolean> => {
-                      const result = await window.electronAPI?.registerMeetingHotkey?.("");
-                      if (!result?.success) {
-                        showAlertDialog({
-                          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
-                          description:
-                            result?.message ||
-                            t("hooks.hotkeyRegistration.errors.couldNotRegister"),
-                        });
-                        return false;
-                      }
-                      setMeetingKey("");
-                      return true;
-                    }}
-                    validate={validateMeetingHotkey}
-                    disabled={isMeetingHotkeyRegistering}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-                <SettingsPanelRow className="flex items-center justify-between gap-3 border-t border-border/70 dark:border-white/10">
-                  <span className="text-xs text-muted-foreground/80">
-                    {t("settingsPage.general.meetingHotkey.layoutLabel")}
-                  </span>
-                  <Select
-                    value={meetingHotkeyLayoutMode}
-                    onValueChange={(value) =>
-                      setMeetingHotkeyLayoutMode(value as "side-panel" | "full-width")
-                    }
-                  >
-                    <SelectTrigger className="h-7 w-36 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem
-                        value="full-width"
-                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
-                      >
-                        {t("settingsPage.general.meetingHotkey.layoutFullWidth")}
-                      </SelectItem>
-                      <SelectItem
-                        value="side-panel"
-                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
-                      >
-                        {t("settingsPage.general.meetingHotkey.layoutSidePanel")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-          </div>
-        );
+      case "routing":
+        return <RoutingSection onNavigateToPath={onNavigateToPath} />;
 
       case "speechToText":
       case "llms":
@@ -2748,18 +2603,13 @@ EOF`,
           <div className="space-y-6">
             {/* Privacy */}
             <div>
-              <SectionHeader
-                title={t("settingsPage.privacy.title")}
-                description={t("personal.privacyDescription")}
-              />
+              <SectionHeader description={t("personal.privacyDescription")} />
             </div>
-
-            <LocalSupportModels />
 
             {/* Audio Retention */}
             <div className="border-t border-border/70 pt-6">
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="audioRetention">
                   <SettingsRow
                     label={t("settingsPage.privacy.audioRetention")}
                     description={t("settingsPage.privacy.audioRetentionDescription")}
@@ -2790,36 +2640,13 @@ EOF`,
                     </select>
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
-                  <SettingsRow
-                    label={t("settingsPage.privacy.audioStorageUsage")}
-                    description={
-                      audioStorageUsage.fileCount > 0
-                        ? t("settingsPage.privacy.audioStorageFiles", {
-                            count: audioStorageUsage.fileCount,
-                            size: formatBytes(audioStorageUsage.totalBytes),
-                          })
-                        : t("settingsPage.privacy.audioStorageEmpty")
-                    }
-                  >
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      disabled={audioStorageUsage.fileCount === 0}
-                      onClick={handleClearAllAudio}
-                    >
-                      {t("settingsPage.privacy.clearAllAudio")}
-                    </Button>
-                  </SettingsRow>
-                </SettingsPanelRow>
               </SettingsPanel>
             </div>
 
             {/* Data Retention */}
             <div className="border-t border-border/70 pt-6">
               <SettingsPanel>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="dataRetention">
                   <SettingsRow
                     label={t("settingsPage.privacy.dataRetention")}
                     description={t("settingsPage.privacy.dataRetentionDescription")}
@@ -2831,7 +2658,7 @@ EOF`,
                     />
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="transcriptRetention">
                   <SettingsRow
                     label={t("settingsPage.privacy.transcriptRetention")}
                     description={t("settingsPage.privacy.transcriptRetentionDescription")}
@@ -2853,7 +2680,7 @@ EOF`,
                     </select>
                   </SettingsRow>
                 </SettingsPanelRow>
-                <SettingsPanelRow>
+                <SettingsPanelRow settingId="saveDiscarded">
                   <SettingsRow
                     label={t("settingsPage.privacy.saveDiscarded")}
                     description={t("settingsPage.privacy.saveDiscardedDescription")}
@@ -2868,8 +2695,13 @@ EOF`,
               </SettingsPanel>
             </div>
 
-            {/* Permissions */}
+            {/* Storage: counted deletes and reset (SET-R7 A) */}
             <div className="border-t border-border/70 pt-6">
+              <StorageList />
+            </div>
+
+            {/* Permissions */}
+            <div data-setting-id="permissions" className="border-t border-border/70 pt-6">
               <SectionHeader
                 title={t("settingsPage.permissions.title")}
                 description={t("settingsPage.permissions.description")}
@@ -2964,6 +2796,7 @@ EOF`,
         return (
           <div className="space-y-6">
             <UpdateSettings />
+            <LabsSettings />
             <SettingsPanel>
               <SettingsPanelRow>
                 <SettingsRow label={t("settingsPage.general.updates.currentVersion")}>
@@ -2975,94 +2808,6 @@ EOF`,
             {/* Developer Tools */}
             <div className="border-t border-border/70 pt-6">
               <DeveloperSection />
-            </div>
-
-            {/* Data Management */}
-            <div className="border-t border-border/70 pt-6">
-              <SectionHeader
-                title={t("settingsPage.developer.dataManagementTitle")}
-                description={t("settingsPage.developer.dataManagementDescription")}
-              />
-
-              <div className="space-y-4">
-                <SettingsPanel>
-                  <SettingsPanelRow>
-                    <SettingsRow
-                      label={t("settingsPage.developer.modelCache")}
-                      description={
-                        <span dir="ltr" className="block break-all">
-                          {cachePathHint}
-                        </span>
-                      }
-                    >
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => window.electronAPI?.openWhisperModelsFolder?.()}
-                        >
-                          <FolderOpen className="me-1.5 h-3.5 w-3.5" />
-                          {t("settingsPage.developer.open")}
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={handleRemoveModels}
-                          disabled={isRemovingModels}
-                        >
-                          {isRemovingModels
-                            ? t("settingsPage.developer.removing")
-                            : t("settingsPage.developer.clearCache")}
-                        </Button>
-                      </div>
-                    </SettingsRow>
-                  </SettingsPanelRow>
-                </SettingsPanel>
-
-                <SettingsPanel>
-                  <SettingsPanelRow>
-                    <SettingsRow
-                      label={t("settingsPage.developer.resetAppData")}
-                      description={t("settingsPage.developer.resetAppDataDescription")}
-                    >
-                      <Button
-                        onClick={() => {
-                          showConfirmDialog({
-                            title: t("settingsPage.developer.resetAll.title"),
-                            description: t("settingsPage.developer.resetAll.description"),
-                            onConfirm: async () => {
-                              try {
-                                await window.electronAPI?.cleanupApp();
-                                showAlertDialog({
-                                  title: t("settingsPage.developer.resetAll.successTitle"),
-                                  description: t(
-                                    "settingsPage.developer.resetAll.successDescription"
-                                  ),
-                                });
-                                setTimeout(() => window.electronAPI?.relaunchApp(), 1000);
-                              } catch {
-                                showAlertDialog({
-                                  title: t("settingsPage.developer.resetAll.failedTitle"),
-                                  description: t(
-                                    "settingsPage.developer.resetAll.failedDescription"
-                                  ),
-                                });
-                              }
-                            },
-                            variant: "destructive",
-                            confirmText: t("settingsPage.developer.resetAll.confirmText"),
-                          });
-                        }}
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive"
-                      >
-                        {t("common.reset")}
-                      </Button>
-                    </SettingsRow>
-                  </SettingsPanelRow>
-                </SettingsPanel>
-              </div>
             </div>
           </div>
         );
@@ -3097,6 +2842,7 @@ EOF`,
       {hasMountedSpeechToText && (
         <TabPanel active={activeSection === "speechToText"}>
           <SpeechToTextTabs
+            activationId={activationId}
             initialTab={
               activeSection === "speechToText"
                 ? (initialSubTab as SpeechTab | undefined)
@@ -3106,34 +2852,18 @@ EOF`,
               <div className="space-y-6">
                 <TranscriptionSection
                   startOnboarding={startOnboarding}
-                  cloudTranscriptionMode={cloudTranscriptionMode}
-                  setCloudTranscriptionMode={setCloudTranscriptionMode}
-                  useLocalWhisper={useLocalWhisper}
-                  setUseLocalWhisper={setUseLocalWhisper}
-                  updateTranscriptionSettings={updateTranscriptionSettings}
                   cloudTranscriptionProvider={cloudTranscriptionProvider}
-                  setCloudTranscriptionProvider={setCloudTranscriptionProvider}
                   cloudTranscriptionModel={cloudTranscriptionModel}
-                  setCloudTranscriptionModel={setCloudTranscriptionModel}
                   localTranscriptionProvider={localTranscriptionProvider}
-                  setLocalTranscriptionProvider={setLocalTranscriptionProvider}
                   whisperModel={whisperModel}
-                  setWhisperModel={setWhisperModel}
                   parakeetModel={parakeetModel}
-                  setParakeetModel={setParakeetModel}
                   cohereModel={cohereModel}
-                  setCohereModel={setCohereModel}
                   cloudTranscriptionBaseUrl={cloudTranscriptionBaseUrl}
-                  setCloudTranscriptionBaseUrl={setCloudTranscriptionBaseUrl}
                   transcriptionMode={transcriptionMode}
-                  setTranscriptionMode={setTranscriptionMode}
                   remoteTranscriptionUrl={remoteTranscriptionUrl}
-                  setRemoteTranscriptionUrl={setRemoteTranscriptionUrl}
                   remoteTranscriptionModel={remoteTranscriptionModel}
-                  setRemoteTranscriptionModel={setRemoteTranscriptionModel}
                   showTranscriptionPreview={showTranscriptionPreview}
                   setShowTranscriptionPreview={setShowTranscriptionPreview}
-                  toast={toast}
                 />
                 {transcriptionMode === "local" &&
                   localTranscriptionProvider === "whisper" &&
@@ -3159,19 +2889,15 @@ EOF`,
       {hasMountedLlms && (
         <TabPanel active={activeSection === "llms"}>
           <LlmsTabs
+            activationId={activationId}
             initialTab={
               activeSection === "llms" ? (initialSubTab as LlmTab | undefined) : undefined
             }
             renderChatIntelligence={() => <ChatAgentSettings />}
+            renderSupportModels={() => <LocalSupportModels />}
             renderDictationCleanup={() => (
               <div className="space-y-6">
-                <AiModelsSection
-                  useCleanupModel={useCleanupModel}
-                  setUseCleanupModel={(value) => {
-                    updateCleanupSettings({ useCleanupModel: value });
-                  }}
-                  toast={toast}
-                />
+                <AiModelsSection useCleanupModel={useCleanupModel} />
                 <div className="border-t border-border/70 pt-6">
                   <SectionHeader
                     title={t("settingsPage.prompts.title")}

@@ -13,16 +13,9 @@ test("the recording window fits the compact listening pill footprint", async () 
   assert.ok(WINDOW_SIZES.RECORDING.height >= VOICE_PILL_FOOTPRINT.recording.height);
 });
 
-test("dictation error windows share the assistant width and grow for the transcript action", () => {
+test("the words card window shares the assistant width", () => {
   const { WINDOW_SIZES } = require("../../src/helpers/windowConfig");
-  assert.equal(WINDOW_SIZES.DICTATION_ERROR.width, WINDOW_SIZES.ASSISTANT.width);
-  assert.equal(
-    WINDOW_SIZES.DICTATION_ERROR_WITH_TRANSCRIPT.width,
-    WINDOW_SIZES.DICTATION_ERROR.width
-  );
-  assert.ok(
-    WINDOW_SIZES.DICTATION_ERROR_WITH_TRANSCRIPT.height > WINDOW_SIZES.DICTATION_ERROR.height
-  );
+  assert.equal(WINDOW_SIZES.DICTATION_ERROR_WITH_TRANSCRIPT.width, WINDOW_SIZES.ASSISTANT.width);
 });
 
 test("dictation error windows grow to their full content and stay within the work area", () => {
@@ -55,7 +48,7 @@ test("base state with nothing active", async () => {
     resolveMainWindowSizeKey({
       panelOpen: false,
       menuOpen: false,
-      toastCount: 0,
+      noticeCount: 0,
       compactPill: false,
     }),
     "BASE"
@@ -68,45 +61,45 @@ test("compact listening pill grows the window", async () => {
     resolveMainWindowSizeKey({
       panelOpen: false,
       menuOpen: false,
-      toastCount: 0,
+      noticeCount: 0,
       compactPill: true,
     }),
     "RECORDING"
   );
 });
 
-test("a toast outranks the listening pill so both fit", async () => {
+test("notices outrank the listening pill so both fit", async () => {
   const { resolveMainWindowSizeKey } = await load();
   assert.equal(
     resolveMainWindowSizeKey({
       panelOpen: false,
       menuOpen: false,
-      toastCount: 1,
+      noticeCount: 1,
       compactPill: true,
     }),
-    "WITH_TOAST"
+    "WITH_NOTICES"
   );
 });
 
-test("dictation errors use the matching one-action or two-action footprint", async () => {
+test("words cards use the transcript footprint", async () => {
   const { resolveMainWindowSizeKey } = await load();
   assert.equal(
     resolveMainWindowSizeKey({
       panelOpen: false,
       menuOpen: false,
-      toastCount: 1,
+      noticeCount: 1,
       compactPill: false,
-      dictationErrorActionCount: 1,
+      wordsCardVisible: true,
     }),
-    "DICTATION_ERROR"
+    "DICTATION_ERROR_WITH_TRANSCRIPT"
   );
   assert.equal(
     resolveMainWindowSizeKey({
       panelOpen: false,
       menuOpen: false,
-      toastCount: 1,
+      noticeCount: 1,
       compactPill: false,
-      dictationErrorActionCount: 2,
+      wordsCardVisible: true,
     }),
     "DICTATION_ERROR_WITH_TRANSCRIPT"
   );
@@ -118,7 +111,7 @@ test("menu over a listening pill needs the expanded window", async () => {
     resolveMainWindowSizeKey({
       panelOpen: false,
       menuOpen: true,
-      toastCount: 0,
+      noticeCount: 0,
       compactPill: true,
     }),
     "EXPANDED"
@@ -131,7 +124,7 @@ test("menu alone uses the menu size", async () => {
     resolveMainWindowSizeKey({
       panelOpen: false,
       menuOpen: true,
-      toastCount: 0,
+      noticeCount: 0,
       compactPill: false,
     }),
     "WITH_MENU"
@@ -144,7 +137,7 @@ test("the assistant panel wins over everything", async () => {
     resolveMainWindowSizeKey({
       panelOpen: true,
       menuOpen: true,
-      toastCount: 2,
+      noticeCount: 2,
       compactPill: true,
     }),
     "ASSISTANT"
@@ -153,7 +146,7 @@ test("the assistant panel wins over everything", async () => {
     resolveMainWindowSizeKey({
       panelOpen: true,
       menuOpen: false,
-      toastCount: 0,
+      noticeCount: 0,
       compactPill: false,
     }),
     "ASSISTANT"
@@ -166,7 +159,7 @@ test("a toast dismissing never shrinks the window below an active state", async 
   const during = resolveMainWindowSizeKey({
     panelOpen: false,
     menuOpen: false,
-    toastCount: 0,
+    noticeCount: 0,
     compactPill: true,
   });
   assert.equal(during, "RECORDING");
@@ -183,16 +176,16 @@ test("every ladder size key has a native footprint in WINDOW_SIZES", async () =>
   const ladderKeys = new Set(Object.keys(SIZE_RANK));
   for (const panelOpen of [false, true]) {
     for (const menuOpen of [false, true]) {
-      for (const toastCount of [0, 1]) {
+      for (const noticeCount of [0, 1]) {
         for (const compactPill of [false, true]) {
-          for (const dictationErrorActionCount of [0, 1, 2]) {
+          for (const wordsCardVisible of [false, true]) {
             ladderKeys.add(
               resolveMainWindowSizeKey({
                 panelOpen,
                 menuOpen,
-                toastCount,
+                noticeCount,
                 compactPill,
-                dictationErrorActionCount,
+                wordsCardVisible,
               })
             );
           }
@@ -213,11 +206,38 @@ test("size ranks order every key", async () => {
   const { SIZE_RANK } = await load();
   assert.ok(
     SIZE_RANK.BASE < SIZE_RANK.RECORDING &&
-      SIZE_RANK.RECORDING < SIZE_RANK.DICTATION_ERROR &&
-      SIZE_RANK.DICTATION_ERROR < SIZE_RANK.DICTATION_ERROR_WITH_TRANSCRIPT &&
+      SIZE_RANK.RECORDING < SIZE_RANK.DICTATION_ERROR_WITH_TRANSCRIPT &&
       SIZE_RANK.DICTATION_ERROR_WITH_TRANSCRIPT < SIZE_RANK.WITH_MENU &&
-      SIZE_RANK.WITH_MENU < SIZE_RANK.WITH_TOAST &&
-      SIZE_RANK.WITH_TOAST < SIZE_RANK.EXPANDED &&
+      SIZE_RANK.WITH_MENU < SIZE_RANK.WITH_NOTICES &&
+      SIZE_RANK.WITH_NOTICES < SIZE_RANK.EXPANDED &&
       SIZE_RANK.EXPANDED < SIZE_RANK.ASSISTANT
   );
+});
+
+test("notices grow the pill window to WITH_NOTICES, below menus and panels", async () => {
+  const { resolveMainWindowSizeKey } = await load();
+  assert.equal(resolveMainWindowSizeKey({ noticeCount: 1 }), "WITH_NOTICES");
+  assert.equal(resolveMainWindowSizeKey({ noticeCount: 1, menuOpen: true }), "EXPANDED");
+  assert.equal(resolveMainWindowSizeKey({ noticeCount: 2, panelOpen: true }), "ASSISTANT");
+  assert.equal(resolveMainWindowSizeKey({ noticeCount: 0, compactPill: true }), "RECORDING");
+});
+
+test("a words card takes the transcript-height error slot", async () => {
+  const { resolveMainWindowSizeKey } = await load();
+  assert.equal(
+    resolveMainWindowSizeKey({ wordsCardVisible: true, noticeCount: 1 }),
+    "DICTATION_ERROR_WITH_TRANSCRIPT"
+  );
+});
+
+test("WITH_NOTICES fits three 32px chips with 6px gaps above the dock inset", () => {
+  // Read as text: windowConfig.js is a main-process module.
+  const src = require("node:fs").readFileSync(
+    require("node:path").join(__dirname, "../../src/helpers/windowConfig.js"),
+    "utf8"
+  );
+  const match = src.match(/WITH_NOTICES:\s*\{\s*width:\s*(\d+),\s*height:\s*(\d+)\s*\}/);
+  assert.ok(match, "WITH_NOTICES is declared in WINDOW_SIZES");
+  assert.equal(Number(match[1]), 400);
+  assert.ok(Number(match[2]) >= 3 * 32 + 2 * 6 + 12 + 40);
 });

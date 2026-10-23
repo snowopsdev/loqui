@@ -296,3 +296,20 @@ for (const platform of ["darwin", "win32"]) {
     assert.equal(mounted.measurements(), 0);
   });
 }
+
+test("an active caption joins the pill input region and idle/suppressed policy stays narrow", async (t) => {
+  const mounted = await mountPill(t);
+  const captionRef = {
+    current: { getBoundingClientRect: () => ({ x: 12, y: 12, width: 184, height: 48 }) },
+  };
+  await mounted.render({ captionRef });
+  assert.deepEqual(mounted.regions.at(-1), { x: 12, y: 12, width: 184, height: 96, ...VIEWPORT });
+  captionRef.current.getBoundingClientRect = () => ({ x: 12, y: 24, width: 172, height: 36 });
+  await mounted.tick();
+  assert.deepEqual(mounted.regions.at(-1), { x: 12, y: 24, width: 184, height: 84, ...VIEWPORT });
+  await mounted.render({ pillInteractive: false });
+  assert.deepEqual(mounted.regions.at(-1), EMPTY_REGION);
+  captionRef.current = null;
+  await mounted.render({ pillInteractive: true });
+  assert.deepEqual(mounted.regions.at(-1), { ...PILL_RECT, ...VIEWPORT });
+});

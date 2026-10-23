@@ -1,4 +1,6 @@
-import React from "react";
+import React, { Fragment } from "react";
+import type { SidebarMode } from "../lib/sidebarMode";
+import { shortcutHint } from "../lib/workspaceShortcuts";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, PanelLeftClose, PanelLeftOpen, Search } from "./icons";
 import { Button } from "./ui/button";
@@ -12,14 +14,12 @@ const platform = getCachedPlatform();
 const noDragStyle = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
 const toggleIconClass =
-  "text-foreground/60 group-hover:text-foreground/75 dark:text-foreground/50 dark:group-hover:text-foreground/65 transition-colors duration-150 rtl:scale-x-[-1]";
+  "text-muted-foreground group-hover:text-foreground transition-colors duration-(--motion-fast) ease-(--motion-ease-std) rtl:scale-x-[-1]";
 
 interface ControlPanelTopBarProps {
-  title: string;
-  sidebarCollapsed: boolean;
+  breadcrumb: string[];
+  sidebarMode: SidebarMode;
   onToggleSidebar: () => void;
-  onToggleMouseEnter?: () => void;
-  onToggleMouseLeave?: () => void;
   onOpenSearch: () => void;
   /** Meeting mode or a narrow window with an open note: sidebar hidden, back button shown. */
   isSidePanelLayout: boolean;
@@ -29,11 +29,9 @@ interface ControlPanelTopBarProps {
 }
 
 export default function ControlPanelTopBar({
-  title,
-  sidebarCollapsed,
+  breadcrumb,
+  sidebarMode,
   onToggleSidebar,
-  onToggleMouseEnter,
-  onToggleMouseLeave,
   onOpenSearch,
   isSidePanelLayout,
   onExitSidePanel,
@@ -42,17 +40,15 @@ export default function ControlPanelTopBar({
   const { t } = useTranslation();
   // With the sidebar out of the way the container's start edge sits under the
   // macOS traffic lights, so the leading controls shift past them.
-  const clearTrafficLights = platform === "darwin" && (sidebarCollapsed || isSidePanelLayout);
+  const clearTrafficLights = platform === "darwin" && sidebarMode !== "expanded";
 
   return (
     <header
       className={cn(
         // The trailing column never shrinks past its actions and window controls.
-        "grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,340px)_minmax(max-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
-        // Eased with the sidebar spacer so the toggle glides instead of jumping when the
-        // clearance switches; a jump would drag it back under the cursor and re-trigger peek.
-        "transition-[padding] duration-300 ease-out",
-        clearTrafficLights && "ltr:ps-[76px]"
+        "grid h-12 shrink-0 grid-cols-[minmax(120px,1fr)_minmax(0,340px)_minmax(max-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
+        "transition-[padding] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none",
+        clearTrafficLights && (sidebarMode === "rail" ? "ltr:ps-5" : "ltr:ps-[76px]")
       )}
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
@@ -74,25 +70,39 @@ export default function ControlPanelTopBar({
             <button
               type="button"
               onClick={onToggleSidebar}
-              onMouseEnter={onToggleMouseEnter}
-              onMouseLeave={onToggleMouseLeave}
-              aria-label={sidebarCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+              aria-label={`${t(sidebarMode === "expanded" ? "sidebar.collapse" : "sidebar.expand")} ${shortcutHint("toggleSidebar", platform)}`}
+              title={`${t(sidebarMode === "expanded" ? "sidebar.collapse" : "sidebar.expand")} ${shortcutHint("toggleSidebar", platform)}`}
               data-no-window-drag=""
               style={noDragStyle}
-              // z-40 keeps the toggle above the peeking sidebar (z-30) so the panel slides in
-              // underneath it and the button stays clickable while collapsed.
-              className="group relative z-40 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition-colors duration-150 hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-primary/30 dark:hover:bg-white/5"
+              className="group relative z-40 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition-colors duration-(--motion-fast) ease-(--motion-ease-std) motion-reduce:transition-none hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/5"
             >
-              {sidebarCollapsed ? (
+              {sidebarMode !== "expanded" ? (
                 <PanelLeftOpen size={16} className={toggleIconClass} />
               ) : (
                 <PanelLeftClose size={16} className={toggleIconClass} />
               )}
             </button>
-            {/* Global h1 styles are display-sized; this is chrome, so pin it down. */}
-            <h1 className="truncate text-sm! font-medium! leading-none! tracking-normal! text-foreground">
-              {title}
-            </h1>
+            <nav
+              aria-label={t("controlPanel.breadcrumb")}
+              className="flex min-w-0 items-center gap-1.5"
+            >
+              {breadcrumb.slice(0, -1).map((crumb, index) => (
+                <Fragment key={`${index}-${crumb}`}>
+                  <span dir="auto" className="max-w-40 truncate text-ui text-muted-foreground">
+                    {crumb}
+                  </span>
+                  <span aria-hidden className="text-ui text-muted-foreground">
+                    /
+                  </span>
+                </Fragment>
+              ))}
+              <h1
+                dir="auto"
+                className="truncate text-ui! font-medium! leading-none! tracking-normal! text-foreground"
+              >
+                {breadcrumb.at(-1)}
+              </h1>
+            </nav>
           </>
         )}
       </div>
@@ -103,15 +113,15 @@ export default function ControlPanelTopBar({
           onClick={onOpenSearch}
           data-no-window-drag=""
           style={noDragStyle}
-          className="flex h-8 w-full items-center gap-2.5 rounded-full border border-border bg-foreground/4 px-4 text-start outline-none transition-colors duration-150 hover:bg-foreground/6 focus-visible:ring-1 focus-visible:ring-primary/30 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/8"
+          className="flex h-8 w-full items-center gap-2.5 rounded-full border border-border bg-foreground/4 px-4 text-start outline-none transition-colors duration-(--motion-fast) ease-(--motion-ease-std) motion-reduce:transition-none hover:bg-foreground/6 focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/8"
         >
-          <Search size={14} className="shrink-0 text-muted-foreground/70" />
-          <span className="flex-1 truncate text-[13px] text-muted-foreground/70">
+          <Search size={14} className="shrink-0 text-muted-foreground" />
+          <span className="flex-1 truncate text-ui text-muted-foreground">
             {t("commandSearch.placeholder")}
           </span>
           <kbd
             dir="ltr"
-            className="shrink-0 rounded-full bg-foreground/6 px-1.5 py-px font-sans text-[10px] font-medium text-muted-foreground/70 dark:bg-white/8"
+            className="shrink-0 rounded-full bg-foreground/6 px-1.5 py-px font-sans text-caption font-medium text-muted-foreground dark:bg-white/8"
           >
             {platform === "darwin" ? "⌘ + K" : "Ctrl + K"}
           </kbd>

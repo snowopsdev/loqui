@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { requestMeetingRecordingAutoEnd } from "../helpers/meetingRecordingSession";
 import {
@@ -9,8 +9,12 @@ import {
   useMeetingRecordingStore,
 } from "../stores/meetingRecordingStore";
 import logger from "../utils/logger";
+import { createQuietDetector, MEETING_LEVEL_SAMPLE_MS } from "../utils/meetingQuiet";
 import { serializeTranscriptSegments } from "../utils/transcriptSpeakerState";
-import { useToast } from "./ui/useToast";
+import { notify, dismissNotice } from "./ui/notices";
+
+// Survives route remounts so delivered native interruptions are never replayed.
+let lastNativeInterruptionNonce: number | null = null;
 
 const EMA_PREV = 0.5;
 const EMA_NEXT = 0.5;
@@ -27,7 +31,6 @@ const MEETING_ERROR_KEYS: Record<string, string> = {
 
 export default function MeetingRecordingMount(): null {
   const { t } = useTranslation();
-  const { toast, dismiss } = useToast();
   const isRecording = useMeetingRecordingStore((s) => s.isRecording);
   const isTranscribing = useMeetingRecordingStore((s) => s.isTranscribing);
   const error = useMeetingRecordingStore((s) => s.error);
@@ -38,6 +41,35 @@ export default function MeetingRecordingMount(): null {
     (s) => s.systemAudioInterruptedNonce
   );
   const micCaptureStatus = useMeetingRecordingStore((s) => s.micCaptureStatus);
+  const recordingStartedAt = useMeetingRecordingStore((s) => s.recordingStartedAt);
+  const micQuiet = useMeetingRecordingStore((s) => s.micQuiet);
+  const reportedMeetingSession = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    // Stop clears the active store session before its asynchronous ACKs. Keep
+    // false reports (including the later timer reset) bound to that live owner.
+    const sessionId = isRecording
+      ? (getActiveRecordingSessionId() ?? undefined)
+      : reportedMeetingSession.current;
+    if (isRecording) reportedMeetingSession.current = sessionId;
+    window.electronAPI?.reportMeetingRecordingPresence?.({
+      recording: isRecording,
+      sessionId,
+      startedAt: recordingStartedAt ?? undefined,
+      interruption: systemAudioInterrupted
+        ? "systemAudio"
+        : micCaptureStatus === "unavailable"
+          ? "mic"
+          : null,
+      quiet: micQuiet,
+    });
+  }, [isRecording, recordingStartedAt, systemAudioInterrupted, micCaptureStatus, micQuiet]);
+  useEffect(
+    () =>
+      window.electronAPI?.onMeetingRecordingStopRequested?.(
+        (sessionId) => void stopRecording(sessionId)
+      ),
+    []
+  );
   const wasMicUnavailable = useRef(false);
   const wasSystemAudioSilent = useRef(false);
 
@@ -81,13 +113,13 @@ export default function MeetingRecordingMount(): null {
     if (!error) return;
     const [sentinel, argument] = error.split(":");
     const errorKey = MEETING_ERROR_KEYS[sentinel];
-    toast({
+    notify({
       title: t("notes.meeting.title"),
-      description: errorKey ? t(errorKey, { provider: argument }) : error,
-      variant: "destructive",
+      body: errorKey ? t(errorKey, { provider: argument }) : error,
+      kind: "alert",
     });
     // errorNonce re-fires this toast when the same error repeats back-to-back.
-  }, [error, errorNonce, toast, t]);
+  }, [error, errorNonce, t]);
 
   // The store latches this once per recording; the ref keeps dependency
   // changes (e.g. a language switch recreating `t`) from re-firing the toast.
@@ -98,12 +130,12 @@ export default function MeetingRecordingMount(): null {
     }
     if (wasSystemAudioSilent.current) return;
     wasSystemAudioSilent.current = true;
-    toast({
+    notify({
       title: t("notes.meeting.systemAudioSilent.title"),
-      description: t("notes.meeting.systemAudioSilent.description"),
-      duration: 8000,
+      body: t("notes.meeting.systemAudioSilent.description"),
+      kind: "notice",
     });
-  }, [systemAudioSilentWarning, toast, t]);
+  }, [systemAudioSilentWarning, t]);
 
   useEffect(() => {
     const deliverInterruption = (): void => {
@@ -126,23 +158,23 @@ export default function MeetingRecordingMount(): null {
         key = "notes.meeting.systemAudioQuiet";
       }
       const sessionId = getActiveRecordingSessionId();
-      const toastId = toast({
+      notify({
+        id: "meeting-interruption",
+        kind: "notice",
+        persistent: !interruption.recovering,
         title: t(`${key}.title`),
-        description: t(`${key}.description`),
-        duration: interruption.recovering ? 8000 : 0,
-        action:
+        body: t(`${key}.description`),
+        actions:
           key === "notes.meeting.systemAudioStopped" && sessionId
-            ? createElement(
-                "button",
+            ? [
                 {
-                  type: "button",
-                  className: "text-xs text-primary underline hover:text-primary/80",
-                  onClick: async (): Promise<void> => {
+                  label: t("notes.editor.stop"),
+                  primary: true,
+                  onClick: async () => {
                     await stopRecording(sessionId);
                   },
                 },
-                t("notes.editor.stop")
-              )
+              ]
             : undefined,
       });
       // The provider survives route changes. Keep its warning until the
@@ -153,7 +185,7 @@ export default function MeetingRecordingMount(): null {
           !next.systemAudioInterrupted ||
           next.systemAudioInterruptedNonce !== state.systemAudioInterruptedNonce
         ) {
-          dismiss(toastId);
+          dismissNotice("meeting-interruption");
           unsubscribe();
         }
       });
@@ -170,60 +202,106 @@ export default function MeetingRecordingMount(): null {
       document.removeEventListener("visibilitychange", deliverInterruption);
       window.removeEventListener("focus", deliverInterruption);
     };
-  }, [isRecording, systemAudioInterrupted, systemAudioInterruptedNonce, toast, dismiss, t]);
+  }, [isRecording, systemAudioInterrupted, systemAudioInterruptedNonce, t]);
+
+  // Native delivery does not wait for focus: a hidden or covered window is
+  // exactly when the in-app warning above cannot be seen (D2, VO-Q16).
+  useEffect(() => {
+    const state = useMeetingRecordingStore.getState();
+    const interruption = state.systemAudioInterrupted;
+    if (!state.isRecording || !interruption || interruption.recovering) return;
+    if (lastNativeInterruptionNonce === state.systemAudioInterruptedNonce) return;
+    lastNativeInterruptionNonce = state.systemAudioInterruptedNonce;
+    const key =
+      interruption.reason === "gone_quiet"
+        ? "notes.meeting.systemAudioQuiet"
+        : "notes.meeting.systemAudioStopped";
+    void window.electronAPI?.showSystemNotification?.({
+      title: t(`${key}.title`),
+      body: t(`${key}.description`),
+    });
+  }, [isRecording, systemAudioInterrupted, systemAudioInterruptedNonce, t]);
 
   useEffect(() => {
     if (micCaptureStatus === "unavailable" && !wasMicUnavailable.current) {
       wasMicUnavailable.current = true;
-      toast({
+      notify({
+        id: "meeting-mic",
         title: t("hooks.audioRecording.micDisconnected.title"),
-        description: t("hooks.audioRecording.micDisconnected.meetingDescription"),
-        variant: "default",
+        body: t("hooks.audioRecording.micDisconnected.meetingDescription"),
+        kind: "notice",
+      });
+      void window.electronAPI?.showSystemNotification?.({
+        title: t("hooks.audioRecording.micDisconnected.title"),
+        body: t("hooks.audioRecording.micDisconnected.meetingDescription"),
       });
     } else if (micCaptureStatus === "active" && wasMicUnavailable.current) {
       wasMicUnavailable.current = false;
-      toast({
+      notify({
+        id: "meeting-mic",
         title: t("hooks.audioRecording.micRestored.title"),
-        description: t("hooks.audioRecording.micRestored.description"),
-        variant: "default",
+        body: t("hooks.audioRecording.micRestored.description"),
+        kind: "receipt",
       });
     } else if (micCaptureStatus === "inactive") {
       wasMicUnavailable.current = false;
     }
-  }, [micCaptureStatus, toast, t]);
+  }, [micCaptureStatus, t]);
 
   useEffect(() => {
     if (!isRecording) return;
 
-    let rafId = 0;
-    let smoothed = 0;
     let buf = new Float32Array(256);
-
-    const tick = () => {
-      const analyser = getMicAnalyser();
+    let smoothed = 0;
+    let lastWritten = -1;
+    let lastQuiet = false;
+    let previousAnalyser: AnalyserNode | null = null;
+    let isQuiet = createQuietDetector();
+    const id = setInterval(() => {
+      const analyser =
+        useMeetingRecordingStore.getState().micCaptureStatus === "active" ? getMicAnalyser() : null;
+      if (analyser !== previousAnalyser || !analyser) {
+        // Unknown/recovered input cannot inherit another analyser's silence.
+        previousAnalyser = analyser;
+        smoothed = 0;
+        isQuiet = createQuietDetector();
+      }
+      let level = 0;
+      let quiet = false;
+      let measured = false;
       if (analyser) {
-        if (buf.length !== analyser.fftSize) {
-          buf = new Float32Array(analyser.fftSize);
-        }
+        if (buf.length !== analyser.fftSize) buf = new Float32Array(analyser.fftSize);
         analyser.getFloatTimeDomainData(buf);
         let sumSquares = 0;
-        for (let i = 0; i < buf.length; i++) {
-          const v = buf[i];
-          sumSquares += v * v;
-        }
+        for (let i = 0; i < buf.length; i += 1) sumSquares += buf[i] * buf[i];
         const rms = Math.sqrt(sumSquares / buf.length);
-        smoothed = EMA_PREV * smoothed + EMA_NEXT * rms;
-        const clamped = smoothed < 0 ? 0 : smoothed > 1 ? 1 : smoothed;
-        useMeetingRecordingStore.setState({ currentMicLevel: clamped });
+        if (Number.isFinite(rms)) {
+          measured = true;
+          smoothed = EMA_PREV * smoothed + EMA_NEXT * rms;
+          level = Math.min(1, Math.max(0, smoothed));
+          quiet = isQuiet(level, performance.now());
+        } else {
+          smoothed = 0;
+          isQuiet = createQuietDetector();
+        }
       }
-      rafId = requestAnimationFrame(tick);
-    };
-
-    rafId = requestAnimationFrame(tick);
+      // Meters read the analyser directly. Publish changed fallback/quiet fields
+      // atomically so even a quiet transition costs at most one update per tick.
+      const levelChanged = measured ? Math.abs(level - lastWritten) > 0.005 : lastWritten !== 0;
+      const quietChanged = quiet !== lastQuiet;
+      if (levelChanged || quietChanged) {
+        useMeetingRecordingStore.setState({
+          ...(levelChanged ? { currentMicLevel: level } : {}),
+          ...(quietChanged ? { micQuiet: quiet } : {}),
+        });
+        if (levelChanged) lastWritten = level;
+        lastQuiet = quiet;
+      }
+    }, MEETING_LEVEL_SAMPLE_MS);
 
     return () => {
-      cancelAnimationFrame(rafId);
-      useMeetingRecordingStore.setState({ currentMicLevel: 0 });
+      clearInterval(id);
+      useMeetingRecordingStore.setState({ currentMicLevel: 0, micQuiet: false });
     };
   }, [isRecording]);
 

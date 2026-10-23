@@ -20,7 +20,7 @@ const ASSISTANT_CONTENT_FADE_FALLBACK_MS = 260;
  */
 export function useAssistantPanel({
   requestMainWindowSize,
-  dictationErrorActionCount,
+  wordsCardVisible,
   recordingControlsRef,
   onPanelOpened,
 }) {
@@ -33,6 +33,11 @@ export function useAssistantPanel({
   const [busy, setBusy] = useState(false);
   const [footerPhase, setFooterPhase] = useState("pill");
   const [pendingCommand, setPendingCommand] = useState(null);
+  // Presentation outlives AudioManager idle and pending-command consumption.
+  const [activeOperation, setActiveOperation] = useState(null);
+  const [typedPresentation, setTypedPresentation] = useState(null);
+  const presentationOwnerRef = useRef(null);
+  const [responsePhase, setResponsePhase] = useState(null);
   const [conversationId, setConversationId] = useState(null);
 
   const openRef = useRef(open);
@@ -140,10 +145,16 @@ export function useAssistantPanel({
       // the external caret would snap that surface away mid-read.
       const delivery = openRef.current ? null : (command.delivery ?? null);
       beginThinking();
+      const owner = { kind: "spoken", id: commandIdRef.current };
+      presentationOwnerRef.current = owner;
+      setResponsePhase({ owner, responded: false });
+      setTypedPresentation(null);
+      setActiveOperation(command.operation ?? null);
       setPendingCommand({
         id: commandIdRef.current,
         text: command.text,
         attachment: command.attachment ?? null,
+        operation: command.operation ?? null,
         selectedContext: command.selectedContext ?? null,
         delivery,
       });
@@ -168,6 +179,11 @@ export function useAssistantPanel({
   }, []);
 
   const handleCommandDiscarded = useCallback((id) => {
+    if (presentationOwnerRef.current?.kind === "spoken" && presentationOwnerRef.current.id === id) {
+      presentationOwnerRef.current.retired = true;
+      setResponsePhase(null);
+      setActiveOperation(null);
+    }
     setPendingCommand((current) => discardPendingAssistantCommand(current, id));
   }, []);
 
@@ -178,7 +194,15 @@ export function useAssistantPanel({
 
   const handleCommandSettled = useCallback(
     (id, { showPanel = true } = {}) => {
-      if (id !== commandIdRef.current) return;
+      if (
+        id !== commandIdRef.current ||
+        presentationOwnerRef.current?.kind !== "spoken" ||
+        presentationOwnerRef.current.id !== id
+      )
+        return;
+      presentationOwnerRef.current = null;
+      setResponsePhase(null);
+      setActiveOperation(null);
       if (!mountedRef.current || closingRef.current) return;
       setThinking(false);
       if (showPanel) {
@@ -194,13 +218,66 @@ export function useAssistantPanel({
     [openPanel]
   );
 
+  // A typed turn publishes only the effective display projection. Its unique owner
+  // fences late finally/unmount cleanup against a newer spoken or typed admission.
+  const handleTypedAdmission = useCallback((presentation) => {
+    const owner = { kind: "typed", presentation };
+    presentationOwnerRef.current = owner;
+    setResponsePhase({ owner, responded: false });
+    setActiveOperation(null);
+    setTypedPresentation(presentation);
+    setThinking(true);
+    return () => {
+      if (presentationOwnerRef.current !== owner) return;
+      presentationOwnerRef.current = null;
+      setResponsePhase(null);
+      setTypedPresentation(null);
+      setThinking(false);
+    };
+  }, []);
+
+  // Called only by the exact request's local response callback, never by a
+  // thinking flag change (opening a pending panel also clears that flag).
+  const handleTypedResponse = useCallback(
+    (presentation) => {
+      const owner = presentationOwnerRef.current;
+      if (owner?.kind !== "typed" || owner.presentation !== presentation) return;
+      setResponsePhase((current) =>
+        current?.owner === owner ? { owner, responded: true } : current
+      );
+      handleResponseContent();
+    },
+    [handleResponseContent]
+  );
+
+  const handleCommandResponse = useCallback(
+    (id, { showPanel = true } = {}) => {
+      const owner = presentationOwnerRef.current;
+      if (owner?.kind !== "spoken" || owner.id !== id || owner.retired) return;
+      setResponsePhase((current) =>
+        current?.owner === owner ? { owner, responded: true } : current
+      );
+      if (showPanel) handleResponseContent();
+      else setThinking(false);
+    },
+    [handleResponseContent]
+  );
+
+  const handleCommandResponseCancelled = useCallback((id) => {
+    const owner = presentationOwnerRef.current;
+    if (owner?.kind !== "spoken" || owner.id !== id) return;
+    owner.retired = true;
+    setResponsePhase(null);
+    setThinking(false);
+  }, []);
+
   const handleSelectionContextChange = useCallback((context) => {
     selectionContextRef.current = context;
   }, []);
 
   const getSelectionContext = useCallback(() => selectionContextRef.current, []);
 
-  const ownsNativeWindow = open || (errorDownplayActive && dictationErrorActionCount > 0);
+  const ownsNativeWindow = open || (errorDownplayActive && wordsCardVisible);
   const assistantPanelBusy = thinking || busy || pendingCommand !== null;
 
   useEffect(() => {
@@ -224,6 +301,10 @@ export function useAssistantPanel({
     setThinking(closeState.thinking);
     setBusy(closeState.busy);
     setPendingCommand(closeState.pendingCommand);
+    setActiveOperation(null);
+    setTypedPresentation(null);
+    presentationOwnerRef.current = null;
+    setResponsePhase(null);
     setConversationId(closeState.conversationId);
     selectionContextRef.current = null;
     hasContentRef.current = false;
@@ -273,7 +354,7 @@ export function useAssistantPanel({
   }, [beginClose]);
 
   useEffect(() => {
-    if (dictationErrorActionCount > 0) {
+    if (wordsCardVisible) {
       if (!errorDownplayRequestedRef.current) return;
       errorDownplayRequestedRef.current = false;
       beginClose(true);
@@ -283,7 +364,7 @@ export function useAssistantPanel({
     if (errorDownplayActive) {
       setErrorDownplayActive(false);
     }
-  }, [errorDownplayActive, beginClose, dictationErrorActionCount]);
+  }, [errorDownplayActive, beginClose, wordsCardVisible]);
 
   // The assistant slice of a dictation error: decide whether the panel rides
   // through the error (existing content) or retreats behind it (empty panel).
@@ -318,6 +399,13 @@ export function useAssistantPanel({
     busy,
     footerPhase,
     pendingCommand,
+    activeOperation,
+    typedPresentation,
+    handleTypedAdmission,
+    handleTypedResponse,
+    handleCommandResponse,
+    handleCommandResponseCancelled,
+    responsePhase,
     conversationId,
     openRef,
     setBusy,

@@ -31,10 +31,15 @@ const DEFAULT_INFO: HotkeyModeInfo = {
  * persistable. `scope` tags log output for the calling surface.
  */
 export function useHotkeyModeInfo(scope: string, hotkey?: string): HotkeyModeInfo {
-  const [modeInfo, setModeInfo] = useState<HotkeyModeInfo>(DEFAULT_INFO);
+  const [result, setResult] = useState<{
+    scope: string;
+    hotkey: string | undefined;
+    info: HotkeyModeInfo;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    setResult(null);
     const checkHotkeyMode = async () => {
       try {
         const info = await window.electronAPI?.getHotkeyModeInfo?.(hotkey);
@@ -43,13 +48,17 @@ export function useHotkeyModeInfo(scope: string, hotkey?: string): HotkeyModeInf
           ? ((await window.electronAPI?.getHyprlandConfigStatus?.()) ?? null)
           : null;
         if (cancelled) return;
-        setModeInfo({
-          isUsingNativeShortcut: info.isUsingNativeShortcut,
-          isUsingHyprland: info.isUsingHyprland,
-          supportsPushToTalk: info.supportsPushToTalk,
-          pushToTalkUnavailableReason: info.pushToTalkUnavailableReason,
-          hyprlandConfigStatus,
-          loaded: true,
+        setResult({
+          scope,
+          hotkey,
+          info: {
+            isUsingNativeShortcut: info.isUsingNativeShortcut,
+            isUsingHyprland: info.isUsingHyprland,
+            supportsPushToTalk: info.supportsPushToTalk === true,
+            pushToTalkUnavailableReason: info.pushToTalkUnavailableReason,
+            hyprlandConfigStatus,
+            loaded: true,
+          },
         });
       } catch (error) {
         logger.error("Failed to check hotkey mode", { error }, scope);
@@ -61,5 +70,6 @@ export function useHotkeyModeInfo(scope: string, hotkey?: string): HotkeyModeInf
     };
   }, [scope, hotkey]);
 
-  return modeInfo;
+  // Mask old-key data during render, before the new query effect can run.
+  return result?.scope === scope && result.hotkey === hotkey ? result.info : DEFAULT_INFO;
 }

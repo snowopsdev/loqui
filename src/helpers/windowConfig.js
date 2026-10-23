@@ -145,13 +145,12 @@ const WINDOW_SIZES = {
   // resize a no-op.
   BASE: PILL_WINDOW_SIZE,
   RECORDING: PILL_WINDOW_SIZE,
-  DICTATION_ERROR: { width: DICTATION_ERROR_WINDOW_LIMITS.width, height: 112 },
   DICTATION_ERROR_WITH_TRANSCRIPT: {
     width: DICTATION_ERROR_WINDOW_LIMITS.width,
     height: 168,
   },
+  WITH_NOTICES: { width: 400, height: 168 },
   WITH_MENU: { width: 240, height: 280 },
-  WITH_TOAST: { width: 400, height: 500 },
   EXPANDED: { width: 400, height: 500 },
   ASSISTANT: ASSISTANT_WINDOW_SIZE,
 };
@@ -323,6 +322,12 @@ class WindowPositionUtil {
       x: Math.max(workArea.x, Math.min(bounds.x, workArea.x + workArea.width - bounds.width)),
       y: Math.max(workArea.y, Math.min(bounds.y, workArea.y + workArea.height - bounds.height)),
     };
+  }
+
+  static getNotchDropPosition(display) {
+    const { x, y, width } = display.workArea;
+    const { width: w, height } = NOTIFICATION_WINDOW_CONFIG;
+    return { x: Math.round(x + (width - w) / 2), y: y + 8, width: w, height };
   }
 
   static getNotificationPosition(display) {

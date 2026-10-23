@@ -583,6 +583,7 @@ function pickEnterpriseConfig(config = {}) {
     azureApiVersion: config.azureApiVersion,
     vertexProject: config.vertexProject,
     vertexLocation: config.vertexLocation,
+    vertexAuthSource: config.vertexAuthSource,
   };
 }
 

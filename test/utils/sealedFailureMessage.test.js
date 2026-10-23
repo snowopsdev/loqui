@@ -186,7 +186,10 @@ test("every I6 surface checks for a sealed failure before showing main's text", 
       /isSealedModeError\(\{ message: error\.description \}\) \|\|\s*isSealedModeError\(\{ message: error\.message \}\)/,
     // Touch-up 3, O1: a sealed auto-paste is sealed copy by key, never main's text.
     "src/helpers/audioManager.js":
-      /result\?\.code === "SEALED_MODE"[\s\S]*sealedPasteError\(result\.copiedToClipboard === true\)[\s\S]*isSealedModeError\(error\)[\s\S]*sealedPasteError\(false\)/,
+      /result\?\.code === "SEALED_MODE"[\s\S]*reportSealed\(result\.copiedToClipboard === true\)[\s\S]*isSealedModeError\(error\)[\s\S]*reportSealed\(false\)/,
+    // Touch-up 4, N1: the auto-paste words card carries the sealed copy itself.
+    "src/hooks/useAudioRecording.js":
+      /onSealed: \(failure\)[\s\S]*getRecordingErrorDescription\(sealedPasteFailure, t\)/,
     "src/components/settings/routing/usePatchbayBoard.ts": /sealedFailureMessage\(error, t\)/,
     "src/components/MeetingRecordingMount.tsx": /sealedFailureMessage\(\{ error \}, t\)/,
     "src/stores/meetingRecordingStore.ts":

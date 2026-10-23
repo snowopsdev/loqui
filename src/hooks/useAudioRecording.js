@@ -1180,6 +1180,8 @@ export const useAudioRecording = (options = {}) => {
           } else if (autoPasteEnabled && !result.assistantConversation) {
             const pasteStart = performance.now();
             let pasteSucceeded;
+            // Touch-up 4, N1: a sealed refusal titles the words card itself.
+            let sealedPasteFailure = null;
             if (result.selectionEdit?.sessionId) {
               const replacement = await window.electronAPI?.replaceSelectedText?.(
                 result.selectionEdit.sessionId,
@@ -1207,11 +1209,19 @@ export const useAudioRecording = (options = {}) => {
                 });
               }
             } else {
-              pasteSucceeded = await manager.safePaste(result.text, {
-                ...(isStreaming ? { fromStreaming: true } : {}),
-                restoreClipboard: !keepTranscriptionInClipboard,
-                allowClipboardFallback: isAccessibilitySkipped(),
-              });
+              pasteSucceeded = await manager.safePaste(
+                result.text,
+                {
+                  ...(isStreaming ? { fromStreaming: true } : {}),
+                  restoreClipboard: !keepTranscriptionInClipboard,
+                  allowClipboardFallback: isAccessibilitySkipped(),
+                },
+                {
+                  onSealed: (failure) => {
+                    sealedPasteFailure = failure;
+                  },
+                }
+              );
             }
             logger.info(
               "Paste timing",
@@ -1229,11 +1239,18 @@ export const useAudioRecording = (options = {}) => {
             // failed paste keeps the final flash so the transcript stays
             // visible somewhere.
             if (!pasteSucceeded && !result.selectionEdit?.sessionId) {
+              // The one card the user sees: holding the words, and saying why
+              // when Sealed mode stopped the paste.
               showDictationError({
                 outcomeGeneration,
                 presentation,
                 sessionId,
-                title: t("notices.pasteFailed"),
+                ...(sealedPasteFailure
+                  ? {
+                      title: getRecordingErrorTitle(sealedPasteFailure, t),
+                      description: getRecordingErrorDescription(sealedPasteFailure, t),
+                    }
+                  : { title: t("notices.pasteFailed") }),
                 transcript: result.rawText ?? result.text,
               });
             }

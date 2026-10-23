@@ -1084,8 +1084,7 @@ class ClipboardManager {
                 : `CGEvent paste failed (code ${code}), falling back to osascript`,
               { stderr: errorOutput.trim() }
             );
-            this.fastPasteChecked = true;
-            this.fastPastePath = null;
+            this._dropFastPasteUnlessSealed();
             this.pasteMacOSWithOsascript(originalClipboard, options).then(resolve).catch(reject);
           } else {
             this.accessibilityCache = { value: null, expiresAt: 0 };
@@ -1102,8 +1101,7 @@ class ClipboardManager {
 
           if (useFastPaste) {
             this.safeLog("CGEvent paste error, falling back to osascript");
-            this.fastPasteChecked = true;
-            this.fastPastePath = null;
+            this._dropFastPasteUnlessSealed();
             this.pasteMacOSWithOsascript(originalClipboard, options).then(resolve).catch(reject);
           } else {
             const errorMsg = `Paste command failed: ${error.message}. Text is copied to clipboard - please paste manually with Cmd+V.`;
@@ -1121,6 +1119,15 @@ class ClipboardManager {
         }, 3000);
       }, pasteDelay);
     });
+  }
+
+  // Touch-up 4, N2: a seal that kills or refuses the helper says nothing about
+  // the helper, so it stays for the next unsealed paste. Unsealed, a failure
+  // still switches the session to osascript.
+  _dropFastPasteUnlessSealed() {
+    if (egress.isSealed()) return;
+    this.fastPasteChecked = true;
+    this.fastPastePath = null;
   }
 
   async pasteMacOSWithOsascript(originalClipboard, options = {}) {
@@ -1769,8 +1776,9 @@ class ClipboardManager {
             this.safeLog("✅ Paste successful using linux-fast-paste --portal (RemoteDesktop)");
             return { restoreComplete: restoreClipboard() };
           } catch (portalError) {
-            if (isSealedModeError(portalError)) {
-              // Refused before launch: says nothing about the portal itself.
+            if (isSealedModeError(portalError) || egress.isSealed()) {
+              // Refused before launch, or killed by the seal mid-paste
+              // (touch-up 4, N2): says nothing about the portal itself.
               return false;
             } else if (portalError?.message === "portal-denied") {
               this.portalDenied = true;
@@ -1814,7 +1822,8 @@ class ClipboardManager {
         if (shouldPreferGnomePortal) {
           const portalPaste = await tryPortalPaste();
           if (portalPaste) return { method: "portal", ...portalPaste };
-          this.portalTokenPasteFailed = true;
+          // A sealed refusal says nothing about the token (touch-up 4, N2).
+          if (!egress.isSealed()) this.portalTokenPasteFailed = true;
         }
 
         // GNOME: a running ydotoold already owns a persistent uinput device, so

@@ -78,8 +78,9 @@ const fakeElectron = {
 };
 
 // The leaf: `sh -c "command -v X"` answers from `installed`; every other
-// launch is recorded and exits 0. `onProbe` lets a test seal mid-paste.
-const host = { installed: new Set(), calls: [], onProbe: () => {} };
+// launch is recorded and exits 0. `onProbe` lets a test seal mid-paste, and
+// `onSpawn` returning true lets a test settle a launched child itself.
+const host = { installed: new Set(), calls: [], onProbe: () => {}, onSpawn: () => false };
 const syncResult = (status) => ({
   pid: 0,
   status,
@@ -106,6 +107,7 @@ const cp = {
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.kill = () => true;
+    if (host.onSpawn(command, args, child)) return child;
     process.nextTick(() => {
       child.emit("exit", 0, null);
       child.emit("close", 0, null);
@@ -160,6 +162,7 @@ nodeTest.beforeEach(() => {
   host.installed = new Set();
   host.calls.length = 0;
   host.onProbe = () => {};
+  host.onSpawn = () => false;
   accessibility.onCheck = () => {};
   logHook.onLog = () => {};
   fakeClipboard.text = "previous clipboard";
@@ -234,6 +237,7 @@ const KDE_WAYLAND = {
   WAYLAND_DISPLAY: "wayland-1",
   XDG_CURRENT_DESKTOP: "KDE",
 };
+const GNOME_WAYLAND = { ...KDE_WAYLAND, XDG_CURRENT_DESKTOP: "GNOME" };
 
 function linuxManager() {
   const manager = new ClipboardManager();
@@ -455,5 +459,166 @@ test("unsealed pastes are unchanged: the helper runs and the clipboard is restor
     );
     assert.equal(fakeClipboard.text, "previous clipboard", "restored after the paste");
     assert.ok(!rows.some((r) => r.outcome === "blocked"), "nothing refused");
+  });
+});
+
+// Touch-up 4, N2: sealing kills in-flight children (`children.stopAll`, SIGTERM)
+// and refuses new launches. Neither says anything about the portal or the fast
+// paste helper, so neither may disable them until restart.
+const spawned = (pattern) =>
+  host.calls
+    .filter(
+      ([kind, command, args]) => kind === "spawn" && pattern.test([command, ...args].join(" "))
+    )
+    .map(([, command, args]) => [command, ...args].join(" "));
+// The seal lands while this child runs: the gate flips, then the child dies by
+// SIGTERM the way `children.stopAll` ends it.
+function sealWhileRunning(pattern) {
+  host.onSpawn = (command, args, child) => {
+    if (!pattern.test([command, ...args].join(" "))) return false;
+    host.onSpawn = () => false;
+    setTimeout(() => {
+      flags.sealed = true;
+      child.emit("exit", null, "SIGTERM");
+      child.emit("close", null, "SIGTERM");
+    }, 5);
+    return true;
+  };
+}
+
+test("KDE Wayland: a seal that kills the running portal helper leaves the portal enabled, so the next unsealed paste uses it", async (t) => {
+  const uncaught = captureUncaught(t);
+  await withPlatform("linux", KDE_WAYLAND, async () => {
+    const manager = linuxManager();
+    sealWhileRunning(/--portal/);
+    const outcome = await within(manager.pasteText("kde killed words"));
+    assertSealedPasteFailure(outcome);
+    assert.equal(spawned(/--portal/).length, 1, "the portal helper had started");
+    assert.equal(manager.portalFailed, false, "the kill is not a portal failure");
+    assert.equal(manager.portalDenied, false);
+    assert.equal(manager.portalUnavailable, false);
+
+    flags.sealed = false;
+    host.calls.length = 0;
+    const next = await within(manager.pasteText("kde unsealed words", { restoreClipboard: false }));
+    assert.equal(next.status, "resolved");
+    assert.equal(next.value.method, "portal");
+    assert.equal(spawned(/--portal/).length, 1, "the portal ran again after unsealing");
+    assert.deepEqual(spawned(/--uinput/), [], "no uinput fallback");
+  });
+  await delay(100);
+  assert.deepEqual(
+    uncaught.map((e) => e.message),
+    []
+  );
+});
+
+test("GNOME Wayland with a saved token: a sealed portal refusal does not mark the token as failed, so the next unsealed paste uses the portal", async (t) => {
+  const uncaught = captureUncaught(t);
+  await withPlatform("linux", GNOME_WAYLAND, async () => {
+    const manager = linuxManager();
+    manager._savePortalToken("owned-test-token");
+    t.after(() => fs.rmSync(manager._getPortalTokenPath(), { force: true }));
+    assert.ok(
+      manager._getPortalTokenPath().startsWith(cacheRoot),
+      "the token stays in the temp root"
+    );
+    host.onProbe = (tool) => {
+      if (tool === "ydotool") flags.sealed = true;
+    };
+    const outcome = await within(manager.pasteText("gnome sealed words"));
+    assertSealedPasteFailure(outcome);
+    assert.deepEqual(launches(), [], "the portal helper was refused before the leaf");
+    assert.ok(rows.some((r) => r.task === "nativeLaunch" && r.outcome === "blocked"));
+    assert.equal(manager.portalTokenPasteFailed, false, "a sealed refusal is not a token failure");
+    assert.equal(manager.portalFailed, false);
+
+    flags.sealed = false;
+    host.onProbe = () => {};
+    host.calls.length = 0;
+    const next = await within(
+      manager.pasteText("gnome unsealed words", { restoreClipboard: false })
+    );
+    assert.equal(next.status, "resolved");
+    assert.equal(next.value.method, "portal");
+    const helperRuns = spawned(/linux-fast-paste/);
+    assert.equal(helperRuns.length, 1, "one helper run, with no uinput fallback");
+    assert.match(helperRuns[0], / --portal /);
+    assert.match(helperRuns[0], / --restore-token owned-test-token$/, "the saved token was used");
+  });
+  await delay(100);
+  assert.deepEqual(
+    uncaught.map((e) => e.message),
+    []
+  );
+});
+
+test("GNOME Wayland with a saved token: an unsealed portal failure still marks the token as failed", async () => {
+  await withPlatform("linux", GNOME_WAYLAND, async () => {
+    const manager = linuxManager();
+    manager._savePortalToken("owned-test-token");
+    try {
+      host.onSpawn = (command, args, child) => {
+        if (!args.includes("--portal")) return false;
+        setTimeout(() => child.emit("close", 1, null), 5);
+        return true;
+      };
+      const result = await within(
+        manager.pasteText("gnome plain words", { restoreClipboard: false })
+      );
+      assert.equal(result.status, "resolved");
+      assert.equal(result.value.method, "uinput");
+      assert.equal(manager.portalTokenPasteFailed, true);
+      assert.equal(manager.portalFailed, true);
+    } finally {
+      fs.rmSync(manager._getPortalTokenPath(), { force: true });
+    }
+  });
+});
+
+test("macOS: a seal that kills the running fast-paste helper keeps it, so the next unsealed paste uses it again", async (t) => {
+  const uncaught = captureUncaught(t);
+  const fastPaste = "/Applications/Loqui.app/Contents/Resources/macos-fast-paste";
+  await withPlatform("darwin", {}, async () => {
+    const manager = new ClipboardManager();
+    manager.fastPasteChecked = true;
+    manager.fastPastePath = fastPaste;
+    sealWhileRunning(/macos-fast-paste/);
+    const outcome = await within(manager.pasteMacOS(null, {}), 2000);
+    assert.equal(outcome.status, "rejected", `settled (${outcome.status})`);
+    assert.equal(outcome.error.code, "SEALED_MODE", outcome.error.message);
+    assert.deepEqual(spawned(/osascript/), [], "the osascript fallback was refused");
+    assert.equal(manager.fastPastePath, fastPaste, "the kill does not drop the fast-paste helper");
+
+    flags.sealed = false;
+    host.calls.length = 0;
+    const next = await within(manager.pasteMacOS(null, {}), 2000);
+    assert.equal(next.status, "resolved");
+    assert.deepEqual(spawned(/./), [fastPaste], "fast paste ran again after unsealing");
+  });
+  await delay(100);
+  assert.deepEqual(
+    uncaught.map((e) => e.message),
+    []
+  );
+});
+
+test("macOS: an unsealed fast-paste failure still falls back to osascript for the session", async () => {
+  await withPlatform("darwin", {}, async () => {
+    const manager = new ClipboardManager();
+    manager.fastPasteChecked = true;
+    manager.fastPastePath = "/x/macos-fast-paste";
+    host.onSpawn = (command, args, child) => {
+      if (!/macos-fast-paste/.test(command)) return false;
+      setTimeout(() => child.emit("close", 1, null), 5);
+      return true;
+    };
+    const outcome = await within(manager.pasteMacOS(null, {}), 2000);
+    assert.equal(outcome.status, "resolved");
+    assert.deepEqual(
+      host.calls.filter(([kind]) => kind === "spawn").map(([, command]) => command),
+      ["/x/macos-fast-paste", "osascript"]
+    );
+    assert.equal(manager.fastPastePath, null);
   });
 });

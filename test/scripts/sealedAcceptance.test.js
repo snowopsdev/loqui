@@ -1269,6 +1269,8 @@ test("the checklist carries the Task 7a desktop smoke (fixture-only downloads) a
   assert.match(byId["O1-PASTE"].check, /macOS/);
   assert.match(byId["O1-PASTE"].check, /clipboard/);
   assert.match(byId["O1-PASTE"].check, /uncaught exception/);
+  assert.match(byId["O1-PASTE"].check, /One card appears and holds the words/);
+  assert.match(byId["O1-PASTE"].check, /through the portal/);
   // The popup check names WebRTC and the bridge in a same-origin popup (T7a-M2).
   assert.match(byId["T7a-M2"].check, /popup/);
   assert.match(byId["T7a-M2"].check, /RTCPeerConnection/);

@@ -4770,26 +4770,33 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     return route;
   }
 
-  async safePaste(text, options = {}) {
+  // `onSealed` (touch-up 4, N1): a caller that shows its own card for a failed
+  // paste takes the sealed failure here instead of a separate onError card,
+  // which its card would replace before the user could read it.
+  async safePaste(text, options = {}, { onSealed } = {}) {
     // Touch-up 3, O1: while sealed, main refuses the native paste helpers and
     // settles with a typed result. The card says so in translated copy, and
     // says the text is on the clipboard only when main reports it copied it.
-    const sealedPasteError = (copied) => ({
-      code: "SEALED_MODE",
-      title: "Paste Error",
-      titleKey: "sealedMode.paste.title",
-      messageKey: copied ? "sealedMode.paste.copied" : "sealedMode.paste.notCopied",
-    });
+    const reportSealed = (copied) => {
+      const failure = {
+        code: "SEALED_MODE",
+        title: "Paste Error",
+        titleKey: "sealedMode.paste.title",
+        messageKey: copied ? "sealedMode.paste.copied" : "sealedMode.paste.notCopied",
+      };
+      if (typeof onSealed === "function") onSealed(failure);
+      else this.onError?.(failure);
+    };
     try {
       const result = await window.electronAPI.pasteText(text, options);
       if (result?.code === "SEALED_MODE") {
-        this.onError?.(sealedPasteError(result.copiedToClipboard === true));
+        reportSealed(result.copiedToClipboard === true);
         return false;
       }
       return result?.pasted === true;
     } catch (error) {
       if (isSealedModeError(error)) {
-        this.onError?.(sealedPasteError(false));
+        reportSealed(false);
         return false;
       }
       const message =

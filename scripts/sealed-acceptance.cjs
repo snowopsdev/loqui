@@ -447,12 +447,14 @@ const MANUAL_CHECKLIST = [
       "On Linux (X11, and a Wayland session: GNOME or KDE, and a wlroots compositor where " +
       "available) and on macOS, with auto-paste on: seal, then dictate into a text field. No paste " +
       "helper starts (no xdotool, wtype, ydotool, linux-fast-paste, osascript or macos-fast-paste " +
-      "process; the flight recorder names the refused helper under programs not started). The card " +
-      "reads 'Sealed mode stopped automatic paste' and says the text is on the clipboard, and a " +
+      "process; the flight recorder names the refused helper under programs not started). One card " +
+      "appears and holds the words with Paste again; it is titled 'Sealed mode stopped automatic " +
+      "paste' and says the text is on the clipboard (no 'Couldn't paste your words' card), and a " +
       "manual paste inserts the dictated text. Main logs no uncaught exception, and the next " +
       "dictation and a selection edit still finish (the paste queue is free). Unseal: auto-paste " +
-      "works again at once. History keeps the text only when retention is on. NOT runtime-checked " +
-      "yet.",
+      "works again at once, through the portal on GNOME (saved token) and KDE and through fast " +
+      "paste on macOS, also after sealing during a paste. History keeps the text only when " +
+      "retention is on. NOT runtime-checked yet.",
   },
   {
     id: "OBS-PACKET",

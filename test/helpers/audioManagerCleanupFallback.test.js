@@ -257,6 +257,38 @@ test("safePaste turns main's typed sealed paste failure into translated sealed c
   for (const error of errors) assert.equal(error.description, undefined, "no raw main text");
 });
 
+// Touch-up 4, N1: a caller with its own failure card takes the sealed failure
+// through `onSealed`, so no separate card races it; an ordinary failure still
+// goes to onError.
+test("safePaste hands a sealed failure to onSealed instead of onError when given", async (t) => {
+  const { createManager, window } = await loadAudioManager(t, {
+    cachePrefix: "loqui-audio-sealed-paste-onsealed-",
+    settingsKey: "__audioSealedPasteOnSealedSettings",
+  });
+  const errors = [];
+  const sealed = [];
+  const manager = createManager({ onError: (error) => errors.push(error.title) });
+  const onSealed = (failure) => sealed.push(failure.messageKey);
+  window.electronAPI.pasteText = async () => ({
+    success: false,
+    pasted: false,
+    code: "SEALED_MODE",
+    phase: "refused",
+    copiedToClipboard: true,
+  });
+  assert.equal(await manager.safePaste("sealed words", {}, { onSealed }), false);
+  window.electronAPI.pasteText = async () => {
+    throw new Error("[SEALED_MODE] Sealed mode blocked nativeLaunch to native-xdotool.");
+  };
+  assert.equal(await manager.safePaste("sealed words", {}, { onSealed }), false);
+  window.electronAPI.pasteText = async () => {
+    throw new Error("accessibility denied");
+  };
+  assert.equal(await manager.safePaste("plain words", {}, { onSealed }), false);
+  assert.deepEqual(sealed, ["sealedMode.paste.copied", "sealedMode.paste.notCopied"]);
+  assert.deepEqual(errors, ["Paste Error"]);
+});
+
 test("translation cleanup failures survive successful and skipped translation for post-paste warnings", async (t) => {
   const { createManager } = await loadAudioManager(t, {
     cachePrefix: "openwhispr-translation-cleanup-warning-",

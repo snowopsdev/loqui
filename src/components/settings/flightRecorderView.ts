@@ -3,6 +3,8 @@ import type { EgressEvent, EgressNotice, EgressOutcome, EgressTask } from "../..
 // Pure view model for the flight recorder (Plan 07, SET-M3). The panel shows
 // one window, "today since local midnight", and fetches exactly that window
 // (A21): the list, the counts and the timeline all use the same `since`.
+// A record belongs to the day it was still running in: a request that started
+// before midnight and finished after it is today's, as main lists it.
 
 export type TickKind = "sent" | "session" | "blocked" | "unexplained";
 export type Tick = {
@@ -79,12 +81,22 @@ export function startOfToday(now: number): number {
   return day.getTime();
 }
 
-// The next local midnight after `since` (DST-safe: 23, 24 or 25 hours later).
+// The start of the local day after `since` (DST-safe: 23, 24 or 25 hours
+// later). The date moves first: in a zone where DST starts at midnight (e.g.
+// America/Santiago) the day's first instant is 01:00, and resetting the hours
+// before moving the date would carry that 01:00 into the next day.
 export function startOfNextDay(since: number): number {
   const day = new Date(since);
-  day.setHours(0, 0, 0, 0);
   day.setDate(day.getDate() + 1);
+  day.setHours(0, 0, 0, 0);
   return day.getTime();
+}
+
+// A record is in the day starting at `since` if it started before the day
+// ends and ended at or after the day began (main's list uses the same rule,
+// so the counts and the rows agree).
+export function inWindow(e: Pick<EgressEvent, "ts" | "endedAt">, since: number): boolean {
+  return e.ts < startOfNextDay(since) && Math.max(e.ts, e.endedAt ?? e.ts) >= since;
 }
 
 export function tickKind(e: EgressEvent): TickKind {
@@ -93,19 +105,39 @@ export function tickKind(e: EgressEvent): TickKind {
   return e.opaque || e.kind === "session" ? "session" : "sent";
 }
 
-// One tick per shown record inside the day that starts at `since`.
+// One tick per shown record inside the day that starts at `since`. A record
+// that started before midnight is drawn at the start of the day.
 export function timelineTicks(events: EgressEvent[], since: number): Tick[] {
-  const end = startOfNextDay(since);
-  const span = end - since;
+  const span = startOfNextDay(since) - since;
   return shownEvents(events)
-    .filter((e) => e.ts >= since && e.ts < end)
+    .filter((e) => inWindow(e, since))
     .map((e) => ({
       id: e.id,
-      minute: Math.floor((e.ts - since) / 60000),
-      position: Math.min(1, Math.max(0, (e.ts - since) / span)),
+      minute: Math.max(0, Math.floor((e.ts - since) / 60000)),
+      position: dayPosition(e.ts, since, span),
       kind: tickKind(e),
       event: e,
     }));
+}
+
+function dayPosition(ms: number, since: number, span: number): number {
+  return Math.min(1, Math.max(0, (ms - since) / span));
+}
+
+// When the list is cut at the fetch limit, the timeline only has the newest
+// rows: the hours before the oldest fetched row are not drawn. Returns that
+// part of the day (0..1) so the view can mark it, or null when nothing is cut.
+export function undrawnUntil(
+  events: EgressEvent[],
+  since: number,
+  truncated: boolean
+): number | null {
+  if (!truncated) return null;
+  const starts = shownEvents(events)
+    .filter((e) => inWindow(e, since))
+    .map((e) => e.ts);
+  if (starts.length === 0) return 1;
+  return dayPosition(Math.min(...starts), since, startOfNextDay(since) - since);
 }
 
 // A live "recorded" notice joins the list once, if it belongs to the window.
@@ -117,7 +149,7 @@ export function mergeNotice(
 ): EgressEvent[] {
   if (notice.phase !== "recorded") return events;
   const event = notice.event;
-  if (!event || event.ts < since || event.ts >= startOfNextDay(since)) return events;
+  if (!event || !inWindow(event, since)) return events;
   if (event.kind === "operation") return events;
   if (events.some((e) => e.id === event.id)) return events;
   return [event, ...events];

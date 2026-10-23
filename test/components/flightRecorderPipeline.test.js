@@ -213,3 +213,38 @@ test("with local history off, records stay in memory only and the view says so",
   assert.match(html, /recorder\.retentionMemory/);
   assert.doesNotMatch(html, /recorder\.retentionDays/);
 });
+
+test("a request that started before midnight and finished today is listed and counted today", async (t2) => {
+  const p = pipeline(t2);
+  const midnight = new Date(2026, 9, 15).getTime();
+  const send = (task) => {
+    const ticket = gate.authorize({
+      task,
+      target: "https://api.groq.com",
+      provider: "groq",
+      payload: "text",
+    });
+    ticket.markDispatched();
+    return ticket;
+  };
+  // Finished yesterday: not today's.
+  p.clock.now = midnight - 20 * 60000;
+  const before = send("translation");
+  p.clock.now = midnight - 15 * 60000;
+  before.settle({ outcome: "ok", bytesOut: 5, bytesIn: 6 });
+  // Started at 23:55 and finished at 00:02: today's.
+  p.clock.now = midnight - 5 * 60000;
+  const across = send("chat");
+  p.clock.now = midnight + 2 * 60000;
+  across.settle({ outcome: "ok", bytesOut: 10, bytesIn: 20 });
+  p.clock.now = midnight + 12 * 3600000;
+  const { html, summary, events } = await render(p);
+  assert.deepEqual(
+    events.map((e) => [e.task, e.ts < midnight, e.endedAt >= midnight]),
+    [["chat", true, true]]
+  );
+  // The counts and the list use the same window.
+  assert.equal(summary.observed, events.length);
+  assert.match(html, /observedToday\{"count":1\}/);
+  assert.match(html, /data-kind="sent"[^>]*style="inset-inline-start:0%"/);
+});

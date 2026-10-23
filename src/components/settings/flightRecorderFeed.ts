@@ -20,6 +20,9 @@ import {
 //   "Loading…", and never the last list presented as current.
 // - Live events show at once and are confirmed by a short debounced refetch,
 //   so the counts and the list come from the same answer.
+// - The day is re-checked against the real clock at least once a minute and
+//   whenever the panel regains focus or becomes visible, so a machine that
+//   slept across midnight does not keep showing yesterday.
 
 export type RecorderError = "unavailable" | "failed";
 export type RecorderNotice = "exported" | "exportError" | "clearError" | "cleared";
@@ -53,6 +56,9 @@ type Timer = ReturnType<typeof setTimeout>;
 export const LIVE_REFRESH_MS = 400;
 // The rollover refetch waits this long past midnight, so its `since` is the new day.
 const ROLLOVER_SLACK_MS = 1000;
+// A single long timer can fire hours late after sleep; the rollover check is
+// re-armed at most this far ahead and compares against the real clock.
+export const ROLLOVER_CHECK_MS = 60_000;
 
 export class RecorderFeed {
   private state: RecorderFeedState;
@@ -68,7 +74,7 @@ export class RecorderFeed {
 
   constructor(
     private readonly api: RecorderBridge,
-    private readonly now: () => number = Date.now,
+    private readonly now: () => number = () => Date.now(),
     private readonly timers: {
       set: (fn: () => void, ms: number) => Timer;
       clear: (timer: Timer) => void;
@@ -176,6 +182,13 @@ export class RecorderFeed {
     }
   }
 
+  // The window is "today": if the real day has moved on (after sleep, or when
+  // the panel regains focus), drop yesterday and fetch the new day.
+  checkDay(): void {
+    if (this.disposed) return;
+    if (startOfToday(this.now()) !== this.state.since) void this.refresh({ reset: true });
+  }
+
   retry(): Promise<void> {
     return this.refresh({ reset: true });
   }
@@ -188,7 +201,11 @@ export class RecorderFeed {
 
   private onNotice(notice: EgressNotice): void {
     if (this.disposed || notice?.phase !== "recorded") return;
-    if (notice.event.ts >= startOfNextDay(this.state.since)) {
+    const settled = Math.max(notice.event.ts, notice.event.endedAt ?? notice.event.ts);
+    if (
+      settled >= startOfNextDay(this.state.since) ||
+      startOfToday(this.now()) !== this.state.since
+    ) {
       // A new day began: the window moves, and nothing from yesterday stays.
       void this.refresh({ reset: true });
       return;
@@ -217,10 +234,15 @@ export class RecorderFeed {
 
   private armRollover(since: number): void {
     if (this.rolloverTimer) this.timers.clear(this.rolloverTimer);
-    const wait = Math.max(0, startOfNextDay(since) - this.now()) + ROLLOVER_SLACK_MS;
+    const wait = Math.min(
+      ROLLOVER_CHECK_MS,
+      Math.max(0, startOfNextDay(since) - this.now()) + ROLLOVER_SLACK_MS
+    );
     this.rolloverTimer = this.timers.set(() => {
       this.rolloverTimer = null;
-      void this.refresh({ reset: true });
+      if (this.disposed || since !== this.state.since) return;
+      if (startOfToday(this.now()) !== since) void this.refresh({ reset: true });
+      else this.armRollover(since);
     }, wait);
   }
 

@@ -446,6 +446,26 @@ test("prune deletes rows older than retentionDays and caps the table", (t) => {
   assert.equal(ctx.recorder.list({ since: 0 })[0].ts, clock - DAY);
 });
 
+test("a since window includes rows still running at its start, on disk and in memory, list and summary alike", (t) => {
+  const since = 50 * DAY;
+  const ctx = persistent(t, () => since + DAY / 2);
+  if (!ctx) return;
+  const rows = [
+    { model: "yesterday", ts: since - 600000, endedAt: since - 1 },
+    { model: "across", ts: since - 300000, endedAt: since + 120000 },
+    { model: "today", ts: since + 60000, endedAt: since + 61000 },
+  ];
+  for (const row of rows) ctx.recorder.record({ ...base, ...row });
+  ctx.recorder.setPersistence(false);
+  ctx.recorder.record({ ...base, model: "memory-across", ts: since - 1000, endedAt: since });
+  ctx.recorder.record({ ...base, model: "memory-before", ts: since - 2000, endedAt: since - 1500 });
+  const listed = ctx.recorder.list({ since }).map((r) => r.model);
+  assert.deepEqual(listed, ["today", "memory-across", "across"]);
+  const summary = ctx.recorder.summary({ since });
+  assert.equal(summary.observed, listed.length, "the counts use the same window as the list");
+  assert.equal(ctx.recorder.list({ since: 0 }).length, 5);
+});
+
 test("summary counts measured request rows separately and preserves unknown byte counts", () => {
   const recorder = new FlightRecorder();
   recorder.record({ ...base, operationId: 7 });

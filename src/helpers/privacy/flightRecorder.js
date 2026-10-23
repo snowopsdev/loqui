@@ -271,20 +271,27 @@ class FlightRecorder extends EventEmitter {
     return published;
   }
 
+  // Rows in the window that starts at `since`: those that started or ended at
+  // or after it, so a request that started before midnight and ended after it
+  // is today's. summary() reads through list(), so counts and rows agree.
   list({ since = 0, limit = 500 } = {}) {
     const lim = Math.min(Math.max(Math.trunc(limit) || 1, 1), MAX_ROWS);
     let fromDb = [];
     if (this.db) {
       try {
         fromDb = this.db
-          .prepare("SELECT * FROM egress_events WHERE ts >= ? ORDER BY ts DESC, id DESC LIMIT ?")
-          .all(since, lim);
+          .prepare(
+            "SELECT * FROM egress_events WHERE ts >= ? OR ended_at >= ? ORDER BY ts DESC, id DESC LIMIT ?"
+          )
+          .all(since, since, lim);
         this._readPersistError = null;
       } catch {
         this._readPersistError = "READ_ERROR";
       }
     }
-    const fromMemory = this.memory.filter((row) => row.ts >= since);
+    const fromMemory = this.memory.filter(
+      (row) => row.ts >= since || (row.ended_at != null && row.ended_at >= since)
+    );
     const order = (row) => (row.id > 0 ? row.id : Number.MAX_SAFE_INTEGER / 2 - row.id);
     return [...fromDb, ...fromMemory]
       .sort((a, b) => b.ts - a.ts || order(b) - order(a))

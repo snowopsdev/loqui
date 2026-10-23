@@ -83,7 +83,7 @@ test("timeline: one tick per record inside today's window, placed by minute and 
       ev({ id: 1, ts: now - HOUR }),
       ev({ id: 2, ts: now - 2 * HOUR, outcome: "blocked", bytesOut: 0 }),
       ev({ id: 3, ts: now - 3 * HOUR, task: "unattributed", attributed: false }),
-      ev({ id: 4, ts: now - 13 * HOUR }), // yesterday: outside the window
+      ev({ id: 4, ts: now - 13 * HOUR, endedAt: now - 13 * HOUR + 400 }), // yesterday: outside
       ev({ id: 5, ts: now - 4 * HOUR, kind: "session", opaque: true, bytesOut: null }),
       ev({ id: 6, ts: now - 5 * HOUR, kind: "operation" }), // never left
       ev({ id: 7, ts: midnight + 24 * HOUR + MINUTE }), // tomorrow
@@ -100,6 +100,65 @@ test("timeline: one tick per record inside today's window, placed by minute and 
     ]
   );
   for (const tick of ticks) assert.ok(tick.position > 0 && tick.position < 1);
+});
+
+test("a request that started before midnight and ended today belongs to today", async () => {
+  const { timelineTicks, inWindow, mergeNotice } = await view();
+  const across = ev({ id: 8, ts: midnight - 10 * MINUTE, endedAt: midnight + 5 * MINUTE });
+  const before = ev({ id: 9, ts: midnight - 10 * MINUTE, endedAt: midnight - MINUTE });
+  assert.equal(inWindow(across, midnight), true);
+  assert.equal(inWindow(before, midnight), false);
+  assert.equal(inWindow(ev({ ts: midnight + 24 * HOUR }), midnight), false, "tomorrow");
+  const ticks = timelineTicks([across, before], midnight);
+  assert.deepEqual(
+    ticks.map((k) => [k.id, k.minute, k.position]),
+    [[8, 0, 0]],
+    "drawn at the start of the day"
+  );
+  const joined = mergeNotice([], { phase: "recorded", event: across }, midnight);
+  assert.deepEqual(
+    joined.map((e) => e.id),
+    [8]
+  );
+});
+
+// Each zone's day boundaries, checked with the zone set through TZ. Santiago
+// starts DST at local midnight (2026-09-06 has no 00:00), so "start of day" is
+// 01:00 there and the next day still starts at 00:00.
+test("the day window is right in DST zones, including DST at midnight (TZ)", async () => {
+  const { startOfToday, startOfNextDay, timelineTicks } = await view();
+  const saved = process.env.TZ;
+  const cases = [
+    // zone, local day, its length in hours, its first hour, the next day's first hour
+    ["America/Santiago", [2026, 8, 6], 23, 1, 0],
+    ["America/Santiago", [2026, 8, 5], 24, 0, 1],
+    ["America/Santiago", [2026, 3, 4], 25, 0, 0],
+    ["America/New_York", [2026, 2, 8], 23, 0, 0],
+    ["America/New_York", [2026, 10, 1], 25, 0, 0],
+    ["Europe/Berlin", [2026, 2, 29], 23, 0, 0],
+    ["Asia/Kolkata", [2026, 2, 29], 24, 0, 0],
+  ];
+  try {
+    for (const [zone, [y, m, d], hours, startHour, nextStartHour] of cases) {
+      process.env.TZ = zone;
+      const noon = new Date(y, m, d, 12).getTime();
+      const since = startOfToday(noon);
+      const end = startOfNextDay(since);
+      const label = `${zone} ${y}-${m + 1}-${d}`;
+      assert.equal(new Date(since).getDate(), d, label);
+      assert.equal(new Date(since).getHours(), startHour, label);
+      assert.equal(new Date(end).getDate(), new Date(y, m, d + 1, 12).getDate(), label);
+      assert.equal(new Date(end).getHours(), nextStartHour, `${label}: the next day's start`);
+      assert.equal(end, startOfToday(new Date(y, m, d + 1, 12).getTime()), label);
+      assert.equal((end - since) / HOUR, hours, label);
+      const late = ev({ id: 1, ts: end - MINUTE, endedAt: end - MINUTE });
+      const [tick] = timelineTicks([late], since);
+      assert.ok(tick && tick.position < 1 && tick.position > 0.99, label);
+    }
+  } finally {
+    if (saved === undefined) delete process.env.TZ;
+    else process.env.TZ = saved;
+  }
 });
 
 test("unknown bytes are never shown as zero, and a 0 sent outside a refusal is unknown", async () => {
@@ -137,7 +196,10 @@ test("live notices: recorded rows join once; receipts, operations and other days
     ts: now,
   };
   assert.equal(mergeNotice(next, receipt, midnight), next);
-  const older = { phase: "recorded", event: ev({ id: 3, ts: midnight - 1 }) };
+  const older = {
+    phase: "recorded",
+    event: ev({ id: 3, ts: midnight - 2, endedAt: midnight - 1 }),
+  };
   assert.equal(mergeNotice(next, older, midnight), next, "older than the window");
   const later = { phase: "recorded", event: ev({ id: 4, ts: midnight + 24 * HOUR }) };
   assert.equal(mergeNotice(next, later, midnight), next, "the next day");
@@ -303,14 +365,17 @@ test("while loading, the panel shows no count, no empty state and no timeline", 
 test("a failed read is an alert with Retry, never Loading, a count, the empty state or old rows", async () => {
   for (const [error, key] of [
     ["failed", "loadError"],
-    ["unavailable", "unavailable"],
+    ["unavailable", "unavailableRead"],
   ]) {
     const html = await renderView({
       events: [ev({ id: 1 })],
       summary: sum({ observed: 1, left: 1 }),
       error,
       onRetry() {},
+      persistError: true,
     });
+    // No list is shown, so nothing may speak of "this list" (M5).
+    assert.doesNotMatch(html, /recorder\.unavailable</);
     assert.match(html, new RegExp(`role="alert"[^>]*>settingsPage\\.privacy\\.recorder\\.${key}<`));
     assert.match(html, /settingsPage\.privacy\.recorder\.retry/);
     assert.doesNotMatch(html, /recorder\.loading|observedToday|recorder\.empty|<table|api\.groq/);
@@ -329,6 +394,14 @@ test("a list cut at the fetch limit says so and offers more, then points to the 
     onShowMore() {},
   });
   assert.match(more, /recorder\.truncated\{"count":3\}/);
+  // The timeline draws only the fetched rows, so it says it is partial and
+  // shades the hours before the oldest fetched row instead of showing them empty.
+  assert.match(more, /recorder\.timelinePartial/);
+  assert.match(more, /aria-label="settingsPage\.privacy\.recorder\.timelineLabelPartial"/);
+  const band = /data-partial=""[^>]*style="[^"]*inset-inline-start:0%;width:([\d.]+)%/.exec(more);
+  assert.ok(band, "a band covers the hours not drawn");
+  const oldest = (now - 2 * MINUTE - midnight) / (24 * HOUR);
+  assert.ok(Math.abs(Number(band[1]) - oldest * 100) < 0.01, band[1]);
   assert.match(more, /recorder\.showMore/);
   assert.doesNotMatch(more, /recorder\.exportForAll/);
   const capped = await renderView({
@@ -341,7 +414,8 @@ test("a list cut at the fetch limit says so and offers more, then points to the 
   assert.match(capped, /recorder\.exportForAll/);
   assert.doesNotMatch(capped, /recorder\.showMore/);
   const whole = await renderView({ events, summary: sum({ observed: 3 }), truncated: false });
-  assert.doesNotMatch(whole, /recorder\.truncated|recorder\.showMore/);
+  assert.doesNotMatch(whole, /recorder\.truncated|recorder\.showMore|timelinePartial|data-partial/);
+  assert.match(whole, /aria-label="settingsPage\.privacy\.recorder\.timelineLabel"/);
 });
 
 test("retention copy follows the privacy settings; with history off it never implies history", async () => {
@@ -374,7 +448,7 @@ test("recorder faults are surfaced: unrecorded requests and a persistence error"
     persistError: true,
   });
   assert.match(html, /role="status"[\s\S]*recorder\.recordFailures\{"count":2\}/);
-  assert.match(html, /recorder\.unavailable/);
+  assert.match(html, /recorder\.unavailable</);
 });
 
 test("actions: busy disables both; notices are translated status lines", async () => {
@@ -678,12 +752,9 @@ test("feed: Show more raises the limit by a page up to main's cap of 5000", asyn
 
 test("feed: a new day moves the window and drops yesterday's rows", async () => {
   let clock = now;
-  const { feed, fake, timers } = await startFeed({ clock: () => clock });
+  const { feed, fake } = await startFeed({ clock: () => clock });
   await fake.answer([ev({ id: 1 })], sum({ observed: 1 }));
   const nextMidnight = new Date(2026, 9, 16).getTime();
-  const rollover = [...timers.timers.values()].find((x) => x.ms > HOUR);
-  assert.ok(rollover, "a rollover refetch is armed");
-  assert.ok(Math.abs(rollover.ms - (nextMidnight - now)) <= 2000);
   // A row from after midnight arrives first: the view resets to the new day.
   clock = nextMidnight + 5 * MINUTE;
   fake.emit({ phase: "recorded", event: ev({ id: 2, ts: clock }) });
@@ -695,6 +766,48 @@ test("feed: a new day moves the window and drops yesterday's rows", async () => 
     feed.getState().events.map((e) => e.id),
     [2]
   );
+});
+
+test("feed: the rollover check is re-armed against the real clock, so sleep cannot hide midnight", async () => {
+  const { ROLLOVER_CHECK_MS } = await feedModule();
+  assert.ok(ROLLOVER_CHECK_MS <= MINUTE, "checked at least once a minute");
+  let clock = now;
+  const { feed, fake, timers, LIVE_REFRESH_MS } = await startFeed({ clock: () => clock });
+  await fake.answer([ev({ id: 1 })], sum({ observed: 1 }));
+  const rollover = () => [...timers.timers.values()].filter((x) => x.ms > LIVE_REFRESH_MS);
+  assert.equal(rollover().length, 1, "a rollover check is armed");
+  assert.ok(rollover()[0].ms <= ROLLOVER_CHECK_MS);
+  // Before midnight a check only re-arms: no refetch, rows stay.
+  const fetches = fake.calls.length;
+  clock = now + 30 * MINUTE;
+  await timers.fire((x) => x.ms > LIVE_REFRESH_MS);
+  assert.equal(fake.calls.length, fetches);
+  assert.equal(rollover().length, 1, "re-armed");
+  assert.equal(feed.getState().events.length, 1);
+  // The machine slept across midnight: the next check sees the real clock.
+  const nextMidnight = new Date(2026, 9, 16).getTime();
+  clock = nextMidnight + 3 * HOUR;
+  await timers.fire((x) => x.ms > LIVE_REFRESH_MS);
+  assert.equal(feed.getState().since, nextMidnight);
+  assert.equal(feed.getState().events.length, 0, "nothing from yesterday stays");
+  assert.deepEqual(fake.calls.at(-2), ["list", { since: nextMidnight, limit: 500 }]);
+});
+
+test("feed: checkDay (focus, visibility) moves the window only when the day changed", async () => {
+  let clock = now;
+  const { feed, fake } = await startFeed({ clock: () => clock });
+  await fake.answer([ev({ id: 1 })], sum({ observed: 1 }));
+  const fetches = fake.calls.length;
+  feed.checkDay();
+  assert.equal(fake.calls.length, fetches, "same day: nothing to do");
+  assert.equal(feed.getState().status, "ready");
+  const nextMidnight = new Date(2026, 9, 16).getTime();
+  clock = nextMidnight + 8 * HOUR;
+  feed.checkDay();
+  assert.equal(feed.getState().status, "loading");
+  assert.equal(feed.getState().since, nextMidnight);
+  assert.equal(feed.getState().events.length, 0);
+  assert.deepEqual(fake.calls.at(-1), ["summary", { since: nextMidnight }]);
 });
 
 test("feed: once disposed, late answers and events change nothing", async () => {
@@ -765,6 +878,42 @@ test("mounted: the panel loads today's records through the bridge and follows lo
   assert.equal(ui.text().includes(`${R}.loading`), false);
 });
 
+test("mounted: on focus or visibility after midnight the panel moves to the new day", async (t) => {
+  const listeners = { window: new Map(), document: new Map() };
+  const add = (map) => (type, fn) => map.set(type, fn);
+  const ui = await mountComponent(t, "/components/settings/FlightRecorderPanel.tsx", {
+    api: { privacy: bridge() },
+    windowProps: { addEventListener: add(listeners.window), removeEventListener() {} },
+    beforeImport() {
+      const doc = globalThis.document;
+      doc.addEventListener = add(listeners.document);
+      doc.removeEventListener = () => {};
+    },
+  });
+  await flush();
+  assert.equal(typeof listeners.window.get("focus"), "function", "focus is watched");
+  assert.equal(typeof listeners.document.get("visibilitychange"), "function");
+  const lists = () => ui.calls.filter(([name]) => name === "privacy.listEgress");
+  const before = lists().length;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(9, 0, 0, 0);
+  const realNow = Date.now;
+  Date.now = () => tomorrow.getTime();
+  t.after(() => (Date.now = realNow));
+  await React.act(async () => listeners.window.get("focus")());
+  await flush();
+  assert.equal(lists().length, before + 1);
+  const since = new Date(tomorrow);
+  since.setHours(0, 0, 0, 0);
+  assert.deepEqual(lists().at(-1)[1], { since: since.getTime(), limit: 500 });
+  // Already on the new day: visibility re-checks and finds nothing to do.
+  globalThis.document.visibilityState = "visible";
+  await React.act(async () => listeners.document.get("visibilitychange")());
+  await flush();
+  assert.equal(lists().length, before + 1);
+});
+
 test("mounted: a rejected read shows the error with Retry instead of Loading forever", async (t) => {
   let fail = true;
   const ui = await mountComponent(t, "/components/settings/FlightRecorderPanel.tsx", {
@@ -823,10 +972,13 @@ const KEYS = [
   "loading",
   "loadError",
   "unavailable",
+  "unavailableRead",
   "retry",
   "coverage",
   "unexplained",
   "timelineLabel",
+  "timelineLabelPartial",
+  "timelinePartial",
   "tick",
   "legend.sent",
   "legend.session",
@@ -899,6 +1051,11 @@ test("every recorder string exists in all 11 locales with matching placeholders 
       `${R}.coverage`,
       `${R}.loopbackNote`,
       `${R}.retentionMemory`,
+      `${R}.bytesNote`,
+      `${R}.connection`,
+      `${R}.unavailableRead`,
+      `${R}.timelinePartial`,
+      `${R}.timelineLabelPartial`,
     ])
       assert.notEqual(lookup(resources[l], key), lookup(resources.en, key), `${l}:${key}`);
 });
@@ -950,6 +1107,7 @@ test("the recorder copy renders through i18next in every locale without a raw ke
       { events: [], summary: sum({}), retention: { historyOn: true, days: 0 }, notice: "exported" },
       { events: [], summary: null },
       { events: [], summary: null, error: "failed", onRetry() {} },
+      { events: [], summary: null, error: "unavailable", onRetry() {}, persistError: true },
       { events: [], summary: sum({}), truncated: true, limit: 5000 },
     ]) {
       const html = renderStatic(FlightRecorderView, { ...base, t: tl, ...props });
@@ -975,8 +1133,25 @@ test("no recorder copy claims zero egress, a verified seal, isolation or that lo
   // An interrupted request may have been partly received; only a refusal is "not sent".
   assert.match(resources.en.settingsPage.privacy.recorder.outcome.cancelled, /may have received/);
   assert.match(resources.en.settingsPage.privacy.recorder.notSent, /^Not sent$/);
-  assert.match(resources.en.settingsPage.privacy.recorder.retentionMemory, /memory only/);
-  assert.match(resources.en.settingsPage.privacy.recorder.retentionMemory, /500/);
+  const rec = resources.en.settingsPage.privacy.recorder;
+  // History off scopes memory-only to NEW records; earlier saved records stay
+  // on disk and stay listed until retention removes them or they are cleared (I1).
+  assert.match(rec.retentionMemory, /^Local history is off: new records are kept in memory only/);
+  assert.match(rec.retentionMemory, /500/);
+  assert.match(rec.retentionMemory, /gone when Loqui quits/);
+  assert.match(rec.retentionMemory, /saved before you turned it off stay on this computer/);
+  assert.match(rec.retentionMemory, /retention setting removes them or you clear them/);
+  // Every connection row counts its whole connection; a connection's own
+  // requests are not visible to Loqui (M4).
+  assert.match(rec.bytesNote, /request and response bodies, not headers/);
+  assert.match(rec.bytesNote, /Connection rows, including live transcription, count/);
+  assert.match(rec.bytesNote, /whole connection/);
+  assert.doesNotMatch(rec.bytesNote, /except/);
+  assert.match(rec.connection, /requests inside it aren't visible to Loqui/);
+  // A failed read shows no list, so its alert does not mention one (M5).
+  assert.doesNotMatch(rec.unavailableRead, /list/);
+  assert.match(rec.unavailable, /this list may be incomplete/);
+  assert.match(rec.timelinePartial, /only the records listed below/);
 });
 
 // ---- Contrast, in light and Plum Night ---------------------------------------
@@ -1032,9 +1207,15 @@ test("DESIGN.md completes the Sealed mode section with the recorder rules", () =
     "Not sent",
     "memory only",
     "never colour alone",
+    "new records are in memory only",
+    "saved before history was turned off stay",
+    "started before midnight",
+    "partial",
+    "whole connection",
   ])
     assert.ok(body.includes(phrase), phrase);
   assert.doesNotMatch(body, /Only blocked requests show 0 bytes sent/);
+  assert.doesNotMatch(body, /with local history off it says records are in memory only/);
 });
 
 test("PRIVACY.md documents Sealed mode and the recorder as a partial 07a with the gate pending", () => {
@@ -1061,8 +1242,32 @@ test("PRIVACY.md documents Sealed mode and the recorder as a partial 07a with th
     "Clear history",
     "Export CSV",
     "proxy or port forwarder",
+    "`*.localhost`",
+    "IPv4-mapped",
+    "New records are kept in memory only",
+    "Records saved before you turned local history off stay on this computer",
+    "started before midnight",
+    "Every connection row",
+    "whole connection",
   ])
     assert.ok(body.includes(phrase), phrase);
+  // The old wording made every record memory-only once history was off (I1).
+  assert.doesNotMatch(body, /With local history off, records are kept in memory only/);
+  assert.doesNotMatch(body, /except live transcription connections/);
+  // Named destinations that were only covered by generic rows (M3).
+  const table = privacy.slice(
+    privacy.indexOf("## When network requests occur"),
+    privacy.indexOf(heading)
+  );
+  for (const row of [
+    "| Tinfoil attestation",
+    "`atc.tinfoil.sh`",
+    "`github-proxy.tinfoil.sh`",
+    "`kds-proxy.tinfoil.sh`",
+    "| Assistant screen context",
+    "screenshot",
+  ])
+    assert.ok(table.includes(row), row);
   assert.doesNotMatch(body, /verified only after|dates the claim|nothing leaves|0 bytes/i);
   // Inherited policies stay: the dictation undo hold, private credentials, data storage.
   for (const kept of [
@@ -1080,6 +1285,11 @@ test("the network inventory lists the 07a destinations and states the partial st
     "yt-dlp self-update",
     "Remote images in Markdown",
     "Browser, mail and OS settings",
+    "| Tinfoil attestation",
+    "`atc.tinfoil.sh`",
+    "`github-proxy.tinfoil.sh`",
+    "`kds-proxy.tinfoil.sh`",
+    "| Assistant screen context",
   ])
     assert.ok(doc.includes(row), row);
   assert.match(doc, /native engines are unavailable while sealed/i);

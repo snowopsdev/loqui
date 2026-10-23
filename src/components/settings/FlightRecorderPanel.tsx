@@ -25,6 +25,7 @@ import {
   taskId,
   timeCell,
   timelineTicks,
+  undrawnUntil,
   type TickKind,
 } from "./flightRecorderView";
 
@@ -155,6 +156,9 @@ export function FlightRecorderView({
   const loaded = error === null && summary !== null;
   const rows = loaded ? shownEvents(events) : [];
   const ticks = loaded ? timelineTicks(events, since) : [];
+  // A cut list draws only its newest rows; the earlier part of the day is
+  // marked as not drawn rather than shown empty while the counts include it.
+  const undrawn = loaded ? undrawnUntil(events, since, truncated) : null;
   const unexplainedHosts = summary?.unattributedHosts ?? [];
   const retentionLine = !retention
     ? t(`${R}.retention`)
@@ -181,7 +185,7 @@ export function FlightRecorderView({
         // never the last list as if it were current.
         <div className="flex flex-wrap items-center gap-3">
           <p role="alert" className={warn}>
-            {t(`${R}.${error === "unavailable" ? "unavailable" : "loadError"}`)}
+            {t(`${R}.${error === "unavailable" ? "unavailableRead" : "loadError"}`)}
           </p>
           {onRetry && (
             <Button variant="outline" size="sm" onClick={onRetry}>
@@ -220,14 +224,13 @@ export function FlightRecorderView({
         </div>
       )}
 
-      {(recordFailures > 0 || (persistError && error !== "unavailable")) && (
+      {(recordFailures > 0 || (persistError && loaded)) && (
         <div role="status" className="space-y-1">
           {recordFailures > 0 && (
             <p className={warn}>{t(`${R}.recordFailures`, { count: recordFailures })}</p>
           )}
-          {persistError && error !== "unavailable" && (
-            <p className={warn}>{t(`${R}.unavailable`)}</p>
-          )}
+          {/* "This list may be incomplete" only while a list is shown. */}
+          {persistError && loaded && <p className={warn}>{t(`${R}.unavailable`)}</p>}
         </div>
       )}
 
@@ -247,9 +250,17 @@ export function FlightRecorderView({
         <div className="space-y-1.5">
           <div
             role="img"
-            aria-label={t(`${R}.timelineLabel`)}
+            aria-label={t(`${R}.${undrawn === null ? "timelineLabel" : "timelineLabelPartial"}`)}
             className="relative h-10 overflow-hidden rounded-md border border-border"
           >
+            {undrawn !== null && undrawn > 0 && (
+              <span
+                aria-hidden="true"
+                data-partial=""
+                style={{ insetInlineStart: "0%", width: `${undrawn * 100}%` }}
+                className="absolute inset-y-0 bg-muted"
+              />
+            )}
             {ticks.map((tick) => (
               <span
                 key={tick.id}
@@ -276,6 +287,7 @@ export function FlightRecorderView({
               </li>
             ))}
           </ul>
+          {undrawn !== null && <p className={muted}>{t(`${R}.timelinePartial`)}</p>}
         </div>
       )}
 
@@ -389,7 +401,16 @@ export default function FlightRecorderPanel() {
     const off = feed.subscribe(setState);
     setState(feed.getState());
     const stop = feed.start();
+    // After sleep or a long time in the background the day may have changed.
+    const checkDay = () => feed.checkDay();
+    const onVisible = () => {
+      if (document.visibilityState !== "hidden") checkDay();
+    };
+    window.addEventListener("focus", checkDay);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      window.removeEventListener("focus", checkDay);
+      document.removeEventListener("visibilitychange", onVisible);
       off();
       stop();
       if (feedRef.current === feed) feedRef.current = null;

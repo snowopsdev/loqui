@@ -4471,7 +4471,14 @@
       "transcribeOne": "Transcrire",
       "stillSealedTitle": "L'enregistrement est toujours conservé",
       "stillSealedDetail": "Le mode scellé est toujours activé, cet enregistrement n'a donc pas été transcrit. Loqui le garde toujours uniquement en mémoire, pendant 30 minutes au maximum après la dictée ou jusqu'à ce que vous quittiez l'app. Transcrivez-le après avoir désactivé le mode scellé.",
-      "evictedOldest": "Pour faire de la place, Loqui a supprimé l'enregistrement le plus ancien qu'il conservait."
+      "evictedOldest": "Pour faire de la place, Loqui a supprimé l'enregistrement le plus ancien qu'il conservait.",
+      "goneTitle": "Cet enregistrement n'est plus conservé",
+      "goneExpired": "Loqui l'a gardé en mémoire pendant 30 minutes, puis l'a supprimé. Il ne peut plus être transcrit.",
+      "goneEvicted": "Loqui l'a supprimé de la mémoire pour faire de la place à un enregistrement plus récent. Il ne peut plus être transcrit.",
+      "goneDiscarded": "Il a été supprimé de la mémoire. Il ne peut plus être transcrit.",
+      "goneTranscribed": "Loqui l'a transcrit et ne le garde plus en mémoire.",
+      "goneUnknown": "Loqui ne le garde plus en mémoire, il ne peut donc plus être transcrit.",
+      "expiredDuringReplay": "Ses 30 minutes en mémoire ont expiré pendant cette tentative, Loqui l'a donc supprimé."
     },
     "confirmUnseal": {
       "title": "Désactiver le mode scellé ?",

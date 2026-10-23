@@ -480,3 +480,41 @@ test("sealedMode.ts defines no sealed rule of its own", async (t) => {
     "isDictationSealed",
   ]);
 });
+
+// Task 13 fix round 2, N1: the store renews main's claim before it expires, so
+// the settled card never flips to "Checking…" and back every 30 s (focus loss
+// on Home's "Set up", the Notes hint remounting, live regions announcing).
+test("N1: while sealed and renewed on schedule, the card stays 'Unavailable in Sealed mode' throughout", async (t) => {
+  const fake = fakePrivacy({ sealed: true });
+  const { routes, store, base, vite } = await load(t, fake.api);
+  const { routeStateLabel } = await vite.ssrLoadModule(
+    "/components/settings/routing/RouteChips.tsx"
+  );
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
+  t.after(() => t.mock.timers.reset());
+  let version = 0;
+  fake.api.getAttestation = async () =>
+    unverifiedAttestation({ version: ++version, at: Date.now() });
+  const card = () =>
+    routeStateLabel(
+      routes.resolveRoute(routes.routeSnapshotFromSettings(base), "dictationStt").state,
+      (key) => key
+    );
+  const cards = [];
+  store.subscribeSealed(() => cards.push(card()));
+  await tick();
+  assert.equal(card(), "routes.state.nativeUnavailable");
+  for (let second = 1; second <= 100; second++) {
+    t.mock.timers.tick(1000);
+    await tick();
+    assert.equal(card(), "routes.state.nativeUnavailable", `at +${second} s`);
+  }
+  const settled = cards.slice(cards.indexOf("routes.state.nativeUnavailable"));
+  assert.deepEqual(
+    [...new Set(settled)],
+    ["routes.state.nativeUnavailable"],
+    "no Checking… is ever published between two fresh claims"
+  );
+  assert.ok(version >= 5, `renewed across several boundaries (${version} claims)`);
+  t.mock.timers.reset();
+});

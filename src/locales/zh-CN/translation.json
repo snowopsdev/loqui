@@ -4431,7 +4431,14 @@
       "transcribeOne": "转写",
       "stillSealedTitle": "录音仍被保留",
       "stillSealedDetail": "封闭模式仍处于开启状态，因此这段录音未被转写。Loqui 仍仅在内存中保留它，最长为听写后 30 分钟或直到你退出应用。请在关闭封闭模式后转写。",
-      "evictedOldest": "为腾出空间，Loqui 已丢弃它保留的最早一段录音。"
+      "evictedOldest": "为腾出空间，Loqui 已丢弃它保留的最早一段录音。",
+      "goneTitle": "这段录音已不再保留",
+      "goneExpired": "Loqui 已在内存中保留它 30 分钟，之后将其丢弃。现在无法转写。",
+      "goneEvicted": "为给较新的录音腾出空间，Loqui 已将它从内存中丢弃。现在无法转写。",
+      "goneDiscarded": "它已从内存中丢弃。现在无法转写。",
+      "goneTranscribed": "Loqui 已转写它，并且不再在内存中保留它。",
+      "goneUnknown": "Loqui 已不再在内存中保留它，因此现在无法转写。",
+      "expiredDuringReplay": "它在内存中的 30 分钟已在本次尝试期间用完，因此 Loqui 已将其丢弃。"
     },
     "confirmUnseal": {
       "title": "关闭封闭模式？",

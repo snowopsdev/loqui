@@ -124,7 +124,9 @@ test("a claim delivered late lives only until main's at + 30 s, not 30 s after i
   await new Promise((r) => setTimeout(r, 90));
   assert.equal(store.getSealedSnapshot().attestation, null, "gone at at + 30 s");
   await tick();
-  assert.equal(refetches, 2, "expiry asked main again");
+  // Fix round 2, N1: with under 10 s left the claim's refresh is asked at once
+  // (and its older answer ignored); then the expiry asks main again.
+  assert.equal(refetches, 3, "a refresh, then the expiry, asked main again");
   assert.equal(
     store.getSealedSnapshot().attestation,
     null,
@@ -237,4 +239,151 @@ test("a build without the privacy bridge cannot be sealed, and that is known (Pl
   store.subscribeSealed(() => {});
   await tick();
   assert.deepEqual(store.getSealedSnapshot(), { sealed: false, attestation: null });
+});
+
+// Task 13 fix round 2, N1: while sealed, main's claim is renewed before it
+// expires, so local routes never flip to "Checking…" between two fresh
+// claims. The hard expiry at main's at + 30 s is unchanged: a refresh that
+// is late or fails still drops the claim then, and nothing extends a claim.
+async function scheduled(t, getAttestation) {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
+  const fake = fakePrivacy();
+  const asked = [];
+  fake.api.getAttestation = (...args) => {
+    asked.push(Date.now());
+    return getAttestation(...args);
+  };
+  const store = await fresh(t, fake.api);
+  const seen = [];
+  store.subscribeSealed(() => seen.push(store.getSealedSnapshot().attestation));
+  await tick();
+  return { store, fake, asked, seen };
+}
+
+test("N1: a claim renewed on schedule is replaced before it expires, never by unknown", async (t) => {
+  let version = 0;
+  const { store, asked, seen } = await scheduled(t, async () =>
+    unverifiedAttestation({ version: ++version, at: Date.now() })
+  );
+  assert.equal(store.getSealedSnapshot().attestation.version, 1);
+  for (let second = 1; second <= 150; second++) {
+    t.mock.timers.tick(1000);
+    await tick();
+    const current = store.getSealedSnapshot().attestation;
+    assert.notEqual(current, null, `a claim is shown at +${second} s`);
+    assert.equal(store.isAttestationFresh(current, Date.now()), true, "never past its expiry");
+  }
+  const adopted = seen.slice(seen.findIndex((a) => a !== null));
+  assert.equal(adopted.includes(null), false, "no unknown is published between fresh claims");
+  assert.ok(version >= 7, `renewed across several at + 30 s boundaries (${version} claims)`);
+  for (let i = 1; i < asked.length; i++) {
+    const gap = asked[i] - asked[i - 1];
+    assert.ok(gap >= 19_000 && gap <= 21_000, `each renewal is asked about 20 s in (${gap} ms)`);
+  }
+  assert.equal(store._sealedStoreTimersForTests(), 2, "one refresh and one hard expiry, no more");
+});
+
+test("N1: a refresh that has not answered by main's at + 30 s still drops the claim then", async (t) => {
+  let first = true;
+  const { store, asked } = await scheduled(t, () => {
+    if (!first) return new Promise(() => {});
+    first = false;
+    return Promise.resolve(unverifiedAttestation({ version: 1, at: Date.now() }));
+  });
+  assert.equal(store.getSealedSnapshot().attestation.version, 1);
+  t.mock.timers.tick(20_000);
+  await tick();
+  assert.equal(asked.length, 2, "the refresh was asked at at + 20 s");
+  assert.equal(store.getSealedSnapshot().attestation.version, 1, "the claim is kept meanwhile");
+  t.mock.timers.tick(9_999);
+  await tick();
+  assert.equal(store.getSealedSnapshot().attestation.version, 1, "fresh until at + 30 s");
+  t.mock.timers.tick(2);
+  await tick();
+  assert.equal(store.getSealedSnapshot().attestation, null, "a late refresh extends nothing");
+  assert.equal(asked.length, 3, "expiry asked main again");
+  assert.equal(store._sealedStoreTimersForTests(), 0);
+});
+
+test("N1: a refresh that fails drops the claim at once (fail closed)", async (t) => {
+  let first = true;
+  const { store, asked } = await scheduled(t, async () => {
+    if (!first) throw new Error("ipc");
+    first = false;
+    return unverifiedAttestation({ version: 1, at: Date.now() });
+  });
+  assert.equal(store.getSealedSnapshot().attestation.version, 1);
+  t.mock.timers.tick(20_000);
+  await tick();
+  assert.equal(asked.length, 2);
+  assert.equal(store.getSealedSnapshot().attestation, null);
+  assert.equal(store._sealedStoreTimersForTests(), 0, "both timers are cleared");
+  t.mock.timers.tick(60_000);
+  await tick();
+  assert.equal(asked.length, 2, "nothing left armed to ask again");
+});
+
+test("N1: a late claim is refreshed once, the same answer never loops, and its expiry holds", async (t) => {
+  const late = unverifiedAttestation({ version: 5, at: 1_000_000 - 25_000 });
+  const { store, asked } = await scheduled(t, async () => late);
+  assert.equal(store.getSealedSnapshot().attestation.version, 5, "5 s of life left");
+  t.mock.timers.tick(1);
+  await tick();
+  assert.equal(asked.length, 2, "with under 10 s left the refresh is asked at once");
+  for (let i = 0; i < 3; i++) {
+    t.mock.timers.tick(1000);
+    await tick();
+  }
+  assert.equal(asked.length, 2, "main's unchanged answer is not refreshed again");
+  assert.equal(store.getSealedSnapshot().attestation.version, 5);
+  t.mock.timers.tick(2_000);
+  await tick();
+  assert.equal(store.getSealedSnapshot().attestation, null, "gone at its own at + 30 s");
+  assert.equal(asked.length, 3, "expiry asked once more");
+  t.mock.timers.tick(60_000);
+  await tick();
+  assert.equal(asked.length, 3, "a stale answer to the expiry's ask arms nothing");
+  assert.equal(store._sealedStoreTimersForTests(), 0);
+});
+
+test("N1: a delayed refresh reply never replaces a newer push", async (t) => {
+  let answer;
+  let first = true;
+  const { store, fake } = await scheduled(t, () => {
+    if (first) {
+      first = false;
+      return Promise.resolve(unverifiedAttestation({ version: 1, at: Date.now() }));
+    }
+    return new Promise((resolve) => (answer = resolve));
+  });
+  t.mock.timers.tick(20_000);
+  await tick();
+  assert.equal(typeof answer, "function", "the refresh is in flight");
+  fake.listeners.attestation(unverifiedAttestation({ version: 10, at: Date.now() }));
+  answer(unverifiedAttestation({ version: 2, at: Date.now() - 20_000 })); // left main earlier
+  await tick();
+  assert.equal(store.getSealedSnapshot().attestation.version, 10);
+  t.mock.timers.tick(29_000);
+  await tick();
+  assert.notEqual(store.getSealedSnapshot().attestation, null);
+});
+
+test("N1: timers are cleaned up: never more than two, none after reset, expiry or a stale claim", async (t) => {
+  const { store, fake, asked } = await scheduled(t, () => new Promise(() => {}));
+  assert.equal(store._sealedStoreTimersForTests(), 0, "no claim, no timer");
+  for (let v = 1; v <= 3; v++)
+    fake.listeners.attestation(unverifiedAttestation({ version: v, at: Date.now() }));
+  assert.equal(store._sealedStoreTimersForTests(), 2, "adopting re-arms; it never accumulates");
+  fake.listeners.attestation(
+    unverifiedAttestation({ version: 4, at: Date.now() - store.ATTESTATION_MAX_AGE_MS - 1 })
+  );
+  assert.equal(store._sealedStoreTimersForTests(), 0, "a stale claim clears both");
+  fake.listeners.attestation(unverifiedAttestation({ version: 5, at: Date.now() }));
+  assert.equal(store._sealedStoreTimersForTests(), 2);
+  store._resetSealedStoreForTests();
+  assert.equal(store._sealedStoreTimersForTests(), 0, "reset clears both");
+  const before = asked.length;
+  t.mock.timers.tick(120_000);
+  await tick();
+  assert.equal(asked.length, before, "a cleared timer never fires");
 });

@@ -4461,7 +4461,14 @@
       "transcribeOne": "Transkribieren",
       "stillSealedTitle": "Die Aufnahme wird weiterhin gehalten",
       "stillSealedDetail": "Der abgeschottete Modus ist noch aktiv, daher wurde diese Aufnahme nicht transkribiert. Loqui hält sie weiterhin nur im Arbeitsspeicher, bis zu 30 Minuten nach dem Diktat oder bis du die App beendest. Transkribiere sie, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
-      "evictedOldest": "Um Platz zu schaffen, hat Loqui die älteste gehaltene Aufnahme verworfen."
+      "evictedOldest": "Um Platz zu schaffen, hat Loqui die älteste gehaltene Aufnahme verworfen.",
+      "goneTitle": "Diese Aufnahme wird nicht mehr gehalten",
+      "goneExpired": "Loqui hat sie 30 Minuten lang im Arbeitsspeicher gehalten und dann verworfen. Sie kann jetzt nicht mehr transkribiert werden.",
+      "goneEvicted": "Loqui hat sie aus dem Arbeitsspeicher verworfen, um Platz für eine neuere Aufnahme zu schaffen. Sie kann jetzt nicht mehr transkribiert werden.",
+      "goneDiscarded": "Sie wurde aus dem Arbeitsspeicher verworfen. Sie kann jetzt nicht mehr transkribiert werden.",
+      "goneTranscribed": "Loqui hat sie transkribiert und hält sie nicht mehr im Arbeitsspeicher.",
+      "goneUnknown": "Loqui hält sie nicht mehr im Arbeitsspeicher, daher kann sie jetzt nicht transkribiert werden.",
+      "expiredDuringReplay": "Ihre 30 Minuten im Arbeitsspeicher sind während dieses Versuchs abgelaufen, daher hat Loqui sie verworfen."
     },
     "confirmUnseal": {
       "title": "Abgeschotteten Modus ausschalten?",

@@ -115,13 +115,16 @@ export function buildDictationErrorNotice(
   };
 }
 
+/** The unseal prompt's id: it leaves once nothing is held (fix round 2, N2). */
+export const SEALED_RECOVERY_NOTICE_ID = "sealed-recovery";
+
 /** §5.3: Plan 07's recovery prompt once Sealed mode is off and recordings are held. */
 export function buildSealedRecoveryNotice(
   t: T,
   actions: { transcribe: () => Promise<unknown>; discard: () => void }
 ): NoticeInput {
   return {
-    id: "sealed-recovery",
+    id: SEALED_RECOVERY_NOTICE_ID,
     kind: "notice",
     persistent: true,
     title: t("sealedMode.recovery.availableTitle"),
@@ -135,5 +138,39 @@ export function buildSealedRecoveryNotice(
       },
       { label: t("sealedMode.recovery.discard"), onClick: actions.discard },
     ],
+  };
+}
+
+// Literal keys, so the locale ratchet sees every one.
+const GONE_BODY_KEYS = {
+  expired: "sealedMode.recovery.goneExpired",
+  evicted: "sealedMode.recovery.goneEvicted",
+  discarded: "sealedMode.recovery.goneDiscarded",
+  transcribed: "sealedMode.recovery.goneTranscribed",
+  gone: "sealedMode.recovery.goneUnknown",
+} as const;
+
+/**
+ * Fix round 2, N2: a held-recording card whose hold has ended. Same id, so it
+ * replaces the card in place; recovered words and their actions stay, and
+ * Transcribe is gone because there is nothing left to transcribe.
+ */
+export function buildHeldRecordingGoneNotice(
+  t: T,
+  input: {
+    id: string;
+    reason: keyof typeof GONE_BODY_KEYS;
+    words?: string;
+    actions: NoticeAction[];
+  }
+): NoticeInput {
+  return {
+    id: input.id,
+    kind: "alert",
+    persistent: true,
+    title: t("sealedMode.recovery.goneTitle"),
+    body: t(GONE_BODY_KEYS[input.reason]),
+    ...(input.words ? { words: input.words } : {}),
+    actions: input.actions,
   };
 }

@@ -35,6 +35,7 @@ import {
   buildSealedRecoveryNotice,
   DICTATION_STATUS_NOTICE_ID,
 } from "../components/voiceNotices";
+import { watchHeldRecordingCards } from "../components/heldRecordingCards";
 import { getSealedSnapshot, subscribeSealed } from "../stores/sealedStore";
 import { discardRecovery, recoveryCount } from "../lib/sealedRecovery";
 import { recordCleanupFailure } from "../stores/cleanupFailureStore";
@@ -618,6 +619,9 @@ export const useAudioRecording = (options = {}) => {
       }
       wasSealed = sealed;
     });
+    // Fix round 2, N2: each held-recording card follows the hold it names, so
+    // an expired or evicted recording's card says so instead of offering it.
+    const heldCards = watchHeldRecordingCards(t);
 
     // Reset stale main-process state after a renderer reload or crash recovery.
     reportLifecycle("idle");
@@ -892,12 +896,23 @@ export const useAudioRecording = (options = {}) => {
         const description = getRecordingErrorDescription(error, t);
         if (error?.code === "SEALED_MODE" && error?.recoveryHeld === true) {
           // §5.3: the audio is held in memory only; Transcribe is the way back.
-          showDictationError({ title, description, sessionId, recoveryHeld: true }, [
-            {
-              label: t("sealedMode.recovery.transcribeOne"),
-              onClick: () => void audioManagerRef.current?.transcribeRecovered?.(),
-            },
-          ]);
+          // It names this card's own hold (fix round 2, N2): never the oldest,
+          // never another recording. Without an id there is no Transcribe here;
+          // the unseal prompt still offers every held recording.
+          const holdId = typeof error?.recoveryId === "number" ? error.recoveryId : null;
+          const transcribeOne =
+            holdId === null
+              ? null
+              : heldCards.transcribeAction({
+                  holdId,
+                  label: t("sealedMode.recovery.transcribeOne"),
+                  transcribe: (id) => audioManagerRef.current?.transcribeRecovered?.({ id }),
+                });
+          const noticeId = showDictationError(
+            { title, description, sessionId, recoveryHeld: true },
+            transcribeOne ? [transcribeOne] : []
+          );
+          if (transcribeOne) heldCards.track(noticeId, holdId, transcribeOne);
         } else if (error?.variant === "default") {
           // Informational outcomes (SCREEN_CONTEXT_SKIPPED after a successful
           // text-only retry) are notices, not failures: no card, no Retry.
@@ -1614,6 +1629,7 @@ export const useAudioRecording = (options = {}) => {
       disposeCleanupRetired?.();
       disposeForceStopped?.();
       offSealed();
+      heldCards.dispose();
       manager.cleanup();
     };
   }, [

@@ -294,7 +294,7 @@ function holdOne(fixtures, { id, privateTake = false, blob = new Blob(["pcm"]) }
       screen: Promise.resolve({ data: `screen-${session.id}`, mediaType: "image/png" }),
     })
   );
-  fixtures.recovery.holdForRecovery(
+  const holdId = fixtures.recovery.holdForRecovery(
     Object.freeze({
       owned: Object.freeze({
         blob,
@@ -307,7 +307,7 @@ function holdOne(fixtures, { id, privateTake = false, blob = new Blob(["pcm"]) }
       tracker: null,
     })
   );
-  return { session, context, blob };
+  return { session, context, blob, holdId };
 }
 
 test("replay: a transcript removes the hold; the real pipeline ran on the same bytes and session", async (t) => {
@@ -538,6 +538,108 @@ test("a fourth sealed hold says the oldest held recording was discarded", async 
   assert.match(text, /t:sealedMode\.recovery\.evictedOldest/);
   const plain = getRecordingErrorDescription({ ...error, recoveryEvicted: 0 }, (k) => `t:${k}`);
   assert.doesNotMatch(plain, /evictedOldest/);
+});
+
+// Task 13 fix round 2, N2: each held card names its hold; its Transcribe
+// replays that recording or nothing, never the oldest or another one.
+test("N2: a sealed failure names its hold, and a replay's re-failure names the same one", async (t) => {
+  const fixtures = await setup(t);
+  const r = await batchSealedFailure(fixtures, {
+    retention: { dataRetentionEnabled: false, audioRetentionDays: 30 },
+    privateTake: false,
+    mode: "disabled",
+  });
+  const [error] = r.errors;
+  assert.equal(error.recoveryHeld, true);
+  assert.equal(typeof error.recoveryId, "number");
+  assert.equal(fixtures.recovery.recoveryStatus(error.recoveryId), "held");
+  const { manager, errors } = replayManager(fixtures.createManager, async () => {
+    throw sealedError();
+  });
+  assert.deepEqual(await manager.transcribeRecovered({ id: error.recoveryId }), {
+    started: true,
+    succeeded: false,
+  });
+  assert.equal(errors.at(-1).recoveryHeld, true);
+  assert.equal(errors.at(-1).recoveryId, error.recoveryId, "the same hold, still held");
+  assert.equal(fixtures.recovery.recoveryStatus(error.recoveryId), "held");
+});
+
+test("N2: Transcribe on a card replays that card's own recording, never the oldest or another", async (t) => {
+  const fixtures = await setup(t);
+  const older = holdOne(fixtures, { id: "older", blob: new Blob(["older"]) });
+  const mine = holdOne(fixtures, { id: "mine", blob: new Blob(["mine"]) });
+  const seen = [];
+  const { manager } = replayManager(fixtures.createManager, async (audio) => {
+    seen.push(audio === mine.blob ? "mine" : audio === older.blob ? "older" : "another recording");
+    return { success: true, text: "recovered" };
+  });
+  assert.deepEqual(await manager.transcribeRecovered({ id: mine.holdId }), {
+    started: true,
+    succeeded: true,
+  });
+  assert.deepEqual(seen, ["mine"]);
+  assert.equal(mine.context.releaseCount, 1);
+  assert.equal(fixtures.recovery.recoveryStatus(older.holdId), "held", "the oldest is untouched");
+  assert.equal(older.context.releaseCount, 0);
+
+  // Its hold is gone: the click transcribes nothing, and never another recording.
+  assert.deepEqual(await manager.transcribeRecovered({ id: mine.holdId }), {
+    started: false,
+    reason: "gone",
+  });
+  const evictors = [1, 2, 3].map((n) => holdOne(fixtures, { id: `newer-${n}` }));
+  assert.equal(fixtures.recovery.recoveryStatus(older.holdId), "evicted");
+  assert.deepEqual(await manager.transcribeRecovered({ id: older.holdId }), {
+    started: false,
+    reason: "gone",
+  });
+  assert.deepEqual(seen, ["mine"], "nothing else was transcribed");
+  for (const { holdId } of evictors) assert.equal(fixtures.recovery.recoveryStatus(holdId), "held");
+  // Callers without an id (the unseal notice's "Transcribe recordings") keep
+  // the oldest-first order.
+  assert.deepEqual(await manager.transcribeRecovered(), { started: true, succeeded: true });
+  assert.equal(fixtures.recovery.recoveryStatus(evictors[0].holdId), "transcribed");
+});
+
+// Task 13 fix round 2, N4: a replay that runs past its hold's 30 minutes and
+// then fails must not say that the audio is still held.
+test("N4: a replay that outlives its hold and then fails sealed says the recording wasn't kept", async (t) => {
+  const fixtures = await setup(t);
+  const realSetTimeout = globalThis.setTimeout;
+  t.after(() => (globalThis.setTimeout = realSetTimeout));
+  let expireHold = null;
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    if (ms !== fixtures.recovery.RECOVERY_TTL_MS) return realSetTimeout(fn, ms, ...rest);
+    expireHold = fn; // the hold's own 30-minute timer, fired by hand below
+    return realSetTimeout(() => {}, 0);
+  };
+  const hold = holdOne(fixtures, { id: "outlived" });
+  globalThis.setTimeout = realSetTimeout;
+  assert.equal(typeof expireHold, "function");
+  const { manager, errors } = replayManager(fixtures.createManager, async () => {
+    expireHold(); // 30 minutes pass while the provider is still answering
+    throw sealedError();
+  });
+  assert.deepEqual(await manager.transcribeRecovered({ id: hold.holdId }), {
+    started: true,
+    succeeded: false,
+  });
+  const error = errors.at(-1);
+  assert.equal(error.code, "SEALED_MODE");
+  assert.equal(error.recoveryHeld, false, "nothing is held any more");
+  assert.equal(error.recoveryId ?? null, null, "no card may offer Transcribe for it");
+  assert.equal(error.messageKey, "sealedMode.blocked.dictationNotKept");
+  assert.equal(error.recoveryExpired, true);
+  const { getRecordingErrorDescription } = await fixtures.vite.ssrLoadModule(
+    "/utils/recordingErrors.ts"
+  );
+  const text = getRecordingErrorDescription(error, (key) => `t:${key}`);
+  assert.doesNotMatch(text, /dictationHeld/);
+  assert.match(text, /t:sealedMode\.recovery\.expiredDuringReplay/);
+  assert.equal(fixtures.recovery.recoveryCount(), 0);
+  assert.equal(fixtures.recovery.recoveryStatus(hold.holdId), "expired");
+  assert.equal(hold.context.releaseCount, 1, "closed once, on hand-back");
 });
 
 function streamingManager(fixtures, { stop, privateTake = false, partial = "" }) {

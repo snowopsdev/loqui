@@ -16,7 +16,9 @@ import {
 } from "../lib/sealedMode";
 import {
   claimRecovery,
+  claimRecoveryById,
   holdForRecoveryWithEvictions,
+  recoveryStatus,
   releaseRecovery,
   shouldHoldInMemory,
 } from "../lib/sealedRecovery";
@@ -1248,7 +1250,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (replayId != null && this._recoveryReplay === replayId) {
       // A replay's claimed hold already owns this operation: no second save,
       // no duplicate hold. processAudio's finally returns the session to it.
+      // Fix round 2, N4: if its 30 minutes ran out during this replay, the
+      // hand-back closes it, so the copy must not say it is still held.
+      if (recoveryStatus(replayId) !== "replaying") {
+        error.recoveryHeld = false;
+        error.recoveryExpired = true;
+        error.messageKey = sealedDictationMessageKey(error);
+        return { recoveryHeld: false, audioKept: false };
+      }
       error.recoveryHeld = true;
+      error.recoveryId = replayId;
       error.messageKey = sealedDictationMessageKey(error, { held: true });
       return { recoveryHeld: true, audioKept: false };
     }
@@ -1295,8 +1306,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       Boolean(held.owned.blob) &&
       shouldHoldInMemory(error, { audioKept, privateTake: held.owned.private });
     // Over RECOVERY_MAX the oldest hold is dropped; the notice says so (M2).
-    if (hold) error.recoveryEvicted = holdForRecoveryWithEvictions(held).evicted;
-    else {
+    // The notice names its own hold, so its Transcribe replays this recording
+    // and no other (fix round 2, N2).
+    if (hold) {
+      const { id, evicted } = holdForRecoveryWithEvictions(held);
+      error.recoveryId = id;
+      error.recoveryEvicted = evicted;
+    } else {
       // History acknowledged the audio, or there was none: close once.
       held.context?.release();
       held.tracker?.dispose?.();
@@ -1315,6 +1331,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       title: "sealedMode.blocked.dictationTitle",
       messageKey: error.messageKey,
       recoveryHeld: error.recoveryHeld === true,
+      ...(error.recoveryHeld === true && typeof error.recoveryId === "number"
+        ? { recoveryId: error.recoveryId }
+        : {}),
+      ...(error.recoveryExpired === true ? { recoveryExpired: true } : {}),
       ...(error.recoveryEvicted > 0 ? { recoveryEvicted: error.recoveryEvicted } : {}),
       ...(error.providerRetained ? { providerRetained: error.providerRetained } : {}),
     };
@@ -1340,11 +1360,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   /**
    * "Transcribe" on the error notice or the unseal notice. Claims an idle
-   * pipeline and the oldest hold; the hold is removed only when the replay
-   * produced a transcript. Its exact session, context and tracker are attached
-   * for the replay and returned to the same claimed entry on every outcome.
+   * pipeline and a hold; the hold is removed only when the replay produced a
+   * transcript. Its exact session, context and tracker are attached for the
+   * replay and returned to the same claimed entry on every outcome.
+   * With `{ id }` (a card naming its own hold) it claims that hold or none:
+   * "gone" when it has ended, never another recording (fix round 2, N2).
+   * Without an id (the unseal notice) it claims the oldest, as before.
    */
-  async transcribeRecovered() {
+  async transcribeRecovered(options) {
+    const id = typeof options?.id === "number" ? options.id : null;
     if (
       this.isRecording ||
       this.isProcessing ||
@@ -1354,8 +1378,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this._recoveryReplay != null
     )
       return { started: false, reason: "busy" };
-    const held = claimRecovery();
-    if (!held) return { started: false, reason: "none" };
+    const held = id == null ? claimRecovery() : claimRecoveryById(id);
+    if (!held) {
+      if (id == null) return { started: false, reason: "none" };
+      const status = recoveryStatus(id);
+      const claimedElsewhere = status === "held" || status === "replaying" || status === "expiring";
+      return { started: false, reason: claimedElsewhere ? "busy" : "gone" };
+    }
     const { owned, session, context, tracker } = held.operation;
     // Still sealed for this recording's own route: replaying would only be
     // refused again. The hold stays for after unseal. The pre-flight's copy

@@ -4471,7 +4471,14 @@
       "transcribeOne": "Trascrivi",
       "stillSealedTitle": "La registrazione è ancora conservata",
       "stillSealedDetail": "La modalità sigillata è ancora attiva, quindi questa registrazione non è stata trascritta. Loqui la conserva ancora solo in memoria, per un massimo di 30 minuti dopo la dettatura o finché non chiudi l'app. Trascrivila dopo aver disattivato la modalità sigillata.",
-      "evictedOldest": "Per fare spazio, Loqui ha scartato la registrazione più vecchia che conservava."
+      "evictedOldest": "Per fare spazio, Loqui ha scartato la registrazione più vecchia che conservava.",
+      "goneTitle": "Questa registrazione non è più conservata",
+      "goneExpired": "Loqui l'ha conservata in memoria per 30 minuti, poi l'ha scartata. Ora non può più essere trascritta.",
+      "goneEvicted": "Loqui l'ha scartata dalla memoria per fare spazio a una registrazione più recente. Ora non può più essere trascritta.",
+      "goneDiscarded": "È stata scartata dalla memoria. Ora non può più essere trascritta.",
+      "goneTranscribed": "Loqui l'ha trascritta e non la conserva più in memoria.",
+      "goneUnknown": "Loqui non la conserva più in memoria, quindi ora non può essere trascritta.",
+      "expiredDuringReplay": "I suoi 30 minuti in memoria sono scaduti durante questo tentativo, quindi Loqui l'ha scartata."
     },
     "confirmUnseal": {
       "title": "Disattivare la modalità sigillata?",

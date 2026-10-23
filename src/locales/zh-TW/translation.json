@@ -4431,7 +4431,14 @@
       "transcribeOne": "轉錄",
       "stillSealedTitle": "錄音仍被保留",
       "stillSealedDetail": "封閉模式仍處於開啟狀態，因此這段錄音未被轉錄。Loqui 仍僅在記憶體中保留它，最長為聽寫後 30 分鐘或直到你結束應用程式。請在關閉封閉模式後轉錄。",
-      "evictedOldest": "為騰出空間，Loqui 已捨棄它保留的最早一段錄音。"
+      "evictedOldest": "為騰出空間，Loqui 已捨棄它保留的最早一段錄音。",
+      "goneTitle": "這段錄音已不再保留",
+      "goneExpired": "Loqui 已在記憶體中保留它 30 分鐘，之後將其捨棄。現在無法轉錄。",
+      "goneEvicted": "為了給較新的錄音騰出空間，Loqui 已將它從記憶體中捨棄。現在無法轉錄。",
+      "goneDiscarded": "它已從記憶體中捨棄。現在無法轉錄。",
+      "goneTranscribed": "Loqui 已轉錄它，並且不再在記憶體中保留它。",
+      "goneUnknown": "Loqui 已不再在記憶體中保留它，因此現在無法轉錄。",
+      "expiredDuringReplay": "它在記憶體中的 30 分鐘已在本次嘗試期間用完，因此 Loqui 已將其捨棄。"
     },
     "confirmUnseal": {
       "title": "關閉封閉模式？",

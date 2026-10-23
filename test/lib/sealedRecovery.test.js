@@ -202,3 +202,58 @@ test("eviction of the oldest is reported, and every terminal end clears its time
   r.discardRecovery();
   assert.equal(r._recoveryTimersForTests(), 0);
 });
+
+// Task 13 fix round 2, N2: a held-recording card names its hold by id, and its
+// Transcribe claims that hold, never the oldest one, never another recording.
+test("N2: claimRecoveryById claims exactly that hold; without an id the oldest, as before", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const r = await load();
+  r.discardRecovery();
+  t.after(() => r.discardRecovery());
+  const a = r.holdForRecovery(operation("a"));
+  const b = r.holdForRecovery(operation("b"));
+  const claim = r.claimRecoveryById(b);
+  assert.equal(claim.id, b);
+  assert.equal(claim.operation.owned.metadata.n, "b", "the card's own recording");
+  assert.equal(r.recoveryStatus(b), "replaying");
+  assert.equal(r.recoveryStatus(a), "held");
+  assert.equal(r.claimRecoveryById(a), null, "one claim at a time");
+  r.releaseRecovery(b, { done: false });
+  assert.equal(r.recoveryStatus(b), "held");
+  assert.equal(r.claimRecoveryById(987_654), null, "an id that is not held claims nothing");
+  assert.equal(r.recoveryStatus(987_654), "gone");
+  const oldest = r.claimRecovery();
+  assert.equal(oldest.id, a, "no id: the oldest hold, as before");
+  r.releaseRecovery(a, { done: true });
+  assert.equal(r.recoveryStatus(a), "transcribed");
+  assert.equal(r.claimRecoveryById(a), null, "a transcribed hold is gone");
+  assert.equal(r.claimRecoveryById(b).id, b);
+  r.releaseRecovery(b, { done: false });
+});
+
+test("N2: every way a hold ends is reported against its own id", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const r = await load();
+  r.discardRecovery();
+  t.after(() => r.discardRecovery());
+  const expiring = r.holdForRecovery(operation("ttl"));
+  t.mock.timers.tick(r.RECOVERY_TTL_MS / 2);
+  const ids = [1, 2, 3].map((n) => r.holdForRecoveryWithEvictions(operation(n)));
+  assert.deepEqual(
+    ids.map((x) => x.evicted),
+    [0, 0, 1]
+  );
+  assert.equal(r.recoveryStatus(expiring), "evicted", "the oldest made room");
+  t.mock.timers.tick(r.RECOVERY_TTL_MS / 2 + 1);
+  for (const { id } of ids) assert.equal(r.recoveryStatus(id), "held", "15 minutes left");
+  const claimed = r.claimRecoveryById(ids[0].id);
+  t.mock.timers.tick(r.RECOVERY_TTL_MS);
+  assert.equal(r.recoveryStatus(ids[1].id), "expired", "its own timer");
+  assert.equal(r.recoveryStatus(ids[0].id), "expiring", "closes when its replay hands it back");
+  r.releaseRecovery(claimed.id, { done: false });
+  assert.equal(r.recoveryStatus(ids[0].id), "expired");
+  const kept = r.holdForRecovery(operation("kept"));
+  r.discardRecovery();
+  assert.equal(r.recoveryStatus(kept), "discarded");
+  assert.equal(r._recoveryTimersForTests(), 0);
+});

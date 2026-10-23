@@ -41,6 +41,27 @@ type Held = {
 };
 let held: Held[] = [];
 let nextId = 1;
+
+// Fix round 2 (N2, N4): what became of a hold, by its id, so a card that names
+// a hold can say what happened to it rather than offer a recording that is
+// gone. Ids only, never audio; bounded, because only recent cards ask.
+export type RecoveryEnd = "transcribed" | "expired" | "evicted" | "discarded";
+export type RecoveryStatus =
+  // Held and unclaimed: Transcribe can claim it.
+  | "held"
+  // Claimed by a running replay.
+  | "replaying"
+  // Claimed, and its 30 minutes ran out: it closes when the replay hands it back.
+  | "expiring"
+  | RecoveryEnd
+  // Never held, or ended too long ago to remember.
+  | "gone";
+const ENDED_MAX = 64;
+const ended = new Map<number, RecoveryEnd>();
+function recordEnd(id: number, reason: RecoveryEnd) {
+  ended.set(id, reason);
+  while (ended.size > ENDED_MAX) ended.delete(ended.keys().next().value as number);
+}
 const listeners = new Set<() => void>();
 // One expiry timer per hold, keyed by hold id. Every terminal end clears its
 // own, so no timer outlives the audio it guards.
@@ -82,6 +103,7 @@ function armExpiry(entry: Held) {
     }
     held = held.filter((h) => h !== entry);
     close(entry);
+    recordEnd(entry.id, "expired");
     notify();
   }, RECOVERY_TTL_MS);
   (timer as { unref?: () => void }).unref?.();
@@ -93,7 +115,10 @@ function expire(now: number) {
   const expired = held.filter((h) => !h.claimed && now - h.heldAt > RECOVERY_TTL_MS);
   if (!expired.length) return;
   held = held.filter((h) => !expired.includes(h));
-  for (const entry of expired) close(entry);
+  for (const entry of expired) {
+    close(entry);
+    recordEnd(entry.id, "expired");
+  }
   notify();
 }
 
@@ -130,7 +155,9 @@ export function holdForRecoveryWithEvictions(
   while (held.length > RECOVERY_MAX) {
     const victim = held.findIndex((h) => !h.claimed && h.id !== id);
     if (victim === -1) break;
-    close(held.splice(victim, 1)[0]);
+    const dropped = held.splice(victim, 1)[0];
+    close(dropped);
+    recordEnd(dropped.id, "evicted");
     evicted++;
   }
   notify();
@@ -160,6 +187,32 @@ export function claimRecovery(
   return { id: first.id, operation: first.operation, heldAt: first.heldAt };
 }
 
+// Fix round 2, N2: a card's Transcribe claims the hold that card names, or
+// nothing. It never falls back to another recording. One claim at a time.
+export function claimRecoveryById(
+  id: number,
+  now = Date.now()
+): { id: number; operation: HeldRecoveryOperation; heldAt: number } | null {
+  expire(now);
+  if (held.some((h) => h.claimed)) return null;
+  const entry = held.find((h) => h.id === id);
+  if (!entry) return null;
+  entry.claimed = true;
+  notify();
+  return { id: entry.id, operation: entry.operation, heldAt: entry.heldAt };
+}
+
+// Read-only: never closes or notifies. A hold past its 30 minutes whose timer
+// has not fired yet (a throttled window) already reads as expired.
+export function recoveryStatus(id: number, now = Date.now()): RecoveryStatus {
+  const entry = held.find((h) => h.id === id);
+  if (entry) {
+    if (entry.claimed) return entry.expiredWhileClaimed ? "expiring" : "replaying";
+    return now - entry.heldAt > RECOVERY_TTL_MS ? "expired" : "held";
+  }
+  return ended.get(id) ?? "gone";
+}
+
 // done: the replay produced a transcript; terminally close once. Otherwise the
 // replay must already have returned the same session/context to this entry.
 export function releaseRecovery(id: number, { done }: { done: boolean }): void {
@@ -168,6 +221,7 @@ export function releaseRecovery(id: number, { done }: { done: boolean }): void {
   if (done || entry.expiredWhileClaimed) {
     held = held.filter((h) => h.id !== id);
     close(entry);
+    recordEnd(id, done ? "transcribed" : "expired");
   } else entry.claimed = false;
   notify();
 }
@@ -177,7 +231,10 @@ export function discardRecovery(): void {
   const dropped = held.filter((h) => !h.claimed);
   if (!dropped.length) return;
   held = held.filter((h) => h.claimed);
-  for (const entry of dropped) close(entry);
+  for (const entry of dropped) {
+    close(entry);
+    recordEnd(entry.id, "discarded");
+  }
   notify();
 }
 

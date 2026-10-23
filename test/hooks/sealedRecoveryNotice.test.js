@@ -95,3 +95,169 @@ test("useAudioRecording offers Transcribe for held audio and again on unseal, wi
   assert.match(hook, /sealedMode\.recovery\.transcribeOne/);
   assert.doesNotMatch(hook, /(^|[^.\w])toast\(\{/m);
 });
+
+// Task 13 fix round 2, N2: held-recording cards follow the hold they name.
+// Executed against the real notice store and the real recovery store; only
+// the 30-minute clock is mocked.
+const heldOperation = (key) =>
+  Object.freeze({
+    owned: Object.freeze({
+      blob: new Blob([`audio-${key}`]),
+      sessionId: key,
+      private: false,
+      metadata: null,
+    }),
+    session: Object.freeze({ id: key }),
+    context: null,
+    tracker: null,
+  });
+
+async function heldCards(ctx) {
+  ctx.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const notices = await import("../../src/components/ui/notices.ts");
+  const recovery = await import("../../src/lib/sealedRecovery.ts");
+  const voice = await import("../../src/components/voiceNotices.ts");
+  const { watchHeldRecordingCards } = await import("../../src/components/heldRecordingCards.ts");
+  const clear = () => {
+    for (const n of notices.getNotices()) notices.dismissNotice(n.id, "user");
+  };
+  clear();
+  recovery.discardRecovery();
+  const cards = watchHeldRecordingCards(t);
+  ctx.after(() => {
+    cards.dispose();
+    recovery.discardRecovery();
+    clear();
+  });
+  const replayed = [];
+  const card = (sessionKey, { words } = {}) => {
+    const holdId = recovery.holdForRecovery(heldOperation(sessionKey));
+    const action = cards.transcribeAction({
+      holdId,
+      label: t("sealedMode.recovery.transcribeOne"),
+      transcribe: (id) => replayed.push(id),
+    });
+    const noticeId = notices.notify(
+      voice.buildDictationErrorNotice(
+        {
+          title: t("sealedMode.blocked.dictationTitle"),
+          description: t("sealedMode.blocked.dictationHeld"),
+          recoveryHeld: true,
+          sessionKey,
+          words,
+        },
+        t,
+        { retry: () => {}, pasteAgain: async () => {}, extraActions: [action] }
+      )
+    );
+    cards.track(noticeId, holdId, action);
+    return { holdId, noticeId, action };
+  };
+  const find = (id) => notices.getNotices().find((n) => n.id === id) ?? null;
+  const labels = (id) => (find(id)?.actions ?? []).map((a) => a.label);
+  return { notices, recovery, voice, cards, card, find, labels, replayed };
+}
+
+test("N2: a card's Transcribe names its own hold; at expiry the card says so and loses Transcribe", async (ctx) => {
+  const h = await heldCards(ctx);
+  const a = h.card("s-a");
+  ctx.mock.timers.tick(60_000);
+  const b = h.card("s-b");
+  assert.deepEqual(h.labels(a.noticeId), ["t:sealedMode.recovery.transcribeOne"]);
+  await a.action.onClick();
+  await b.action.onClick();
+  assert.deepEqual(h.replayed, [a.holdId, b.holdId], "each card replays its own hold");
+  const bRevision = h.find(b.noticeId).revision;
+  ctx.mock.timers.tick(h.recovery.RECOVERY_TTL_MS - 60_000 + 1);
+  assert.equal(h.recovery.recoveryStatus(a.holdId), "expired");
+  const gone = h.find(a.noticeId);
+  assert.equal(gone.title, "t:sealedMode.recovery.goneTitle");
+  assert.equal(gone.body, "t:sealedMode.recovery.goneExpired");
+  assert.deepEqual(h.labels(a.noticeId), [], "no Transcribe for a recording that is gone");
+  assert.equal(gone.persistent, true, "the user sees what happened to it");
+  assert.equal(h.find(b.noticeId).revision, bRevision, "the other card is untouched");
+  assert.deepEqual(h.labels(b.noticeId), ["t:sealedMode.recovery.transcribeOne"]);
+  ctx.mock.timers.tick(60_000);
+  assert.equal(h.find(b.noticeId).body, "t:sealedMode.recovery.goneExpired");
+});
+
+test("N2: an evicted hold's card says it made room; a card with words keeps them", async (ctx) => {
+  const h = await heldCards(ctx);
+  const first = h.card("s-1", { words: "words that arrived" });
+  const rest = [2, 3].map((n) => h.card(`s-${n}`));
+  const fourth = h.card("s-4");
+  assert.equal(h.recovery.recoveryStatus(first.holdId), "evicted");
+  const gone = h.find(first.noticeId);
+  assert.equal(gone.title, "t:sealedMode.recovery.goneTitle");
+  assert.equal(gone.body, "t:sealedMode.recovery.goneEvicted");
+  assert.equal(gone.words, "words that arrived", "recovered words are never dropped");
+  assert.deepEqual(h.labels(first.noticeId), ["t:notices.actions.pasteAgain"]);
+  for (const c of [...rest, fourth])
+    assert.deepEqual(h.labels(c.noticeId), ["t:sealedMode.recovery.transcribeOne"]);
+});
+
+test("N2: transcribed or discarded, the card leaves; one the user dismissed never comes back", async (ctx) => {
+  const h = await heldCards(ctx);
+  const done = h.card("s-done");
+  const claim = h.recovery.claimRecoveryById(done.holdId);
+  h.recovery.releaseRecovery(claim.id, { done: true });
+  assert.equal(h.find(done.noticeId), null, "transcribed elsewhere: nothing left to offer");
+  const dismissed = h.card("s-dismissed");
+  h.notices.dismissNotice(dismissed.noticeId, "user");
+  const discarded = h.card("s-discarded");
+  h.recovery.discardRecovery();
+  assert.equal(h.find(discarded.noticeId), null, "the user discarded it");
+  assert.equal(h.find(dismissed.noticeId), null, "never recreated");
+  const late = h.card("s-late");
+  h.notices.dismissNotice(late.noticeId, "user");
+  ctx.mock.timers.tick(h.recovery.RECOVERY_TTL_MS + 1);
+  assert.equal(h.find(late.noticeId), null, "expiry recreates nothing the user dismissed");
+});
+
+test("N2: the unseal prompt leaves once nothing is held; dispose stops listening", async (ctx) => {
+  const h = await heldCards(ctx);
+  const a = h.card("s-a");
+  ctx.mock.timers.tick(1000);
+  const b = h.card("s-b");
+  h.notices.notify(
+    h.voice.buildSealedRecoveryNotice(t, { transcribe: async () => {}, discard: () => {} })
+  );
+  const prompt = () => h.find(h.voice.SEALED_RECOVERY_NOTICE_ID);
+  assert.notEqual(prompt(), null);
+  ctx.mock.timers.tick(h.recovery.RECOVERY_TTL_MS - 500);
+  assert.equal(h.recovery.recoveryStatus(a.holdId), "expired");
+  assert.notEqual(prompt(), null, "one recording is still held");
+  h.cards.dispose();
+  ctx.mock.timers.tick(1000);
+  assert.equal(h.recovery.recoveryStatus(b.holdId), "expired");
+  assert.deepEqual(
+    h.labels(b.noticeId),
+    ["t:sealedMode.recovery.transcribeOne"],
+    "a disposed watcher changes nothing"
+  );
+  const again = (
+    await import("../../src/components/heldRecordingCards.ts")
+  ).watchHeldRecordingCards(t);
+  ctx.after(() => again.dispose());
+  const c = h.card("s-c");
+  again.track(c.noticeId, c.holdId, c.action);
+  h.recovery.discardRecovery();
+  assert.equal(prompt(), null, "nothing held: the prompt leaves");
+});
+
+// Ratchet beside the executed tests above: the hook wires the watcher, and a
+// card's Transcribe always names its hold.
+test("useAudioRecording keys each held card's Transcribe to its hold and reconciles the cards", () => {
+  const hook = fs.readFileSync(path.join(root, "src/hooks/useAudioRecording.js"), "utf8");
+  assert.match(hook, /watchHeldRecordingCards\(t\)/);
+  assert.match(hook, /heldCards\.dispose\(\);/, "unsubscribed in cleanup");
+  assert.match(hook, /error\?\.recoveryId/);
+  assert.match(hook, /transcribeRecovered\?\.\(\{ id \}\)/);
+  assert.match(hook, /heldCards\.track\(/);
+  const onError = hook.slice(hook.indexOf("onError: (error, onboardingTake, recording)"));
+  assert.doesNotMatch(
+    onError.slice(0, onError.indexOf("onNoAudio:")),
+    /transcribeRecovered\?\.\(\)/,
+    "a card never claims whichever hold is oldest"
+  );
+});

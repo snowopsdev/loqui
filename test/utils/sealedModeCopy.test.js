@@ -215,3 +215,29 @@ test("fix round 1 copy: present everywhere, settled and honest", () => {
   assert.doesNotMatch(en["sealedMode.recovery.stillSealedDetail"], /nothing was recorded/i);
   assert.equal(lookup(resources.en, "sealedMode.calendar.restartNow"), undefined, "no dead button");
 });
+
+// Fix round 2 (N2, N4): a card whose hold is gone, and a replay that outlived
+// its hold, say so in all 11 locales and never claim the audio is still held.
+test("fix round 2 copy: a recording that is no longer held says so everywhere", () => {
+  const keys = [
+    "sealedMode.recovery.goneTitle",
+    "sealedMode.recovery.goneExpired",
+    "sealedMode.recovery.goneEvicted",
+    "sealedMode.recovery.goneDiscarded",
+    "sealedMode.recovery.goneTranscribed",
+    "sealedMode.recovery.goneUnknown",
+    "sealedMode.recovery.expiredDuringReplay",
+  ];
+  const missing = [];
+  for (const l of LOCALES)
+    for (const key of keys) {
+      const value = lookup(resources[l], key);
+      if (typeof value !== "string" || !value.trim()) missing.push(`${l}:${key}`);
+    }
+  assert.deepEqual(missing, []);
+  for (const key of keys) {
+    const value = lookup(resources.en, key);
+    assert.doesNotMatch(value, /verified|0 bytes|nothing leaves|is isolated|are isolated/i, key);
+    assert.doesNotMatch(value, /still (held|holding)|is holding|nothing was sent/i, key);
+  }
+});

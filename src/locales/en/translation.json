@@ -4461,7 +4461,14 @@
       "transcribeOne": "Transcribe",
       "stillSealedTitle": "The recording is still held",
       "stillSealedDetail": "Sealed mode is still on, so this recording wasn't transcribed. Loqui is still holding it in memory only, for up to 30 minutes after the dictation or until you quit. Transcribe it after you turn off Sealed mode.",
-      "evictedOldest": "To make room, Loqui discarded the oldest recording it was holding."
+      "evictedOldest": "To make room, Loqui discarded the oldest recording it was holding.",
+      "goneTitle": "This recording is no longer held",
+      "goneExpired": "Loqui held it in memory for 30 minutes, then discarded it. It can't be transcribed now.",
+      "goneEvicted": "Loqui discarded it from memory to make room for a newer recording. It can't be transcribed now.",
+      "goneDiscarded": "It was discarded from memory. It can't be transcribed now.",
+      "goneTranscribed": "Loqui transcribed it and no longer holds it in memory.",
+      "goneUnknown": "Loqui no longer holds it in memory, so it can't be transcribed now.",
+      "expiredDuringReplay": "Its 30 minutes in memory ran out during this attempt, so Loqui discarded it."
     },
     "confirmUnseal": {
       "title": "Turn off Sealed mode?",

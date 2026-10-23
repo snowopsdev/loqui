@@ -40,6 +40,16 @@ let eventVersion = 0;
 // that fails cannot erase something newer than its own start.
 let attestationEpoch = 0;
 let staleTimer: ReturnType<typeof setTimeout> | null = null;
+// Fix round 2, N1: asks main for a fresh claim before the current one
+// expires, so a claim renewed on time is replaced by its successor and never
+// by unknown. It never extends a claim: the hard expiry above still fires at
+// main's `at` + 30 s if no fresh answer has landed by then.
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+export const ATTESTATION_REFRESH_LEAD_MS = 10_000;
+// The `at` of the claim whose refresh was already asked for. A reply that
+// repeats that claim (same `at`) does not ask again, so an unchanged answer
+// cannot loop; its hard expiry then asks main once more, as before.
+let refreshedAt: number | null = null;
 let windowCleanup: (() => void) | null = null;
 
 // One frozen object per change, so useSyncExternalStore sees a stable value.
@@ -57,9 +67,26 @@ const privacyApi = () => (typeof window === "undefined" ? undefined : window.ele
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
+// Clears both timers: the hard expiry and the early refresh.
 function clearTimer() {
   if (staleTimer) clearTimeout(staleTimer);
   staleTimer = null;
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = null;
+}
+
+function unrefTimer(timer: ReturnType<typeof setTimeout>) {
+  (timer as { unref?: () => void }).unref?.();
+}
+
+// Keeps the current claim on screen while main is asked again. A fresh answer
+// replaces it through adopt(); a failed read drops it (fail closed); a reply
+// that is late or never comes leaves the hard expiry to drop it on time.
+function refreshNow(at: number) {
+  refreshTimer = null;
+  if (!attestation || attestation.at !== at) return;
+  refreshedAt = at;
+  refetchAttestation();
 }
 
 function setAttestation(next: Attestation | null) {
@@ -132,7 +159,18 @@ function adopt(next: unknown, epochAtStart: number | null = null) {
   setAttestation(candidate);
   const remaining = Math.min(candidate.at + ATTESTATION_MAX_AGE_MS - now, ATTESTATION_MAX_AGE_MS);
   staleTimer = setTimeout(expireNow, Math.max(0, remaining) + 1);
-  (staleTimer as { unref?: () => void }).unref?.();
+  unrefTimer(staleTimer);
+  // Refresh about 10 s before the hard expiry (at + 20 s for a claim that
+  // arrives at once), from the remaining lifetime only, and at most once per
+  // claim.
+  if (refreshedAt !== candidate.at) {
+    const at = candidate.at;
+    refreshTimer = setTimeout(
+      () => refreshNow(at),
+      Math.max(0, remaining - ATTESTATION_REFRESH_LEAD_MS)
+    );
+    unrefTimer(refreshTimer);
+  }
 }
 
 // Timers are throttled in a hidden window and paused across sleep, so age is
@@ -209,6 +247,11 @@ export async function setSealedMode(
   return result;
 }
 
+// Tests only: how many store timers are armed (0, or the expiry and refresh).
+export function _sealedStoreTimersForTests(): number {
+  return (staleTimer ? 1 : 0) + (refreshTimer ? 1 : 0);
+}
+
 export function _resetSealedStoreForTests(): void {
   listeners.clear();
   subscribed = false;
@@ -216,6 +259,7 @@ export function _resetSealedStoreForTests(): void {
   attestationEpoch = 0;
   attestation = null;
   highestVersion = -1;
+  refreshedAt = null;
   clearTimer();
   windowCleanup?.();
   windowCleanup = null;

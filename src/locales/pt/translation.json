@@ -4471,7 +4471,14 @@
       "transcribeOne": "Transcrever",
       "stillSealedTitle": "A gravação continua guardada",
       "stillSealedDetail": "O modo selado ainda está ativado, então esta gravação não foi transcrita. O Loqui continua mantendo-a apenas na memória, por até 30 minutos após o ditado ou até você sair do app. Transcreva-a depois de desativar o modo selado.",
-      "evictedOldest": "Para abrir espaço, o Loqui descartou a gravação mais antiga que estava guardando."
+      "evictedOldest": "Para abrir espaço, o Loqui descartou a gravação mais antiga que estava guardando.",
+      "goneTitle": "Esta gravação não está mais guardada",
+      "goneExpired": "O Loqui a manteve na memória por 30 minutos e depois a descartou. Ela não pode mais ser transcrita.",
+      "goneEvicted": "O Loqui a descartou da memória para abrir espaço para uma gravação mais recente. Ela não pode mais ser transcrita.",
+      "goneDiscarded": "Ela foi descartada da memória. Ela não pode mais ser transcrita.",
+      "goneTranscribed": "O Loqui a transcreveu e não a mantém mais na memória.",
+      "goneUnknown": "O Loqui não a mantém mais na memória, então ela não pode mais ser transcrita.",
+      "expiredDuringReplay": "Os 30 minutos dela na memória acabaram durante esta tentativa, então o Loqui a descartou."
     },
     "confirmUnseal": {
       "title": "Desativar o modo selado?",

@@ -1562,3 +1562,57 @@ test("blockedSinceSealed counts refusals only, never an interruption", (t) => {
   ticket.settle({ outcome: "cancelled" });
   assert.ok(recorder.list().length >= 2);
 });
+
+// Final review I8 / T8-M5: SDK credential and token traffic (Vertex ADC,
+// Bedrock SSO/STS) attached to a ticket outside every metered attempt is still
+// recorded: one connection row with unknown bytes, beside the request rows.
+test("hosts a ticket saw outside its metered attempts get one connection row", async (t) => {
+  const { recorder } = setup(t);
+  await gate.guard(
+    {
+      task: "chat",
+      target: "https://us-central1-aiplatform.googleapis.com",
+      model: "gemini-2.5-pro",
+    },
+    async (ticket) => {
+      // What the backstop does for an SDK token socket in this context.
+      ticket.addHost("oauth2.googleapis.com");
+      ticket.noteConnection();
+      ticket.addHost("sts.googleapis.com");
+      ticket.addHost("127.0.0.1");
+      const response = await gate.meteredFetch(ticket, async () => new Response("ok"))(
+        "https://us-central1-aiplatform.googleapis.com/v1/x",
+        { method: "POST", body: "hi" }
+      );
+      await response.text();
+    }
+  );
+  const rows = recorder.list();
+  const request = rows.find((row) => row.kind === "request");
+  const connection = rows.find((row) => row.kind === "connection");
+  assert.equal(request.host, "us-central1-aiplatform.googleapis.com");
+  assert.ok(connection, JSON.stringify(rows));
+  assert.deepEqual(connection.hosts, ["oauth2.googleapis.com", "sts.googleapis.com"]);
+  assert.deepEqual(
+    [connection.task, connection.bytesOut, connection.bytesIn, connection.outcome],
+    ["chat", null, null, "ok"]
+  );
+  assert.equal(connection.operationId, request.operationId);
+  assert.equal(rows.length, 2);
+});
+
+test("a host already recorded by an attempt is not repeated in a connection row", async (t) => {
+  const { recorder } = setup(t);
+  await gate.guard({ task: "chat", target: "https://api.groq.com" }, async (ticket) => {
+    ticket.addHost("api.groq.com");
+    const response = await gate.meteredFetch(
+      ticket,
+      async () => new Response("ok")
+    )("https://api.groq.com/x");
+    await response.text();
+  });
+  assert.deepEqual(
+    recorder.list().map((row) => row.kind),
+    ["request"]
+  );
+});

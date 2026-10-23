@@ -291,6 +291,10 @@ function createTicket({
   const receiptIds = new Map();
   let pendingSettlement = null;
   let remote = !loopback;
+  // Remote hosts the ticket saw outside every metered attempt (SDK credential
+  // and token sockets), and hosts some attempt already recorded (I8).
+  const outsideAttempts = [];
+  const attemptHosts = new Set();
   const id = nextId++;
   const ticket = {
     id,
@@ -314,6 +318,7 @@ function createTicket({
       if (!isLoopbackHost(seen)) remote = true;
       const attempt = attemptContext.getStore();
       if (attempt?.ticket === ticket && !attempt.settled) attempt.addHost(seen);
+      else if (!isLoopbackHost(seen)) appendHost(outsideAttempts, seen);
     },
     noteConnection() {
       connections++;
@@ -413,6 +418,24 @@ function createTicket({
         }
       }
       ticket.settled = true;
+      // Hosts contacted outside every metered attempt are recorded too: one
+      // connection row, bytes unknown, sharing the operation id (I8, T8-M5).
+      const unmetered = outsideAttempts.filter((h) => !attemptHosts.has(h));
+      if (attemptCount > 0 && unmetered.length > 0)
+        recordOwned({
+          ts: ticket.startedAt,
+          endedAt: config.now(),
+          task,
+          host: unmetered[0],
+          hosts: unmetered,
+          kind: "connection",
+          operationId: id,
+          model,
+          ...final,
+          status: null,
+          bytesOut: null,
+          bytesIn: null,
+        });
       if (remote && attemptCount === 0) {
         const kind =
           meter === "opaque"
@@ -522,6 +545,7 @@ function createTicket({
     const local = isLoopbackHost(attemptHost);
     if (!local) remote = true;
     appendHost(ticket.hosts, attemptHost);
+    attemptHosts.add(attemptHost);
     attemptCount++;
     const aOut = meterAccumulator();
     const aIn = meterAccumulator();
@@ -546,6 +570,7 @@ function createTicket({
         if (!seen) return;
         appendHost(attempt.hosts, seen);
         appendHost(ticket.hosts, seen);
+        attemptHosts.add(seen);
         if (!isLoopbackHost(seen)) remote = true;
       },
       abort: (reason) => ticket.abort(reason),

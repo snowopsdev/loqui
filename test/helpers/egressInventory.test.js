@@ -523,3 +523,412 @@ test("N1–N26 each state a sealed decision, planned layer and ledger task", () 
   for (const id of [23, 24, 26])
     assert.equal(rows[id - 1].split("|")[5].trim(), "blocked", `N${id}: no native success in 07a`);
 });
+
+// ---------------------------------------------------------------------------
+// Final review item 38: three source ratchets over main.js, preload.js and
+// src/**. Each detector is executed on samples first, and each ratchet sits
+// beside executed behaviour tests of the thing it guards:
+// - shell.openExternal: externalLinkSealed.test.js (the guarded opener's
+//   sealed confirmation) (T11-M3);
+// - window handlers: windowNavigationGuards.test.js (window.open denied,
+//   navigation prevented and routed, permission routed) (I3);
+// - non-ok bodies: gatedErrorBodies.test.js (an unread error body through the
+//   real gate) (I7).
+// A ratchet is a review aid, not proof: dataflow it cannot follow stays a
+// review obligation.
+
+const parseSource = (code, file) => {
+  const tree = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+  assert.equal(tree.parseDiagnostics.length, 0, `ratchet parser must understand ${file}`);
+  return tree;
+};
+const lineOf = (tree, node) => tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1;
+const eachNode = (node, fn) => {
+  fn(node);
+  ts.forEachChild(node, (child) => eachNode(child, fn));
+};
+const enclosingFunction = (node) => {
+  for (let at = node.parent; at; at = at.parent) if (ts.isFunctionLike(at) && at.body) return at;
+  return node.getSourceFile();
+};
+const isRequireOf = (expression, specifier) =>
+  ts.isCallExpression(expression) &&
+  ts.isIdentifier(expression.expression) &&
+  expression.expression.text === "require" &&
+  ts.isStringLiteralLike(expression.arguments[0]) &&
+  expression.arguments[0].text === specifier;
+
+// Lines that reach Electron's shell.openExternal: a member access, an element
+// access or a destructuring of `openExternal` from Electron's shell (by name
+// or through an alias of it). Conservative: any identifier `shell` counts.
+function shellOpenExternalSites(code, file = "sample.js") {
+  const tree = parseSource(code, file);
+  const shells = new Set(["shell"]);
+  const electron = new Set();
+  const isShell = (expression) => {
+    while (ts.isParenthesizedExpression(expression) || ts.isNonNullExpression(expression))
+      expression = expression.expression;
+    if (ts.isIdentifier(expression)) return shells.has(expression.text);
+    if (ts.isPropertyAccessExpression(expression)) return expression.name.text === "shell";
+    if (ts.isElementAccessExpression(expression))
+      return (
+        ts.isStringLiteralLike(expression.argumentExpression) &&
+        expression.argumentExpression.text === "shell"
+      );
+    return false;
+  };
+  const isElectron = (expression) =>
+    isRequireOf(expression, "electron") ||
+    (ts.isIdentifier(expression) && electron.has(expression.text));
+  eachNode(tree, (node) => {
+    if (ts.isImportDeclaration(node) && node.moduleSpecifier.text === "electron") {
+      const clause = node.importClause;
+      if (clause?.name) electron.add(clause.name.text);
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) electron.add(bindings.name.text);
+      if (bindings && ts.isNamedImports(bindings))
+        for (const element of bindings.elements)
+          if ((element.propertyName || element.name).text === "shell")
+            shells.add(element.name.text);
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      if (ts.isIdentifier(node.name) && isElectron(node.initializer)) electron.add(node.name.text);
+      if (ts.isIdentifier(node.name) && isShell(node.initializer)) shells.add(node.name.text);
+      if (ts.isObjectBindingPattern(node.name) && isElectron(node.initializer))
+        for (const element of node.name.elements)
+          if ((element.propertyName || element.name).getText(tree) === "shell")
+            shells.add(element.name.getText(tree));
+    }
+  });
+  const sites = [];
+  eachNode(tree, (node) => {
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      node.name.text === "openExternal" &&
+      isShell(node.expression)
+    )
+      sites.push(lineOf(tree, node));
+    if (
+      ts.isElementAccessExpression(node) &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      node.argumentExpression.text === "openExternal" &&
+      isShell(node.expression)
+    )
+      sites.push(lineOf(tree, node));
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.initializer &&
+      ts.isObjectBindingPattern(node.name) &&
+      isShell(node.initializer) &&
+      node.name.elements.some(
+        (element) => (element.propertyName || element.name).getText(tree) === "openExternal"
+      )
+    )
+      sites.push(lineOf(tree, node));
+  });
+  return sites;
+}
+
+test("the shell.openExternal detector finds every spelling and ignores look-alikes", () => {
+  for (const code of [
+    'const { shell } = require("electron"); shell.openExternal(url);',
+    'require("electron").shell.openExternal(url);',
+    'const { shell: os } = require("electron"); os.openExternal(url);',
+    'const electron = require("electron"); electron.shell["openExternal"](url);',
+    'import { shell as s } from "electron"; void s?.openExternal(url);',
+    'import * as e from "electron"; const sh = e.shell; sh.openExternal(url);',
+    'const { openExternal } = require("electron").shell; openExternal(url);',
+    "const open = shell.openExternal; open(url);",
+  ])
+    assert.equal(shellOpenExternalSites(code).length, 1, code);
+  for (const code of [
+    "window.electronAPI.openExternal(url);",
+    "this.openExternalUrl(url);",
+    "const api = { openExternal: (url) => opener(url) };",
+    "options.openExternal(url);",
+    'const { openExternalUrl } = require("./externalUrlOpener"); openExternalUrl(url);',
+    "// shell.openExternal(url) in a comment",
+  ])
+    assert.deepEqual(shellOpenExternalSites(code), [], code);
+});
+
+test("ratchet: Electron's shell.openExternal is reached only from externalUrlOpener.js (T11-M3)", () => {
+  const found = {};
+  for (const file of sources().filter((f) => /\.[cm]?[jt]sx?$/.test(f))) {
+    const sites = shellOpenExternalSites(read(file), file);
+    if (sites.length) found[file] = sites;
+  }
+  assert.deepEqual(Object.keys(found), ["src/helpers/externalUrlOpener.js"], JSON.stringify(found));
+});
+
+// Every `new BrowserWindow` is assigned to a target, and the function that
+// creates it then installs both window handlers on that target: through
+// navigationGuard's guardWindowNavigation (directly or via windowManager's
+// _guardWindowNavigation), or by calling setWindowOpenHandler and
+// on("will-navigate") on its webContents itself.
+function browserWindowGuards(code, file = "sample.js") {
+  const tree = parseSource(code, file);
+  const results = [];
+  eachNode(tree, (node) => {
+    if (!ts.isNewExpression(node)) return;
+    const created = node.expression;
+    if (!(ts.isIdentifier(created) ? created.text : created.name?.text)?.endsWith("BrowserWindow"))
+      return;
+    if (!/^(?:\w+\.)?BrowserWindow$/.test(created.getText(tree))) return;
+    const parent = node.parent;
+    const target =
+      ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        ? parent.left.getText(tree)
+        : ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)
+          ? parent.name.text
+          : null;
+    const handlers = { helper: false, open: false, navigate: false };
+    if (target) {
+      const contents = `${target}.webContents`;
+      eachNode(enclosingFunction(node), (call) => {
+        if (!ts.isCallExpression(call) || call.pos < node.end) return;
+        const callee = call.expression;
+        const calleeName = ts.isIdentifier(callee) ? callee.text : callee.name?.text;
+        const [first] = call.arguments;
+        const firstText = first?.getText(tree);
+        if (
+          ["guardWindowNavigation", "_guardWindowNavigation"].includes(calleeName) &&
+          (firstText === target || firstText === contents)
+        )
+          handlers.helper = true;
+        if (!ts.isPropertyAccessExpression(callee) || callee.expression.getText(tree) !== contents)
+          return;
+        if (calleeName === "setWindowOpenHandler") handlers.open = true;
+        if (calleeName === "on" && ts.isStringLiteralLike(first) && first.text === "will-navigate")
+          handlers.navigate = true;
+      });
+    }
+    results.push({
+      line: lineOf(tree, node),
+      target,
+      guarded: handlers.helper || (handlers.open && handlers.navigate),
+    });
+  });
+  return results;
+}
+
+test("the BrowserWindow guard detector needs both handlers on the created window", () => {
+  const guarded = [
+    "function f() { this.win = new BrowserWindow({}); this._guardWindowNavigation(this.win); }",
+    "function f() { const w = new BrowserWindow(o); guardWindowNavigation(w.webContents, x); }",
+    `function f() { const w = new electron.BrowserWindow(o);
+       w.webContents.on("will-navigate", h); w.webContents.setWindowOpenHandler(g); }`,
+  ];
+  const unguarded = [
+    "function f() { const w = new BrowserWindow(o); w.webContents.setWindowOpenHandler(g); }",
+    'function f() { const w = new BrowserWindow(o); w.webContents.on("will-navigate", h); }',
+    "function f() { const w = new BrowserWindow(o); this._guardWindowNavigation(other); }",
+    "function f() { this._guardWindowNavigation(w); const w = new BrowserWindow(o); }",
+    "function f() { windows.push(new BrowserWindow(o)); }",
+    "function f() { const w = new BrowserWindow(o); } function g() { guardWindowNavigation(w); }",
+  ];
+  for (const code of guarded)
+    assert.deepEqual(
+      browserWindowGuards(code).map((r) => r.guarded),
+      [true],
+      code
+    );
+  for (const code of unguarded)
+    assert.deepEqual(
+      browserWindowGuards(code).map((r) => r.guarded),
+      [false],
+      code
+    );
+  assert.deepEqual(browserWindowGuards("const w = new Map();"), []);
+});
+
+test("ratchet: every new BrowserWindow installs both window handlers (I3)", (t) => {
+  const sites = [];
+  for (const file of sources().filter((f) => /\.[cm]?[jt]sx?$/.test(f)))
+    for (const site of browserWindowGuards(read(file), file)) sites.push({ file, ...site });
+  assert.ok(sites.length >= 4, `main, control panel, pill and notification: ${sites.length}`);
+  assert.deepEqual(
+    sites.filter((site) => !site.guarded),
+    [],
+    "a window without both handlers would open links in-app"
+  );
+  t.diagnostic(`BrowserWindow sites: ${sites.map((s) => `${s.file}:${s.line}`).join(", ")}`);
+});
+
+// Responses from a gated fetch hold their gate ticket open until the body
+// ends (egressGate.guardResponse), so a caller must read or cancel an error
+// body. A gated callee is gatedNetFetch, a local function that wraps it
+// (`doFetch`, `proxyFetch`), or a parameter main fills with one (INJECTED).
+// Each awaited response must be read before its non-ok check, or read or
+// cancelled inside the non-ok branch; a call shape the ratchet cannot follow
+// fails, so a new caller is reviewed.
+const CONSUME = new Set(["text", "json", "arrayBuffer", "blob", "formData", "bytes"]);
+function gatedFetchBodies(code, file = "sample.js", injected = []) {
+  const tree = parseSource(code, file);
+  const callees = new Set(["gatedNetFetch", ...injected]);
+  const aliasBodies = [];
+  const aliases = [];
+  eachNode(tree, (node) => {
+    if (!ts.isVariableDeclaration(node) || !node.initializer || !ts.isIdentifier(node.name)) return;
+    eachNode(node.initializer, (inner) => {
+      if (!ts.isArrowFunction(inner) && !ts.isFunctionExpression(inner)) return;
+      let wraps = false;
+      eachNode(inner, (call) => {
+        if (
+          ts.isCallExpression(call) &&
+          ts.isIdentifier(call.expression) &&
+          call.expression.text === "gatedNetFetch"
+        )
+          wraps = true;
+      });
+      if (wraps) {
+        aliasBodies.push(inner);
+        aliases.push(node.name.text);
+        callees.add(node.name.text);
+      }
+    });
+  });
+  const findings = [];
+  const calls = [];
+  eachNode(tree, (call) => {
+    if (
+      !ts.isCallExpression(call) ||
+      !ts.isIdentifier(call.expression) ||
+      !callees.has(call.expression.text)
+    )
+      return;
+    if (aliasBodies.some((body) => call.pos >= body.pos && call.end <= body.end)) return;
+    const line = lineOf(tree, call);
+    calls.push(line);
+    const declaration = call.parent?.parent;
+    if (
+      !ts.isAwaitExpression(call.parent) ||
+      !ts.isVariableDeclaration(declaration) ||
+      !ts.isIdentifier(declaration.name)
+    ) {
+      findings.push({ line, why: "unrecognised call shape" });
+      return;
+    }
+    const response = declaration.name.text;
+    const scope = enclosingFunction(declaration);
+    const consumed = (within) => {
+      let found = false;
+      eachNode(within, (node) => {
+        if (node.pos < declaration.end || !ts.isCallExpression(node)) return;
+        const callee = node.expression;
+        if (ts.isPropertyAccessExpression(callee)) {
+          const receiver = callee.expression.getText(tree);
+          if (CONSUME.has(callee.name.text) && receiver === response) found = true;
+          if (
+            callee.name.text === "cancel" &&
+            /^\w+\??\.body$/.test(receiver) &&
+            receiver.startsWith(response)
+          )
+            found = true;
+        }
+        if (node.arguments.some((arg) => arg.getText(tree) === response)) found = true;
+      });
+      return found;
+    };
+    const nonOk = new RegExp(
+      `!\\s*${response}\\.ok\\b|\\b${response}\\.status\\s*>=?\\s*(?:399|[45]\\d\\d)\\b`
+    );
+    const statusRead = new RegExp(`\\b${response}\\.(?:ok|status)\\b`);
+    const branches = [];
+    let unknownCheck = false;
+    eachNode(scope, (node) => {
+      if (!ts.isIfStatement(node) || node.pos < declaration.end) return;
+      // Checks nested in a non-ok branch only refine that branch's error.
+      if (branches.some((b) => node.pos >= b.thenStatement.pos && node.end <= b.thenStatement.end))
+        return;
+      const condition = node.expression.getText(tree);
+      if (nonOk.test(condition)) branches.push(node);
+      else if (statusRead.test(condition)) unknownCheck = true;
+    });
+    if (unknownCheck) findings.push({ line, why: `unrecognised status check on ${response}` });
+    // A body read before the first non-ok check covers every branch after it.
+    const firstCheck = branches[0];
+    const readBefore = (() => {
+      if (!firstCheck) return consumed(scope);
+      let found = false;
+      eachNode(scope, (node) => {
+        if (found || node.pos >= firstCheck.pos) return;
+        if (node.pos > declaration.end && ts.isStatement(node) && consumed(node)) found = true;
+      });
+      return found;
+    })();
+    if (!firstCheck && !readBefore)
+      findings.push({ line, why: `${response} is never read or cancelled` });
+    for (const branch of branches)
+      if (!readBefore && !consumed(branch.thenStatement))
+        findings.push({
+          line: lineOf(tree, branch),
+          why: `the non-ok branch leaves ${response}'s body unread`,
+        });
+  });
+  return { findings, calls, aliases };
+}
+
+test("the gated-fetch body detector accepts reads and cancels, and flags unread error bodies", () => {
+  const ok = [
+    `async function f() { const r = await gatedNetFetch(u, i, m);
+       if (!r.ok) { const t = await r.text(); throw new Error(t); } return r.json(); }`,
+    `async function f() { const r = await gatedNetFetch(u);
+       if (!r.ok) { await r.body?.cancel().catch(() => {}); return null; } return r.json(); }`,
+    `async function f() { const r = await gatedNetFetch(u); const t = await r.text();
+       if (r.status >= 400) throw new Error(t); return t; }`,
+    `async function f() { const r = await gatedNetFetch(u); return JSON.parse(await r.text()); }`,
+    `async function f() { const r = await gatedNetFetch(u);
+       if (!r.ok) { const t = await r.text(); if (r.status === 401) throw Error("key"); throw Error(t); } }`,
+    `async function f(fetchImpl) { const doFetch = fetchImpl || ((a, b) => gatedNetFetch(a, b));
+       const r = await doFetch(u); if (!r.ok) { const t = await r.text(); throw Error(t); } }`,
+  ];
+  for (const code of ok) assert.deepEqual(gatedFetchBodies(code).findings, [], code);
+  const bad = [
+    `async function f() { const r = await gatedNetFetch(u);
+       if (!r.ok) return { status: r.status }; return r.json(); }`,
+    `async function f() { const r = await gatedNetFetch(u);
+       if (r.status >= 400) throw new Error("x"); return r.json(); }`,
+    `async function f() { const proxyFetch = (a) => gatedNetFetch(a);
+       const r = await proxyFetch(u); if (!r.ok) throw new Error("x"); }`,
+    "async function f() { const r = await gatedNetFetch(u); return r.status; }",
+    "async function f() { const r = await gatedNetFetch(u); if (r.ok) return r.json(); }",
+    "function f() { return gatedNetFetch(u).then((r) => r.status); }",
+  ];
+  for (const code of bad) assert.notDeepEqual(gatedFetchBodies(code).findings, [], code);
+  // An injected gated fetch (a parameter main fills) is followed the same way.
+  const injected = `async function probe(url, fetchImpl) { const r = await fetchImpl(url);
+    if (!r.ok) return { ok: false }; return r.json(); }`;
+  assert.deepEqual(gatedFetchBodies(injected).findings, []);
+  assert.notDeepEqual(gatedFetchBodies(injected, "probe.js", ["fetchImpl"]).findings, []);
+});
+
+// Parameters main fills with a gated fetch (see ipcHandlers): the probe gets
+// gatedNodeFetch("providerCheck"), the realtime token providers get proxyFetch.
+const INJECTED_GATED_FETCH = {
+  "src/helpers/selfHostedProbe.js": ["fetchImpl"],
+  "src/helpers/realtimeTokenProviders.js": ["proxyFetch"],
+};
+
+test("ratchet: every gated-fetch caller reads or cancels a non-ok body (I7)", (t) => {
+  const findings = {};
+  let callers = 0;
+  for (const file of sources().filter((f) => /\.[cm]?[jt]sx?$/.test(f))) {
+    const result = gatedFetchBodies(read(file), file, INJECTED_GATED_FETCH[file] ?? []);
+    callers += result.calls.length;
+    if (result.findings.length) findings[file] = result.findings;
+  }
+  assert.deepEqual(findings, {});
+  assert.ok(callers >= 15, `gated-fetch callers found: ${callers}`);
+  t.diagnostic(`gated-fetch response sites checked: ${callers}`);
+  for (const [file, names] of Object.entries(INJECTED_GATED_FETCH))
+    assert.ok(gatedFetchBodies(read(file), file, names).calls.length > 0, `${file} still calls it`);
+  // The injections are what the table says, and gatedNodeFetch has no other consumer.
+  const ipc = read("src/helpers/ipcHandlers.js");
+  assert.ok(gatedFetchBodies(ipc, "ipcHandlers.js").aliases.includes("proxyFetch"));
+  assert.match(ipc, /probeSelfHosted\(\s*baseUrl,\s*gatedNodeFetch\("providerCheck"/);
+  const nodeFetchUses = sources()
+    .filter((f) => /\.[cm]?[jt]sx?$/.test(f) && f !== "src/helpers/privacy/gatedFetch.js")
+    .flatMap((f) => [...read(f).matchAll(/\bgatedNodeFetch\(/g)].map(() => f));
+  assert.deepEqual(nodeFetchUses, ["src/helpers/ipcHandlers.js"]);
+});

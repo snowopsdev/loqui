@@ -66,6 +66,21 @@ export function createSampleEgress(nowMs: number): EgressEvent[] {
       errorClass: "SEALED_MODE",
     },
     {
+      // A program start main refused while sealed (I1): an operation, counted
+      // apart from requests, named by program.
+      ...base,
+      ts: at(12),
+      endedAt: at(12),
+      task: "nativeLaunch",
+      host: "native-pactl",
+      hosts: ["native-pactl"],
+      kind: "operation",
+      bytesOut: 0,
+      bytesIn: 0,
+      outcome: "blocked",
+      errorClass: "SEALED_MODE",
+    },
+    {
       ...base,
       ts: at(16),
       endedAt: Math.min(nowMs, at(16) + 900),
@@ -129,6 +144,7 @@ const inWindow = (row: EgressEvent, since: number) =>
 
 // The same arithmetic as FlightRecorder.summary (main), over the in-memory rows.
 function summarize(rows: EgressEvent[]): EgressSummary {
+  const nativeRefused = rows.filter((row) => row.task === "nativeLaunch");
   const sent = rows.filter((row) => row.outcome !== "blocked" && row.kind !== "operation");
   const observed = sent.filter((row) => row.kind === "request" || row.kind === "stream");
   const connections = sent.filter((row) => row.kind === "connection");
@@ -140,7 +156,8 @@ function summarize(rows: EgressEvent[]): EgressSummary {
     left: observed.length + connections.length + sessions.length,
     observed: observed.length,
     connections: connections.length,
-    blocked: rows.filter((row) => row.outcome === "blocked").length,
+    blocked: rows.filter((row) => row.outcome === "blocked" && row.task !== "nativeLaunch").length,
+    nativeRefused: nativeRefused.length,
     unattributed: unexplained.length,
     unattributedHosts: [...new Set(unexplained.map((row) => row.host))],
     bytesOut: sum("bytesOut"),
@@ -239,8 +256,11 @@ export function createPreviewPrivacyAPI(clock: () => number = Date.now): Privacy
         .slice(0, limit)
         .map((row) => ({ ...row, hosts: [...row.hosts] }));
     },
-    egressSummary: async (options) =>
-      summarize(events.filter((row) => inWindow(row, options?.since ?? 0))),
+    // Main's IPC: today's window by default (T17a-2), plus its persistence flag.
+    egressSummary: async (options) => ({
+      ...summarize(events.filter((row) => inWindow(row, options?.since ?? startOfDay(clock())))),
+      persistError: null,
+    }),
     // Main asks in its own dialog; the preview simulates "Clear" accepted.
     clearEgress: async () => {
       events = [];

@@ -43,6 +43,7 @@ export function SealedModePanelView({
   return (
     <section
       aria-labelledby={headingId}
+      data-setting-id="sealedMode"
       data-sealed={on ? "true" : "false"}
       className={[
         "rounded-lg border p-4",

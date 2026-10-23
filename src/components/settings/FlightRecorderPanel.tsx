@@ -19,6 +19,7 @@ import {
   hostTrail,
   ltr,
   outcomeId,
+  refusedPrograms,
   sentCell,
   shownEvents,
   startOfToday,
@@ -160,6 +161,13 @@ export function FlightRecorderView({
   // marked as not drawn rather than shown empty while the counts include it.
   const undrawn = loaded ? undrawnUntil(events, since, truncated) : null;
   const unexplainedHosts = summary?.unattributedHosts ?? [];
+  // Program starts main refused while sealed (I1): counted from main's summary,
+  // named from the rows; never requests.
+  const nativeRefused = loaded ? Number(summary?.nativeRefused) || 0 : 0;
+  const programs = nativeRefused > 0 ? refusedPrograms(events, since) : [];
+  // A pending write failure (I5), from the attestation or main's summary: the
+  // list is readable but may be incomplete.
+  const incomplete = persistError || Boolean(summary?.persistError);
   const retentionLine = !retention
     ? t(`${R}.retention`)
     : !retention.historyOn
@@ -170,12 +178,13 @@ export function FlightRecorderView({
   return (
     <section
       aria-labelledby={headingId}
+      data-setting-id="flightRecorder"
       data-flight-recorder=""
       className="space-y-3 rounded-lg border border-border bg-card p-4 text-start text-foreground"
     >
       <header className="space-y-1">
         <h3 id={headingId} className="text-[13px] font-semibold">
-          {t(`${R}.title`)}
+          {t("settingsPage.privacy.recorder.title")}
         </h3>
         <p className={muted}>{t(`${R}.subtitle`)}</p>
       </header>
@@ -220,17 +229,25 @@ export function FlightRecorderView({
           {summary.blocked > 0 && (
             <p className={muted}>{t(`${R}.blockedToday`, { count: summary.blocked })}</p>
           )}
+          {nativeRefused > 0 && (
+            <p className={muted}>{t(`${R}.nativeRefusedToday`, { count: nativeRefused })}</p>
+          )}
+          {programs.length > 0 && (
+            <p className={muted}>
+              {t(`${R}.nativeRefusedPrograms`, { names: programs.map(ltr).join(", ") })}
+            </p>
+          )}
           <p className={muted}>{t(`${R}.coverage`)}</p>
         </div>
       )}
 
-      {(recordFailures > 0 || (persistError && loaded)) && (
+      {(recordFailures > 0 || (incomplete && loaded)) && (
         <div role="status" className="space-y-1">
           {recordFailures > 0 && (
             <p className={warn}>{t(`${R}.recordFailures`, { count: recordFailures })}</p>
           )}
           {/* "This list may be incomplete" only while a list is shown. */}
-          {persistError && loaded && <p className={warn}>{t(`${R}.unavailable`)}</p>}
+          {incomplete && loaded && <p className={warn}>{t(`${R}.unavailable`)}</p>}
         </div>
       )}
 
@@ -320,12 +337,16 @@ export function FlightRecorderView({
                     <td className="pe-3">
                       {t(`${R}.outcome.${outcomeId(e.outcome)}`)}
                       {code != null && (
-                        <span dir="ltr" className="ms-1 text-muted-foreground">
-                          {code}
+                        // V2: the outer span keeps the logical gap from the
+                        // status; the isolate keeps the code left-to-right in
+                        // RTL text, so the two never run together.
+                        <span className="ms-1 text-muted-foreground">
+                          <bdi dir="ltr">{code}</bdi>
                         </span>
                       )}
                     </td>
-                    <td dir="ltr" className="pe-3">
+                    {/* V1: model ids never break at their hyphens. */}
+                    <td dir="ltr" className="pe-3 whitespace-nowrap">
                       {e.model ?? "—"}
                     </td>
                   </tr>

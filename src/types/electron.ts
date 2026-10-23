@@ -18,7 +18,6 @@ import type {
 } from "../services/ai/personalInferenceTypes";
 import type { TableBoardData, TableEntityRef, TablePlacement, TableViewport } from "./table";
 export type VertexAuthSource = "adc" | "apiKey";
-// A calendar action that reaches a provider; refused while sealed (Task 11).
 // A handoff to another app (browser, mail, OS settings). While sealed main asks
 // first; a declined handoff is `declined`, not an error (Task 11).
 export interface ExternalOpenResult {
@@ -26,6 +25,7 @@ export interface ExternalOpenResult {
   error?: string;
   declined?: boolean;
 }
+// A calendar action that reaches a provider; refused while sealed (Task 11).
 export interface CalendarActionResult {
   success: boolean;
   error?: string;

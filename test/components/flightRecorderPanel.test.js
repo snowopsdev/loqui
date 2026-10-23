@@ -293,10 +293,117 @@ test("the view: counts, hollow blocked ticks, unknown bytes, LTR hosts, unexplai
   // The refused row says "Not sent" instead of a byte count; no "0 Bytes" anywhere.
   assert.match(html, /colSpan="2"[^>]*>settingsPage\.privacy\.recorder\.notSent</);
   assert.doesNotMatch(html, /0 Bytes|0 bytes/i);
-  assert.match(html, /recorder\.outcome\.blocked<span dir="ltr"[^>]*>SEALED_MODE</);
+  // V2: the code is spaced from the status by an outer logical-margin span and
+  // isolated left-to-right inside it, so RTL text and the code never run together.
+  assert.match(
+    html,
+    /recorder\.outcome\.blocked<span class="ms-1 text-muted-foreground"><bdi dir="ltr">SEALED_MODE<\/bdi><\/span>/
+  );
   assert.match(html, /insetInlineStart|inset-inline-start/);
   assert.doesNotMatch(html, /secret|prompt/i);
   assert.match(html, /settingsPage\.privacy\.recorder\.coverage/);
+});
+
+// V1: model ids never break at their hyphens ("gpt-4.1-mini" over three lines).
+test("the model cell does not wrap", async () => {
+  const html = await renderView({
+    events: [ev({ id: 1, model: "gpt-4.1-mini" })],
+    summary: sum({ left: 1, observed: 1 }),
+  });
+  assert.match(html, /<td dir="ltr" class="pe-3 whitespace-nowrap">gpt-4\.1-mini<\/td>/);
+});
+
+// Final review I1: a refused program start is not a request. It is counted on
+// its own line from main's nativeRefused, names the programs (not hosts), and
+// never appears as a request row, a blocked request or an unexplained host.
+const nativeRow = (o) =>
+  ev({
+    task: "nativeLaunch",
+    kind: "operation",
+    outcome: "blocked",
+    bytesOut: 0,
+    bytesIn: 0,
+    status: null,
+    errorClass: "SEALED_MODE",
+    model: null,
+    ...o,
+    hosts: [o.host],
+  });
+
+test("view model: refused program starts are program names, never request rows", async () => {
+  const { TASKS, taskId, shownEvents, timelineTicks, refusedPrograms, mergeNotice } = await view();
+  assert.ok(TASKS.includes("nativeLaunch"));
+  assert.equal(taskId("nativeLaunch"), "nativeLaunch");
+  const rows = [
+    ev({ id: 1 }),
+    nativeRow({ id: 2, host: "native-pactl" }),
+    nativeRow({ id: 3, host: "native-ps", ts: now - 2 * HOUR }),
+    nativeRow({ id: 4, host: "native-pactl", ts: now - 3 * HOUR }), // a later seal epoch
+    nativeRow({ id: 5, host: "native-unknown" }),
+    // Defensive: whatever kind main gives it, a program start is never a request.
+    nativeRow({ id: 6, host: "native-yt-dlp", kind: "request" }),
+    nativeRow({ id: 7, host: "native-ffmpeg", ts: midnight - HOUR, endedAt: midnight - HOUR }),
+  ];
+  assert.deepEqual(
+    shownEvents(rows).map((e) => e.id),
+    [1]
+  );
+  assert.deepEqual(
+    timelineTicks(rows, midnight).map((k) => k.id),
+    [1]
+  );
+  // Today's programs, once each, by name; an unnamed program is only counted.
+  assert.deepEqual(refusedPrograms(rows, midnight), ["pactl", "ps", "yt-dlp"]);
+  const notice = {
+    phase: "recorded",
+    event: nativeRow({ id: 8, host: "native-ps", kind: "request" }),
+  };
+  assert.equal(mergeNotice(rows, notice, midnight), rows, "a live program start is not a row");
+});
+
+test("the view counts refused program starts apart and lists the programs", async () => {
+  const html = await renderView({
+    events: [
+      ev({ id: 1 }),
+      nativeRow({ id: 2, host: "native-pactl" }),
+      nativeRow({ id: 3, host: "native-ps" }),
+      nativeRow({ id: 4, host: "native-unknown" }),
+    ],
+    summary: sum({ left: 1, observed: 1, nativeRefused: 3 }),
+  });
+  assert.match(html, /recorder\.nativeRefusedToday\{"count":3\}/);
+  assert.match(html, /recorder\.nativeRefusedPrograms\{"names":"pactl, ps"\}/);
+  assert.match(html, /observedToday\{"count":1\}/);
+  assert.doesNotMatch(html, /blockedToday|recorder\.unexplained|recorder\.notSent/);
+  assert.doesNotMatch(html, /native-|tasks\.nativeLaunch|data-kind="operation"/);
+  // One request row only.
+  assert.equal((html.match(/<tr data-kind=/g) || []).length, 1);
+  const none = await renderView({ events: [ev({ id: 1 })], summary: sum({ observed: 1 }) });
+  assert.doesNotMatch(none, /nativeRefused/);
+});
+
+// Final review I5: a write failure no longer hides the list. Main's summary
+// carries persistError; the panel keeps the rows and the actions and says the
+// list may be incomplete.
+test("a write failure keeps the list and the actions, and says the list may be incomplete", async () => {
+  const html = await renderView({
+    events: [ev({ id: 1 })],
+    summary: sum({ left: 1, observed: 1, persistError: "SQLITE_BUSY" }),
+  });
+  assert.match(html, /role="status"[\s\S]*recorder\.unavailable</);
+  assert.match(html, /<tr data-kind="request"/);
+  assert.equal((html.match(/<button[^>]*disabled=""/g) || []).length, 0, "Export and Clear stay");
+  assert.doesNotMatch(html, /SQLITE_BUSY/, "the error code is not shown as text");
+  for (const persistError of [null, undefined]) {
+    const clean = await renderView({
+      events: [ev({ id: 1 })],
+      summary: sum({ left: 1, observed: 1, persistError }),
+    });
+    assert.doesNotMatch(clean, /recorder\.unavailable</);
+  }
+  const en = resources.en.settingsPage.privacy.recorder.unavailable;
+  assert.match(en, /couldn't save some records/);
+  assert.doesNotMatch(en, /can't read/, "the list is readable when it says this");
 });
 
 test("the empty state makes no network claim beyond what was recorded", async () => {
@@ -1006,6 +1113,7 @@ const KEYS = [
   "notice.exportError",
   "notice.cleared",
   "notice.clearError",
+  "nativeRefusedPrograms",
   ...["time", "task", "host", "sent", "received", "status", "model"].map((c) => `columns.${c}`),
   ...["ok", "error", "blocked", "cancelled"].map((o) => `outcome.${o}`),
 ].map((k) => `${R}.${k}`);
@@ -1018,6 +1126,7 @@ const PLURALS = [
   "unexplainedMore",
   "truncated",
   "retentionDays",
+  "nativeRefusedToday",
 ].map((k) => `${R}.${k}`);
 
 test("every recorder string exists in all 11 locales with matching placeholders and CLDR forms", async () => {
@@ -1086,8 +1195,11 @@ test("the recorder copy renders through i18next in every locale without a raw ke
             task: "unattributed",
             attributed: false,
           }),
+          nativeRow({ id: 7, host: "native-pactl" }),
         ],
         summary: sum({
+          nativeRefused: 21,
+          persistError: "SQLITE_BUSY",
           observed: 21,
           connections: 21,
           opaqueSessions: 21,

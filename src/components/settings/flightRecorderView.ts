@@ -35,6 +35,7 @@ export const TASKS: readonly EgressTask[] = [
   "appUpdate",
   "codex",
   "calendar",
+  "nativeLaunch",
   "unattributed",
 ];
 export const OUTCOMES: readonly EgressOutcome[] = ["ok", "error", "blocked", "cancelled"];
@@ -71,9 +72,23 @@ export const outcomeId = (outcome: string): EgressOutcome =>
 export const errorClassId = (value: string | null): string | null =>
   value == null ? null : (ERROR_CLASSES as readonly string[]).includes(value) ? value : "OTHER";
 
+// A program start main refused while sealed (I1). It is not a request,
+// whatever kind a row claims, so it is never a row, a tick or a live addition.
+const isProgramStart = (e: Pick<EgressEvent, "task">) => e.task === "nativeLaunch";
+
 // Operations that never reached a transport did not leave; they are not shown.
 export const shownEvents = (events: EgressEvent[]): EgressEvent[] =>
-  events.filter((e) => e.kind !== "operation");
+  events.filter((e) => e.kind !== "operation" && !isProgramStart(e));
+
+// The programs main refused to start in the window, by name, once each (main
+// records one row per program per seal). An unnamed program is only counted.
+export function refusedPrograms(events: EgressEvent[], since: number): string[] {
+  const names = events
+    .filter((e) => isProgramStart(e) && inWindow(e, since))
+    .map((e) => (e.host ?? "").replace(/^native-/, ""))
+    .filter((name) => name && name !== "unknown");
+  return [...new Set(names)];
+}
 
 export function startOfToday(now: number): number {
   const day = new Date(now);
@@ -150,7 +165,7 @@ export function mergeNotice(
   if (notice.phase !== "recorded") return events;
   const event = notice.event;
   if (!event || !inWindow(event, since)) return events;
-  if (event.kind === "operation") return events;
+  if (event.kind === "operation" || isProgramStart(event)) return events;
   if (events.some((e) => e.id === event.id)) return events;
   return [event, ...events];
 }

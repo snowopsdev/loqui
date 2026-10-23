@@ -165,6 +165,31 @@ test("a sealed refusal reads 'Not sent'; an interrupted request may have been pa
   assert.match(html, /dir="ltr"[^>]*>api\.groq\.com</);
 });
 
+// Final review I1: sealed polling of programs main refuses to start reaches
+// the view as one line of program starts, with each program named once per
+// seal, never as blocked or unexplained requests.
+test("refused program starts reach the view as program starts, not requests", async (t2) => {
+  const p = pipeline(t2, { sealed: true });
+  gate.onSealChanged(true);
+  for (let tick = 0; tick < 20; tick++) {
+    for (const program of ["pactl", "ps", "pactl"]) {
+      const refusal = gate.refuseNativeLaunch(program);
+      assert.equal(refusal.code, "SEALED_MODE");
+    }
+    p.clock.now += 3000;
+  }
+  const { html, summary, events } = await render(p);
+  assert.equal(summary.nativeRefused, 2, "one row per program per seal");
+  assert.equal(summary.blocked, 0);
+  assert.equal(summary.unattributed, 0);
+  assert.deepEqual(summary.unattributedHosts, []);
+  assert.equal(events.length, 2);
+  assert.match(html, /recorder\.nativeRefusedToday\{"count":2\}/);
+  assert.match(html, /recorder\.nativeRefusedPrograms\{"names":"(pactl, ps|ps, pactl)"\}/);
+  assert.doesNotMatch(html, /blockedToday|recorder\.unexplained|native-pactl|native-ps/);
+  assert.match(html, /recorder\.empty/, "no request rows");
+});
+
 test("a cleared ledger reaches the view as 'no recorded requests', never as zero egress", async (t2) => {
   const p = pipeline(t2);
   const req = gate.authorize({

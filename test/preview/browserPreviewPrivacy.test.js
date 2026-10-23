@@ -159,7 +159,9 @@ test("sample rows are metadata only and cover every required kind of record", as
     assert.deepEqual(Object.keys(row).sort(), EVENT_KEYS);
     assert.ok(row.hosts.length >= 1 && row.hosts.length <= 8);
     assert.equal(row.host, row.hosts[0]);
-    for (const host of row.hosts) assert.match(host, BARE_HOST, "bare host, no URL or path");
+    // A refused program start names the program (native-<label>), not a host.
+    const hostShape = row.task === "nativeLaunch" ? /^native-[a-z0-9-]{1,48}$/ : BARE_HOST;
+    for (const host of row.hosts) assert.match(host, hostShape, "bare host, no URL or path");
     assert.ok(row.errorClass === null || /^[A-Z0-9_]+$/.test(row.errorClass));
     assert.ok(row.model === null || /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/.test(row.model));
     for (const key of ["bytesOut", "bytesIn", "status"])
@@ -173,7 +175,7 @@ test("sample rows are metadata only and cover every required kind of record", as
 
   const completed = rows.find((r) => r.outcome === "ok" && r.kind === "request" && r.bytesOut > 0);
   assert.ok(completed && completed.bytesIn > 0, "completed request with measured bytes");
-  const blocked = rows.find((r) => r.outcome === "blocked");
+  const blocked = rows.find((r) => r.outcome === "blocked" && r.task !== "nativeLaunch");
   assert.equal(blocked.bytesOut, 0);
   assert.equal(blocked.errorClass, "SEALED_MODE");
   const interrupted = rows.find((r) => r.outcome === "cancelled" && r.errorClass === "SEALED_MODE");
@@ -199,11 +201,35 @@ test("sample rows are metadata only and cover every required kind of record", as
   assert.ok(listed.every((r, i) => i === 0 || listed[i - 1].ts >= r.ts));
   const summary = await api.egressSummary({ since: midnight });
   assert.equal(summary.blocked, 1);
+  // I1: a refused program start is counted apart, never as a blocked request.
+  const native = rows.find((r) => r.task === "nativeLaunch");
+  assert.equal(native.kind, "operation");
+  assert.equal(native.attributed, true);
+  assert.equal(summary.nativeRefused, 1);
+  assert.equal(summary.persistError, null);
   assert.equal(summary.opaqueSessions, 1);
   assert.equal(summary.connections, 1);
   assert.equal(summary.left, summary.observed + summary.connections + summary.opaqueSessions);
   assert.ok(summary.unknownBytes >= 1);
   assert.equal((await api.listEgress({ since: midnight, limit: 2 })).length, 2);
+});
+
+// T17a-2: like main's IPC, a summary without `since` covers today, the same
+// window the list uses.
+test("the summary defaults to today's window, like the list and main", async () => {
+  const { createPreviewPrivacyAPI } = await load();
+  let clock = NOON;
+  const api = createPreviewPrivacyAPI(() => clock);
+  const today = await api.egressSummary();
+  assert.deepEqual(today, await api.egressSummary({ since: startOfDay(NOON) }));
+  // A day later the sample rows are yesterday's: none in the default window.
+  clock = NOON + 24 * 3600_000;
+  assert.equal((await api.listEgress()).length, 0);
+  const tomorrow = await api.egressSummary();
+  assert.equal(tomorrow.left, 0);
+  assert.equal(tomorrow.blocked, 0);
+  assert.equal(tomorrow.nativeRefused, 0);
+  assert.ok((await api.egressSummary({ since: 0 })).left > 0, "since 0 still sees them");
 });
 
 test("rows stay inside today's window just after midnight", async () => {

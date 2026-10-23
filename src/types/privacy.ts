@@ -17,6 +17,9 @@ export type EgressTask =
   | "appUpdate"
   | "codex"
   | "calendar"
+  // A program start main refused while sealed (final review I1): an
+  // operation, never a request; host is `native-<program>`.
+  | "nativeLaunch"
   | "unattributed";
 export type EgressOutcome = "ok" | "error" | "blocked" | "cancelled";
 export type EgressPayload = "audio" | "text" | "image" | "metadata";
@@ -49,6 +52,11 @@ export interface EgressSummary {
   bytesIn: number;
   unknownBytes: number;
   opaqueSessions: number;
+  // Refused program starts (nativeLaunch rows): never in `blocked` or `unattributed`.
+  nativeRefused: number;
+  // privacy:egress-summary only: a pending write failure (I5). Non-null means
+  // the list is readable but may be incomplete.
+  persistError?: string | null;
 }
 export type EgressNotice =
   | {

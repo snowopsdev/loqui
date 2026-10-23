@@ -2016,7 +2016,32 @@
       "clearAllAudioDone": "Audio stocké supprimé",
       "clearAllAudioFailed": "Tout l'audio stocké n'a pas été supprimé. Réessayez ou vérifiez qu'aucune autre app n'utilise les fichiers.",
       "audioStorageChecking": "Vérification de l'audio stocké…",
-      "audioStorageUnavailable": "Loqui n'a pas pu lire son dossier audio et ne peut donc pas afficher ni effacer l'audio stocké pour le moment."
+      "audioStorageUnavailable": "Loqui n'a pas pu lire son dossier audio et ne peut donc pas afficher ni effacer l'audio stocké pour le moment.",
+      "sealed": {
+        "title": "Mode scellé",
+        "description": "Lorsqu’il est activé, Loqui bloque ses propres requêtes vers d’autres ordinateurs, notamment les routes cloud, les téléchargements, les mises à jour et les calendriers. Dans cette version, les moteurs locaux ne peuvent pas encore être isolés : ils sont donc indisponibles tant que le mode scellé est activé.",
+        "checking": "Vérification du mode scellé…",
+        "on": "Le mode scellé est activé. Loqui bloque ses propres requêtes vers d’autres ordinateurs.",
+        "buildLimit": "Le mode scellé n’est pas entièrement disponible dans cette version : les moteurs locaux ne peuvent pas encore être isolés, ils ne s’exécutent donc pas tant qu’il est activé. Les routes qui les utilisent apparaissent comme indisponibles.",
+        "statusChecking": "Vérification de l’état du mode scellé…",
+        "scope": "Le mode scellé couvre les requêtes que Loqui effectue lui-même. Votre navigateur, les autres apps et le système d’exploitation en sont exclus, et les liens ne s’y ouvrent qu’après votre confirmation.",
+        "unverified": {
+          "guards": "Loqui ne peut pas confirmer que toutes ses protections réseau sont actives. Quittez Loqui et rouvrez-le.",
+          "envProxy": "Loqui a été démarré avec un réglage de proxy dans son environnement : il ne peut donc pas confirmer que chaque requête est bloquée.",
+          "stopFailed": "Arrêt pas encore confirmé depuis l’activation du mode scellé : {{names}}. Loqui continue de vérifier.",
+          "stopFailedUnnamed": "Certaines tâches commencées avant l’activation du mode scellé n’ont pas encore confirmé leur arrêt. Loqui continue de vérifier.",
+          "child": "Loqui ne peut pas confirmer que ces programmes et tout ce qu’ils ont lancé se sont terminés : {{names}}. Loqui continue de vérifier.",
+          "childUnknown": "Loqui ne peut pas lire l’état des programmes qu’il a lancés. Il continue de vérifier.",
+          "chromium": "Une requête de page commencée avant l’activation du mode scellé est toujours ouverte. Loqui continue de vérifier.",
+          "dns": "Une résolution de nom commencée avant l’activation du mode scellé est toujours en attente. Loqui continue de vérifier.",
+          "active": "Arrêt des requêtes commencées avant l’activation du mode scellé…"
+        },
+        "blocked_one": "{{count}} requête bloquée depuis l’activation du mode scellé.",
+        "blocked_other": "{{count}} requêtes bloquées depuis l’activation du mode scellé.",
+        "loadError": "Loqui n’a pas pu lire votre réglage enregistré du mode scellé : il a donc activé le mode scellé par précaution. Désactivez-le ici si c’était votre intention.",
+        "saveError": "Loqui n’a pas pu enregistrer ce réglage du mode scellé. Au prochain démarrage, Loqui pourrait utiliser le réglage précédent.",
+        "toggleError": "Impossible de modifier le mode scellé. L’interrupteur indique le réglage que Loqui utilise actuellement."
+      }
     },
     "prompts": {
       "description": "Affichez, personnalisez et testez le prompt système unifié qui gère la correction du texte et la détection des instructions",
@@ -3944,7 +3969,9 @@
     "available": "Loqui {{version}} est disponible. Activez les mises à jour automatiques pour l'installer, ou téléchargez-le depuis GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "Le mode scellé est activé : Loqui ne recherche, ne télécharge ni n’installe de mises à jour. Désactivez le mode scellé pour mettre à jour.",
+    "sealedRefused": "Le mode scellé est activé : Loqui n’a ni recherché ni installé de mise à jour. Rien n’a été envoyé."
   },
   "locality": {
     "device": "Sur cet appareil",

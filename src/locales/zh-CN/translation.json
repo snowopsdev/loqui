@@ -1922,7 +1922,31 @@
       "clearAllAudioDone": "已删除存储的音频",
       "clearAllAudioFailed": "并非所有存储的音频都已删除。请重试，或检查是否有其他应用正在使用这些文件。",
       "audioStorageChecking": "正在检查存储的音频…",
-      "audioStorageUnavailable": "Loqui 无法读取其音频文件夹，因此现在无法显示或清除存储的音频。"
+      "audioStorageUnavailable": "Loqui 无法读取其音频文件夹，因此现在无法显示或清除存储的音频。",
+      "sealed": {
+        "title": "封闭模式",
+        "description": "开启后，Loqui 会阻止自身发往其他计算机的请求，包括云端路由、下载、更新和日历。此版本尚无法隔离本地引擎，因此封闭模式开启期间无法使用本地引擎。",
+        "checking": "正在检查封闭模式…",
+        "on": "封闭模式已开启。Loqui 会阻止自身发往其他计算机的请求。",
+        "buildLimit": "此版本无法完整提供封闭模式：本地引擎尚无法隔离，因此封闭模式开启期间不会运行。使用它们的路由会显示为不可用。",
+        "statusChecking": "正在检查封闭模式状态…",
+        "scope": "封闭模式涵盖 Loqui 自身发出的请求。浏览器、其他应用和操作系统不在其范围内，链接只有在你确认后才会在其中打开。",
+        "unverified": {
+          "guards": "Loqui 无法确认其所有网络防护均已启用。请退出 Loqui 并重新打开。",
+          "envProxy": "Loqui 启动时其环境中带有代理设置，因此无法确认每个请求都被阻止。",
+          "stopFailed": "自开启封闭模式以来，尚未确认已停止：{{names}}。Loqui 会继续检查。",
+          "stopFailedUnnamed": "开启封闭模式之前开始的部分工作尚未确认已停止。Loqui 会继续检查。",
+          "child": "Loqui 无法确认这些程序及其启动的所有内容都已退出：{{names}}。Loqui 会继续检查。",
+          "childUnknown": "Loqui 无法读取其启动的程序的状态。它会继续检查。",
+          "chromium": "开启封闭模式之前开始的页面请求仍未结束。Loqui 会继续检查。",
+          "dns": "开启封闭模式之前开始的域名查询仍在等待中。Loqui 会继续检查。",
+          "active": "正在停止开启封闭模式之前开始的请求…"
+        },
+        "blocked_other": "自开启封闭模式以来已阻止 {{count}} 个请求。",
+        "loadError": "Loqui 无法读取已保存的封闭模式设置，因此为安全起见开启了封闭模式。如需关闭，请在这里关闭。",
+        "saveError": "Loqui 无法保存此封闭模式设置。下次 Loqui 启动时，可能会使用之前的设置。",
+        "toggleError": "无法更改封闭模式。开关显示的是 Loqui 当前使用的设置。"
+      }
     },
     "prompts": {
       "description": "查看、自定义和测试用于文本整理和指令识别的统一系统提示词",
@@ -2854,7 +2878,7 @@
       "addKey": "添加密钥",
       "needsUrl": "操作需要你的服务器地址",
       "addUrl": "添加地址",
-      "sealed": "密封模式开启时，操作会暂停",
+      "sealed": "封闭模式开启时，操作会暂停",
       "unreachable": "操作无法连接到笔记模型",
       "openSettings": "打开设置",
       "nativeUnavailable": "此版本在封闭模式下无法使用操作：本地模型尚无法隔离"
@@ -3939,7 +3963,9 @@
     "available": "Loqui {{version}} 已可用。开启自动更新即可安装，或从 GitHub 下载。",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "封闭模式已开启，因此 Loqui 不会检查、下载或安装更新。关闭封闭模式后即可更新。",
+    "sealedRefused": "封闭模式已开启，因此 Loqui 没有检查或安装更新。未发送任何内容。"
   },
   "locality": {
     "device": "在此设备上",
@@ -4017,7 +4043,7 @@
       "addKey": "添加 API 密钥",
       "chooseProvider": "选择提供商",
       "addUrl": "添加服务器网址",
-      "sealed": "已暂停 · 密封模式",
+      "sealed": "已暂停 · 封闭模式",
       "retired": "服务已停用 · 请重新选择",
       "unsupported": "此任务不可用",
       "cantReach": "无法连接服务器",
@@ -4093,7 +4119,7 @@
     "tasks": "任务",
     "destinations": "运行位置",
     "openSettings": "打开 {{task}} 设置",
-    "sealed": "密封模式已开启。任务只能在此设备上运行。",
+    "sealed": "封闭模式已开启。任务只能在此设备上运行。",
     "undo": "撤消",
     "kind": {
       "speech": "语音",
@@ -4122,7 +4148,7 @@
       "capability": "{{provider}} 无法在 Loqui 中运行此任务。",
       "visionCloudOnly": "目前，屏幕截图只能转到云视觉模型。",
       "meetingServer": "笔记录音暂不支持使用您自己的服务器。",
-      "sealed": "密封模式将此任务保留在此设备上。",
+      "sealed": "封闭模式将此任务保留在此设备上。",
       "uploadServer": "文件上传使用为听写设置的服务器。在那里改变它。",
       "serverKind": "尚未为 {{kind}} 任务设置 {{server}}。使用“添加服务器”输入其地址。"
     },
@@ -4199,7 +4225,7 @@
     "loadFailed": "无法刷新此列表。正在显示之前加载的内容。",
     "remind": "90 天后提醒",
     "remindLabel": "90 天后提醒我轮换 {{identity}}",
-    "sealed": "密封模式已开启，验证已暂停。",
+    "sealed": "封闭模式已开启，验证已暂停。",
     "empty": "没有已保存的凭据。需要凭据的任务会在“路由”中显示“添加 API 密钥”。",
     "identity": {
       "cortiText": "{{provider}} · 文本 API 密钥",
@@ -4359,7 +4385,7 @@
     },
     "pasteFailed": "无法粘贴您的文字",
     "undo": {
-      "sealed": "无法撤销：密封模式已开启，而此录音的路由会将数据发送到设备外。",
+      "sealed": "无法撤销：封闭模式已开启，而此录音的路由会将数据发送到设备外。",
       "routeUnavailable": "无法撤销：此录音原先使用的路由已不可用。",
       "noAudio": "无法撤销：录音为空。",
       "busy": "请先完成当前听写，再撤销取消操作。",
@@ -4391,7 +4417,7 @@
       "mayHaveText": "{{provider}} 可能已收到文本。",
       "mayHaveImage": "{{provider}} 可能已收到图像。",
       "mayHaveSeveral": "{{provider}} 可能已收到本次听写的部分内容。",
-      "sealedPaused": "听写已暂停：隔离模式已开启"
+      "sealedPaused": "听写已暂停：封闭模式已开启"
     },
     "stage": {
       "transcribing": "正在转写…",
@@ -4401,7 +4427,7 @@
       "pasted_other": "已粘贴 · {{count}} 字词"
     },
     "locality": {
-      "sealed": "已被隔离模式阻止",
+      "sealed": "已被封闭模式阻止",
       "remote": "发送至 {{provider}}"
     },
     "route": {
@@ -4920,7 +4946,7 @@
       "noteBlocked": {
         "microphone": "笔记需要使用麦克风。",
         "unsupported": "笔记录音配置了尚不支持的服务，例如自托管服务器。",
-        "sealed": "密封模式已开启，笔记录音无法连接 {{provider}}。",
+        "sealed": "封闭模式已开启，笔记录音无法连接 {{provider}}。",
         "needsModel": "笔记录音需要此设备上的语音模型。",
         "needsKey": "笔记录音需要你的 {{provider}} 密钥。",
         "needsUrl": "笔记录音需要服务器地址。",

@@ -1922,7 +1922,32 @@
       "clearAllAudioDone": "Audio salvato eliminato",
       "clearAllAudioFailed": "Non tutto l'audio salvato è stato eliminato. Riprova o verifica che nessun'altra app stia usando i file.",
       "audioStorageChecking": "Controllo dell'audio salvato…",
-      "audioStorageUnavailable": "Loqui non è riuscito a leggere la cartella audio, quindi ora non può mostrare né cancellare l'audio salvato."
+      "audioStorageUnavailable": "Loqui non è riuscito a leggere la cartella audio, quindi ora non può mostrare né cancellare l'audio salvato.",
+      "sealed": {
+        "title": "Modalità sigillata",
+        "description": "Quando è attiva, Loqui blocca le proprie richieste verso altri computer, inclusi percorsi cloud, download, aggiornamenti e calendari. In questa versione i motori locali non possono ancora essere isolati, quindi non sono disponibili mentre la modalità sigillata è attiva.",
+        "checking": "Verifica della modalità sigillata…",
+        "on": "La modalità sigillata è attiva. Loqui blocca le proprie richieste verso altri computer.",
+        "buildLimit": "La modalità sigillata non è completamente disponibile in questa versione: i motori locali non possono ancora essere isolati, quindi non vengono eseguiti mentre è attiva. I percorsi che li usano risultano non disponibili.",
+        "statusChecking": "Verifica dello stato della modalità sigillata…",
+        "scope": "La modalità sigillata copre le richieste che Loqui fa direttamente. Il browser, le altre app e il sistema operativo ne restano fuori, e i link si aprono in essi solo dopo la tua conferma.",
+        "unverified": {
+          "guards": "Loqui non può confermare che tutte le sue protezioni di rete siano attive. Chiudi Loqui e riaprilo.",
+          "envProxy": "Loqui è stato avviato con un’impostazione proxy nel suo ambiente, quindi non può confermare che ogni richiesta venga bloccata.",
+          "stopFailed": "Arresto non ancora confermato dall’attivazione della modalità sigillata: {{names}}. Loqui continua a verificare.",
+          "stopFailedUnnamed": "Alcune attività iniziate prima dell’attivazione della modalità sigillata non hanno ancora confermato l’arresto. Loqui continua a verificare.",
+          "child": "Loqui non può confermare che questi programmi e tutto ciò che hanno avviato siano terminati: {{names}}. Loqui continua a verificare.",
+          "childUnknown": "Loqui non riesce a leggere lo stato dei programmi che ha avviato. Continua a verificare.",
+          "chromium": "Una richiesta di pagina iniziata prima dell’attivazione della modalità sigillata è ancora aperta. Loqui continua a verificare.",
+          "dns": "Una risoluzione di nomi iniziata prima dell’attivazione della modalità sigillata è ancora in sospeso. Loqui continua a verificare.",
+          "active": "Arresto delle richieste iniziate prima dell’attivazione della modalità sigillata…"
+        },
+        "blocked_one": "{{count}} richiesta bloccata dall’attivazione della modalità sigillata.",
+        "blocked_other": "{{count}} richieste bloccate dall’attivazione della modalità sigillata.",
+        "loadError": "Loqui non è riuscito a leggere l’impostazione salvata della modalità sigillata, quindi ha attivato la modalità sigillata per sicurezza. Disattivala qui se era tua intenzione.",
+        "saveError": "Loqui non è riuscito a salvare questa impostazione della modalità sigillata. Al prossimo avvio, Loqui potrebbe usare l’impostazione precedente.",
+        "toggleError": "Impossibile cambiare la modalità sigillata. L’interruttore mostra l’impostazione che Loqui sta usando ora."
+      }
     },
     "prompts": {
       "description": "Visualizza, personalizza e testa il prompt di sistema unificato che gestisce la correzione del testo e il rilevamento delle istruzioni",
@@ -3944,7 +3969,9 @@
     "available": "Loqui {{version}} è disponibile. Attiva gli aggiornamenti automatici per installarlo oppure scaricalo da GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "La modalità sigillata è attiva, quindi Loqui non cerca, non scarica e non installa aggiornamenti. Disattiva la modalità sigillata per aggiornare.",
+    "sealedRefused": "La modalità sigillata è attiva, quindi Loqui non ha cercato né installato aggiornamenti. Non è stato inviato nulla."
   },
   "locality": {
     "device": "Su questo dispositivo",

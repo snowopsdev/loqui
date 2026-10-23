@@ -303,6 +303,17 @@
   --gradient-brand-glass-active: linear-gradient(180deg, #f2531c 0%, #e84e16 100%);
   /* The brand tile floats over the onboarding hero, so it adds a soft coloured lift. */
   --shadow-brand-tile: var(--shadow-brand-glass), 0 10px 24px -8px rgb(255 90 31 / 0.45);
+
+  /* Sealed mode (Plan 07, DESIGN.md "Sealed mode and the flight recorder"):
+     the panel turns navy in both themes, so Plum Night has no override. Text
+     is >= 9:1 on --color-sealed-bg. The border is >= 3:1 against the navy fill
+     and every light and Plum Night surface (#2c3f6e was 1.5:1 on plum).
+     Scored by test/components/sealedModePanel.test.js. */
+  --color-sealed-bg: #0f1a33;
+  --color-sealed-border: #5b76b8;
+  --color-sealed-fg: #f4f6fb;
+  --color-sealed-muted: #b8c2dc;
+  --color-sealed-warn: #fbbf6a;
 }
 
 .dark {

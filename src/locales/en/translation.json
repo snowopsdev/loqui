@@ -2016,7 +2016,32 @@
       "clearAllAudioDone": "Stored audio deleted",
       "clearAllAudioFailed": "Not all stored audio was deleted. Try again, or check that no other app is using the files.",
       "audioStorageChecking": "Checking stored audio…",
-      "audioStorageUnavailable": "Loqui couldn't read its audio folder, so it can't show or clear stored audio right now."
+      "audioStorageUnavailable": "Loqui couldn't read its audio folder, so it can't show or clear stored audio right now.",
+      "sealed": {
+        "title": "Sealed mode",
+        "description": "When on, Loqui blocks its own requests to other computers, including cloud routes, downloads, updates and calendars. On this build, local engines can't yet be isolated, so they're unavailable while Sealed mode is on.",
+        "checking": "Checking Sealed mode…",
+        "on": "Sealed mode is on. Loqui blocks its own requests to other computers.",
+        "buildLimit": "Sealed mode is not fully available on this build: local engines can't yet be isolated, so they don't run while it's on. Routes that use them show as unavailable.",
+        "statusChecking": "Checking Sealed mode status…",
+        "scope": "Sealed mode covers requests Loqui makes itself. Your browser, other apps and the operating system are outside it, and links open in them only after you confirm.",
+        "unverified": {
+          "guards": "Loqui can't confirm that all of its network guards are active. Quit Loqui and open it again.",
+          "envProxy": "Loqui was started with a proxy setting in its environment, so it can't confirm that every request is blocked.",
+          "stopFailed": "Not yet confirmed as stopped since Sealed mode was turned on: {{names}}. Loqui keeps checking.",
+          "stopFailedUnnamed": "Some work that started before Sealed mode was turned on hasn't confirmed that it stopped. Loqui keeps checking.",
+          "child": "Loqui can't confirm that these programs and everything they started have exited: {{names}}. Loqui keeps checking.",
+          "childUnknown": "Loqui can't read the status of the programs it started. It keeps checking.",
+          "chromium": "A page request that started before Sealed mode was turned on is still open. Loqui keeps checking.",
+          "dns": "A name lookup that started before Sealed mode was turned on is still pending. Loqui keeps checking.",
+          "active": "Stopping requests that started before Sealed mode was turned on…"
+        },
+        "blocked_one": "{{count}} request blocked since Sealed mode was turned on.",
+        "blocked_other": "{{count}} requests blocked since Sealed mode was turned on.",
+        "loadError": "Loqui couldn't read your saved Sealed mode setting, so it turned Sealed mode on to be safe. Turn it off here if you meant to.",
+        "saveError": "Loqui couldn't save this Sealed mode setting. The next time Loqui starts, it may use the previous setting.",
+        "toggleError": "Couldn't change Sealed mode. The switch shows the setting Loqui is using now."
+      }
     },
     "prompts": {
       "description": "View, customize, and test the unified system prompt that powers text cleanup and instruction detection",
@@ -3941,7 +3966,9 @@
     "available": "Loqui {{version}} is available. Turn on automatic updates to install it, or download it from GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "Sealed mode is on, so Loqui doesn't check for, download or install updates. Turn off Sealed mode to update.",
+    "sealedRefused": "Sealed mode is on, so Loqui didn't check for or install an update. Nothing was sent."
   },
   "locality": {
     "device": "On this device",

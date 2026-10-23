@@ -1901,7 +1901,32 @@
       "clearAllAudioDone": "Áudio armazenado excluído",
       "clearAllAudioFailed": "Nem todo o áudio armazenado foi excluído. Tente novamente ou verifique se outro app está usando os arquivos.",
       "audioStorageChecking": "Verificando o áudio armazenado…",
-      "audioStorageUnavailable": "O Loqui não conseguiu ler a pasta de áudio, então não pode mostrar nem apagar o áudio armazenado agora."
+      "audioStorageUnavailable": "O Loqui não conseguiu ler a pasta de áudio, então não pode mostrar nem apagar o áudio armazenado agora.",
+      "sealed": {
+        "title": "Modo selado",
+        "description": "Quando ativado, o Loqui bloqueia as próprias solicitações para outros computadores, incluindo rotas na nuvem, downloads, atualizações e calendários. Nesta versão, os mecanismos locais ainda não podem ser isolados, por isso ficam indisponíveis enquanto o modo selado está ativado.",
+        "checking": "Verificando o modo selado…",
+        "on": "O modo selado está ativado. O Loqui bloqueia as próprias solicitações para outros computadores.",
+        "buildLimit": "O modo selado não está totalmente disponível nesta versão: os mecanismos locais ainda não podem ser isolados, por isso não são executados enquanto ele está ativado. As rotas que os usam aparecem como indisponíveis.",
+        "statusChecking": "Verificando o estado do modo selado…",
+        "scope": "O modo selado abrange as solicitações que o próprio Loqui faz. Seu navegador, outros apps e o sistema operacional ficam fora dele, e os links só abrem neles depois que você confirma.",
+        "unverified": {
+          "guards": "O Loqui não consegue confirmar que todas as suas proteções de rede estão ativas. Saia do Loqui e abra-o novamente.",
+          "envProxy": "O Loqui foi iniciado com uma configuração de proxy no ambiente, por isso não consegue confirmar que todas as solicitações são bloqueadas.",
+          "stopFailed": "Ainda sem confirmação de parada desde que o modo selado foi ativado: {{names}}. O Loqui continua verificando.",
+          "stopFailedUnnamed": "Parte do trabalho iniciado antes de o modo selado ser ativado ainda não confirmou que parou. O Loqui continua verificando.",
+          "child": "O Loqui não consegue confirmar que estes programas e tudo o que eles iniciaram foram encerrados: {{names}}. O Loqui continua verificando.",
+          "childUnknown": "O Loqui não consegue ler o estado dos programas que iniciou. Ele continua verificando.",
+          "chromium": "Uma solicitação de página iniciada antes de o modo selado ser ativado ainda está aberta. O Loqui continua verificando.",
+          "dns": "Uma consulta de nome iniciada antes de o modo selado ser ativado ainda está pendente. O Loqui continua verificando.",
+          "active": "Parando as solicitações iniciadas antes de o modo selado ser ativado…"
+        },
+        "blocked_one": "{{count}} solicitação bloqueada desde que o modo selado foi ativado.",
+        "blocked_other": "{{count}} solicitações bloqueadas desde que o modo selado foi ativado.",
+        "loadError": "O Loqui não conseguiu ler a configuração salva do modo selado, por isso ativou o modo selado por segurança. Desative-o aqui se era isso que você queria.",
+        "saveError": "O Loqui não conseguiu salvar esta configuração do modo selado. Na próxima vez que o Loqui iniciar, ele pode usar a configuração anterior.",
+        "toggleError": "Não foi possível alterar o modo selado. O botão mostra a configuração que o Loqui está usando agora."
+      }
     },
     "prompts": {
       "description": "Visualize, personalize e teste o prompt de sistema unificado que alimenta a limpeza de texto e a detecção de instruções",
@@ -3944,7 +3969,9 @@
     "available": "O Loqui {{version}} está disponível. Ative as atualizações automáticas para instalá-lo ou baixe-o do GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "O modo selado está ativado, por isso o Loqui não procura, não baixa nem instala atualizações. Desative o modo selado para atualizar.",
+    "sealedRefused": "O modo selado está ativado, por isso o Loqui não procurou nem instalou nenhuma atualização. Nada foi enviado."
   },
   "locality": {
     "device": "Neste dispositivo",

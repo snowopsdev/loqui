@@ -1975,7 +1975,32 @@
       "clearAllAudioDone": "Audio almacenado eliminado",
       "clearAllAudioFailed": "No se eliminó todo el audio almacenado. Inténtalo de nuevo o comprueba que ninguna otra app esté usando los archivos.",
       "audioStorageChecking": "Comprobando el audio almacenado…",
-      "audioStorageUnavailable": "Loqui no pudo leer su carpeta de audio, así que ahora no puede mostrar ni borrar el audio almacenado."
+      "audioStorageUnavailable": "Loqui no pudo leer su carpeta de audio, así que ahora no puede mostrar ni borrar el audio almacenado.",
+      "sealed": {
+        "title": "Modo sellado",
+        "description": "Cuando está activado, Loqui bloquea sus propias solicitudes a otros equipos, incluidas las rutas en la nube, las descargas, las actualizaciones y los calendarios. En esta versión, los motores locales todavía no se pueden aislar, así que no están disponibles mientras el modo sellado está activado.",
+        "checking": "Comprobando el modo sellado…",
+        "on": "El modo sellado está activado. Loqui bloquea sus propias solicitudes a otros equipos.",
+        "buildLimit": "El modo sellado no está completamente disponible en esta versión: los motores locales todavía no se pueden aislar, así que no se ejecutan mientras está activado. Las rutas que los usan aparecen como no disponibles.",
+        "statusChecking": "Comprobando el estado del modo sellado…",
+        "scope": "El modo sellado abarca las solicitudes que hace el propio Loqui. Tu navegador, otras apps y el sistema operativo quedan fuera, y los enlaces se abren en ellos solo después de que lo confirmes.",
+        "unverified": {
+          "guards": "Loqui no puede confirmar que todas sus protecciones de red estén activas. Sal de Loqui y vuelve a abrirlo.",
+          "envProxy": "Loqui se inició con un ajuste de proxy en su entorno, así que no puede confirmar que se bloquee cada solicitud.",
+          "stopFailed": "Aún sin confirmar que se hayan detenido desde que se activó el modo sellado: {{names}}. Loqui sigue comprobándolo.",
+          "stopFailedUnnamed": "Parte del trabajo que empezó antes de activar el modo sellado aún no ha confirmado que se detuvo. Loqui sigue comprobándolo.",
+          "child": "Loqui no puede confirmar que estos programas y todo lo que iniciaron hayan terminado: {{names}}. Loqui sigue comprobándolo.",
+          "childUnknown": "Loqui no puede leer el estado de los programas que inició. Sigue comprobándolo.",
+          "chromium": "Una solicitud de página que empezó antes de activar el modo sellado sigue abierta. Loqui sigue comprobándolo.",
+          "dns": "Una búsqueda de nombre que empezó antes de activar el modo sellado sigue pendiente. Loqui sigue comprobándolo.",
+          "active": "Deteniendo las solicitudes que empezaron antes de activar el modo sellado…"
+        },
+        "blocked_one": "{{count}} solicitud bloqueada desde que se activó el modo sellado.",
+        "blocked_other": "{{count}} solicitudes bloqueadas desde que se activó el modo sellado.",
+        "loadError": "Loqui no pudo leer tu ajuste guardado del modo sellado, así que activó el modo sellado por seguridad. Desactívalo aquí si era lo que querías.",
+        "saveError": "Loqui no pudo guardar este ajuste del modo sellado. La próxima vez que Loqui se inicie, puede usar el ajuste anterior.",
+        "toggleError": "No se pudo cambiar el modo sellado. El interruptor muestra el ajuste que Loqui usa ahora."
+      }
     },
     "prompts": {
       "description": "Visualiza, personaliza y prueba el prompt de sistema unificado que impulsa la corrección de texto y la detección de instrucciones",
@@ -3944,7 +3969,9 @@
     "available": "Loqui {{version}} está disponible. Activa las actualizaciones automáticas para instalarlo o descárgalo desde GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "El modo sellado está activado, así que Loqui no busca, descarga ni instala actualizaciones. Desactiva el modo sellado para actualizar.",
+    "sealedRefused": "El modo sellado está activado, así que Loqui no buscó ni instaló ninguna actualización. No se envió nada."
   },
   "locality": {
     "device": "En este dispositivo",

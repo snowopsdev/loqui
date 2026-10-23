@@ -11,7 +11,7 @@ const { CodexAppServer } = require("./codexAppServer");
 const { isSecureHttpEndpoint } = require("../utils/urlUtils.ts");
 const egress = require("./privacy/egressGate");
 const { taskForScope, isSealedModeError, sealedPhaseOf } = require("./privacy/egressPolicy");
-const { providerEndpoint, effectiveEndpoint } = require("./privacy/providerEndpoints");
+const { effectiveEndpoint } = require("./privacy/providerEndpoints");
 const { guardMetered } = require("./privacy/gatedFetch");
 const childRegistry = require("./privacy/childRegistry");
 const CODEX_HOST = "https://chatgpt.com";
@@ -922,8 +922,10 @@ function registerPersonalInferenceIPC({
           async (ticket) => dispatch(ticket, await credentialInputs())
         );
       // An enterprise recipient is known only from main's own configuration.
-      // Refuse while sealed before reading it; then gate the resolved executor.
-      egress.assertAllowed({ task: egressTask, target: providerEndpoint(request.provider) });
+      // Refuse while sealed before reading it, naming no fixed label it would
+      // never contact (T8-M2: recorded as "unknown"); then gate the resolved
+      // executor.
+      egress.assertAllowed({ task: egressTask, target: null });
       const inputs = await credentialInputs();
       return await gated(
         effectiveEndpoint(request.provider, { enterprise: inputs.enterprise?.executor }),

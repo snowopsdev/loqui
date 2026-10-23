@@ -296,3 +296,22 @@ test("the seal transition finds the update hooks Task 7 left pending", async (t)
   assert.deepEqual(transition.snapshot().failures, [], "updatesResume is supplied too");
   assert.equal(h.published.at(-1).sealed, false);
 });
+
+// Final review m6 / T10-M3: the ticket's own abort (the seal's
+// abortAllRemote) stops a running download even when the pauseForSeal hook
+// never runs or fails.
+test("the seal's ticket abort alone cancels a running download", async (t) => {
+  const h = harness(t, { latest: "1.1.0" });
+  const pending = h.manager.check(false);
+  await tick();
+  assert.equal(h.manager.state.phase, "downloading");
+  h.flags.sealed = true;
+  gate.abortAllRemote();
+  const status = await pending;
+  assert.equal(status.phase, "idle");
+  assert.equal(h.manager.failures, 0);
+  assert.deepEqual(
+    h.rows.map((r) => [r.task, r.outcome, r.errorClass]),
+    [["appUpdate", "cancelled", "SEALED_MODE"]]
+  );
+});

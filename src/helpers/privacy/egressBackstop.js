@@ -879,9 +879,11 @@ function installWebContentsGuard(app) {
 }
 
 // Node sockets only: loopback connections (self-hosted STT, llama-server) and
-// Chromium's pool are left alone. Ticketed Chromium requests are stopped by
-// their own abort signals (gate.abortAllRemote); un-ticketed ones are waited
-// for, and keep the attestation unverified until they end.
+// Chromium's pool are left alone. A ticketed Chromium request stops only where
+// its owner acts on the ticket's abort signal (gate.abortAllRemote): metered
+// net.fetch bodies and the updater's download do. A request already handed to
+// Chromium with no such owner (the update feed check, un-ticketed requests) is
+// waited for, and keeps the attestation unverified until it ends.
 // Each socket leaves openRemoteSockets on its own "close" (the connect hook),
 // so the count drops only once a socket has actually closed.
 function severAll() {

@@ -2,6 +2,7 @@ const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const debugLogger = require("../helpers/debugLogger");
+const { isSealedModeError } = require("../helpers/privacy/egressPolicy");
 
 // The shipped CUDA whisper build (release 0.0.10) carries kernels for Pascal
 // (compute capability 6.1) and newer; 6.1's embedded PTX also covers Volta via
@@ -15,6 +16,9 @@ const MIN_CUDA_COMPUTE_CAP = 6.1;
 let cachedGpuInfo = null;
 let cachedGpuList = null;
 let cachedSmiPath; // undefined = unresolved, null = no nvidia-smi anywhere
+// Set when Sealed mode refused a probe since the current detection began. A
+// refusal says nothing about the GPU, so that answer is never cached (m1).
+let sealedRefusalSeen = false;
 
 function clearCache() {
   cachedGpuInfo = null;
@@ -24,12 +28,21 @@ function clearCache() {
 
 function runNvidiaSmi(smiPath, fields, execFileImpl) {
   return new Promise((resolve) => {
-    execFileImpl(
-      smiPath,
-      ["--query-gpu=" + fields, "--format=csv,noheader,nounits"],
-      { timeout: 5000, windowsHide: true },
-      (error, stdout) => resolve({ error, stdout: stdout || "" })
-    );
+    const done = (error, stdout) => {
+      if (isSealedModeError(error)) sealedRefusalSeen = true;
+      resolve({ error, stdout: stdout || "" });
+    };
+    try {
+      execFileImpl(
+        smiPath,
+        ["--query-gpu=" + fields, "--format=csv,noheader,nounits"],
+        { timeout: 5000, windowsHide: true },
+        done
+      );
+    } catch (error) {
+      // The spawn guard refuses synchronously while sealed.
+      done(error, "");
+    }
   });
 }
 
@@ -43,6 +56,8 @@ async function resolveNvidiaSmiPath({ execFileImpl = execFile, fsImpl = fs, quie
   // A probe error other than ENOENT (timeout, driver refusing the query)
   // still proves the binary exists, so the rung is kept.
   const probe = await runNvidiaSmi("nvidia-smi", "name", execFileImpl);
+  // Sealed: unknown, not absent. Leave the ladder unresolved for after unseal.
+  if (isSealedModeError(probe.error)) return null;
   if (probe.error?.code !== "ENOENT") {
     cachedSmiPath = { smiPath: "nvidia-smi", source: "path" };
     return cachedSmiPath;
@@ -146,6 +161,7 @@ function queryWmiVideoControllers(execFileImpl) {
 // as before; other callers keep their normal diagnostics and logger state.
 async function detectNvidiaGpu(deps = {}) {
   if (cachedGpuInfo) return cachedGpuInfo;
+  sealedRefusalSeen = false;
 
   if (process.platform === "darwin") {
     cachedGpuInfo = { hasNvidiaGpu: false };
@@ -208,12 +224,15 @@ async function detectNvidiaGpu(deps = {}) {
     }
   }
 
+  // A sealed refusal is not "no GPU": answer for now, cache nothing (m1).
+  if (sealedRefusalSeen) return { hasNvidiaGpu: false };
   cachedGpuInfo = { hasNvidiaGpu: false };
   return cachedGpuInfo;
 }
 
 async function listNvidiaGpus(deps = {}) {
   if (cachedGpuList) return cachedGpuList;
+  sealedRefusalSeen = false;
 
   if (process.platform === "darwin") {
     cachedGpuList = [];
@@ -224,6 +243,7 @@ async function listNvidiaGpus(deps = {}) {
   // misses the per-GPU picker simply has no choices to offer.
   const resolved = await resolveNvidiaSmiPath(deps);
   if (!resolved) {
+    if (sealedRefusalSeen) return [];
     cachedGpuList = [];
     return cachedGpuList;
   }
@@ -238,6 +258,7 @@ async function listNvidiaGpus(deps = {}) {
       source: resolved.source,
       error: error ? error.message : "empty output",
     });
+    if (sealedRefusalSeen) return [];
     cachedGpuList = [];
     return cachedGpuList;
   }

@@ -366,6 +366,9 @@ async function downloadFile(url, destPath, options = {}) {
     ticket.settle({ outcome: "ok" });
     return result;
   } catch (error) {
+    // Cancelled or refused before the first attempt: nothing was contacted,
+    // so no row names the host (T10-M4).
+    if (ticket.untouched()) ticket.discard();
     if (sealedAbort()) {
       ticket.settle({ outcome: "cancelled" });
       const interrupted = ticket.signal.reason;

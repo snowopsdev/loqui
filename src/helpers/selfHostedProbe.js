@@ -31,7 +31,12 @@ async function probeSelfHosted(baseUrl, fetchImpl = globalThis.fetch, timeoutMs 
       redirect: "error",
       signal: controller.signal,
     });
-    if (!response.ok) return { ok: false, code: "http", status: response.status };
+    if (!response.ok) {
+      // Release the unread body: the gate settles its ticket and records the
+      // request only when the body ends (final review I7).
+      await response.body?.cancel().catch(() => {});
+      return { ok: false, code: "http", status: response.status };
+    }
     // A seal that cuts the body off is not "no models".
     const body = await response.json().catch((error) => {
       if (isSealedModeError(error)) throw error;

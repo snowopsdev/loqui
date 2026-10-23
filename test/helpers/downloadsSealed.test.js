@@ -461,3 +461,19 @@ test("sealed: archive extraction launches no native program", async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// T10-M4: a download cancelled before its first attempt contacted nothing, so
+// it writes no row naming a host.
+test("a download cancelled before its first attempt writes no row", async () => {
+  const own = createDownloadSignal();
+  own.abort();
+  await assert.rejects(
+    downloadFile("https://huggingface.co/x/model.bin", tmpDest(), {
+      signal: own.signal,
+      maxRetries: 0,
+    })
+  );
+  assert.equal(requests.length, 0);
+  assert.deepEqual(rows, []);
+  assert.equal(gate.activeRemoteCount(), 0);
+});

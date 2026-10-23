@@ -210,6 +210,11 @@ class UpdateManager extends EventEmitter {
       ...(previousHeaders || {}),
       [egress.EGRESS_TAG_HEADER]: ticket.tag,
     };
+    // The seal aborts this ticket (abortAllRemote). A download listens for
+    // that itself, so it stops even if the pauseForSeal hook never runs (m6,
+    // T10-M3). The feed request is already Chromium's and is waited out.
+    const cancelOnAbort = () => this.cancel?.cancel();
+    ticket.signal.addEventListener("abort", cancelOnAbort, { once: true });
     const sealedNow = () => this.isSealed() || ticket.signal.aborted;
     const pausedForSeal = () => {
       ticket.settle({ outcome: "cancelled", errorClass: "SEALED_MODE" });
@@ -240,6 +245,7 @@ class UpdateManager extends EventEmitter {
           this.publish({ phase: "downloading", availableVersion: next });
           const { CancellationToken } = require("builder-util-runtime");
           this.cancel = new CancellationToken();
+          if (ticket.signal.aborted) this.cancel.cancel();
           await this.updater.downloadUpdate(this.cancel);
         }
       } else this.publish({ phase: "idle" });
@@ -256,6 +262,7 @@ class UpdateManager extends EventEmitter {
         });
     } finally {
       // Idempotent: records only the paths above that did not settle it.
+      ticket.signal.removeEventListener("abort", cancelOnAbort);
       ticket.settle({ outcome: "ok" });
       this.updater.requestHeaders = previousHeaders;
       this.cancel = null;

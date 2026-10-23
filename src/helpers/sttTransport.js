@@ -159,6 +159,9 @@ function bindConnection(socket, ticket) {
   });
   socket.once?.("error", () => {
     failed = true;
+    // Record the failure now: the gate's own TCP close listener can run before
+    // ws's close, and a settle is deferred to that real close anyway (T9a-M2).
+    settleConnection(ticket, true);
   });
   socket.once?.("close", () => {
     ticket.signal.removeEventListener("abort", stop);

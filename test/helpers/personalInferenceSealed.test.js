@@ -158,6 +158,17 @@ test("sealed: an enterprise request is refused before credentials or its config 
   assert.equal(h.calls.enterpriseConfig, 0);
   assert.equal(h.calls.factory.length, 0);
   assert.equal(h.recorder.list()[0].outcome, "blocked");
+  // T8-M2: the recipient is unknown until main reads its configuration, so
+  // the refusal names no fixed enterprise label it would never contact.
+  assert.equal(h.recorder.list()[0].host, "unknown");
+  for (const provider of ["bedrock", "vertex"]) {
+    await assert.rejects(
+      h.invoke("text-generate", chatRequest({ provider, credentialRef: provider, model: "m" })),
+      isSealedModeError
+    );
+    assert.equal(h.recorder.list()[0].host, "unknown", provider);
+  }
+  assert.equal(h.calls.enterpriseConfig, 0);
 });
 
 test("sealed: text-stream reports SEALED_MODE as a typed stream error", async (t) => {

@@ -2158,3 +2158,53 @@ sealedTest(
     await update;
   }
 );
+
+// T10-M4: a direct import that fails before any request (scheme, SSRF
+// literal) contacted nothing, so it writes no urlImport row naming a host.
+sealedTest("a direct import refused before any request writes no row", async () => {
+  for (const [url, code] of [
+    ["http://audio.example/a.mp3", "INVALID_URL"],
+    ["https://10.0.0.1/a.mp3", "SSRF_BLOCKED"],
+  ]) {
+    await assert.rejects(downloader.download(url), { code });
+  }
+  assert.deepEqual(rows, []);
+  assert.equal(gate.activeRemoteCount(), 0);
+});
+
+// T10-m4: stopping a YouTube import's yt-dlp signals its group only through
+// the registry, which does so only while continuity holds; never a raw
+// process.kill(-pid).
+groupTest("a YouTube import's yt-dlp group is stopped through the registry only", async (t) => {
+  const facts = fakeGroupFacts();
+  const realKill = process.kill;
+  const rawKills = [];
+  process.kill = (pid, signal) => {
+    if (pid === -FAKE_GROUP_PID) {
+      rawKills.push([pid, signal]);
+      return true;
+    }
+    return realKill.call(process, pid, signal);
+  };
+  t.after(() => {
+    process.kill = realKill;
+  });
+  sealedCacheBinary({ throttle: true });
+  const children = [];
+  sealedLeaf = (command, args) => {
+    const child = fakeChild({ pid: FAKE_GROUP_PID });
+    child.args = args;
+    children.push(child);
+    return child;
+  };
+  fixtureFfmpegPath = "/fixture/bin/ffmpeg";
+  const controller = new AbortController();
+  const pending = downloader.download(YOUTUBE, null, controller.signal);
+  await until(() => children.length === 1, "metadata child");
+  controller.abort();
+  children[0].end(null, "SIGTERM");
+  await pending.catch(() => {});
+  assert.deepEqual(rawKills, []);
+  assert.deepEqual(facts.kills, [[FAKE_GROUP_PID, "SIGTERM"]]);
+  assert.deepEqual(children[0].signals, []);
+});

@@ -325,6 +325,10 @@ function createTicket({
     },
     beginAttempt,
     attemptCount: () => attemptCount,
+    // No attempt, socket, connection or dispatch: nothing was contacted, so a
+    // caller may discard the ticket instead of naming its host (T10-M4).
+    untouched: () =>
+      attemptCount === 0 && connections === 0 && sockets.size === 0 && !manualDispatch,
     retainTransport: () => retainTransport(ticket),
     attachSocket(socket) {
       if (sockets.has(socket)) return;
@@ -619,6 +623,14 @@ function createTicket({
   return ticket;
 }
 
+// A caller that cancels an unread body: for an HTTP error response the
+// answer is the error status (the caller only declined to read its text, I7);
+// otherwise the body was cut short by the caller.
+const declinedBody = (status) =>
+  Number.isInteger(status) && status >= 400
+    ? httpPatch(status)
+    : { outcome: "cancelled", errorClass: "BODY_CANCELLED" };
+
 function appendHost(trail, host) {
   if (host && !trail.includes(host) && trail.length < 8) trail.push(host);
 }
@@ -779,9 +791,7 @@ async function guardResponse(meta, fn) {
       onFinish(error, cancelled) {
         if (error || cancelled)
           ticket.settle(
-            error
-              ? failureOutcome(ticket, error).patch
-              : { outcome: "cancelled", errorClass: "BODY_CANCELLED" }
+            error ? failureOutcome(ticket, error).patch : declinedBody(response.status)
           );
         else if (--branches === 0) ticket.settle(httpPatch(response.status));
       },
@@ -907,7 +917,7 @@ function meterResponse(response, attempt, signal) {
         attempt.settle(
           error
             ? failureOutcome(attempt.ticket, error, signal).patch
-            : { outcome: "cancelled", errorClass: "BODY_CANCELLED" }
+            : declinedBody(response.status)
         );
       } else {
         attempt.openBodies--;

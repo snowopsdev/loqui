@@ -541,7 +541,7 @@ function maybeUpdateYtDlp({ force, abortSignal, timeoutMs } = {}) {
       // The bundled yt-dlp is a PyInstaller one-file build: its bootloader root
       // runs the real program as a child and cannot forward SIGKILL. On POSIX
       // the root leads its own group (detached above), so stop the whole group
-      // through the registry, which signals it only while it is provably ours.
+      // through the registry, which signals it only while continuity is observed.
       // Windows keeps the root-only kill: taskkill is a native launch, refused
       // while sealed; whole-tree stop there is 07b.
       const killUpdate = () => {
@@ -706,7 +706,9 @@ function jsRuntimeSpawnConfig() {
 
 // Kill yt-dlp AND its subprocesses (ffmpeg postprocessor, node JS-runtime):
 // the detached process group on Unix, taskkill /T on Windows — a plain kill on
-// the parent orphans them mid-download.
+// the parent orphans them mid-download. On POSIX the group is signalled only
+// through the registry, which does so only while group continuity holds
+// (T10-m4); otherwise the root alone is signalled.
 function killYtDlpTree(child, signal) {
   if (process.platform === "win32" && child.pid) {
     try {
@@ -716,12 +718,7 @@ function killYtDlpTree(child, signal) {
       return;
     } catch {}
   }
-  if (child.pid) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch {}
-  }
+  if (childRegistry.signalGroup(child, signal)) return;
   try {
     child.kill(signal);
   } catch {}
@@ -1762,7 +1759,14 @@ async function download(url, onProgress, abortSignal) {
   const signal = abortSignal ? AbortSignal.any([abortSignal, ticket.signal]) : ticket.signal;
   const sealedReason = () =>
     ticket.signal.aborted && isSealedModeError(ticket.signal.reason) ? ticket.signal.reason : null;
-  const finish = (patch) => (session ? session.finish(patch) : ticket.settle(patch));
+  // A direct import that failed before any request contacted nothing: no row
+  // names its host (T10-M4). The YouTube session discards its own.
+  const finish = (patch) =>
+    session
+      ? session.finish(patch)
+      : patch.outcome !== "ok" && ticket.untouched()
+        ? ticket.discard()
+        : ticket.settle(patch);
   debugLogger.log("URL audio download starting", { url, type });
   try {
     const result = await egress.runWithTicket(ticket, () =>

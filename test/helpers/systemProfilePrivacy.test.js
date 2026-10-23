@@ -108,6 +108,8 @@ function fixture({ smi = "missing", wmiError = false, onProbe = () => {} } = {})
     fs: hardwareFs,
     path: path.win32,
     "../helpers/debugLogger": logger,
+    // Sealed refusals are not cached as "no GPU" (final review m1).
+    "../helpers/privacy/egressPolicy": require("../../src/helpers/privacy/egressPolicy"),
   });
   const profile = load("src/helpers/systemProfile.js", {
     path: path.win32,

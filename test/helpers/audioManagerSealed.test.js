@@ -418,6 +418,109 @@ for (const [label, heldPrivate, newerPrivate] of [
     assert.equal(manager._onboardingTake === newerTake, true);
   });
 
+// Task 18 re-review T18R-03 (p14): a cancelled Transcribe frees the manager
+// at once, so a newer press can start while the replay's request is still
+// unwinding. The replay's end must not put the pre-Transcribe context back
+// over that newer press: it restores only fields that still hold the replay's
+// own values. A newer private take is never pasted, copied or saved as public.
+for (const [label, startNewer] of [
+  [
+    "startRecording's own field writes",
+    (manager, newer) => {
+      const context = { private: true, sessionId: newer.id };
+      manager._onboardingTake = undefined;
+      manager._recordingContext = context;
+      return context;
+    },
+  ],
+  [
+    "the shared capture (batch and streaming)",
+    (manager, newer) => {
+      manager._onboardingTake = undefined;
+      return manager._captureRecordingPrivacy({ private: true, sessionId: newer.id });
+    },
+  ],
+])
+  test(`T18R-03: a cancelled replay's end leaves a newer private press alone (${label})`, async (t) => {
+    const fixtures = await setup(t);
+    holdOne(fixtures, { id: "held-public", privateTake: false });
+    let started;
+    const requestStarted = new Promise((resolve) => (started = resolve));
+    let rejectRequest;
+    const { manager } = replayManager(fixtures.createManager, () => {
+      started();
+      return new Promise((_resolve, reject) => (rejectRequest = reject));
+    });
+    // The press before Transcribe was public.
+    const preContext = { private: false, sessionId: "pre-public" };
+    manager._recordingContext = preContext;
+    manager._recordingPrivate = false;
+    manager._onboardingTake = null;
+
+    const replay = manager.transcribeRecovered();
+    await requestStarted;
+    assert.equal(manager.cancelProcessing(), true);
+    // startRecording's own admission guard admits a press now.
+    assert.equal(
+      manager.isRecording ||
+        manager.isProcessing ||
+        manager.isStreaming ||
+        manager._startInProgress ||
+        Boolean(manager._streamingStopPromise),
+      false
+    );
+    assert.notEqual(manager._recoveryReplay, null, "the replay is still unwinding");
+    const newer = captured(fixtures, { id: "newer-private", privateTake: true });
+    manager.beginDictationSession({}, newer);
+    const newerContext = startNewer(manager, newer);
+    manager._recordingPrivate = true;
+
+    rejectRequest(Object.assign(new Error("cancelled"), { code: "TRANSCRIPTION_CANCELLED" }));
+    await replay;
+    assert.equal(
+      manager._recordingContext === newerContext,
+      true,
+      "the newer press keeps its context"
+    );
+    assert.equal(manager._recordingContext === preContext, false);
+    assert.equal(manager._recordingPrivate, true);
+    assert.equal(manager._onboardingTake, undefined);
+    // The newer press's pipeline (paste, clipboard, History) is private.
+    manager._setOwnedAudio(new Blob(["newer-private-audio"]), {
+      sessionId: newer.id,
+      private: true,
+    });
+    const pipeline = manager._startProcessingPipeline();
+    assert.equal(pipeline.recording.private, true);
+    assert.equal(pipeline.recording.ownedAudio?.private, true);
+    manager._settleProcessingPipeline(pipeline);
+  });
+
+test("T18R-03: with no newer press, a cancelled replay puts the earlier context back", async (t) => {
+  const fixtures = await setup(t);
+  holdOne(fixtures, { id: "held-private", privateTake: true });
+  let started;
+  const requestStarted = new Promise((resolve) => (started = resolve));
+  let rejectRequest;
+  const { manager } = replayManager(fixtures.createManager, () => {
+    started();
+    return new Promise((_resolve, reject) => (rejectRequest = reject));
+  });
+  const preContext = { private: false, sessionId: "pre-public" };
+  const preTake = { fixture: "onboarding" };
+  manager._recordingContext = preContext;
+  manager._recordingPrivate = false;
+  manager._onboardingTake = preTake;
+  const replay = manager.transcribeRecovered();
+  await requestStarted;
+  manager.cancelProcessing();
+  rejectRequest(Object.assign(new Error("cancelled"), { code: "TRANSCRIPTION_CANCELLED" }));
+  await replay;
+  assert.equal(manager._recordingContext === preContext, true);
+  assert.equal(manager._recordingPrivate, false);
+  assert.equal(manager._onboardingTake === preTake, true);
+});
+
 test("the press-time context survives failed, sealed and cancelled replays, then closes once on success", async (t) => {
   const fixtures = await setup(t);
   const { session, context } = holdOne(fixtures, { id: "busy" });

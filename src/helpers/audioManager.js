@@ -1421,12 +1421,17 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       private: this._recordingPrivate,
       onboardingTake: this._onboardingTake,
     };
+    // The context object the replay installs. A cancelled replay frees the
+    // manager at once, so a newer press may install its own before this
+    // replay's finally runs (Task 18 T18R-03); the finally then leaves it alone.
+    let replayContext = null;
     try {
       try {
         this.applySessionIntents(session, { context, tracker });
         this._setOwnedAudio(owned.blob, { sessionId: owned.sessionId, private: owned.private });
         this._recordingPrivate = owned.private === true;
-        this._recordingContext = { private: owned.private === true, sessionId: owned.sessionId };
+        replayContext = { private: owned.private === true, sessionId: owned.sessionId };
+        this._recordingContext = replayContext;
         this._onboardingTake = null;
         pipeline = this._startProcessingPipeline();
       } catch (error) {
@@ -1450,9 +1455,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         if (this._activeProcessingPipeline === pipeline) this._settleProcessingPipeline(pipeline);
       }
       this._recoveryReplay = null;
-      this._recordingContext = previousRecording.context;
-      this._recordingPrivate = previousRecording.private;
-      this._onboardingTake = previousRecording.onboardingTake;
+      // T18R-03: restore only fields that still hold the replay's own values.
+      // Every writer of a newer press's privacy (startRecording,
+      // _captureRecordingPrivacy, Undo's restore) installs a context object of
+      // its own, so identity says whether the replay still owns them. A newer
+      // press's onboarding take (written before its context on the streaming
+      // path) is never the replay's null.
+      if (this._recordingContext === replayContext) {
+        this._recordingContext = previousRecording.context;
+        if (this._recordingPrivate === (replayContext?.private ?? this._recordingPrivate))
+          this._recordingPrivate = previousRecording.private;
+        if (this._onboardingTake === null) this._onboardingTake = previousRecording.onboardingTake;
+      }
       releaseRecovery(held.id, { done: pipeline?.outcome === "success" });
     }
     return { started: true, succeeded: pipeline?.outcome === "success" };

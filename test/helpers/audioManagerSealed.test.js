@@ -356,6 +356,42 @@ test("a private replay keeps its original owner and privacy after a newer public
   assert.equal(oldContext.releaseCount, 1);
 });
 
+// Final review I2: Transcribe on a held take replays with that take's own
+// recording context (privacy, no onboarding take), never the latest press's,
+// so a private hold cannot reach History, paste or the clipboard. The newer
+// press's context is back in place afterwards.
+for (const [label, heldPrivate, newerPrivate] of [
+  ["a private hold after a newer public press", true, false],
+  ["a public hold after a newer private press", false, true],
+])
+  test(`Transcribe replays ${label} with the hold's own privacy`, async (t) => {
+    const fixtures = await setup(t);
+    const heldAudio = new Blob(["held"]);
+    holdOne(fixtures, { id: "held", privateTake: heldPrivate, blob: heldAudio });
+    const recordings = [];
+    const { manager } = replayManager(
+      fixtures.createManager,
+      async () => ({ success: true, text: "held transcript" }),
+      {
+        onTranscriptionComplete: (_result, onboardingTake, recording) =>
+          recordings.push({ onboardingTake, private: recording?.private }),
+      }
+    );
+    const newer = captured(fixtures, { id: "newer", privateTake: newerPrivate });
+    manager.beginDictationSession({}, newer);
+    manager._endDictationSession(newer);
+    const newerContext = { private: newerPrivate, sessionId: "newer" };
+    manager._recordingContext = newerContext;
+    manager._recordingPrivate = newerPrivate;
+    manager._onboardingTake = newerPrivate ? { fixture: "onboarding" } : null;
+    const newerTake = manager._onboardingTake;
+    assert.deepEqual(await manager.transcribeRecovered(), { started: true, succeeded: true });
+    assert.deepEqual(recordings, [{ onboardingTake: null, private: heldPrivate }]);
+    assert.equal(manager._recordingContext === newerContext, true, "the newer press is restored");
+    assert.equal(manager._recordingPrivate, newerPrivate);
+    assert.equal(manager._onboardingTake === newerTake, true);
+  });
+
 test("the press-time context survives failed, sealed and cancelled replays, then closes once on success", async (t) => {
   const fixtures = await setup(t);
   const { session, context } = holdOne(fixtures, { id: "busy" });

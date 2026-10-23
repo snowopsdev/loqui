@@ -1404,10 +1404,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
     this._recoveryReplay = held.id;
     let pipeline = null;
+    // Final review I2: the replay runs under the held take's own recording
+    // context, never the latest press's. Its privacy decides History, paste
+    // and clipboard, and a held take is never an onboarding trial take. The
+    // newer press's context is put back when the replay ends, as Undo does.
+    const previousRecording = {
+      context: this._recordingContext,
+      private: this._recordingPrivate,
+      onboardingTake: this._onboardingTake,
+    };
     try {
       try {
         this.applySessionIntents(session, { context, tracker });
         this._setOwnedAudio(owned.blob, { sessionId: owned.sessionId, private: owned.private });
+        this._recordingPrivate = owned.private === true;
+        this._recordingContext = { private: owned.private === true, sessionId: owned.sessionId };
+        this._onboardingTake = null;
         pipeline = this._startProcessingPipeline();
       } catch (error) {
         // Fix round 1, M7: no pipeline exists to return the operation, so give
@@ -1430,6 +1442,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         if (this._activeProcessingPipeline === pipeline) this._settleProcessingPipeline(pipeline);
       }
       this._recoveryReplay = null;
+      this._recordingContext = previousRecording.context;
+      this._recordingPrivate = previousRecording.private;
+      this._onboardingTake = previousRecording.onboardingTake;
       releaseRecovery(held.id, { done: pipeline?.outcome === "success" });
     }
     return { started: true, succeeded: pipeline?.outcome === "success" };

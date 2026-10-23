@@ -160,6 +160,62 @@ Every item below waits for the focused re-review.
 
 The NOT VERIFIED items (2, 10, 14, 15) are unchanged. They need a real Electron run (Task 16) and 07b.
 
+## Focused re-review (2026-10-23)
+
+Two fresh reviews ran at `3fd48133`, the end of the consolidated fix wave: a scoped re-review of the whole wave, and a focused Task 18 security re-review that re-ran every probe and added six (p9–p14). Their statuses are below, then this round's answers. The "Round 2" column holds implementer claims; a fresh scoped re-review checks them before gate 2.
+
+### Statuses at `3fd48133`
+
+- **Original findings T18-01 to T18-07.**
+  - Fixed: T18-01, T18-04, T18-05, T18-06.
+  - Fixed in code, runtime NOT VERIFIED: T18-02.
+  - Partly fixed: T18-03 (the remaining Node HTTP-client shapes became T18R-01) and T18-07 (base64 secrets split by `/`, `+` or `.`; still open).
+- **Known items K1 to K9.**
+  - Fixed: K3, K4, K5 (for its reported sequence; its fix introduced T18R-03), K6, K7, K8.
+  - Fixed in code, runtime NOT VERIFIED: K1.
+  - Open by owner decision or 07b: K2 (the Parakeet bind) and K9 (owner items 1–3).
+- **Checklist.** PASS 8 (items 1, 5, 6, 7, 8, 9, 11, 12), FAIL 3 (items 3, 4, 13), NOT VERIFIED 4 (items 2, 10, 14, 15). Task 18's "no open critical or high" condition was met.
+- **Scoped re-review.**
+  - Every MUST-FIX item and I1–I8 closed: 49 of 50 mutations were killed, and the true revert of the one survivor (T8-M1) was killed too.
+  - It found one Important, N1: the Codex model list still showed main's raw `[SEALED_MODE]` text.
+  - It found ten Minors, m1–m10.
+
+### New findings from the security re-review, and round 2
+
+| ID      | Severity           | Finding                                                                                                                                                                         | Round 2 (implementer claim)                                                                                                                                                                                                                                                                                                                                                                                                   | Commit     |
+| ------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| T18R-01 | low                | More Node HTTP-client shapes reach a loopback forwarder while sealed: URL-like objects, a merged second argument, a duplicate `Host`, `appendHeader`, `require("_http_client")` | Arguments are read the way Node reads them. `ClientRequest.prototype._storeHeader` then judges the exact head (request line and every `Host` line) before the first write. `setHeader`/`appendHeader` are wrapped on the prototype, which also covers m4. Every p9 row is tested on the wire against an owned `127.0.0.1` listener. Not inspected, as threat 8 states: raw socket writes, SOCKS, HTTP/2, undici `ProxyAgent`. | `dd24407e` |
+| T18R-02 | low                | The socket hook judged one read but handed Node the original arguments                                                                                                          | Node's normalizer is captured at install. The options are snapshotted with each key read once, and every allowed connect gets that snapshot as a symbol-tagged normalized array. The p10 rows are tests.                                                                                                                                                                                                                      | `df113aad` |
+| T18R-03 | low                | A cancelled Transcribe replay restored the pre-replay context over a newer private press                                                                                        | The replay restores only while its own context object is installed, and only fields still holding its values. Chosen over refusing presses during the unwind, which gives the same protection without stalling dictation. The p14 sequence is a test.                                                                                                                                                                         | `bfc76dd9` |
+| T18R-04 | low (NOT VERIFIED) | The permission handler granted everything except `openExternal`, including geolocation                                                                                          | Requests and checks grant only `media`, `display-capture`, `clipboard-read` and `clipboard-sanitized-write`. Geolocation and unknown permissions are denied. Task 16 item T18R-04 added.                                                                                                                                                                                                                                      | `a9a10cb6` |
+| T18R-05 | low                | A session-hardening failure could be cleared while the session stayed unhardened                                                                                                | A session counts as hardened only after every call fulfilled, and it is retried until confirmed. Its failure stays in the transition's failures and the attestation until a later attempt succeeds.                                                                                                                                                                                                                           | `dc8019d9` |
+| T18R-06 | info               | App navigation allowed `file://<any host>/` and any `devtools://`                                                                                                               | `file:` needs an empty or localhost host, and `devtools://` is allowed only in unpackaged builds.                                                                                                                                                                                                                                                                                                                             | `a9a10cb6` |
+| T18R-07 | info               | The guards cover only public entry points looked up after boot; `process.binding` is reachable                                                                                  | The threat model bounds "every native start" to those entry points. While sealed, `process.binding` refuses `spawn_sync`, `process_wrap`, `tcp_wrap`, `udp_wrap` and `cares_wrap`. Node and Electron internals do not call it, and the only shipped caller asks for `util`.                                                                                                                                                   | `6ea60354` |
+
+### The scoped re-review's findings, and round 2
+
+| ID             | Round 2 (implementer claim)                                                                                                                                                                                | Commit     |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| N1 (Important) | The Codex "List models" alert asks `sealedFailureMessage` first. Ten more raw-message surfaces were found by grep and fixed the same way. The site ratchet lists all of them beside executed helper cases. | `63f226bb` |
+| m1             | A spellcheck marker beside `privacy.json` restores the spellchecker after a sealed quit. NOT VERIFIED at runtime; Task 16 item FWR-m1 added.                                                               | `dc8019d9` |
+| m2, m7         | The panel says "Sealed mode didn't start N local programs" (11 locales, with CLDR forms). It counts and names the distinct programs from main's summary, so names past the listed page are not lost.       | `21bbadd6` |
+| m3             | A phase-less cleanup rejection defaults to interrupted.                                                                                                                                                    | `3ddbf868` |
+| m4             | See T18R-01.                                                                                                                                                                                               | `dd24407e` |
+| m5             | The list comparator is exported and tested in both argument orders. The `memoryRow = () => 0` mutant is killed.                                                                                            | `21bbadd6` |
+| m9             | Persistence failures are reported by kind. A failed delete and a failed read each get honest copy.                                                                                                         | `21bbadd6` |
+| m10            | The GPU-probe refusal flag is per call.                                                                                                                                                                    | `3ddbf868` |
+| m6, m8         | Deferred by ruling: m6 is a fail-closed note; m8 waits for the native-speaker pass.                                                                                                                        | —          |
+
+### Still open after round 2
+
+- T18-07's remainder (key-shaped model ids split by `/`, `+` or `.`).
+- T18-03's remainder: raw socket writes, SOCKS, HTTP/2 and other HTTP stacks to a loopback forwarder (threat 8).
+- Runtime items: T18-02, K1, T18R-04 and m1 wait for Task 16.
+- K2 and K9 (owner decisions or 07b).
+- 07b/D14–D16 and the Linux D15 `.deb`/`.rpm` boundary proof.
+
+No native speaker has verified the round-2 translations. The merge gate stays NOT MET.
+
 ## Sign-off
 
 - [ ] All critical and high findings fixed and re-verified (link commits)

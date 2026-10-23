@@ -1700,8 +1700,12 @@ test("single-instance socket: a deep --output-dir that would overflow sun_path i
   // macOS sun_path is 104; Windows has no Unix-socket singleton.
   assert.equal(check(base, "darwin").limit, 103);
   assert.deepEqual(check(`${atLimit}x`, "win32").reasons, []);
-  // Multibyte paths count bytes, not characters.
-  assert.ok(check(`${base}/${"é".repeat(30)}`).bytes > `${base}/${"é".repeat(30)}`.length);
+  // Multibyte paths count bytes, not characters: 30 two-byte "é" cost exactly
+  // 30 bytes more than the same path spelled with 30 ASCII "e" (T16-n2).
+  assert.equal(
+    check(`${base}/${"é".repeat(30)}`).bytes,
+    check(`${base}/${"e".repeat(30)}`).bytes + 30
+  );
 
   const deep = tempDir("deep");
   const output = path.join(deep, "a".repeat(80));

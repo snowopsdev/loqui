@@ -110,6 +110,22 @@ test("the actual preload removes WebRTC in the main frame and a subframe", () =>
         "undefined",
         `${name} cannot be restored`
       );
+      // T7a-M3: the slot is locked, so no later page script can redefine it either.
+      const descriptor = vm.runInContext(
+        `(() => { const d = Object.getOwnPropertyDescriptor(globalThis, "${name}");
+          return d && [d.configurable, d.writable, "value" in d, d.value === undefined].join(); })()`,
+        frame.page
+      );
+      assert.equal(descriptor, "false,false,true,true", `${name} is non-configurable`);
+      assert.throws(
+        () =>
+          vm.runInContext(
+            `Object.defineProperty(globalThis, "${name}", { value: function () {} })`,
+            frame.page
+          ),
+        { name: "TypeError" }, // thrown in the page realm
+        `${name} cannot be redefined`
+      );
     }
     assert.deepEqual(frame.exposed, isMainFrame ? ["electronAPI"] : []);
   }

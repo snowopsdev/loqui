@@ -1492,14 +1492,25 @@ sealedTest("while sealed, a self-update is not even attempted", async () => {
 // are fakes: the group id is beyond every kernel's pid range, and the
 // registry's killGroup/groupAlive leaves only record.
 const FAKE_GROUP_PID = 4_206_649;
+// The continuity clock and the group watch are injected too (T10-m2): a slow
+// test host can never end continuity on a real 400 ms gap, and no real
+// interval runs. `facts.now` only moves when a test moves it.
 function fakeGroupFacts() {
-  const facts = { alive: false, kills: [] };
+  const facts = { alive: false, kills: [], now: 0, watches: [] };
   registry._setSystemForTests({
     groupAlive: (pid) => {
       assert.equal(pid, FAKE_GROUP_PID);
       return facts.alive;
     },
     killGroup: (pid, signal) => facts.kills.push([pid, signal]),
+    now: () => facts.now,
+    every: (fn, ms) => {
+      const watch = { fn, ms, stopped: false };
+      facts.watches.push(watch);
+      return () => {
+        watch.stopped = true;
+      };
+    },
   });
   return facts;
 }
@@ -1534,6 +1545,11 @@ groupTest(
     facts.alive = true;
     child.end(null, "SIGKILL");
     assert.deepEqual(
+      facts.watches.map((w) => [w.ms, w.stopped]),
+      [[100, false]],
+      "the root's exit starts one group watch on the injected timer"
+    );
+    assert.deepEqual(
       rows.map((r) => [r.task, r.outcome, r.errorClass]),
       [["runtimeDownload", "cancelled", "SEALED_MODE"]]
     );
@@ -1555,6 +1571,7 @@ groupTest(
     assert.equal(facts.kills.length, 3);
     const [fact] = registry.diagnostics().unresolved.filter((e) => e.kind === "yt-dlp");
     assert.deepEqual([fact.reason, fact.rootExited], ["DESCENDANTS_UNVERIFIED", true]);
+    assert.equal(facts.watches[0].stopped, true, "an ended group stops its watch");
   }
 );
 
@@ -2132,8 +2149,11 @@ for (const [label, url] of [
         gate._setBypassForTests(false);
       }
       // With the backstop absent in this file, the next layer is the DNS/socket
-      // leaf (direct) or the production spawn guard (YouTube: a native-* refusal).
-      const guardRefused = rows.some((r) => /^native-/.test(r.host) && r.outcome === "blocked");
+      // leaf (direct) or the production spawn guard (YouTube: a refused program
+      // start, recorded as a nativeLaunch operation, never a request; I1).
+      const guardRefused = rows.some(
+        (r) => r.task === "nativeLaunch" && r.kind === "operation" && r.outcome === "blocked"
+      );
       assert.ok(
         counts.dns + counts.https + sealedSpawned.length > 0 || guardRefused,
         JSON.stringify({ counts, rows })

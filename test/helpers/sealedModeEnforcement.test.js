@@ -641,7 +641,9 @@ const row = (spec) => ROWS.push(spec);
 function blockedRows() {
   return recorder.list().filter((r) => r.outcome === "blocked");
 }
-const nativeRefusals = () => recorder.list().filter((r) => /^native-/.test(r.host ?? "")).length;
+// A refused program start is a nativeLaunch operation, never a request (I1).
+const nativeLaunchRows = () => recorder.list().filter((r) => r.task === "nativeLaunch");
+const nativeRefusals = () => nativeLaunchRows().length;
 const touched = () => Object.values(transport).reduce((sum, value) => sum + value, 0);
 
 // Synthetic user content and credentials files, under this run's own profile.
@@ -1607,10 +1609,9 @@ let updateManager;
       BrowserWindow: { getAllWindows: () => [updateWindow] },
       updater,
       sealed: mainSealed,
-      // main.js's restart seam, reading the same state.
-      assertRestartAllowed: () => {
-        if (mainSealed()) throw new Error("NATIVE_BOUNDARY_UNAVAILABLE");
-      },
+      // main.js's own restart closure, captured from the VM run in section 15
+      // (T12-M2), never a test copy of it.
+      assertRestartAllowed: () => mainRestartAllowed(),
       activity: { lock() {}, busy: () => false },
       busy: () => false,
       teardown: async () => {},
@@ -1646,8 +1647,12 @@ row({
   channel: "loqui-update:restart",
   task: null,
   action: () => updateCall("restart"),
+  setup: () => runMainToUpdateIpc(),
   accept: nativeUnavailable,
-  check: () => assert.equal(updater.installs, 0),
+  check: () => {
+    assert.equal(updater.installs, 0);
+    assert.ok(mainRun.restartChecks > 0, "main.js's own restart closure refused it");
+  },
   // Unsealed, with a verified update ready (synthetic state), the same IPC
   // reaches electron-updater's quitAndInstall leaf.
   drill: async () => {
@@ -1768,9 +1773,14 @@ for (const r of NATIVE) {
       assert.equal(transport.utilityLeaf, 0);
       assert.deepEqual(transport, zeroTransport(), `${name} touched a transport`);
       const rows = recorder.list();
-      const native = rows.filter((x) => /^native-/.test(x.host));
+      const native = rows.filter((x) => x.task === "nativeLaunch");
       assert.ok(native.length > 0, `${name} never attempted its launch: ${JSON.stringify(rows)}`);
-      for (const x of native) assert.deepEqual([x.outcome, x.bytesOut], ["blocked", 0]);
+      for (const x of native)
+        assert.deepEqual(
+          [x.kind, x.attributed, x.outcome, x.bytesOut, /^native-[a-z0-9-]+$/.test(x.host)],
+          ["operation", true, "blocked", 0, true],
+          `${name}: a refused program start is an attributed operation, not a request`
+        );
       assert.deepEqual(
         rows.filter((x) => x.outcome !== "blocked"),
         []
@@ -1901,7 +1911,8 @@ test("N18 prevented: the production Codex server refuses before resolving, probi
   });
   await assert.rejects(
     server.start(),
-    (e) => isSealedModeError(e) && sealedPhaseOf(e) === "refused"
+    // The phase is stated by the error itself, never read from a bare code (N18, M6).
+    (e) => isSealedModeError(e) && statedPhaseOf(e) === "refused"
   );
   assert.equal(resolved, 0);
   assert.deepEqual(nativeLeafCalls, []);
@@ -2332,7 +2343,8 @@ async function runMainToUpdateIpc() {
       if (name === "./src/helpers/updateIPC")
         return {
           trackUpdateActivity: () => soft(),
-          attachUpdateIPC: () => {
+          attachUpdateIPC: (options) => {
+            observed.updateOptions = options;
             throw marker;
           },
         };
@@ -2350,8 +2362,31 @@ async function runMainToUpdateIpc() {
     // main's boot configured the shared gate from its own profile state.
     resetGate();
   }
-  mainRun = { observed, signals, bootFailures: [...context.bootPrivacy.bootFailures], pidDir };
+  mainRun = {
+    observed,
+    signals,
+    bootFailures: [...context.bootPrivacy.bootFailures],
+    pidDir,
+    // main.js's own restart closure and the SealedState it reads (T12-M2).
+    assertRestartAllowed: observed.updateOptions?.assertRestartAllowed,
+    privacyState: context.bootPrivacy.state,
+    restartChecks: 0,
+  };
   return mainRun;
+}
+// Runs main.js's restart closure. Main's SealedState follows the matrix's seal
+// flag for this call only, by shadowing its isSealed reader: set() would emit a
+// change event into the shared gate.
+function mainRestartAllowed() {
+  assert.equal(typeof mainRun?.assertRestartAllowed, "function", "main.js ran to its update IPC");
+  const state = mainRun.privacyState;
+  mainRun.restartChecks += 1;
+  state.isSealed = mainSealed;
+  try {
+    return mainRun.assertRestartAllowed();
+  } finally {
+    delete state.isSealed;
+  }
 }
 
 test("A23: sealed startup preserves saved PID records and hands them to main's registry before the first manager, with no ps/tasklist", async () => {
@@ -2894,6 +2929,9 @@ const DECLARED = {
     "mcal-disconnect",
     "mcal-get-connection-status",
     "meeting-detection-get-preferences",
+    // T12-m4: can start the audio-activity detector, which spawns OS tools (a
+    // native launch, never a request). While sealed the engine starts no
+    // detector (I1) and the spawn guard refuses any launch.
     "meeting-detection-set-preferences",
     "meeting-notification-ready",
     "meeting-recording-outcome",
@@ -3018,6 +3056,7 @@ const DECLARED = {
     "storage-delete-audio",
     "storage-delete-history",
     "storage-preview",
+    // T12-m4: same detector start as meeting-detection-set-preferences.
     "sync-notification-preferences",
     "sync-startup-preferences",
     "toggle-agent-panel-dictation",
@@ -3146,7 +3185,10 @@ test("ratchet: URL import and yt-dlp rows live in urlAudioDownloader.test.js and
   }
 });
 
-test("session follow-ups, invoked while sealed, open nothing and read no credential", async () => {
+// T12-M7: this sweep proves only that follow-ups naming an unknown session do
+// nothing while sealed. A follow-up on a session admitted before the seal is
+// driven by the meeting test below (its replacement connection is refused).
+test("session follow-ups for an unknown session, invoked while sealed, open nothing and read no credential", async () => {
   const identity = { correlationId: "none", dictationSessionId: "none", operationId: "op-none" };
   for (const channel of DECLARED.follow) {
     const handler = ipc.handlers.get(channel);

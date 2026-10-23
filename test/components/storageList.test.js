@@ -1170,6 +1170,21 @@ function unhandledRejections(t) {
   return seen;
 }
 
+// React reports a state update outside act() through console.error; collect only those (m2).
+function actWarnings(t) {
+  const seen = [];
+  const original = console.error;
+  console.error = (...args) => {
+    const text = args.map(String).join(" ");
+    if (text.includes("not wrapped in act(")) seen.push(text.slice(0, 120));
+    else original(...args);
+  };
+  t.after(() => {
+    console.error = original;
+  });
+  return seen;
+}
+
 async function runResetTo(h) {
   await React.act(async () => h.view().onReset());
   await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
@@ -1217,8 +1232,12 @@ test("an automatic relaunch that main refuses because Sealed mode came on is cau
   assert.equal(h.reset().phase, "done");
   assert.equal(h.reset().restartBlocked ?? null, null, "unsealed: Loqui restarts on its own");
   main.sealed = true; // sealed between the erase and the relaunch
-  await wait(1100);
+  const warnings = actWarnings(t);
+  await React.act(async () => {
+    await wait(1100); // the automatic relaunch timer and its refusal land inside act
+  });
   await settle();
+  assert.deepEqual(warnings, [], "every state update is wrapped in act");
   assert.deepEqual(calls, [["relaunch"]]);
   assert.equal(h.reset().restartBlocked, "sealed");
   const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
@@ -1237,8 +1256,12 @@ test("any other relaunch failure is caught and asks the user to quit and reopen"
   });
   const h = await mount(t, api);
   await runResetTo(h);
-  await wait(1100);
+  const warnings = actWarnings(t);
+  await React.act(async () => {
+    await wait(1100); // the automatic relaunch timer and its failure land inside act
+  });
   await settle();
+  assert.deepEqual(warnings, [], "every state update is wrapped in act");
   assert.equal(h.reset().restartBlocked, "failed");
   const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
   assert.ok(html.includes("storage.reset.restartFailed"));

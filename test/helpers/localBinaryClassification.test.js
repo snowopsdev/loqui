@@ -18,7 +18,23 @@ require.cache[require.resolve("electron")] = {
     },
   },
 };
-require.cache[require.resolve("../../src/helpers/downloadUtils")] = { exports: {} };
+// Named no-op stand-ins for the helpers gpuBinaryManager destructures, so Node never warns
+// about reading a missing export from this unloaded stub (T6a-M1). Nothing here downloads.
+const noop = () => {};
+require.cache[require.resolve("../../src/helpers/downloadUtils")] = {
+  exports: Object.fromEntries(
+    [
+      "downloadFile",
+      "fetchJson",
+      "createDownloadSignal",
+      "checkDiskSpace",
+      "cleanupStaleDownloads",
+      "extractArchive",
+      "findFile",
+      "findFiles",
+    ].map((name) => [name, noop])
+  ),
+};
 const GpuBinaryManager = require("../../src/helpers/gpuBinaryManager");
 const llama = require("../../src/helpers/llamaCppInstaller").default;
 test("installer paths are registered when lazily resolved, never as sealed privileges", () => {

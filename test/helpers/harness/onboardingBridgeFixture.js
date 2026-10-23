@@ -37,7 +37,8 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
       {
         module,
         exports: module.exports,
-        process: { ...process, isMainFrame: true },
+        // Only the preload runs in a renderer frame; main modules never see isMainFrame (T7a-M4).
+        process: relative === "preload.js" ? { ...process, isMainFrame: true } : { ...process },
         Date,
         setTimeout,
         clearTimeout,

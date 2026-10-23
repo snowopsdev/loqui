@@ -343,17 +343,14 @@ test("replay: a transcript removes the hold; the real pipeline ran on the same b
   const fixtures = await setup(t);
   const { session, context, blob } = holdOne(fixtures, { id: "s-9" });
   const seen = [];
-  const { manager, completions } = replayManager(
-    fixtures.createManager,
-    async (audio, metadata) => {
-      seen.push([
-        audio === blob,
-        manager._activeSession === session,
-        manager._sessionContext === context,
-      ]);
-      return { success: true, text: "hello" };
-    }
-  );
+  const { manager, completions } = replayManager(fixtures.createManager, async (audio) => {
+    seen.push([
+      audio === blob,
+      manager._activeSession === session,
+      manager._sessionContext === context,
+    ]);
+    return { success: true, text: "hello" };
+  });
   assert.deepEqual(await manager.transcribeRecovered(), { started: true, succeeded: true });
   assert.deepEqual(seen, [[true, true, true]]);
   assert.equal(completions.at(-1)?.text, "hello");

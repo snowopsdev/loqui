@@ -49,6 +49,36 @@
  *   - --allow-session-bus forwards DBUS_SESSION_BUS_ADDRESS (meant for a private
  *     `dbus-run-session` bus); the user's own /run/user/<uid>/bus is refused.
  *     Without it the app gets DBUS_SESSION_BUS_ADDRESS=disabled:.
+ *   - Linux: no network outside loopback. The launcher reads its own network
+ *     namespace (which Electron inherits) from /proc/self/net: route, ipv6_route
+ *     and dev. Any route through, or any device other than, lo is refused
+ *     ("network-route-present" / "network-interface-present") unless
+ *     --allow-network-route is given; the opt-in is recorded. The result is in
+ *     report.launchEnvironment.network: "loopback-only", "non-loopback-route",
+ *     "non-loopback-interface", or "not-checked" where the tables cannot be read
+ *     (and on macOS/Windows, which have no /proc). It is a snapshot at launch,
+ *     not packet evidence.
+ *   - The output directory must be short enough for Chromium's single-instance
+ *     socket, $TMPDIR/.org.chromium.Chromium.XXXXXX/SingletonSocket with TMPDIR
+ *     at DIR/<run>-XXXXXX/tmp. Over the platform's sun_path (Linux 108 bytes,
+ *     macOS 104, each including the terminator) the app could not take its
+ *     single-instance lock and would quit, so it is refused up front
+ *     ("socket-path-too-long"); report.launchEnvironment.singletonSocket keeps
+ *     the computed length and the limit.
+ *
+ * OS KEYCHAIN (no operator keyring is ever touched)
+ *   The app's master-key store (src/helpers/secretCrypto.js) uses
+ *   @napi-rs/keyring. With the session bus disabled it would silently fall back
+ *   to the kernel keyring (keyutils) of the invoking user and write a master key
+ *   there under the dev build's own service name. The bootstrap therefore
+ *   intercepts Module._load before it requires electron or main.js, and every
+ *   request for @napi-rs/keyring (or its native binding packages) gets an
+ *   in-memory, process-local stand-in with the same Entry/AsyncEntry surface.
+ *   The real module is never loaded; keys live and die with the app process
+ *   (plus secretCrypto's own backup file inside the temporary profile, if
+ *   Safe Storage is available there). No product code changes: the app has no
+ *   supported keychain switch. report.launch.osKeychain records the stub's
+ *   state as read from the app.
  *
  * THE APP'S ENVIRONMENT (allowlisted; nothing else is inherited)
  *   PATH, LANG, LANGUAGE, LC_*, TZ, DISPLAY and XAUTHORITY are copied. HOME,
@@ -111,7 +141,8 @@
  *   T10 Chromium redirects and the updater's egress tag.
  *
  * Usage: node scripts/sealed-acceptance.cjs --i-understand-this-launches-electron
- *          [--output-dir DIR] [--allow-session-bus] [--dedicated-desktop-user]
+ *          [--output-dir DIR] [--allow-session-bus] [--allow-network-route]
+ *          [--dedicated-desktop-user]
  */
 /* global window, document -- only inside Playwright page.evaluate callbacks */
 const fs = require("node:fs");
@@ -148,6 +179,13 @@ const STATUSES = ["RUNNING", "not-run", "FAIL", "INCOMPLETE", "NOT VERIFIED"];
 const LAUNCH_OPT_IN = "--i-understand-this-launches-electron";
 const DEDICATED_DESKTOP_ACK = "--dedicated-desktop-user";
 const SESSION_BUS_OPT_IN = "--allow-session-bus";
+const NETWORK_ROUTE_OPT_IN = "--allow-network-route";
+// The two launches; their names prefix each per-launch sandbox directory.
+const LAUNCH_NAMES = ["open", "sealed"];
+// Unix-socket path capacity (sun_path, including the terminating NUL). Chromium's
+// single-instance socket lives at $TMPDIR/.org.chromium.Chromium.XXXXXX/SingletonSocket.
+const SUN_PATH_BYTES = { linux: 108, darwin: 104 };
+const SINGLETON_SOCKET_TAIL = [".org.chromium.Chromium.XXXXXX", "SingletonSocket"];
 // Variables that mean the launcher is sitting in the live desktop session.
 const LIVE_SESSION_MARKERS = ["WAYLAND_DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE"];
 // The only variables copied from the launcher into the app under test.
@@ -278,8 +316,9 @@ const MANUAL_CHECKLIST = [
       "the netlogs. Expected: observerChecksComplete true, status NOT VERIFIED (exit 3). The " +
       "first real run must also confirm that controlLoopback holds (the host-resolver rules " +
       "exclude 127.0.0.1), that the app starts with Chromium's sandbox on and the session bus " +
-      "disabled (if not, use dbus-run-session with --allow-session-bus), and that only lo exists " +
-      "in the namespace.",
+      "disabled (if not, use dbus-run-session with --allow-session-bus), that only lo exists " +
+      "in the namespace (launchEnvironment.network.state loopback-only, no " +
+      "--allow-network-route), and that launch.osKeychain.store is in-memory.",
   },
   {
     id: "STEP-5",
@@ -559,6 +598,8 @@ function writeReport(output, report) {
     ? {
         schema: REPORT_SCHEMA,
         status: "FAIL",
+        reason: "honesty-violation",
+        observerChecksComplete: false,
         error: "The run produced a report that failed the 07a honesty check; it was not written.",
         violations,
         nativeBoundary: { status: "NOT VERIFIED", gate: report?.nativeBoundary?.gate ?? null },
@@ -1019,20 +1060,284 @@ function compareUrlParsing(cases, chromiumHosts, parse = nodeUrlHost) {
   return { rows, mismatches: rows.filter((row) => row.chromium !== row.node) };
 }
 
+// --- Launch environment: network routes and the single-instance socket path --------------------
+
+// Interfaces with a route in a /proc/self/net table, other than lo. IPv4
+// (`route`) has a header and the interface first; IPv6 (`ipv6_route`) has no
+// header and the interface tenth. null when the table could not be read.
+function nonLoopbackRouteInterfaces(text, { ipv6 = false } = {}) {
+  if (typeof text !== "string") return null;
+  const names = new Set();
+  for (const line of text.split("\n")) {
+    const fields = line.trim().split(/\s+/);
+    if (!fields[0] || (!ipv6 && fields[0] === "Iface")) continue;
+    if (ipv6 && fields.length < 10) continue;
+    const name = ipv6 ? fields[9] : fields[0];
+    if (name && name !== "lo") names.add(name);
+  }
+  return [...names].sort();
+}
+
+// Network devices other than lo in /proc/self/net/dev (two header lines, then
+// "name: counters"). null when it could not be read.
+function nonLoopbackDevices(text) {
+  if (typeof text !== "string") return null;
+  const names = new Set();
+  for (const line of text.split("\n")) {
+    const match = /^\s*([^\s:|]+):/.exec(line);
+    if (match && match[1] !== "lo") names.add(match[1]);
+  }
+  return [...names].sort();
+}
+
+// The launcher's own network namespace, which Playwright's Electron inherits.
+// /proc/self/net/* is per network namespace (unlike a bind-mounted /sys).
+function readNetworkRoutes(read = readText) {
+  return {
+    ipv4: read("/proc/self/net/route"),
+    ipv6: read("/proc/self/net/ipv6_route"),
+    devices: read("/proc/self/net/dev"),
+  };
+}
+
+// Linux: refuse when the namespace lists any route through a non-lo interface,
+// or any non-lo network device at all (the IPv4 table above is the main table
+// only; a device catches routes kept in policy-routing tables), unless the
+// operator passes --allow-network-route, which is recorded. This is a snapshot
+// at launch, not packet evidence and not a native boundary. Where the tables
+// cannot be read the network is recorded as not checked.
+function assessNetworkRoutes({ platform = process.platform, routes, allowRoute = false } = {}) {
+  const notChecked = (detail) => ({
+    network: { state: "not-checked", detail, interfaces: null, operatorOptIn: null },
+    reasons: [],
+  });
+  if (platform !== "linux")
+    return notChecked(`No /proc route tables on ${platform}; the network was not checked.`);
+  const ipv4 = nonLoopbackRouteInterfaces(routes?.ipv4);
+  if (ipv4 === null)
+    return notChecked("/proc/self/net/route could not be read; the network was not checked.");
+  const ipv6 = nonLoopbackRouteInterfaces(routes?.ipv6, { ipv6: true });
+  const devices = nonLoopbackDevices(routes?.devices);
+  const routed = [...new Set([...ipv4, ...(ipv6 ?? [])])].sort();
+  const interfaces = [...new Set([...routed, ...(devices ?? [])])].sort();
+  let state = "loopback-only";
+  if (routed.length) state = "non-loopback-route";
+  else if (interfaces.length) state = "non-loopback-interface";
+  const network = {
+    state,
+    detail:
+      "Route tables and devices read at launch from /proc/self/net (a snapshot; not packet " +
+      "evidence).",
+    ipv4: "read",
+    ipv6: ipv6 === null ? "absent" : "read",
+    devices: devices === null ? "unreadable" : "read",
+    interfaces,
+    operatorOptIn: interfaces.length && allowRoute ? NETWORK_ROUTE_OPT_IN : null,
+  };
+  const reasons =
+    interfaces.length && !allowRoute
+      ? [
+          {
+            code: routed.length ? "network-route-present" : "network-interface-present",
+            detail:
+              `This network namespace has ${routed.length ? "routes through" : "the devices"} ` +
+              `${interfaces.join(", ")}, so the unsealed control could reach a real network. ` +
+              "Run inside the loopback-only namespace in this script's header, or pass " +
+              `${NETWORK_ROUTE_OPT_IN} to accept that (it is recorded in the report).`,
+          },
+        ]
+      : [];
+  return { network, reasons };
+}
+
+// The longest single-instance socket path any launch can produce, checked
+// against the platform's sun_path. Chromium cannot bind a longer path, the
+// app's single-instance lock then fails and it quits; refuse up front instead.
+function singletonSocketCheck({ output, platform = process.platform }) {
+  const size = SUN_PATH_BYTES[platform];
+  if (!size) return { checked: false, bytes: null, limit: null, reasons: [] };
+  const limit = size - 1;
+  const bytes = Math.max(
+    ...LAUNCH_NAMES.map((name) => {
+      const { env } = buildChildEnv({
+        sandbox: path.join(output, `${name}-XXXXXX`),
+        profile: "",
+        remotePort: 0,
+        localPort: 0,
+      });
+      return Buffer.byteLength(path.join(env.TMPDIR, ...SINGLETON_SOCKET_TAIL));
+    })
+  );
+  const reasons =
+    bytes > limit
+      ? [
+          {
+            code: "socket-path-too-long",
+            detail:
+              `The app's single-instance socket path would be ${bytes} bytes; the ${platform} ` +
+              `limit is ${limit} (sun_path ${size} with its terminator). Use a shorter ` +
+              "--output-dir.",
+          },
+        ]
+      : [];
+  return { checked: true, bytes, limit, reasons };
+}
+
+// --- OS keychain stub (installed by the bootstrap before the app loads) -------------------------
+
+// The app's OS keychain library (src/helpers/secretCrypto.js) and its
+// per-platform native binding packages, by bare name or resolved path.
+function isKeychainRequest(request) {
+  const name = String(request);
+  return (
+    name === "@napi-rs/keyring" ||
+    name.startsWith("@napi-rs/keyring/") ||
+    name.startsWith("@napi-rs/keyring-") ||
+    /[\\/]node_modules[\\/]@napi-rs[\\/]keyring(?:-[^\\/]+)?(?:[\\/]|$)/.test(name)
+  );
+}
+
+// An in-memory, process-local stand-in for @napi-rs/keyring with the same
+// Entry / AsyncEntry / findCredentials surface. Its store is a Map that dies
+// with the process: no OS keyring (Secret Service, kernel keyutils, Keychain,
+// Credential Manager) is ever reached.
+function createMemoryKeychain() {
+  const store = new Map();
+  const keyOf = (service, account) => JSON.stringify([String(service), String(account)]);
+  class Entry {
+    #service;
+    #account;
+    constructor(service, account) {
+      this.#service = String(service);
+      this.#account = String(account);
+    }
+    #key() {
+      return keyOf(this.#service, this.#account);
+    }
+    setPassword(password) {
+      store.set(this.#key(), {
+        service: this.#service,
+        account: this.#account,
+        bytes: Buffer.from(String(password), "utf8"),
+      });
+    }
+    setSecret(secret) {
+      store.set(this.#key(), {
+        service: this.#service,
+        account: this.#account,
+        bytes: Buffer.from(secret),
+      });
+    }
+    getPassword() {
+      const item = store.get(this.#key());
+      return item ? item.bytes.toString("utf8") : null;
+    }
+    getSecret() {
+      const item = store.get(this.#key());
+      return item ? [...item.bytes] : null;
+    }
+    deleteCredential() {
+      return store.delete(this.#key());
+    }
+    deletePassword() {
+      return this.deleteCredential();
+    }
+  }
+  class AsyncEntry {
+    #entry;
+    constructor(service, account) {
+      this.#entry = new Entry(service, account);
+    }
+    async setPassword(password) {
+      this.#entry.setPassword(password);
+    }
+    async setSecret(secret) {
+      this.#entry.setSecret(secret);
+    }
+    async getPassword() {
+      return this.#entry.getPassword() ?? undefined;
+    }
+    async getSecret() {
+      return this.#entry.getSecret() ?? undefined;
+    }
+    async deleteCredential() {
+      return this.#entry.deleteCredential();
+    }
+    async deletePassword() {
+      return this.#entry.deleteCredential();
+    }
+  }
+  const findCredentials = (service) =>
+    [...store.values()]
+      .filter((item) => item.service === String(service))
+      .map((item) => ({ account: item.account, password: item.bytes.toString("utf8") }));
+  return {
+    Entry,
+    AsyncEntry,
+    findCredentials,
+    findCredentialsAsync: async (service) => findCredentials(service),
+    get size() {
+      return store.size;
+    },
+  };
+}
+
+// Intercepts Module._load so every keychain request gets the in-memory stub;
+// every other request goes to the loader unchanged. Installed before main.js
+// loads, so secretCrypto's require("@napi-rs/keyring") never loads the real
+// module or its native binding.
+function installKeychainStub({
+  moduleApi = require("node:module"),
+  keychain = createMemoryKeychain(),
+} = {}) {
+  const original = moduleApi._load;
+  const intercepted = [];
+  moduleApi._load = function loadWithKeychainStub(request, parent, isMain) {
+    if (isKeychainRequest(request)) {
+      intercepted.push(String(request));
+      return keychain;
+    }
+    return original.call(this, request, parent, isMain);
+  };
+  return {
+    keychain,
+    intercepted,
+    state: () => ({ store: "in-memory", intercepted: [...intercepted], entries: keychain.size }),
+    restore() {
+      moduleApi._load = original;
+    },
+  };
+}
+
 // --- Electron bootstrap (runs inside the app's main process) -----------------------------------
 
-function bootstrapElectron() {
-  const electron = require("electron");
-  const sandbox = process.env.LOQUI_ACCEPT_SANDBOX;
-  const profile = process.env.LOQUI_PROFILE_DIR;
-  const port = Number(process.env.LOQUI_ACCEPT_PORT); // the remote fixture
-  const localPort = Number(process.env.LOQUI_ACCEPT_LOCAL_PORT); // the local fixture
+// Every dependency is injectable so the order (keychain stub first, app last)
+// is executed by the Node test; inside Electron the defaults are used.
+function bootstrapElectron({
+  electron: injectedElectron = null,
+  env = process.env,
+  moduleApi = require("node:module"),
+  osModule = os,
+  scope = globalThis,
+  loadApp = () => require(path.join(repoRoot, "main.js")),
+} = {}) {
+  // First, before Electron or the app load anything: the app's OS keychain
+  // library is replaced by an in-memory, process-local store. With the session
+  // bus disabled, @napi-rs/keyring would otherwise fall back to the operator's
+  // kernel keyring (keyutils) and write a master key there under the dev
+  // build's own service name.
+  const keychainStub = installKeychainStub({ moduleApi });
+  const electron = injectedElectron ?? require("electron");
+  const sandbox = env.LOQUI_ACCEPT_SANDBOX;
+  const profile = env.LOQUI_PROFILE_DIR;
+  const port = Number(env.LOQUI_ACCEPT_PORT); // the remote fixture
+  const localPort = Number(env.LOQUI_ACCEPT_LOCAL_PORT); // the local fixture
   const validPort = (value) => Number.isInteger(value) && value > 0 && value < 65536;
   if (!sandbox || !profile || !validPort(port) || !validPort(localPort))
     throw new Error("Acceptance bootstrap requires its sandbox.");
   const temporaryHome = path.join(sandbox, "home");
   fs.mkdirSync(temporaryHome, { recursive: true });
-  os.homedir = () => temporaryHome;
+  osModule.homedir = () => temporaryHome;
   electron.app.setPath("home", temporaryHome);
   electron.app.setAppPath(repoRoot);
   electron.app.getVersion = () => require(path.join(repoRoot, "package.json")).version;
@@ -1155,7 +1460,7 @@ function bootstrapElectron() {
     const child = spawn(
       process.execPath,
       ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
-      { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: "ignore" }
+      { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio: "ignore" }
     );
     stubborn = child;
     require(path.join(repoRoot, "src/helpers/privacy/childRegistry.js")).register(child, {
@@ -1170,8 +1475,14 @@ function bootstrapElectron() {
     return stubborn.kill("SIGKILL");
   }
 
-  globalThis.__loquiAcceptance = { runProbes, startStubbornChild, stopStubbornChild };
-  require(path.join(repoRoot, "main.js"));
+  scope.__loquiAcceptance = {
+    runProbes,
+    startStubbornChild,
+    stopStubbornChild,
+    keychainState: keychainStub.state,
+  };
+  loadApp();
+  return keychainStub;
 }
 
 // --- Launcher (plain Node): drives the app with Playwright ---------------------------------------
@@ -1280,6 +1591,14 @@ async function runElectronAcceptance({
       45000
     );
     await panel.waitForFunction(() => !!window.electronAPI?.privacy, null, { timeout: 30000 });
+    // Recorded, not judged: the stub is installed before main.js either way,
+    // and secretCrypto loads the keychain lazily on first credential use.
+    report.launch.osKeychain = await evaluateWithin(
+      app,
+      () => globalThis.__loquiAcceptance.keychainState(),
+      undefined,
+      "keychain state"
+    ).catch((failure) => ({ store: "unknown", error: errorLabel(failure) }));
     return { app, panel };
   }
   const attestation = (panel) =>
@@ -1312,7 +1631,7 @@ async function runElectronAcceptance({
     // Run 1: the control. Unsealed, every probe must reach the fixture, which
     // proves each probe would be seen if it leaked. Then toggle to sealed.
     {
-      const { app, panel } = await launch("open", { bootSealed: false });
+      const { app, panel } = await launch(LAUNCH_NAMES[0], { bootSealed: false });
       const run = (report.runs.open = {});
       const initial = await attestation(panel);
       run.initial = summarizeAttestation(initial);
@@ -1531,7 +1850,7 @@ async function runElectronAcceptance({
     // child probe here: child probes run only unsealed.
     {
       const since = Date.now();
-      const { app, panel } = await launch("sealed", { bootSealed: true });
+      const { app, panel } = await launch(LAUNCH_NAMES[1], { bootSealed: true });
       const run = (report.runs.sealed = {});
       const setting = await waitFor(
         () => attestation(panel),
@@ -1590,6 +1909,7 @@ async function main({
   arch = process.arch,
   libc,
   uid = typeof process.getuid === "function" ? process.getuid() : null,
+  readRoutes = readNetworkRoutes,
   runAcceptance = runElectronAcceptance,
   log = console.log,
   error = console.error,
@@ -1597,7 +1917,8 @@ async function main({
   if (argv.includes("--help")) {
     log(
       `Usage: node scripts/sealed-acceptance.cjs ${LAUNCH_OPT_IN} [--output-dir DIR] ` +
-        `[${SESSION_BUS_OPT_IN}] [${DEDICATED_DESKTOP_ACK}]. Read the header first.`
+        `[${SESSION_BUS_OPT_IN}] [${NETWORK_ROUTE_OPT_IN}] [${DEDICATED_DESKTOP_ACK}]. ` +
+        "Read the header first."
     );
     return 0;
   }
@@ -1613,6 +1934,16 @@ async function main({
   fs.mkdirSync(output, { recursive: true });
   const record = createAcceptanceRecord({ output, platform, arch, log });
   const safety = assessLaunchSafety({ argv, env, platform, uid });
+  const routes = assessNetworkRoutes({
+    platform,
+    routes: platform === "linux" ? readRoutes() : null,
+    allowRoute: argv.includes(NETWORK_ROUTE_OPT_IN),
+  });
+  const socket = singletonSocketCheck({ output, platform });
+  record.report.launchEnvironment = {
+    network: routes.network,
+    singletonSocket: { bytes: socket.bytes, limit: socket.limit },
+  };
   const prerequisites = inspectLaunchPrerequisites({
     repoRoot: root,
     env,
@@ -1625,7 +1956,12 @@ async function main({
     sqliteBinding: prerequisites.sqlite.file,
     sqliteRegistration: prerequisites.sqlite.registration,
   };
-  const reasons = [...safety.reasons, ...prerequisites.reasons];
+  const reasons = [
+    ...safety.reasons,
+    ...routes.reasons,
+    ...socket.reasons,
+    ...prerequisites.reasons,
+  ];
   if (reasons.length) {
     record.report.notRun = { reasons };
     record.finalize();
@@ -1667,12 +2003,15 @@ module.exports = {
   NATIVE_BOUNDARY_UNAVAILABLE,
   NATIVE_PENDING,
   assessLaunchSafety,
+  assessNetworkRoutes,
+  bootstrapElectron,
   buildChildEnv,
   childProbeAllowed,
   chromiumSwitches,
   compareUrlParsing,
   createAcceptanceRecord,
   createCleanup,
+  createMemoryKeychain,
   electronLaunchOptions,
   evaluate07aAttestation,
   evaluateWithin,
@@ -1683,13 +2022,18 @@ module.exports = {
   honestyViolations,
   hostMappingFor,
   inspectLaunchPrerequisites,
+  installKeychainStub,
+  isKeychainRequest,
   main,
   nodeUrlHost,
+  nonLoopbackDevices,
+  nonLoopbackRouteInterfaces,
   probeKinds,
   readModuleRegistration,
   refusalProblems,
   registerLaunchCleanup,
   settleWithin,
+  singletonSocketCheck,
   summarizeAttestation,
   writeReport,
 };

@@ -125,6 +125,34 @@ function fakeRoot({
 const XVFB_ENV = { DISPLAY: ":99", XAUTHORITY: "/tmp/xvfb-run.AbC123/Xauthority" };
 const LINUX = { platform: "linux", arch: "x64", libc: "glibc", env: XVFB_ENV };
 const OPT_IN = "--i-understand-this-launches-electron";
+// /proc/self/net route tables: a loopback-only namespace (as bwrap --unshare-net
+// leaves it) and a host with a default route and a tailnet.
+const IPV4_HEADER =
+  "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n";
+const V6_LO =
+  "00000000000000000000000000000001 80 00000000000000000000000000000000 00 " +
+  "00000000000000000000000000000000 00000000 00000002 00000000 80200001       lo\n";
+const DEV_HEADER =
+  "Inter-|   Receive                                                |  Transmit\n" +
+  " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets\n";
+const devLine = (name) => `${name.padStart(6)}: 10 1 0 0 0 0 0 0 10 1 0 0 0 0 0 0\n`;
+const LOOPBACK_ONLY_ROUTES = {
+  ipv4: IPV4_HEADER,
+  ipv6: V6_LO,
+  devices: DEV_HEADER + devLine("lo"),
+};
+const HOST_ROUTES = {
+  devices: DEV_HEADER + ["lo", "wlp8s0", "docker0", "tailscale0"].map(devLine).join(""),
+  ipv4:
+    IPV4_HEADER +
+    "wlp8s0\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n" +
+    "docker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n",
+  ipv6:
+    V6_LO +
+    "fd7a115ca1e000000000000000000000 30 00000000000000000000000000000000 00 " +
+    "00000000000000000000000000000000 00000400 00000001 00000000 00000001 tailscale0\n",
+};
+const loopbackOnly = () => LOOPBACK_ONLY_ROUTES;
 const HONEST_SEALED = {
   sealed: true,
   phase: "sealing",
@@ -647,6 +675,23 @@ test("a dishonest report is never written as-is: it is replaced by a FAIL report
   assert.equal(JSON.parse(text).status, "FAIL");
   assert.doesNotMatch(text, /"nothingLeaves":\s*true/);
   assert.deepEqual(acceptance.honestyViolations(JSON.parse(text)), []);
+  // The replacement keeps the CI completeness field (false) and its verdict reason.
+  const saved = JSON.parse(text);
+  assert.equal(saved.observerChecksComplete, false);
+  assert.equal(saved.reason, "honesty-violation");
+  assert.match(saved.error, /failed the 07a honesty check/);
+  assert.ok(saved.violations.some((v) => /nothingLeaves/.test(v)));
+  assert.equal(saved.nativeBoundary.status, "NOT VERIFIED");
+  assert.equal(acceptance.exitCodeFor(saved.status), acceptance.EXIT.FAIL);
+  // Even when the dishonest report claimed every check ran.
+  const complete = acceptance.createAcceptanceRecord({ output, log: () => {} });
+  completeRun(complete);
+  complete.finalize();
+  complete.report.runs.boot = { attestation: { nothingLeaves: true } };
+  assert.equal(complete.report.observerChecksComplete, true);
+  const replaced = acceptance.writeReport(output, complete.report);
+  assert.equal(replaced.observerChecksComplete, false);
+  assert.equal(replaced.reason, "honesty-violation");
   fs.rmSync(output, { recursive: true, force: true });
 });
 
@@ -736,6 +781,7 @@ test("not-run: missing prerequisites exit non-zero with NOT RUN and a non-pass r
     platform: "linux",
     arch: "x64",
     libc: "glibc",
+    readRoutes: loopbackOnly,
     log: (line) => lines.push(line),
     error: (line) => lines.push(line),
   });
@@ -793,6 +839,7 @@ test("not-run: an ABI-mismatched better-sqlite3 alone is detected up front", asy
     repoRoot: root,
     ...LINUX,
     uid: 1000,
+    readRoutes: loopbackOnly,
     runAcceptance: () => assert.fail("the runner must not start"),
     log: (line) => lines.push(line),
     error: (line) => lines.push(line),
@@ -1205,8 +1252,15 @@ test("the checklist carries the Task 7a desktop smoke (fixture-only downloads) a
 
 // --- main(): the completed-run, crashed-run and refused paths, with an injected runner ---------
 
-async function runMain({ argv = [OPT_IN], env = XVFB_ENV, uid = 1000, runAcceptance } = {}) {
-  const output = tempDir("main");
+async function runMain({
+  argv = [OPT_IN],
+  env = XVFB_ENV,
+  uid = 1000,
+  readRoutes = loopbackOnly,
+  platform = "linux",
+  output = tempDir("main"),
+  runAcceptance,
+} = {}) {
   const root = fakeRoot();
   const lines = [];
   let calls = 0;
@@ -1215,10 +1269,11 @@ async function runMain({ argv = [OPT_IN], env = XVFB_ENV, uid = 1000, runAccepta
       argv: ["--output-dir", output, ...argv],
       repoRoot: root,
       env,
-      platform: "linux",
+      platform,
       arch: "x64",
       libc: "glibc",
       uid,
+      readRoutes,
       runAcceptance: async (context) => {
         calls += 1;
         return runAcceptance(context);
@@ -1324,4 +1379,341 @@ test("main: without the opt-in, on the live desktop or as root nothing is launch
     assert.ok(lines.some((line) => line.startsWith("NOT RUN: ") && line.includes(reason)));
   }
   assert.equal(electronLoaded(), false);
+});
+
+// --- Fix round 2: OS keychain stub, network routes, single-instance socket path ---------------
+
+const vm = require("node:vm");
+
+// The real secretCrypto source, with its require() routed through the given
+// loader for @napi-rs/keyring (as main.js's require would be) and fixtures for
+// everything else. Nothing touches a real keychain, Safe Storage or profile.
+function loadSecretCrypto(loadKeyring, profile) {
+  const mocks = {
+    crypto: require("node:crypto"),
+    fs: require("node:fs"),
+    path,
+    electron: {
+      app: { isPackaged: false, getPath: () => profile },
+      safeStorage: {
+        isEncryptionAvailable: () => false,
+        encryptString: () => assert.fail("Safe Storage is not used"),
+        decryptString: () => assert.fail("Safe Storage is not used"),
+      },
+    },
+    "./debugLogger": { warn() {}, info() {} },
+    "../config/product.json": { credentialService: "loqui-fixture-service" },
+  };
+  const filename = path.join(repoRoot, "src/helpers/secretCrypto.js");
+  const context = {
+    Buffer,
+    process: { platform: "linux" },
+    module: { exports: {} },
+    require: (name) => (Object.hasOwn(mocks, name) ? mocks[name] : loadKeyring(name)),
+  };
+  vm.runInNewContext(fs.readFileSync(filename, "utf8"), context, { filename });
+  return context.module.exports;
+}
+
+// A stand-in for the real @napi-rs/keyring that records every call, behind a
+// fake Module whose _load records every request it is asked for.
+function recordingKeyringModule() {
+  const keyringCalls = [];
+  const loads = [];
+  class Entry {
+    constructor(...args) {
+      keyringCalls.push(["new Entry", ...args]);
+    }
+    getPassword() {
+      keyringCalls.push(["getPassword"]);
+      return null;
+    }
+    setPassword() {
+      keyringCalls.push(["setPassword"]);
+    }
+  }
+  const realKeyring = { Entry, AsyncEntry: Entry, findCredentials: () => [] };
+  const moduleApi = {
+    _load(request) {
+      loads.push(String(request));
+      if (String(request).startsWith("@napi-rs/keyring")) return realKeyring;
+      throw new Error(`unexpected module load: ${request}`);
+    },
+  };
+  return { moduleApi, keyringCalls, loads };
+}
+
+function fakeElectronForBootstrap() {
+  const calls = [];
+  return {
+    calls,
+    electron: {
+      app: {
+        setPath: (...args) => calls.push(["setPath", ...args]),
+        setAppPath: (...args) => calls.push(["setAppPath", ...args]),
+        exit: () => calls.push(["exit"]),
+        whenReady: () => new Promise(() => {}),
+        commandLine: { appendSwitch: (...args) => calls.push(["appendSwitch", ...args]) },
+      },
+      dialog: {},
+      netLog: { startLogging() {} },
+    },
+  };
+}
+
+test("the bootstrap stubs the OS keychain before the app loads: secretCrypto never reaches @napi-rs/keyring", () => {
+  const sandbox = tempDir("keychain");
+  const profile = path.join(sandbox, "profile");
+  fs.mkdirSync(profile);
+  try {
+    // Control: without the bootstrap, secretCrypto writes a key into the keyring module.
+    const control = recordingKeyringModule();
+    const unstubbed = loadSecretCrypto(
+      (name) => control.moduleApi._load(name, null, false),
+      profile
+    );
+    assert.equal(unstubbed.isAvailable(), true);
+    assert.ok(control.keyringCalls.some(([call]) => call === "setPassword"));
+
+    const { moduleApi, keyringCalls, loads } = recordingKeyringModule();
+    const originalLoad = moduleApi._load;
+    const { electron } = fakeElectronForBootstrap();
+    const scope = {};
+    const fakeOs = { homedir: () => "/not/used" };
+    let secretCrypto = null;
+    let stubbedWhenAppLoaded = null;
+    const stub = acceptance.bootstrapElectron({
+      electron,
+      env: {
+        LOQUI_ACCEPT_SANDBOX: sandbox,
+        LOQUI_PROFILE_DIR: profile,
+        LOQUI_ACCEPT_PORT: "40001",
+        LOQUI_ACCEPT_LOCAL_PORT: "40002",
+      },
+      moduleApi,
+      osModule: fakeOs,
+      scope,
+      // What main.js does, reduced to the keychain path: load the real
+      // secretCrypto through Module._load and use it.
+      loadApp: () => {
+        stubbedWhenAppLoaded = moduleApi._load !== originalLoad;
+        secretCrypto = loadSecretCrypto((name) => moduleApi._load(name, null, false), profile);
+        assert.equal(secretCrypto.isAvailable(), true);
+        const blob = secretCrypto.encrypt("acceptance-only secret");
+        assert.equal(secretCrypto.decrypt(blob).value, "acceptance-only secret");
+      },
+    });
+    assert.equal(stubbedWhenAppLoaded, true, "the stub is installed before the app loads");
+    assert.ok(secretCrypto, "the app was loaded");
+    assert.deepEqual(keyringCalls, [], "the real keyring module is never called");
+    assert.deepEqual(loads, [], "the keyring request never reaches the real loader");
+    assert.equal(fakeOs.homedir(), path.join(sandbox, "home"));
+    assert.equal(typeof scope.__loquiAcceptance.runProbes, "function");
+    const state = scope.__loquiAcceptance.keychainState();
+    assert.equal(state.store, "in-memory");
+    assert.deepEqual(state.intercepted, ["@napi-rs/keyring"]);
+    assert.equal(state.entries, 1, "secretCrypto's master key lives only in the process");
+    assert.equal(stub.keychain.findCredentials("loqui-fixture-service-development").length, 1);
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("the keychain stub catches every keyring request and passes every other module through", () => {
+  for (const request of [
+    "@napi-rs/keyring",
+    "@napi-rs/keyring/keytar",
+    "@napi-rs/keyring-linux-x64-gnu",
+    "/repo/node_modules/@napi-rs/keyring/index.js",
+    "C:\\repo\\node_modules\\@napi-rs\\keyring\\index.js",
+  ])
+    assert.equal(acceptance.isKeychainRequest(request), true, request);
+  for (const request of ["@napi-rs/canvas", "keyring", "./keyring", "src/helpers/keyring.js"])
+    assert.equal(acceptance.isKeychainRequest(request), false, request);
+
+  const passed = [];
+  const moduleApi = {
+    _load(request, parent, isMain) {
+      passed.push([request, parent, isMain]);
+      return { real: request };
+    },
+  };
+  const original = moduleApi._load;
+  const stub = acceptance.installKeychainStub({ moduleApi });
+  assert.deepEqual(moduleApi._load("./other", "parent", false), { real: "./other" });
+  assert.deepEqual(passed, [["./other", "parent", false]]);
+  assert.equal(moduleApi._load("@napi-rs/keyring-linux-x64-gnu"), stub.keychain);
+  assert.equal(passed.length, 1, "the native binding package is never loaded either");
+  stub.restore();
+  assert.equal(moduleApi._load, original);
+});
+
+test("the in-memory keychain has the keyring surface and is process-local", async () => {
+  const one = acceptance.createMemoryKeychain();
+  const two = acceptance.createMemoryKeychain();
+  const entry = new one.Entry("svc", "acct");
+  assert.equal(entry.getPassword(), null);
+  assert.equal(entry.getSecret(), null);
+  entry.setPassword("k1");
+  assert.equal(new one.Entry("svc", "acct").getPassword(), "k1");
+  assert.equal(new two.Entry("svc", "acct").getPassword(), null, "stores are not shared");
+  assert.deepEqual(one.findCredentials("svc"), [{ account: "acct", password: "k1" }]);
+  entry.setSecret(Uint8Array.from([1, 2, 3]));
+  assert.deepEqual(entry.getSecret(), [1, 2, 3]);
+  assert.equal(entry.deletePassword(), true);
+  assert.equal(entry.deleteCredential(), false);
+  const asyncEntry = new one.AsyncEntry("svc", "other");
+  await asyncEntry.setPassword("k2");
+  assert.equal(await asyncEntry.getPassword(), "k2");
+  assert.deepEqual(await one.findCredentialsAsync("svc"), [{ account: "other", password: "k2" }]);
+  assert.equal(await asyncEntry.deleteCredential(), true);
+  assert.equal(await asyncEntry.getPassword(), undefined);
+});
+
+test("network routes: a non-loopback route refuses the launch unless the operator opts in", () => {
+  assert.deepEqual(acceptance.nonLoopbackRouteInterfaces(IPV4_HEADER), []);
+  assert.deepEqual(acceptance.nonLoopbackRouteInterfaces(HOST_ROUTES.ipv4), ["docker0", "wlp8s0"]);
+  assert.deepEqual(acceptance.nonLoopbackRouteInterfaces(V6_LO, { ipv6: true }), []);
+  assert.deepEqual(acceptance.nonLoopbackRouteInterfaces(HOST_ROUTES.ipv6, { ipv6: true }), [
+    "tailscale0",
+  ]);
+  assert.equal(acceptance.nonLoopbackRouteInterfaces(null), null);
+
+  const assess = (routes, extra = {}) =>
+    acceptance.assessNetworkRoutes({ platform: "linux", routes, allowRoute: false, ...extra });
+  const clean = assess(LOOPBACK_ONLY_ROUTES);
+  assert.deepEqual(clean.reasons, []);
+  assert.equal(clean.network.state, "loopback-only");
+  assert.deepEqual(clean.network.interfaces, []);
+  assert.equal(clean.network.operatorOptIn, null);
+
+  const host = assess(HOST_ROUTES);
+  assert.deepEqual(
+    host.reasons.map((r) => r.code),
+    ["network-route-present"]
+  );
+  assert.equal(host.network.state, "non-loopback-route");
+  assert.deepEqual(host.network.interfaces, ["docker0", "tailscale0", "wlp8s0"]);
+  assert.match(host.reasons[0].detail, /--allow-network-route/);
+  // IPv6 alone is enough.
+  assert.deepEqual(
+    assess({ ipv4: IPV4_HEADER, ipv6: HOST_ROUTES.ipv6 }).reasons.map((r) => r.code),
+    ["network-route-present"]
+  );
+
+  const optedIn = assess(HOST_ROUTES, { allowRoute: true });
+  assert.deepEqual(optedIn.reasons, []);
+  assert.equal(optedIn.network.state, "non-loopback-route");
+  assert.equal(optedIn.network.operatorOptIn, "--allow-network-route");
+
+  // IPv6 disabled: the IPv4 table still decides; recorded as absent.
+  const noV6 = assess({ ipv4: IPV4_HEADER, ipv6: null, devices: LOOPBACK_ONLY_ROUTES.devices });
+  assert.equal(noV6.network.state, "loopback-only");
+  assert.equal(noV6.network.ipv6, "absent");
+  // A device with no main-table route (policy routing) is refused too.
+  assert.deepEqual(acceptance.nonLoopbackDevices(DEV_HEADER + devLine("lo")), []);
+  assert.deepEqual(acceptance.nonLoopbackDevices(HOST_ROUTES.devices), [
+    "docker0",
+    "tailscale0",
+    "wlp8s0",
+  ]);
+  assert.equal(acceptance.nonLoopbackDevices(null), null);
+  const policy = assess({ ...LOOPBACK_ONLY_ROUTES, devices: DEV_HEADER + devLine("wg0") });
+  assert.equal(policy.network.state, "non-loopback-interface");
+  assert.deepEqual(policy.network.interfaces, ["wg0"]);
+  assert.deepEqual(
+    policy.reasons.map((r) => r.code),
+    ["network-interface-present"]
+  );
+  assert.deepEqual(
+    assess({ ...LOOPBACK_ONLY_ROUTES, devices: null }).network.devices,
+    "unreadable"
+  );
+
+  // Cannot be read reliably: recorded honestly as not checked, never as loopback-only.
+  const unreadable = assess({ ipv4: null, ipv6: null });
+  assert.equal(unreadable.network.state, "not-checked");
+  assert.deepEqual(unreadable.reasons, []);
+  const mac = acceptance.assessNetworkRoutes({ platform: "darwin", routes: HOST_ROUTES });
+  assert.equal(mac.network.state, "not-checked");
+  assert.deepEqual(mac.reasons, []);
+  for (const result of [clean, host, optedIn, policy, unreadable, mac])
+    assert.ok(!Object.hasOwn(result.network, "isolated"), "no isolation key is ever written");
+});
+
+test("main: a non-loopback route is NOT RUN unless opted in, and the network state is recorded", async () => {
+  const never = () => assert.fail("the runner must not start");
+  const refused = await runMain({ readRoutes: () => HOST_ROUTES, runAcceptance: never });
+  assert.equal(refused.calls, 0);
+  assert.equal(refused.code, acceptance.EXIT.NOT_RUN);
+  assert.deepEqual(
+    refused.report.notRun.reasons.map((r) => r.code),
+    ["network-route-present"]
+  );
+  assert.equal(refused.report.launchEnvironment.network.state, "non-loopback-route");
+  assert.deepEqual(acceptance.honestyViolations(refused.report), []);
+
+  const optedIn = await runMain({
+    argv: [OPT_IN, "--allow-network-route"],
+    readRoutes: () => HOST_ROUTES,
+    runAcceptance: ({ record }) => completeRun(record),
+  });
+  assert.equal(optedIn.calls, 1);
+  assert.equal(optedIn.code, acceptance.EXIT.NOT_VERIFIED);
+  assert.equal(optedIn.report.launchEnvironment.network.operatorOptIn, "--allow-network-route");
+  assert.deepEqual(optedIn.report.launchEnvironment.network.interfaces, [
+    "docker0",
+    "tailscale0",
+    "wlp8s0",
+  ]);
+
+  const clean = await runMain({ runAcceptance: ({ record }) => completeRun(record) });
+  assert.equal(clean.report.launchEnvironment.network.state, "loopback-only");
+  assert.equal(clean.report.launchEnvironment.network.operatorOptIn, null);
+});
+
+test("single-instance socket: a deep --output-dir that would overflow sun_path is NOT RUN", async () => {
+  const check = (output, platform = "linux") =>
+    acceptance.singletonSocketCheck({ output, platform });
+  // TMPDIR is <output>/<run>-XXXXXX/tmp; Chromium adds /.org.chromium.Chromium.XXXXXX/SingletonSocket.
+  const base = "/tmp/loqui-sealed-accept";
+  const ok = check(base);
+  assert.deepEqual(ok.reasons, []);
+  assert.equal(ok.limit, 107, "Linux sun_path is 108 bytes including the terminator");
+  assert.equal(
+    ok.bytes,
+    Buffer.byteLength(`${base}/sealed-XXXXXX/tmp/.org.chromium.Chromium.XXXXXX/SingletonSocket`)
+  );
+  // Exactly at the limit is fine; one byte more is refused.
+  const pad = (n) => `/${"d".repeat(n - 1)}`;
+  const atLimit = `${base}${pad(107 - ok.bytes)}`;
+  assert.equal(check(atLimit).bytes, 107);
+  assert.deepEqual(check(atLimit).reasons, []);
+  const over = check(`${atLimit}x`);
+  assert.equal(over.bytes, 108);
+  assert.deepEqual(
+    over.reasons.map((r) => r.code),
+    ["socket-path-too-long"]
+  );
+  assert.match(over.reasons[0].detail, /108 bytes.*107/);
+  assert.match(over.reasons[0].detail, /--output-dir/);
+  // macOS sun_path is 104; Windows has no Unix-socket singleton.
+  assert.equal(check(base, "darwin").limit, 103);
+  assert.deepEqual(check(`${atLimit}x`, "win32").reasons, []);
+  // Multibyte paths count bytes, not characters.
+  assert.ok(check(`${base}/${"é".repeat(30)}`).bytes > `${base}/${"é".repeat(30)}`.length);
+
+  const deep = tempDir("deep");
+  const output = path.join(deep, "a".repeat(80));
+  const never = () => assert.fail("the runner must not start");
+  const result = await runMain({ output, runAcceptance: never });
+  assert.equal(result.calls, 0);
+  assert.equal(result.code, acceptance.EXIT.NOT_RUN);
+  assert.deepEqual(
+    result.report.notRun.reasons.map((r) => r.code),
+    ["socket-path-too-long"]
+  );
+  assert.equal(result.report.launchEnvironment.singletonSocket.limit, 107);
+  assert.ok(result.lines.some((line) => /NOT RUN: socket-path-too-long/.test(line)));
+  fs.rmSync(deep, { recursive: true, force: true });
 });

@@ -5,6 +5,7 @@ module.exports = [
   {
     ignores: [
       ".superpowers/**", // retained local verification evidence, not authored source
+      ".cache/**", // downloaded runtimes and third-party build sources
       "dist/**",
       "node_modules/**",
       ".superpowers/**", // ignored nonproduct controller/QA workspace; retained validation evidence

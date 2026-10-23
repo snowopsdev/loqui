@@ -41,6 +41,7 @@
     "download:llama-server:all": "node scripts/download-llama-server.js --all",
     "download:sherpa-onnx": "node scripts/download-sherpa-onnx.js --current",
     "download:sherpa-onnx:all": "node scripts/download-sherpa-onnx.js --all",
+    "build:sherpa-websocket": "node scripts/build-sherpa-websocket.js",
     "download:yt-dlp": "node scripts/download-yt-dlp.js --current",
     "download:yt-dlp:all": "node scripts/download-yt-dlp.js --all",
     "download:nircmd": "node scripts/download-nircmd.js",

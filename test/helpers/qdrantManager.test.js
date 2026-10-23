@@ -36,6 +36,7 @@ function loadManager({ gracefulStop } = {}) {
     healthy: true,
     spawnCalls: [],
     spawnArgs: [],
+    writtenFiles: [],
     pidFileOps: [],
     warns: [],
     errors: [],
@@ -85,7 +86,10 @@ function loadManager({ gracefulStop } = {}) {
       };
     }
     if (request === "fs") {
-      return { mkdirSync() {}, writeFileSync() {} };
+      return {
+        mkdirSync() {},
+        writeFileSync: (file, content) => state.writtenFiles.push({ file, content }),
+      };
     }
     if (request === "../utils/serverUtils") {
       return {
@@ -158,6 +162,22 @@ test("start disables qdrant telemetry, writes the pid entry, and stop clears it"
   assert.equal(manager.isReady(), false);
   assert.equal(manager.getStatus().running, false);
   assert.deepEqual(state.pidFileOps[state.pidFileOps.length - 1], ["clear", "qdrant"]);
+});
+
+test("qdrant's own config binds its HTTP and gRPC ports to loopback", async () => {
+  const { manager, state } = loadManager();
+
+  await manager.start();
+
+  const [config] = state.writtenFiles;
+  assert.equal(config.file, state.spawnArgs[0][2]);
+  assert.match(
+    config.content,
+    /^service:\n {2}host: 127\.0\.0\.1\n {2}http_port: 6333\n {2}grpc_port: 6334$/m
+  );
+  assert.doesNotMatch(config.content, /0\.0\.0\.0|::|cluster|p2p/);
+
+  await manager.stop();
 });
 
 test("restarts the sidecar after sustained health-check failures", async (t) => {

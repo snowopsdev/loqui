@@ -1,0 +1,77 @@
+diff --git a/sherpa-onnx/csrc/CMakeLists.txt b/sherpa-onnx/csrc/CMakeLists.txt
+index bd2d97e..69c695f 100755
+--- a/sherpa-onnx/csrc/CMakeLists.txt
++++ b/sherpa-onnx/csrc/CMakeLists.txt
+@@ -791,14 +791,14 @@ if(SHERPA_ONNX_ENABLE_WEBSOCKET AND SHERPA_ONNX_ENABLE_BINARY)
+   endif()
+ 
+   if(UNIX)
++    # Loqui: no ../../../sherpa_onnx/lib entry for the servers. That is the
++    # Python wheel layout; from an AppImage's resources/bin it is /tmp.
+     target_link_libraries(sherpa-onnx-online-websocket-server "-Wl,-rpath,${SHERPA_ONNX_RPATH_ORIGIN}/../lib")
+-    target_link_libraries(sherpa-onnx-online-websocket-server "-Wl,-rpath,${SHERPA_ONNX_RPATH_ORIGIN}/../../../sherpa_onnx/lib")
+ 
+     target_link_libraries(sherpa-onnx-online-websocket-client "-Wl,-rpath,${SHERPA_ONNX_RPATH_ORIGIN}/../lib")
+     target_link_libraries(sherpa-onnx-online-websocket-client "-Wl,-rpath,${SHERPA_ONNX_RPATH_ORIGIN}/../../../sherpa_onnx/lib")
+ 
+     target_link_libraries(sherpa-onnx-offline-websocket-server "-Wl,-rpath,${SHERPA_ONNX_RPATH_ORIGIN}/../lib")
+-    target_link_libraries(sherpa-onnx-offline-websocket-server "-Wl,-rpath,${SHERPA_ONNX_RPATH_ORIGIN}/../../../sherpa_onnx/lib")
+ 
+     if(SHERPA_ONNX_ENABLE_PYTHON)
+       target_link_libraries(sherpa-onnx-online-websocket-server "-Wl,-rpath,${SHERPA_ONNX_RPATH_ORIGIN}/../lib/python${PYTHON_VERSION}/site-packages/sherpa_onnx/lib")
+diff --git a/sherpa-onnx/csrc/offline-websocket-server-impl.cc b/sherpa-onnx/csrc/offline-websocket-server-impl.cc
+index 685aa46..b7ae912 100644
+--- a/sherpa-onnx/csrc/offline-websocket-server-impl.cc
++++ b/sherpa-onnx/csrc/offline-websocket-server-impl.cc
+@@ -285,7 +285,9 @@ void OfflineWebsocketServer::Close(connection_hdl hdl,
+ 
+ void OfflineWebsocketServer::Run(uint16_t port) {
+   server_.set_reuse_addr(true);
+-  server_.listen(asio::ip::tcp::v4(), port);
++  // Loqui: accept connections on the loopback interface only. Upstream
++  // listens on every IPv4 interface and has no host option.
++  server_.listen(asio::ip::tcp::endpoint(asio::ip::address_v4::loopback(), port));
+   server_.start_accept();
+ }
+ 
+diff --git a/sherpa-onnx/csrc/offline-websocket-server.cc b/sherpa-onnx/csrc/offline-websocket-server.cc
+index 72f91cb..19a39fd 100644
+--- a/sherpa-onnx/csrc/offline-websocket-server.cc
++++ b/sherpa-onnx/csrc/offline-websocket-server.cc
+@@ -91,7 +91,7 @@ int32_t main(int32_t argc, char *argv[]) {
+   server.Run(port);
+ 
+   SHERPA_ONNX_LOGE("Started!");
+-  SHERPA_ONNX_LOGE("Listening on: %d", port);
++  SHERPA_ONNX_LOGE("Listening on: 127.0.0.1:%d", port);
+   SHERPA_ONNX_LOGE("Number of work threads: %d", num_work_threads);
+ 
+   // give some work to do for the io_work pool
+diff --git a/sherpa-onnx/csrc/online-websocket-server-impl.cc b/sherpa-onnx/csrc/online-websocket-server-impl.cc
+index 53443cd..971b677 100644
+--- a/sherpa-onnx/csrc/online-websocket-server-impl.cc
++++ b/sherpa-onnx/csrc/online-websocket-server-impl.cc
+@@ -251,7 +251,9 @@ OnlineWebsocketServer::OnlineWebsocketServer(
+ 
+ void OnlineWebsocketServer::Run(uint16_t port) {
+   server_.set_reuse_addr(true);
+-  server_.listen(asio::ip::tcp::v4(), port);
++  // Loqui: accept connections on the loopback interface only. Upstream
++  // listens on every IPv4 interface and has no host option.
++  server_.listen(asio::ip::tcp::endpoint(asio::ip::address_v4::loopback(), port));
+   server_.start_accept();
+   auto recognizer_config = config_.decoder_config.recognizer_config;
+   int32_t warm_up = recognizer_config.model_config.warm_up;
+diff --git a/sherpa-onnx/csrc/online-websocket-server.cc b/sherpa-onnx/csrc/online-websocket-server.cc
+index c149b0e..47832fe 100644
+--- a/sherpa-onnx/csrc/online-websocket-server.cc
++++ b/sherpa-onnx/csrc/online-websocket-server.cc
+@@ -79,7 +79,7 @@ int32_t main(int32_t argc, char *argv[]) {
+   server.Run(port);
+ 
+   SHERPA_ONNX_LOGE("Started!");
+-  SHERPA_ONNX_LOGE("Listening on: %d", port);
++  SHERPA_ONNX_LOGE("Listening on: 127.0.0.1:%d", port);
+   SHERPA_ONNX_LOGE("Number of work threads: %d", num_work_threads);
+ 
+   // give some work to do for the io_work pool

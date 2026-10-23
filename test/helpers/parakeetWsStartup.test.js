@@ -8,7 +8,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const modelData = require("../../src/models/modelRegistryData.json");
 
-function loadHelper(name, mocks) {
+function loadHelper(name, mocks, globals = {}) {
   const filename = require.resolve(`../../src/helpers/${name}`);
   const localRequire = createRequire(filename);
   const module = { exports: {} };
@@ -23,10 +23,57 @@ function loadHelper(name, mocks) {
       clearTimeout,
       setInterval,
       clearInterval,
+      ...globals,
     },
     { filename }
   );
   return module.exports;
+}
+
+// Spawns fake children whose stderr the test drives; nothing real starts.
+function loadServer({ loopbackBuild = true } = {}) {
+  const calls = [];
+  const stopped = [];
+  const Server = loadHelper(
+    "parakeetWsServer",
+    {
+      child_process: {
+        spawn: (binary, args) => {
+          const child = new EventEmitter();
+          child.pid = 4242;
+          child.stdout = new EventEmitter();
+          child.stderr = new EventEmitter();
+          calls.push({ binary, args: Array.from(args), child });
+          return child;
+        },
+      },
+      "./debugLogger": { debug() {}, info() {}, warn() {}, error() {} },
+      "./sidecarPidFile": { write() {}, clear() {} },
+      "./safeTempDir": { getSafeTempDir: () => os.tmpdir() },
+      "./sherpaLoopback": {
+        LOOPBACK_LISTEN_MARKER: "Listening on: 127.0.0.1:",
+        isLoopbackSherpaBinary: () => loopbackBuild,
+      },
+      "../utils/serverUtils": {
+        findAvailablePort: async () => 6006,
+        getAvailableParallelism: () => 8,
+        gracefulStopProcess: async (child) => stopped.push(child),
+      },
+    },
+    {
+      // The startup deadline is 60s; never let it hold the test process open.
+      setTimeout: (fn, ms) => {
+        const timer = setTimeout(fn, ms);
+        timer.unref?.();
+        return timer;
+      },
+    }
+  );
+  const server = new Server();
+  server.getWsBinaryPath = (mode) => `sherpa-${mode}`;
+  server._startHealthCheck = () => {};
+  server._warmUp = async () => {};
+  return { server, calls, stopped };
 }
 
 async function startupArgs(modelName, runtime = "offline", language = null, registry = modelData) {
@@ -48,6 +95,7 @@ async function startupArgs(modelName, runtime = "offline", language = null, regi
     "./debugLogger": { debug() {}, info() {} },
     "./sidecarPidFile": { write() {} },
     "./safeTempDir": { getSafeTempDir: () => os.tmpdir() },
+    "./sherpaLoopback": { isLoopbackSherpaBinary: () => true },
     "../utils/serverUtils": {
       findAvailablePort: async () => 6006,
       getAvailableParallelism: () => 8,
@@ -125,4 +173,44 @@ test("invalid or incompatible registry hints cannot select a different decoder",
     });
     assert.ok(!args.some((arg) => arg.startsWith("--model-type=")));
   }
+});
+
+test("an upstream wildcard sherpa-onnx binary is refused before it is spawned", async () => {
+  const { server, calls } = loadServer({ loopbackBuild: false });
+  for (const runtime of ["offline", "online"]) {
+    await assert.rejects(
+      server.start("parakeet-tdt-0.6b-v3", os.tmpdir(), runtime),
+      new RegExp(
+        `sherpa-onnx ${runtime} WS server at sherpa-${runtime} is not the loopback-only build`
+      )
+    );
+  }
+  assert.equal(calls.length, 0);
+  assert.equal(server.getStatus().running, false);
+});
+
+test("a server that announces a wildcard listener is stopped, not used", async () => {
+  const { server, calls, stopped } = loadServer();
+  const starting = server.start("parakeet-tdt-0.6b-v3", os.tmpdir());
+  await new Promise((resolve) => setImmediate(resolve));
+  const [{ child }] = calls;
+  child.stderr.emit("data", Buffer.from("offline-websocket-server.cc:main:94 Listening on: "));
+  child.stderr.emit("data", Buffer.from("6006\n"));
+  await assert.rejects(starting, /did not report a 127\.0\.0\.1-only listener; stopped it/);
+  assert.deepEqual(stopped, [child]);
+  assert.equal(server.getStatus().running, false);
+  assert.equal(server.port, null);
+});
+
+test("the loopback startup line marks the server ready, even split across reads", async () => {
+  const { server, calls, stopped } = loadServer();
+  const starting = server.start("parakeet-tdt-0.6b-v3", os.tmpdir());
+  await new Promise((resolve) => setImmediate(resolve));
+  const [{ child }] = calls;
+  child.stderr.emit("data", Buffer.from("main:94 Listening on: 127.0."));
+  child.stderr.emit("data", Buffer.from("0.1:6006\n"));
+  await starting;
+  assert.equal(server.getStatus().running, true);
+  assert.equal(server.port, 6006);
+  assert.deepEqual(stopped, []);
 });

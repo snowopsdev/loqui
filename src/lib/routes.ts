@@ -20,7 +20,15 @@ import {
   type SettingsState,
 } from "../stores/settingsStore.ts";
 import { ensureRouteFactsSubscribed, useRouteFactsStore } from "../stores/routeFactsStore";
-import { ensureSealedSubscribed, getSealed, useSealedStore } from "../stores/sealedStore";
+import {
+  ensureSealedSubscribed,
+  getSealed,
+  getSealedSnapshot,
+  useSealedStore,
+} from "../stores/sealedStore";
+import { useSealedMode } from "../hooks/useSealedMode";
+import { withNativeRouteAvailability } from "./nativeRouteAvailability";
+import type { Attestation } from "../types/privacy";
 import { getDictionaryHintWords } from "../utils/snippets";
 import { isProviderSearchEnabled, PROVIDER_SEARCH_CHANGED_EVENT } from "../utils/providerSearch";
 import {
@@ -233,7 +241,12 @@ export function buildRouteSnapshot(
   settings: SettingsState,
   facts: RouteFacts,
   copy: RouteCopy,
-  sealed: boolean
+  sealed: boolean,
+  // Plan 07: main's attestation from the sole sealedStore. While sealed it is
+  // projected onto each route's built-in native engines (spec §5.1, D15).
+  // Without it (Plan 03's four-argument form) the graph still fails closed:
+  // an unprojected built-in engine is never ready while sealed.
+  attestation?: Attestation | null
 ): RouteSettingsSnapshot {
   const meeting = selectResolvedMeetingTranscription(settings);
   const upload = selectResolvedUploadTranscription(settings);
@@ -264,7 +277,7 @@ export function buildRouteSnapshot(
     };
   }
 
-  return {
+  const snapshot: RouteSettingsSnapshot = {
     stt,
     llm,
     // R2-1: the non-secret settings main hands enterpriseAiProviders.js
@@ -294,6 +307,9 @@ export function buildRouteSnapshot(
     sealed,
     copy,
   };
+  return sealed && attestation !== undefined
+    ? withNativeRouteAvailability(snapshot, attestation)
+    : snapshot;
 }
 
 function listFormat(language: string): Intl.ListFormat {
@@ -339,7 +355,8 @@ export function routeSnapshotFromSettings(settings: SettingsState): RouteSetting
     settings,
     useRouteFactsStore.getState().facts,
     currentRouteCopy(),
-    getSealed()
+    getSealed(),
+    getSealedSnapshot().attestation
   );
 }
 
@@ -373,6 +390,7 @@ export function useResolvedRoutes(): ResolvedRoute[] {
   const settings = useSettingsStore();
   const facts = useRouteFactsStore((s) => s.facts);
   const sealed = useSealedStore((s) => s.sealed);
+  const { attestation } = useSealedMode();
   const copy = useRouteCopy();
   const searchVersion = useSyncExternalStore(
     subscribeProviderSearch,
@@ -384,10 +402,10 @@ export function useResolvedRoutes(): ResolvedRoute[] {
     ensureSealedSubscribed();
   }, []);
   return useMemo(
-    () => resolveRoutes(buildRouteSnapshot(settings, facts, copy, sealed)),
+    () => resolveRoutes(buildRouteSnapshot(settings, facts, copy, sealed, attestation)),
     // searchVersion is not read here: it re-runs the builder, which reads localStorage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [settings, facts, copy, sealed, searchVersion]
+    [settings, facts, copy, sealed, attestation, searchVersion]
   );
 }
 

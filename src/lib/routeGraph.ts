@@ -206,7 +206,35 @@ export interface RouteFacts {
   rejected: ReadonlySet<CredentialId>;
   speakerIdModelsReady: boolean | null;
   searchModelReady: boolean | null;
+  // Plan 07 (spec §5.1 "Native availability"): main-authoritative availability
+  // of each route's selected built-in native engines, projected from the sole
+  // sealedStore attestation (src/lib/nativeRouteAvailability.ts). Read only
+  // while the seal is known active. Absent means not projected: a route that
+  // needs a built-in engine is then unknown, never ready.
+  nativeAvailability?: Readonly<Partial<Record<RouteId, NativeRouteAvailability>>> | null;
 }
+
+// Spec §5.1 / D15. 07a produces only "notRequired" and "unknown": main has no
+// verified native boundary yet, so no built-in engine is available while
+// sealed. "available", "pending" and "paused" are reserved for 07b's verified
+// facts and never come from a test, an empty list or a self-test.
+export interface NativeRouteAvailability {
+  status: "notRequired" | "available" | "pending" | "paused" | "unknown";
+  reason?: "isolation" | "sessionBus";
+}
+
+// Loqui's own native programs, named by the child-registry kind prefix main
+// records for them (childRegistry.js SIDECAR/kindOf; the ONNX worker is a
+// utility process). Derived from the executors (preflight "Selected-native
+// dependency audit"), not from locality.
+export type NativeEngine =
+  | "whisper-server"
+  | "sherpa-onnx"
+  | "sherpa-onnx-diarize"
+  | "llama-server"
+  | "onnx-worker"
+  | "qdrant"
+  | "ffmpeg";
 
 export interface RouteCapabilities {
   // Renderer-normalized Corti auth target agreement. Absent in legacy pure fixtures.
@@ -1089,21 +1117,69 @@ export function routePayloadParts(id: RouteId, s: RouteSettingsSnapshot): Payloa
   }
 }
 
+function routeDestination(s: RouteSettingsSnapshot, id: RouteId): Destination {
+  if (id === "speakerId" || id === "semanticSearch") return supportDestination(s, id);
+  if (ROUTE_KIND[id] === "speech")
+    return sttDestination(s, id, s.stt[ROUTE_STT_CONTEXT[id] as SttContext]);
+  return llmDestination(s, id, s.llm[effectiveScope(s, id)]);
+}
+
+// Which of Loqui's own native programs the selected destination needs. Only a
+// built-in engine (device locality, no configured host) has any: a configured
+// loopback endpoint is a server the user runs, not Loqui's child (CCR-7), and
+// remote routes run no engine of Loqui's. Ancillary conversion or capture a
+// configured endpoint may still need stays under main's own launch guard.
+export function nativeEngineRequirements(
+  s: RouteSettingsSnapshot,
+  id: RouteId
+): readonly NativeEngine[] {
+  const dest = routeDestination(s, id);
+  if (dest.locality !== "device" || dest.host !== null) return [];
+  switch (id) {
+    case "speakerId":
+      // Diarization CLI plus the ONNX worker's speaker embeddings.
+      return ["sherpa-onnx-diarize", "onnx-worker"];
+    case "semanticSearch":
+      return ["onnx-worker", "qdrant"];
+    case "dictationStt":
+    case "noteRecordingStt":
+    case "uploadStt": {
+      const input = s.stt[ROUTE_STT_CONTEXT[id] as SttContext];
+      const family = sttFamily(input.localProvider);
+      if (input.mode.trim() !== "local" || family === null) return [];
+      const engine: NativeEngine = family === "whisper" ? "whisper-server" : "sherpa-onnx";
+      // An uploaded file is converted before transcription.
+      return id === "uploadStt" ? [engine, "ffmpeg"] : [engine];
+    }
+    default:
+      return s.llm[effectiveScope(s, id)].mode.trim() === "local" ? ["llama-server"] : [];
+  }
+}
+
+// A built-in engine is ready while sealed only with main's verified availability.
+function nativeReadyWhileSealed(s: RouteSettingsSnapshot, id: RouteId): boolean {
+  if (nativeEngineRequirements(s, id).length === 0) return true;
+  return s.facts.nativeAvailability?.[id]?.status === "available";
+}
+
 export function resolveRoute(s: RouteSettingsSnapshot, id: RouteId): ResolvedRoute {
   const kind = ROUTE_KIND[id];
-  let dest: Destination;
-  if (id === "speakerId" || id === "semanticSearch") {
-    dest = supportDestination(s, id);
-  } else if (kind === "speech") {
-    dest = sttDestination(s, id, s.stt[ROUTE_STT_CONTEXT[id] as SttContext]);
-  } else {
-    dest = llmDestination(s, id, s.llm[effectiveScope(s, id)]);
-  }
+  const dest = routeDestination(s, id);
 
   const off = isOff(s, id);
   let state = dest.state;
   if (off) state = OFF;
-  else if (s.sealed && isSealedLocality(dest.locality)) state = SEALED;
+  else if (s.sealed && isSealedLocality(dest.locality)) {
+    // Rule 10 keeps its precedence: an endpoint the executors refuse
+    // (missing, malformed, insecure, plain-HTTP *.localhost) is needsUrl,
+    // sealed or not. Every valid route that leaves the device is sealed,
+    // whatever its readiness (rule 7).
+    state = dest.state.status === "needsUrl" ? dest.state : SEALED;
+  } else if (s.sealed && state.status === "ready" && !nativeReadyWhileSealed(s, id)) {
+    // Native availability overlay (spec §5.1, D15): locality stays "device",
+    // but a built-in engine without main's verified availability is unknown.
+    state = UNKNOWN;
+  }
 
   const parts = off || dest.locality === "device" ? [] : routePayloadParts(id, s);
   return {

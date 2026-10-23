@@ -4423,7 +4423,8 @@
     "recovery": {
       "availableTitle": "录音已可恢复",
       "transcribe": "转写录音",
-      "discard": "丢弃录音"
+      "discard": "丢弃录音",
+      "transcribeOne": "转写"
     },
     "confirmUnseal": {
       "title": "关闭封闭模式？",
@@ -4453,6 +4454,28 @@
       "message": "系统设置会在其他应用中打开。封闭模式不涵盖该应用对网络的使用。",
       "keep": "不打开",
       "open": "打开设置"
+    },
+    "blocked": {
+      "dictationPreflight": "听写已暂停：封闭模式已开启",
+      "dictationPreflightDetail": "你的语音路由会把音频发送到这台电脑之外，而封闭模式会阻止这样做。未录制也未发送任何内容。请选择设备上的路由，或关闭封闭模式。",
+      "nativeUnavailableTitle": "封闭模式下无法使用本地听写",
+      "nativeUnavailableDetail": "此版本尚无法隔离 Loqui 的本地语音引擎，因此在封闭模式开启时该引擎不会运行。未录制任何内容。关闭封闭模式即可使用它听写。",
+      "dictationTitle": "封闭模式停止了这次听写",
+      "dictationKept": "封闭模式在发送前阻止了这次听写。未发送任何内容。录音已保存在历史记录中，关闭封闭模式后即可转写。",
+      "dictationNotKept": "封闭模式在发送前阻止了这次听写。未发送任何内容。录音未保留。",
+      "dictationHeld": "封闭模式在发送前阻止了这次听写。未发送任何内容。Loqui 仅在内存中保留这段录音，最长 30 分钟或直到你退出应用。请在关闭封闭模式后转写。",
+      "generic": "封闭模式已开启，因此 Loqui 没有发送此内容。未发送任何内容。"
+    },
+    "paused": {
+      "dictationPreflightDetail": "封闭模式在 Loqui 的本地语音引擎启动前将其暂停。未录制任何内容。关闭封闭模式即可使用它听写。"
+    },
+    "interrupted": {
+      "dictationKept": "这次听写发送期间封闭模式被开启，因此已停止。服务提供商可能已收到其中一部分。录音已保存在历史记录中。",
+      "dictationNotKept": "这次听写发送期间封闭模式被开启，因此已停止。服务提供商可能已收到其中一部分。录音未保留。",
+      "dictationHeld": "这次听写发送期间封闭模式被开启，因此已停止。服务提供商可能已收到其中一部分。Loqui 仅在内存中保留这段录音，最长 30 分钟或直到你退出应用。",
+      "dictationPartial": "这次听写期间封闭模式被开启。已收到的文字会保留。服务提供商可能已收到部分录音。",
+      "cortiRetained": "Corti 可能仍保留着这次听写的一部分：封闭模式开启时，Loqui 无法请求 Corti 删除它，之后也不会联系 Corti 删除它。",
+      "generic": "封闭模式在发送过程中停止了此操作。服务提供商可能已收到其中一部分。"
     }
   },
   "setupFlow": {

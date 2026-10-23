@@ -2,6 +2,7 @@ const { gatedNetFetch } = require("./privacy/gatedFetch");
 const crypto = require("crypto");
 const debugLogger = require("./debugLogger");
 const { getCortiToken } = require("./cortiAuth");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 
 // Sealed mode: every Corti request is gated. Only the recording upload carries
 // audio; the task and correlation come from the calling handler's context.
@@ -90,6 +91,12 @@ async function transcribeAudio({
     );
 
     return { text: (transcript.transcripts || []).map((utterance) => utterance.text).join(" ") };
+  } catch (error) {
+    // T9-M1: sealing cut this dictation off after its interaction existed on
+    // Corti, and the delete below is refused while sealed. Say so; nothing
+    // deletes it automatically later (Plan 03: no automatic provider calls).
+    if (isSealedModeError(error)) error.providerRetained = "corti";
+    throw error;
   } finally {
     // Dictation audio must not persist on Corti's servers — deleting the
     // interaction cascades to its recordings and transcripts.

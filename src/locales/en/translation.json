@@ -4453,7 +4453,8 @@
     "recovery": {
       "availableTitle": "Recordings ready to recover",
       "transcribe": "Transcribe recordings",
-      "discard": "Discard recordings"
+      "discard": "Discard recordings",
+      "transcribeOne": "Transcribe"
     },
     "confirmUnseal": {
       "title": "Turn off Sealed mode?",
@@ -4484,6 +4485,28 @@
       "message": "System settings open in another app. Sealed mode does not cover that app's network use.",
       "keep": "Don't open",
       "open": "Open settings"
+    },
+    "blocked": {
+      "dictationPreflight": "Dictation paused: Sealed mode is on",
+      "dictationPreflightDetail": "Your speech route sends audio off this computer, and Sealed mode blocks that. Nothing was recorded or sent. Choose an on-device route, or turn off Sealed mode.",
+      "nativeUnavailableTitle": "Local dictation is unavailable in Sealed mode",
+      "nativeUnavailableDetail": "This build can't isolate Loqui's local speech engine yet, so the engine doesn't run while Sealed mode is on. Nothing was recorded. Turn off Sealed mode to dictate with it.",
+      "dictationTitle": "Sealed mode stopped this dictation",
+      "dictationKept": "Sealed mode blocked this dictation before it was sent. Nothing was sent. The recording is saved in History, so you can transcribe it after you turn off Sealed mode.",
+      "dictationNotKept": "Sealed mode blocked this dictation before it was sent. Nothing was sent. The recording wasn't kept.",
+      "dictationHeld": "Sealed mode blocked this dictation before it was sent. Nothing was sent. Loqui is holding the recording in memory only, for up to 30 minutes or until you quit. Transcribe it after you turn off Sealed mode.",
+      "generic": "Sealed mode is on, so Loqui didn't send this. Nothing was sent."
+    },
+    "paused": {
+      "dictationPreflightDetail": "Sealed mode paused Loqui's local speech engine before it started. Nothing was recorded. Turn off Sealed mode to dictate with it."
+    },
+    "interrupted": {
+      "dictationKept": "Sealed mode was turned on while this dictation was being sent, so it stopped. The provider may have received part of it. The recording is saved in History.",
+      "dictationNotKept": "Sealed mode was turned on while this dictation was being sent, so it stopped. The provider may have received part of it. The recording wasn't kept.",
+      "dictationHeld": "Sealed mode was turned on while this dictation was being sent, so it stopped. The provider may have received part of it. Loqui is holding the recording in memory only, for up to 30 minutes or until you quit.",
+      "dictationPartial": "Sealed mode was turned on during this dictation. The words that arrived are kept. The provider may have received part of the recording.",
+      "cortiRetained": "Corti may still hold part of this dictation: Loqui can't ask Corti to delete it while Sealed mode is on, and won't contact Corti later to delete it.",
+      "generic": "Sealed mode stopped this while it was being sent. The provider may have received part of it."
     }
   },
   "setupFlow": {

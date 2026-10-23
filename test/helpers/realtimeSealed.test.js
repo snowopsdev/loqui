@@ -1101,3 +1101,42 @@ test("every registered realtime warmup/start/send/flush/stop route was exercised
     []
   );
 });
+
+// T9a-M1 (Task 13): the reviewer's gap probe as a real test.
+for (const name of ["deepgram", "openai"]) {
+  test(`seal after connect, before the first frame (${name}): stop is a typed sealed failure, never an empty success`, async () => {
+    const fam = family(name);
+    const d = dictation(fam);
+    const from = fixture.conns.length;
+    const started = await d.start(`gap-${name}`);
+    assert.equal(started.success, true, JSON.stringify(started));
+    sealed = true;
+    gate.abortAllRemote();
+    await waitFor(() => rowsOf("connection", fam.host).length >= 1, "socket closed");
+    d.send(`gap-${name}`, frame(3200));
+    const stopped = await d.stop(`gap-${name}`);
+    assert.equal(stopped.success, false, JSON.stringify(stopped));
+    assert.equal(stopped.code, "SEALED_MODE");
+    assert.equal(
+      stopped.phase,
+      "interrupted",
+      "the provider had the session; not 'nothing was sent'"
+    );
+    assert.equal(stopped.messageKey, "sealedMode.interrupted.generic");
+    assert.equal(stopped.text, "");
+    assert.match(stopped.error, /\[SEALED_MODE:interrupted\]/);
+    assert.doesNotMatch(JSON.stringify(stopped), NOTHING_SENT);
+    assert.equal(contentTo(fam.host, from), 0, "no audio of this recording left");
+  });
+}
+
+test("a recording that ends before any seal stays an ordinary result", async () => {
+  const fam = family("deepgram");
+  const d = dictation(fam);
+  assert.equal((await d.start("no-seal")).success, true);
+  const stopped = await d.stop("no-seal");
+  assert.equal(stopped.success, true);
+  assert.equal(stopped.code, undefined);
+  sealed = true;
+  gate.abortAllRemote(); // a later seal does not reach back into a finished recording
+});

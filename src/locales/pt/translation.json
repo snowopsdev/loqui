@@ -4463,7 +4463,8 @@
     "recovery": {
       "availableTitle": "Gravações prontas para recuperar",
       "transcribe": "Transcrever gravações",
-      "discard": "Descartar gravações"
+      "discard": "Descartar gravações",
+      "transcribeOne": "Transcrever"
     },
     "confirmUnseal": {
       "title": "Desativar o modo selado?",
@@ -4495,6 +4496,28 @@
       "message": "As configurações do sistema abrem em outro aplicativo. O modo selado não cobre o uso de rede desse aplicativo.",
       "keep": "Não abrir",
       "open": "Abrir configurações"
+    },
+    "blocked": {
+      "dictationPreflight": "Ditado pausado: o modo selado está ativado",
+      "dictationPreflightDetail": "Sua rota de voz envia áudio para fora deste computador, e o modo selado bloqueia isso. Nada foi gravado nem enviado. Escolha uma rota no dispositivo ou desative o modo selado.",
+      "nativeUnavailableTitle": "O ditado local não está disponível no modo selado",
+      "nativeUnavailableDetail": "Esta versão ainda não consegue isolar o mecanismo de voz local do Loqui, então ele não é executado enquanto o modo selado estiver ativado. Nada foi gravado. Desative o modo selado para ditar com ele.",
+      "dictationTitle": "O modo selado interrompeu este ditado",
+      "dictationKept": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. A gravação está salva no histórico, então você pode transcrevê-la depois de desativar o modo selado.",
+      "dictationNotKept": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. A gravação não foi mantida.",
+      "dictationHeld": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. O Loqui mantém a gravação apenas na memória, por até 30 minutos ou até você sair do app. Transcreva-a depois de desativar o modo selado.",
+      "generic": "O modo selado está ativado, então o Loqui não enviou isto. Nada foi enviado."
+    },
+    "paused": {
+      "dictationPreflightDetail": "O modo selado pausou o mecanismo de voz local do Loqui antes que ele iniciasse. Nada foi gravado. Desative o modo selado para ditar com ele."
+    },
+    "interrupted": {
+      "dictationKept": "O modo selado foi ativado enquanto este ditado era enviado, então ele foi interrompido. O provedor pode ter recebido parte dele. A gravação está salva no histórico.",
+      "dictationNotKept": "O modo selado foi ativado enquanto este ditado era enviado, então ele foi interrompido. O provedor pode ter recebido parte dele. A gravação não foi mantida.",
+      "dictationHeld": "O modo selado foi ativado enquanto este ditado era enviado, então ele foi interrompido. O provedor pode ter recebido parte dele. O Loqui mantém a gravação apenas na memória, por até 30 minutos ou até você sair do app.",
+      "dictationPartial": "O modo selado foi ativado durante este ditado. As palavras que chegaram foram mantidas. O provedor pode ter recebido parte da gravação.",
+      "cortiRetained": "A Corti ainda pode ter parte deste ditado: o Loqui não pode pedir à Corti que o exclua enquanto o modo selado estiver ativado e não entrará em contato com a Corti depois para excluí-lo.",
+      "generic": "O modo selado interrompeu isto durante o envio. O provedor pode ter recebido parte dele."
     }
   },
   "setupFlow": {

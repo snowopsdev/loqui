@@ -71,6 +71,7 @@ const serializeIpcError =
           code: "SEALED_MODE",
           messageKey: error.messageKey,
           phase: sealedPhaseOf(error),
+          ...(error.providerRetained ? { providerRetained: error.providerRetained } : {}),
         };
       return { error: error.message, code: error.code, messageKey: error.messageKey };
     }
@@ -198,7 +199,14 @@ const speechProvider = (route) =>
   route.provider === "custom" || route.provider === "self-hosted" ? null : route.provider || null;
 // Sealed-mode envelope fields for handlers that return { success: false, ... }.
 const sealedEnvelope = (error) =>
-  isSealedModeError(error) ? { code: "SEALED_MODE", phase: sealedPhaseOf(error) } : {};
+  isSealedModeError(error)
+    ? {
+        code: "SEALED_MODE",
+        phase: sealedPhaseOf(error),
+        // T9-M1: a provider that may still hold part of the request.
+        ...(error.providerRetained ? { providerRetained: error.providerRetained } : {}),
+      }
+    : {};
 
 // Debounce delay: wait for user to stop typing before processing corrections
 const AUTO_LEARN_DEBOUNCE_MS = 1500;

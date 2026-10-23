@@ -957,7 +957,14 @@ function meteredFetch(
   };
 }
 
+// Counts sealing barriers. A realtime recording that began before one and
+// sent no audio was still cut off by it (its socket was), which a ticketless
+// recording cannot otherwise see (T9a-M1).
+let sealAbortEpoch = 0;
+const currentSealAbortEpoch = () => sealAbortEpoch;
+
 function abortAllRemote() {
+  sealAbortEpoch++;
   let aborted = 0;
   for (const ticket of [...active.values()]) {
     if (!ticket.hasRemoteEvidence() || ticket.signal.aborted) continue;
@@ -1094,6 +1101,7 @@ module.exports = {
   tagHeaders,
   ticketByTag,
   abortAllRemote,
+  currentSealAbortEpoch,
   activeRemoteCount,
   recordUnattributed,
   recordBackstopBlock,

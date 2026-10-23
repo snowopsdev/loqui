@@ -779,3 +779,36 @@ test("no ungated Electron net transport is left in the speech paths", () => {
   );
   assert.match(read("src/helpers/tinfoilTranscription.js"), /egress\.guard\(/);
 });
+
+// T9-M1 (Task 13): the reviewer's Corti probe as a real test. A seal during
+// the recording upload interrupts it; the cleanup DELETE is then refused, so
+// the interaction may stay on Corti. The result says so; nothing deletes it
+// automatically later.
+test("sealing a Corti dictation mid-upload: interrupted, and Corti may still hold the interaction", async () => {
+  sealed = false;
+  recorder.clear();
+  netResponder = (url, init) =>
+    url.endsWith("/recordings/") ? hangUntilAbort(url, init) : defaultNet(url, init);
+  const pending = capture({ provider: "corti", model: "", environment: "eu", tenant: "acme" });
+  await waitFor(() => netCalls.some((c) => c.url.includes("/recordings/")));
+  sealed = true;
+  assert.ok(gate.abortAllRemote() >= 1);
+  const result = await pending;
+  await waitFor(() => rows().some((row) => row.outcome === "blocked"));
+  assert.equal(result.success, false);
+  assert.equal(result.code, "SEALED_MODE");
+  assert.equal(result.phase, "interrupted");
+  assert.equal(result.providerRetained, "corti");
+  assert.doesNotMatch(result.error, /nothing was sent/);
+  const shapes = rows().map(rowShape);
+  assert.deepEqual(
+    shapes.at(-1),
+    ["dictationStt", "api.eu.corti.app", "blocked", 0],
+    "the DELETE was refused"
+  );
+  assert.ok(
+    shapes.some(([, host, outcome]) => host === "api.eu.corti.app" && outcome === "cancelled"),
+    "the upload was interrupted"
+  );
+  netResponder = defaultNet;
+});

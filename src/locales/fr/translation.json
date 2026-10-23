@@ -4463,7 +4463,8 @@
     "recovery": {
       "availableTitle": "Enregistrements prêts à être récupérés",
       "transcribe": "Transcrire les enregistrements",
-      "discard": "Supprimer les enregistrements"
+      "discard": "Supprimer les enregistrements",
+      "transcribeOne": "Transcrire"
     },
     "confirmUnseal": {
       "title": "Désactiver le mode scellé ?",
@@ -4495,6 +4496,28 @@
       "message": "Les paramètres système s’ouvrent dans une autre application. Le mode scellé ne couvre pas l’utilisation du réseau par cette application.",
       "keep": "Ne pas ouvrir",
       "open": "Ouvrir les paramètres"
+    },
+    "blocked": {
+      "dictationPreflight": "Dictée en pause : le mode scellé est activé",
+      "dictationPreflightDetail": "Votre itinéraire vocal envoie l'audio hors de cet ordinateur, et le mode scellé le bloque. Rien n'a été enregistré ni envoyé. Choisissez un itinéraire sur l'appareil ou désactivez le mode scellé.",
+      "nativeUnavailableTitle": "La dictée locale n'est pas disponible en mode scellé",
+      "nativeUnavailableDetail": "Cette version ne peut pas encore isoler le moteur vocal local de Loqui, il ne s'exécute donc pas tant que le mode scellé est activé. Rien n'a été enregistré. Désactivez le mode scellé pour dicter avec lui.",
+      "dictationTitle": "Le mode scellé a arrêté cette dictée",
+      "dictationKept": "Le mode scellé a bloqué cette dictée avant son envoi. Rien n'a été envoyé. L'enregistrement est conservé dans l'historique : vous pourrez le transcrire après avoir désactivé le mode scellé.",
+      "dictationNotKept": "Le mode scellé a bloqué cette dictée avant son envoi. Rien n'a été envoyé. L'enregistrement n'a pas été conservé.",
+      "dictationHeld": "Le mode scellé a bloqué cette dictée avant son envoi. Rien n'a été envoyé. Loqui garde l'enregistrement uniquement en mémoire, pendant 30 minutes au maximum ou jusqu'à ce que vous quittiez l'app. Transcrivez-le après avoir désactivé le mode scellé.",
+      "generic": "Le mode scellé est activé, Loqui n'a donc pas envoyé ceci. Rien n'a été envoyé."
+    },
+    "paused": {
+      "dictationPreflightDetail": "Le mode scellé a mis en pause le moteur vocal local de Loqui avant son démarrage. Rien n'a été enregistré. Désactivez le mode scellé pour dicter avec lui."
+    },
+    "interrupted": {
+      "dictationKept": "Le mode scellé a été activé pendant l'envoi de cette dictée, qui s'est donc arrêtée. Le fournisseur en a peut-être reçu une partie. L'enregistrement est conservé dans l'historique.",
+      "dictationNotKept": "Le mode scellé a été activé pendant l'envoi de cette dictée, qui s'est donc arrêtée. Le fournisseur en a peut-être reçu une partie. L'enregistrement n'a pas été conservé.",
+      "dictationHeld": "Le mode scellé a été activé pendant l'envoi de cette dictée, qui s'est donc arrêtée. Le fournisseur en a peut-être reçu une partie. Loqui garde l'enregistrement uniquement en mémoire, pendant 30 minutes au maximum ou jusqu'à ce que vous quittiez l'app.",
+      "dictationPartial": "Le mode scellé a été activé pendant cette dictée. Les mots déjà reçus sont conservés. Le fournisseur a peut-être reçu une partie de l'enregistrement.",
+      "cortiRetained": "Corti conserve peut-être encore une partie de cette dictée : Loqui ne peut pas demander à Corti de la supprimer tant que le mode scellé est activé, et ne contactera pas Corti plus tard pour la supprimer.",
+      "generic": "Le mode scellé a arrêté ceci pendant l'envoi. Le fournisseur en a peut-être reçu une partie."
     }
   },
   "setupFlow": {

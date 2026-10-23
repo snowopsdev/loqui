@@ -617,12 +617,24 @@ function createDictationStreamingOperations(
           if (!record.cancelled) outcome = "ok";
           // Settled after the flush/stop acknowledgement, before the result.
           endRecording(record, outcome);
+          const text = result?.text || "";
+          const sealed = realtimeSealedFields(record.recording);
           return {
-            success: true,
-            text: result?.text || "",
+            // A sealed stop with no words is a failure the renderer recovers
+            // from, never an empty success (T9a-M1).
+            success: !(sealed.code && !text),
+            text,
             model,
             audioBytesSent,
-            ...realtimeSealedFields(record.recording),
+            ...sealed,
+            ...(sealed.code && !text
+              ? {
+                  error:
+                    sealed.phase === "interrupted"
+                      ? "[SEALED_MODE:interrupted] Sealed mode interrupted dictationStt; the provider may have received part of the request."
+                      : "[SEALED_MODE] Sealed mode blocked dictationStt before any socket opened; nothing was sent.",
+                }
+              : {}),
           };
         } catch (error) {
           endRecording(record, outcome);

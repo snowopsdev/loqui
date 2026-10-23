@@ -1,8 +1,13 @@
 import { TFunction } from "i18next";
+import { sealedGenericMessageKey } from "./sealedModeError";
 
 type RecordingError = {
   code?: string;
   title: string;
+  /** Sealed mode (Plan 07): a translation key for the title. */
+  titleKey?: string;
+  /** Sealed mode: a provider that may still hold part of the recording. */
+  providerRetained?: string;
   description?: string;
   messageKey?: string;
   /** Toast variant; defaults to destructive for genuine failures. */
@@ -10,6 +15,12 @@ type RecordingError = {
 };
 
 export function getRecordingErrorTitle(error: RecordingError, t: TFunction): string {
+  if (error.code === "SEALED_MODE")
+    return t(
+      error.titleKey?.startsWith("sealedMode.")
+        ? error.titleKey
+        : "sealedMode.blocked.dictationTitle"
+    );
   if (error.code === "recipientUnknown" || error.code === "recipientChanged")
     return t("voiceOverlay.errors.recipientTitle");
   if (error.code?.startsWith("SELECTION_EDIT_")) {
@@ -34,6 +45,20 @@ export function getRecordingErrorTitle(error: RecordingError, t: TFunction): str
 }
 
 export function getRecordingErrorDescription(error: RecordingError, t: TFunction): string {
+  if (error.code === "SEALED_MODE") {
+    // Never a raw main-process message: sealed copy is always translated, and
+    // "nothing was sent" only when main refused before anything left.
+    const body = t(
+      error.messageKey?.startsWith("sealedMode.")
+        ? error.messageKey
+        : sealedGenericMessageKey({ ...error, message: error.description })
+    );
+    // T9-M1: Corti keeps an interaction until it is deleted, and the delete
+    // is refused while sealed.
+    return error.providerRetained === "corti"
+      ? `${body} ${t("sealedMode.interrupted.cortiRetained")}`
+      : body;
+  }
   if (error.messageKey) return t(error.messageKey);
   return error.description ?? "";
 }

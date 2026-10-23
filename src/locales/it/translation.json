@@ -4463,7 +4463,8 @@
     "recovery": {
       "availableTitle": "Registrazioni pronte per il recupero",
       "transcribe": "Trascrivi registrazioni",
-      "discard": "Elimina registrazioni"
+      "discard": "Elimina registrazioni",
+      "transcribeOne": "Trascrivi"
     },
     "confirmUnseal": {
       "title": "Disattivare la modalità sigillata?",
@@ -4495,6 +4496,28 @@
       "message": "Le impostazioni di sistema si aprono in un’altra app. La modalità sigillata non copre l’uso della rete da parte di quell’app.",
       "keep": "Non aprire",
       "open": "Apri impostazioni"
+    },
+    "blocked": {
+      "dictationPreflight": "Dettatura in pausa: la modalità sigillata è attiva",
+      "dictationPreflightDetail": "Il tuo percorso vocale invia l'audio fuori da questo computer e la modalità sigillata lo blocca. Non è stato registrato né inviato nulla. Scegli un percorso sul dispositivo o disattiva la modalità sigillata.",
+      "nativeUnavailableTitle": "La dettatura locale non è disponibile in modalità sigillata",
+      "nativeUnavailableDetail": "Questa versione non può ancora isolare il motore vocale locale di Loqui, quindi non viene eseguito mentre la modalità sigillata è attiva. Non è stato registrato nulla. Disattiva la modalità sigillata per dettare con esso.",
+      "dictationTitle": "La modalità sigillata ha interrotto questa dettatura",
+      "dictationKept": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. La registrazione è salvata nella cronologia, quindi puoi trascriverla dopo aver disattivato la modalità sigillata.",
+      "dictationNotKept": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. La registrazione non è stata conservata.",
+      "dictationHeld": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. Loqui conserva la registrazione solo in memoria, per un massimo di 30 minuti o finché non chiudi l'app. Trascrivila dopo aver disattivato la modalità sigillata.",
+      "generic": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo contenuto. Non è stato inviato nulla."
+    },
+    "paused": {
+      "dictationPreflightDetail": "La modalità sigillata ha messo in pausa il motore vocale locale di Loqui prima dell'avvio. Non è stato registrato nulla. Disattiva la modalità sigillata per dettare con esso."
+    },
+    "interrupted": {
+      "dictationKept": "La modalità sigillata è stata attivata mentre questa dettatura veniva inviata, quindi si è interrotta. Il provider potrebbe averne ricevuto una parte. La registrazione è salvata nella cronologia.",
+      "dictationNotKept": "La modalità sigillata è stata attivata mentre questa dettatura veniva inviata, quindi si è interrotta. Il provider potrebbe averne ricevuto una parte. La registrazione non è stata conservata.",
+      "dictationHeld": "La modalità sigillata è stata attivata mentre questa dettatura veniva inviata, quindi si è interrotta. Il provider potrebbe averne ricevuto una parte. Loqui conserva la registrazione solo in memoria, per un massimo di 30 minuti o finché non chiudi l'app.",
+      "dictationPartial": "La modalità sigillata è stata attivata durante questa dettatura. Le parole già arrivate vengono conservate. Il provider potrebbe aver ricevuto una parte della registrazione.",
+      "cortiRetained": "Corti potrebbe ancora conservare una parte di questa dettatura: Loqui non può chiedere a Corti di eliminarla mentre la modalità sigillata è attiva, e non contatterà Corti in seguito per eliminarla.",
+      "generic": "La modalità sigillata ha interrotto questo invio. Il provider potrebbe averne ricevuto una parte."
     }
   },
   "setupFlow": {

@@ -30,7 +30,13 @@ import { waitForVisualFrames } from "../utils/visualFrame";
 import { resolveLifecycleInputKind } from "../helpers/dictationRouting";
 import { createAssistantResponseDelivery } from "../helpers/assistantResponseDelivery";
 import { notify, dismissNotice, getNotices } from "../components/ui/notices";
-import { buildDictationErrorNotice, DICTATION_STATUS_NOTICE_ID } from "../components/voiceNotices";
+import {
+  buildDictationErrorNotice,
+  buildSealedRecoveryNotice,
+  DICTATION_STATUS_NOTICE_ID,
+} from "../components/voiceNotices";
+import { getSealedSnapshot, subscribeSealed } from "../stores/sealedStore";
+import { discardRecovery, recoveryCount } from "../lib/sealedRecovery";
 import { recordCleanupFailure } from "../stores/cleanupFailureStore";
 
 // Maps a failed selection-replacement code to its `selectionEditing.*` toast
@@ -589,6 +595,30 @@ export const useAudioRecording = (options = {}) => {
     // would otherwise wait on the device lookup before the mic can open.
     void manager.cacheMicrophoneDeviceId?.();
 
+    // Plan 07: the sole sealed store starts here, before any microphone
+    // preparation, so the pre-flight reads main's answer (A12). A dictation
+    // held in memory while sealed is offered again once Sealed mode is off;
+    // nothing is sent until the user clicks Transcribe.
+    const transcribeAllRecovered = async () => {
+      while (recoveryCount() > 0) {
+        const replay = await audioManagerRef.current?.transcribeRecovered?.();
+        if (!replay?.started || !replay.succeeded) break;
+      }
+    };
+    let wasSealed = getSealedSnapshot().sealed;
+    const offSealed = subscribeSealed(() => {
+      const { sealed } = getSealedSnapshot();
+      if (wasSealed === true && sealed === false && recoveryCount() > 0) {
+        notify(
+          buildSealedRecoveryNotice(t, {
+            transcribe: transcribeAllRecovered,
+            discard: () => discardRecovery(),
+          })
+        );
+      }
+      wasSealed = sealed;
+    });
+
     // Reset stale main-process state after a renderer reload or crash recovery.
     reportLifecycle("idle");
 
@@ -860,7 +890,15 @@ export const useAudioRecording = (options = {}) => {
         }
         const title = getRecordingErrorTitle(error, t);
         const description = getRecordingErrorDescription(error, t);
-        if (error?.variant === "default") {
+        if (error?.code === "SEALED_MODE" && error?.recoveryHeld === true) {
+          // §5.3: the audio is held in memory only; Transcribe is the way back.
+          showDictationError({ title, description, sessionId, recoveryHeld: true }, [
+            {
+              label: t("sealedMode.recovery.transcribeOne"),
+              onClick: () => void audioManagerRef.current?.transcribeRecovered?.(),
+            },
+          ]);
+        } else if (error?.variant === "default") {
           // Informational outcomes (SCREEN_CONTEXT_SKIPPED after a successful
           // text-only retry) are notices, not failures: no card, no Retry.
           notify({ kind: "notice", title, body: description });
@@ -1575,6 +1613,7 @@ export const useAudioRecording = (options = {}) => {
       disposeCleanupRetry?.();
       disposeCleanupRetired?.();
       disposeForceStopped?.();
+      offSealed();
       manager.cleanup();
     };
   }, [

@@ -232,7 +232,14 @@ function beginRealtimeRecording({
     correlationId: typeof correlationId === "string" && correlationId ? correlationId : null,
     sessionId: typeof sessionId === "string" && sessionId ? sessionId : null,
   });
-  recordings.set(handle, { ticket: null, finished: false, refused: false, frames: 0 });
+  recordings.set(handle, {
+    ticket: null,
+    finished: false,
+    refused: false,
+    frames: 0,
+    sealEpoch: egress.currentSealAbortEpoch(),
+    sealedBeforeAudio: false,
+  });
   return handle;
 }
 
@@ -287,6 +294,10 @@ function finishRealtimeRecording(handle, outcome = "ok") {
   const state = handle && typeof handle === "object" ? recordings.get(handle) : null;
   if (!state || state.finished) return;
   state.finished = true;
+  // Sealing happened while this recording was live and before any audio of it
+  // left: its connection was cut, so the stop cannot be an empty success.
+  if (!state.ticket && egress.currentSealAbortEpoch() !== state.sealEpoch)
+    state.sealedBeforeAudio = true;
   const ticket = state.ticket;
   if (!ticket || ticket.settled) return;
   if (state.frames === 0) {
@@ -309,6 +320,13 @@ function realtimeRecordingPhase(handle) {
   if (!state) return null;
   const reason = state.ticket?.signal.aborted ? state.ticket.signal.reason : null;
   if (isSealedModeError(reason)) return state.frames > 0 ? "interrupted" : "refused";
+  // Sealed after connect, before this recording's first frame: none of its
+  // audio was sent, but the provider already had its session (connection,
+  // setup and any keyterms), so this is never reported as "nothing was sent".
+  const sealedSince =
+    state.sealedBeforeAudio ||
+    (state.frames === 0 && egress.currentSealAbortEpoch() !== state.sealEpoch);
+  if (sealedSince) return "interrupted";
   return state.refused ? "refused" : null;
 }
 

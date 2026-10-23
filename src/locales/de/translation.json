@@ -4453,7 +4453,8 @@
     "recovery": {
       "availableTitle": "Aufnahmen können wiederhergestellt werden",
       "transcribe": "Aufnahmen transkribieren",
-      "discard": "Aufnahmen verwerfen"
+      "discard": "Aufnahmen verwerfen",
+      "transcribeOne": "Transkribieren"
     },
     "confirmUnseal": {
       "title": "Abgeschotteten Modus ausschalten?",
@@ -4484,6 +4485,28 @@
       "message": "Die Systemeinstellungen werden in einer anderen App geöffnet. Der abgeschottete Modus gilt nicht für die Netzwerknutzung dieser App.",
       "keep": "Nicht öffnen",
       "open": "Einstellungen öffnen"
+    },
+    "blocked": {
+      "dictationPreflight": "Diktat pausiert: Der abgeschottete Modus ist aktiv",
+      "dictationPreflightDetail": "Deine Sprachroute sendet Audio von diesem Computer weg, und der abgeschottete Modus blockiert das. Es wurde nichts aufgenommen oder gesendet. Wähle eine Route auf dem Gerät oder schalte den abgeschotteten Modus aus.",
+      "nativeUnavailableTitle": "Lokales Diktat ist im abgeschotteten Modus nicht verfügbar",
+      "nativeUnavailableDetail": "Dieser Build kann Loquis lokale Sprach-Engine noch nicht isolieren, daher läuft sie nicht, solange der abgeschottete Modus aktiv ist. Es wurde nichts aufgenommen. Schalte den abgeschotteten Modus aus, um damit zu diktieren.",
+      "dictationTitle": "Der abgeschottete Modus hat dieses Diktat gestoppt",
+      "dictationKept": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Die Aufnahme ist im Verlauf gespeichert, sodass du sie transkribieren kannst, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
+      "dictationNotKept": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Die Aufnahme wurde nicht behalten.",
+      "dictationHeld": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Loqui hält die Aufnahme nur im Arbeitsspeicher, bis zu 30 Minuten oder bis du die App beendest. Transkribiere sie, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
+      "generic": "Der abgeschottete Modus ist aktiv, daher hat Loqui dies nicht gesendet. Es wurde nichts gesendet."
+    },
+    "paused": {
+      "dictationPreflightDetail": "Der abgeschottete Modus hat Loquis lokale Sprach-Engine vor dem Start pausiert. Es wurde nichts aufgenommen. Schalte den abgeschotteten Modus aus, um damit zu diktieren."
+    },
+    "interrupted": {
+      "dictationKept": "Der abgeschottete Modus wurde eingeschaltet, während dieses Diktat gesendet wurde, daher wurde es gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten. Die Aufnahme ist im Verlauf gespeichert.",
+      "dictationNotKept": "Der abgeschottete Modus wurde eingeschaltet, während dieses Diktat gesendet wurde, daher wurde es gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten. Die Aufnahme wurde nicht behalten.",
+      "dictationHeld": "Der abgeschottete Modus wurde eingeschaltet, während dieses Diktat gesendet wurde, daher wurde es gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten. Loqui hält die Aufnahme nur im Arbeitsspeicher, bis zu 30 Minuten oder bis du die App beendest.",
+      "dictationPartial": "Der abgeschottete Modus wurde während dieses Diktats eingeschaltet. Die bereits angekommenen Wörter bleiben erhalten. Der Anbieter hat möglicherweise einen Teil der Aufnahme erhalten.",
+      "cortiRetained": "Corti hat möglicherweise noch einen Teil dieses Diktats: Loqui kann Corti im abgeschotteten Modus nicht um das Löschen bitten und wird Corti auch später nicht kontaktieren, um es zu löschen.",
+      "generic": "Der abgeschottete Modus hat dies während des Sendens gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten."
     }
   },
   "setupFlow": {

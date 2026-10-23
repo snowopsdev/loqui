@@ -8,6 +8,22 @@ import {
 } from "./cancelBuffer";
 import { canStartDictation } from "../utils/dictationReadiness";
 import * as sealedStore from "../stores/sealedStore";
+import {
+  isDictationNativeUnavailable,
+  isDictationPausedNative,
+  isDictationSealed,
+} from "../lib/sealedMode";
+import {
+  claimRecovery,
+  holdForRecovery,
+  releaseRecovery,
+  shouldHoldInMemory,
+} from "../lib/sealedRecovery";
+import {
+  isSealedModeError,
+  sealedDictationMessageKey,
+  sealedPhase,
+} from "../utils/sealedModeError";
 import { createDisclosureTracker } from "./dictationDisclosure";
 import {
   captureDictationSession,
@@ -1141,6 +1157,227 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     return true;
   }
 
+  /**
+   * Plan 07 dictation pre-flight (spec §5.4). While Sealed mode is known to be
+   * on, a dictation whose speech route leaves this computer, or whose built-in
+   * engine main has not verified as available, does not start: nothing is
+   * recorded that main would refuse. Reads the press-time route of `session`
+   * through Plan 03's graph; unknown (null) never blocks. UX only: main still
+   * enforces the seal, and a seal mid-recording goes through recovery.
+   */
+  _sealedPreflight(session) {
+    const snapshot = sealedStore.getSealedSnapshot();
+    if (snapshot.sealed !== true) return null;
+    try {
+      return this._sealedPreflightFor(sessionSettings(session ?? null, getSettings()), snapshot);
+    } catch (error) {
+      // Sealed and the route cannot be resolved: fail closed, as main would.
+      logger.warn(
+        "Sealed pre-flight could not resolve the route",
+        { error: error?.message },
+        "audio"
+      );
+      return {
+        code: "SEALED_MODE",
+        phase: "refused",
+        titleKey: "sealedMode.blocked.dictationPreflight",
+        title: "sealedMode.blocked.dictationPreflight",
+        messageKey: "sealedMode.blocked.dictationPreflightDetail",
+        variant: "default",
+      };
+    }
+  }
+
+  _sealedPreflightFor(settings, snapshot) {
+    if (isDictationSealed(settings, true))
+      return {
+        code: "SEALED_MODE",
+        phase: "refused",
+        titleKey: "sealedMode.blocked.dictationPreflight",
+        title: "sealedMode.blocked.dictationPreflight",
+        messageKey: "sealedMode.blocked.dictationPreflightDetail",
+        variant: "default",
+      };
+    if (isDictationNativeUnavailable(settings, snapshot)) {
+      const paused = isDictationPausedNative(settings, snapshot);
+      const titleKey = paused
+        ? "sealedMode.blocked.dictationPreflight"
+        : "sealedMode.blocked.nativeUnavailableTitle";
+      return {
+        code: "SEALED_MODE",
+        phase: "refused",
+        titleKey,
+        title: titleKey,
+        messageKey: paused
+          ? "sealedMode.paused.dictationPreflightDetail"
+          : "sealedMode.blocked.nativeUnavailableDetail",
+        variant: "default",
+      };
+    }
+    return null;
+  }
+
+  _refuseSealedStart(candidate, refusal) {
+    this.cancelPreparedMicCapture(candidate);
+    this.releasePressCandidate(candidate);
+    this.onError?.(refusal);
+    return false;
+  }
+
+  /**
+   * Plan 07 recovery (A10). `operation` belongs to the failing pipeline: its
+   * owner-stamped audio snapshot and the exact Plan 04 session it captured.
+   * Never reads a newer manager session, Blob, privacy flag or setting.
+   * Transfers the session, context and tracker out of the manager before any
+   * await, so ordinary settlement cannot release them, then waits for the
+   * saver's acknowledgement before choosing History or RAM copy. Returns
+   * { recoveryHeld, audioKept }.
+   */
+  async _finishSealedFailure(error, operation) {
+    error.code = "SEALED_MODE";
+    const replayId = operation?.pipelineRecoveryId ?? null;
+    if (replayId != null && this._recoveryReplay === replayId) {
+      // A replay's claimed hold already owns this operation: no second save,
+      // no duplicate hold. processAudio's finally returns the session to it.
+      error.recoveryHeld = true;
+      error.messageKey = sealedDictationMessageKey(error, { held: true });
+      return { recoveryHeld: true, audioKept: false };
+    }
+    // Plan 04's helper transfers only the active session; a stale callback
+    // never detaches or releases a newer owner.
+    if (!operation?.session || this._activeSession !== operation.session) {
+      error.recoveryHeld = false;
+      error.messageKey = sealedDictationMessageKey(error);
+      return { recoveryHeld: false, audioKept: false };
+    }
+    const detached = this._detachSessionOperation();
+    const owned = operation.owned ?? {};
+    const held = Object.freeze({
+      owned: Object.freeze({
+        blob: owned.blob ?? null,
+        sessionId: owned.sessionId ?? detached.session.id,
+        private: owned.private === true || detached.session.private === true,
+        metadata: operation.metadata ?? owned.metadata ?? null,
+      }),
+      session: detached.session,
+      context: detached.context ?? null,
+      tracker: detached.tracker ?? null,
+    });
+    let saved = { audioKept: false };
+    if (held.owned.blob && !held.owned.private && owned.blob) {
+      try {
+        saved = await this.saveFailedTranscription(
+          error.message,
+          "SEALED_MODE",
+          operation.metadata ?? {},
+          owned
+        );
+      } catch (persistenceError) {
+        // A failed write is not an acknowledgement; the hold keeps the bytes.
+        logger.warn(
+          "Failed to persist sealed dictation",
+          { error: persistenceError?.message },
+          "audio"
+        );
+      }
+    }
+    const audioKept = saved?.audioKept === true;
+    const hold =
+      Boolean(held.owned.blob) &&
+      shouldHoldInMemory(error, { audioKept, privateTake: held.owned.private });
+    if (hold) holdForRecovery(held);
+    else {
+      // History acknowledged the audio, or there was none: close once.
+      held.context?.release();
+      held.tracker?.dispose?.();
+    }
+    error.recoveryHeld = hold;
+    error.messageKey = sealedDictationMessageKey(error, { held: hold, audioKept });
+    return { recoveryHeld: hold, audioKept };
+  }
+
+  /** The notice for a sealed dictation failure, after its copy is accurate. */
+  _sealedFailureNotice(error) {
+    return {
+      code: "SEALED_MODE",
+      phase: sealedPhase(error) ?? "refused",
+      titleKey: "sealedMode.blocked.dictationTitle",
+      title: "sealedMode.blocked.dictationTitle",
+      messageKey: error.messageKey,
+      recoveryHeld: error.recoveryHeld === true,
+      ...(error.providerRetained ? { providerRetained: error.providerRetained } : {}),
+    };
+  }
+
+  /**
+   * A stream that Sealed mode cut off with no text. The fallback audio was
+   * owner-stamped to this recording before its snapshot; persist or hold it
+   * from that snapshot, then report the failure with accurate copy.
+   */
+  async _preserveSealedStream(error, { owned, session, metadata, onboardingTake, recording }) {
+    await this._finishSealedFailure(error, { owned, session, metadata });
+    this.isProcessing = false;
+    this.onStateChange?.(
+      { isRecording: false, isProcessing: false, isStreaming: false },
+      onboardingTake,
+      recording
+    );
+    this.onError?.(this._sealedFailureNotice(error), onboardingTake, recording);
+    if (recording?.private) this.releasePrivateAudio(recording.ownedAudio);
+    return true;
+  }
+
+  /**
+   * "Transcribe" on the error notice or the unseal notice. Claims an idle
+   * pipeline and the oldest hold; the hold is removed only when the replay
+   * produced a transcript. Its exact session, context and tracker are attached
+   * for the replay and returned to the same claimed entry on every outcome.
+   */
+  async transcribeRecovered() {
+    if (
+      this.isRecording ||
+      this.isProcessing ||
+      this.isStreaming ||
+      this._startInProgress ||
+      this._streamingStopPromise ||
+      this._recoveryReplay != null
+    )
+      return { started: false, reason: "busy" };
+    const held = claimRecovery();
+    if (!held) return { started: false, reason: "none" };
+    const { owned, session, context, tracker } = held.operation;
+    // Still sealed for this recording's own route: replaying would only be
+    // refused again. The hold stays for after unseal.
+    const refusal = this._sealedPreflight(session);
+    if (refusal) {
+      releaseRecovery(held.id, { done: false });
+      this.onError?.(refusal);
+      return { started: false, reason: "sealed" };
+    }
+    this._recoveryReplay = held.id;
+    let pipeline = null;
+    try {
+      this.applySessionIntents(session, { context, tracker });
+      this._setOwnedAudio(owned.blob, { sessionId: owned.sessionId, private: owned.private });
+      pipeline = this._startProcessingPipeline();
+      pipeline.recoveryId = held.id;
+      this.isProcessing = true;
+      this.onStateChange?.({ isRecording: false, isProcessing: true, isStreaming: false });
+      await this.processAudio(owned.blob, { ...(owned.metadata ?? {}) }, pipeline);
+    } finally {
+      // processAudio returned the session to this entry before settlement on
+      // every outcome, and a cancellation returned it already. If processAudio
+      // never reached its own settlement, return it here, still guarded.
+      if (pipeline) {
+        this._returnReplayOperation(pipeline);
+        if (this._activeProcessingPipeline === pipeline) this._settleProcessingPipeline(pipeline);
+      }
+      this._recoveryReplay = null;
+      releaseRecovery(held.id, { done: pipeline?.outcome === "success" });
+    }
+    return { started: true, succeeded: pipeline?.outcome === "success" };
+  }
+
   _readSealed() {
     // The shared store is the supported present authority. Plan07 may extend
     // that boundary when its real producer exists; do not probe absent exports.
@@ -1934,6 +2171,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this._showUnknownRecipientBlockedStart();
       return null;
     }
+    // Plan 07: a sealed pre-flight refusal never opens the device. The start
+    // that follows reports it.
+    if (this._sealedPreflight(candidate)) {
+      if (this._preparedCaptureCandidate === candidate) this._preparedCaptureCandidate = null;
+      return null;
+    }
     try {
       const prepared = await this.preparedMicCapture.prepare(async () => {
         // Built before the mic opens so its graph is rendering by the time the
@@ -2197,6 +2440,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return this._showUnknownRecipientBlockedStart();
     }
     if (this._pressCandidate?.session !== candidate) return false;
+    // Plan 07 pre-flight, before the microphone is prepared or opened.
+    const sealedRefusal = this._sealedPreflight(candidate);
+    if (sealedRefusal) return this._refuseSealedStart(candidate, sealedRefusal);
     if (this._undo?.peek()) void this._undo.expireNow();
     let prepared = null;
     let preparedAdopted = false;
@@ -2885,8 +3131,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   _startProcessingPipeline() {
+    const session = this._activeSession ?? null;
     const pipeline = {
-      session: this._activeSession,
+      session,
+      // A9: the exact Plan 04 press-time context and tracker, captured before
+      // any await; never rebuilt later from manager fields.
+      context:
+        session && this._sessionContext?.sessionId === session.id ? this._sessionContext : null,
+      tracker: session ? (this._disclosure ?? null) : null,
+      recoveryId: null,
+      outcome: null,
       cancellationGeneration: this._processingCancellationGeneration ?? 0,
       onboardingTake: this._onboardingTake,
       recording: {
@@ -2922,9 +3176,47 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     return true;
   }
 
+  /**
+   * Plan 07 replay: hands the exact session, context and tracker back to the
+   * claimed recovery entry before ordinary settlement could release them.
+   * Only for the replay's own pipeline and only while it is still the active
+   * owner; a newer session is never detached.
+   */
+  _returnReplayOperation(pipeline) {
+    if (
+      pipeline?.recoveryId == null ||
+      pipeline.recoveryDetached ||
+      this._recoveryReplay !== pipeline.recoveryId ||
+      !pipeline.session ||
+      this._activeSession !== pipeline.session
+    )
+      return false;
+    this._detachSessionOperation();
+    pipeline.recoveryDetached = true;
+    return true;
+  }
+
   cancelProcessing() {
     this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;
     this.retireCapturedCleanup();
+    const replayPipeline = this._activeProcessingPipeline;
+    if (
+      this.isProcessing &&
+      replayPipeline?.recoveryId != null &&
+      this._recoveryReplay === replayPipeline.recoveryId
+    ) {
+      // A replay owns no ordinary Undo buffer: its claimed recovery entry is
+      // the owner. Cancel the work, return the operation to that entry, and
+      // let transcribeRecovered unclaim it for another try.
+      this._processingCancellationGeneration = (this._processingCancellationGeneration ?? 0) + 1;
+      this._requestStreamingCancellation();
+      this._returnReplayOperation(replayPipeline);
+      this._activeProcessingPipeline = null;
+      this.isProcessing = false;
+      this.onStateChange?.({ isRecording: false, isProcessing: false });
+      window.electronAPI?.dismissDictationPreview?.();
+      return true;
+    }
     if (this.isProcessing) {
       this._processingCancellationGeneration = (this._processingCancellationGeneration ?? 0) + 1;
       this._requestStreamingCancellation();
@@ -2998,6 +3290,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           },
           "audio"
         );
+        pipeline.outcome = "empty";
+        this._returnReplayOperation(pipeline);
         if (!this._settleProcessingPipeline(pipeline)) return;
         this.onTranscriptionComplete?.({ success: true, text: "" }, onboardingTake, recording);
         if (recording.private) this.releasePrivateAudio(recording.ownedAudio);
@@ -3068,6 +3362,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
             : {}),
           ...this._takePendingResultExtras(),
         };
+        pipeline.outcome = result?.success && result?.text ? "success" : "empty";
         this.onTranscriptionComplete?.(result, onboardingTake, recording);
 
         const roundTripDurationMs = Math.round(performance.now() - pipelineStart);
@@ -3093,6 +3388,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
         logger.info("Pipeline timing", timingData, "performance");
       } catch (error) {
+        pipeline.outcome = "failed";
         const errorAtMs = Math.round(performance.now() - pipelineStart);
 
         if (wasCancelled()) {
@@ -3129,10 +3425,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
               owned,
               wasCancelled
             );
-          else if (owned.blob)
+          else if (owned.blob && pipeline.recoveryId == null)
             this.saveFailedTranscription(error.message, error.code, metadata, owned);
         } else if (error.message === "No audio detected") {
           noAudioDetected = true;
+        } else if (isSealedModeError(error) && metadata.restoredFromCancel !== true) {
+          // Plan 07 (A10): detach this pipeline's own session before any await,
+          // save once, then show copy chosen from the saver's acknowledgement.
+          await this._finishSealedFailure(error, {
+            owned,
+            metadata,
+            session: pipeline.session,
+            pipelineRecoveryId: pipeline.recoveryId,
+          });
+          this.onError?.(this._sealedFailureNotice(error), onboardingTake, recording);
         } else {
           this.onError?.(
             {
@@ -3156,12 +3462,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
               owned,
               wasCancelled
             );
-          else if (owned.blob)
+          else if (owned.blob && pipeline.recoveryId == null)
+            // A replay's audio already lives in its claimed hold.
             this.saveFailedTranscription(error.message, error.code || null, metadata, owned);
         }
       } finally {
         const shouldNotifyNoAudio =
           !wasCancelled() && noAudioDetected && this._activeProcessingPipeline === pipeline;
+        this._returnReplayOperation(pipeline);
         this._settleProcessingPipeline(pipeline);
         if (retryHold) this._rehold(retryHold);
         // Every provider reports genuine silence through this one post-processing
@@ -4274,6 +4582,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw Object.assign(new Error(result.error || "Transcription failed"), {
           code: result.code,
           messageKey: result.messageKey,
+          // Sealed mode keeps its phase and any provider-side leftover (T9-M1).
+          ...(result.phase ? { phase: result.phase, details: { phase: result.phase } } : {}),
+          ...(result.providerRetained ? { providerRetained: result.providerRetained } : {}),
         });
       const rawText = result.text || "";
       if (
@@ -4827,6 +5138,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return this._showUnknownRecipientBlockedStart();
     }
     if (this._pressCandidate?.session !== candidate) return false;
+    // Plan 07 pre-flight, before the microphone or a provider socket.
+    const sealedRefusal = this._sealedPreflight(candidate);
+    if (sealedRefusal) return this._refuseSealedStart(candidate, sealedRefusal);
     if (this._undo?.peek()) void this._undo.expireNow();
     recording.sessionId = candidate.id;
     recording.private = candidate.private;
@@ -5395,15 +5709,39 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
   }
 
-  async _finalizeStreamingRecording(
+  /**
+   * Plan 07 (A11): the seal subscription lives for the whole provider stop and
+   * finalization, not just while the UI shows streaming. A seal seen at any
+   * point, or a typed sealed stop result, makes an empty stream a sealed
+   * failure that keeps its audio, never an empty success.
+   */
+  async _finalizeStreamingRecording(sessionId, options = {}) {
+    const seal = { seen: sealedStore.getSealedSnapshot().sealed === true };
+    const offSeal = sealedStore.subscribeSealed(() => {
+      if (sealedStore.getSealedSnapshot().sealed === true) seal.seen = true;
+    });
+    try {
+      return await this._finalizeStreamingRecordingOwned(sessionId, options, seal);
+    } finally {
+      offSeal();
+    }
+  }
+
+  async _finalizeStreamingRecordingOwned(
     sessionId,
-    { replay = false, shouldAbandon = neverCancelled } = {}
+    { replay = false, shouldAbandon = neverCancelled } = {},
+    seal = { seen: false }
   ) {
     const operation = this._streamingOperation;
     const transport = this._streamingTransport;
     const provider = transport?.adapter;
     const onboardingTake = this._onboardingTake;
     const recording = this._recordingContext ?? { private: this._recordingPrivate === true };
+    // A9/A11: this recording's own Plan 04 session, captured before any await.
+    const streamSession =
+      this._activeSession && this._activeSession.id === recording.sessionId
+        ? this._activeSession
+        : null;
     if (
       sessionId !== null &&
       sessionId !== undefined &&
@@ -5586,8 +5924,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (wasCancelled()) return abandonFinalization();
     const tForceEndpoint = performance.now();
 
+    // Keep the typed rejection (code, phase, cause) from the actual stop path.
+    let providerStopError = null;
     const stopResult = await this._stopStreamingTransport(transport).catch((e) => {
-      logger.debug("Streaming disconnect error", { error: e.message }, "streaming");
+      providerStopError = e;
+      logger.debug("Streaming disconnect error", { error: e?.message }, "streaming");
       return { success: false };
     });
     const tTerminate = performance.now();
@@ -5610,6 +5951,52 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     this.cleanupStreamingListeners(sessionId);
     if (wasCancelled()) return true;
+
+    // Plan 07: decided only after final, partial and stop-result text are in.
+    const sealedStop = isSealedModeError(providerStopError)
+      ? providerStopError
+      : isSealedModeError(stopResult)
+        ? stopResult
+        : null;
+    if (!replay && (sealedStop || seal.seen)) {
+      const phase = sealedPhase(sealedStop) ?? "interrupted";
+      if (!finalText) {
+        const error =
+          sealedStop instanceof Error
+            ? sealedStop
+            : Object.assign(
+                new Error(
+                  typeof sealedStop?.error === "string"
+                    ? sealedStop.error
+                    : "[SEALED_MODE:interrupted] Sealed mode interrupted this dictation; the provider may have received part of it."
+                ),
+                { code: "SEALED_MODE", phase, details: { phase } }
+              );
+        return this._preserveSealedStream(error, {
+          owned: recording.ownedAudio,
+          session: streamSession,
+          metadata: { durationSeconds, analyticsOccurredAt: analyticsOccurredAt.toISOString() },
+          onboardingTake,
+          recording,
+        });
+      }
+      if (phase === "interrupted") {
+        // Words already arrived: keep them, and say the provider may have
+        // received part of the recording. Cleanup still goes through main's gate.
+        this.onError?.(
+          {
+            code: "SEALED_MODE",
+            phase: "interrupted",
+            titleKey: "sealedMode.blocked.dictationTitle",
+            title: "sealedMode.blocked.dictationTitle",
+            messageKey: "sealedMode.interrupted.dictationPartial",
+            variant: "default",
+          },
+          onboardingTake,
+          recording
+        );
+      }
+    }
 
     logger.info(
       "Streaming stop timing",

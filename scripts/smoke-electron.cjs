@@ -375,15 +375,15 @@ async function smoke() {
       !!fixture.note && !!fixture.meeting && !!fixture.conversation
     );
     await panel.evaluate((id) => window.electronAPI.agentOpenNote(id), fixture.note);
-    // Notes have a separate optional introduction. Complete it through its UI.
-    const notesIntro = panel.getByRole("button", {
-      name: translation.notes.onboarding.getStarted,
-      exact: true,
-    });
-    await notesIntro.waitFor();
-    await notesIntro.click();
+    // Notes open straight into the editor; the Actions introduction is opt-in.
     const title = panel.getByLabel(translation.notes.editor.noteTitle, { exact: true });
     await title.waitFor();
+    verify(
+      "a note opens without the Actions introduction gate",
+      (await panel
+        .getByRole("button", { name: translation.notes.onboarding.getStarted, exact: true })
+        .count()) === 0
+    );
     await title.fill(`Edited note ${token}`);
     await title.press("Tab");
     await waitFor(

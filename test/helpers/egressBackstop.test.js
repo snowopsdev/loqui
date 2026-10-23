@@ -1492,14 +1492,17 @@ test("process.binding reads the name once: a flipping toString cannot swap the b
     };
   };
   flags.sealed = true;
-  const allowedFirst = flipping("util", "tcp_wrap");
-  const util = process.binding(allowedFirst);
-  assert.equal(typeof util, "object");
-  assert.equal(allowedFirst.reads, 1, "the name is read exactly once");
-  const refusedFirst = flipping("tcp_wrap", "util");
-  assert.throws(() => process.binding(refusedFirst), isSealedModeError);
-  assert.equal(refusedFirst.reads, 1);
-  flags.sealed = false;
+  try {
+    const allowedFirst = flipping("util", "tcp_wrap");
+    const util = process.binding(allowedFirst);
+    assert.equal(typeof util, "object");
+    assert.equal(allowedFirst.reads, 1, "the name is read exactly once");
+    const refusedFirst = flipping("tcp_wrap", "util");
+    assert.throws(() => process.binding(refusedFirst), isSealedModeError);
+    assert.equal(refusedFirst.reads, 1);
+  } finally {
+    flags.sealed = false;
+  }
 });
 
 // Task 18 T18-03: a loopback forwarder must not carry a request for another

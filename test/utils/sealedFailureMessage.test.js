@@ -173,8 +173,13 @@ test("every I6 surface checks for a sealed failure before showing main's text", 
     // R2-m1: the cleanup notice (:633) joins the failure and result sites.
     "src/components/ControlPanel.tsx":
       /sealedFailureMessage\(cleanupError, t\)[\s\S]*sealedFailureMessage\(failure, t\)[\s\S]*sealedFailureMessage\(result, t\)/,
+    // TR-m1: the sealed test comes before the 401/403 mapping.
     "src/components/OpenAICompatiblePanel.tsx":
-      /const message = sealedFailureMessage\(error, t\) \?\? raw;/,
+      /const sealedFailure = sealedFailureMessage\(error, t\);[\s\S]*const unauthorized = !sealedFailure && /,
+    // TR-1: the live-dictation cleanup notice and its Retry alert.
+    "src/components/voiceNotices.ts": /sealedFailureMessage\(failure, t\) \?\? failure\.message/,
+    "src/helpers/retryDictationCleanup.js":
+      /sealedFailureMessage\(error, t\) \?\? String\(error\?\.message \?\? error\)/,
     "src/components/settings/routing/usePatchbayBoard.ts": /sealedFailureMessage\(error, t\)/,
     "src/components/MeetingRecordingMount.tsx": /sealedFailureMessage\(\{ error \}, t\)/,
     "src/stores/meetingRecordingStore.ts":

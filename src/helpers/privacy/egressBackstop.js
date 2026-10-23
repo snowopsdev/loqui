@@ -829,8 +829,8 @@ function installDgramHook() {
 // internalBinding, and no shipped dependency asks for these names. Whether
 // Electron's own code calls process.binding for them is NOT VERIFIED: Electron
 // was not run, and no Task 16 checklist row covers it yet. The name is read
-// once and the primitive
-// is passed on, so a toString that changes between reads cannot swap it.
+// once and the primitive is passed on, so a toString that changes between
+// reads cannot swap it.
 // A binding obtained before the seal (or before boot) is not taken back, so
 // this narrows the surface; it is not a boundary (threat model, Layer B).
 const SEALED_BINDINGS = new Set([

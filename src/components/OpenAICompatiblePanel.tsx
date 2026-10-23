@@ -186,8 +186,10 @@ export default function OpenAICompatiblePanel({
       void describe(); // refresh disclosure only; a new explicit click is required
       const raw = (error as Error).message || t("reasoning.custom.unableToLoadModels");
       // A sealed refusal or interruption shows translated copy, never main's text.
-      const message = sealedFailureMessage(error, t) ?? raw;
-      const unauthorized = /\b(401|403)\b/.test(raw);
+      const sealedFailure = sealedFailureMessage(error, t);
+      const message = sealedFailure ?? raw;
+      // A sealed refusal names the host, so a :401 port must never read as unauthorized.
+      const unauthorized = !sealedFailure && /\b(401|403)\b/.test(raw);
       setListing({
         base,
         identity,

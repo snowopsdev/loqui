@@ -1,5 +1,6 @@
 import type { NoticeAction, NoticeInput } from "./ui/notices";
 import type { CleanupFailure } from "../stores/cleanupFailureStore";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
@@ -27,7 +28,10 @@ export function buildCleanupFailureNotice(
     copyCommand?: () => Promise<void>;
   }
 ): NoticeInput {
-  const cause = failure.messageKey ? t(failure.messageKey, failure.messageParams) : failure.message;
+  // A sealed refusal reaches here as main's English text through the IPC wrapper (TR-1).
+  const cause = failure.messageKey
+    ? t(failure.messageKey, failure.messageParams)
+    : (sealedFailureMessage(failure, t) ?? failure.message);
   const guidance = failure.actionKey ? t(failure.actionKey) : failure.action;
   const body = [cause, guidance, failure.copyCommand].filter(Boolean).join("\n\n");
   return {

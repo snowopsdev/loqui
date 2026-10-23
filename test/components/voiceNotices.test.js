@@ -24,6 +24,24 @@ test("cleanup failure is an amber notice with Retry cleanup first, never red (VO
   );
 });
 
+// TR-1: the live-dictation cleanup notice gets main's text through the IPC wrapper
+// (ReasoningService adds no messageKey), so a sealed refusal must be translated.
+test("cleanup failure: a sealed refusal or interruption is translated copy, never main's text (TR-1)", async () => {
+  const { buildCleanupFailureNotice } = await load();
+  const actions = { retry: async () => {}, openSettings: () => {} };
+  const refused =
+    "Error invoking remote method 'personal-inference:text-generate': SealedModeError: [SEALED_MODE] Sealed mode blocked cleanup to api.example.test before any socket opened; nothing was sent.";
+  const interrupted = "[SEALED_MODE:interrupted] Sealed mode stopped cleanup mid-transfer";
+  const body = (failure) => buildCleanupFailureNotice(failure, t, actions).body;
+  assert.equal(body({ message: refused, rawText: "hi" }), "sealedMode.blocked.generic");
+  assert.equal(body({ message: interrupted }), "sealedMode.interrupted.generic");
+  assert.equal(body({ message: "x", code: "SEALED_MODE" }), "sealedMode.interrupted.generic");
+  // An explicit messageKey still wins, and an ordinary failure keeps its own text.
+  assert.equal(body({ message: refused, messageKey: "some.key" }), "some.key");
+  assert.equal(body({ message: "HTTP 503" }), "HTTP 503");
+  assert.equal(String(body({ message: refused })).includes("SEALED_MODE"), false);
+});
+
 test("cleanup failure without the raw words offers Settings only", async () => {
   const { buildCleanupFailureNotice } = await load();
   const notice = buildCleanupFailureNotice({ message: "x" }, t, {

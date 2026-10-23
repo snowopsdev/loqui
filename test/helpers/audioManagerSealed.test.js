@@ -249,15 +249,44 @@ test("a stale sealed callback never detaches or releases a newer session", async
   const newerContext = track(createSessionContext({ sessionId: newer.id }));
   manager.applySessionIntents(newer, { context: newerContext });
   const error = sealedError();
+  const oldAudio = new Blob(["old"]);
   const result = await manager._finishSealedFailure(error, {
-    owned: Object.freeze({ blob: new Blob(["old"]), sessionId: oldSession.id, private: false }),
+    owned: Object.freeze({ blob: oldAudio, sessionId: oldSession.id, private: false }),
     session: oldSession,
   });
-  assert.deepEqual(result, { recoveryHeld: false, audioKept: false });
+  // T13-M3: the stale owner's audio is not dropped. With nothing saved it is
+  // held in memory under its own session, with no context to close.
+  assert.deepEqual(result, { recoveryHeld: true, audioKept: false });
   assert.equal(manager._activeSession === newer, true);
   assert.equal(manager._sessionContext === newerContext, true);
   assert.equal(newerContext.releaseCount, 0);
+  assert.equal(recovery.recoveryCount(), 1);
+  const claim = recovery.claimRecovery();
+  assert.equal(claim.operation.owned.blob === oldAudio, true);
+  assert.equal(claim.operation.session === oldSession, true);
+  assert.equal(claim.operation.context, null);
+  recovery.releaseRecovery(claim.id, { done: true });
+});
+
+test("a stale sealed callback saves a public take to History when retention keeps audio", async (t) => {
+  const fixtures = await setup(t);
+  const { createManager, createSessionContext, recovery, window } = fixtures;
+  fixtures.retention({ dataRetentionEnabled: true, audioRetentionDays: 30 });
+  const counts = persistence(window, "kept");
+  const manager = createManager();
+  const oldSession = captured(fixtures, { id: "old-kept" });
+  const newer = captured(fixtures, { id: "new-kept" });
+  manager.applySessionIntents(newer, {
+    context: track(createSessionContext({ sessionId: newer.id })),
+  });
+  const result = await manager._finishSealedFailure(sealedError(), {
+    owned: Object.freeze({ blob: new Blob(["old"]), sessionId: oldSession.id, private: false }),
+    session: oldSession,
+  });
+  assert.deepEqual(result, { recoveryHeld: false, audioKept: true });
+  assert.deepEqual(counts, { rows: 1, audio: 1 });
   assert.equal(recovery.recoveryCount(), 0);
+  assert.equal(manager._activeSession === newer, true);
 });
 
 function replayManager(createManager, transcribe, extra = {}) {
@@ -781,6 +810,29 @@ for (const [label, retention, held, mode] of [
   });
 }
 
+// T13-M4 (A11): a seal that cuts off an Undo streaming replay with no words is
+// a failed finalization, so the replay re-holds its copy in a fresh Undo
+// window; never {success:true, text:""}.
+test("streaming: a sealed stop during an Undo replay with no words fails the replay, never an empty success", async (t) => {
+  const fixtures = await setup(t);
+  fixtures.retention({ dataRetentionEnabled: false, audioRetentionDays: 0 });
+  const s = streamingManager(fixtures, {
+    stop: async () => ({
+      success: false,
+      text: "",
+      code: "SEALED_MODE",
+      phase: "interrupted",
+      error:
+        "[SEALED_MODE:interrupted] Sealed mode interrupted dictationStt; the provider may have received part of the request.",
+    }),
+  });
+  await assert.rejects(
+    s.manager._finalizeStreamingRecording(3, { replay: true, shouldAbandon: () => false }),
+    (error) => error.code === "SEALED_MODE" && error.phase === "interrupted"
+  );
+  assert.deepEqual(s.completions, [], "no empty success");
+});
+
 test("streaming: a rejected stop keeps its typed sealed error", async (t) => {
   const fixtures = await setup(t);
   fixtures.retention({ dataRetentionEnabled: false, audioRetentionDays: 0 });
@@ -926,6 +978,42 @@ test("pre-flight: a built-in local engine while sealed is unavailable in 07a; no
   assert.deepEqual(opened, []);
   assert.equal(errors[0].titleKey, "sealedMode.blocked.nativeUnavailableTitle");
   assert.equal(errors[0].messageKey, "sealedMode.blocked.nativeUnavailableDetail");
+});
+
+// Final review m5: Undo's sealed check includes the native-availability
+// overlay, so a sealed Undo on a built-in engine never runs it; and a local
+// engine's sealed refusal keeps its code.
+test("Undo's sealed check refuses a built-in local engine like the pre-flight does", async (t) => {
+  const fixtures = await setup(t, {
+    transcriptionMode: "local",
+    useLocalWhisper: true,
+    localTranscriptionProvider: "whisper",
+    whisperModel: "base",
+  });
+  const manager = fixtures.createManager();
+  const session = captured(fixtures, { id: "undo-local" });
+  fixtures.store.useSealedStore.setState({ sealed: false, known: true });
+  assert.equal(await manager._sealedBlocks(session), false);
+  fixtures.store.useSealedStore.setState({ sealed: true, known: true });
+  assert.equal(await manager._sealedBlocks(session), true);
+});
+
+test("a local engine's sealed refusal keeps its SEALED_MODE code", async (t) => {
+  const fixtures = await setup(t);
+  const manager = fixtures.createManager();
+  const refusal =
+    "Error invoking remote method 'transcribe-local-whisper': [SEALED_MODE] Sealed mode blocked nativeLaunch to native-whisper-server before any socket opened; nothing was sent.";
+  fixtures.window.electronAPI.transcribeLocalWhisper = async () => {
+    throw new Error(refusal);
+  };
+  fixtures.window.electronAPI.transcribeLocalParakeet = async () => {
+    throw new Error(refusal.replace("whisper-server", "sherpa-onnx"));
+  };
+  for (const run of [
+    () => manager.processWithLocalWhisper(new Blob(["pcm"]), "base", {}),
+    () => manager.processWithLocalParakeet(new Blob(["pcm"]), "parakeet-tdt-0.6b-v3", {}),
+  ])
+    await assert.rejects(run(), (error) => error.code === "SEALED_MODE");
 });
 
 test("pre-flight: an unknown seal never blocks; an open seal never blocks", async (t) => {

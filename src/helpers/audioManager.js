@@ -1073,6 +1073,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   async _sealedBlocks(session) {
     if (!this._readSealed()) return false;
+    // The same pre-flight a new press gets, including the native-availability
+    // overlay: a built-in engine does not run while sealed (final review m5).
+    if (this._sealedPreflight(session)) return true;
     if (!session.routes) return true; // routes could not be resolved (Task 6): fail closed while sealed
     const routes = session.routes ?? {};
     const { intents, settings } = session;
@@ -1264,13 +1267,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return { recoveryHeld: true, audioKept: false };
     }
     // Plan 04's helper transfers only the active session; a stale callback
-    // never detaches or releases a newer owner.
-    if (!operation?.session || this._activeSession !== operation.session) {
+    // never detaches or releases a newer owner. Its audio is still kept
+    // (T13-M3): saved from the owned snapshot, or held under its own session
+    // with no context or tracker, which belong to whoever owns them now.
+    const stale = !operation?.session || this._activeSession !== operation.session;
+    if (stale && !(operation?.session && operation?.owned?.blob)) {
       error.recoveryHeld = false;
       error.messageKey = sealedDictationMessageKey(error);
       return { recoveryHeld: false, audioKept: false };
     }
-    const detached = this._detachSessionOperation();
+    const detached = stale
+      ? { session: operation.session, context: null, tracker: null }
+      : this._detachSessionOperation();
     const owned = operation.owned ?? {};
     const held = Object.freeze({
       owned: Object.freeze({
@@ -3739,6 +3747,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       if (error.message === "No audio detected") {
         throw error;
       }
+      // Main's spawn guard refused the engine while sealed: the IPC message
+      // keeps the marker, and the error keeps its code (final review m5).
+      if (isSealedModeError(error) && error.code !== "SEALED_MODE") error.code = "SEALED_MODE";
 
       throw error;
     }
@@ -3827,6 +3838,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       if (error.message === "No audio detected") {
         throw error;
       }
+      // Main's spawn guard refused the engine while sealed: the IPC message
+      // keeps the marker, and the error keeps its code (final review m5).
+      if (isSealedModeError(error) && error.code !== "SEALED_MODE") error.code = "SEALED_MODE";
 
       throw error;
     }
@@ -6084,6 +6098,23 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           recording
         );
       }
+    }
+
+    // T13-M4 (A11): a seal that cut an Undo replay off with no words is a
+    // failed finalization, so the replay re-holds its copy in a fresh Undo
+    // window. Never an empty success.
+    if (replay && !finalText && (sealedStop || seal.seen)) {
+      const phase = sealedPhase(sealedStop) ?? "interrupted";
+      throw sealedStop instanceof Error
+        ? Object.assign(sealedStop, { code: "SEALED_MODE" })
+        : Object.assign(
+            new Error(
+              typeof sealedStop?.error === "string"
+                ? sealedStop.error
+                : "[SEALED_MODE:interrupted] Sealed mode interrupted this dictation; the provider may have received part of it."
+            ),
+            { code: "SEALED_MODE", phase, details: { phase } }
+          );
     }
 
     logger.info(

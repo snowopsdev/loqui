@@ -362,8 +362,10 @@ const MANUAL_CHECKLIST = [
     id: "T7a-M2",
     source: "Task 7a review M2",
     check:
-      "Same-origin window.open('') popup from the main, pill and notification windows: either " +
-      "denied, or the popup has no RTCPeerConnection and no bridge before any opener script runs.",
+      "Same-origin window.open('') popup from the main, pill and notification windows: every " +
+      "window's navigation guard now denies window.open, so confirm no popup appears; if one " +
+      "ever does, it must have no RTCPeerConnection (WebRTC) and no electronAPI bridge before " +
+      "any opener script runs.",
   },
   {
     id: "T11-M7",
@@ -406,6 +408,18 @@ const MANUAL_CHECKLIST = [
       "127.0.0.1 fixture, never a real model host. No personal profile, no real provider. " +
       "Anything that broke because it relied on a relaxed sandbox or web security is fixed at " +
       "its cause, never by relaxing the settings again.",
+  },
+  {
+    id: "T18-02",
+    source: "Task 18 security review T18-02",
+    check:
+      "Chromium's own fetches that bypass session.webRequest, during a sealed run with links and " +
+      "a text field in use: in the net-export netlog and the packet capture, look for the " +
+      "Hunspell dictionary host redirector.gvt1.com, PAC/WPAD lookups (the wpad name and " +
+      "proxy-script fetches), and any socket that has no webRequest event (preconnect and DNS " +
+      "hints). Sealing sets a direct proxy, disables the spellchecker and points the dictionary " +
+      "URL at an unroutable loopback port; none of that has been observed in a real run yet. Any of these " +
+      "while sealed is a finding (raise T18-02 to High).",
   },
   {
     id: "OBS-PACKET",

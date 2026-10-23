@@ -823,6 +823,7 @@ test("not-run: missing prerequisites exit non-zero with NOT RUN and a non-pass r
     "T10",
     "T7a-SMOKE",
     "OBS-PACKET",
+    "T18-02",
   ])
     assert.ok(ids.includes(id), id);
   assert.equal(electronLoaded(), false, "the not-run path never loads Electron or Playwright");
@@ -1248,6 +1249,17 @@ test("the checklist carries the Task 7a desktop smoke (fixture-only downloads) a
   assert.match(packet.check, /real hostnames/i);
   assert.match(byId["STEP-4"].check, /controlLoopback|loopback/);
   assert.match(byId["STEP-4"].check, /--i-understand-this-launches-electron/);
+  // Task 18 T18-02: Chromium's own fetches that never reach session.webRequest.
+  const chromium = byId["T18-02"];
+  assert.ok(chromium, "T18-02 present");
+  assert.match(chromium.check, /redirector\.gvt1\.com/);
+  assert.match(chromium.check, /\bwpad\b/);
+  assert.match(chromium.check, /no webRequest event/);
+  assert.match(chromium.check, /net-export|netlog/i);
+  // The popup check names WebRTC and the bridge in a same-origin popup (T7a-M2).
+  assert.match(byId["T7a-M2"].check, /popup/);
+  assert.match(byId["T7a-M2"].check, /RTCPeerConnection/);
+  assert.match(byId["T7a-M2"].check, /bridge/);
 });
 
 // --- main(): the completed-run, crashed-run and refused paths, with an injected runner ---------

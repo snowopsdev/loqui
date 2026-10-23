@@ -86,7 +86,9 @@ async function openExternalUrl(url, { event } = {}) {
       );
     }
   }
-  await shell.openExternal(url);
+  // The serialized URL the guard and its dialog saw, never the raw caller
+  // string (T11-M2).
+  await shell.openExternal(href);
   return true;
 }
 

@@ -1562,6 +1562,12 @@ if (gotSingleInstanceLock) {
       return new Promise((resolve) => setTimeout(resolve, delay));
     })
     .then(() => {
+      // A mailto: or other external-protocol hand-off goes through main's
+      // guarded opener (sealed confirmation), never straight to the OS (K1).
+      require("./src/helpers/navigationGuard").routeOpenExternalPermission(
+        session.defaultSession,
+        (url) => void externalUrlOpener.openExternalUrl(url).catch(() => {})
+      );
       if (process.platform === "win32") {
         session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
           // Only the loopback audio track is used; the video source is

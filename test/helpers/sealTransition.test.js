@@ -350,3 +350,38 @@ test("the seal stops meeting detection and unsealing resumes it", async (t) => {
   await transition.apply(true);
   assert.ok(transition.snapshot().failures.includes("meetingDetectionPause"));
 });
+
+// Task 18 T18-02: the seal transition closes PAC/WPAD and dictionary
+// downloads on watched sessions at once, and unsealing restores them.
+test("the seal hardens watched sessions and unsealing restores them", async (t) => {
+  const h = harness(t);
+  const calls = [];
+  backstop.watchSession({
+    webRequest: {
+      onBeforeRequest() {},
+      onBeforeSendHeaders() {},
+      onBeforeRedirect() {},
+      onCompleted() {},
+      onErrorOccurred() {},
+    },
+    setProxy: async (config) => calls.push(["proxy", config.mode]),
+    isSpellCheckerEnabled: () => true,
+    setSpellCheckerEnabled: (enabled) => calls.push(["spellcheck", enabled]),
+    setSpellCheckerDictionaryDownloadURL: (url) => calls.push(["dictionaryUrl", url]),
+  });
+  const sealing = h.transition.apply(true);
+  assert.deepEqual(calls[0], ["proxy", "direct"], "closed synchronously with the seal");
+  await sealing;
+  await h.transition.apply(false);
+  assert.deepEqual(
+    calls.map((c) => c.join(":")),
+    [
+      "proxy:direct",
+      "spellcheck:false",
+      "dictionaryUrl:http://127.0.0.1:9/",
+      "proxy:system",
+      "dictionaryUrl:https://redirector.gvt1.com/edgedl/chrome/dict/",
+      "spellcheck:true",
+    ]
+  );
+});

@@ -188,11 +188,14 @@ function createSealTransition({
     if (typeof sealed !== "boolean") throw new TypeError("sealed must be a boolean");
     const request = ++sequence;
     let pendingCancelFailed = false;
+    let sessionsHardened = null;
     if (sealed) {
       latestSeal = request;
       state.set(true);
       gate.abortAllRemote();
       backstop.severAll();
+      // PAC/WPAD and dictionary downloads bypass webRequest (T18-02).
+      sessionsHardened = backstop.syncSessionHardening();
       try {
         cancelPending();
       } catch {
@@ -206,6 +209,9 @@ function createSealTransition({
         // A newer seal supersedes an unseal waiting behind a running barrier.
         if (latestSeal > request) return;
         state.set(false);
+        // Restores the system proxy and dictionary settings (re-hardens if a
+        // newer seal already arrived).
+        if (!(await backstop.syncSessionHardening())) operations.push("sessionRestore");
         await calendars("start");
         if (!state.isSealed()) await hook(getUpdateManager, "resumeAfterSeal", "updatesResume");
         if (!state.isSealed()) await meetingDetection("resumeAfterSeal", "meetingDetectionResume");
@@ -218,6 +224,7 @@ function createSealTransition({
       }
       state.set(true);
       recheck();
+      if (!(await sessionsHardened)) operations.push("sessionHardening");
       await hook(getUpdateManager, "pauseForSeal", "updatesPause");
       await meetingDetection("pauseForSeal", "meetingDetectionPause");
       await calendars("stop");

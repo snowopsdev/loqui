@@ -33,6 +33,18 @@ test("every exported window config is sandboxed with web security enabled", () =
   assert.equal((windowManager.match(/\.\.\.NOTIFICATION_WINDOW_CONFIG/g) || []).length, 2);
 });
 
+// Task 18 T18-02: windows without text input never run the spellchecker, so
+// its dictionary download cannot start from them. The main window keeps it
+// for the Assistant's composer; the session turns it off while sealed.
+test("notification and control-panel windows run no spellchecker", () => {
+  const {
+    NOTIFICATION_WINDOW_CONFIG,
+    CONTROL_PANEL_CONFIG,
+  } = require("../../src/helpers/windowConfig");
+  assert.equal(NOTIFICATION_WINDOW_CONFIG.webPreferences.spellcheck, false);
+  assert.equal(CONTROL_PANEL_CONFIG.webPreferences.spellcheck, false);
+});
+
 test("renderer documents disable DNS prefetch, frames, and objects", () => {
   const html = fs.readFileSync(path.join(repoRoot, "src/index.html"), "utf8");
   assert.match(html, /<meta http-equiv="x-dns-prefetch-control" content="off"\s*\/>/);

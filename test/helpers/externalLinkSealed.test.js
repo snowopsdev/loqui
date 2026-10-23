@@ -217,7 +217,8 @@ test("open-external over IPC reports a declined link as declined, not failed", a
     success: false,
     error: "Blocked URL scheme: file:",
   });
-  assert.deepEqual(opened, ["https://example.com"]);
+  // The OS receives the serialized URL the guard saw (T11-M2).
+  assert.deepEqual(opened, ["https://example.com/"]);
 });
 
 // The real ipcHandlers.js settings openers, evaluated with Electron's IPC
@@ -360,4 +361,18 @@ test("all eleven locales render the link and settings dialogs through the real f
       for (const text of [options.title, options.message, options.detail ?? ""])
         assert.doesNotMatch(text, /{{|sealedMode\./, locale);
   }
+});
+
+// T11-M2: the OS receives exactly the serialized URL the guard (and its
+// dialog) saw, never the raw caller string.
+test("the OS gets the same serialized URL the confirmation was asked about", async () => {
+  const asked = [];
+  setExternalOpenGuard(async (url) => {
+    asked.push(url);
+    return true;
+  });
+  assert.equal(await openExternalUrl("HTTPS://EXAMPLE.com/a b?q=1"), true);
+  assert.equal(await openExternalUrl("mailto:Someone@Example.com"), true);
+  assert.deepEqual(opened, asked);
+  assert.deepEqual(opened, ["https://example.com/a%20b?q=1", "mailto:Someone@Example.com"]);
 });

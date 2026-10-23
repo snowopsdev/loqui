@@ -1464,3 +1464,77 @@ test("Chromium judge treats a file: URL with a remote host as remote", () => {
   flags.sealed = false;
   assert.equal(backstop.judgeChromiumRequest("file:///tmp/fixture").cancel, false);
 });
+
+// Task 18 T18-02: Chromium fetches that bypass webRequest (PAC/WPAD proxy
+// resolution, the Hunspell dictionary download) are closed on every watched
+// session while sealed, and restored on unseal. The sessions are recording
+// fakes: nothing reaches Chromium.
+function hardenableSession({ spellcheck = true } = {}) {
+  const calls = [];
+  const s = {
+    webRequest: {
+      onBeforeRequest() {},
+      onBeforeSendHeaders() {},
+      onBeforeRedirect() {},
+      onCompleted() {},
+      onErrorOccurred() {},
+    },
+    calls,
+    spellcheck,
+    setProxy: async (config) => {
+      calls.push(["proxy", config]);
+    },
+    isSpellCheckerEnabled: () => s.spellcheck,
+    setSpellCheckerEnabled: (enabled) => {
+      s.spellcheck = enabled;
+      calls.push(["spellcheck", enabled]);
+    },
+    setSpellCheckerDictionaryDownloadURL: (url) => calls.push(["dictionaryUrl", url]),
+  };
+  return s;
+}
+test("sealing closes proxy resolution and dictionary downloads on watched sessions; unsealing restores them", async () => {
+  const s = hardenableSession();
+  backstop.watchSession(s);
+  assert.deepEqual(s.calls, [], "unsealed: nothing changes");
+  flags.sealed = true;
+  assert.equal(await backstop.syncSessionHardening(), true);
+  assert.deepEqual(s.calls, [
+    ["proxy", { mode: "direct" }],
+    ["spellcheck", false],
+    ["dictionaryUrl", "http://127.0.0.1:9/"],
+  ]);
+  assert.equal(await backstop.syncSessionHardening(), true);
+  assert.equal(s.calls.length, 3, "idempotent while sealed");
+  flags.sealed = false;
+  assert.equal(await backstop.syncSessionHardening(), true);
+  assert.deepEqual(s.calls.slice(3), [
+    ["proxy", { mode: "system" }],
+    ["dictionaryUrl", "https://redirector.gvt1.com/edgedl/chrome/dict/"],
+    ["spellcheck", true],
+  ]);
+  // A session created while sealed is closed as soon as it is watched, and a
+  // spellchecker the user had off stays off after unsealing.
+  flags.sealed = true;
+  const late = hardenableSession({ spellcheck: false });
+  backstop.watchSession(late);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(late.calls.slice(0, 3), [
+    ["proxy", { mode: "direct" }],
+    ["spellcheck", false],
+    ["dictionaryUrl", "http://127.0.0.1:9/"],
+  ]);
+  flags.sealed = false;
+  await backstop.syncSessionHardening();
+  assert.equal(late.spellcheck, false);
+  // A failing session API is a named failure, never a silent success.
+  const broken = hardenableSession();
+  broken.setProxy = async () => {
+    throw new Error("fixture");
+  };
+  backstop.watchSession(broken);
+  flags.sealed = true;
+  assert.equal(await backstop.syncSessionHardening(), false);
+  flags.sealed = false;
+  await backstop.syncSessionHardening();
+});

@@ -764,12 +764,67 @@ function finishChromium(key, { outcome, status = null, errorClass = null }) {
   }
 }
 
+// Chromium fetches that never reach webRequest (Task 18 T18-02): PAC/WPAD
+// proxy auto-configuration and the Hunspell dictionary download. While sealed,
+// every watched session uses a direct (no proxy script) connection, its
+// spellchecker is off, and the dictionary URL points at an unroutable loopback
+// port. Unsealing restores the system proxy, Chromium's default dictionary
+// server and the spellchecker's previous state. Electron has no getter for the
+// proxy or dictionary URL, and Loqui never sets either elsewhere, so those
+// return to Electron's defaults. This narrows what Chromium may fetch; it is
+// not a network boundary (NOT VERIFIED at runtime without Electron).
+const SEALED_DICTIONARY_URL = "http://127.0.0.1:9/";
+const DEFAULT_DICTIONARY_URL = "https://redirector.gvt1.com/edgedl/chrome/dict/";
+const hardened = new WeakMap(); // session → { spellcheck: boolean | null }
+function hardenSession(session, sealed) {
+  const applied = hardened.get(session);
+  if (sealed === !!applied) return Promise.resolve(true);
+  const pending = [];
+  let ok = true;
+  const call = (name, ...args) => {
+    if (typeof session[name] !== "function") return; // not an Electron session API
+    try {
+      pending.push(Promise.resolve(session[name](...args)));
+    } catch {
+      ok = false;
+    }
+  };
+  if (sealed) {
+    let previous = null;
+    try {
+      if (typeof session.isSpellCheckerEnabled === "function")
+        previous = session.isSpellCheckerEnabled() === true;
+    } catch {}
+    hardened.set(session, { spellcheck: previous });
+    call("setProxy", { mode: "direct" });
+    call("setSpellCheckerEnabled", false);
+    call("setSpellCheckerDictionaryDownloadURL", SEALED_DICTIONARY_URL);
+  } else {
+    hardened.delete(session);
+    call("setProxy", { mode: "system" });
+    call("setSpellCheckerDictionaryDownloadURL", DEFAULT_DICTIONARY_URL);
+    if (applied.spellcheck !== null) call("setSpellCheckerEnabled", applied.spellcheck);
+  }
+  return Promise.allSettled(pending).then(
+    (results) => ok && results.every((result) => result.status === "fulfilled")
+  );
+}
+// Applies the current seal state to every watched session. The calls are
+// issued synchronously; the promise says whether all of them succeeded.
+function syncSessionHardening() {
+  const sealed = gate.isSealed();
+  return Promise.all([...sessions].map((session) => hardenSession(session, sealed))).then(
+    (results) => results.every(Boolean)
+  );
+}
+
 // Electron keeps one listener per event. Consumers (including smoke) observe
 // through addObserver instead of replacing this module's enforcement hooks.
 let sessionSeq = 0;
 function watchSession(session) {
   if (!session?.webRequest || sessions.has(session)) return;
   sessions.add(session);
+  if (gate.isSealed()) void hardenSession(session, true);
   const sessionId = ++sessionSeq;
   const key = (details) => `${sessionId}:${details.id}`;
   session.webRequest.onBeforeRequest((details, callback) => {
@@ -929,6 +984,7 @@ module.exports = {
   watchSession,
   installWebContentsGuard,
   judgeChromiumRequest,
+  syncSessionHardening,
   severAll,
   addObserver,
   status,

@@ -224,9 +224,10 @@ const CONTROL_PANEL_CONFIG = {
     preload: path.join(__dirname, "..", "..", "preload.js"),
     nodeIntegration: false,
     contextIsolation: true,
-    // The preload only uses contextBridge/ipcRenderer, and the renderer makes
-    // no network requests of its own, so neither the sandbox nor same-origin
-    // policy is relaxed.
+    // The preload only uses contextBridge/ipcRenderer, so neither the sandbox
+    // nor same-origin policy is relaxed. The renderer's own requests (remote
+    // images, provider calls made through main) still pass the session's
+    // Sealed mode backstop; this setting is not what keeps them local.
     sandbox: true,
     nodeIntegrationInSubFrames: true,
     spellcheck: false,
@@ -278,6 +279,9 @@ const NOTIFICATION_WINDOW_CONFIG = {
     contextIsolation: true,
     sandbox: true,
     nodeIntegrationInSubFrames: true,
+    // No text input here: never start the spellchecker or its dictionary
+    // download (Task 18 T18-02).
+    spellcheck: false,
   },
   visibleOnAllWorkspaces: process.platform !== "win32",
   type: OVERLAY_WINDOW_TYPES.notification,

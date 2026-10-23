@@ -2025,6 +2025,7 @@
         "buildLimit": "Sealed mode is not fully available on this build: local engines can't yet be isolated, so they don't run while it's on. Routes that use them show as unavailable.",
         "statusChecking": "Checking Sealed mode status…",
         "scope": "Sealed mode covers requests Loqui makes itself. Your browser, other apps and the operating system are outside it, and links open in them only after you confirm.",
+        "forwarders": "Programs you run yourself, such as a proxy, port forwarder, SOCKS or tunnel tool, are outside Sealed mode too. While it's on, Loqui won't send its own requests through a proxy, but it can't see or stop what those programs send.",
         "unverified": {
           "guards": "Loqui can't confirm that all of its network guards are active. Quit Loqui and open it again.",
           "envProxy": "Loqui was started with a proxy setting in its environment, so it can't confirm that every request is blocked.",

@@ -2025,6 +2025,7 @@
         "buildLimit": "Der abgeschottete Modus ist in diesem Build nicht vollständig verfügbar: Lokale Engines können noch nicht isoliert werden, daher laufen sie nicht, solange er aktiv ist. Routen, die sie nutzen, werden als nicht verfügbar angezeigt.",
         "statusChecking": "Status des abgeschotteten Modus wird geprüft …",
         "scope": "Der abgeschottete Modus gilt für Anfragen, die Loqui selbst stellt. Dein Browser, andere Apps und das Betriebssystem liegen außerhalb davon, und Links öffnen sich dort erst, nachdem du bestätigt hast.",
+        "forwarders": "Programme, die du selbst ausführst, etwa ein Proxy, eine Portweiterleitung, ein SOCKS- oder Tunnel-Tool, liegen ebenfalls außerhalb des abgeschotteten Modus. Solange er aktiv ist, sendet Loqui seine eigenen Anfragen nicht über einen Proxy, kann aber nicht sehen oder verhindern, was diese Programme senden.",
         "unverified": {
           "guards": "Loqui kann nicht bestätigen, dass alle seine Netzwerkschutzmechanismen aktiv sind. Beende Loqui und öffne es erneut.",
           "envProxy": "Loqui wurde mit einer Proxy-Einstellung in seiner Umgebung gestartet und kann daher nicht bestätigen, dass jede Anfrage blockiert wird.",

@@ -99,6 +99,8 @@ export interface Attestation {
     binding?: boolean;
     sessions: number;
     envProxy: boolean;
+    // Node sockets to a proxy endpoint refused while sealed (owner decision D-5).
+    proxyRefusals?: number;
     openRemoteSockets: number;
     chromiumInFlightRemote: number;
     chromiumUnresolvedAfterDestroy: number;

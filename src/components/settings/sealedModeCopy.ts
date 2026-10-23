@@ -128,6 +128,8 @@ export function sealedStatusLines(
   const lines: StatusLine[] = [];
   if (!sealed) {
     lines.push({ key: `${P}.description`, tone: "neutral" });
+    // D-5: programs the user runs (forwarders, SOCKS, tunnels) are outside it.
+    lines.push({ key: `${P}.forwarders`, tone: "neutral" });
   } else {
     lines.push({ key: `${P}.on`, tone: "neutral" });
     // A fact of this build (07a), not of the attestation: no platform has a
@@ -144,6 +146,7 @@ export function sealedStatusLines(
     }
     // Always shown while sealed: what Sealed mode covers, and its limits.
     lines.push({ key: `${P}.scope`, tone: "neutral" });
+    lines.push({ key: `${P}.forwarders`, tone: "neutral" });
   }
   if (attestation?.loadError) lines.push({ key: `${P}.loadError`, tone: "warn" });
   if (attestation?.saveError) lines.push({ key: `${P}.saveError`, tone: "warn" });

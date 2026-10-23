@@ -209,6 +209,7 @@ export function createPreviewPrivacyAPI(clock: () => number = Date.now): Privacy
       binding: true,
       sessions: 1,
       envProxy: false,
+      proxyRefusals: 0,
       openRemoteSockets: 0,
       chromiumInFlightRemote: 0,
       chromiumUnresolvedAfterDestroy: 0,

@@ -1931,6 +1931,7 @@
         "buildLimit": "La modalità sigillata non è completamente disponibile in questa versione: i motori locali non possono ancora essere isolati, quindi non vengono eseguiti mentre è attiva. I percorsi che li usano risultano non disponibili.",
         "statusChecking": "Verifica dello stato della modalità sigillata…",
         "scope": "La modalità sigillata copre le richieste che Loqui fa direttamente. Il browser, le altre app e il sistema operativo ne restano fuori, e i link si aprono in essi solo dopo la tua conferma.",
+        "forwarders": "Anche i programmi che avvii tu, come un proxy, un inoltro di porte o uno strumento SOCKS o di tunnel, restano fuori dalla modalità sigillata. Mentre è attiva, Loqui non invia le proprie richieste tramite un proxy, ma non può vedere né fermare ciò che inviano quei programmi.",
         "unverified": {
           "guards": "Loqui non può confermare che tutte le sue protezioni di rete siano attive. Chiudi Loqui e riaprilo.",
           "envProxy": "Loqui è stato avviato con un’impostazione proxy nel suo ambiente, quindi non può confermare che ogni richiesta venga bloccata.",

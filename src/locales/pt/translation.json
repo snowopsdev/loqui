@@ -1910,6 +1910,7 @@
         "buildLimit": "O modo selado não está totalmente disponível nesta versão: os mecanismos locais ainda não podem ser isolados, por isso não são executados enquanto ele está ativado. As rotas que os usam aparecem como indisponíveis.",
         "statusChecking": "Verificando o estado do modo selado…",
         "scope": "O modo selado abrange as solicitações que o próprio Loqui faz. Seu navegador, outros apps e o sistema operacional ficam fora dele, e os links só abrem neles depois que você confirma.",
+        "forwarders": "Programas que você mesmo executa, como um proxy, um encaminhador de portas ou uma ferramenta SOCKS ou de túnel, também ficam fora do modo selado. Enquanto ele está ativado, o Loqui não envia as próprias solicitações por um proxy, mas não consegue ver nem impedir o que esses programas enviam.",
         "unverified": {
           "guards": "O Loqui não consegue confirmar que todas as suas proteções de rede estão ativas. Saia do Loqui e abra-o novamente.",
           "envProxy": "O Loqui foi iniciado com uma configuração de proxy no ambiente, por isso não consegue confirmar que todas as solicitações são bloqueadas.",

@@ -715,7 +715,13 @@ test("only backstop owns webRequest, smoke uses observer; no proxy dispatcher or
         /\/\/ BEGIN sealed-mode: WebRTC removal[\s\S]*?\/\/ END sealed-mode: WebRTC removal/,
         ""
       );
-    assert.doesNotMatch(text, /\b(ProxyAgent|EnvHttpProxyAgent|setGlobalDispatcher)\b/);
+    // The backstop names proxy agents only to refuse them while sealed (D-5).
+    if (file !== "src/helpers/privacy/egressBackstop.js")
+      assert.doesNotMatch(
+        text,
+        /\b(ProxyAgent|EnvHttpProxyAgent|setGlobalDispatcher|proxyEnv)\b|\b(?:http|https|socks|pac)-proxy-agent\b|\bglobal-agent\b/,
+        file
+      );
     if (file !== "scripts/sealed-acceptance.cjs")
       assert.doesNotMatch(text, /\b(RTCPeerConnection|webkitRTCPeerConnection)\b/);
   }

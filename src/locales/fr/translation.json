@@ -2025,6 +2025,7 @@
         "buildLimit": "Le mode scellé n’est pas entièrement disponible dans cette version : les moteurs locaux ne peuvent pas encore être isolés, ils ne s’exécutent donc pas tant qu’il est activé. Les routes qui les utilisent apparaissent comme indisponibles.",
         "statusChecking": "Vérification de l’état du mode scellé…",
         "scope": "Le mode scellé couvre les requêtes que Loqui effectue lui-même. Votre navigateur, les autres apps et le système d’exploitation en sont exclus, et les liens ne s’y ouvrent qu’après votre confirmation.",
+        "forwarders": "Les programmes que vous lancez vous-même, comme un proxy, un redirecteur de ports ou un outil SOCKS ou de tunnel, sont aussi exclus du mode scellé. Tant qu’il est activé, Loqui n’envoie pas ses propres requêtes par un proxy, mais il ne peut ni voir ni arrêter ce que ces programmes envoient.",
         "unverified": {
           "guards": "Loqui ne peut pas confirmer que toutes ses protections réseau sont actives. Quittez Loqui et rouvrez-le.",
           "envProxy": "Loqui a été démarré avec un réglage de proxy dans son environnement : il ne peut donc pas confirmer que chaque requête est bloquée.",

@@ -83,6 +83,7 @@ const PANEL_KEYS = [
   "buildLimit",
   "statusChecking",
   "scope",
+  "forwarders",
   "unverified.guards",
   "unverified.envProxy",
   "unverified.stopFailed",
@@ -125,26 +126,31 @@ test("unknown seal shows Checking only, and the switch is disabled", async () =>
   assert.match(html, /data-sealed="false"/);
 });
 
-test("off: the description states the build limit; nothing else is claimed", async () => {
+test("off: the description states the build limit, then the forwarder limit; nothing else is claimed", async () => {
   const { sealedStatusLines } = await copy();
   const off = attestation07a({ sealed: false, sealedSince: null, phase: "open", failures: [] });
   assert.deepEqual(
     sealedStatusLines(false, off, NOW).map((l) => l.key),
-    [`${P}.description`]
+    [`${P}.description`, `${P}.forwarders`]
   );
   assert.deepEqual(
     sealedStatusLines(false, null, NOW).map((l) => l.key),
-    [`${P}.description`]
+    [`${P}.description`, `${P}.forwarders`]
   );
   assert.match(resources.en.settingsPage.privacy.sealed.description, /can't yet be isolated/);
+  // D-5: programs the user runs stay outside the guarantee, said plainly.
+  assert.match(
+    resources.en.settingsPage.privacy.sealed.forwarders,
+    /port forwarder, SOCKS or tunnel/
+  );
 });
 
-test("on with main's fresh 07a claim: on, the build limit, then the scope; never a verified line", async () => {
+test("on with main's fresh 07a claim: on, the build limit, then the scope and forwarders; never a verified line", async () => {
   const { sealedStatusLines } = await copy();
   const lines = sealedStatusLines(true, attestation07a(), NOW);
   assert.deepEqual(
     lines.map((l) => l.key),
-    [`${P}.on`, `${P}.buildLimit`, `${P}.scope`]
+    [`${P}.on`, `${P}.buildLimit`, `${P}.scope`, `${P}.forwarders`]
   );
   assert.equal(lines.find((l) => l.key === `${P}.buildLimit`).tone, "warn");
   for (const l of lines) assert.ok(["neutral", "warn"].includes(l.tone), l.key);
@@ -162,7 +168,7 @@ test("the build limit is stated while sealed even before main answers; the statu
   ]) {
     assert.deepEqual(
       sealedStatusLines(true, a, NOW).map((l) => l.key),
-      [`${P}.on`, `${P}.buildLimit`, `${P}.statusChecking`, `${P}.scope`],
+      [`${P}.on`, `${P}.buildLimit`, `${P}.statusChecking`, `${P}.scope`, `${P}.forwarders`],
       JSON.stringify(a && { at: a.at, sealed: a.sealed })
     );
   }
@@ -258,7 +264,7 @@ test("each unresolved fact names its cause, most fundamental first", async () =>
 test("any other unresolved failure, or a malformed failure list, shows the generic cause", async () => {
   const { sealedStatusLines } = await copy();
   const keys = (over) => sealedStatusLines(true, attestation07a(over), NOW).map((l) => l.key);
-  const clean = [`${P}.on`, `${P}.buildLimit`, `${P}.scope`];
+  const clean = [`${P}.on`, `${P}.buildLimit`, `${P}.scope`, `${P}.forwarders`];
   assert.deepEqual(keys({}), clean, "the build limit alone is not an extra cause");
   assert.deepEqual(keys({ failures: [] }), clean);
   for (const failure of [
@@ -305,7 +311,7 @@ test("any other unresolved failure, or a malformed failure list, shows the gener
       attestation07a({ sealed: false, failures: ["sessionRestore"] }),
       NOW
     ).map((l) => l.key),
-    [`${P}.description`]
+    [`${P}.description`, `${P}.forwarders`]
   );
 });
 
@@ -705,7 +711,7 @@ test("mounted: main's 07a claim renders the build limit; declining main's dialog
   assert.equal(section.attributes["data-sealed"], "true");
   assert.equal(switchOf(ui).attributes["aria-checked"], "true");
   assert.equal(ui.props(switchOf(ui)).disabled, false);
-  for (const key of ["on", "buildLimit", "scope"])
+  for (const key of ["on", "buildLimit", "scope", "forwarders"])
     assert.ok(ui.text().includes(`${P}.${key}`), key);
   assert.equal(ui.text().includes(`${P}.statusChecking`), false);
   await ui.click(switchOf(ui));
@@ -806,7 +812,7 @@ test("the panel consumes main's real attestor output", async () => {
     const { sealedStatusLines } = await copy();
     const keys = sealedStatusLines(true, a, NOW).map((l) => l.key);
     assert.deepEqual(keys.slice(0, 2), [`${P}.on`, `${P}.buildLimit`]);
-    assert.equal(keys.at(-1), `${P}.scope`);
+    assert.deepEqual(keys.slice(-2), [`${P}.scope`, `${P}.forwarders`]);
     assert.equal(keys.includes(`${P}.statusChecking`), false, "main's claim is fresh");
   } finally {
     fs.rmSync(profile, { recursive: true, force: true });

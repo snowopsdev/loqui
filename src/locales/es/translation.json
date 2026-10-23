@@ -1984,6 +1984,7 @@
         "buildLimit": "El modo sellado no está completamente disponible en esta versión: los motores locales todavía no se pueden aislar, así que no se ejecutan mientras está activado. Las rutas que los usan aparecen como no disponibles.",
         "statusChecking": "Comprobando el estado del modo sellado…",
         "scope": "El modo sellado abarca las solicitudes que hace el propio Loqui. Tu navegador, otras apps y el sistema operativo quedan fuera, y los enlaces se abren en ellos solo después de que lo confirmes.",
+        "forwarders": "Los programas que ejecutas tú, como un proxy, un reenviador de puertos o una herramienta SOCKS o de túnel, también quedan fuera del modo sellado. Mientras está activado, Loqui no envía sus propias solicitudes a través de un proxy, pero no puede ver ni detener lo que envían esos programas.",
         "unverified": {
           "guards": "Loqui no puede confirmar que todas sus protecciones de red estén activas. Sal de Loqui y vuelve a abrirlo.",
           "envProxy": "Loqui se inició con un ajuste de proxy en su entorno, así que no puede confirmar que se bloquee cada solicitud.",

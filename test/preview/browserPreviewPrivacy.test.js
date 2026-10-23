@@ -73,6 +73,7 @@ const INSTALLED_GUARDS = {
   binding: true,
   sessions: 1,
   envProxy: false,
+  proxyRefusals: 0,
   openRemoteSockets: 0,
   chromiumInFlightRemote: 0,
   chromiumUnresolvedAfterDestroy: 0,
@@ -110,6 +111,7 @@ test("the sealed panel shows the true 07a lines for the preview attestation", as
       "settingsPage.privacy.sealed.on",
       "settingsPage.privacy.sealed.buildLimit",
       "settingsPage.privacy.sealed.scope",
+      "settingsPage.privacy.sealed.forwarders",
     ]
   );
 });

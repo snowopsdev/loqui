@@ -1461,6 +1461,21 @@ test("Socket#connect hands Node the snapshot it judged, never a second read", as
   open.emit("close", false); // retire the fixture's open-socket entry
 });
 
+// Task 18 re-review T18R-07: Node's deprecated process.binding() hands out
+// the raw spawn, TCP, UDP and resolver bindings beneath every guarded API.
+// While sealed those names are refused (nothing is recorded: no request was
+// made); other bindings and the unsealed state are untouched.
+test("process.binding refuses the spawn and transport bindings while sealed", () => {
+  const guarded = ["spawn_sync", "process_wrap", "tcp_wrap", "udp_wrap", "cares_wrap"];
+  flags.sealed = true;
+  for (const name of guarded) assert.throws(() => process.binding(name), isSealedModeError, name);
+  assert.equal(typeof process.binding("util"), "object", "other bindings stay available");
+  assert.equal(recorder.list().length, 0);
+  assert.equal(backstop.status().binding, true);
+  flags.sealed = false;
+  for (const name of guarded) assert.equal(typeof process.binding(name), "object", name);
+});
+
 // Task 18 T18-03: a loopback forwarder must not carry a request for another
 // host while sealed, whichever client built the request.
 test(

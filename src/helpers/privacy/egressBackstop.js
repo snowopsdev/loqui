@@ -6,7 +6,13 @@ const https = require("node:https");
 const tls = require("node:tls");
 const { Writable } = require("node:stream");
 const { syncBuiltinESMExports } = require("node:module");
-const { decideEgress, isLoopbackHost, normalizeHost, hostOf } = require("./egressPolicy");
+const {
+  decideEgress,
+  isLoopbackHost,
+  normalizeHost,
+  hostOf,
+  SealedModeError,
+} = require("./egressPolicy");
 const gate = require("./egressGate");
 
 // Layer B is a JavaScript transport backstop, not an OS isolation boundary.
@@ -42,7 +48,14 @@ const RESOLVER_METHODS = [
   "reverse",
 ];
 
-const installed = { node: false, dns: false, dgram: false, http: false, webContents: false };
+const installed = {
+  node: false,
+  dns: false,
+  dgram: false,
+  http: false,
+  webContents: false,
+  binding: false,
+};
 const sessions = new Set();
 const openRemoteSockets = new Set();
 const severedSockets = new WeakMap();
@@ -810,6 +823,31 @@ function installDgramHook() {
   installed.dgram = true;
 }
 
+// Task 18 T18R-07: Node's deprecated process.binding() returns the raw native
+// bindings beneath every guarded spawn and transport API. While sealed, the
+// spawn, TCP, UDP and resolver bindings are refused. This is safe for Node and
+// Electron themselves: Node's own library uses internalBinding, and Electron's
+// uses process._linkedBinding; no shipped dependency asks for these names.
+// A binding obtained before the seal (or before boot) is not taken back, so
+// this narrows the surface; it is not a boundary (threat model, Layer B).
+const SEALED_BINDINGS = new Set([
+  "spawn_sync",
+  "process_wrap",
+  "tcp_wrap",
+  "udp_wrap",
+  "cares_wrap",
+]);
+function installBindingGuard() {
+  const original = process.binding;
+  if (typeof original !== "function") return;
+  process.binding = function egressAwareBinding(name) {
+    if (gate.isSealed() && SEALED_BINDINGS.has(String(name)))
+      throw new SealedModeError({ task: "processBinding", host: String(name) });
+    return original.call(this, name);
+  };
+  installed.binding = true;
+}
+
 function installNodeBackstop() {
   if (installed.node) return;
   installSocketHook();
@@ -818,6 +856,7 @@ function installNodeBackstop() {
   installFetchHook();
   installDnsHook();
   installDgramHook();
+  installBindingGuard();
   // ESM importers of node builtins (SDKs loaded with import()) see the patches too.
   syncBuiltinESMExports();
 }

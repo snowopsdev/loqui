@@ -50,35 +50,48 @@
  *     `dbus-run-session` bus); the user's own /run/user/<uid>/bus is refused.
  *     Without it the app gets DBUS_SESSION_BUS_ADDRESS=disabled:.
  *   - Linux: no network outside loopback. The launcher reads its own network
- *     namespace (which Electron inherits) from /proc/self/net: route, ipv6_route
- *     and dev. Any route through, or any device other than, lo is refused
- *     ("network-route-present" / "network-interface-present") unless
- *     --allow-network-route is given; the opt-in is recorded. The result is in
+ *     namespace (which Electron inherits) from /proc/self/net: route, ipv6_route,
+ *     dev, if_inet6 and fib_trie. Any route through, or any device other than,
+ *     lo is refused ("network-route-present" / "network-interface-present")
+ *     unless --allow-network-route is given; the opt-in is recorded. A device
+ *     with no route and no address (down or unconfigured, such as the kernel's
+ *     fallback tunnels sit0/tunl0/ip6tnl0 in a fresh namespace) is listed in
+ *     network.ignoredDevices instead; any non-loopback IPv4 address or an
+ *     unreadable address table counts every device. The result is in
  *     report.launchEnvironment.network: "loopback-only", "non-loopback-route",
- *     "non-loopback-interface", or "not-checked" where the tables cannot be read
- *     (and on macOS/Windows, which have no /proc). It is a snapshot at launch,
- *     not packet evidence.
+ *     "non-loopback-interface", or "not-checked" where the route or device
+ *     tables cannot be read (and on macOS/Windows, which have no /proc). It is a
+ *     snapshot at launch, not packet evidence.
  *   - The output directory must be short enough for Chromium's single-instance
  *     socket, $TMPDIR/.org.chromium.Chromium.XXXXXX/SingletonSocket with TMPDIR
  *     at DIR/<run>-XXXXXX/tmp. Over the platform's sun_path (Linux 108 bytes,
  *     macOS 104, each including the terminator) the app could not take its
  *     single-instance lock and would quit, so it is refused up front
  *     ("socket-path-too-long"); report.launchEnvironment.singletonSocket keeps
- *     the computed length and the limit.
+ *     the computed length and the limit. On macOS the default (os.tmpdir(),
+ *     under /var/folders/…) is always too deep: pass a short directory such as
+ *     --output-dir /tmp/lqa. Whether Chromium's macOS temporary directory
+ *     follows TMPDIR is unconfirmed: check the socket's location on the first
+ *     macOS run.
  *
- * OS KEYCHAIN (no operator keyring is ever touched)
+ * OS KEYCHAIN (intercepted so that no operator keyring is touched; a real run
+ * must confirm it from the recorded evidence)
  *   The app's master-key store (src/helpers/secretCrypto.js) uses
  *   @napi-rs/keyring. With the session bus disabled it would silently fall back
  *   to the kernel keyring (keyutils) of the invoking user and write a master key
  *   there under the dev build's own service name. The bootstrap therefore
  *   intercepts Module._load before it requires electron or main.js, and every
  *   request for @napi-rs/keyring (or its native binding packages) gets an
- *   in-memory, process-local stand-in with the same Entry/AsyncEntry surface.
- *   The real module is never loaded; keys live and die with the app process
+ *   in-memory, process-local stand-in with the same Entry/AsyncEntry surface,
+ *   so the real module is not loaded; keys live and die with the app process
  *   (plus secretCrypto's own backup file inside the temporary profile, if
  *   Safe Storage is available there). No product code changes: the app has no
- *   supported keychain switch. report.launch.osKeychain records the stub's
- *   state as read from the app.
+ *   supported keychain switch. report.launch.osKeychain (after the panel
+ *   loads) and report.launch.osKeychainAtClose (before the app closes) record,
+ *   as read from the app: stubActive (the stub is still the module loader),
+ *   realKeyringLoaded (a real keyring module or binding is in require.cache)
+ *   and store, which is "in-memory" only when the first is true and the second
+ *   false.
  *
  * THE APP'S ENVIRONMENT (allowlisted; nothing else is inherited)
  *   PATH, LANG, LANGUAGE, LC_*, TZ, DISPLAY and XAUTHORITY are copied. HOME,
@@ -318,7 +331,11 @@ const MANUAL_CHECKLIST = [
       "exclude 127.0.0.1), that the app starts with Chromium's sandbox on and the session bus " +
       "disabled (if not, use dbus-run-session with --allow-session-bus), that only lo exists " +
       "in the namespace (launchEnvironment.network.state loopback-only, no " +
-      "--allow-network-route), and that launch.osKeychain.store is in-memory.",
+      "--allow-network-route; any down fallback tunnels appear only in " +
+      "network.ignoredDevices), and that launch.osKeychain and launch.osKeychainAtClose " +
+      "both show stubActive true and realKeyringLoaded false. On macOS pass a short " +
+      "--output-dir (for example /tmp/lqa) and confirm where Chromium put its " +
+      "single-instance socket.",
   },
   {
     id: "STEP-5",
@@ -1090,13 +1107,43 @@ function nonLoopbackDevices(text) {
   return [...names].sort();
 }
 
+// Devices holding an IPv6 address, from /proc/self/net/if_inet6 (the device
+// name is the last field). null when it could not be read.
+function ipv6AddressDevices(text) {
+  if (typeof text !== "string") return null;
+  const names = new Set();
+  for (const line of text.split("\n")) {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length >= 6) names.add(fields[fields.length - 1]);
+  }
+  return [...names].sort();
+}
+
+// Non-loopback IPv4 addresses this namespace holds: the "/32 host LOCAL"
+// leaves of /proc/self/net/fib_trie. The table names no device. null when it
+// could not be read.
+function localIpv4Addresses(text) {
+  if (typeof text !== "string") return null;
+  const addresses = new Set();
+  let leaf = null;
+  for (const line of text.split("\n")) {
+    const match = /\|--\s+(\d+\.\d+\.\d+\.\d+)/.exec(line);
+    if (match) leaf = match[1];
+    else if (leaf && /\/32 host LOCAL/.test(line) && !leaf.startsWith("127.")) addresses.add(leaf);
+  }
+  return [...addresses].sort();
+}
+
 // The launcher's own network namespace, which Playwright's Electron inherits.
-// /proc/self/net/* is per network namespace (unlike a bind-mounted /sys).
+// /proc/self/net/* is per network namespace (unlike a bind-mounted /sys, which
+// under the recipe's --dev-bind shows the host's devices and their flags).
 function readNetworkRoutes(read = readText) {
   return {
     ipv4: read("/proc/self/net/route"),
     ipv6: read("/proc/self/net/ipv6_route"),
     devices: read("/proc/self/net/dev"),
+    ipv6Addresses: read("/proc/self/net/if_inet6"),
+    ipv4Addresses: read("/proc/self/net/fib_trie"),
   };
 }
 
@@ -1106,9 +1153,17 @@ function readNetworkRoutes(read = readText) {
 // operator passes --allow-network-route, which is recorded. This is a snapshot
 // at launch, not packet evidence and not a native boundary. Where the tables
 // cannot be read the network is recorded as not checked.
+//
+// A device with no route and no address cannot carry IP traffic: it is down
+// or unconfigured, like the kernel's fallback tunnels (sit0, tunl0, ip6tnl0)
+// that every new namespace gets while those modules are loaded (T16-n1). Such
+// devices are recorded in ignoredDevices, not refused. Procfs shows no IFF_UP
+// flag per namespace, so "no route and no address" stands in for "not up".
+// fib_trie names no device, so any non-loopback IPv4 address, or an
+// unreadable address table, keeps every device counted.
 function assessNetworkRoutes({ platform = process.platform, routes, allowRoute = false } = {}) {
-  const notChecked = (detail) => ({
-    network: { state: "not-checked", detail, interfaces: null, operatorOptIn: null },
+  const notChecked = (detail, extra = {}) => ({
+    network: { state: "not-checked", detail, ...extra, interfaces: null, operatorOptIn: null },
     reasons: [],
   });
   if (platform !== "linux")
@@ -1119,19 +1174,39 @@ function assessNetworkRoutes({ platform = process.platform, routes, allowRoute =
   const ipv6 = nonLoopbackRouteInterfaces(routes?.ipv6, { ipv6: true });
   const devices = nonLoopbackDevices(routes?.devices);
   const routed = [...new Set([...ipv4, ...(ipv6 ?? [])])].sort();
-  const interfaces = [...new Set([...routed, ...(devices ?? [])])].sort();
+  // Without the device table a namespace with no route is not shown to be
+  // loopback-only (T16 nit); a route still refuses below.
+  if (devices === null && !routed.length)
+    return notChecked(
+      "/proc/self/net/dev could not be read, so devices outside the main route table were not " +
+        "checked; the network was not checked.",
+      { ipv4: "read", ipv6: ipv6 === null ? "absent" : "read", devices: "unreadable" }
+    );
+  const v6Addressed = ipv6AddressDevices(routes?.ipv6Addresses);
+  const v4Local = localIpv4Addresses(routes?.ipv4Addresses);
+  const addressesKnown = v6Addressed !== null && v4Local !== null && v4Local.length === 0;
+  const inUse = (device) =>
+    routed.includes(device) || !addressesKnown || v6Addressed.includes(device);
+  const ignoredDevices = (devices ?? []).filter((device) => !inUse(device));
+  const interfaces = [
+    ...new Set([...routed, ...(devices ?? []).filter((device) => inUse(device))]),
+  ].sort();
   let state = "loopback-only";
   if (routed.length) state = "non-loopback-route";
   else if (interfaces.length) state = "non-loopback-interface";
   const network = {
     state,
     detail:
-      "Route tables and devices read at launch from /proc/self/net (a snapshot; not packet " +
-      "evidence).",
+      "Route tables, devices and addresses read at launch from /proc/self/net (a snapshot; not " +
+      "packet evidence). Devices with no route and no address are listed in ignoredDevices.",
     ipv4: "read",
     ipv6: ipv6 === null ? "absent" : "read",
     devices: devices === null ? "unreadable" : "read",
+    ipv6Addresses: v6Addressed === null ? "unreadable" : "read",
+    ipv4Addresses:
+      v4Local === null ? "unreadable" : v4Local.length ? "non-loopback-present" : "loopback-only",
     interfaces,
+    ignoredDevices,
     operatorOptIn: interfaces.length && allowRoute ? NETWORK_ROUTE_OPT_IN : null,
   };
   const reasons =
@@ -1176,7 +1251,10 @@ function singletonSocketCheck({ output, platform = process.platform }) {
             detail:
               `The app's single-instance socket path would be ${bytes} bytes; the ${platform} ` +
               `limit is ${limit} (sun_path ${size} with its terminator). Use a shorter ` +
-              "--output-dir.",
+              (platform === "darwin"
+                ? "--output-dir, such as --output-dir /tmp/lqa (macOS's default temporary " +
+                  "directory is always too deep)."
+                : "--output-dir."),
           },
         ]
       : [];
@@ -1299,10 +1377,24 @@ function installKeychainStub({
     }
     return original.call(this, request, parent, isMain);
   };
+  const wrapper = moduleApi._load;
+  // Evidence, read when asked (T16-n3): the stub is still the loader, and no
+  // real keyring module (or its native binding) is in the module cache.
+  const state = () => {
+    const stubActive = moduleApi._load === wrapper;
+    const realKeyringLoaded = Object.keys(moduleApi._cache ?? {}).some(isKeychainRequest);
+    return {
+      store: stubActive && !realKeyringLoaded ? "in-memory" : "not-confirmed",
+      stubActive,
+      realKeyringLoaded,
+      intercepted: [...intercepted],
+      entries: keychain.size,
+    };
+  };
   return {
     keychain,
     intercepted,
-    state: () => ({ store: "in-memory", intercepted: [...intercepted], entries: keychain.size }),
+    state,
     restore() {
       moduleApi._load = original;
     },
@@ -1524,9 +1616,20 @@ async function runElectronAcceptance({
   let local = null;
   let stubbornPid = null;
   const closed = new WeakSet();
+  const launchRecords = new WeakMap();
   async function closeApp(app) {
     if (closed.has(app)) return;
     closed.add(app);
+    // The keychain evidence again at the end of the launch, after the app's
+    // lazy first credential use (T16-n3). Best effort; never blocks the close.
+    const launchRecord = launchRecords.get(app);
+    if (launchRecord)
+      launchRecord.osKeychainAtClose = await evaluateWithin(
+        app,
+        () => globalThis.__loquiAcceptance.keychainState(),
+        undefined,
+        "keychain state at close"
+      ).catch((failure) => ({ store: "unknown", error: errorLabel(failure) }));
     try {
       await bounded(app.close(), 10000, "Timed out closing the app");
     } catch {
@@ -1576,6 +1679,7 @@ async function runElectronAcceptance({
     const app = await _electron.launch(
       electronLaunchOptions({ executablePath, platform, env, root })
     );
+    launchRecords.set(app, report.launch);
     registerLaunchCleanup(cleanup, name, {
       close: () => closeApp(app),
       copyNetlog: () => {
@@ -2023,13 +2127,16 @@ module.exports = {
   hostMappingFor,
   inspectLaunchPrerequisites,
   installKeychainStub,
+  ipv6AddressDevices,
   isKeychainRequest,
+  localIpv4Addresses,
   main,
   nodeUrlHost,
   nonLoopbackDevices,
   nonLoopbackRouteInterfaces,
   probeKinds,
   readModuleRegistration,
+  readNetworkRoutes,
   refusalProblems,
   registerLaunchCleanup,
   settleWithin,

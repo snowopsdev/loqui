@@ -1540,6 +1540,23 @@ test("the keychain stub catches every keyring request and passes every other mod
   };
   const original = moduleApi._load;
   const stub = acceptance.installKeychainStub({ moduleApi });
+  // Evidence, not a constant (T16-n3): the stub is the active loader and the
+  // real keyring module is not in the module cache.
+  assert.deepEqual(
+    [stub.state().store, stub.state().stubActive, stub.state().realKeyringLoaded],
+    ["in-memory", true, false]
+  );
+  moduleApi._cache = { "/repo/node_modules/@napi-rs/keyring/index.js": {} };
+  assert.deepEqual(
+    [stub.state().store, stub.state().realKeyringLoaded],
+    ["not-confirmed", true],
+    "a real keyring module in the cache is reported"
+  );
+  delete moduleApi._cache;
+  const wrapper = moduleApi._load;
+  moduleApi._load = original;
+  assert.deepEqual([stub.state().store, stub.state().stubActive], ["not-confirmed", false]);
+  moduleApi._load = wrapper;
   assert.deepEqual(moduleApi._load("./other", "parent", false), { real: "./other" });
   assert.deepEqual(passed, [["./other", "parent", false]]);
   assert.equal(moduleApi._load("@napi-rs/keyring-linux-x64-gnu"), stub.keychain);
@@ -1625,9 +1642,18 @@ test("network routes: a non-loopback route refuses the launch unless the operato
     policy.reasons.map((r) => r.code),
     ["network-interface-present"]
   );
+  // An unreadable device table cannot show loopback-only (T16 nit): not checked,
+  // while a non-loopback route still refuses.
+  const noDev = assess({ ...LOOPBACK_ONLY_ROUTES, devices: null });
+  assert.equal(noDev.network.state, "not-checked");
+  assert.equal(noDev.network.devices, "unreadable");
+  assert.equal(noDev.network.interfaces, null);
+  assert.deepEqual(noDev.reasons, []);
+  const noDevHost = assess({ ...HOST_ROUTES, devices: null });
+  assert.equal(noDevHost.network.state, "non-loopback-route");
   assert.deepEqual(
-    assess({ ...LOOPBACK_ONLY_ROUTES, devices: null }).network.devices,
-    "unreadable"
+    noDevHost.reasons.map((r) => r.code),
+    ["network-route-present"]
   );
 
   // Cannot be read reliably: recorded honestly as not checked, never as loopback-only.
@@ -1637,8 +1663,86 @@ test("network routes: a non-loopback route refuses the launch unless the operato
   const mac = acceptance.assessNetworkRoutes({ platform: "darwin", routes: HOST_ROUTES });
   assert.equal(mac.network.state, "not-checked");
   assert.deepEqual(mac.reasons, []);
-  for (const result of [clean, host, optedIn, policy, unreadable, mac])
+  for (const result of [clean, host, optedIn, policy, unreadable, mac, noDev])
     assert.ok(!Object.hasOwn(result.network, "isolated"), "no isolation key is ever written");
+});
+
+// The kernel's fallback tunnels (sit0, tunl0, ip6tnl0, gre0…) appear in every
+// new namespace while their modules are loaded: down, unaddressed, unrouted.
+const FIB_TRIE_LO =
+  "Main:\n  +-- 0.0.0.0/0 1 0 0\nLocal:\n  +-- 127.0.0.0/8 2 0 2\n" +
+  "     +-- 127.0.0.0/31 1 0 0\n        |-- 127.0.0.0\n           /8 host LOCAL\n" +
+  "        |-- 127.0.0.1\n           /32 host LOCAL\n";
+const IF_INET6_LO = "00000000000000000000000000000001 01 80 10 80       lo\n";
+const FALLBACK_TUNNELS = {
+  ...LOOPBACK_ONLY_ROUTES,
+  devices: DEV_HEADER + ["lo", "sit0", "tunl0", "ip6tnl0"].map(devLine).join(""),
+  ipv4Addresses: FIB_TRIE_LO,
+  ipv6Addresses: IF_INET6_LO,
+};
+
+test("network routes: down, unaddressed and unrouted devices are recorded, not refused (T16-n1)", () => {
+  assert.deepEqual(acceptance.ipv6AddressDevices(IF_INET6_LO), ["lo"]);
+  assert.deepEqual(
+    acceptance.ipv6AddressDevices(
+      IF_INET6_LO + "fe800000000000000000000000000001 03 40 20 80   wlp8s0\n"
+    ),
+    ["lo", "wlp8s0"]
+  );
+  assert.equal(acceptance.ipv6AddressDevices(null), null);
+  assert.deepEqual(acceptance.localIpv4Addresses(FIB_TRIE_LO), []);
+  assert.deepEqual(
+    acceptance.localIpv4Addresses(
+      FIB_TRIE_LO + "  +-- 192.168.1.0/24 2 0 2\n     |-- 192.168.1.7\n        /32 host LOCAL\n"
+    ),
+    ["192.168.1.7"]
+  );
+  assert.equal(acceptance.localIpv4Addresses(null), null);
+
+  const assess = (routes, extra = {}) =>
+    acceptance.assessNetworkRoutes({ platform: "linux", routes, allowRoute: false, ...extra });
+  const tunnels = assess(FALLBACK_TUNNELS);
+  assert.deepEqual(tunnels.reasons, [], "no blanket opt-in is needed for them");
+  assert.equal(tunnels.network.state, "loopback-only");
+  assert.deepEqual(tunnels.network.interfaces, []);
+  assert.deepEqual(tunnels.network.ignoredDevices, ["ip6tnl0", "sit0", "tunl0"]);
+  assert.equal(tunnels.network.operatorOptIn, null);
+  assert.match(tunnels.network.detail, /no route and no address/);
+
+  // A device with an IPv6 address, or a route, still refuses.
+  const addressed = assess({
+    ...FALLBACK_TUNNELS,
+    ipv6Addresses: IF_INET6_LO + "fd7a115ca1e000000000000000000001 04 80 00 80     sit0\n",
+  });
+  assert.equal(addressed.network.state, "non-loopback-interface");
+  assert.deepEqual(addressed.network.interfaces, ["sit0"]);
+  assert.deepEqual(addressed.network.ignoredDevices, ["ip6tnl0", "tunl0"]);
+  assert.deepEqual(
+    addressed.reasons.map((r) => r.code),
+    ["network-interface-present"]
+  );
+  // fib_trie names no device: any non-loopback IPv4 address counts every device.
+  const v4 = assess({
+    ...FALLBACK_TUNNELS,
+    ipv4Addresses: FIB_TRIE_LO + "     |-- 10.0.0.2\n        /32 host LOCAL\n",
+  });
+  assert.deepEqual(v4.network.interfaces, ["ip6tnl0", "sit0", "tunl0"]);
+  assert.deepEqual(v4.network.ignoredDevices, []);
+  assert.deepEqual(
+    v4.reasons.map((r) => r.code),
+    ["network-interface-present"]
+  );
+  // Unreadable address tables: nothing is ignored.
+  for (const missing of [{ ipv4Addresses: null }, { ipv6Addresses: null }]) {
+    const unknown = assess({ ...FALLBACK_TUNNELS, ...missing });
+    assert.equal(unknown.network.state, "non-loopback-interface");
+    assert.deepEqual(unknown.network.ignoredDevices, []);
+  }
+  // The launcher reads both address tables from its own namespace.
+  const paths = [];
+  acceptance.readNetworkRoutes((file) => (paths.push(file), null));
+  assert.ok(paths.includes("/proc/self/net/if_inet6"));
+  assert.ok(paths.includes("/proc/self/net/fib_trie"));
 });
 
 test("main: a non-loopback route is NOT RUN unless opted in, and the network state is recorded", async () => {
@@ -1699,6 +1803,15 @@ test("single-instance socket: a deep --output-dir that would overflow sun_path i
   assert.match(over.reasons[0].detail, /--output-dir/);
   // macOS sun_path is 104; Windows has no Unix-socket singleton.
   assert.equal(check(base, "darwin").limit, 103);
+  // macOS's default temporary directory is always too deep: the refusal names a
+  // short output directory to use instead (T16-n4).
+  const macDefault = check("/var/folders/ab/abcdefghijklmnopqrstuvwxyz0123/T/loqui", "darwin");
+  assert.deepEqual(
+    macDefault.reasons.map((r) => r.code),
+    ["socket-path-too-long"]
+  );
+  assert.match(macDefault.reasons[0].detail, /--output-dir \/tmp\/lqa/);
+  assert.deepEqual(check("/tmp/lqa", "darwin").reasons, []);
   assert.deepEqual(check(`${atLimit}x`, "win32").reasons, []);
   // Multibyte paths count bytes, not characters: 30 two-byte "é" cost exactly
   // 30 bytes more than the same path spelled with 30 ASCII "e" (T16-n2).

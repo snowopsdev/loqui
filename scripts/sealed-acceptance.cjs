@@ -23,10 +23,44 @@
  *   after a run.
  * - Child probes run only while unsealed; nothing native is launched sealed.
  *
- * STATUS AND EXIT CODES
- *   not-run       exit 2  a prerequisite is missing; nothing was launched.
- *   FAIL          exit 1  an observer check failed, or the run errored.
- *   NOT VERIFIED  exit 3  every observer check held; native boundary absent.
+ * STATUS AND EXIT CODES (no outcome exits 0)
+ *   not-run       exit 2  a prerequisite or launch-safety check failed; nothing launched.
+ *   FAIL          exit 1  an observer check failed or a renderer finding was recorded.
+ *   INCOMPLETE    exit 4  the run crashed, timed out or stopped before every mandatory
+ *                         observer check ran (report.error / observerChecksComplete false).
+ *   NOT VERIFIED  exit 3  every mandatory observer check ran and held; native boundary
+ *                         absent. The best 07a outcome, still a merge blocker.
+ *   report.observerChecksComplete is the single CI field for "every mandatory
+ *   observer check ran" (the conditional T10 update-tag check is not mandatory).
+ *
+ * LAUNCH SAFETY (refused with "NOT RUN" unless all of these hold)
+ *   - The explicit opt-in flag --i-understand-this-launches-electron.
+ *   - Not root: Chromium must keep its sandbox, and this script never disables it
+ *     (Playwright's chromiumSandbox is set to true).
+ *   - Linux: an isolated display. Refused when WAYLAND_DISPLAY or
+ *     HYPRLAND_INSTANCE_SIGNATURE is set, or when DISPLAY has no xvfb-run marker
+ *     (xvfb-run points XAUTHORITY into its own xvfb-run.* directory). The app has
+ *     no supported switch to stop its global-hotkey registration, which on a
+ *     live Hyprland/GNOME/KDE session binds keys in the live compositor and
+ *     rewrites compositor config. So it runs only on an isolated Xvfb display,
+ *     with the session variables stripped from its environment.
+ *   - Other platforms (no Xvfb): --dedicated-desktop-user, acknowledging a
+ *     dedicated, disposable OS user account whose desktop may be used.
+ *   - --allow-session-bus forwards DBUS_SESSION_BUS_ADDRESS (meant for a private
+ *     `dbus-run-session` bus); the user's own /run/user/<uid>/bus is refused.
+ *     Without it the app gets DBUS_SESSION_BUS_ADDRESS=disabled:.
+ *
+ * THE APP'S ENVIRONMENT (allowlisted; nothing else is inherited)
+ *   PATH, LANG, LANGUAGE, LC_*, TZ, DISPLAY and XAUTHORITY are copied. HOME,
+ *   XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_CACHE_HOME, XDG_STATE_HOME,
+ *   XDG_RUNTIME_DIR (0700) and TMPDIR point into the per-launch temporary
+ *   sandbox that also holds LOQUI_PROFILE_DIR. No provider keys, tokens,
+ *   NODE_OPTIONS, ELECTRON_*, Wayland/Hyprland/desktop-session variables or
+ *   the user's session bus reach the app.
+ *   HOME: the repository rule "never repurpose HOME in tests" governs the test
+ *   runner and this launcher, whose HOME is never touched. The temporary HOME
+ *   exists only in the environment of the CHILD app under acceptance, so that
+ *   nothing it writes can land in the operator's real home or config.
  *
  * MANUAL RUN PROCEDURE (root/owner; not runnable in the 07a agent sandbox)
  *   Prerequisites the launcher checks up front (else "NOT RUN: <reason>"):
@@ -35,34 +69,49 @@
  *     index.js downloads a missing binary).
  *   - better-sqlite3 loads under Electron: `npm run native:electron` is
  *     required before the run (an ABI-mismatched NODE_MODULE build is refused).
- *   - A built renderer (`npm run build`), Playwright, and on Linux an X display
- *     (`xvfb-run -a`; the app is started with --ozone-platform=x11).
- *   Steps:
+ *   - A built renderer (`npm run build`), Playwright, and on Linux an xvfb-run
+ *     X display (the app is started with --ozone-platform=x11).
+ *   Steps on Linux, as the invoking (non-root) user. bwrap gives a new user and
+ *   network namespace that keeps the invoking uid (so Chromium is not root and
+ *   keeps its sandbox) and brings up only loopback; xvfb-run inside it gives an
+ *   isolated display. UNTESTED HERE: confirm on the first run.
  *     npm run native:electron
  *     npm run build
- *     npm run test:sealed-electron -- --output-dir /tmp/loqui-sealed-accept
+ *     env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u DBUS_SESSION_BUS_ADDRESS \
+ *       bwrap --dev-bind / / --unshare-user --unshare-net --die-with-parent -- \
+ *       xvfb-run -a node scripts/sealed-acceptance.cjs \
+ *         --i-understand-this-launches-electron --output-dir /tmp/loqui-sealed-accept
  *     npm run native:node            # restore the Node build for npm test
- *   - Each launch gets a fresh temporary profile (LOQUI_PROFILE_DIR), home and
- *     cache under the output directory. Never a personal profile.
+ *   Without bwrap (util-linux >= 2.38), map root only long enough to bring lo
+ *   up, then drop back to the invoking uid in a nested user namespace:
+ *     U=$(id -u) G=$(id -g); env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+ *       -u DBUS_SESSION_BUS_ADDRESS unshare --user --map-root-user --net sh -c \
+ *       "ip link set lo up && exec unshare --user --map-user=$U --map-group=$G -- \
+ *        xvfb-run -a node scripts/sealed-acceptance.cjs \
+ *        --i-understand-this-launches-electron --output-dir /tmp/loqui-sealed-accept"
+ *   Never run it as root and never turn Chromium's sandbox off.
+ *   - Each launch gets a fresh temporary profile (LOQUI_PROFILE_DIR), HOME, XDG
+ *     dirs and cache under the output directory. Never a personal profile.
  *   - Both fixtures listen only on an ephemeral port of the exact numeric
  *     loopback 127.0.0.1. The remote fixture is reached only through names
  *     under *.loqui-fixture.test, mapped to it by Chromium's
  *     --host-resolver-rules and by a `lookup` on Node sockets; every other name
- *     is NOTFOUND to Chromium. Node DNS for other names is not redirected, so
- *     run the whole command on a host without a route out, for example inside
- *     a loopback-only network namespace:
- *       unshare --user --map-root-user --net sh -c \
- *         'ip link set lo up && xvfb-run -a npm run test:sealed-electron -- --output-dir DIR'
+ *     is NOTFOUND to Chromium, while 127.0.0.1, ::1 and localhost are excluded
+ *     from the rules so loopback keeps working. Node DNS for other names is not
+ *     redirected: the loopback-only namespace above is what keeps the unsealed
+ *     control's own traffic on the host.
  *   - Artifacts: DIR/report.json, DIR/netlog-<run>.json (Chromium netlog for
  *     the Task 18 security review, not an assertion source), and the sandboxes.
  *
  * STILL PENDING after a run (also listed in every report's `pendingManual`):
- *   Step 5 in-app leak drill, Step 5a native boundary (07b), and the checklist
- *   items earlier reviews handed to Task 16: T7a frame timing, T7a-M2/T11-M7
- *   window.open and will-navigate, T11a Chromium URL parsing, T9a-C5 Tinfoil
- *   socket wire bytes, T10 Chromium redirects and the updater's egress tag.
+ *   Step 5 in-app leak drill, Step 5a native boundary (07b), the Task 7a desktop
+ *   smoke, a packet-level capture, and the checklist items earlier reviews
+ *   handed to Task 16: T7a frame timing, T7a-M2/T11-M7 window.open and
+ *   will-navigate, T11a Chromium URL parsing, T9a-C5 Tinfoil socket wire bytes,
+ *   T10 Chromium redirects and the updater's egress tag.
  *
- * Usage: node scripts/sealed-acceptance.cjs [--output-dir DIR]
+ * Usage: node scripts/sealed-acceptance.cjs --i-understand-this-launches-electron
+ *          [--output-dir DIR] [--allow-session-bus] [--dedicated-desktop-user]
  */
 /* global window, document -- only inside Playwright page.evaluate callbacks */
 const fs = require("node:fs");
@@ -92,9 +141,29 @@ const EXPECTED_REMOTE = [
 // renderer page's own load is from data: (its requests are judged by the fixture).
 const REMOTE_PROBES = ["netFetch", "netRequest", "nodeHttp", "ws", "redirect", "updater"];
 const PROBE_TIMEOUT_MS = 8000;
-const EXIT = Object.freeze({ FAIL: 1, NOT_RUN: 2, NOT_VERIFIED: 3 });
-const STATUSES = ["RUNNING", "not-run", "FAIL", "NOT VERIFIED"];
-const HOST_RESOLVER_RULES = `MAP *.${FIXTURE_DOMAIN} 127.0.0.1, MAP * ~NOTFOUND, EXCLUDE localhost`;
+// Every Playwright evaluate is bounded; Playwright has no default for it.
+const EVALUATE_TIMEOUT_MS = 10000;
+const EXIT = Object.freeze({ FAIL: 1, NOT_RUN: 2, NOT_VERIFIED: 3, INCOMPLETE: 4 });
+const STATUSES = ["RUNNING", "not-run", "FAIL", "INCOMPLETE", "NOT VERIFIED"];
+const LAUNCH_OPT_IN = "--i-understand-this-launches-electron";
+const DEDICATED_DESKTOP_ACK = "--dedicated-desktop-user";
+const SESSION_BUS_OPT_IN = "--allow-session-bus";
+// Variables that mean the launcher is sitting in the live desktop session.
+const LIVE_SESSION_MARKERS = ["WAYLAND_DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE"];
+// The only variables copied from the launcher into the app under test.
+const CHILD_ENV_PASSTHROUGH = ["PATH", "LANG", "LANGUAGE", "TZ", "DISPLAY", "XAUTHORITY"];
+// Chromium maps the fixture names to the fixture and every other name to
+// NOTFOUND. Exclusions win over every MAP rule in Chromium's HostMappingRules,
+// so numeric loopback (and localhost) is never remapped or failed. ::1 is listed
+// bare and bracketed because the host string Chromium matches may be either.
+const HOST_RESOLVER_RULES = [
+  `MAP *.${FIXTURE_DOMAIN} 127.0.0.1`,
+  "MAP * ~NOTFOUND",
+  "EXCLUDE localhost",
+  "EXCLUDE 127.0.0.1",
+  "EXCLUDE ::1",
+  "EXCLUDE [::1]",
+].join(", ");
 const SCOPE =
   "07a acceptance: an independent loopback fixture observes JS/Chromium-layer denial. " +
   "It says nothing about native children; the native boundary is absent in 07a.";
@@ -150,6 +219,14 @@ const CHECKS = Object.freeze({
   bootLedger: "boot: the refused attempts are in the flight recorder as blocked",
   noTagLeft: "all runs: no request reached a fixture carrying Loqui's internal egress tag",
 });
+// The T10 update-tag check runs only when the app's own update check reached
+// the fixture ("not exercised" is recorded otherwise). Every other check must
+// run for a completed run.
+const OPTIONAL_CHECKS = Object.freeze([CHECKS.controlUpdateTag]);
+const MANDATORY_CHECKS = Object.freeze(
+  Object.values(CHECKS).filter((name) => !OPTIONAL_CHECKS.includes(name))
+);
+
 // Step 5a: the native-boundary gate. Pending in 07a on every platform.
 const NATIVE_PENDING = [
   {
@@ -196,8 +273,13 @@ const MANUAL_CHECKLIST = [
     id: "STEP-4",
     source: "Task 16 Step 4",
     check:
-      "Run the procedure in this file's header on macOS arm64 and Linux; keep report.json and " +
-      "the netlogs. Expected: observer checks hold, status NOT VERIFIED (exit 3).",
+      "Run the procedure in this file's header (with --i-understand-this-launches-electron, as " +
+      "a non-root user, on an isolated display) on macOS arm64 and Linux; keep report.json and " +
+      "the netlogs. Expected: observerChecksComplete true, status NOT VERIFIED (exit 3). The " +
+      "first real run must also confirm that controlLoopback holds (the host-resolver rules " +
+      "exclude 127.0.0.1), that the app starts with Chromium's sandbox on and the session bus " +
+      "disabled (if not, use dbus-run-session with --allow-session-bus), and that only lo exists " +
+      "in the namespace.",
   },
   {
     id: "STEP-5",
@@ -256,6 +338,29 @@ const MANUAL_CHECKLIST = [
       "Real Chromium redirects (the redirect probe) and electron-updater carrying the egress tag " +
       "through its own session, stripped before it leaves; the flight recorder row is " +
       "attributed to appUpdate.",
+  },
+  {
+    id: "T7a-SMOKE",
+    source: "Task 7a Step 4 (deferred to Task 16 by controller ruling)",
+    check:
+      "Desktop smoke on a temporary profile (LOQUI_PROFILE_DIR), with the control panel " +
+      "sandboxed and web security on: Settings in every section; notes, chat and History " +
+      "playback of a recording; file upload, drag-and-drop and image attachments; model " +
+      "downloads. Model downloads use the fixture only: a download URL served by an owned " +
+      "127.0.0.1 fixture, never a real model host. No personal profile, no real provider. " +
+      "Anything that broke because it relied on a relaxed sandbox or web security is fixed at " +
+      "its cause, never by relaxing the settings again.",
+  },
+  {
+    id: "OBS-PACKET",
+    source: "Task 16 review r1 M6 (handoff: no packet to a non-loopback address)",
+    check:
+      "Packet-level observer: the fixture sees only fixture names, so capture during both runs " +
+      "as well (tcpdump -i any or an nftables log rule on every non-lo interface, plus DNS " +
+      "queries) to cover app-originated traffic to real hostnames. Inside the loopback-only " +
+      "namespace there is no such interface, so also record attempted connects (for example " +
+      "strace -f -e trace=connect,sendto) that never become packets. Any packet or attempt to " +
+      "a non-loopback address is a finding.",
   },
 ];
 
@@ -363,9 +468,21 @@ function nativeGate(platform) {
   return "D14";
 }
 
+// True when every mandatory observer check was evaluated (passed or failed).
+function observerChecksComplete(report) {
+  const seen = new Set([
+    ...report.observer.passed,
+    ...report.observer.failed.map((entry) => entry.name),
+  ]);
+  return MANDATORY_CHECKS.every((name) => seen.has(name));
+}
+
 function finalizeStatus(report) {
   if (report.notRun) return "not-run";
-  if (report.observer.failed.length || report.error) return "FAIL";
+  // A leak (or a recorded finding) outranks a crash: the evidence is the point.
+  if (report.observer.failed.length) return "FAIL";
+  // A crash, a timeout or an early stop is never mistaken for a clean run.
+  if (report.error || !observerChecksComplete(report)) return "INCOMPLETE";
   // Observer checks alone can never make a pass: the native boundary is absent.
   return "NOT VERIFIED";
 }
@@ -373,18 +490,48 @@ function finalizeStatus(report) {
 function exitCodeFor(status) {
   if (status === "not-run") return EXIT.NOT_RUN;
   if (status === "NOT VERIFIED") return EXIT.NOT_VERIFIED;
+  if (status === "INCOMPLETE") return EXIT.INCOMPLETE;
   return EXIT.FAIL;
+}
+
+// The report's own verdict text: the only strings the wording scan reads.
+// Echoed data (fixture requests, probe results, check details, error text,
+// attestation summaries) is evidence, not a claim, and is never scanned for
+// wording, so a request path containing "verified" cannot discard the report.
+function verdictStrings(report) {
+  const out = [];
+  const add = (at, value) => {
+    if (typeof value === "string") out.push([at, value]);
+  };
+  const each = (list, at, fn) =>
+    (Array.isArray(list) ? list : []).forEach((v, i) => fn(v, `${at}[${i}]`));
+  add("report.status", report?.status);
+  add("report.scope", report?.scope);
+  add("report.observer.evidence", report?.observer?.evidence);
+  each(report?.observer?.passed, "report.observer.passed", (v, at) => add(at, v));
+  each(report?.observer?.failed, "report.observer.failed", (v, at) => add(`${at}.name`, v?.name));
+  const native = report?.nativeBoundary;
+  for (const key of ["status", "gate", "reason"])
+    add(`report.nativeBoundary.${key}`, native?.[key]);
+  each(native?.blocked, "report.nativeBoundary.blocked", (v, at) => add(`${at}.status`, v?.status));
+  each(native?.pending, "report.nativeBoundary.pending", (v, at) => {
+    add(`${at}.status`, v?.status);
+    add(`${at}.item`, v?.item);
+  });
+  each(report?.pendingManual, "report.pendingManual", (v, at) => add(`${at}.check`, v?.check));
+  each(report?.notRun?.reasons, "report.notRun.reasons", (v, at) => add(`${at}.detail`, v?.detail));
+  return out;
 }
 
 function honestyViolations(report) {
   const violations = [];
+  for (const [at, value] of verdictStrings(report)) {
+    const rest = value.replace(/\bnot verified\b|\bunverified\b/gi, "");
+    if (/verified/i.test(rest)) violations.push(`${at}: positive verification wording`);
+    if (/\b0 bytes\b/i.test(value)) violations.push(`${at}: a zero-byte claim`);
+  }
+  // Structural claims are rejected anywhere in the report.
   const walk = (value, at) => {
-    if (typeof value === "string") {
-      const rest = value.replace(/\bnot verified\b|\bunverified\b/gi, "");
-      if (/verified/i.test(rest)) violations.push(`${at}: positive verification wording`);
-      if (/\b0 bytes\b/i.test(value)) violations.push(`${at}: a zero-byte claim`);
-      return;
-    }
     if (Array.isArray(value)) return value.forEach((item, i) => walk(item, `${at}[${i}]`));
     if (!value || typeof value !== "object") return;
     for (const [key, item] of Object.entries(value)) {
@@ -432,6 +579,7 @@ function createAcceptanceRecord({
   const report = {
     schema: REPORT_SCHEMA,
     status: "RUNNING",
+    observerChecksComplete: false,
     platform,
     arch,
     startedAt: now(),
@@ -480,6 +628,18 @@ function createAcceptanceRecord({
       report.observer.passed.push(name);
       log(`PASS ${name}`);
     },
+    // A finding: recorded like a failed check (the run ends FAIL) but the run
+    // continues, so later evidence is still collected.
+    check(name, condition, detail) {
+      if (!condition) {
+        report.observer.failed.push({ name, detail: detail ?? null, finding: true });
+        log(`FINDING ${name}`);
+        return false;
+      }
+      report.observer.passed.push(name);
+      log(`PASS ${name}`);
+      return true;
+    },
     // The native boundary is absent in 07a: every sealed run records the block.
     recordNativeBlock(run, attestation) {
       report.nativeBoundary.blocked.push({
@@ -491,6 +651,7 @@ function createAcceptanceRecord({
       log(`BLOCKED ${run}: ${gate} native isolation is NOT VERIFIED (07b absent)`);
     },
     finalize() {
+      report.observerChecksComplete = !report.notRun && observerChecksComplete(report);
       report.status = finalizeStatus(report);
       report.finishedAt = now();
       return report.status;
@@ -517,6 +678,209 @@ function createCleanup() {
       }
       return errors;
     },
+  };
+}
+
+// A Playwright evaluate (page or Electron app) that cannot hang the run.
+function evaluateWithin(target, fn, arg, label, timeout = EVALUATE_TIMEOUT_MS) {
+  return bounded(
+    Promise.resolve().then(() => target.evaluate(fn, arg)),
+    timeout,
+    `${label} timed out`
+  );
+}
+
+// Cleanup is newest-first: registering the netlog copy before the close means
+// the app is closed (and Chromium has flushed its netlog) before it is copied,
+// on the success path and on every abort.
+function registerLaunchCleanup(cleanup, name, { close, copyNetlog }) {
+  cleanup.add(`netlog ${name}`, copyNetlog);
+  cleanup.add(`app ${name}`, close);
+}
+
+// Force-kill through what the launcher owns: the app's ChildProcess handle and
+// its process group. Playwright spawns Electron detached, so Electron leads its
+// own group and the app's unsealed children (the stubborn probe) are in it.
+// While the handle has not reported an exit the leader is not yet reaped, so
+// its PID and group id cannot belong to anything else. After that, nothing is
+// signalled: a bare PID may have been reused.
+function forceKillOwnedGroup(handle, { platform = process.platform, kill = process.kill } = {}) {
+  if (!handle || handle.exitCode !== null || handle.signalCode !== null) return false;
+  if (platform !== "win32" && Number.isInteger(handle.pid) && handle.pid > 0) {
+    try {
+      kill(-handle.pid, "SIGKILL");
+    } catch {
+      // The group may already be gone; the handle kill below still applies.
+    }
+  }
+  handle.kill("SIGKILL");
+  return true;
+}
+
+// A model of Chromium's HostMappingRules for these rules (exclusions first,
+// then the first matching MAP, "*" as the only wildcard). It documents and
+// pins the intent; it is not Chromium, and STEP-4 confirms it on a real run.
+function hostMappingFor(host, rules = HOST_RESOLVER_RULES) {
+  const entries = String(rules)
+    .split(",")
+    .map((rule) => rule.trim().split(/\s+/))
+    .filter((parts) => parts[0]);
+  const matches = (pattern, name) =>
+    new RegExp(
+      `^${pattern
+        .split("*")
+        .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+        .join(".*")}$`,
+      "i"
+    ).test(name);
+  const name = String(host);
+  for (const [verb, pattern] of entries)
+    if (verb.toUpperCase() === "EXCLUDE" && matches(pattern, name)) return null;
+  for (const [verb, pattern, target] of entries)
+    if (verb.toUpperCase() === "MAP" && matches(pattern, name)) return target ?? null;
+  return null;
+}
+
+// The Chromium switches the bootstrap appends, as [name, value] pairs.
+function chromiumSwitches() {
+  return [["host-resolver-rules", HOST_RESOLVER_RULES]];
+}
+
+// Child probes run only unsealed. No privacy.json is the app's default (open);
+// anything other than an explicit `sealed: false` refuses.
+function childProbeAllowed(savedText) {
+  if (savedText === null || savedText === undefined) return true;
+  try {
+    const saved = JSON.parse(savedText);
+    return !!saved && typeof saved === "object" && saved.sealed === false;
+  } catch {
+    return false;
+  }
+}
+
+// The app's whole environment: an allowlist from the launcher plus temporary
+// HOME/XDG/TMPDIR under the per-launch sandbox. The launcher's own environment
+// (and so the test runner's HOME) is never changed.
+function buildChildEnv({
+  baseEnv = {},
+  sandbox,
+  profile,
+  remotePort,
+  localPort,
+  allowSessionBus = false,
+}) {
+  const env = {};
+  for (const key of CHILD_ENV_PASSTHROUGH)
+    if (typeof baseEnv[key] === "string" && baseEnv[key]) env[key] = baseEnv[key];
+  for (const [key, value] of Object.entries(baseEnv))
+    if (/^LC_[A-Z_]+$/.test(key) && typeof value === "string" && value) env[key] = value;
+  const xdg = path.join(sandbox, "xdg");
+  const directories = {
+    HOME: path.join(sandbox, "home"),
+    XDG_CONFIG_HOME: path.join(xdg, "config"),
+    XDG_DATA_HOME: path.join(xdg, "data"),
+    XDG_CACHE_HOME: path.join(xdg, "cache"),
+    XDG_STATE_HOME: path.join(xdg, "state"),
+    XDG_RUNTIME_DIR: path.join(xdg, "runtime"),
+    TMPDIR: path.join(sandbox, "tmp"),
+  };
+  Object.assign(env, directories);
+  env.DBUS_SESSION_BUS_ADDRESS =
+    allowSessionBus && baseEnv.DBUS_SESSION_BUS_ADDRESS
+      ? baseEnv.DBUS_SESSION_BUS_ADDRESS
+      : "disabled:";
+  Object.assign(env, {
+    NODE_ENV: "test",
+    LOQUI_PROFILE_DIR: profile,
+    LOQUI_ACCEPT_SANDBOX: sandbox,
+    LOQUI_ACCEPT_PORT: String(remotePort),
+    LOQUI_ACCEPT_LOCAL_PORT: String(localPort),
+    LOQUI_CACHE_ROOT: path.join(sandbox, "cache"),
+  });
+  return {
+    env,
+    directories: Object.values(directories),
+    runtimeDir: directories.XDG_RUNTIME_DIR,
+  };
+}
+
+function isXvfbRunDisplay(env) {
+  return /[\\/]xvfb-run\.[^\\/]+[\\/]Xauthority$/.test(String(env.XAUTHORITY || ""));
+}
+
+function isUserSessionBus(address, env) {
+  const value = String(address || "");
+  return (
+    /\/run\/user\/\d+\/bus\b/.test(value) ||
+    (!!env.XDG_RUNTIME_DIR && value.includes(`${env.XDG_RUNTIME_DIR}/bus`))
+  );
+}
+
+// Launch safety, checked before anything is loaded. Reasons name variables,
+// never their values.
+function assessLaunchSafety({
+  argv = [],
+  env = {},
+  platform = process.platform,
+  uid = typeof process.getuid === "function" ? process.getuid() : null,
+} = {}) {
+  const reasons = [];
+  const reason = (code, detail) => reasons.push({ code, detail });
+  if (!argv.includes(LAUNCH_OPT_IN))
+    reason(
+      "launch-not-authorized",
+      `Launching Electron needs the explicit ${LAUNCH_OPT_IN} flag and the isolated run ` +
+        "procedure in this script's header."
+    );
+  if (uid === 0)
+    reason(
+      "running-as-root",
+      "Running as root (uid 0, including root mapped in a user namespace). Chromium would need " +
+        "its sandbox off; run as the invoking user (see the bwrap recipe)."
+    );
+  if (platform === "linux") {
+    const live = LIVE_SESSION_MARKERS.filter((key) => env[key]);
+    if (live.length)
+      reason(
+        "live-session-display",
+        `${live.join(" and ")} set: this looks like the live desktop session. The app has no ` +
+          "switch to stop its compositor hotkey registration, so it runs only on an isolated " +
+          "display; unset these and use xvfb-run."
+      );
+    if (env.DISPLAY && !isXvfbRunDisplay(env))
+      reason(
+        "display-not-isolated",
+        "DISPLAY has no xvfb-run marker (XAUTHORITY inside an xvfb-run.* directory), so it may " +
+          "be the live X session. Run under xvfb-run -a."
+      );
+  } else if (!argv.includes(DEDICATED_DESKTOP_ACK))
+    reason(
+      "desktop-not-isolated",
+      `No Xvfb on ${platform}: the app opens on this desktop. Run it from a dedicated, ` +
+        `disposable OS user account and pass ${DEDICATED_DESKTOP_ACK}.`
+    );
+  const allowSessionBus = argv.includes(SESSION_BUS_OPT_IN);
+  if (allowSessionBus && isUserSessionBus(env.DBUS_SESSION_BUS_ADDRESS, env))
+    reason(
+      "session-bus-is-live",
+      `${SESSION_BUS_OPT_IN} would forward the user's own session bus. Start a private bus ` +
+        "with dbus-run-session instead."
+    );
+  return { reasons, allowSessionBus };
+}
+
+// Playwright options for one launch. chromiumSandbox must be true: Playwright
+// otherwise disables Chromium's sandbox on Linux.
+function electronLaunchOptions({ executablePath, platform, env, root, script = __filename }) {
+  const args = ["--lang=en-US"];
+  if (platform === "linux") args.push("--ozone-platform=x11");
+  return {
+    executablePath,
+    args: [...args, script],
+    cwd: root,
+    env,
+    timeout: 45000,
+    chromiumSandbox: true,
   };
 }
 
@@ -677,10 +1041,12 @@ function bootstrapElectron() {
     fs.writeFileSync(path.join(sandbox, "startup-error.txt"), `${title}\n${content}`);
     electron.app.exit(1);
   };
-  // Chromium resolves the fixture names to the fixture and nothing else. Node
-  // does not read this switch; the Node probes pass their own lookup. This is
-  // name resolution for the test, not a blocker: the probes still go out.
-  electron.app.commandLine.appendSwitch("host-resolver-rules", HOST_RESOLVER_RULES);
+  // Chromium resolves the fixture names to the fixture, every other name to
+  // NOTFOUND, and leaves 127.0.0.1, ::1 and localhost alone. Node does not read
+  // this switch; the Node probes pass their own lookup. It is name resolution
+  // for the test, not a blocker: the probes still go out.
+  for (const [name, value] of chromiumSwitches())
+    electron.app.commandLine.appendSwitch(name, value);
   electron.app
     .whenReady()
     .then(() => electron.netLog.startLogging(path.join(sandbox, "netlog.json")))
@@ -779,34 +1145,38 @@ function bootstrapElectron() {
 
   // A network-capable child registered like yt-dlp. It ignores SIGTERM, so the
   // registry has to escalate and wait for the OS to report the exit. Child
-  // probes run only unsealed: refuse if the profile says sealed.
+  // probes run only unsealed: refuse if the profile says sealed. It stays in
+  // Electron's process group (no detached), which the launcher owns.
+  let stubborn = null;
   function startStubbornChild() {
-    const saved = readText(path.join(profile, "privacy.json"));
-    let sealed;
-    try {
-      sealed = saved !== null && JSON.parse(saved).sealed !== false;
-    } catch {
-      sealed = true;
-    }
-    if (sealed) throw new Error("Child probes run only unsealed.");
+    if (!childProbeAllowed(readText(path.join(profile, "privacy.json"))))
+      throw new Error("Child probes run only unsealed.");
     const { spawn } = require("node:child_process");
     const child = spawn(
       process.execPath,
       ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
       { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: "ignore" }
     );
+    stubborn = child;
     require(path.join(repoRoot, "src/helpers/privacy/childRegistry.js")).register(child, {
       kind: "yt-dlp",
     });
     return child.pid;
   }
+  // Cleanup through the ChildProcess handle: Node never signals a child whose
+  // exit it has already seen.
+  function stopStubbornChild() {
+    if (!stubborn || stubborn.exitCode !== null || stubborn.signalCode !== null) return false;
+    return stubborn.kill("SIGKILL");
+  }
 
-  globalThis.__loquiAcceptance = { runProbes, startStubbornChild };
+  globalThis.__loquiAcceptance = { runProbes, startStubbornChild, stopStubbornChild };
   require(path.join(repoRoot, "main.js"));
 }
 
 // --- Launcher (plain Node): drives the app with Playwright ---------------------------------------
 
+// Read-only liveness check (signal 0). Never used to decide what to kill.
 function pidAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -816,7 +1186,15 @@ function pidAlive(pid) {
   }
 }
 
-async function runElectronAcceptance({ record, output, root, baseEnv, executablePath, platform }) {
+async function runElectronAcceptance({
+  record,
+  output,
+  root,
+  baseEnv,
+  executablePath,
+  platform,
+  safety = { allowSessionBus: false },
+}) {
   const { _electron } = require(path.join(root, "node_modules", "playwright"));
   const { startEgressFixture } = require("./lib/egressFixture.cjs");
   const { report, verify } = record;
@@ -833,6 +1211,7 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
   }
   let remote = null;
   let local = null;
+  let stubbornPid = null;
   const closed = new WeakSet();
   async function closeApp(app) {
     if (closed.has(app)) return;
@@ -840,8 +1219,22 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
     try {
       await bounded(app.close(), 10000, "Timed out closing the app");
     } catch {
-      app.process()?.kill("SIGKILL");
+      forceKillOwnedGroup(app.process(), { platform });
     }
+  }
+  // A renderer-hardening finding: measured and judged, recorded either way,
+  // and never allowed to abort the run before the sealed checks.
+  async function finding(name, measure, judge) {
+    let value;
+    try {
+      value = await measure();
+    } catch (error) {
+      value = { error: errorLabel(error), message: String(error?.message || "").slice(0, 300) };
+      record.check(name, false, value);
+      return value;
+    }
+    record.check(name, judge(value), value);
+    return value;
   }
 
   async function launch(name, { bootSealed }) {
@@ -854,29 +1247,31 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
         JSON.stringify({ sealed: true, sealedSince: Date.now() }),
         { mode: 0o600 }
       );
-    const env = {
-      ...baseEnv,
-      NODE_ENV: "test",
-      LOQUI_PROFILE_DIR: profile,
-      LOQUI_ACCEPT_SANDBOX: sandbox,
-      LOQUI_ACCEPT_PORT: String(remote.port),
-      LOQUI_ACCEPT_LOCAL_PORT: String(local.port),
-      LOQUI_CACHE_ROOT: path.join(sandbox, "cache"),
-    };
-    delete env.ELECTRON_RUN_AS_NODE;
-    const args = ["--lang=en-US"];
-    if (platform === "linux") args.push("--ozone-platform=x11");
-    const app = await _electron.launch({
-      executablePath,
-      args: [...args, __filename],
-      cwd: root,
-      env,
-      timeout: 45000,
+    const { env, directories, runtimeDir } = buildChildEnv({
+      baseEnv,
+      sandbox,
+      profile,
+      remotePort: remote.port,
+      localPort: local.port,
+      allowSessionBus: safety.allowSessionBus,
     });
-    cleanup.add(`app ${name}`, () => closeApp(app));
-    cleanup.add(`netlog ${name}`, () => {
-      const netlog = path.join(sandbox, "netlog.json");
-      if (fs.existsSync(netlog)) fs.copyFileSync(netlog, path.join(output, `netlog-${name}.json`));
+    for (const directory of directories) fs.mkdirSync(directory, { recursive: true });
+    fs.chmodSync(runtimeDir, 0o700);
+    report.launch = {
+      childEnvKeys: Object.keys(env).sort(),
+      sessionBus: env.DBUS_SESSION_BUS_ADDRESS === "disabled:" ? "disabled" : "forwarded",
+      chromiumSandbox: true,
+    };
+    const app = await _electron.launch(
+      electronLaunchOptions({ executablePath, platform, env, root })
+    );
+    registerLaunchCleanup(cleanup, name, {
+      close: () => closeApp(app),
+      copyNetlog: () => {
+        const netlog = path.join(sandbox, "netlog.json");
+        if (fs.existsSync(netlog))
+          fs.copyFileSync(netlog, path.join(output, `netlog-${name}.json`));
+      },
     });
     const panel = await waitFor(
       async () => app.windows().find((page) => /[?&]panel=true(?:&|$)/.test(page.url())) ?? null,
@@ -887,12 +1282,20 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
     await panel.waitForFunction(() => !!window.electronAPI?.privacy, null, { timeout: 30000 });
     return { app, panel };
   }
-  const attestation = (panel) => panel.evaluate(() => window.electronAPI.privacy.getAttestation());
+  const attestation = (panel) =>
+    evaluateWithin(
+      panel,
+      () => window.electronAPI.privacy.getAttestation(),
+      undefined,
+      "attestation"
+    );
   const probe = (app, label) =>
-    bounded(
-      app.evaluate((_electron, l) => globalThis.__loquiAcceptance.runProbes(l), label),
-      PROBE_TIMEOUT_MS * 12,
-      `probes ${label} did not finish`
+    evaluateWithin(
+      app,
+      (_electron, l) => globalThis.__loquiAcceptance.runProbes(l),
+      label,
+      `probes ${label}`,
+      PROBE_TIMEOUT_MS * 12
     );
 
   try {
@@ -937,7 +1340,9 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
       // fixture) tags its requests; the session backstop strips the tag.
       const updateSince = Date.now();
       run.appUpdateCheck = {
-        result: await settleWithin(panel.evaluate(() => window.electronAPI.updates.check())),
+        result: await settleWithin(
+          evaluateWithin(panel, () => window.electronAPI.updates.check(), undefined, "update check")
+        ),
       };
       const updateHits = record
         .leaked(updateSince)
@@ -952,92 +1357,108 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
       else run.appUpdateCheck.note = "not exercised: nothing reached the fixture; T10 stays manual";
 
       // C2-R2 / T7a: in the top page, and in frames the page creates for itself.
-      const frames = await panel.evaluate(
-        () =>
-          new Promise((resolve) => {
-            const blank = document.createElement("iframe");
-            document.body.append(blank);
-            const viaBlank = typeof blank.contentWindow?.RTCPeerConnection;
-            const bridgeInFrame = typeof blank.contentWindow?.electronAPI;
-            const srcdoc = document.createElement("iframe");
-            srcdoc.srcdoc = "<p>x</p>";
-            const finish = (srcdocValue) => {
-              blank.remove();
-              srcdoc.remove();
-              resolve({
-                top: typeof RTCPeerConnection,
-                blank: viaBlank,
-                srcdoc: srcdocValue,
-                bridgeInFrame,
-              });
-            };
-            const timer = setTimeout(() => finish("no-load"), 5000);
-            srcdoc.addEventListener(
-              "load",
-              () => {
-                clearTimeout(timer);
-                finish(typeof srcdoc.contentWindow?.RTCPeerConnection);
-              },
-              { once: true }
-            );
-            document.body.append(srcdoc);
-          })
-      );
-      run.frames = frames;
-      verify(
+      run.frames = await finding(
         CHECKS.rendererFrames,
-        Object.values(frames).every((value) => value === "undefined"),
-        frames
+        () =>
+          evaluateWithin(
+            panel,
+            () =>
+              new Promise((resolve) => {
+                const blank = document.createElement("iframe");
+                document.body.append(blank);
+                const viaBlank = typeof blank.contentWindow?.RTCPeerConnection;
+                const bridgeInFrame = typeof blank.contentWindow?.electronAPI;
+                const srcdoc = document.createElement("iframe");
+                srcdoc.srcdoc = "<p>x</p>";
+                const finish = (srcdocValue) => {
+                  blank.remove();
+                  srcdoc.remove();
+                  resolve({
+                    top: typeof RTCPeerConnection,
+                    blank: viaBlank,
+                    srcdoc: srcdocValue,
+                    bridgeInFrame,
+                  });
+                };
+                const timer = setTimeout(() => finish("no-load"), 5000);
+                srcdoc.addEventListener(
+                  "load",
+                  () => {
+                    clearTimeout(timer);
+                    finish(typeof srcdoc.contentWindow?.RTCPeerConnection);
+                  },
+                  { once: true }
+                );
+                document.body.append(srcdoc);
+              }),
+            undefined,
+            "frame check"
+          ),
+        (frames) => Object.values(frames).every((value) => value === "undefined")
       );
 
       // T7a-M2 / T11-M7: a same-origin popup from every app window.
-      run.popups = [];
-      for (const page of app.windows()) {
-        const result = await bounded(
-          page.evaluate(() => {
-            let popup;
-            try {
-              popup = window.open("", "_blank");
-            } catch {
-              return { denied: true };
-            }
-            if (!popup) return { denied: true };
-            const value = {
-              denied: false,
-              webrtc: typeof popup.RTCPeerConnection,
-              bridge: typeof popup.electronAPI,
-            };
-            popup.close();
-            return value;
-          }),
-          5000,
-          "popup check timed out"
-        ).catch((error) => ({ error: errorLabel(error) }));
-        run.popups.push({ window: new URL(page.url()).search.slice(0, 80), ...result });
-      }
-      verify(
+      run.popups = await finding(
         CHECKS.rendererPopups,
-        run.popups.every(
-          (entry) =>
-            entry.denied === true || (entry.webrtc === "undefined" && entry.bridge === "undefined")
-        ),
-        run.popups
+        async () => {
+          const popups = [];
+          for (const page of app.windows()) {
+            const result = await evaluateWithin(
+              page,
+              () => {
+                let popup;
+                try {
+                  popup = window.open("", "_blank");
+                } catch {
+                  return { denied: true };
+                }
+                if (!popup) return { denied: true };
+                const value = {
+                  denied: false,
+                  webrtc: typeof popup.RTCPeerConnection,
+                  bridge: typeof popup.electronAPI,
+                };
+                popup.close();
+                return value;
+              },
+              undefined,
+              "popup check",
+              5000
+            ).catch((error) => ({ error: errorLabel(error) }));
+            popups.push({ window: new URL(page.url()).search.slice(0, 80), ...result });
+          }
+          return popups;
+        },
+        (popups) =>
+          popups.every(
+            (entry) =>
+              entry.denied === true ||
+              (entry.webrtc === "undefined" && entry.bridge === "undefined")
+          )
       );
 
       // T11a: Chromium's URL parser against Node's for the loopback edge cases.
-      const chromiumHosts = await panel.evaluate(
-        (cases) =>
-          cases.map((input) => {
-            try {
-              return new URL(input).hostname;
-            } catch {
-              return null;
-            }
-          }),
-        LOOPBACK_PARSE_CASES
+      run.urlParsing = await finding(
+        CHECKS.rendererParsing,
+        async () =>
+          compareUrlParsing(
+            LOOPBACK_PARSE_CASES,
+            await evaluateWithin(
+              panel,
+              (cases) =>
+                cases.map((input) => {
+                  try {
+                    return new URL(input).hostname;
+                  } catch {
+                    return null;
+                  }
+                }),
+              LOOPBACK_PARSE_CASES,
+              "URL parsing"
+            )
+          ),
+        (parsing) => parsing.mismatches.length === 0
       );
-      run.urlParsing = compareUrlParsing(LOOPBACK_PARSE_CASES, chromiumHosts);
-      verify(CHECKS.rendererParsing, run.urlParsing.mismatches.length === 0, run.urlParsing);
 
       // Seal through the real preload and trusted IPC with a stubborn child
       // running. The child is started only while unsealed.
@@ -1047,17 +1468,33 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
         beforeChild?.sealed === false && beforeChild?.phase === "open",
         summarizeAttestation(beforeChild)
       );
-      const pid = await app.evaluate(() => globalThis.__loquiAcceptance.startStubbornChild());
-      cleanup.add("stubborn child", () => {
-        if (pidAlive(pid)) process.kill(pid, "SIGKILL");
+      const pid = await evaluateWithin(
+        app,
+        () => globalThis.__loquiAcceptance.startStubbornChild(),
+        undefined,
+        "start stubborn child"
+      );
+      stubbornPid = pid;
+      // Runs before the app's close (newest first), through the app's own handle.
+      cleanup.add("stubborn child", async () => {
+        if (closed.has(app)) return;
+        await evaluateWithin(
+          app,
+          () => globalThis.__loquiAcceptance.stopStubbornChild(),
+          undefined,
+          "stop stubborn child",
+          5000
+        );
       });
       // setSealed resolves after main's sealing barrier ran. The leak probes
       // run now, before and independently of any attestation read: the
       // observer must not depend on the thing under test (Step 5 relies on it).
-      await bounded(
-        panel.evaluate(() => window.electronAPI.privacy.setSealed(true)),
-        30000,
-        "setSealed(true) did not resolve"
+      await evaluateWithin(
+        panel,
+        () => window.electronAPI.privacy.setSealed(true),
+        undefined,
+        "setSealed(true)",
+        30000
       );
       const sealedAt = Date.now();
       run.toggledProbes = await probe(app, "toggled");
@@ -1116,8 +1553,11 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
       const excluded = (report.runs.open?.excluded ?? []).map((entry) => entry.probe);
       const refusal = refusalProblems(run.probes, { excluded });
       verify(CHECKS.bootRefused, refusal.length === 0, { refusal, results: run.probes });
-      const ledger = await panel.evaluate(() =>
-        window.electronAPI.privacy.egressSummary({ since: 0 })
+      const ledger = await evaluateWithin(
+        panel,
+        () => window.electronAPI.privacy.egressSummary({ since: 0 }),
+        undefined,
+        "egress summary"
       );
       verify(CHECKS.bootLedger, ledger?.blocked > 0, { blocked: ledger?.blocked ?? null });
       await closeApp(app);
@@ -1131,6 +1571,12 @@ async function runElectronAcceptance({ record, output, root, baseEnv, executable
     );
   } finally {
     report.cleanupErrors = await cleanup.run();
+    // Never force-killed by number: a survivor is reported for a person to handle.
+    if (stubbornPid !== null && pidAlive(stubbornPid))
+      report.cleanupErrors.push({
+        label: "stubborn child",
+        error: `pid ${stubbornPid} is still present after cleanup; check it by hand`,
+      });
     if (remote)
       report.remoteLog = { requests: remote.hits, connections: remote.seenSince(0).connections };
   }
@@ -1143,11 +1589,16 @@ async function main({
   platform = process.platform,
   arch = process.arch,
   libc,
+  uid = typeof process.getuid === "function" ? process.getuid() : null,
+  runAcceptance = runElectronAcceptance,
   log = console.log,
   error = console.error,
 } = {}) {
   if (argv.includes("--help")) {
-    log("Usage: node scripts/sealed-acceptance.cjs [--output-dir DIR]");
+    log(
+      `Usage: node scripts/sealed-acceptance.cjs ${LAUNCH_OPT_IN} [--output-dir DIR] ` +
+        `[${SESSION_BUS_OPT_IN}] [${DEDICATED_DESKTOP_ACK}]. Read the header first.`
+    );
     return 0;
   }
   const outputIndex = argv.indexOf("--output-dir");
@@ -1161,6 +1612,7 @@ async function main({
       : path.resolve(argv[outputIndex + 1]);
   fs.mkdirSync(output, { recursive: true });
   const record = createAcceptanceRecord({ output, platform, arch, log });
+  const safety = assessLaunchSafety({ argv, env, platform, uid });
   const prerequisites = inspectLaunchPrerequisites({
     repoRoot: root,
     env,
@@ -1173,25 +1625,25 @@ async function main({
     sqliteBinding: prerequisites.sqlite.file,
     sqliteRegistration: prerequisites.sqlite.registration,
   };
-  if (!prerequisites.ready) {
-    record.report.notRun = { reasons: prerequisites.reasons };
+  const reasons = [...safety.reasons, ...prerequisites.reasons];
+  if (reasons.length) {
+    record.report.notRun = { reasons };
     record.finalize();
     const written = writeReport(output, record.report);
-    error(
-      `NOT RUN: ${prerequisites.reasons.map((entry) => `${entry.code}: ${entry.detail}`).join("; ")}`
-    );
+    error(`NOT RUN: ${reasons.map((entry) => `${entry.code}: ${entry.detail}`).join("; ")}`);
     log(`Acceptance artifacts: ${output}`);
     return exitCodeFor(written.status);
   }
   let written;
   try {
-    await runElectronAcceptance({
+    await runAcceptance({
       record,
       output,
       root,
       baseEnv: env,
       executablePath: prerequisites.electron.executablePath,
       platform,
+      safety: { allowSessionBus: safety.allowSessionBus },
     });
   } catch (failure) {
     record.report.error = String(failure?.message || failure).slice(0, 2000);
@@ -1208,24 +1660,35 @@ module.exports = {
   CHECKS,
   EXIT,
   EXPECTED_REMOTE,
+  HOST_RESOLVER_RULES,
   LOOPBACK_PARSE_CASES,
+  MANDATORY_CHECKS,
   MANUAL_CHECKLIST,
   NATIVE_BOUNDARY_UNAVAILABLE,
   NATIVE_PENDING,
+  assessLaunchSafety,
+  buildChildEnv,
+  childProbeAllowed,
+  chromiumSwitches,
   compareUrlParsing,
   createAcceptanceRecord,
   createCleanup,
+  electronLaunchOptions,
   evaluate07aAttestation,
+  evaluateWithin,
   exitCodeFor,
   expectedRemote,
   finalizeStatus,
+  forceKillOwnedGroup,
   honestyViolations,
+  hostMappingFor,
   inspectLaunchPrerequisites,
   main,
   nodeUrlHost,
   probeKinds,
   readModuleRegistration,
   refusalProblems,
+  registerLaunchCleanup,
   settleWithin,
   summarizeAttestation,
   writeReport,

@@ -34,6 +34,7 @@ import { Button } from "./ui/button";
 import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 import ModelCardList from "./ui/ModelCardList";
 import { ProviderTabs, type ProviderTabItem } from "./ui/ProviderTabs";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 
 type CloudModelOption = {
   value: string;
@@ -155,10 +156,13 @@ function GpuStatusBadge() {
         setActivating(true);
         setActivationFailed(false);
       } else if (result && !result.cancelled) {
-        setError(result.error || t("gpu.activationFailed"));
+        setError(sealedFailureMessage(result, t) ?? (result.error || t("gpu.activationFailed")));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("gpu.activationFailed"));
+      setError(
+        sealedFailureMessage(err, t) ??
+          (err instanceof Error ? err.message : t("gpu.activationFailed"))
+      );
     } finally {
       setDownloading(false);
       setProgress(null);

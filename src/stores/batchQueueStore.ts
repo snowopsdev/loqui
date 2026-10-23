@@ -2,7 +2,8 @@ import { create } from "zustand";
 import i18n from "../i18n";
 import { transcribeFileWithSpeakers } from "../services/fileTranscription";
 import type { FileTranscriptionConfig, DiarizationSettings } from "../services/fileTranscription";
-import { DOWNLOAD_ERROR_KEYS, transcriptionErrorKey } from "../components/notes/shared";
+import { transcriptionErrorKey, urlDownloadErrorKey } from "../components/notes/shared";
+import { isSealedModeError, sealedGenericMessageKey } from "../utils/sealedModeError";
 import { saveUploadNote, uploadTitleFallback } from "../services/uploadNotes";
 
 type QueueItemStatus = "queued" | "downloading" | "transcribing" | "done" | "error";
@@ -51,6 +52,10 @@ export const useBatchQueueStore = create<BatchQueueStoreState>()(() => ({
 // immediately.
 let runId = 0;
 let activeUploadRequestId: string | null = null;
+
+// A thrown sealed failure is stored as its translated key's id (I6).
+const sealedErrorKey = (err: unknown): string | undefined =>
+  isSealedModeError(err) ? sealedGenericMessageKey(err) : undefined;
 
 function updateQueue(updater: (prev: QueueItem[]) => QueueItem[]) {
   useBatchQueueStore.setState((s) => ({ queue: updater(s.queue) }));
@@ -157,10 +162,11 @@ export function processBatchQueue(
           const res = await window.electronAPI.downloadUrlAudio(item.url, item.id);
           if (!res.success) {
             const fail = res as { success: false; error: string; code?: string };
+            // A sealed failure stores its sealedMode.* key, never main's text (I6).
             const key =
-              fail.code === "DOWNLOAD_CANCELLED"
+              fail.code === "DOWNLOAD_CANCELLED" && !isSealedModeError(fail)
                 ? "batchCancelled"
-                : DOWNLOAD_ERROR_KEYS[fail.code || ""];
+                : urlDownloadErrorKey(fail);
             updateItem(item.id, { status: "error", error: key || fail.error });
             return;
           }
@@ -209,7 +215,11 @@ export function processBatchQueue(
           status: "error",
           error:
             transcriptionErrorKey(transcriptionResult) ||
-            (transcriptionResult.messageKey ? i18n.t(transcriptionResult.messageKey) : undefined) ||
+            (transcriptionResult.messageKey?.startsWith("sealedMode.")
+              ? transcriptionResult.messageKey
+              : transcriptionResult.messageKey
+                ? i18n.t(transcriptionResult.messageKey)
+                : undefined) ||
             transcriptionResult.error ||
             "batchTranscriptionFailed",
         });
@@ -253,7 +263,9 @@ export function processBatchQueue(
       updateItem(item.id, {
         status: "error",
         error:
-          transcriptionErrorKey(err) || (err instanceof Error ? err.message : "batchUnknownError"),
+          sealedErrorKey(err) ||
+          transcriptionErrorKey(err) ||
+          (err instanceof Error ? err.message : "batchUnknownError"),
       });
     } finally {
       // Nothing else owns the temp file, so delete it even for a stale run.

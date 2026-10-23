@@ -47,6 +47,7 @@ import {
 } from "../../stores/settingsStore";
 import { generateNoteTitle } from "../../utils/generateTitle";
 import { getBaseLanguageCode } from "../../utils/languageSupport";
+import { sealedFailureMessage } from "../../utils/sealedModeError";
 import BatchQueueView from "./BatchQueueView";
 
 import { isSupportedUploadFile, uploadFileUrlPattern } from "../../utils/uploadAudioFormats";
@@ -688,7 +689,8 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
         }
         const key = DOWNLOAD_ERROR_KEYS[fail.code || ""];
         setError(
-          key ? t(`notes.upload.${key}`) : fail.error || t("notes.upload.urlDownloadFailed")
+          sealedFailureMessage(fail, t) ??
+            (key ? t(`notes.upload.${key}`) : fail.error || t("notes.upload.urlDownloadFailed"))
         );
         setState("error");
         return;
@@ -707,7 +709,10 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
       if (videosFolder) setSelectedFolderId(String(videosFolder.id));
       setState("selected");
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("notes.upload.urlDownloadFailed"));
+      setError(
+        sealedFailureMessage(e, t) ??
+          (e instanceof Error ? e.message : t("notes.upload.urlDownloadFailed"))
+      );
       setState("error");
     } finally {
       urlDownloadActiveRef.current = false;

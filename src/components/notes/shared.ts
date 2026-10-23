@@ -1,5 +1,6 @@
 import { cn } from "../lib/utils";
 import type { FolderItem, SpaceItem } from "../../types/electron";
+import { isSealedModeError, sealedGenericMessageKey } from "../../utils/sealedModeError";
 
 export const DEFAULT_FOLDER_NAME = "Personal";
 export const MEETINGS_FOLDER_NAME = "Meetings";
@@ -63,6 +64,26 @@ export const DOWNLOAD_ERROR_KEYS: Record<string, string> = {
   YOUTUBE_BLOCKED: "urlYoutubeBlocked",
   SSRF_BLOCKED: "urlDownloadFailed",
 };
+
+// A URL-download failure → the key the import shows: a full sealedMode.* key
+// for a sealed failure, by phase (final review I6), otherwise a notes.upload.*
+// leaf for a known code, otherwise undefined (the caller keeps main's text).
+export function urlDownloadErrorKey(failure: unknown): string | undefined {
+  if (isSealedModeError(failure)) return sealedGenericMessageKey(failure);
+  const code = (failure as { code?: unknown } | null | undefined)?.code;
+  return typeof code === "string" ? DOWNLOAD_ERROR_KEYS[code] : undefined;
+}
+
+// A batch-queue item's error is a notes.upload.* leaf, a full sealedMode.*
+// key, or already-final text; this renders any of them.
+export function queueErrorText(
+  error: string,
+  t: (key: string, params?: Record<string, unknown>) => string,
+  params: Record<string, unknown> = {}
+): string {
+  if (error.startsWith("sealedMode.")) return t(error);
+  return t(`notes.upload.${error}`, { defaultValue: error, ...params });
+}
 
 // Transcription error codes → notes.upload.* i18n keys. Codes absent here fall
 // back to the raw main-process message.

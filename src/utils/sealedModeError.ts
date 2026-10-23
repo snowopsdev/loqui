@@ -67,3 +67,11 @@ export function sealedDictationMessageKey(
   if (held) return `${family}.dictationHeld`;
   return `${family}.${audioKept ? "dictationKept" : "dictationNotKept"}`;
 }
+
+// Final review I6: every surface that would show main's failure text checks
+// this first. A sealed failure becomes the translated generic copy for its
+// phase; main's raw text (and its English [SEALED_MODE…] marker) never shows.
+// Anything else is null, so the caller keeps its own message.
+export function sealedFailureMessage(error: unknown, t: (key: string) => string): string | null {
+  return isSealedModeError(error) ? t(sealedGenericMessageKey(error)) : null;
+}

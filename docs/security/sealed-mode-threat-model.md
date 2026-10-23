@@ -268,6 +268,7 @@ src/helpers/parakeetWsServer.js
 src/helpers/personalInference.js
 src/helpers/processListCache.js
 src/helpers/privacy/childRegistry.js
+src/helpers/privacy/processIdentity.js
 src/helpers/qdrantManager.js
 src/helpers/selectionManager.js
 src/helpers/sidecarReaper.js
@@ -498,9 +499,25 @@ the root exits only while the group, observed continuously, still exists as
 ours: probed at the root's exit notification, then every 100 ms on a monotonic
 clock; a failed or thrown probe, or
 a gap over 400 ms, ends that for good, because the id may then be reused.
-That relies on the kernel's cyclic pid allocation, not on identity proof, and
-it never resolves the tree. Windows keeps the root-only kill (`taskkill` is
-refused while sealed; 07b).
+Continuity alone relies on the kernel's cyclic pid allocation, so owner
+decision D-3 (2026-10-23) also requires identity proof before a reaped root's
+group is signalled. At spawn the registry records the leader's pid, pgid,
+session id and start time (`src/helpers/privacy/processIdentity.js`: Linux
+`/proc/<pid>/stat`; macOS `ps` lstart, which is a native launch and so refused
+while sealed, and reports no session id). Before the signal it requires that no
+process now holds the leader's pid and that the group has members, each in the
+recorded session (where reported) and started no earlier than the leader. Any
+failure (no recorded identity, `NOT_GROUP_LEADER`, `PROC_UNREADABLE`,
+`PID_REUSED`, `PGID_REUSED`, `GROUP_CONTINUITY_LOST`) sends no signal, leaves
+the obligation unresolved so the sealing barrier fails closed, and is named:
+the diagnostics reason is `GROUP_OWNERSHIP_UNPROVEN` with the typed
+`groupProof`, which the attestation's `child:` failures carry to the panel, and
+`stopAll`'s `CHILD_STOP_FAILED` error lists it in `unproven`. A live root is
+signalled without proof, since its pid cannot be reused; `killProcessGroup`
+(`src/utils/process.js`) now also skips a root that ended by a signal. Proof is
+of the group id, never of the tree. On macOS, a sealed stop of a group whose
+root exited is therefore always unproven (NOT VERIFIED on macOS: no Mac run).
+Windows keeps the root-only kill (`taskkill` is refused while sealed; 07b).
 
 A seal that interrupts the optional MTP drafter or diarization VAD download
 fails the whole download (never reported complete) and keeps that file's

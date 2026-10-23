@@ -1497,11 +1497,21 @@ const FAKE_GROUP_PID = 4_206_649;
 // interval runs. `facts.now` only moves when a test moves it.
 function fakeGroupFacts() {
   const facts = { alive: false, kills: [], now: 0, watches: [] };
+  let spawnRead = false;
   registry._setSystemForTests({
     groupAlive: (pid) => {
       assert.equal(pid, FAKE_GROUP_PID);
       return facts.alive;
     },
+    // D-3: the root's identity at spawn, then a payload still in its group and
+    // session after the root exits, so ownership is proven.
+    readIdentity: (pid) => {
+      assert.equal(pid, FAKE_GROUP_PID);
+      if (spawnRead) return null;
+      spawnRead = true;
+      return { pid, pgid: pid, sid: pid, startTime: 10 };
+    },
+    groupMembers: (pgid) => [{ pid: pgid + 1, pgid, sid: pgid, startTime: 11 }],
     killGroup: (pid, signal) => facts.kills.push([pid, signal]),
     now: () => facts.now,
     every: (fn, ms) => {

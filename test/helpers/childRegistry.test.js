@@ -434,9 +434,41 @@ const FAKE_GROUP = 4_206_649;
 const posixGroups = {
   skip: process.platform === "win32" && "process groups are POSIX-only (Windows is 07b)",
 };
+// D-3 identity facts: the leader as read at spawn, the process (if any) now
+// holding the leader's pid, and the group's members. By default the root's
+// payload outlives it in the same session, started after the leader.
+const LEADER = { pid: FAKE_GROUP, pgid: FAKE_GROUP, sid: FAKE_GROUP, startTime: 1000 };
+const PAYLOAD = { pid: FAKE_GROUP + 1, pgid: FAKE_GROUP, sid: FAKE_GROUP, startTime: 1001 };
 function groupFacts({ alive = true } = {}) {
-  const facts = { alive, now: 0, kills: [], probes: 0, watches: [] };
+  const facts = {
+    alive,
+    now: 0,
+    kills: [],
+    probes: 0,
+    watches: [],
+    leader: { ...LEADER },
+    holder: null,
+    members: [{ ...PAYLOAD }],
+    reads: 0,
+  };
+  let spawned = false;
   registry._setSystemForTests({
+    readIdentity: (pid) => {
+      assert.equal(pid, FAKE_GROUP);
+      facts.reads++;
+      if (!spawned) {
+        spawned = true; // the first read is the one at spawn
+        if (facts.leader instanceof Error) throw facts.leader;
+        return facts.leader;
+      }
+      if (facts.holder instanceof Error) throw facts.holder;
+      return facts.holder;
+    },
+    groupMembers: (pgid) => {
+      assert.equal(pgid, FAKE_GROUP);
+      if (facts.members instanceof Error) throw facts.members;
+      return facts.members;
+    },
     groupAlive: (pid) => {
       assert.equal(pid, FAKE_GROUP);
       facts.probes++;
@@ -500,6 +532,154 @@ test(
     assert.equal(registry.alive().length, 1, "a signal and a root exit are not whole-tree proof");
     const [fact] = registry.diagnostics().unresolved;
     assert.deepEqual([fact.reason, fact.rootExited], ["DESCENDANTS_UNVERIFIED", true]);
+  }
+);
+
+// Owner decision D-3: proof of ownership before signalling a reaped root's group.
+async function stopRefused(facts) {
+  const error = await registry.stopAll({ termGraceMs: 1, killGraceMs: 1 }).catch((e) => e);
+  assert.equal(error?.code, "CHILD_STOP_FAILED", "the barrier fails closed");
+  assert.deepEqual(facts.kills, [], "no signal to an unproven group");
+  assert.equal(registry.alive().length, 1, "the obligation stays unresolved");
+  const [fact] = registry.diagnostics().unresolved;
+  assert.equal(fact.reason, "GROUP_OWNERSHIP_UNPROVEN");
+  return { error, fact };
+}
+function exitedRoot(facts) {
+  const root = child(FAKE_GROUP);
+  registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+  root.emit("exit", 0, null);
+  facts.tick(100);
+  return root;
+}
+
+test("D-3: the leader's identity is read once, at spawn", posixGroups, () => {
+  const facts = groupFacts();
+  const root = child(FAKE_GROUP);
+  registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+  root.emit("spawn");
+  assert.equal(facts.reads, 1);
+});
+
+test("D-3: a matching group is signalled after its root exits", posixGroups, async () => {
+  const facts = groupFacts();
+  exitedRoot(facts);
+  assert.equal(registry.signalGroup(child(FAKE_GROUP), "SIGTERM"), false, "unregistered");
+  await assert.rejects(registry.stopAll({ termGraceMs: 1, killGraceMs: 1 }), {
+    code: "CHILD_STOP_FAILED", // a signal is still not whole-tree proof
+  });
+  assert.deepEqual(facts.kills, [
+    [FAKE_GROUP, "SIGTERM"],
+    [FAKE_GROUP, "SIGKILL"],
+  ]);
+  const [fact] = registry.diagnostics().unresolved;
+  assert.deepEqual([fact.reason, fact.groupProof], ["DESCENDANTS_UNVERIFIED", "proven"]);
+});
+
+test("D-3: a reused PGID is never killed", posixGroups, async (t) => {
+  for (const [label, change, reason] of [
+    [
+      "an unrelated process now holds the leader's pid",
+      (f) => (f.holder = { ...LEADER, startTime: 9000 }),
+      "PID_REUSED",
+    ],
+    [
+      "a group member started before our leader",
+      (f) => (f.members = [{ ...PAYLOAD, startTime: 999 }]),
+      "PGID_REUSED",
+    ],
+    [
+      "a group member in another session",
+      (f) => (f.members = [{ ...PAYLOAD, sid: 77 }]),
+      "PGID_REUSED",
+    ],
+  ]) {
+    await t.test(label, async () => {
+      registry._resetForTests();
+      const facts = groupFacts();
+      const root = exitedRoot(facts);
+      change(facts);
+      assert.equal(registry.signalGroup(root, "SIGKILL"), false);
+      const { error, fact } = await stopRefused(facts);
+      assert.equal(fact.groupProof, reason);
+      assert.deepEqual(error.unproven, [{ kind: "yt-dlp", pid: FAKE_GROUP, reason }]);
+    });
+  }
+});
+
+test("D-3: unreadable proc data is never killed and fails closed", posixGroups, async (t) => {
+  const unreadable = () => Object.assign(new Error("EACCES"), { code: "EACCES" });
+  for (const [label, change, reason] of [
+    ["the group's members cannot be read", (f) => (f.members = unreadable()), "PROC_UNREADABLE"],
+    ["the leader's pid cannot be read", (f) => (f.holder = unreadable()), "PROC_UNREADABLE"],
+    [
+      "a member's start time is missing",
+      (f) => (f.members = [{ ...PAYLOAD, startTime: undefined }]),
+      "PROC_UNREADABLE",
+    ],
+    ["no identity was recorded at spawn", (f) => void f, "PROC_UNREADABLE"],
+  ]) {
+    await t.test(label, async () => {
+      registry._resetForTests();
+      const facts = groupFacts();
+      if (label.startsWith("no identity")) facts.leader = unreadable();
+      const root = exitedRoot(facts);
+      change(facts);
+      assert.equal(registry.signalGroup(root, "SIGKILL"), false);
+      const { fact } = await stopRefused(facts);
+      assert.equal(fact.groupProof, reason);
+    });
+  }
+});
+
+test("D-3: a spawn read that finds no group leader records why", posixGroups, async () => {
+  const facts = groupFacts();
+  facts.leader = { ...LEADER, pgid: 12 }; // not the leader of its own group
+  exitedRoot(facts);
+  const { fact } = await stopRefused(facts);
+  assert.equal(fact.groupProof, "NOT_GROUP_LEADER");
+});
+
+test(
+  "D-3: a live root is signalled without a proc read (its pid cannot be reused)",
+  posixGroups,
+  () => {
+    const facts = groupFacts();
+    facts.members = new Error("must not be read");
+    const root = child(FAKE_GROUP);
+    registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+    assert.equal(registry.signalGroup(root, "SIGTERM"), true);
+    assert.deepEqual(facts.kills, [[FAKE_GROUP, "SIGTERM"]]);
+  }
+);
+
+test("D-3: the real Linux reader parses /proc stat, including a name with spaces and parens", () => {
+  const { parseStat } = require("../../src/helpers/privacy/processIdentity");
+  const fields = Array.from({ length: 50 }, (_, i) => String(i + 3));
+  fields[2] = "4100"; // pgrp
+  fields[3] = "4100"; // session
+  fields[19] = "123456"; // starttime
+  assert.deepEqual(parseStat(`4100 (yt dlp) (x)) S ${fields.slice(1).join(" ")}`), {
+    pid: 4100,
+    pgid: 4100,
+    sid: 4100,
+    startTime: 123456,
+  });
+  assert.throws(() => parseStat("4100 (truncated"), /PROC_UNREADABLE/);
+  assert.throws(() => parseStat("4100 (x) S 1 2"), /PROC_UNREADABLE/);
+});
+
+test(
+  "D-3: this process reads as its own identity on Linux",
+  { skip: process.platform !== "linux" && "Linux /proc only" },
+  () => {
+    const { forPlatform } = require("../../src/helpers/privacy/processIdentity");
+    const { readIdentity, groupMembers } = forPlatform("linux");
+    const self = readIdentity(process.pid);
+    assert.equal(self.pid, process.pid);
+    assert.ok(self.startTime > 0);
+    assert.ok(groupMembers(self.pgid).some((member) => member.pid === process.pid));
+    assert.equal(readIdentity(2 ** 30), null, "no such process");
   }
 );
 
@@ -660,6 +840,7 @@ test("group continuity is measured on a monotonic clock, not the wall clock", (t
     Date.now = realNow;
   });
   const kills = [];
+  const spawnReads = new Set();
   registry._resetForTests();
   registry._setSystemForTests({
     listProcesses: () => [],
@@ -667,6 +848,13 @@ test("group continuity is measured on a monotonic clock, not the wall clock", (t
     groupAlive: () => true,
     killGroup: (pid, sig) => kills.push([pid, sig]),
     every: () => () => {},
+    // D-3: ownership is proven (identity at spawn, then a payload member), so
+    // only the clock decides here.
+    readIdentity: (pid) =>
+      spawnReads.has(pid)
+        ? null
+        : (spawnReads.add(pid), { pid, pgid: pid, sid: pid, startTime: 1 }),
+    groupMembers: (pgid) => [{ pid: pgid + 1, pgid, sid: pgid, startTime: 2 }],
   });
   for (const jump of [3600000, -3600000]) {
     const c = child(41020 + kills.length);

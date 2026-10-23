@@ -3,6 +3,7 @@ const { syncBuiltinESMExports } = require("node:module");
 const { promisify } = require("node:util");
 const { performance } = require("node:perf_hooks");
 const gate = require("./egressGate");
+const processIdentity = require("./processIdentity");
 
 // Classification describes intent only. 07a has no native launch capability.
 const NETWORK =
@@ -122,6 +123,8 @@ function listProcesses() {
 }
 const defaults = () => ({
   listProcesses,
+  // D-3: identity reads (Linux /proc, macOS ps; see processIdentity.js).
+  ...processIdentity.forPlatform(),
   pidAlive,
   groupAlive: (pid) => pidAlive(-pid),
   killGroup: (pid, signal) => process.kill(-pid, signal),
@@ -153,6 +156,17 @@ let groupWatches = new Set();
 //   the whole pid space within it (Linux pid_max: 32768 by default, 4194304
 //   under systemd; macOS: 99999). That is an allocator argument, not identity
 //   proof.
+// Continuity alone is not enough (owner decision D-3, 2026-10-23). The
+// leader's identity { pid, pgid, sid, startTime } is recorded at spawn, and a
+// reaped root's group is signalled only when it is also proven to be ours:
+// no process holds the leader's pid (POSIX never hands out a pid still used as
+// a group id, so a live holder means the group is gone and the id reused), and
+// the group has members, each in the recorded session (where the platform
+// reports one) and started no earlier than the leader. Anything that cannot be
+// proven (no recorded identity, unreadable or refused process data, a reused
+// pid or group id, a mismatch) sends no signal, records a typed reason in
+// entry.groupProof and leaves the obligation unresolved, so the sealing
+// barrier fails closed and diagnostics name GROUP_OWNERSHIP_UNPROVEN.
 // None of this resolves the tree: a signal, a root exit or an absent group is
 // never evidence that descendants ended (A2/A23), and the entry stays
 // DESCENDANTS_UNVERIFIED.
@@ -204,10 +218,65 @@ function observeGroupAtRootExit(entry) {
   stop = watch;
   groupWatches.add(stop);
 }
-// Signals the entry's whole group while continuity still holds (observed, not proven).
+// The leader's identity, read once at spawn. A detached POSIX child leads its
+// own group (and, through setsid, its own session) before spawn returns.
+function recordIdentity(entry) {
+  if (!posixGroup(entry) || entry.identity !== undefined) return;
+  try {
+    const identity = system.readIdentity(entry.pid);
+    if (!identity) {
+      entry.identity = null;
+      entry.identityError = "IDENTITY_NOT_RECORDED";
+    } else if (identity.pid !== entry.pid || identity.pgid !== entry.pid) {
+      entry.identity = null;
+      entry.identityError = "NOT_GROUP_LEADER";
+    } else entry.identity = { ...identity };
+  } catch {
+    entry.identity = null;
+    entry.identityError = "PROC_UNREADABLE";
+  }
+}
+// D-3: proof that a reaped root's group id still names our group.
+function proveGroup(entry) {
+  const id = entry.identity;
+  if (!id) return entry.identityError ?? "IDENTITY_NOT_RECORDED";
+  let holder;
+  let members;
+  try {
+    holder = system.readIdentity(id.pid);
+    members = system.groupMembers(id.pgid);
+  } catch {
+    return "PROC_UNREADABLE";
+  }
+  if (holder) return "PID_REUSED";
+  if (!Array.isArray(members) || members.length === 0) return "GROUP_ENDED";
+  for (const member of members) {
+    if (!Number.isFinite(member?.startTime)) return "PROC_UNREADABLE";
+    if (member.pgid !== id.pgid) return "PROC_UNREADABLE";
+    if (member.startTime < id.startTime) return "PGID_REUSED";
+    if (id.sid !== null && id.sid !== undefined && member.sid !== id.sid) return "PGID_REUSED";
+  }
+  return null;
+}
+function unproven(entry, reason) {
+  entry.groupProof = { state: "unproven", reason };
+  return false;
+}
+// Signals the entry's whole group: always while the root is unreaped (its pid,
+// and so the group id, cannot be reused), and after that only while continuity
+// holds and ownership is proven (D-3). Never an unproven group.
 function signalEntryGroup(entry, sig) {
   if (!posixGroup(entry)) return false;
-  if (!rootUnreaped(entry) && !groupStillOurs(entry)) return false;
+  if (!rootUnreaped(entry)) {
+    if (!groupStillOurs(entry))
+      return unproven(
+        entry,
+        entry.groupContinuity?.state === "ended" ? "GROUP_ENDED" : "GROUP_CONTINUITY_LOST"
+      );
+    const reason = proveGroup(entry);
+    if (reason) return unproven(entry, reason);
+    entry.groupProof = { state: "proven" };
+  }
   system.killGroup(entry.pid, sig);
   return true;
 }
@@ -257,9 +326,11 @@ function register(child, { kind, group = false, tree = false, local = false } = 
   };
   children.set(child, entry);
   entries.add(entry);
+  if (entry.started) recordIdentity(entry);
   child.once("spawn", () => {
     entry.started = true;
     entry.pid = child.pid;
+    recordIdentity(entry);
   });
   onChildEnd(child, (detail) => {
     entry.exited = true;
@@ -314,6 +385,8 @@ function recordUnresolved({ kind, pid, reason, rootExited = false, source = "sid
   legacy.set(key, entry);
   return { ...entry };
 }
+const refusedUnproven = (entry) =>
+  entry.groupProof?.state === "unproven" && entry.groupProof.reason !== "GROUP_ENDED";
 function diagnostics() {
   return {
     nativeBoundaryUnavailable: true,
@@ -324,7 +397,10 @@ function diagnostics() {
         .map((e) => ({
           kind: e.kind,
           pid: e.pid,
-          reason: "DESCENDANTS_UNVERIFIED",
+          // D-3: a group Loqui refused to signal because it could not prove it
+          // was still its own is named as such.
+          reason: refusedUnproven(e) ? "GROUP_OWNERSHIP_UNPROVEN" : "DESCENDANTS_UNVERIFIED",
+          groupProof: e.groupProof?.reason ?? e.groupProof?.state ?? null,
           rootExited: e.exited,
           source: "child-registry",
           inspection: e.inspection,
@@ -384,6 +460,10 @@ async function stopAll({ kinds, termGraceMs = 1500, killGraceMs = 1500 } = {}) {
     throw Object.assign(new Error(`Child processes remain unresolved: ${failed.join(", ")}`), {
       code: "CHILD_STOP_FAILED",
       kinds: [...new Set(failed)],
+      // D-3: groups not signalled because their ownership was not proven.
+      unproven: targets
+        .filter(refusedUnproven)
+        .map((e) => ({ kind: e.kind, pid: e.pid, reason: e.groupProof.reason })),
     });
 }
 

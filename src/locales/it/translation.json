@@ -4481,6 +4481,20 @@
       "detail_one": "Verrà eliminata {{count}} voce. I dati già ricevuti da un fornitore non subiranno modifiche.",
       "detail_many": "Verranno eliminate {{count}} voci. I dati già ricevuti da un fornitore non subiranno modifiche.",
       "detail_other": "Verranno eliminate {{count}} voci. I dati già ricevuti da un fornitore non subiranno modifiche."
+    },
+    "confirmLink": {
+      "title": "Aprire questo link fuori da Loqui?",
+      "message": "Il link si apre in un’altra app. La modalità sigillata non copre l’uso della rete da parte di quell’app.",
+      "detail": "Destinazione: {{host}}",
+      "mailDetail": "Destinazione: la tua app di posta",
+      "keep": "Non aprire",
+      "open": "Apri link"
+    },
+    "confirmSettings": {
+      "title": "Aprire le impostazioni di sistema fuori da Loqui?",
+      "message": "Le impostazioni di sistema si aprono in un’altra app. La modalità sigillata non copre l’uso della rete da parte di quell’app.",
+      "keep": "Non aprire",
+      "open": "Apri impostazioni"
     }
   },
   "setupFlow": {

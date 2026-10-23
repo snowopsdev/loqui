@@ -4470,6 +4470,20 @@
       "clear": "Clear history",
       "detail_one": "{{count}} record will be deleted. Nothing a provider already received is affected.",
       "detail_other": "{{count}} records will be deleted. Nothing a provider already received is affected."
+    },
+    "confirmLink": {
+      "title": "Open this link outside Loqui?",
+      "message": "The link opens in another app. Sealed mode does not cover that app's network use.",
+      "detail": "Destination: {{host}}",
+      "mailDetail": "Destination: your email app",
+      "keep": "Don't open",
+      "open": "Open link"
+    },
+    "confirmSettings": {
+      "title": "Open system settings outside Loqui?",
+      "message": "System settings open in another app. Sealed mode does not cover that app's network use.",
+      "keep": "Don't open",
+      "open": "Open settings"
     }
   },
   "setupFlow": {

@@ -444,6 +444,16 @@ test("intentional injected, SDK, native and OS boundaries remain inventoried", (
     "src/helpers/downloadUtils.js",
     "src/helpers/urlAudioDownloader.js",
     "src/helpers/updateManager.js",
+    // Task 11: gated calendar OAuth/API, the loopback sign-in listener and the
+    // confirmed OS handoffs (browser, mail, settings, Codex consent page).
+    "src/helpers/googleCalendarOAuth.js",
+    "src/helpers/googleCalendarManager.js",
+    "src/helpers/microsoftCalendarOAuth.js",
+    "src/helpers/microsoftCalendarManager.js",
+    "src/helpers/oauthLoopbackFlow.js",
+    "src/helpers/meetingDetectionEngine.js",
+    "src/helpers/menuManager.js",
+    "main.js",
   ])
     assert.ok(block("egress-sites").has(file), `retain semantic egress site: ${file}`);
   for (const file of [
@@ -469,6 +479,10 @@ test("intentional injected, SDK, native and OS boundaries remain inventoried", (
     // extraction (unzip/tar/PowerShell) is refused sealed by the spawn guard.
     "src/helpers/urlAudioDownloader.js",
     "src/helpers/downloadUtils.js",
+    // Task 11: OS handoffs (explorer.exe/shell.openExternal) and Apple's
+    // EventKit helper; confirmation never waives the native refusal.
+    "src/helpers/externalUrlOpener.js",
+    "src/helpers/appleCalendarManager.js",
   ])
     assert.ok(block("spawn-sites").has(file), `retain semantic launch site: ${file}`);
 });

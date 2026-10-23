@@ -4481,6 +4481,20 @@
       "detail_one": "Se eliminará {{count}} registro. Esto no afecta a lo que un proveedor ya haya recibido.",
       "detail_many": "Se eliminarán {{count}} registros. Esto no afecta a lo que un proveedor ya haya recibido.",
       "detail_other": "Se eliminarán {{count}} registros. Esto no afecta a lo que un proveedor ya haya recibido."
+    },
+    "confirmLink": {
+      "title": "¿Abrir este enlace fuera de Loqui?",
+      "message": "El enlace se abre en otra aplicación. El modo sellado no cubre el uso de la red de esa aplicación.",
+      "detail": "Destino: {{host}}",
+      "mailDetail": "Destino: tu aplicación de correo",
+      "keep": "No abrir",
+      "open": "Abrir enlace"
+    },
+    "confirmSettings": {
+      "title": "¿Abrir la configuración del sistema fuera de Loqui?",
+      "message": "La configuración del sistema se abre en otra aplicación. El modo sellado no cubre el uso de la red de esa aplicación.",
+      "keep": "No abrir",
+      "open": "Abrir configuración"
     }
   },
   "setupFlow": {

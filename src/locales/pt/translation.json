@@ -4481,6 +4481,20 @@
       "detail_one": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu.",
       "detail_many": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu.",
       "detail_other": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu."
+    },
+    "confirmLink": {
+      "title": "Abrir este link fora do Loqui?",
+      "message": "O link abre em outro aplicativo. O modo selado não cobre o uso de rede desse aplicativo.",
+      "detail": "Destino: {{host}}",
+      "mailDetail": "Destino: seu aplicativo de e-mail",
+      "keep": "Não abrir",
+      "open": "Abrir link"
+    },
+    "confirmSettings": {
+      "title": "Abrir as configurações do sistema fora do Loqui?",
+      "message": "As configurações do sistema abrem em outro aplicativo. O modo selado não cobre o uso de rede desse aplicativo.",
+      "keep": "Não abrir",
+      "open": "Abrir configurações"
     }
   },
   "setupFlow": {

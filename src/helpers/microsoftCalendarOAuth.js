@@ -1,4 +1,5 @@
-const { net } = require("electron");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 const { runOAuthLoopbackFlow, OAuthFlowError } = require("./oauthLoopbackFlow");
 
 // The "common" tenant covers both work/school (M365) and personal
@@ -43,8 +44,8 @@ class MicrosoftCalendarOAuth {
         });
         return `${MICROSOFT_AUTH_URL}?${params.toString()}`;
       },
-      handleCallback: async (code, redirectUri, codeVerifier) => {
-        const tokenData = await this.exchangeCodeForTokens(code, redirectUri, codeVerifier);
+      handleCallback: async (code, redirectUri, codeVerifier, signal) => {
+        const tokenData = await this.exchangeCodeForTokens(code, redirectUri, codeVerifier, signal);
 
         if (tokenData.error) {
           throw new OAuthFlowError(
@@ -53,7 +54,9 @@ class MicrosoftCalendarOAuth {
           );
         }
 
-        const email = await this._resolveEmail(tokenData);
+        const email = await this._resolveEmail(tokenData, signal);
+        // A cancelled flow (sealing) saves nothing, even if the reply arrived.
+        signal?.throwIfAborted();
         if (!email) {
           throw new OAuthFlowError(
             "no_email",
@@ -67,7 +70,7 @@ class MicrosoftCalendarOAuth {
     });
   }
 
-  async exchangeCodeForTokens(code, redirectUri, codeVerifier) {
+  async exchangeCodeForTokens(code, redirectUri, codeVerifier, signal) {
     const body = new URLSearchParams({
       code,
       client_id: this.getClientId(),
@@ -76,7 +79,7 @@ class MicrosoftCalendarOAuth {
       code_verifier: codeVerifier,
     }).toString();
 
-    return this._httpsPost(MICROSOFT_TOKEN_URL, body);
+    return this._httpsPost(MICROSOFT_TOKEN_URL, body, signal);
   }
 
   async refreshAccessToken(refreshToken) {
@@ -140,7 +143,7 @@ class MicrosoftCalendarOAuth {
 
   // Work accounts often omit the id_token "email" claim; fall back to
   // preferred_username, then Graph /me.
-  async _resolveEmail(tokenData) {
+  async _resolveEmail(tokenData, signal) {
     if (tokenData.id_token) {
       try {
         const payload = JSON.parse(
@@ -152,26 +155,37 @@ class MicrosoftCalendarOAuth {
     }
 
     try {
-      const response = await net.fetch("https://graph.microsoft.com/v1.0/me", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-        signal: AbortSignal.timeout(10000),
-        useSessionCookies: false,
-      });
+      const timeout = AbortSignal.timeout(10000);
+      const response = await gatedNetFetch(
+        "https://graph.microsoft.com/v1.0/me",
+        {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        },
+        { task: "calendar", provider: "microsoft" }
+      );
       const me = await response.json();
       return me.mail || me.userPrincipalName || null;
-    } catch {
+    } catch (error) {
+      // A seal is reported as a seal, not as "no email in the reply".
+      if (isSealedModeError(error) || signal?.aborted) throw signal?.reason ?? error;
       return null;
     }
   }
 
-  async _httpsPost(urlString, body) {
-    const response = await net.fetch(urlString, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-      signal: AbortSignal.timeout(10000),
-      useSessionCookies: false,
-    });
+  // Every Microsoft OAuth request goes through the egress gate (Task 11).
+  async _httpsPost(urlString, body, signal) {
+    const timeout = AbortSignal.timeout(10000);
+    const response = await gatedNetFetch(
+      urlString,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      },
+      { task: "calendar", provider: "microsoft" }
+    );
     const text = await response.text();
     try {
       return JSON.parse(text);

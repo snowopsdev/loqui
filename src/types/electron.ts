@@ -18,6 +18,20 @@ import type {
 } from "../services/ai/personalInferenceTypes";
 import type { TableBoardData, TableEntityRef, TablePlacement, TableViewport } from "./table";
 export type VertexAuthSource = "adc" | "apiKey";
+// A calendar action that reaches a provider; refused while sealed (Task 11).
+// A handoff to another app (browser, mail, OS settings). While sealed main asks
+// first; a declined handoff is `declined`, not an error (Task 11).
+export interface ExternalOpenResult {
+  success: boolean;
+  error?: string;
+  declined?: boolean;
+}
+export interface CalendarActionResult {
+  success: boolean;
+  error?: string;
+  code?: "SEALED_MODE";
+  phase?: "refused" | "interrupted";
+}
 export interface EnterpriseRouteSettings {
   bedrockRegion: string;
   azureEndpoint: string;
@@ -1821,7 +1835,7 @@ declare global {
       relaunchApp: () => Promise<void>;
       getAppVersion: () => Promise<AppVersionResult>;
 
-      openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+      openExternal: (url: string) => Promise<ExternalOpenResult>;
 
       // Hotkey management
       acquirePillHotkey?: (
@@ -2070,12 +2084,12 @@ declare global {
       }>;
       checkSystemAudioAccess?: () => Promise<SystemAudioAccessResult>;
       requestSystemAudioAccess?: () => Promise<SystemAudioAccessResult>;
-      openMicrophoneSettings?: () => Promise<{ success: boolean; error?: string }>;
-      openSoundInputSettings?: () => Promise<{ success: boolean; error?: string }>;
-      openAccessibilitySettings?: () => Promise<{ success: boolean; error?: string }>;
-      openSystemAudioSettings?: () => Promise<{ success: boolean; error?: string }>;
-      openScreenRecordingSettings?: () => Promise<{ success: boolean; error?: string }>;
-      openLoginItemsSettings?: () => Promise<{ success: boolean; error?: string }>;
+      openMicrophoneSettings?: () => Promise<ExternalOpenResult>;
+      openSoundInputSettings?: () => Promise<ExternalOpenResult>;
+      openAccessibilitySettings?: () => Promise<ExternalOpenResult>;
+      openSystemAudioSettings?: () => Promise<ExternalOpenResult>;
+      openScreenRecordingSettings?: () => Promise<ExternalOpenResult>;
+      openLoginItemsSettings?: () => Promise<ExternalOpenResult>;
       checkScreenRecordingAccess?: () => Promise<ScreenRecordingAccessResult>;
       requestScreenRecordingAccess?: () => Promise<ScreenRecordingAccessResult>;
       captureScreenContext?: () => Promise<ScreenContextImage | null>;
@@ -2418,7 +2432,13 @@ declare global {
       agentOpenNote?: (noteId: number) => Promise<{ success: boolean; error?: string }>;
 
       // Google Calendar
-      gcalStartOAuth?: () => Promise<{ success: boolean; email?: string; error?: string }>;
+      gcalStartOAuth?: () => Promise<{
+        success: boolean;
+        email?: string;
+        error?: string;
+        code?: "SEALED_MODE";
+        phase?: "refused" | "interrupted";
+      }>;
       gcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
       gcalGetConnectionStatus?: () => Promise<{
         connected: boolean;
@@ -2429,9 +2449,9 @@ declare global {
       gcalSetCalendarSelection?: (
         calendarId: string,
         isSelected: boolean
-      ) => Promise<{ success: boolean; error?: string }>;
-      gcalSetPrimaryOnly?: (value: boolean) => Promise<{ success: boolean; error?: string }>;
-      gcalSyncEvents?: () => Promise<{ success: boolean; error?: string }>;
+      ) => Promise<CalendarActionResult>;
+      gcalSetPrimaryOnly?: (value: boolean) => Promise<CalendarActionResult>;
+      gcalSyncEvents?: () => Promise<CalendarActionResult>;
       gcalGetUpcomingEvents?: (
         windowMinutes?: number
       ) => Promise<{ success: boolean; events: any[] }>;
@@ -2680,13 +2700,19 @@ declare global {
       onGcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
       // Microsoft Calendar
-      mcalStartOAuth?: () => Promise<{ success: boolean; email?: string; error?: string }>;
+      mcalStartOAuth?: () => Promise<{
+        success: boolean;
+        email?: string;
+        error?: string;
+        code?: "SEALED_MODE";
+        phase?: "refused" | "interrupted";
+      }>;
       mcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
       mcalGetConnectionStatus?: () => Promise<{
         connected: boolean;
         accounts: Array<{ email: string }>;
       }>;
-      mcalSetPrimaryOnly?: (value: boolean) => Promise<{ success: boolean; error?: string }>;
+      mcalSetPrimaryOnly?: (value: boolean) => Promise<CalendarActionResult>;
       onMcalConnectionChanged?: (callback: (data: any) => void) => () => void;
       onMcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
@@ -2694,7 +2720,7 @@ declare global {
       acalConnect?: () => Promise<{ success: boolean; reason?: string; error?: string }>;
       acalDisconnect?: () => Promise<{ success: boolean; error?: string }>;
       acalGetConnectionStatus?: () => Promise<{ connected: boolean; sourceNames: string[] }>;
-      openCalendarPrivacySettings?: () => Promise<{ success: boolean; error?: string }>;
+      openCalendarPrivacySettings?: () => Promise<ExternalOpenResult>;
       onAcalConnectionChanged?: (
         callback: (data: { connected: boolean; sourceNames: string[] }) => void
       ) => () => void;

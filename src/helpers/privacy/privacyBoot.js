@@ -49,6 +49,8 @@ function createSealTransition({
   getUpdateManager = () => null,
   getInference = () => null,
   getCalendars = () => [],
+  // Cancels sign-ins in progress (Task 11). Runs synchronously with the seal.
+  cancelPending = () => 0,
   children = childRegistry,
   bootFailures = [],
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -158,21 +160,34 @@ function createSealTransition({
     }
     for (const calendar of list) {
       if (name === "start" && state.isSealed()) return;
-      if (calendar) await hook(() => calendar, name, `calendar:${name}`);
+      if (!calendar) continue;
+      // Unsealing re-arms a calendar's existing schedule without an immediate
+      // request when it can (resumeAfterSeal); otherwise it restarts.
+      const method =
+        name === "start" && typeof calendar.resumeAfterSeal === "function"
+          ? "resumeAfterSeal"
+          : name;
+      await hook(() => calendar, method, `calendar:${name}`);
     }
   }
   function apply(sealed) {
     if (typeof sealed !== "boolean") throw new TypeError("sealed must be a boolean");
     const request = ++sequence;
+    let pendingCancelFailed = false;
     if (sealed) {
       latestSeal = request;
       state.set(true);
       gate.abortAllRemote();
       backstop.severAll();
+      try {
+        cancelPending();
+      } catch {
+        pendingCancelFailed = true;
+      }
       recheck();
     }
     const work = async () => {
-      operations = [];
+      operations = pendingCancelFailed ? ["pendingCancel"] : [];
       if (!sealed) {
         // A newer seal supersedes an unseal waiting behind a running barrier.
         if (latestSeal > request) return;
@@ -289,6 +304,19 @@ function createAttestor({
   };
 }
 
+// Names only the host: a meeting link's query string can carry a passcode, and
+// a mailto: address is personal. URL.host is ASCII (punycode) and excludes
+// credentials. Unicode isolates keep an LTR host intact inside RTL copy.
+function linkDestination(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "mailto:") return null;
+    return parsed.host || "?";
+  } catch {
+    return "?";
+  }
+}
+
 function createConfirmations({ dialog, BrowserWindow, t }) {
   const ask = async (event, options) => {
     const parent = BrowserWindow.fromWebContents?.(event?.sender);
@@ -317,6 +345,51 @@ function createConfirmations({ dialog, BrowserWindow, t }) {
         detail: t("sealedMode.confirmClear.detail", { count }),
         buttons: [t("sealedMode.confirmClear.keep"), t("sealedMode.confirmClear.clear")],
       }),
+    // A browser or mail handoff while sealed. The other app is outside Sealed
+    // mode; the copy says so and claims nothing about it.
+    openLink: (url, event) => {
+      const host = linkDestination(url);
+      return ask(event, {
+        title: t("sealedMode.confirmLink.title"),
+        message: t("sealedMode.confirmLink.message"),
+        detail:
+          host === null
+            ? t("sealedMode.confirmLink.mailDetail")
+            : t("sealedMode.confirmLink.detail", { host: `\u2068${host}\u2069` }),
+        buttons: [t("sealedMode.confirmLink.keep"), t("sealedMode.confirmLink.open")],
+      });
+    },
+    // One of main's fixed OS-settings panes while sealed.
+    openSystemSettings: (event) =>
+      ask(event, {
+        title: t("sealedMode.confirmSettings.title"),
+        message: t("sealedMode.confirmSettings.message"),
+        buttons: [t("sealedMode.confirmSettings.keep"), t("sealedMode.confirmSettings.open")],
+      }),
   };
 }
-module.exports = { bootEgressGuards, createSealTransition, createAttestor, createConfirmations };
+
+// The guard main installs on externalUrlOpener: open directly while unsealed;
+// while sealed (or when the state cannot be read) ask first. Declining is
+// silent. The renderer cannot answer: the dialog is main's.
+function createExternalOpenGuard({ isSealed, confirm }) {
+  return async (url, { kind = "link", event } = {}) => {
+    let sealed;
+    try {
+      sealed = isSealed() !== false;
+    } catch {
+      sealed = true;
+    }
+    if (!sealed) return true;
+    return kind === "systemSettings"
+      ? confirm.openSystemSettings(event)
+      : confirm.openLink(url, event);
+  };
+}
+module.exports = {
+  bootEgressGuards,
+  createSealTransition,
+  createAttestor,
+  createConfirmations,
+  createExternalOpenGuard,
+};

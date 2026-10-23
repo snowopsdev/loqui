@@ -1,4 +1,4 @@
-const { net } = require("electron");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
 const { runOAuthLoopbackFlow, OAuthFlowError } = require("./oauthLoopbackFlow");
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -41,8 +41,10 @@ class GoogleCalendarOAuth {
         });
         return `${GOOGLE_AUTH_URL}?${params.toString()}`;
       },
-      handleCallback: async (code, redirectUri, codeVerifier) => {
-        const tokenData = await this.exchangeCodeForTokens(code, redirectUri, codeVerifier);
+      handleCallback: async (code, redirectUri, codeVerifier, signal) => {
+        const tokenData = await this.exchangeCodeForTokens(code, redirectUri, codeVerifier, signal);
+        // A cancelled flow (sealing) saves nothing, even if the reply arrived.
+        signal?.throwIfAborted();
 
         if (tokenData.error) {
           throw new OAuthFlowError(
@@ -89,7 +91,7 @@ class GoogleCalendarOAuth {
     return params;
   }
 
-  async exchangeCodeForTokens(code, redirectUri, codeVerifier) {
+  async exchangeCodeForTokens(code, redirectUri, codeVerifier, signal) {
     const body = new URLSearchParams({
       code,
       ...this._clientParams(),
@@ -98,7 +100,7 @@ class GoogleCalendarOAuth {
       code_verifier: codeVerifier,
     }).toString();
 
-    return this._httpsPost(GOOGLE_TOKEN_URL, body);
+    return this._httpsPost(GOOGLE_TOKEN_URL, body, signal);
   }
 
   async refreshAccessToken(refreshToken) {
@@ -149,14 +151,20 @@ class GoogleCalendarOAuth {
     }
   }
 
-  async _httpsPost(urlString, body) {
-    const response = await net.fetch(urlString, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-      signal: AbortSignal.timeout(10000),
-      useSessionCookies: false,
-    });
+  // Every Google OAuth request goes through the egress gate (Task 11): refused
+  // while sealed before any socket, aborted when sealing interrupts it.
+  async _httpsPost(urlString, body, signal) {
+    const timeout = AbortSignal.timeout(10000);
+    const response = await gatedNetFetch(
+      urlString,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      },
+      { task: "calendar", provider: "google" }
+    );
     const text = await response.text();
     try {
       return JSON.parse(text);

@@ -273,3 +273,50 @@ test("the production attestor remains unavailable on Darwin, Linux and Windows",
     assert.equal(result.paused.length, 0);
   }
 });
+
+test("a seal cancels pending sign-ins synchronously; a failed cancel stays a named failure", async (t) => {
+  const h = harness(t);
+  const calls = [];
+  const transition = createSealTransition({
+    state: h.state,
+    children,
+    getInference: () => h.inference,
+    getUpdateManager: () => h.updates,
+    getCalendars: () => [],
+    cancelPending: () => {
+      calls.push(h.state.isSealed());
+      throw new Error("listener stuck");
+    },
+    waitMs: 1,
+    sleep: () => new Promise((r) => setImmediate(r)),
+  });
+  const sealing = transition.apply(true);
+  assert.deepEqual(calls, [true], "cancelled with the seal, after admission closed");
+  await sealing;
+  assert.ok(transition.snapshot().failures.includes("pendingCancel"));
+  transition.recheck();
+  assert.ok(transition.snapshot().failures.includes("pendingCancel"));
+  await transition.apply(false);
+  assert.deepEqual(calls, [true], "unsealing cancels nothing");
+});
+
+test("unsealing prefers a calendar's resumeAfterSeal over start", async (t) => {
+  const h = harness(t);
+  const log = [];
+  const transition = createSealTransition({
+    state: h.state,
+    children,
+    getInference: () => h.inference,
+    getUpdateManager: () => h.updates,
+    getCalendars: () => [
+      { stop() {}, start: () => log.push("a.start"), resumeAfterSeal: () => log.push("a.resume") },
+      { stop() {}, start: () => log.push("b.start") },
+    ],
+    waitMs: 1,
+    sleep: () => new Promise((r) => setImmediate(r)),
+  });
+  await transition.apply(true);
+  await transition.apply(false);
+  assert.deepEqual(log, ["a.resume", "b.start"]);
+  assert.equal(transition.snapshot().phase, "open");
+});

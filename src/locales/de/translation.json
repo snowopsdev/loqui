@@ -4470,6 +4470,20 @@
       "clear": "Verlauf löschen",
       "detail_one": "Anzahl der zu löschenden Einträge: {{count}}. Bereits von einem Anbieter empfangene Daten sind davon nicht betroffen.",
       "detail_other": "Anzahl der zu löschenden Einträge: {{count}}. Bereits von einem Anbieter empfangene Daten sind davon nicht betroffen."
+    },
+    "confirmLink": {
+      "title": "Diesen Link außerhalb von Loqui öffnen?",
+      "message": "Der Link wird in einer anderen App geöffnet. Der abgeschottete Modus gilt nicht für die Netzwerknutzung dieser App.",
+      "detail": "Ziel: {{host}}",
+      "mailDetail": "Ziel: deine E-Mail-App",
+      "keep": "Nicht öffnen",
+      "open": "Link öffnen"
+    },
+    "confirmSettings": {
+      "title": "Systemeinstellungen außerhalb von Loqui öffnen?",
+      "message": "Die Systemeinstellungen werden in einer anderen App geöffnet. Der abgeschottete Modus gilt nicht für die Netzwerknutzung dieser App.",
+      "keep": "Nicht öffnen",
+      "open": "Einstellungen öffnen"
     }
   },
   "setupFlow": {

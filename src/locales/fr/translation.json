@@ -4481,6 +4481,20 @@
       "detail_one": "Nombre d’entrées à supprimer : {{count}}. Les données déjà reçues par un fournisseur ne sont pas concernées.",
       "detail_many": "Nombre d’entrées à supprimer : {{count}}. Les données déjà reçues par un fournisseur ne sont pas concernées.",
       "detail_other": "Nombre d’entrées à supprimer : {{count}}. Les données déjà reçues par un fournisseur ne sont pas concernées."
+    },
+    "confirmLink": {
+      "title": "Ouvrir ce lien en dehors de Loqui ?",
+      "message": "Le lien s’ouvre dans une autre application. Le mode scellé ne couvre pas l’utilisation du réseau par cette application.",
+      "detail": "Destination : {{host}}",
+      "mailDetail": "Destination : votre application de messagerie",
+      "keep": "Ne pas ouvrir",
+      "open": "Ouvrir le lien"
+    },
+    "confirmSettings": {
+      "title": "Ouvrir les paramètres système en dehors de Loqui ?",
+      "message": "Les paramètres système s’ouvrent dans une autre application. Le mode scellé ne couvre pas l’utilisation du réseau par cette application.",
+      "keep": "Ne pas ouvrir",
+      "open": "Ouvrir les paramètres"
     }
   },
   "setupFlow": {

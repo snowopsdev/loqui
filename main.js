@@ -13,7 +13,6 @@ const {
   BrowserWindow,
   dialog,
   ipcMain,
-  shell,
   session,
   systemPreferences,
   utilityProcess,
@@ -211,6 +210,27 @@ const WindowsLoopbackAudioManager = require("./src/helpers/windowsLoopbackAudioM
 const MeetingAecManager = require("./src/helpers/meetingAecManager");
 const MeetingDetectionEngine = require("./src/helpers/meetingDetectionEngine");
 const { i18nMain, changeLanguage } = require("./src/helpers/i18nMain");
+// Task 11: before any window exists, every browser, mail and OS-settings
+// handoff asks in a main-owned dialog while sealed. The other app is outside
+// Sealed mode; declining is silent.
+const privacyConfirmations = privacyBoot.createConfirmations({
+  dialog,
+  BrowserWindow,
+  t: (key, params) => i18nMain.t(key, params),
+});
+const externalUrlOpener = require("./src/helpers/externalUrlOpener");
+externalUrlOpener.setExternalOpenGuard(
+  privacyBoot.createExternalOpenGuard({
+    isSealed: () => privacy.state.isSealed(),
+    confirm: privacyConfirmations,
+  })
+);
+// Remote calendar sync (and Apple's native helper) starts, focus-syncs and
+// wake-syncs only through this guard: nothing while sealed.
+const calendarGuard = require("./src/helpers/privacy/calendarGuard").createCalendarGuard({
+  isSealed: () => privacy.state.isSealed(),
+});
+const calendars = () => [googleCalendarManager, microsoftCalendarManager, appleCalendarManager];
 const { ensureYdotool } = require("./src/helpers/ensureYdotool");
 const sidecarRegistry = require("./src/helpers/sidecarRegistry");
 const { reapStaleSidecars } = require("./src/helpers/sidecarReaper");
@@ -517,7 +537,8 @@ function initializeCoreManagers() {
         vertexAuthSource: environmentManager.getVertexAuthSource(),
       };
     },
-    openExternal: (url) => shell.openExternal(url),
+    // The Codex sign-in page goes through the guarded opener (Task 11).
+    openExternal: (url) => externalUrlOpener.openExternalUrl(url),
   });
   updateManager = require("./src/helpers/updateIPC").attachUpdateIPC({
     app,
@@ -553,7 +574,8 @@ function initializeCoreManagers() {
     bootFailures: privacy.bootFailures,
     getUpdateManager: () => updateManager,
     getInference: () => inference,
-    getCalendars: () => [googleCalendarManager, microsoftCalendarManager, appleCalendarManager],
+    getCalendars: calendars,
+    cancelPending: () => calendarGuard.cancelPending(),
     children: childRegistry,
     nativeBoundary: privacy.nativeBoundary,
   });
@@ -576,11 +598,7 @@ function initializeCoreManagers() {
       getWindows: () => [windowManager.mainWindow, windowManager.controlPanelWindow],
       appUrlPrefixes: () => trustedSender.appUrlPrefixes(),
     }),
-    confirm: privacyBoot.createConfirmations({
-      dialog,
-      BrowserWindow,
-      t: (key, params) => i18nMain.t(key, params),
-    }),
+    confirm: privacyConfirmations,
   });
   if (privacy.state.isSealed())
     void sealTransition.apply(true).catch(() => {
@@ -655,11 +673,8 @@ function initializeDeferredManagers() {
     });
   }
 
-  if (!privacy.state.isSealed()) {
-    googleCalendarManager.start();
-    microsoftCalendarManager.start();
-    appleCalendarManager.start();
-  }
+  // Sealed: nothing starts; unsealing re-arms the schedules (seal transition).
+  calendarGuard.start(calendars());
   meetingDetectionEngine.start();
 }
 
@@ -886,19 +901,13 @@ async function startApp() {
   }
 
   app.on("browser-window-focus", () => {
-    if (googleCalendarManager) googleCalendarManager.syncOnFocus();
-    if (microsoftCalendarManager) microsoftCalendarManager.syncOnFocus();
-    if (appleCalendarManager) appleCalendarManager.syncOnFocus();
+    calendarGuard.onFocus(calendars());
   });
 
   const { powerMonitor } = require("electron");
   powerMonitor.on("resume", () => {
     if (calendarReminderScheduler) calendarReminderScheduler.onWakeFromSleep();
-    if (googleCalendarManager) {
-      googleCalendarManager.onWakeFromSleep();
-    }
-    if (microsoftCalendarManager) microsoftCalendarManager.onWakeFromSleep();
-    if (appleCalendarManager) appleCalendarManager.onWakeFromSleep();
+    calendarGuard.onWake(calendars());
     // Sleep evicts the local GPU model from VRAM; reload it once the driver settles. See #766.
     if (wakeRewarmTimer) clearTimeout(wakeRewarmTimer);
     wakeRewarmTimer = setTimeout(() => {

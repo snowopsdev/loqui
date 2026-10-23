@@ -4439,6 +4439,20 @@
       "keep": "保留记录",
       "clear": "清空历史记录",
       "detail_other": "将删除 {{count}} 条记录。服务提供商已收到的内容不会受到影响。"
+    },
+    "confirmLink": {
+      "title": "在 Loqui 之外打开此链接？",
+      "message": "该链接会在其他应用中打开。封闭模式不涵盖该应用对网络的使用。",
+      "detail": "目标：{{host}}",
+      "mailDetail": "目标：你的电子邮件应用",
+      "keep": "不打开",
+      "open": "打开链接"
+    },
+    "confirmSettings": {
+      "title": "在 Loqui 之外打开系统设置？",
+      "message": "系统设置会在其他应用中打开。封闭模式不涵盖该应用对网络的使用。",
+      "keep": "不打开",
+      "open": "打开设置"
     }
   },
   "setupFlow": {

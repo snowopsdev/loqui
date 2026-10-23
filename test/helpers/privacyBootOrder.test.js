@@ -467,3 +467,179 @@ test("actual startApp hands attachUpdateIPC main's live seal state (Task 10)", a
   assert.equal(options.sealed(), true, "the predicate reads main's live state");
   assert.equal(gate.isSealed(), true, "the gate reads the same state");
 });
+
+test("actual main installs the sealed handoff guard before startup and wires Task 11 seams", async (t) => {
+  gate._resetForTests();
+  registry._resetForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-startup-links-"));
+  t.after(() => {
+    gate._resetForTests();
+    registry._resetForTests();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const marker = new Error("STOP_AT_SEAL_TRANSITION");
+  const soft = () =>
+    new Proxy(function () {}, {
+      get: (_, key) =>
+        key === "then"
+          ? undefined
+          : key === Symbol.iterator
+            ? function* () {}
+            : key === Symbol.toPrimitive
+              ? () => ""
+              : soft(),
+      apply: () => soft(),
+      construct: () => soft(),
+    });
+  let selected;
+  const guards = [];
+  const viaHelper = [];
+  const shown = [];
+  let calendarOptions;
+  let codexOptions;
+  let transitionOptions;
+  let cancelled = 0;
+  const app = new Proxy(
+    Object.assign(new EventEmitter(), {
+      isPackaged: false,
+      getPath: (name) => (name === "userData" ? selected : dir),
+      setName() {},
+      setPath: (_, p) => {
+        selected = p;
+      },
+      requestSingleInstanceLock: () => false,
+      whenReady: () => new Promise(() => {}),
+      exit() {},
+      commandLine: { appendSwitch() {} },
+    }),
+    { get: (target, key) => (key in target ? target[key] : soft()) }
+  );
+  const context = {
+    __dirname: path.join(__dirname, "../.."),
+    setTimeout,
+    clearTimeout,
+    setInterval: () => soft(),
+    clearInterval() {},
+    process: {
+      env: { NODE_ENV: "development", LOQUI_PROFILE_DIR: dir },
+      platform: "linux",
+      argv: ["electron", "."],
+      execPath: "/electron",
+      on() {},
+    },
+    require: (name) => {
+      if (name === "electron")
+        return {
+          app,
+          ipcMain: soft(),
+          dialog: {
+            showMessageBox: async (...args) => {
+              shown.push(args.at(-1));
+              return { response: args.at(-1).defaultId };
+            },
+          },
+          BrowserWindow: { fromWebContents: () => undefined, getAllWindows: () => [] },
+          shell: {
+            openExternal: () => assert.fail("main must not hand a URL to the OS directly"),
+          },
+        };
+      if (name === "path") return path;
+      if (name === "dotenv") return { config() {} };
+      if (name === "tls") return { getCACertificates: () => [] };
+      if (name === "node:fs/promises") return {};
+      if (name === "./src/config/product.json") return require("../../src/config/product.json");
+      if (name === "./src/helpers/xwayland") return { shouldForceXWayland: () => false };
+      if (name === "./src/helpers/settingsProfile")
+        return { hasExistingSettingsProfile: async () => false };
+      if (name === "./src/helpers/sidecarReaper")
+        return { reapStaleSidecars: async () => ({ unresolved: [] }) };
+      if (name === "./src/helpers/privacy/childRegistry") return registry;
+      if (name === "./src/helpers/i18nMain")
+        return { i18nMain: { t: (key) => key }, changeLanguage() {} };
+      if (name === "./src/helpers/externalUrlOpener")
+        return {
+          setExternalOpenGuard: (guard) => guards.push(guard),
+          openExternalUrl: async (url) => {
+            viaHelper.push(url);
+            return true;
+          },
+        };
+      if (name === "./src/helpers/privacy/calendarGuard")
+        return {
+          createCalendarGuard: (options) => {
+            calendarOptions = options;
+            return {
+              start() {},
+              onFocus() {},
+              onWake() {},
+              cancelPending: () => {
+                cancelled++;
+                return 0;
+              },
+            };
+          },
+        };
+      if (name === "./src/helpers/personalInference")
+        return {
+          registerPersonalInferenceIPC: (options) => {
+            codexOptions = options;
+            return soft();
+          },
+        };
+      if (name === "./src/helpers/privacy/privacyBoot")
+        return {
+          ...boot,
+          createSealTransition: (options) => {
+            transitionOptions = options;
+            throw marker;
+          },
+        };
+      return soft();
+    },
+  };
+  vm.runInNewContext(
+    main + "\nglobalThis.start = startApp; globalThis.bootPrivacy = privacy;",
+    context
+  );
+  // Installed while main loads, before any window or manager exists.
+  assert.equal(guards.length, 1);
+  assert.equal(await guards[0]("https://example.com/x", { kind: "link" }), true);
+  assert.deepEqual(shown, [], "unsealed links open without a dialog");
+  context.bootPrivacy.state.set(true);
+  assert.equal(await guards[0]("https://example.com/x", { kind: "link" }), false);
+  assert.equal(await guards[0]("ms-settings:sound", { kind: "systemSettings" }), false);
+  assert.deepEqual(
+    shown.map((options) => [options.title, options.defaultId, options.cancelId]),
+    [
+      ["sealedMode.confirmLink.title", 0, 0],
+      ["sealedMode.confirmSettings.title", 0, 0],
+    ]
+  );
+  assert.equal(calendarOptions.isSealed(), true, "the calendar guard reads live state");
+  context.bootPrivacy.state.set(false);
+  assert.equal(calendarOptions.isSealed(), false);
+
+  await assert.rejects(context.start(), (e) => e === marker);
+  // The Codex sign-in page goes through the guarded helper.
+  await codexOptions.openExternal("https://auth.openai.com/authorize?x=1");
+  assert.deepEqual(viaHelper, ["https://auth.openai.com/authorize?x=1"]);
+  // Seal cancels pending calendar sign-ins through the calendar guard.
+  assert.equal(typeof transitionOptions.cancelPending, "function");
+  transitionOptions.cancelPending();
+  assert.equal(cancelled, 1);
+  assert.equal(transitionOptions.getCalendars().length, 3, "Apple is not exempt");
+});
+
+test("main triggers remote and Apple calendar work only through the calendar guard (ratchet)", () => {
+  // Beside the executed calendarSealed tests: main has no direct trigger left.
+  for (const method of ["start", "syncOnFocus", "onWakeFromSleep"])
+    assert.doesNotMatch(
+      main,
+      new RegExp(`(?:google|microsoft|apple)CalendarManager\\??\\.${method}\\(`),
+      method
+    );
+  assert.match(main, /calendarGuard\.start\(calendars\(\)\)/);
+  assert.match(main, /calendarGuard\.onFocus\(calendars\(\)\)/);
+  assert.match(main, /calendarGuard\.onWake\(calendars\(\)\)/);
+  assert.doesNotMatch(main, /shell\.openExternal/, "no raw OS handoff in main");
+});

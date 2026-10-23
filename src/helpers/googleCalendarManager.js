@@ -1,5 +1,7 @@
-const { net } = require("electron");
 const debugLogger = require("./debugLogger");
+const egress = require("./privacy/egressGate");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 const GoogleCalendarOAuth = require("./googleCalendarOAuth");
 const CalendarSyncInterval = require("./calendarSyncInterval");
 const { MAX_BUFFER_MINUTES } = require("./calendarAvailability");
@@ -26,7 +28,12 @@ class GoogleCalendarManager {
     this.primaryOnly = true;
     this.syncRunner = new CalendarSyncInterval(
       () => this.syncEvents().then(() => this.reminderScheduler.scheduleNextMeeting()),
-      { intervalMs: 2 * 60 * 1000, maxIntervalMs: 30 * 60 * 1000, logScope: "gcal" }
+      {
+        intervalMs: 2 * 60 * 1000,
+        maxIntervalMs: 30 * 60 * 1000,
+        logScope: "gcal",
+        isSealed: () => egress.isSealed(),
+      }
     );
   }
 
@@ -46,6 +53,15 @@ class GoogleCalendarManager {
 
   stop() {
     this.syncRunner.stop();
+  }
+
+  // After Sealed mode turns off: re-arm the existing 2-minute schedule only.
+  // No request is made now; the next interval, focus or wake trigger syncs
+  // exactly as it would have without the seal.
+  resumeAfterSeal() {
+    this._loadAccounts();
+    if (this.accounts.size === 0) return;
+    this.syncRunner.start();
   }
 
   isConnected() {
@@ -135,6 +151,8 @@ class GoogleCalendarManager {
         this.databaseManager.saveGoogleCalendars(calendars, email);
         allCalendars.push(...calendars);
       } catch (err) {
+        // A seal ends the whole sync: no further account or calendar is tried.
+        if (isSealedModeError(err)) throw err;
         debugLogger.error("Error fetching calendars", { email, error: err.message }, "gcal");
       }
     }
@@ -152,6 +170,7 @@ class GoogleCalendarManager {
       try {
         await this._syncCalendar(calendar);
       } catch (err) {
+        if (isSealedModeError(err)) throw err;
         debugLogger.error(
           "Error syncing calendar",
           { calendarId: calendar.id, error: err.message },
@@ -354,12 +373,16 @@ class GoogleCalendarManager {
     const accessToken = await this.oauth.getValidAccessToken(accountEmail);
     const urlString = path.startsWith("http") ? path : `${CALENDAR_API_BASE}${path}`;
 
-    const response = await net.fetch(urlString, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(10000),
-      useSessionCookies: false,
-    });
+    // Gated (Task 11): refused while sealed, aborted when sealing interrupts it.
+    const response = await gatedNetFetch(
+      urlString,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(10000),
+      },
+      { task: "calendar", provider: "google" }
+    );
     const text = await response.text();
     let parsed = null;
     try {

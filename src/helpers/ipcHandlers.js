@@ -37,7 +37,7 @@ const { PARAKEET_UNSUPPORTED_OS_CODE } = require("./parakeetCapability");
 const { getModelType, isSherpaLocalProvider } = require("./parakeetModelInfo");
 const { broadcastToWindows } = require("./windowBroadcast");
 const { createStorageOps } = require("./storageOps");
-const { openExternalUrl } = require("./externalUrlOpener");
+const { attachOpenExternal, openSystemSettingsUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const { createCredentialAuthority, byokSlotId } = require("./credentialAuthority");
@@ -4013,18 +4013,8 @@ class IPCHandlers {
       return await this.windowManager.stopControlPanelDrag();
     });
 
-    ipcMain.handle("open-external", async (event, url) => {
-      try {
-        const { protocol } = new URL(url);
-        if (!["http:", "https:", "mailto:"].includes(protocol)) {
-          return { success: false, error: `Blocked URL scheme: ${protocol}` };
-        }
-        await openExternalUrl(url);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
+    // http/https/mailto only; asks first while sealed (Task 11, N21).
+    attachOpenExternal({ ipcMain });
 
     ipcMain.handle("get-auto-start-enabled", async () => {
       try {
@@ -5390,7 +5380,9 @@ class IPCHandlers {
       },
     };
 
-    const openSystemSettings = async (settingType) => {
+    // The renderer names a pane; main picks the fixed URL. While sealed the
+    // handoff to the OS settings app asks first, like a link (Task 11, N21).
+    const openSystemSettings = async (settingType, event) => {
       const platform = process.platform;
       const urls = SYSTEM_SETTINGS_URLS[platform];
       const url = urls?.[settingType];
@@ -5413,23 +5405,29 @@ class IPCHandlers {
       }
 
       try {
-        await shell.openExternal(url);
-        return { success: true };
+        const opened = await openSystemSettingsUrl(url, { event });
+        return opened ? { success: true } : { success: false, declined: true };
       } catch (error) {
         debugLogger.error(`Failed to open ${settingType} settings:`, error);
         return { success: false, error: error.message };
       }
     };
 
-    ipcMain.handle("open-microphone-settings", () => openSystemSettings("microphone"));
-    ipcMain.handle("open-sound-input-settings", () => openSystemSettings("sound"));
+    ipcMain.handle("open-microphone-settings", (event) => openSystemSettings("microphone", event));
+    ipcMain.handle("open-sound-input-settings", (event) => openSystemSettings("sound", event));
     ipcMain.handle("get-system-default-microphone", (_event, options = {}) =>
       resolveSystemDefaultMicrophone({ refresh: options?.refresh === true })
     );
-    ipcMain.handle("open-accessibility-settings", () => openSystemSettings("accessibility"));
-    ipcMain.handle("open-system-audio-settings", () => openSystemSettings("systemAudio"));
-    ipcMain.handle("open-screen-recording-settings", () => openSystemSettings("screenRecording"));
-    ipcMain.handle("open-login-items-settings", () => openSystemSettings("loginItems"));
+    ipcMain.handle("open-accessibility-settings", (event) =>
+      openSystemSettings("accessibility", event)
+    );
+    ipcMain.handle("open-system-audio-settings", (event) =>
+      openSystemSettings("systemAudio", event)
+    );
+    ipcMain.handle("open-screen-recording-settings", (event) =>
+      openSystemSettings("screenRecording", event)
+    );
+    ipcMain.handle("open-login-items-settings", (event) => openSystemSettings("loginItems", event));
 
     ipcMain.handle("capture-screen-context", async (event) => {
       // Capture immediately so the screenshot reflects the invocation moment;
@@ -5458,10 +5456,10 @@ class IPCHandlers {
 
     ipcMain.handle("check-screen-recording-access", () => screenContextCapture.getAccessResult());
 
-    ipcMain.handle("request-screen-recording-access", async () => {
+    ipcMain.handle("request-screen-recording-access", async (event) => {
       const status = await screenContextCapture.requestAccess();
       if (process.platform === "darwin" && status !== "granted") {
-        await openSystemSettings("screenRecording");
+        await openSystemSettings("screenRecording", event);
       }
       return screenContextCapture.getAccessResult();
     });
@@ -5548,7 +5546,9 @@ class IPCHandlers {
       return { success: true };
     });
 
-    ipcMain.handle("open-calendar-privacy-settings", () => openSystemSettings("calendars"));
+    ipcMain.handle("open-calendar-privacy-settings", (event) =>
+      openSystemSettings("calendars", event)
+    );
 
     ipcMain.handle("toggle-media-playback", () => {
       const mediaPlayer = require("./mediaPlayer");
@@ -5671,7 +5671,7 @@ class IPCHandlers {
 
     ipcMain.handle("check-system-audio-access", () => getSystemAudioAccess());
 
-    ipcMain.handle("request-system-audio-access", async () => {
+    ipcMain.handle("request-system-audio-access", async (event) => {
       if (process.platform === "win32") {
         return getWindowsSystemAudioAccess();
       }
@@ -5698,7 +5698,7 @@ class IPCHandlers {
         // Falls through to opening System Settings
       }
 
-      await openSystemSettings("systemAudio");
+      await openSystemSettings("systemAudio", event);
       const status = this.audioTapManager.getPermissionStatus();
       return buildSystemAudioAccess({
         granted: false,
@@ -9193,13 +9193,24 @@ class IPCHandlers {
       }
     });
 
+    // Calendar entry points that reach a provider refuse while sealed before
+    // a loopback listener, a consent page or a request exists (Task 11, N19).
+    // Local reads and disconnects stay available.
+    const calendarAdmission = (target) => egressGate.assertAllowed({ task: "calendar", target });
+    const calendarFailure = (error) => ({
+      success: false,
+      error: error.message,
+      ...sealedEnvelope(error),
+    });
+
     // Google Calendar
     ipcMain.handle("gcal-start-oauth", async () => {
       try {
+        calendarAdmission("https://accounts.google.com");
         return await this.googleCalendarManager.startOAuth();
       } catch (error) {
         debugLogger.error("Google Calendar OAuth failed", { error: error.message }, "calendar");
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
@@ -9235,28 +9246,31 @@ class IPCHandlers {
 
     ipcMain.handle("gcal-set-calendar-selection", async (_event, calendarId, isSelected) => {
       try {
+        calendarAdmission("https://www.googleapis.com");
         await this.googleCalendarManager.setCalendarSelection(calendarId, isSelected);
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
     ipcMain.handle("gcal-set-primary-only", async (_event, value) => {
       try {
+        calendarAdmission("https://www.googleapis.com");
         await this.googleCalendarManager.setPrimaryOnly(value);
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
     ipcMain.handle("gcal-sync-events", async () => {
       try {
+        calendarAdmission("https://www.googleapis.com");
         await this.googleCalendarManager.syncEvents();
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
@@ -9283,10 +9297,11 @@ class IPCHandlers {
     // Microsoft Calendar
     ipcMain.handle("mcal-start-oauth", async () => {
       try {
+        calendarAdmission("https://login.microsoftonline.com");
         return await this.microsoftCalendarManager.startOAuth();
       } catch (error) {
         debugLogger.error("Microsoft Calendar OAuth failed", { error: error.message }, "calendar");
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
@@ -9319,15 +9334,20 @@ class IPCHandlers {
 
     ipcMain.handle("mcal-set-primary-only", async (_event, value) => {
       try {
+        calendarAdmission("https://graph.microsoft.com");
         await this.microsoftCalendarManager.setPrimaryOnly(value);
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
     // Apple Calendar (macOS EventKit)
     ipcMain.handle("acal-connect", async () => {
+      // The EventKit helper is a native child: refused before launch while
+      // sealed (07a has no native boundary). The spawn guard refuses it too.
+      if (egressGate.isSealed())
+        return { success: false, reason: "sealed", error: "NATIVE_BOUNDARY_UNAVAILABLE" };
       try {
         return await this.appleCalendarManager.connect();
       } catch (error) {

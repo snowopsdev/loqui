@@ -4439,6 +4439,20 @@
       "keep": "保留記錄",
       "clear": "清除歷史記錄",
       "detail_other": "將刪除 {{count}} 筆記錄。服務供應商已收到的內容不受影響。"
+    },
+    "confirmLink": {
+      "title": "在 Loqui 之外開啟此連結？",
+      "message": "此連結會在其他應用程式中開啟。封閉模式不涵蓋該應用程式對網路的使用。",
+      "detail": "目的地：{{host}}",
+      "mailDetail": "目的地：你的電子郵件應用程式",
+      "keep": "不要開啟",
+      "open": "開啟連結"
+    },
+    "confirmSettings": {
+      "title": "在 Loqui 之外開啟系統設定？",
+      "message": "系統設定會在其他應用程式中開啟。封閉模式不涵蓋該應用程式對網路的使用。",
+      "keep": "不要開啟",
+      "open": "開啟設定"
     }
   },
   "setupFlow": {

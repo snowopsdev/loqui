@@ -235,10 +235,20 @@ function createKeyring({
   now = Date.now,
   broadcast = () => {},
   isSealed = () => false,
+  // Records a sealed refusal (main's ledger) for a check refused before any
+  // credential is read. Never throws into the keyring.
+  refuseSealed = () => {},
   enterpriseConfig = () => ({}),
   environment = () => process.env,
 }) {
   const recipients = createRecipientAuthority({ now });
+  const sealedRefusal = (check) => {
+    try {
+      refuseSealed(check);
+    } catch {
+      // The ledger is diagnostic; the refusal stands either way.
+    }
+  };
   const inflight = new Map();
   const latest = new Map();
   let legacyValue;
@@ -379,6 +389,11 @@ function createKeyring({
       validate(metadata(identity));
     } catch {
       return result("recipientChanged");
+    }
+    // Sealed: refused before the stored credential is read.
+    if (isSealed()) {
+      sealedRefusal({ config: target.config, requestEnvironment: target.requestEnvironment });
+      return result("sealed");
     }
     const captured = await credentials.captureCommitted(identity);
     if (!captured) return result("unavailable");
@@ -576,6 +591,11 @@ function createKeyring({
       validate(metadata(identity));
     } catch {
       return changedResult;
+    }
+    // Sealed: refused before the stored credential is read.
+    if (isSealed()) {
+      sealedRefusal({ provider: identity, enterprise: snapshot.enterprise });
+      return { success: false, errorCode: "sealed" };
     }
     const captured = await credentials.captureCommitted(identity);
     if (!captured) return { success: false, errorCode: "unavailable" };

@@ -2047,3 +2047,114 @@ sealedTest("the download-url-audio handler returns a typed SEALED_MODE envelope"
     assert.equal(isSealedModeError(new Error(result.error)), true, "the marker survives IPC");
   }
 });
+
+// --------------------------------------------------------------------------
+// Plan 07a Task 12 matrix rows for N14/N15 (the safety chain admits the real
+// downloader only from this file; sealedModeEnforcement.test.js cross-checks
+// that these rows exist). The REAL `download-url-audio` handler registered by
+// IPCHandlers.setupHandlers runs over the REAL downloader; DNS, https.request
+// and the yt-dlp spawn are counted terminal leaves under the real gate and
+// the production spawn guard.
+function matrixIpc(t) {
+  const { loadIpcHandlers, inertUi } = require("./harness/ipcHandlersHarness");
+  const ipc = loadIpcHandlers({
+    construct: false,
+    leaves: { "./urlAudioDownloader": downloader },
+    managers: new Proxy({}, { get: (target, key) => (key in target ? target[key] : inertUi()) }),
+  });
+  t.after(() => ipc.restore());
+  return ipc;
+}
+function countedLeaves(t) {
+  const counts = { dns: 0, https: 0 };
+  const savedLookup = dns.lookup;
+  const savedRequest = https.request;
+  dns.lookup = (...args) => {
+    counts.dns++;
+    return savedLookup(...args);
+  };
+  https.request = (...args) => {
+    counts.https++;
+    return savedRequest(...args);
+  };
+  t.after(() => {
+    dns.lookup = savedLookup;
+    https.request = savedRequest;
+  });
+  return counts;
+}
+const matrixSender = () => ({ id: 3, isDestroyed: () => false, send() {} });
+for (const [label, url] of [
+  ["direct URL", "https://media.example/episode.mp3"],
+  ["YouTube", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
+]) {
+  sealedTest(
+    `Task 12 matrix: download-url-audio (${label}) — sealed: typed refusal before DNS, socket or yt-dlp`,
+    async (t) => {
+      sealedCacheBinary({ throttle: true });
+      const ipc = matrixIpc(t);
+      const counts = countedLeaves(t);
+      flags.sealed = true;
+      fixtureFfmpegPath = "/fixture/bin/ffmpeg";
+      sealedLeaf = () => fakeChild();
+      const result = await ipc.invokeWith(
+        { sender: matrixSender() },
+        "download-url-audio",
+        url,
+        "dl-matrix"
+      );
+      assert.deepEqual(
+        [result.success, result.code, result.phase],
+        [false, "SEALED_MODE", "refused"]
+      );
+      assert.deepEqual(counts, { dns: 0, https: 0 });
+      assert.equal(sealedSpawned.length, 0);
+      assert.deepEqual(
+        rows.map((r) => [r.task, r.outcome, r.bytesOut]),
+        [["urlImport", "blocked", 0]]
+      );
+    }
+  );
+  sealedTest(
+    `Task 12 matrix: download-url-audio (${label}) — Layer A disabled: reaches DNS, a socket or the spawn guard`,
+    async (t) => {
+      sealedCacheBinary({ throttle: true });
+      const ipc = matrixIpc(t);
+      const counts = countedLeaves(t);
+      flags.sealed = true;
+      // An installed FFmpeg (a synthetic path; nothing runs it).
+      fixtureFfmpegPath = "/fixture/bin/ffmpeg";
+      sealedLeaf = () => fakeChild();
+      gate._setBypassForTests(true);
+      try {
+        await ipc.invokeWith({ sender: matrixSender() }, "download-url-audio", url, "dl-matrix");
+      } finally {
+        gate._setBypassForTests(false);
+      }
+      // With the backstop absent in this file, the next layer is the DNS/socket
+      // leaf (direct) or the production spawn guard (YouTube: a native-* refusal).
+      const guardRefused = rows.some((r) => /^native-/.test(r.host) && r.outcome === "blocked");
+      assert.ok(
+        counts.dns + counts.https + sealedSpawned.length > 0 || guardRefused,
+        JSON.stringify({ counts, rows })
+      );
+    }
+  );
+}
+sealedTest(
+  "Task 12 matrix: yt-dlp self-update — sealed: not attempted (no spawn, no row); unsealed: reaches its spawn",
+  async () => {
+    sealedCacheBinary();
+    flags.sealed = true;
+    let child;
+    sealedLeaf = () => (child = fakeChild());
+    await downloader.maybeUpdateYtDlp({ force: true });
+    assert.equal(sealedSpawned.length, 0);
+    assert.deepEqual(rows, []);
+    flags.sealed = false;
+    const update = downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 60000 });
+    await until(() => sealedSpawned.length === 1, "self-update spawn");
+    child.end(0);
+    await update;
+  }
+);

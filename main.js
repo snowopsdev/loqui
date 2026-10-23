@@ -468,7 +468,13 @@ function initializeCoreManagers() {
       await embeddings.downloadModel();
       return { success: embeddings.isAvailable() };
     } catch (error) {
-      return { success: false, error: error.message };
+      // Sealed mode: keep the refusal typed across IPC (Task 10's envelope).
+      const { isSealedModeError, sealedPhaseOf } = require("./src/helpers/privacy/egressPolicy");
+      return {
+        success: false,
+        error: error.message,
+        ...(isSealedModeError(error) ? { code: "SEALED_MODE", phase: sealedPhaseOf(error) } : {}),
+      };
     }
   });
   inference = require("./src/helpers/personalInference").registerPersonalInferenceIPC({

@@ -523,6 +523,9 @@ class ModelManager {
 
       return modelPath;
     } catch (error) {
+      // A sealed refusal or interruption stays typed (code SEALED_MODE and its
+      // phase), never relabelled as a cancel or a network error.
+      if (isSealedModeError(error)) throw error;
       if (error.isAbort) {
         throw new ModelError("Download cancelled by user", "DOWNLOAD_CANCELLED", { modelId });
       }

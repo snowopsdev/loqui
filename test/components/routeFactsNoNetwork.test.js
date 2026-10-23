@@ -269,11 +269,17 @@ test("[source guard, baseline after Task 11] keyring Verify tests the committed 
     "async function verify("
   );
   const capture = verify.indexOf("credentials.captureCommitted(");
-  const sealed = verify.indexOf("isSealed()");
+  // Plan 07 Task 12: also refused before the stored credential is read.
+  const sealedBefore = verify.indexOf("isSealed()");
+  const sealed = verify.indexOf("isSealed()", capture);
   const send = verify.indexOf("runTest(");
   assert.ok(
     capture !== -1 && sealed !== -1 && send !== -1,
     "verify captures, checks the seal and sends"
+  );
+  assert.ok(
+    sealedBefore < capture,
+    "sealed, nothing is read: the seal is checked before the capture"
   );
   assert.ok(capture < sealed, "the seal is checked after the save wait (the capture)");
   assert.ok(sealed < send, "nothing is sent while sealed");

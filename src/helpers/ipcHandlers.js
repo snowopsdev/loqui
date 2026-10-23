@@ -370,6 +370,14 @@ class IPCHandlers {
       runEnterpriseTest: (input, admit) => this._runEnterpriseVerification(input, admit),
       broadcast: broadcastToWindows,
       isSealed: () => this.isSealed(),
+      // One blocked providerCheck row at the credential-free target.
+      refuseSealed: (check) =>
+        egressGate.assertAllowed({
+          task: "providerCheck",
+          target: check.provider
+            ? effectiveEndpoint(check.provider, { enterprise: check.enterprise })
+            : connectionTestTarget(check.config, check.requestEnvironment),
+        }),
       enterpriseConfig: () => {
         const state = this.environmentManager.getEnterpriseRouteState();
         return state?.current
@@ -3047,7 +3055,7 @@ class IPCHandlers {
           error: error.message,
           stack: error.stack,
         });
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...sealedEnvelope(error) };
       }
     });
 
@@ -3108,7 +3116,7 @@ class IPCHandlers {
           error: error.message,
           stack: error.stack,
         });
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...sealedEnvelope(error) };
       }
     });
 
@@ -5320,7 +5328,7 @@ class IPCHandlers {
           error: error.message,
           stack: error.stack,
         });
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...sealedEnvelope(error) };
       }
     });
 

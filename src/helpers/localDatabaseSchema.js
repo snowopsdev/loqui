@@ -337,6 +337,7 @@ CREATE TABLE IF NOT EXISTS egress_events (
   operation_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_egress_ts ON egress_events(ts);
+CREATE INDEX IF NOT EXISTS idx_egress_ended ON egress_events(ended_at);
 CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
   INSERT INTO notes_fts(rowid, title, content, enhanced_content) VALUES (new.id, new.title, new.content, new.enhanced_content);
 END;

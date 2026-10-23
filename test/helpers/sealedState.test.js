@@ -136,3 +136,45 @@ test("set rejects non-booleans", (t) => {
   assert.throws(() => state.set("true"), TypeError);
   assert.throws(() => state.set(1), TypeError);
 });
+
+// T14-M5 / T3-M1: an explicit choice supersedes a load error even when the
+// save fails; the save failure is still reported, and the change event carries
+// the same snapshot the getter returns.
+test(
+  "an explicit set clears a load error even when saving fails, and events carry the snapshot",
+  { skip: process.platform === "win32" || process.getuid?.() === 0 },
+  (t) => {
+    const dir = profile(t);
+    fs.writeFileSync(path.join(dir, "privacy.json"), "garbage");
+    const state = new SealedState({ profile: dir, now: () => 9 });
+    assert.equal(state.snapshot().loadError, "corrupt");
+    const events = [];
+    state.on("change", (snapshot) => events.push(snapshot));
+    fs.chmodSync(dir, 0o500);
+    try {
+      // Failed repair: confirming the seal while the file cannot be written.
+      state.set(true);
+      assert.equal(state.snapshot().loadError, null);
+      assert.match(state.snapshot().saveError, /EACCES|EPERM/);
+      assert.equal(events.length, 0, "the value did not change");
+      // Turning it off is the user's explicit choice; the save error stays named.
+      state.set(false);
+      assert.equal(state.isSealed(), false);
+      assert.deepEqual(state.snapshot(), {
+        sealed: false,
+        sealedSince: null,
+        loadError: null,
+        saveError: state.snapshot().saveError,
+      });
+      assert.match(state.snapshot().saveError, /EACCES|EPERM/);
+      assert.equal(events.length, 1);
+      assert.deepEqual(events[0], state.snapshot());
+    } finally {
+      fs.chmodSync(dir, 0o700);
+    }
+    state.set(true);
+    assert.equal(events.length, 2);
+    assert.deepEqual(events[1], state.snapshot());
+    assert.equal(state.snapshot().saveError, null);
+  }
+);

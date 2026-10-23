@@ -396,3 +396,18 @@ test("broadcasts exclude unknown or navigated windows as well as refusing their 
   h.ipc.broadcastAttestation();
   assert.equal(h.sent.length, 0);
 });
+
+// Final review I5: a pending write failure leaves the list readable (and the
+// summary says it may be incomplete); clear and export still work. Only a read
+// failure makes the recorder unavailable.
+test("a write failure keeps list, summary, clear and export available", async (t) => {
+  const h = harness(t);
+  h.recorder._pendingPersistError = "SQLITE_BUSY";
+  assert.ok(Array.isArray(h.invoke("privacy:egress-list", h.settings)));
+  const summary = h.invoke("privacy:egress-summary", h.settings);
+  assert.equal(summary.persistError, "SQLITE_BUSY");
+  h.recorder._pendingPersistError = "SQLITE_BUSY";
+  const cleared = await h.invoke("privacy:egress-clear", h.settings);
+  assert.equal(cleared, true);
+  assert.equal(h.invoke("privacy:egress-summary", h.settings).persistError, null);
+});

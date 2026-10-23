@@ -540,7 +540,8 @@ test("summary counts measured request rows separately and preserves unknown byte
     blocked: 1,
     nativeRefused: 0,
     unattributed: 2,
-    unattributedHosts: ["x.example.com", "y.example.com"],
+    // Newest first (T8-M1): y was recorded after x.
+    unattributedHosts: ["y.example.com", "x.example.com"],
     bytesOut: 6200,
     bytesIn: 19600,
     unknownBytes: 1,
@@ -596,4 +597,60 @@ test("CSV export includes kind, neutralises formulas, quotes fields and encodes 
     line,
     '2026-10-15T09:12:00.000Z,2026-10-15T09:13:00.000Z,chat,request,api.groq.com,3100,,ok,200,,"\'=HYPERLINK(""x""),""a""",yes,no'
   );
+});
+
+// Final review I5: one failed insert must not lock the recorder until the
+// six-hour sweep. The next successful insert flushes the pending rows and
+// clears the error.
+test("a later successful insert flushes rows a failed insert left pending", (t) => {
+  const ctx = persistent(t, () => 5);
+  if (!ctx) return;
+  ctx.db.exec(
+    "CREATE TRIGGER fail_once BEFORE INSERT ON egress_events WHEN NEW.model = 'fails-once' BEGIN SELECT RAISE(ABORT, 'busy'); END;"
+  );
+  ctx.recorder.record({ ...base, model: "fails-once" });
+  assert.ok(ctx.recorder.persistError);
+  assert.equal(rowCount(ctx.db), 0);
+  ctx.db.exec("DROP TRIGGER fail_once;");
+  ctx.recorder.record({ ...base, model: "next" });
+  assert.equal(ctx.recorder.persistError, null);
+  assert.equal(rowCount(ctx.db), 2);
+  assert.equal(
+    ctx.recorder.memory.filter((row) => row.scope === "pending").length,
+    0,
+    "no pending duplicates remain in memory"
+  );
+  assert.deepEqual(
+    ctx.recorder
+      .list()
+      .map((row) => row.model)
+      .sort(),
+    ["fails-once", "next"]
+  );
+});
+
+// T8-M1: rows with the same timestamp list newest first, memory above disk,
+// without float keys that collide past 2^52.
+test("same-timestamp rows list newest first: memory above disk, then by insertion", (t) => {
+  const ctx = persistent(t, () => 7);
+  if (!ctx) return;
+  ctx.recorder.record({ ...base, model: "disk-1" });
+  ctx.recorder.record({ ...base, model: "disk-2" });
+  ctx.recorder.setPersistence(false);
+  for (let i = 1; i <= 8; i++) ctx.recorder.record({ ...base, model: `mem-${i}` });
+  assert.deepEqual(
+    ctx.recorder.list().map((row) => row.model),
+    ["mem-8", "mem-7", "mem-6", "mem-5", "mem-4", "mem-3", "mem-2", "mem-1", "disk-2", "disk-1"]
+  );
+});
+
+// T15-N1: the recorder's window query reads ended_at as well as ts.
+test("egress_events has an ended_at index", (t) => {
+  const manager = createDb(t);
+  if (!manager) return;
+  const names = manager.db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'egress_events'")
+    .all()
+    .map((row) => row.name);
+  assert.ok(names.includes("idx_egress_ended"), names.join(","));
 });

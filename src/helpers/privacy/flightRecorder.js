@@ -125,6 +125,12 @@ class FlightRecorder extends EventEmitter {
     return this._pendingPersistError || this._writePersistError || this._readPersistError;
   }
 
+  // Only a failed read makes the stored list unreadable. A write failure
+  // leaves it readable but possibly incomplete (final review I5).
+  get readError() {
+    return this._readPersistError;
+  }
+
   attachDatabase(db) {
     if (!db || typeof db.prepare !== "function")
       throw new TypeError("A database handle is required");
@@ -258,6 +264,9 @@ class FlightRecorder extends EventEmitter {
             return insertedId;
           })();
           this.writesSinceCap = nextWritesSinceCap >= CAP_CHECK_EVERY ? 0 : nextWritesSinceCap;
+          // The database accepts writes again: land rows an earlier failure
+          // left pending, which also clears that error (final review I5).
+          if (this.memory.some((pending) => pending.scope === "pending")) this.flushPending();
         } catch (error) {
           this._pendingPersistError = safePersistError(error);
           id = this.remember(row, "pending");
@@ -292,9 +301,15 @@ class FlightRecorder extends EventEmitter {
     const fromMemory = this.memory.filter(
       (row) => row.ts >= since || (row.ended_at != null && row.ended_at >= since)
     );
-    const order = (row) => (row.id > 0 ? row.id : Number.MAX_SAFE_INTEGER / 2 - row.id);
+    // Newest first. Within one timestamp, memory rows (negative ids, newer as
+    // they decrease) sit above database rows (positive ids, newer as they
+    // increase). Two integer tiers, no float keys (T8-M1).
+    const memoryRow = (row) => (row.id > 0 ? 0 : 1);
     return [...fromDb, ...fromMemory]
-      .sort((a, b) => b.ts - a.ts || order(b) - order(a))
+      .sort(
+        (a, b) =>
+          b.ts - a.ts || memoryRow(b) - memoryRow(a) || (a.id > 0 ? b.id - a.id : a.id - b.id)
+      )
       .slice(0, lim)
       .map(toPublic);
   }
@@ -336,8 +351,10 @@ class FlightRecorder extends EventEmitter {
       this._writePersistError = null;
       this._readPersistError = null;
       this.emit("cleared");
+      return true;
     } catch (error) {
       this._writePersistError = safePersistError(error);
+      return false;
     }
   }
 

@@ -66,7 +66,9 @@ class SealedState extends EventEmitter {
     this.sealed = sealed;
 
     this._save();
-    if (!this.saveError) this.loadError = null;
+    // The user's explicit choice supersedes what was (not) read at startup,
+    // even when it could not be saved; saveError still names that (T14-M5).
+    this.loadError = null;
     if (changed) this.emit("change", this.snapshot());
     return this.snapshot();
   }

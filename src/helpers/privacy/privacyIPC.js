@@ -65,8 +65,11 @@ function attachPrivacyIPC({
       throw new TypeError("INVALID_PRIVACY_RANGE");
     return { since, limit: Math.min(limit, 5000) };
   };
+  // Only a read failure hides the records. A pending write failure leaves them
+  // readable; the summary says the list may be incomplete, and clear and
+  // export stay available (final review I5).
   const readable = () => {
-    if (recorder.persistError) throw new Error("PRIVACY_RECORDER_UNAVAILABLE");
+    if (recorder.readError) throw new Error("PRIVACY_RECORDER_UNAVAILABLE");
   };
   let queue = Promise.resolve();
   let intent = 0;
@@ -105,7 +108,7 @@ function attachPrivacyIPC({
   handle("egress-summary", (_event, options) => {
     const result = recorder.summary({ since: range(options).since });
     readable();
-    return result;
+    return { ...result, persistError: recorder.persistError ?? null };
   });
   handle("egress-clear", (event) =>
     serialize(async () => {
@@ -114,7 +117,7 @@ function attachPrivacyIPC({
       readable();
       if (!(await confirm.clear(count, event))) return false;
       trusted(event);
-      recorder.clear();
+      if (recorder.clear() === false) throw new Error("PRIVACY_RECORDER_UNAVAILABLE");
       readable();
       return true;
     })

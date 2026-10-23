@@ -5,6 +5,12 @@ const path = require("node:path");
 const test = require("node:test");
 const { SealedState } = require("../../src/helpers/privacy/sealedState");
 
+// These tests force a read or save failure with POSIX permission bits (a 0o000
+// file, a 0o500 directory). Windows does not enforce those bits that way, and
+// root bypasses them, so there the fixture cannot make the file unreadable or
+// the directory unwritable; the test is skipped rather than passing vacuously.
+const CANNOT_FORCE_FS_FAILURE = process.platform === "win32" || process.getuid?.() === 0;
+
 function profile(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-sealed-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -62,23 +68,19 @@ test("a non-boolean sealed value fails closed", (t) => {
   assert.equal(new SealedState({ profile: dir }).snapshot().loadError, "corrupt");
 });
 
-test(
-  "an unreadable file fails closed",
-  { skip: process.platform === "win32" || process.getuid?.() === 0 },
-  (t) => {
-    const dir = profile(t);
-    const file = path.join(dir, "privacy.json");
-    fs.writeFileSync(file, JSON.stringify({ sealed: false }));
-    fs.chmodSync(file, 0o000);
-    try {
-      const state = new SealedState({ profile: dir });
-      assert.equal(state.isSealed(), true);
-      assert.equal(state.snapshot().loadError, "unreadable");
-    } finally {
-      fs.chmodSync(file, 0o600);
-    }
+test("an unreadable file fails closed", { skip: CANNOT_FORCE_FS_FAILURE }, (t) => {
+  const dir = profile(t);
+  const file = path.join(dir, "privacy.json");
+  fs.writeFileSync(file, JSON.stringify({ sealed: false }));
+  fs.chmodSync(file, 0o000);
+  try {
+    const state = new SealedState({ profile: dir });
+    assert.equal(state.isSealed(), true);
+    assert.equal(state.snapshot().loadError, "unreadable");
+  } finally {
+    fs.chmodSync(file, 0o600);
   }
-);
+});
 
 test("confirming the seal after a load error rewrites the file and clears the error", (t) => {
   const dir = profile(t);
@@ -91,7 +93,7 @@ test("confirming the seal after a load error rewrites the file and clears the er
 
 test(
   "a failed save keeps the in-memory value and reports saveError",
-  { skip: process.platform === "win32" || process.getuid?.() === 0 },
+  { skip: CANNOT_FORCE_FS_FAILURE },
   (t) => {
     const dir = profile(t);
     fs.chmodSync(dir, 0o500);
@@ -142,7 +144,7 @@ test("set rejects non-booleans", (t) => {
 // the same snapshot the getter returns.
 test(
   "an explicit set clears a load error even when saving fails, and events carry the snapshot",
-  { skip: process.platform === "win32" || process.getuid?.() === 0 },
+  { skip: CANNOT_FORCE_FS_FAILURE },
   (t) => {
     const dir = profile(t);
     fs.writeFileSync(path.join(dir, "privacy.json"), "garbage");

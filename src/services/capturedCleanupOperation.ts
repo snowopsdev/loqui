@@ -211,7 +211,9 @@ export function createCapturedCleanupOperation(
       // the existing translated failure copy; the caller keeps the words.
       if (code === "SEALED_MODE")
         throw Object.assign(operationError(code, selected.provider), {
-          details: (error as { details?: unknown }).details ?? { phase: "refused" },
+          // A rejection that states no phase may have reached the provider:
+          // never "refused" by default (T18-06, re-review m3).
+          details: (error as { details?: unknown }).details ?? { phase: "interrupted" },
           cause: error,
         });
       throw operationError(code, selected.provider);

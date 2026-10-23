@@ -41,3 +41,34 @@ for (const [shape, sealedImpl] of [
     assert.equal(after.gpuName, "NVIDIA GeForce RTX 4060 Ti");
   });
 }
+
+// Re-review m10: the "a refusal was seen" flag belongs to one detection call.
+// A detection that starts while another is unwinding a sealed refusal must not
+// reset the other's flag and let it cache a sealed "no GPU".
+test("a concurrent detection cannot make another cache a sealed refusal", async () => {
+  const pending = [];
+  const parked = (_file, _args, _options, callback) => pending.push(callback);
+  const detecting = detectNvidiaGpu({ execFileImpl: parked, quiet: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pending.length, 1, "detection is waiting on its nvidia-smi probe");
+  // The probe is refused, and a list starts before detection resumes.
+  pending.shift()(refused(), "");
+  const listing = listNvidiaGpus({ execFileImpl: parked, quiet: true });
+  assert.equal((await detecting).hasNvidiaGpu, false);
+  await new Promise((resolve) => setImmediate(resolve));
+  pending.shift()(refused(), "");
+  assert.deepEqual(await listing, []);
+  // Unsealed: neither sealed answer was cached.
+  const after = await detectNvidiaGpu({ execFileImpl: working, quiet: true });
+  assert.equal(after.hasNvidiaGpu, true);
+  const listingWorks = (_file, args, _options, callback) =>
+    process.nextTick(() =>
+      callback(
+        null,
+        args[0] === "--query-gpu=name"
+          ? "NVIDIA\n"
+          : "0, GPU-1, NVIDIA GeForce RTX 4060 Ti, 16380\n"
+      )
+    );
+  assert.equal((await listNvidiaGpus({ execFileImpl: listingWorks, quiet: true })).length, 1);
+});

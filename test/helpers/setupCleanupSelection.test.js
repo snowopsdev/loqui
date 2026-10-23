@@ -217,6 +217,35 @@ test("a phase-less SEALED_MODE local cleanup envelope is never a refusal", async
   }
 });
 
+// Re-review m3: a remote cleanup rejected with SEALED_MODE but no stated phase
+// (no details, no marker) is never reported as a refusal.
+test("a phase-less SEALED_MODE remote cleanup rejection is interrupted, never refused", async (t) => {
+  installBrowserGlobals(t, { initialStorage: MIGRATED_STORAGE });
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-setup-sealed-remote-phaseless-",
+  });
+  const service = await vite.ssrLoadModule("/services/capturedCleanupOperation.ts");
+  const { sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
+  globalThis.window.electronAPI = {
+    personalInference: {
+      captureTextOperation: async () => "fixture-token",
+      runTextOperation: async () => {
+        throw Object.assign(new Error("stopped"), { code: "SEALED_MODE" });
+      },
+      retireTextOperation: async () => {},
+    },
+  };
+  const operation = service.createCapturedCleanupOperation(undefined, {
+    provider: "openai",
+    model: "fixture-model",
+    inferenceScope: "dictationCleanup",
+  });
+  await assert.rejects(
+    operation.run("fixture words"),
+    (error) => error.code === "SEALED_MODE" && sealedPhaseOf(error) === "interrupted"
+  );
+});
+
 // Task 8: a Sealed mode refusal or interruption from main keeps its type and
 // phase through the captured operation, under the existing translated copy.
 test("a captured cleanup refused or interrupted by Sealed mode stays typed with its phase", async (t) => {

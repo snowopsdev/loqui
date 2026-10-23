@@ -1,7 +1,7 @@
 const { EventEmitter } = require("node:events");
 const gate = require("./egressGate");
 const backstop = require("./egressBackstop");
-const { SealedState } = require("./sealedState");
+const { SealedState, createSpellcheckMarker } = require("./sealedState");
 const { FlightRecorder } = require("./flightRecorder");
 const childRegistry = require("./childRegistry");
 const UNAVAILABLE = "NATIVE_BOUNDARY_UNAVAILABLE";
@@ -19,6 +19,8 @@ function bootEgressGuards({
   gate.configureEgress({ isSealed: () => state.isSealed(), recorder, now });
   state.on("change", ({ sealed }) => gate.onSealChanged(sealed));
   backstop.installNodeBackstop();
+  // m1: the marker beside privacy.json that Loqui turned spellcheck off.
+  backstop.configureSpellcheckMemory(createSpellcheckMarker(profile));
   childRegistry.installSpawnGuard({ utilityProcess });
   const nativeBoundary = childRegistry.getNativeBoundary();
   backstop.installWebContentsGuard(app);
@@ -126,6 +128,8 @@ function createSealTransition({
         UNAVAILABLE,
         ...bootFailures,
         ...operations,
+        // Sessions not yet hardened stay named until a later attempt succeeds (T18R-05).
+        ...backstop.sessionHardeningFailures(),
         ...missing,
         ...(facts.unavailable ? ["childDiagnosticsUnavailable"] : []),
         ...facts.unresolved.map((e) => `child:${e.kind}:${e.pid ?? "unknown"}:${e.reason}`),
@@ -219,7 +223,12 @@ function createSealTransition({
           recheck();
           return;
         }
-        set({ phase: "open", effectiveSince: null, failures: [...operations], notes: [] });
+        set({
+          phase: "open",
+          effectiveSince: null,
+          failures: [...new Set([...operations, ...backstop.sessionHardeningFailures()])],
+          notes: [],
+        });
         return;
       }
       state.set(true);
@@ -294,7 +303,13 @@ function createAttestor({
       ...current,
       effectiveSince: null,
       failures: [
-        ...new Set([...current.failures, ...extra, ...(saved.sealed ? [UNAVAILABLE] : [])]),
+        ...new Set([
+          ...current.failures,
+          ...extra,
+          // A session watched after the last transition step is surfaced here.
+          ...backstop.sessionHardeningFailures(),
+          ...(saved.sealed ? [UNAVAILABLE] : []),
+        ]),
       ],
       guards: backstop.status(),
       children: nativeChildren,

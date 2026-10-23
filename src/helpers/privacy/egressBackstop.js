@@ -921,10 +921,39 @@ function finishChromium(key, { outcome, status = null, errorClass = null }) {
 // not a network boundary (NOT VERIFIED at runtime without Electron).
 const SEALED_DICTIONARY_URL = "http://127.0.0.1:9/";
 const DEFAULT_DICTIONARY_URL = "https://redirector.gvt1.com/edgedl/chrome/dict/";
-const hardened = new WeakMap(); // session → { spellcheck: boolean | null }
+// Per watched session (Task 18 T18R-05): `applied` is the state Loqui has
+// confirmed (true sealed, false open, null unknown after a failed attempt),
+// `target` the latest state asked for, `gen` orders overlapping attempts, and
+// `spellcheck` the spellchecker's state before the seal, kept until a restore
+// succeeds. A session counts as hardened only after every call fulfilled; an
+// unconfirmed session is retried on the next sync, and its failure stays in
+// sessionHardeningFailures() until a later attempt succeeds.
+const hardening = new WeakMap();
+const hardeningFailures = new Map(); // session → "sessionHardening" | "sessionRestore"
+// Re-review m1: { isSet, set, clear } for the marker beside the sealed state
+// that says Loqui turned the spellchecker off (sealedState.createSpellcheckMarker).
+let spellcheckMemory = null;
+let bootRestoreDone = false;
+function configureSpellcheckMemory(memory) {
+  spellcheckMemory = memory ?? null;
+  bootRestoreDone = false;
+}
+function memory(name) {
+  try {
+    return spellcheckMemory?.[name]?.() === true;
+  } catch {
+    return false;
+  }
+}
 function hardenSession(session, sealed) {
-  const applied = hardened.get(session);
-  if (sealed === !!applied) return Promise.resolve(true);
+  let entry = hardening.get(session);
+  if (!entry) {
+    entry = { applied: false, target: false, gen: 0, spellcheck: null, recorded: false };
+    hardening.set(session, entry);
+  }
+  if (entry.applied === sealed && entry.target === sealed) return Promise.resolve(true);
+  const gen = ++entry.gen;
+  entry.target = sealed;
   const pending = [];
   let ok = true;
   const call = (name, ...args) => {
@@ -936,24 +965,49 @@ function hardenSession(session, sealed) {
     }
   };
   if (sealed) {
-    let previous = null;
-    try {
-      if (typeof session.isSpellCheckerEnabled === "function")
-        previous = session.isSpellCheckerEnabled() === true;
-    } catch {}
-    hardened.set(session, { spellcheck: previous });
+    // The state before the seal is read once, not again on a retry that would
+    // see Loqui's own "off". A marker from an earlier run means Loqui turned it
+    // off then and never turned it back on (m1).
+    if (!entry.recorded) {
+      let previous = null;
+      try {
+        if (typeof session.isSpellCheckerEnabled === "function")
+          previous = session.isSpellCheckerEnabled() === true;
+      } catch {}
+      if (memory("isSet")) previous = true;
+      entry.spellcheck = previous;
+      entry.recorded = true;
+    }
+    // Written before spellcheck is turned off, so a sealed quit can restore it.
+    if (entry.spellcheck === true) memory("set");
     call("setProxy", { mode: "direct" });
     call("setSpellCheckerEnabled", false);
     call("setSpellCheckerDictionaryDownloadURL", SEALED_DICTIONARY_URL);
   } else {
-    hardened.delete(session);
     call("setProxy", { mode: "system" });
     call("setSpellCheckerDictionaryDownloadURL", DEFAULT_DICTIONARY_URL);
-    if (applied.spellcheck !== null) call("setSpellCheckerEnabled", applied.spellcheck);
+    if (entry.spellcheck !== null) call("setSpellCheckerEnabled", entry.spellcheck);
   }
-  return Promise.allSettled(pending).then(
-    (results) => ok && results.every((result) => result.status === "fulfilled")
-  );
+  const restoresSpellcheck = !sealed && entry.spellcheck === true;
+  return Promise.allSettled(pending).then((results) => {
+    const done = ok && results.every((result) => result.status === "fulfilled");
+    // Only the latest attempt for this session decides its state.
+    if (entry.gen === gen) {
+      if (done) {
+        entry.applied = sealed;
+        hardeningFailures.delete(session);
+        if (!sealed) {
+          entry.spellcheck = null;
+          entry.recorded = false;
+          if (restoresSpellcheck && hardeningFailures.size === 0) memory("clear");
+        }
+      } else {
+        entry.applied = null;
+        hardeningFailures.set(session, sealed ? "sessionHardening" : "sessionRestore");
+      }
+    }
+    return done;
+  });
 }
 // Applies the current seal state to every watched session. The calls are
 // issued synchronously; the promise says whether all of them succeeded.
@@ -963,6 +1017,28 @@ function syncSessionHardening() {
     (results) => results.every(Boolean)
   );
 }
+// The named failures of sessions not yet hardened (or restored).
+const sessionHardeningFailures = () => [...new Set(hardeningFailures.values())];
+// m1: an unsealed start after Loqui left spellcheck off (a quit or crash while
+// sealed) turns it back on once, on the first session watched.
+function restoreSpellcheckAfterSealedQuit(session) {
+  if (bootRestoreDone || !memory("isSet")) return;
+  if (typeof session.setSpellCheckerEnabled !== "function") return;
+  bootRestoreDone = true;
+  let result;
+  try {
+    result = session.setSpellCheckerEnabled(true);
+  } catch {
+    bootRestoreDone = false;
+    return;
+  }
+  Promise.resolve(result).then(
+    () => memory("clear"),
+    () => {
+      bootRestoreDone = false; // keep the marker for the next start
+    }
+  );
+}
 
 // Electron keeps one listener per event. Consumers (including smoke) observe
 // through addObserver instead of replacing this module's enforcement hooks.
@@ -970,7 +1046,9 @@ let sessionSeq = 0;
 function watchSession(session) {
   if (!session?.webRequest || sessions.has(session)) return;
   sessions.add(session);
+  // A failure is kept in sessionHardeningFailures() (T18R-05).
   if (gate.isSealed()) void hardenSession(session, true);
+  else restoreSpellcheckAfterSealedQuit(session);
   const sessionId = ++sessionSeq;
   const key = (details) => `${sessionId}:${details.id}`;
   session.webRequest.onBeforeRequest((details, callback) => {
@@ -1131,6 +1209,8 @@ module.exports = {
   installWebContentsGuard,
   judgeChromiumRequest,
   syncSessionHardening,
+  sessionHardeningFailures,
+  configureSpellcheckMemory,
   severAll,
   addObserver,
   status,

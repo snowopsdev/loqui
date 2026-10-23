@@ -108,4 +108,66 @@ class SealedState extends EventEmitter {
   }
 }
 
-module.exports = { SealedState };
+// Electron keeps a session's spellchecker setting in the profile's persistent
+// preferences, so a quit or crash while sealed would leave it off for good
+// (re-review m1). Before Sealed mode turns spellcheck off, Loqui writes this
+// marker beside privacy.json; the restore on unseal, or the first unsealed
+// start, turns spellcheck back on and removes it. Any marker file that exists
+// counts as set. Writes are 0600 and never follow a symlink.
+function createSpellcheckMarker(profile) {
+  const file = path.join(profile, "privacy-spellcheck.json");
+  return {
+    file,
+    isSet() {
+      try {
+        fs.lstatSync(file);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    set() {
+      const tmp = `${file}.tmp`;
+      let fd;
+      try {
+        fs.mkdirSync(profile, { recursive: true });
+        try {
+          fs.unlinkSync(tmp);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+        fd = fs.openSync(
+          tmp,
+          fs.constants.O_WRONLY |
+            fs.constants.O_CREAT |
+            fs.constants.O_EXCL |
+            (fs.constants.O_NOFOLLOW || 0),
+          0o600
+        );
+        fs.fchmodSync(fd, 0o600);
+        fs.writeFileSync(fd, JSON.stringify({ restoreSpellcheck: true }));
+        fs.closeSync(fd);
+        fd = undefined;
+        fs.renameSync(tmp, file);
+        return true;
+      } catch {
+        if (fd !== undefined) {
+          try {
+            fs.closeSync(fd);
+          } catch {}
+        }
+        return false;
+      }
+    },
+    clear() {
+      try {
+        fs.unlinkSync(file);
+        return true;
+      } catch (error) {
+        return error.code === "ENOENT";
+      }
+    },
+  };
+}
+
+module.exports = { SealedState, createSpellcheckMarker };

@@ -1400,11 +1400,9 @@ test(
     // A loopback Host header and an origin-form path are ordinary local requests.
     http.request({ host: "127.0.0.2", path: "/v1/models", headers: { Host: "127.0.0.2:8080" } });
     assert.equal(leaves.length, 1);
-    // A Host header set after the request exists is checked too.
-    const late = http.request({ host: "127.0.0.2", path: "/" });
-    const lateError = once(late, "error");
-    late.setHeader("Host", "api.example");
-    assert.ok(isSealedModeError(await lateError));
+    // A Host header set after the request exists is judged on the real
+    // ClientRequest (its prototype), not on this file's stub leaf: see
+    // egressForwarding.test.js, which drives it on the wire (T18R-01, m4).
   }
 );
 

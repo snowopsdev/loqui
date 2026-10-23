@@ -211,21 +211,37 @@ function installSocketHook() {
 // that nothing leaves. While sealed, a request to a loopback server is refused
 // when it names another host: a CONNECT tunnel, an absolute-form or any other
 // non-origin-form request target (one-slash "http:/host", scheme-relative
-// "//host", a bare "host/path"), or a Host header for a non-loopback host.
-// This covers requests Node's HTTP client builds (http/https.request, .get and
-// new http.ClientRequest). Raw socket writes, SOCKS and clients with their own
-// HTTP stack (undici's proxy agents) are not inspected (threat model, Task 18).
-function headerHost(headers) {
+// "//host", a bare "host/path"), or any Host header for a non-loopback host.
+//
+// Two checks cover every request Node's HTTP/1 client builds (http/https
+// .request and .get, new http.ClientRequest, the internal _http_client class,
+// subclasses and references cached before boot):
+// - before construction, the arguments are read the way Node reads them (its
+//   URL duck typing and second-argument merge), so most refusals open no
+//   socket at all;
+// - authoritatively, ClientRequest.prototype._storeHeader judges the exact
+//   request head Node is about to send (request line and every Host line),
+//   after construction and before the first write, so a method, path or
+//   header changed later is judged too (Task 18 T18R-01). setHeader and
+//   appendHeader refuse a remote Host as soon as it is set (re-review m4).
+// Raw socket writes, SOCKS, HTTP/2 and clients with their own HTTP stack
+// (undici's proxy agents) are not inspected (threat model, threat 8).
+function headerHosts(headers) {
+  const hosts = [];
+  const add = (value) => {
+    for (const one of Array.isArray(value) ? value : [value]) hosts.push(String(one));
+  };
   if (Array.isArray(headers)) {
-    for (let i = 0; i + 1 < headers.length; i += 2)
-      if (String(headers[i]).toLowerCase() === "host") return String(headers[i + 1]);
-    return null;
+    // Node accepts flat [name, value, ...] and nested [[name, value], ...].
+    const pairs = Array.isArray(headers[0])
+      ? headers
+      : headers.flatMap((_, i) => (i % 2 === 0 ? [[headers[i], headers[i + 1]]] : []));
+    for (const [name, value] of pairs) if (String(name).toLowerCase() === "host") add(value);
+  } else if (headers && typeof headers === "object") {
+    for (const [name, value] of Object.entries(headers))
+      if (name.toLowerCase() === "host") add(value);
   }
-  if (!headers || typeof headers !== "object") return null;
-  for (const [name, value] of Object.entries(headers))
-    if (name.toLowerCase() === "host")
-      return Array.isArray(value) ? String(value[0]) : String(value);
-  return null;
+  return hosts;
 }
 // The host a non-origin-form request target names, read with the policy's
 // strict parser. Anything it cannot read is "unknown", which is never loopback.
@@ -233,30 +249,57 @@ function requestTargetHost(requestPath) {
   const target = requestPath.startsWith("//") ? `http:${requestPath}` : requestPath;
   return hostOf(target) ?? "unknown";
 }
-function forwardTarget(args) {
-  let options = {};
-  if (typeof args[0] === "string" || args[0] instanceof URL) {
-    const url = new URL(String(args[0]));
-    options = {
-      host: hostOf(args[0]) ?? "unknown",
-      path: `${url.pathname}${url.search}`,
-      method: "GET",
-    };
-    if (args[1] && typeof args[1] === "object" && typeof args[1] !== "function")
-      options = { ...options, ...args[1] };
-  } else if (args[0] && typeof args[0] === "object") {
-    options = args[0];
+// Node's isURL(): an object with href and protocol, and no auth or path.
+const isNodeUrl = (value) =>
+  Boolean(value?.href && value.protocol && value.auth === undefined && value.path === undefined);
+// Node's urlToHttpOptions(), for the fields the forwarding check reads.
+function urlRequestOptions(url) {
+  const { hostname, pathname, search } = url;
+  return {
+    ...url,
+    protocol: url.protocol,
+    hostname: hostname && hostname[0] === "[" ? hostname.slice(1, -1) : hostname,
+    path: `${pathname || ""}${search || ""}`,
+  };
+}
+// The options Node's ClientRequest constructor works from: a string or a
+// URL-like first argument merged with the second; any other first argument
+// alone (Node then treats the second as the callback).
+function nodeRequestOptions(args) {
+  let [input, options] = args;
+  // A string or URL is judged by its raw host with the policy's strict parser,
+  // before WHATWG canonicalization ("127.1" is not loopback).
+  if (typeof input === "string" || input instanceof URL)
+    input = { ...urlRequestOptions(new URL(String(input))), hostname: hostOf(input) ?? "unknown" };
+  else if (isNodeUrl(input)) input = urlRequestOptions(input);
+  else {
+    options = input;
+    input = null;
   }
-  const host = normalizeHost(String(options.hostname ?? options.host ?? "localhost"));
-  const method = String(options.method ?? "GET").toUpperCase();
-  const requestPath = String(options.path ?? "/");
-  if (method === "CONNECT")
-    return { host, forwarding: true, forwardTo: normalizeHost(requestPath) };
-  const origin = requestPath === "*" || /^\/(?!\/)/.test(requestPath) || requestPath === "/";
-  if (!origin) return { host, forwarding: true, forwardTo: requestTargetHost(requestPath) };
-  const named = headerHost(options.headers);
-  if (named !== null) return { host, forwarding: true, forwardTo: normalizeHost(named) };
-  return { host, forwardTo: null };
+  if (typeof options === "function") return input || {};
+  return Object.assign({}, input, options);
+}
+// The forwarded host a request target names, or null when it stays local.
+function targetRefusal(method, requestPath) {
+  if (method === "CONNECT") {
+    const to = normalizeHost(requestPath);
+    return isLoopbackHost(to) ? null : (to ?? "unknown");
+  }
+  if (requestPath === "*" || /^\/(?!\/)/.test(requestPath)) return null;
+  const to = requestTargetHost(requestPath);
+  return isLoopbackHost(to) ? null : to;
+}
+function forwardTarget(args) {
+  const options = nodeRequestOptions(args);
+  const host = normalizeHost(String(options.hostname || options.host || "localhost"));
+  const method = String(options.method || "GET").toUpperCase();
+  const forwardTo =
+    targetRefusal(method, String(options.path || "/")) ??
+    headerHosts(options.headers)
+      .map((value) => normalizeHost(value) ?? "unknown")
+      .find((named) => !isLoopbackHost(named)) ??
+    null;
+  return { host, forwardTo };
 }
 // The host a sealed request would reach, or null when it stays on loopback.
 function sealedForwardRefusal(args) {
@@ -266,31 +309,65 @@ function sealedForwardRefusal(args) {
   } catch {
     target = {};
   }
-  const host = !isLoopbackHost(target.host)
-    ? target.host
-    : target.forwarding
-      ? target.forwardTo
-      : target.host;
-  if (isLoopbackHost(target.host) && isLoopbackHost(host)) return null;
-  return { host: host ?? "unknown" };
+  if (!isLoopbackHost(target.host)) return { host: target.host ?? "unknown" };
+  return target.forwardTo ? { host: target.forwardTo } : null;
 }
-// A Host header set after the request exists names the forwarded host too.
-function guardLateHost(req) {
-  const setHeader = req?.setHeader;
-  if (typeof setHeader !== "function") return req;
-  req.setHeader = function egressAwareSetHeader(name, value) {
-    if (gate.isSealed() && String(name).toLowerCase() === "host") {
-      const named = normalizeHost(Array.isArray(value) ? String(value[0]) : String(value));
-      if (!isLoopbackHost(named)) {
-        notify({ layer: "node", host: named ?? "unknown", allowed: false });
-        const error = block(named);
-        process.nextTick(() => req.destroy(error));
-        return req;
-      }
+// Judges the exact request head Node built: its request line and every Host
+// line. Anything not shaped like an HTTP/1 request head is refused.
+const REQUEST_LINE = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+) (\S+) HTTP\/1\.[01]$/;
+function headRefusal(head) {
+  const lines = String(head).split(/\r\n|\n|\r/);
+  const first = REQUEST_LINE.exec(lines[0]);
+  if (!first) return "unknown";
+  const target = targetRefusal(first[1].toUpperCase(), first[2]);
+  if (target) return target;
+  for (const line of lines.slice(1)) {
+    const colon = line.indexOf(":");
+    if (colon < 0 || line.slice(0, colon).trim().toLowerCase() !== "host") continue;
+    const named = normalizeHost(line.slice(colon + 1).trim());
+    if (!isLoopbackHost(named)) return named ?? "unknown";
+  }
+  return null;
+}
+// A refused request writes nothing more, even to a socket that is already
+// connected (a reused keep-alive socket), and records one blocked row.
+const refusedRequests = new WeakSet();
+function refuseRequest(req, host) {
+  if (refusedRequests.has(req)) return;
+  refusedRequests.add(req);
+  notify({ layer: "node", host: host ?? "unknown", allowed: false });
+  const error = block(host);
+  req._writeRaw = () => false;
+  if (Array.isArray(req.outputData)) req.outputData.length = 0;
+  req.destroy(error);
+}
+function installRequestHeadGuard(proto) {
+  const storeHeader = proto._storeHeader;
+  proto._storeHeader = function egressAwareStoreHeader(...args) {
+    const result = storeHeader.apply(this, args);
+    if (gate.isSealed() && !refusedRequests.has(this)) {
+      const host = headRefusal(this._header);
+      if (host) refuseRequest(this, host);
     }
-    return setHeader.call(this, name, value);
+    return result;
   };
-  return req;
+  // Checked at call time, so a request created before the seal is covered.
+  for (const name of ["setHeader", "appendHeader"]) {
+    const original = proto[name];
+    if (typeof original !== "function") continue;
+    proto[name] = function egressAwareHeader(header, value) {
+      if (gate.isSealed() && String(header).toLowerCase() === "host") {
+        const named = headerHosts({ host: value })
+          .map((one) => normalizeHost(one) ?? "unknown")
+          .find((one) => !isLoopbackHost(one));
+        if (named) {
+          refuseRequest(this, named);
+          return this;
+        }
+      }
+      return original.call(this, header, value);
+    };
+  }
 }
 
 function rejectedRequest(error) {
@@ -317,7 +394,6 @@ function installProxyHook() {
           notify({ layer: "node", host: refusal.host, allowed: false });
           return rejectedRequest(block(refusal.host));
         }
-        return guardLateHost(original.apply(this, args));
       }
       return original.apply(this, args);
     };
@@ -339,12 +415,20 @@ function installProxyHook() {
         return rejectedRequest(block(refusal.host));
       }
     }
-    const req = Reflect.construct(OriginalClientRequest, args, new.target ?? ClientRequest);
-    return gate.isSealed() ? guardLateHost(req) : req;
+    return Reflect.construct(OriginalClientRequest, args, new.target ?? ClientRequest);
   }
   ClientRequest.prototype = OriginalClientRequest.prototype;
   Object.setPrototypeOf(ClientRequest, OriginalClientRequest);
   http.ClientRequest = ClientRequest;
+  // The same class, exported by Node's internal module: patch that reference
+  // too (T18R-01). The head guard on the shared prototype covers it anyway.
+  try {
+    const internal = require("_http_client");
+    if (internal.ClientRequest === OriginalClientRequest) internal.ClientRequest = ClientRequest;
+  } catch {
+    // Not every runtime exposes the internal module.
+  }
+  installRequestHeadGuard(OriginalClientRequest.prototype);
   installed.http = true;
 }
 

@@ -128,7 +128,9 @@ function validPort(port: string | undefined): boolean {
 function normalizeHost(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const input = value.trim();
-  if (!input || /[\s/@?#\\]/.test(input)) return null;
+  // "%" starts an IPv6 zone id (or a percent escape): neither names a
+  // loopback address, and a zone can hide extra words (T11a-M1).
+  if (!input || /[\s/@?#\\%]/.test(input)) return null;
 
   let rawHost: string;
   let port: string | undefined;
@@ -202,16 +204,23 @@ function ipv6Words(host: string): number[] | null {
   }
   const halves = address.split("::");
   if (halves.length > 2) return null;
+  // Hex words only: a zone suffix ("1%lo") is not a word.
   const parseHalf = (part: string) =>
-    part ? part.split(":").map((word) => Number.parseInt(word, 16)) : [];
+    part
+      ? part.split(":").map((word) => (/^[0-9a-f]{1,4}$/i.test(word) ? parseInt(word, 16) : NaN))
+      : [];
   const left = parseHalf(halves[0]);
   const right = halves.length === 2 ? parseHalf(halves[1]) : [];
+  if ([...left, ...right].some(Number.isNaN)) return null;
   const missing = 8 - left.length - right.length;
+  // Too many words for "::" to stand for: not an address (and Array(-n) throws).
+  if (missing < 0) return null;
   const words = halves.length === 2 ? [...left, ...Array<number>(missing).fill(0), ...right] : left;
   return words.length === 8 ? words : null;
 }
 
-function sameHostAddress(left: string, right: string): boolean {
+// Exported for the parity table (test/fixtures/loopbackCases.json).
+export function sameHostAddress(left: string, right: string): boolean {
   if (left === right) return true;
   if (ipLiteralVersion(left) !== 6 || ipLiteralVersion(right) !== 6) return false;
   const leftWords = ipv6Words(left);

@@ -60,7 +60,9 @@ function parsePort(port) {
 function normalizeHost(value) {
   if (typeof value !== "string") return null;
   const input = value.trim();
-  if (!input || /[\s/@?#\\]/.test(input)) return null;
+  // "%" starts an IPv6 zone id (or a percent escape): neither names a
+  // loopback address, and a zone can hide extra words (T11a-M1).
+  if (!input || /[\s/@?#\\%]/.test(input)) return null;
 
   let rawHost;
   let port;
@@ -182,11 +184,17 @@ function ipv6Words(host) {
   }
   const halves = address.split("::");
   if (halves.length > 2) return null;
+  // Hex words only: a zone suffix ("1%lo") is not a word.
   const parseHalf = (part) =>
-    part ? part.split(":").map((word) => Number.parseInt(word, 16)) : [];
+    part
+      ? part.split(":").map((word) => (/^[0-9a-f]{1,4}$/i.test(word) ? parseInt(word, 16) : NaN))
+      : [];
   const left = parseHalf(halves[0]);
   const right = halves.length === 2 ? parseHalf(halves[1]) : [];
+  if ([...left, ...right].some(Number.isNaN)) return null;
   const missing = 8 - left.length - right.length;
+  // Too many words for "::" to stand for: not an address (and Array(-n) throws).
+  if (missing < 0) return null;
   const words = halves.length === 2 ? [...left, ...Array(missing).fill(0), ...right] : left;
   return words.length === 8 ? words : null;
 }
@@ -266,6 +274,7 @@ module.exports = {
   taskForScope,
   normalizeHost,
   hostOf,
+  sameHostAddress,
   isLoopbackHost,
   decideEgress,
   SEALED_MODE,

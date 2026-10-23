@@ -123,7 +123,36 @@
       "127.0.0.1/",
       " ",
       ".",
-      ""
+      "",
+      "::ffff%:7f00:1",
+      "::ffff:7f00%:1",
+      "::1%lo",
+      "::1%25lo",
+      "[::1%lo]",
+      "::ffff:127.0.0.1%x",
+      "2001:db8::1%:0:0:0:ffff:7f00:1",
+      "::%:0:0:0:0:0:ffff:7f00:1"
+    ]
+  },
+  "sameHostAddress": {
+    "about": "Pairs for sameHostAddress, the check that a URL's raw authority host and the WHATWG-parsed host name the same address. Equal strings match; distinct IPv6 spellings of one address match; anything else, including a zone id or an unparseable word list, does not.",
+    "same": [
+      ["::1", "::1"],
+      ["::1", "0:0:0:0:0:0:0:1"],
+      ["::ffff:127.0.0.1", "::ffff:7f00:1"],
+      ["0:0:0:0:0:ffff:7f00:1", "::ffff:7f00:1"],
+      ["localhost", "localhost"],
+      ["127.0.0.1", "127.0.0.1"]
+    ],
+    "different": [
+      ["::1", "::2"],
+      ["::ffff:7f00:1", "::ffff:7f00:2"],
+      ["127.0.0.1", "::ffff:7f00:1"],
+      ["127.0.0.1", "127.0.0.2"],
+      ["localhost", "127.0.0.1"],
+      ["::1", "::1%lo"],
+      ["2001:db8::1%:0:0:0:ffff:7f00:1", "::ffff:7f00:1"],
+      ["::%:0:0:0:0:0:ffff:7f00:1", "::ffff:7f00:1"]
     ]
   }
 }

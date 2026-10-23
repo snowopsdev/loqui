@@ -2,7 +2,11 @@ const assert = require("node:assert/strict");
 const net = require("node:net");
 const test = require("node:test");
 const cases = require("../fixtures/loopbackCases.json");
-const { isLoopbackHost, hostOf } = require("../../src/helpers/privacy/egressPolicy");
+const {
+  isLoopbackHost,
+  hostOf,
+  sameHostAddress,
+} = require("../../src/helpers/privacy/egressPolicy");
 const { makeSnapshot } = require("../lib/routeFixtures");
 
 // Plan 07 Task 11a: one loopback rule. Main's egress policy decides what Sealed
@@ -36,6 +40,35 @@ test("main and the route graph agree on every shared loopback case", async () =>
     assert.equal(isLoopbackUrl(empty), false);
     assert.equal(isLoopbackHostname(empty), false);
   }
+});
+
+// T11a-M1 / final review m3: a zone id ("%...") is never loopback, and a
+// zone spelling that leaves too many words must not throw out of the policy
+// (the backstop's net.connect hook calls it on caller-supplied hosts).
+test("zone-id hosts are not loopback on either side, and never throw", async () => {
+  const { isLoopbackHostname } = await locality();
+  for (const host of cases.hosts.notLoopback.filter((h) => h.includes("%"))) {
+    assert.doesNotThrow(() => isLoopbackHost(host), `main: ${JSON.stringify(host)}`);
+    assert.equal(isLoopbackHost(host), false, `main: ${JSON.stringify(host)}`);
+    assert.equal(isLoopbackHostname(host), false, `renderer: ${JSON.stringify(host)}`);
+    assert.equal(hostOf({ host }), null, `main hostOf: ${JSON.stringify(host)}`);
+  }
+});
+
+// T11a-M2: the raw-authority versus WHATWG host comparison is defence in depth
+// that no URL string in the corpus reaches, so both copies are held to a
+// direct table instead.
+test("sameHostAddress matches only spellings of one address, in main and the renderer", async () => {
+  const renderer = await locality();
+  for (const [list, expected] of [
+    [cases.sameHostAddress.same, true],
+    [cases.sameHostAddress.different, false],
+  ])
+    for (const [left, right] of list) {
+      assert.equal(sameHostAddress(left, right), expected, `main: ${left} ${right}`);
+      assert.equal(sameHostAddress(right, left), expected, `main: ${right} ${left}`);
+      assert.equal(renderer.sameHostAddress(left, right), expected, `renderer: ${left} ${right}`);
+    }
 });
 
 const SCHEMES = ["http://", "https://", "ws://", "HTTP://", "http:", "http:/", "ftp://"];

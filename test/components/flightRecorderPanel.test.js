@@ -1324,6 +1324,12 @@ test("DESIGN.md completes the Sealed mode section with the recorder rules", () =
     "started before midnight",
     "partial",
     "whole connection",
+    // Final review I1, I5, V1/V2 (FW-B contracts, consolidated fix wave).
+    "Programs not started",
+    "A program start isn't a request",
+    "couldn't save some records, so this list may be incomplete",
+    "whitespace-nowrap",
+    '<bdi dir="ltr">',
   ])
     assert.ok(body.includes(phrase), phrase);
   assert.doesNotMatch(body, /Only blocked requests show 0 bytes sent/);
@@ -1361,6 +1367,10 @@ test("PRIVACY.md documents Sealed mode and the recorder as a partial 07a with th
     "started before midnight",
     "Every connection row",
     "whole connection",
+    // Final review I1, I3, I5 and Task 18 T18-02 (consolidated fix wave).
+    "A program start isn't a request",
+    "couldn't save some records",
+    "in any Loqui window",
   ])
     assert.ok(body.includes(phrase), phrase);
   // The old wording made every record memory-only once history was off (I1).
@@ -1378,6 +1388,9 @@ test("PRIVACY.md documents Sealed mode and the recorder as a partial 07a with th
     "`kds-proxy.tinfoil.sh`",
     "| Assistant screen context",
     "screenshot",
+    "| Spellcheck dictionaries and proxy auto-config",
+    "`redirector.gvt1.com`",
+    "any Loqui window",
   ])
     assert.ok(table.includes(row), row);
   assert.doesNotMatch(body, /verified only after|dates the claim|nothing leaves|0 bytes/i);
@@ -1402,9 +1415,12 @@ test("the network inventory lists the 07a destinations and states the partial st
     "`github-proxy.tinfoil.sh`",
     "`kds-proxy.tinfoil.sh`",
     "| Assistant screen context",
+    "| Spellcheck dictionaries and proxy auto-config",
+    "`redirector.gvt1.com`",
   ])
     assert.ok(doc.includes(row), row);
   assert.match(doc, /native engines are unavailable while sealed/i);
+  assert.match(doc, /program start is not a request/i);
   assert.match(doc, /07b/);
   assert.match(doc, /merge gate/i);
   assert.doesNotMatch(

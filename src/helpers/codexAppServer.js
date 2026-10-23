@@ -426,9 +426,11 @@ class CodexAppServer extends EventEmitter {
   async login() {
     return this._changeCatalogAccount("account/login/start", { type: "chatgpt" });
   }
-  // A sign-in lives in the app-server process that started it. With no process
-  // running or starting, that process has exited (for example, Sealed mode
-  // stopped it), so the sign-in is already gone: resolve without starting one.
+  // A sign-in lives in the app-server process that started it. With no current
+  // child and no start pending (for example, Sealed mode stopped it), Loqui no
+  // longer holds that process, so there is no sign-in to cancel here: resolve
+  // without starting one. Whether the process exited is the child registry's
+  // to report, not this check's.
   async cancelLogin(loginId) {
     if (!this.child && !this.starting) return { appServerStopped: true };
     await this.start();

@@ -649,6 +649,14 @@ test("DESIGN.md documents the Sealed panel and its 07a limits", () => {
     "Checking",
     "Keep sealed",
     "07b",
+    // FW-B contracts (consolidated fix wave): T14-M1/M2/M3/M4/M5, I6.
+    "since Sealed mode was turned on or Loqui started",
+    "couldn't confirm every step of turning on Sealed mode",
+    "`timeout:children`",
+    "only for a refusal",
+    "sealedFailureMessage",
+    "Settings search",
+    "No native speaker has verified",
   ])
     assert.ok(body.includes(phrase), phrase);
   assert.ok(design.indexOf("## Sealed mode and the flight recorder") > design.indexOf("## Motion"));

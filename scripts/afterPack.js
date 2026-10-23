@@ -11,7 +11,8 @@
 //    --no-sandbox where the Chromium sandbox cannot work (AppImage/tar.gz
 //    on distros that restrict unprivileged user namespaces).
 // 3. Fails the build if required binaries (ffmpeg-static, ps-list vendor exe,
-//    onnx worker script) are missing from app.asar.unpacked/.
+//    onnx worker script) are missing from app.asar.unpacked/, or if the
+//    Parakeet servers are not the loopback-only build.
 
 const fs = require("fs");
 const path = require("path");
@@ -22,6 +23,7 @@ const {
   WINDOWS_ONNXRUNTIME_PRIVATE_NAME,
   WINDOWS_ONNXRUNTIME_UPSTREAM_NAME,
 } = require("./download-sherpa-onnx");
+const { isLoopbackSherpaBinary } = require("../src/helpers/sherpaLoopback");
 
 // ---------------------------------------------------------------------------
 // macOS resource binary signing
@@ -254,6 +256,22 @@ function verifyWindowsOnnxRuntimePrivatized(binDir) {
   }
 }
 
+// Upstream sherpa-onnx WebSocket servers listen on every IPv4 interface. The
+// app refuses to start them, so shipping one would silently break Parakeet.
+function verifyLoopbackSherpaServers(binDir, platformArch) {
+  for (const prefix of ["sherpa-onnx-ws", "sherpa-onnx-online-ws"]) {
+    const binaryPath = path.join(binDir, `${prefix}-${platformArch}`);
+    if (!fs.existsSync(binaryPath)) {
+      throw new Error(`afterPack: missing ${binaryPath} — the Parakeet server did not ship`);
+    }
+    if (!isLoopbackSherpaBinary(binaryPath)) {
+      throw new Error(
+        `afterPack: ${binaryPath} is the upstream wildcard-listening build; run scripts/build-sherpa-websocket.js after the sherpa-onnx download`
+      );
+    }
+  }
+}
+
 function verifyUnpackedBinaries(context) {
   const unpackedDir = path.join(resolveResourcesDir(context), "app.asar.unpacked");
   const unpackedModulesDir = path.join(unpackedDir, "node_modules");
@@ -291,6 +309,11 @@ function verifyUnpackedBinaries(context) {
       );
     }
     verifyWindowsOnnxRuntimePrivatized(path.join(resolveResourcesDir(context), "bin"));
+  } else {
+    verifyLoopbackSherpaServers(
+      path.join(resolveResourcesDir(context), "bin"),
+      `${context.electronPlatformName}-${Arch[context.arch]}`
+    );
   }
 
   console.log("  afterPack: verified unpacked bundled binaries");
@@ -308,4 +331,5 @@ exports.default = async function (context) {
   registerMacResourceBinariesForSigning(context);
 };
 
+exports.verifyLoopbackSherpaServers = verifyLoopbackSherpaServers;
 exports.verifyWindowsOnnxRuntimePrivatized = verifyWindowsOnnxRuntimePrivatized;

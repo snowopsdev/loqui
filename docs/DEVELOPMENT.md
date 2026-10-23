@@ -44,6 +44,8 @@ npm run dev
 
 Platform preparation compiles native helpers and obtains the runtime binaries and support models needed for meetings and search. It may take several minutes and consume substantial disk space. It does not download the user-selected dictation or cleanup models.
 
+Upstream sherpa-onnx WebSocket servers listen on every IPv4 interface, so platform preparation rebuilds the two Parakeet servers from the pinned source with `resources/patches/sherpa-onnx-loopback.patch` (`npm run build:sherpa-websocket`, which needs CMake and Make). Loqui refuses to start a Parakeet server that is not this loopback-only build. After running `npm run download:sherpa-onnx` on its own, run `npm run build:sherpa-websocket` again. `LOQUI_SHERPA_LOOPBACK_TEST=1 node --test test/native/sherpaLoopback.test.js` starts both servers with small pinned models and checks that the only listener is `127.0.0.1`.
+
 The Linux text monitor is compiled from the checked-in C source. CI and release builds fail if the source, headers, compiler, or output are missing. Development without native AT-SPI2 headers can use the existing Python fallback when Python AT-SPI bindings are installed; no upstream application helper is downloaded.
 
 `npm ci --ignore-scripts` intentionally separates dependency installation from Electron installation, native compilation, renderer compilation, and packaging. Follow the explicit steps above instead of relying on npm lifecycle scripts.

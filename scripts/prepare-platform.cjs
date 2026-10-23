@@ -36,6 +36,8 @@ for (const file of [
   "whisper-vad-model",
 ])
   run(`download-${file}`, ["--current", "--force"]);
+// Replaces the upstream Parakeet servers, which listen on every interface.
+run("build-sherpa-websocket");
 run("download-minilm", ["--for-build", "--force"]);
 run("download-diarization-models", ["--output-dir", "resources/bin/diarization-models", "--force"]);
 const required = [

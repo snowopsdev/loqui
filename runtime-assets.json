@@ -140,6 +140,14 @@
       "license": "Apache-2.0"
     },
     {
+      "url": "https://github.com/k2-fsa/sherpa-onnx/archive/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf.tar.gz",
+      "sha256": "769a43ddc9f40479560a0e943ceffa0c1cb980a8ed0edfec9175dfeb099d2076",
+      "source": "https://github.com/k2-fsa/sherpa-onnx",
+      "revision": "11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf",
+      "license": "Apache-2.0",
+      "hashKind": "tar-contents-v1"
+    },
+    {
       "url": "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.28.2/onnxruntime-osx-arm64-1.28.2.zip",
       "sha256": "d9e5c0c79929e201f5b8eb095e6809a91ce78be9866a1bca0dfab7e20b40ae40",
       "source": "https://github.com/csukuangfj/onnxruntime-libs",

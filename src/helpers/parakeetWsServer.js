@@ -15,6 +15,7 @@ const sidecarPidFile = require("./sidecarPidFile");
 const { parseOfflineMessage, createOnlineAccumulator } = require("./parakeetWsResult");
 const { getModelType, getSherpaModelType } = require("./parakeetModelInfo");
 const { pcm16ToFloat32 } = require("../utils/audioUtils");
+const { LOOPBACK_LISTEN_MARKER, isLoopbackSherpaBinary } = require("./sherpaLoopback");
 const {
   computeTranscriptionTimeoutMs,
   TRANSCRIPTION_TIMEOUT_FLOOR_MS,
@@ -61,6 +62,7 @@ class ParakeetWsServer {
     this.startingLanguage = null;
     this.healthCheckInterval = null;
     this.cachedBinaryPaths = {};
+    this.loopbackBinaryPaths = new Set();
   }
 
   getWsBinaryPath(runtime = "offline") {
@@ -78,6 +80,18 @@ class ParakeetWsServer {
 
   isAvailable(runtime = "offline") {
     return this.getWsBinaryPath(runtime) !== null;
+  }
+
+  // An upstream sherpa-onnx server listens on every IPv4 interface, so only
+  // the patched loopback build may start; there is no fallback.
+  _assertLoopbackBinary(wsBinary, runtime) {
+    if (this.loopbackBinaryPaths.has(wsBinary)) return;
+    if (!isLoopbackSherpaBinary(wsBinary)) {
+      throw new Error(
+        `sherpa-onnx ${runtime} WS server at ${wsBinary} is not the loopback-only build; refusing to start it (run npm run build:sherpa-websocket)`
+      );
+    }
+    this.loopbackBinaryPaths.add(wsBinary);
   }
 
   hasAnyWsBinary() {
@@ -113,6 +127,7 @@ class ParakeetWsServer {
   async _doStart(modelName, modelDir, runtime, language) {
     const wsBinary = this.getWsBinaryPath(runtime);
     if (!wsBinary) throw new Error(`sherpa-onnx ${runtime} WS server binary not found`);
+    this._assertLoopbackBinary(wsBinary, runtime);
     if (!fs.existsSync(modelDir)) throw new Error(`Model directory not found: ${modelDir}`);
 
     this.port = await findAvailablePort(PORT_RANGE_START, PORT_RANGE_END);
@@ -168,6 +183,7 @@ class ParakeetWsServer {
 
     let stderrBuffer = "";
     let exitCode = null;
+    let listenedBeyondLoopback = false;
     let readyResolve = null;
     const readyFromStderr = new Promise((resolve) => {
       readyResolve = resolve;
@@ -180,8 +196,14 @@ class ParakeetWsServer {
     child.stderr.on("data", (data) => {
       stderrBuffer += data.toString();
       debugLogger.debug("parakeet-ws stderr", { data: data.toString().trim() });
-      if (data.toString().includes("Listening on:")) {
+      // Judge the bind address only once the whole startup line has arrived.
+      const listenAt = stderrBuffer.indexOf("Listening on:");
+      if (listenAt === -1 || !stderrBuffer.includes("\n", listenAt)) return;
+      if (stderrBuffer.startsWith(LOOPBACK_LISTEN_MARKER, listenAt)) {
         readyResolve(true);
+      } else {
+        listenedBeyondLoopback = true;
+        readyResolve(false);
       }
     });
 
@@ -204,7 +226,15 @@ class ParakeetWsServer {
       readyResolve(false);
     });
 
-    await this._waitForReady(readyFromStderr, () => ({ stderr: stderrBuffer, exitCode }));
+    try {
+      await this._waitForReady(readyFromStderr, () => ({ stderr: stderrBuffer, exitCode }));
+    } catch (error) {
+      if (!listenedBeyondLoopback) throw error;
+      await this.stop();
+      throw new Error(
+        `sherpa-onnx ${runtime} WS server did not report a 127.0.0.1-only listener; stopped it`
+      );
+    }
     this._startHealthCheck();
 
     debugLogger.info("parakeet-ws server started successfully", {

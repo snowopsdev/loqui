@@ -52,10 +52,19 @@ jobs:
             native/meeting-aec-helper/build
             native/meeting-aec-helper/third_party
           key: native-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('native/**', 'scripts/build-*.js', 'scripts/lib/meeting-aec-build.js', 'runtime-assets.json', '.node-version') }}
+      - name: Loopback sherpa-onnx server build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .cache/sherpa-websocket
+          key: sherpa-websocket-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('resources/patches/sherpa-onnx-loopback.patch', 'scripts/build-sherpa-websocket.js', 'runtime-assets.json') }}
       - run: npm ci --ignore-scripts
       - name: Install platform runtime dependencies
         run: node scripts/install-platform-deps.cjs
       - run: npm run prepare:platform
+      - name: Parakeet servers listen on loopback only
+        run: node --test test/native/sherpaLoopback.test.js
+        env:
+          LOQUI_SHERPA_LOOPBACK_TEST: '1'
       - run: npm run native:electron
       - run: npm run build:renderer
       - name: Package unsigned application

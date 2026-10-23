@@ -66,7 +66,7 @@ Uninstalling the application may leave its profile, model cache, and OS credenti
 
 Provider terms, retention, availability, billing, and account limits apply to remote requests. Loqui does not silently switch local processing to a remote provider. Cleanup failure preserves the raw transcript.
 
-Local inference stays on this computer. Download selected models before going offline. Bundled runtimes and support models are obtained during development/release preparation; their pinned sources and licenses are recorded in [`runtime-assets.json`](../runtime-assets.json).
+Local inference stays on this computer. The local speech, language-model and search servers Loqui starts (whisper.cpp, llama.cpp, sherpa-onnx and Qdrant) listen on `127.0.0.1` only; Loqui rebuilds the sherpa-onnx WebSocket servers from pinned source for this, because upstream builds listen on every network interface. Download selected models before going offline. Bundled runtimes and support models are obtained during development/release preparation; their pinned sources and licenses are recorded in [`runtime-assets.json`](../runtime-assets.json).
 
 ## Updates and calendars
 

@@ -2068,7 +2068,7 @@
       },
       "supportModels": {
         "title": "裝置端支援模型",
-        "description": "始終在此裝置上執行的小型模型。處理這些工作時，錄音和筆記不會離開此裝置。",
+        "description": "在此裝置上執行的小型模型。處理這些工作時，Loqui 不會將錄音和筆記傳送給服務供應商。",
         "downloaded": "已下載",
         "checking": "正在檢查…",
         "download": "下載 {{size}}",

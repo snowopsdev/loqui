@@ -33,23 +33,25 @@ const KEYS = [
   "patchbay.no.sealed",
   "reasoning.mode.localDescription",
   "patchbay.locked.semanticSearch",
+  // Same class, found by FW-B's residual grep (not in the review's list).
+  "settingsPage.llms.supportModels.description",
 ];
 
 // The pre-07a absolute claims, as each locale phrased them.
 const ABSOLUTE = {
-  en: /nothing leaves|can only run on this device|keeps this task on this device|complete privacy|never sends/i,
-  ar: /لا يغادر شيء|لا تُرسل أي بيانات خارجه|لا يُرسل شيء إلى الخارج|لا يُرسل أي شيء خارج|لا يمكن تشغيل المهام إلا|يحتفظ الوضع المغلق بهذه المهمة|خصوصية تامة|أي مكان أبدًا/,
-  de: /Nichts verlässt|Keine Übertragung nach außen|nur auf diesem Gerät ausgeführt|behält diese Aufgabe|Volle Privatsphäre|niemals irgendwohin/i,
-  es: /Nada sale|solo se pueden ejecutar|mantiene esta tarea|Privacidad total|nunca envía/i,
-  fr: /Rien n’en sort|Rien ne part|Rien ne sort|Rien ne quitte|ne peuvent s'exécuter que|conserve cette tâche|Confidentialité totale|jamais vos notes/i,
-  it: /Nulla lo lascia|Nessun invio all’esterno|Niente lascia|Nulla lascia|possono essere eseguite solo|mantiene questa attività|Privacy completa|non invia mai/i,
-  ja: /外部には何も送信されません|外部へ送信されるものはありません|何も送信されません|でのみ実行できます|保持されます|完全なプライバシー|どこにも送信/,
-  pt: /Nada sai|só podem ser executadas|mantém esta tarefa|Privacidade total|nunca envia/i,
-  ru: /Ничего не передаётся за его пределы|Ничего не уходит|Ничего не покидает|Ничто не покидает|только на этом устройстве|сохраняет эту задачу|Полная приватность|никогда никуда/i,
+  en: /never leaves? it|nothing leaves|can only run on this device|keeps this task on this device|complete privacy|never sends/i,
+  ar: /لا تغادر تسجيلاتك|لا يغادر شيء|لا تُرسل أي بيانات خارجه|لا يُرسل شيء إلى الخارج|لا يُرسل أي شيء خارج|لا يمكن تشغيل المهام إلا|يحتفظ الوضع المغلق بهذه المهمة|خصوصية تامة|أي مكان أبدًا/,
+  de: /verlassen es für diese Aufgaben nie|Nichts verlässt|Keine Übertragung nach außen|nur auf diesem Gerät ausgeführt|behält diese Aufgabe|Volle Privatsphäre|niemals irgendwohin/i,
+  es: /nunca salen de él|Nada sale|solo se pueden ejecutar|mantiene esta tarea|Privacidad total|nunca envía/i,
+  fr: /ne le quittent jamais|Rien n’en sort|Rien ne part|Rien ne sort|Rien ne quitte|ne peuvent s'exécuter que|conserve cette tâche|Confidentialité totale|jamais vos notes/i,
+  it: /non lo lasciano mai|Nulla lo lascia|Nessun invio all’esterno|Niente lascia|Nulla lascia|possono essere eseguite solo|mantiene questa attività|Privacy completa|non invia mai/i,
+  ja: /端末の外に送られることはありません|外部には何も送信されません|外部へ送信されるものはありません|何も送信されません|でのみ実行できます|保持されます|完全なプライバシー|どこにも送信/,
+  pt: /nunca saem dele|Nada sai|só podem ser executadas|mantém esta tarefa|Privacidade total|nunca envia/i,
+  ru: /не покидают его|Ничего не передаётся за его пределы|Ничего не уходит|Ничего не покидает|Ничто не покидает|только на этом устройстве|сохраняет эту задачу|Полная приватность|никогда никуда/i,
   "zh-CN":
-    /不会向外发送任何内容|不向外发送任何内容|以外发送任何内容|不会有任何内容离开|只能在此设备上运行|保留在此设备上|完全隐私|永远不会/,
+    /不会离开此设备|不会向外发送任何内容|不向外发送任何内容|以外发送任何内容|不会有任何内容离开|只能在此设备上运行|保留在此设备上|完全隐私|永远不会/,
   "zh-TW":
-    /不會向外傳送任何內容|不向外傳送任何內容|以外傳送任何內容|不會有任何內容離開|只能在此裝置上執行|保留在此裝置上|完全私密|永遠不會/,
+    /不會離開此裝置|不會向外傳送任何內容|不向外傳送任何內容|以外傳送任何內容|不會有任何內容離開|只能在此裝置上執行|保留在此裝置上|完全私密|永遠不會/,
 };
 
 test("I4: local and sealed route copy makes no absolute 'nothing leaves' claim in any locale", () => {
@@ -79,6 +81,10 @@ test("I4: the English copy says what Loqui does, not that nothing leaves", () =>
   assert.doesNotMatch(en("patchbay.no.sealed"), /keeps this task/);
   assert.doesNotMatch(en("reasoning.mode.localDescription"), /privacy/i);
   assert.match(en("patchbay.locked.semanticSearch"), /doesn't send your notes to a provider/);
+  assert.match(
+    en("settingsPage.llms.supportModels.description"),
+    /doesn't send your recordings or notes to a provider/
+  );
   // No English string anywhere repeats the old claims.
   const all = JSON.stringify(resources.en);
   assert.doesNotMatch(

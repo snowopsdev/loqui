@@ -2172,7 +2172,7 @@
       },
       "supportModels": {
         "title": "Lokale Unterstützungsmodelle",
-        "description": "Kleine Modelle, die immer auf diesem Gerät laufen. Deine Aufnahmen und Notizen verlassen es für diese Aufgaben nie.",
+        "description": "Kleine Modelle, die auf diesem Gerät laufen. Loqui sendet deine Aufnahmen und Notizen für diese Aufgaben an keinen Anbieter.",
         "downloaded": "Heruntergeladen",
         "checking": "Wird geprüft…",
         "download": "{{size}} herunterladen",

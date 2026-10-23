@@ -2172,7 +2172,7 @@
       },
       "supportModels": {
         "title": "On-device support models",
-        "description": "Small models that always run on this device. Your recordings and notes never leave it for these tasks.",
+        "description": "Small models that run on this device. Loqui doesn't send your recordings or notes to a provider for these tasks.",
         "downloaded": "Downloaded",
         "checking": "Checking…",
         "download": "Download {{size}}",

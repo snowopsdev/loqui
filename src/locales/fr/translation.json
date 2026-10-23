@@ -2172,7 +2172,7 @@
       },
       "supportModels": {
         "title": "Modèles d’assistance locale",
-        "description": "De petits modèles qui fonctionnent toujours sur cet appareil. Vos enregistrements et notes ne le quittent jamais pour ces tâches.",
+        "description": "De petits modèles qui fonctionnent sur cet appareil. Loqui n’envoie vos enregistrements et vos notes à aucun fournisseur pour ces tâches.",
         "downloaded": "Téléchargé",
         "checking": "Vérification…",
         "download": "Télécharger {{size}}",

@@ -2078,7 +2078,7 @@
       },
       "supportModels": {
         "title": "Modelli di supporto sul dispositivo",
-        "description": "Modelli piccoli che funzionano sempre su questo dispositivo. Per queste attività, registrazioni e note non lo lasciano mai.",
+        "description": "Modelli piccoli che funzionano su questo dispositivo. Per queste attività, Loqui non invia registrazioni e note a nessun fornitore.",
         "downloaded": "Scaricato",
         "checking": "Verifica…",
         "download": "Scarica {{size}}",

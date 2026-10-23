@@ -728,7 +728,7 @@
       "cloud": "云端",
       "local": "本地",
       "enterprise": "企业",
-      "localDescription": "在你的设备上运行，完全隐私，离线可用。",
+      "localDescription": "在你的设备上运行，可离线使用。",
       "cloudDescription": "通过 API 使用高级模型，快速且强大，需要联网。",
       "enterpriseDescription": "使用你组织的云服务商凭据。"
     },
@@ -1533,7 +1533,7 @@
         "local": "本地",
         "selfHosted": "自托管",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "在此设备上运行。不会向外发送任何内容。",
+        "localDesc": "在此设备上运行。Loqui 不会将你的内容发送给服务提供商。",
         "selfHostedDesc": "你的服务器，在你的网络上。",
         "enterprise": "企业级",
         "enterpriseDesc": "使用你组织的云账号（AWS、Azure、GCP）。"
@@ -1940,9 +1940,10 @@
           "childUnknown": "Loqui 无法读取其启动的程序的状态。它会继续检查。",
           "chromium": "开启封闭模式之前开始的页面请求仍未结束。Loqui 会继续检查。",
           "dns": "开启封闭模式之前开始的域名查询仍在等待中。Loqui 会继续检查。",
-          "active": "正在停止开启封闭模式之前开始的请求…"
+          "active": "正在停止开启封闭模式之前开始的请求…",
+          "other": "Loqui 无法确认开启封闭模式的每个步骤，因此无法确认它自己的所有请求都被阻止。"
         },
-        "blocked_other": "自开启封闭模式以来已阻止 {{count}} 个请求。",
+        "blocked_other": "自开启封闭模式或 Loqui 启动以来已阻止 {{count}} 个请求。",
         "loadError": "Loqui 无法读取已保存的封闭模式设置，因此为安全起见开启了封闭模式。如需关闭，请在这里关闭。",
         "saveError": "Loqui 无法保存此封闭模式设置。下次 Loqui 启动时，可能会使用之前的设置。",
         "toggleError": "无法更改封闭模式。开关显示的是 Loqui 当前使用的设置。"
@@ -1952,7 +1953,7 @@
         "subtitle": "Loqui 自身的网络防护今天（自午夜起）记录的内容。仅元数据：这里不保存任何音频、文本、提示词、密钥或完整网址。",
         "loading": "正在加载…",
         "loadError": "无法加载飞行记录器。",
-        "unavailable": "飞行记录器目前无法读取或保存其记录，因此此列表可能不完整。",
+        "unavailable": "飞行记录器未能保存部分记录，因此此列表可能不完整。",
         "unavailableRead": "飞行记录器目前无法读取或保存其记录。",
         "retry": "重试",
         "observedToday_other": "今天记录的外发请求：{{count}} 个",
@@ -2033,8 +2034,11 @@
           "appUpdate": "更新",
           "codex": "ChatGPT（Codex）",
           "calendar": "日历",
-          "unattributed": "无法解释"
-        }
+          "unattributed": "无法解释",
+          "nativeLaunch": "本地程序（未启动）"
+        },
+        "nativeRefusedToday_other": "被封闭模式拒绝的本地程序启动：{{count}} 次。启动程序不是请求，因此不计入上方的数量。",
+        "nativeRefusedPrograms": "未启动的程序：{{names}}"
       }
     },
     "prompts": {
@@ -2084,7 +2088,7 @@
         "local": "本地",
         "selfHosted": "自托管",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "在此设备上运行。不会向外发送任何内容。",
+        "localDesc": "在此设备上运行。Loqui 不会将你的内容发送给服务提供商。",
         "selfHostedDesc": "你的服务器，在你的网络上。",
         "enterprise": "企业云",
         "enterpriseDesc": "音频将发送到贵组织自己的云。"
@@ -3402,7 +3406,7 @@
       "providers": "使用自己的 API Key",
       "providersDesc": "用你自己的 API Key 连接 OpenAI、Anthropic、Gemini 或 Groq。",
       "local": "本地",
-      "localDesc": "在此设备上运行本地模型。不会向外发送任何内容。",
+      "localDesc": "在此设备上运行本地模型。Loqui 不会将你的内容发送给服务提供商。",
       "selfHosted": "自托管",
       "selfHostedDesc": "指向兼容 OpenAI 的自托管端点。",
       "enterprise": "企业级",
@@ -3423,7 +3427,7 @@
         "local": "本地",
         "selfHosted": "自托管",
         "providersDesc": "使用自己的 API 密钥。",
-        "localDesc": "在此设备上运行。不会向外发送任何内容。",
+        "localDesc": "在此设备上运行。Loqui 不会将你的内容发送给服务提供商。",
         "selfHostedDesc": "你自己网络上的服务器。",
         "enterprise": "企业级",
         "enterpriseDesc": "使用你组织的云账号（AWS、Azure、GCP）。"
@@ -4208,7 +4212,7 @@
     "tasks": "任务",
     "destinations": "运行位置",
     "openSettings": "打开 {{task}} 设置",
-    "sealed": "封闭模式已开启。任务只能在此设备上运行。",
+    "sealed": "封闭模式已开启：Loqui 会阻止将内容发送到这台电脑以外的任务。在此版本中，封闭模式开启期间，Loqui 的本地引擎也不会运行。",
     "undo": "撤消",
     "kind": {
       "speech": "语音",
@@ -4231,13 +4235,13 @@
     },
     "locked": {
       "speakerId": "锁定到此设备：说话人识别需要您在设备上的录音。",
-      "semanticSearch": "锁定到此设备：嵌入保留在本地，因此搜索永远不会将您的笔记发送到任何地方。"
+      "semanticSearch": "锁定到此设备：嵌入保留在本地，搜索不会将您的笔记发送给服务提供商。"
     },
     "no": {
       "capability": "{{provider}} 无法在 Loqui 中运行此任务。",
       "visionCloudOnly": "目前，屏幕截图只能转到云视觉模型。",
       "meetingServer": "笔记录音暂不支持使用您自己的服务器。",
-      "sealed": "封闭模式将此任务保留在此设备上。",
+      "sealed": "封闭模式已开启，因此无法将此任务发送到这里。",
       "uploadServer": "文件上传使用为听写设置的服务器。在那里改变它。",
       "serverKind": "尚未为 {{kind}} 任务设置 {{server}}。使用“添加服务器”输入其地址。"
     },
@@ -4253,7 +4257,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "添加服务器",
       "addServerHint": "接下来输入它的地址",
-      "nothingLeaves": "不向外发送任何内容",
+      "nothingLeaves": "不发送给服务提供商",
       "yourServer": "您自己的服务器",
       "unencrypted": "http，未加密",
       "hosted": "托管提供商",
@@ -4263,7 +4267,7 @@
       "keyUnknown": "检查保存的密钥..."
     },
     "leaves": {
-      "none": "不会向此设备以外发送任何内容。",
+      "none": "没有任务会向服务提供商或服务器发送内容。",
       "prefix": "向此设备以外发送内容的任务：",
       "item": "{{task}} → {{destination}}"
     },
@@ -4832,8 +4836,8 @@
       },
       "privacy": {
         "title": "你的话会去哪里",
-        "bodyMac": "除非你选择服务提供商，否则不会有任何内容离开这台 Mac。",
-        "bodyOther": "除非你选择服务提供商，否则不会有任何内容离开这台电脑。",
+        "bodyMac": "除非你选择服务提供商，否则 Loqui 不会将你的语音或文字从这台 Mac 发送给服务提供商。",
+        "bodyOther": "除非你选择服务提供商，否则 Loqui 不会将你的语音或文字从这台电脑发送给服务提供商。",
         "nodes": {
           "mic": "麦克风",
           "loqui": "Loqui",

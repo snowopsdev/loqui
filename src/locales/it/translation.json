@@ -728,7 +728,7 @@
       "cloud": "Cloud",
       "local": "Locale",
       "enterprise": "Aziendale",
-      "localDescription": "Funziona sul tuo dispositivo. Privacy completa, funziona offline.",
+      "localDescription": "Funziona sul tuo dispositivo, anche offline.",
       "cloudDescription": "Modelli avanzati via API. Veloci e potenti, richiedono internet.",
       "enterpriseDescription": "Usa le credenziali cloud della tua organizzazione."
     },
@@ -1533,7 +1533,7 @@
         "local": "Locale",
         "selfHosted": "Self-hosted",
         "providersDesc": "Usa la tua chiave API.",
-        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
+        "localDesc": "Viene eseguito su questo dispositivo. Loqui non invia i tuoi contenuti a nessun fornitore.",
         "selfHostedDesc": "Il tuo server nella tua rete.",
         "enterprise": "Enterprise",
         "enterpriseDesc": "Usa l'account cloud della tua organizzazione (AWS, Azure, GCP)."
@@ -1940,10 +1940,11 @@
           "childUnknown": "Loqui non riesce a leggere lo stato dei programmi che ha avviato. Continua a verificare.",
           "chromium": "Una richiesta di pagina iniziata prima dell’attivazione della modalità sigillata è ancora aperta. Loqui continua a verificare.",
           "dns": "Una risoluzione di nomi iniziata prima dell’attivazione della modalità sigillata è ancora in sospeso. Loqui continua a verificare.",
-          "active": "Arresto delle richieste iniziate prima dell’attivazione della modalità sigillata…"
+          "active": "Arresto delle richieste iniziate prima dell’attivazione della modalità sigillata…",
+          "other": "Loqui non ha potuto confermare ogni passaggio dell’attivazione della modalità sigillata, quindi non può confermare che tutte le sue richieste vengano bloccate."
         },
-        "blocked_one": "{{count}} richiesta bloccata dall’attivazione della modalità sigillata.",
-        "blocked_other": "{{count}} richieste bloccate dall’attivazione della modalità sigillata.",
+        "blocked_one": "{{count}} richiesta bloccata dall’attivazione della modalità sigillata o dall’avvio di Loqui.",
+        "blocked_other": "{{count}} richieste bloccate dall’attivazione della modalità sigillata o dall’avvio di Loqui.",
         "loadError": "Loqui non è riuscito a leggere l’impostazione salvata della modalità sigillata, quindi ha attivato la modalità sigillata per sicurezza. Disattivala qui se era tua intenzione.",
         "saveError": "Loqui non è riuscito a salvare questa impostazione della modalità sigillata. Al prossimo avvio, Loqui potrebbe usare l’impostazione precedente.",
         "toggleError": "Impossibile cambiare la modalità sigillata. L’interruttore mostra l’impostazione che Loqui sta usando ora."
@@ -1953,7 +1954,7 @@
         "subtitle": "Ciò che le protezioni di rete di Loqui hanno registrato oggi, dalla mezzanotte. Solo metadati: qui non vengono salvati audio, testo, prompt, chiavi o indirizzi web completi.",
         "loading": "Caricamento…",
         "loadError": "Impossibile caricare il registratore di volo.",
-        "unavailable": "Il registratore di volo non riesce a leggere o salvare le sue voci in questo momento, quindi questo elenco potrebbe essere incompleto.",
+        "unavailable": "Il registratore di volo non è riuscito a salvare alcune voci, quindi questo elenco potrebbe essere incompleto.",
         "unavailableRead": "Il registratore di volo non riesce a leggere o salvare le sue voci in questo momento.",
         "retry": "Riprova",
         "observedToday_one": "{{count}} richiesta in uscita registrata oggi",
@@ -2042,8 +2043,12 @@
           "appUpdate": "Aggiornamenti",
           "codex": "ChatGPT (Codex)",
           "calendar": "Calendari",
-          "unattributed": "Non spiegata"
-        }
+          "unattributed": "Non spiegata",
+          "nativeLaunch": "Programma locale (non avviato)"
+        },
+        "nativeRefusedToday_one": "{{count}} avvio di un programma locale rifiutato dalla modalità sigillata. L’avvio di un programma non è una richiesta, quindi non è conteggiato sopra.",
+        "nativeRefusedToday_other": "{{count}} avvii di programmi locali rifiutati dalla modalità sigillata. L’avvio di un programma non è una richiesta, quindi non sono conteggiati sopra.",
+        "nativeRefusedPrograms": "Programmi non avviati: {{names}}"
       }
     },
     "prompts": {
@@ -2093,7 +2098,7 @@
         "local": "Locale",
         "selfHosted": "Self-hosted",
         "providersDesc": "Usa la tua chiave API.",
-        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
+        "localDesc": "Viene eseguito su questo dispositivo. Loqui non invia i tuoi contenuti a nessun fornitore.",
         "selfHostedDesc": "Il tuo server nella tua rete.",
         "enterprise": "Cloud aziendale",
         "enterpriseDesc": "L'audio viene inviato al cloud della tua organizzazione."
@@ -3412,7 +3417,7 @@
       "providers": "Usa la tua chiave API",
       "providersDesc": "Connettiti a OpenAI, Anthropic, Gemini o Groq con la tua chiave API.",
       "local": "Locale",
-      "localDesc": "Esegue un modello locale su questo dispositivo. Nulla lo lascia.",
+      "localDesc": "Esegue un modello locale su questo dispositivo. Loqui non invia i tuoi contenuti a nessun fornitore.",
       "selfHosted": "Self-hosted",
       "selfHostedDesc": "Punta a un endpoint self-hosted compatibile con OpenAI.",
       "enterprise": "Enterprise",
@@ -3433,7 +3438,7 @@
         "local": "Locale",
         "selfHosted": "Self-Hosted",
         "providersDesc": "Porta la tua chiave API.",
-        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
+        "localDesc": "Viene eseguito su questo dispositivo. Loqui non invia i tuoi contenuti a nessun fornitore.",
         "selfHostedDesc": "Il tuo server sulla tua rete.",
         "enterprise": "Enterprise",
         "enterpriseDesc": "Usa l'account cloud della tua organizzazione (AWS, Azure, GCP)."
@@ -4222,7 +4227,7 @@
     "tasks": "Compiti",
     "destinations": "Destinazioni",
     "openSettings": "Apri le impostazioni {{task}}",
-    "sealed": "La modalità sigillata è attiva. Le attività possono essere eseguite solo su questo dispositivo.",
+    "sealed": "La modalità sigillata è attiva: Loqui blocca le attività che invierebbero contenuti fuori da questo computer. In questa versione, nemmeno i suoi motori locali vengono eseguiti mentre la modalità sigillata è attiva.",
     "undo": "Annulla",
     "kind": {
       "speech": "discorso",
@@ -4245,13 +4250,13 @@
     },
     "locked": {
       "speakerId": "Bloccato su questo dispositivo: l'identificazione del relatore richiede le tue registrazioni sul dispositivo.",
-      "semanticSearch": "Bloccato su questo dispositivo: gli incorporamenti rimangono locali, quindi la ricerca non invia mai le tue note da nessuna parte."
+      "semanticSearch": "Bloccato su questo dispositivo: gli incorporamenti rimangono locali e la ricerca non invia le tue note a nessun fornitore."
     },
     "no": {
       "capability": "{{provider}} non può eseguire questa attività in Loqui.",
       "visionCloudOnly": "Oggi gli screenshot possono essere inviati solo a un modello di visione cloud.",
       "meetingServer": "La registrazione delle note non può ancora utilizzare il tuo server.",
-      "sealed": "La modalità sigillata mantiene questa attività su questo dispositivo.",
+      "sealed": "La modalità sigillata è attiva, quindi questa attività non può essere inviata qui.",
       "uploadServer": "Il caricamento dei file utilizza il server impostato per Dettatura. Cambialo lì.",
       "serverKind": "{{server}} non è stato configurato per le attività {{kind}}. Utilizza \"Aggiungi un server\" per inserire il suo indirizzo."
     },
@@ -4267,7 +4272,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Aggiungi un server",
       "addServerHint": "Successivamente inserisci il suo indirizzo",
-      "nothingLeaves": "Nessun invio all’esterno",
+      "nothingLeaves": "Nessun invio a un fornitore",
       "yourServer": "Il tuo server",
       "unencrypted": "http, non crittografato",
       "hosted": "Fornitore ospitato",
@@ -4277,7 +4282,7 @@
       "keyUnknown": "Controllo delle chiavi salvate…"
     },
     "leaves": {
-      "none": "Niente lascia questo dispositivo.",
+      "none": "Nessuna attività invia nulla a un fornitore o a un server.",
       "prefix": "Dati inviati fuori da questo dispositivo:",
       "item": "{{task}} → {{destination}}"
     },
@@ -4883,8 +4888,8 @@
       },
       "privacy": {
         "title": "Dove vanno le tue parole",
-        "bodyMac": "Nulla lascia questo Mac a meno che tu non scelga un fornitore.",
-        "bodyOther": "Nulla lascia questo computer a meno che tu non scelga un fornitore.",
+        "bodyMac": "Loqui non invia la tua voce o il tuo testo da questo Mac a un fornitore, a meno che tu non ne scelga uno.",
+        "bodyOther": "Loqui non invia la tua voce o il tuo testo da questo computer a un fornitore, a meno che tu non ne scelga uno.",
         "nodes": {
           "mic": "Microfono",
           "loqui": "Loqui",

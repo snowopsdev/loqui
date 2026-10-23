@@ -728,7 +728,7 @@
       "cloud": "Cloud",
       "local": "Lokal",
       "enterprise": "Enterprise",
-      "localDescription": "Läuft auf Ihrem Gerät. Volle Privatsphäre, funktioniert offline.",
+      "localDescription": "Läuft auf Ihrem Gerät und funktioniert offline.",
       "cloudDescription": "Leistungsstarke Modelle über API. Schnell und leistungsfähig, erfordert Internet.",
       "enterpriseDescription": "Nutzen Sie die Cloud-Anbieter-Zugangsdaten Ihrer Organisation."
     },
@@ -1628,7 +1628,7 @@
         "selfHosted": "Selbst gehostet",
         "enterprise": "Enterprise",
         "providersDesc": "Eigenen API-Schlüssel nutzen.",
-        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
+        "localDesc": "Läuft auf diesem Gerät. Loqui sendet die Inhalte an keinen Anbieter.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterpriseDesc": "Nutzen Sie das Cloud-Konto Ihrer Organisation (AWS, Azure, GCP)."
       },
@@ -2034,10 +2034,11 @@
           "childUnknown": "Loqui kann den Status der Programme, die es gestartet hat, nicht lesen. Es prüft weiter.",
           "chromium": "Eine Seitenanfrage, die vor dem Einschalten des abgeschotteten Modus begonnen hat, ist noch offen. Loqui prüft weiter.",
           "dns": "Eine Namensauflösung, die vor dem Einschalten des abgeschotteten Modus begonnen hat, steht noch aus. Loqui prüft weiter.",
-          "active": "Anfragen, die vor dem Einschalten des abgeschotteten Modus begonnen haben, werden gestoppt …"
+          "active": "Anfragen, die vor dem Einschalten des abgeschotteten Modus begonnen haben, werden gestoppt …",
+          "other": "Loqui konnte nicht jeden Schritt beim Einschalten des abgeschotteten Modus bestätigen und kann daher nicht bestätigen, dass alle eigenen Anfragen blockiert werden."
         },
-        "blocked_one": "{{count}} Anfrage seit dem Einschalten des abgeschotteten Modus blockiert.",
-        "blocked_other": "{{count}} Anfragen seit dem Einschalten des abgeschotteten Modus blockiert.",
+        "blocked_one": "{{count}} Anfrage seit dem Einschalten des abgeschotteten Modus oder dem Start von Loqui blockiert.",
+        "blocked_other": "{{count}} Anfragen seit dem Einschalten des abgeschotteten Modus oder dem Start von Loqui blockiert.",
         "loadError": "Loqui konnte deine gespeicherte Einstellung für den abgeschotteten Modus nicht lesen und hat ihn sicherheitshalber eingeschaltet. Schalte ihn hier aus, wenn du das möchtest.",
         "saveError": "Loqui konnte diese Einstellung für den abgeschotteten Modus nicht speichern. Beim nächsten Start verwendet Loqui möglicherweise die vorherige Einstellung.",
         "toggleError": "Der abgeschottete Modus konnte nicht geändert werden. Der Schalter zeigt die Einstellung, die Loqui gerade verwendet."
@@ -2047,7 +2048,7 @@
         "subtitle": "Was Loquis eigene Netzwerkschutzmechanismen heute seit Mitternacht aufgezeichnet haben. Nur Metadaten: Audio, Text, Prompts, Schlüssel und vollständige Webadressen werden hier nicht gespeichert.",
         "loading": "Wird geladen …",
         "loadError": "Der Flugschreiber konnte nicht geladen werden.",
-        "unavailable": "Der Flugschreiber kann seine Einträge gerade nicht lesen oder speichern, daher ist diese Liste möglicherweise unvollständig.",
+        "unavailable": "Der Flugschreiber konnte einige Einträge nicht speichern, daher ist diese Liste möglicherweise unvollständig.",
         "unavailableRead": "Der Flugschreiber kann seine Einträge gerade nicht lesen oder speichern.",
         "retry": "Erneut versuchen",
         "observedToday_one": "{{count}} ausgehende Anfrage heute aufgezeichnet",
@@ -2136,8 +2137,12 @@
           "appUpdate": "Updates",
           "codex": "ChatGPT (Codex)",
           "calendar": "Kalender",
-          "unattributed": "Ungeklärt"
-        }
+          "unattributed": "Ungeklärt",
+          "nativeLaunch": "Lokales Programm (nicht gestartet)"
+        },
+        "nativeRefusedToday_one": "{{count}} Start eines lokalen Programms vom abgeschotteten Modus abgelehnt. Ein Programmstart ist keine Anfrage und wird oben nicht mitgezählt.",
+        "nativeRefusedToday_other": "{{count}} Starts lokaler Programme vom abgeschotteten Modus abgelehnt. Programmstarts sind keine Anfragen und werden oben nicht mitgezählt.",
+        "nativeRefusedPrograms": "Nicht gestartete Programme: {{names}}"
       }
     },
     "prompts": {
@@ -2187,7 +2192,7 @@
         "local": "Lokal",
         "selfHosted": "Selbst gehostet",
         "providersDesc": "Eigenen API-Schlüssel nutzen.",
-        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
+        "localDesc": "Läuft auf diesem Gerät. Loqui sendet die Inhalte an keinen Anbieter.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterprise": "Unternehmens-Cloud",
         "enterpriseDesc": "Audio wird an die eigene Cloud Ihrer Organisation gesendet."
@@ -3581,7 +3586,7 @@
       "providers": "Eigenen Schlüssel nutzen",
       "providersDesc": "Mit Ihrem eigenen API-Schlüssel an OpenAI, Anthropic, Gemini oder Groq anbinden.",
       "local": "Lokal",
-      "localDesc": "Führt ein lokales Modell auf diesem Gerät aus. Nichts verlässt es.",
+      "localDesc": "Führt ein lokales Modell auf diesem Gerät aus. Loqui sendet die Inhalte an keinen Anbieter.",
       "selfHosted": "Selbst gehostet",
       "selfHostedDesc": "Auf einen selbst gehosteten, OpenAI-kompatiblen Endpunkt verweisen.",
       "enterprise": "Enterprise",
@@ -3603,7 +3608,7 @@
         "selfHosted": "Selbst gehostet",
         "enterprise": "Enterprise",
         "providersDesc": "Eigenen API-Schlüssel verwenden.",
-        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
+        "localDesc": "Läuft auf diesem Gerät. Loqui sendet die Inhalte an keinen Anbieter.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterpriseDesc": "Nutzen Sie das Cloud-Konto Ihrer Organisation (AWS, Azure, GCP)."
       }
@@ -4219,7 +4224,7 @@
     "tasks": "Aufgaben",
     "destinations": "Ziele",
     "openSettings": "Öffnen Sie die {{task}}-Einstellungen",
-    "sealed": "Der abgeschottete Modus ist aktiviert. Aufgaben können nur auf diesem Gerät ausgeführt werden.",
+    "sealed": "Der abgeschottete Modus ist aktiviert: Loqui blockiert Aufgaben, die Inhalte von diesem Computer senden würden. In dieser Version laufen auch seine lokalen Engines nicht, solange der abgeschottete Modus aktiviert ist.",
     "undo": "Rückgängig machen",
     "kind": {
       "speech": "Sprache",
@@ -4242,13 +4247,13 @@
     },
     "locked": {
       "speakerId": "An dieses Gerät gebunden: Für die Sprechererkennung sind Ihre Aufnahmen auf dem Gerät erforderlich.",
-      "semanticSearch": "An dieses Gerät gebunden: Einbettungen bleiben lokal, sodass die Suche Ihre Notizen niemals irgendwohin sendet."
+      "semanticSearch": "An dieses Gerät gebunden: Einbettungen bleiben lokal, und die Suche sendet Ihre Notizen an keinen Anbieter."
     },
     "no": {
       "capability": "{{provider}} kann diese Aufgabe in Loqui nicht ausführen.",
       "visionCloudOnly": "Screenshots können heute nur auf ein Cloud-Vision-Modell übertragen werden.",
       "meetingServer": "Für die Aufnahme von Notizen kann noch kein eigener Server verwendet werden.",
-      "sealed": "Der abgeschottete Modus behält diese Aufgabe auf diesem Gerät.",
+      "sealed": "Der abgeschottete Modus ist aktiviert, daher kann diese Aufgabe nicht hierhin gesendet werden.",
       "uploadServer": "Beim Datei-Upload wird der für das Diktat festgelegte Server verwendet. Ändern Sie es dort.",
       "serverKind": "{{server}} wurde nicht für {{kind}}-Aufgaben eingerichtet. Über „Server hinzufügen“ geben Sie dessen Adresse ein."
     },
@@ -4264,7 +4269,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Fügen Sie einen Server hinzu",
       "addServerHint": "Als nächstes geben Sie die Adresse ein",
-      "nothingLeaves": "Keine Übertragung nach außen",
+      "nothingLeaves": "Keine Übertragung an einen Anbieter",
       "yourServer": "Ihr eigener Server",
       "unencrypted": "http, nicht verschlüsselt",
       "hosted": "Gehosteter Anbieter",
@@ -4274,7 +4279,7 @@
       "keyUnknown": "Gespeicherte Schlüssel werden überprüft…"
     },
     "leaves": {
-      "none": "Nichts verlässt dieses Gerät.",
+      "none": "Keine Aufgabe sendet etwas an einen Anbieter oder Server.",
       "prefix": "Verlässt dieses Gerät:",
       "item": "{{task}} → {{destination}}"
     },
@@ -4872,8 +4877,8 @@
       },
       "privacy": {
         "title": "Wohin deine Worte gehen",
-        "bodyMac": "Nichts verlässt diesen Mac, solange du keinen Anbieter auswählst.",
-        "bodyOther": "Nichts verlässt diesen Computer, solange du keinen Anbieter auswählst.",
+        "bodyMac": "Loqui sendet deine Stimme oder deinen Text von diesem Mac nur dann an einen Anbieter, wenn du einen auswählst.",
+        "bodyOther": "Loqui sendet deine Stimme oder deinen Text von diesem Computer nur dann an einen Anbieter, wenn du einen auswählst.",
         "nodes": {
           "mic": "Mikro",
           "loqui": "Loqui",

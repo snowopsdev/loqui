@@ -728,7 +728,7 @@
       "cloud": "Nube",
       "local": "Local",
       "enterprise": "Empresarial",
-      "localDescription": "Se ejecuta en tu dispositivo. Privacidad total y funciona sin internet.",
+      "localDescription": "Se ejecuta en tu dispositivo y funciona sin internet.",
       "cloudDescription": "Modelos avanzados por API. Rápido y potente, requiere internet.",
       "enterpriseDescription": "Usa las credenciales de tu organización en proveedores de nube."
     },
@@ -1586,7 +1586,7 @@
         "local": "Local",
         "selfHosted": "Autoalojado",
         "providersDesc": "Usa tu propia clave API.",
-        "localDesc": "Se ejecuta en este dispositivo. Nada sale de él.",
+        "localDesc": "Se ejecuta en este dispositivo. Loqui no envía tu contenido a ningún proveedor.",
         "selfHostedDesc": "Tu servidor en tu red.",
         "enterprise": "Empresarial",
         "enterpriseDesc": "Usa la cuenta en la nube de tu organización (AWS, Azure, GCP)."
@@ -1993,10 +1993,11 @@
           "childUnknown": "Loqui no puede leer el estado de los programas que inició. Sigue comprobándolo.",
           "chromium": "Una solicitud de página que empezó antes de activar el modo sellado sigue abierta. Loqui sigue comprobándolo.",
           "dns": "Una búsqueda de nombre que empezó antes de activar el modo sellado sigue pendiente. Loqui sigue comprobándolo.",
-          "active": "Deteniendo las solicitudes que empezaron antes de activar el modo sellado…"
+          "active": "Deteniendo las solicitudes que empezaron antes de activar el modo sellado…",
+          "other": "Loqui no pudo confirmar todos los pasos para activar el modo sellado, así que no puede confirmar que se bloqueen todas sus solicitudes."
         },
-        "blocked_one": "{{count}} solicitud bloqueada desde que se activó el modo sellado.",
-        "blocked_other": "{{count}} solicitudes bloqueadas desde que se activó el modo sellado.",
+        "blocked_one": "{{count}} solicitud bloqueada desde que se activó el modo sellado o se inició Loqui.",
+        "blocked_other": "{{count}} solicitudes bloqueadas desde que se activó el modo sellado o se inició Loqui.",
         "loadError": "Loqui no pudo leer tu ajuste guardado del modo sellado, así que activó el modo sellado por seguridad. Desactívalo aquí si era lo que querías.",
         "saveError": "Loqui no pudo guardar este ajuste del modo sellado. La próxima vez que Loqui se inicie, puede usar el ajuste anterior.",
         "toggleError": "No se pudo cambiar el modo sellado. El interruptor muestra el ajuste que Loqui usa ahora."
@@ -2006,7 +2007,7 @@
         "subtitle": "Lo que las propias protecciones de red de Loqui registraron hoy, desde la medianoche. Solo metadatos: aquí no se guardan audio, texto, prompts, claves ni direcciones web completas.",
         "loading": "Cargando…",
         "loadError": "No se pudo cargar el registro de vuelo.",
-        "unavailable": "El registro de vuelo no puede leer ni guardar sus registros en este momento, así que esta lista puede estar incompleta.",
+        "unavailable": "El registro de vuelo no pudo guardar algunos registros, así que esta lista puede estar incompleta.",
         "unavailableRead": "El registro de vuelo no puede leer ni guardar sus registros en este momento.",
         "retry": "Reintentar",
         "observedToday_one": "{{count}} solicitud saliente registrada hoy",
@@ -2095,8 +2096,12 @@
           "appUpdate": "Actualizaciones",
           "codex": "ChatGPT (Codex)",
           "calendar": "Calendarios",
-          "unattributed": "Sin explicar"
-        }
+          "unattributed": "Sin explicar",
+          "nativeLaunch": "Programa local (no iniciado)"
+        },
+        "nativeRefusedToday_one": "{{count}} inicio de programa local rechazado por el modo sellado. Iniciar un programa no es una solicitud, así que no se cuenta arriba.",
+        "nativeRefusedToday_other": "{{count}} inicios de programas locales rechazados por el modo sellado. Iniciar un programa no es una solicitud, así que no se cuentan arriba.",
+        "nativeRefusedPrograms": "Programas no iniciados: {{names}}"
       }
     },
     "prompts": {
@@ -2146,7 +2151,7 @@
         "local": "Local",
         "selfHosted": "Autoalojado",
         "providersDesc": "Usa tu propia clave API.",
-        "localDesc": "Se ejecuta en este dispositivo. Nada sale de él.",
+        "localDesc": "Se ejecuta en este dispositivo. Loqui no envía tu contenido a ningún proveedor.",
         "selfHostedDesc": "Tu servidor en tu red.",
         "enterprise": "Nube empresarial",
         "enterpriseDesc": "El audio se envía a la nube propia de tu organización."
@@ -3465,7 +3470,7 @@
       "providers": "Usa tu propia clave API",
       "providersDesc": "Conéctate a OpenAI, Anthropic, Gemini o Groq con tu propia clave API.",
       "local": "Local",
-      "localDesc": "Ejecuta un modelo local en este dispositivo. Nada sale de él.",
+      "localDesc": "Ejecuta un modelo local en este dispositivo. Loqui no envía tu contenido a ningún proveedor.",
       "selfHosted": "Autoalojado",
       "selfHostedDesc": "Apunta a un endpoint autoalojado compatible con OpenAI.",
       "enterprise": "Empresarial",
@@ -3486,7 +3491,7 @@
         "local": "Local",
         "selfHosted": "Autoalojado",
         "providersDesc": "Trae tu propia clave API.",
-        "localDesc": "Se ejecuta en este dispositivo. Nada sale de él.",
+        "localDesc": "Se ejecuta en este dispositivo. Loqui no envía tu contenido a ningún proveedor.",
         "selfHostedDesc": "Tu propio servidor en tu red.",
         "enterprise": "Empresarial",
         "enterpriseDesc": "Usa la cuenta en la nube de tu organización (AWS, Azure, GCP)."
@@ -4222,7 +4227,7 @@
     "tasks": "Tareas",
     "destinations": "Destinos",
     "openSettings": "Abra la configuración de {{task}}",
-    "sealed": "El modo sellado está activado. Las tareas solo se pueden ejecutar en este dispositivo.",
+    "sealed": "El modo sellado está activado: Loqui bloquea las tareas que enviarían contenido fuera de este ordenador. En esta versión, sus motores locales tampoco se ejecutan mientras el modo sellado está activado.",
     "undo": "Deshacer",
     "kind": {
       "speech": "voz",
@@ -4245,13 +4250,13 @@
     },
     "locked": {
       "speakerId": "Bloqueado en este dispositivo: la identificación del hablante necesita sus grabaciones en el dispositivo.",
-      "semanticSearch": "Bloqueado en este dispositivo: las incrustaciones permanecen locales, por lo que la búsqueda nunca envía sus notas a ninguna parte."
+      "semanticSearch": "Bloqueado en este dispositivo: las incrustaciones permanecen locales y la búsqueda no envía sus notas a ningún proveedor."
     },
     "no": {
       "capability": "{{provider}} no puede ejecutar esta tarea en Loqui.",
       "visionCloudOnly": "Actualmente, las capturas de pantalla solo pueden ir a un modelo de visión en la nube.",
       "meetingServer": "La grabación de notas aún no puede utilizar su propio servidor.",
-      "sealed": "El modo sellado mantiene esta tarea en este dispositivo.",
+      "sealed": "El modo sellado está activado, así que esta tarea no se puede enviar aquí.",
       "uploadServer": "La carga de archivos utiliza el servidor configurado para Dictado. Cámbialo ahí.",
       "serverKind": "{{server}} no se ha configurado para las tareas {{kind}}. Utilice \"Agregar un servidor\" para ingresar su dirección."
     },
@@ -4267,7 +4272,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Agregar un servidor",
       "addServerHint": "Introduces su dirección a continuación.",
-      "nothingLeaves": "Nada sale",
+      "nothingLeaves": "No se envía a ningún proveedor",
       "yourServer": "Tu propio servidor",
       "unencrypted": "http, no cifrado",
       "hosted": "Proveedor alojado",
@@ -4277,7 +4282,7 @@
       "keyUnknown": "Comprobando claves guardadas..."
     },
     "leaves": {
-      "none": "Nada sale de este dispositivo.",
+      "none": "Ninguna tarea envía nada a un proveedor o servidor.",
       "prefix": "Se envía fuera de este dispositivo:",
       "item": "{{task}} → {{destination}}"
     },
@@ -4883,8 +4888,8 @@
       },
       "privacy": {
         "title": "Adónde van tus palabras",
-        "bodyMac": "Nada sale de este Mac a menos que elijas un proveedor.",
-        "bodyOther": "Nada sale de este ordenador a menos que elijas un proveedor.",
+        "bodyMac": "Loqui no envía tu voz ni tu texto desde este Mac a ningún proveedor, a menos que elijas uno.",
+        "bodyOther": "Loqui no envía tu voz ni tu texto desde este ordenador a ningún proveedor, a menos que elijas uno.",
         "nodes": {
           "mic": "Micro",
           "loqui": "Loqui",

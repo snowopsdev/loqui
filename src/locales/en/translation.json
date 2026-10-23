@@ -728,7 +728,7 @@
       "cloud": "Cloud",
       "local": "Local",
       "enterprise": "Enterprise",
-      "localDescription": "Runs on your device. Complete privacy, works offline.",
+      "localDescription": "Runs on your device and works offline.",
       "cloudDescription": "Advanced models via API. Fast and capable, requires internet.",
       "enterpriseDescription": "Use your organization's own cloud provider credentials."
     },
@@ -1628,7 +1628,7 @@
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "Runs on this device. Nothing leaves it.",
+        "localDesc": "Runs on this device. Loqui doesn't send your content to a provider.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       },
@@ -2034,10 +2034,11 @@
           "childUnknown": "Loqui can't read the status of the programs it started. It keeps checking.",
           "chromium": "A page request that started before Sealed mode was turned on is still open. Loqui keeps checking.",
           "dns": "A name lookup that started before Sealed mode was turned on is still pending. Loqui keeps checking.",
-          "active": "Stopping requests that started before Sealed mode was turned on…"
+          "active": "Stopping requests that started before Sealed mode was turned on…",
+          "other": "Loqui couldn't confirm every step of turning on Sealed mode, so it can't confirm that all of its own requests are blocked."
         },
-        "blocked_one": "{{count}} request blocked since Sealed mode was turned on.",
-        "blocked_other": "{{count}} requests blocked since Sealed mode was turned on.",
+        "blocked_one": "{{count}} request blocked since Sealed mode was turned on or Loqui started.",
+        "blocked_other": "{{count}} requests blocked since Sealed mode was turned on or Loqui started.",
         "loadError": "Loqui couldn't read your saved Sealed mode setting, so it turned Sealed mode on to be safe. Turn it off here if you meant to.",
         "saveError": "Loqui couldn't save this Sealed mode setting. The next time Loqui starts, it may use the previous setting.",
         "toggleError": "Couldn't change Sealed mode. The switch shows the setting Loqui is using now."
@@ -2047,7 +2048,7 @@
         "subtitle": "What Loqui's own network guards recorded today, since midnight. Metadata only: no audio, text, prompts, keys or full web addresses are stored here.",
         "loading": "Loading…",
         "loadError": "Couldn't load the flight recorder.",
-        "unavailable": "The flight recorder can't read or save its records right now, so this list may be incomplete.",
+        "unavailable": "The flight recorder couldn't save some records, so this list may be incomplete.",
         "unavailableRead": "The flight recorder can't read or save its records right now.",
         "retry": "Try again",
         "observedToday_one": "{{count}} outgoing request recorded today",
@@ -2136,8 +2137,12 @@
           "appUpdate": "Updates",
           "codex": "ChatGPT (Codex)",
           "calendar": "Calendars",
-          "unattributed": "Unexplained"
-        }
+          "unattributed": "Unexplained",
+          "nativeLaunch": "Local program (not started)"
+        },
+        "nativeRefusedToday_one": "{{count}} local program start refused by Sealed mode. A program start isn't a request, so it isn't counted above.",
+        "nativeRefusedToday_other": "{{count}} local program starts refused by Sealed mode. Program starts aren't requests, so they aren't counted above.",
+        "nativeRefusedPrograms": "Programs not started: {{names}}"
       }
     },
     "prompts": {
@@ -2187,7 +2192,7 @@
         "local": "Local",
         "selfHosted": "Self-Hosted",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "Runs on this device. Nothing leaves it.",
+        "localDesc": "Runs on this device. Loqui doesn't send your content to a provider.",
         "selfHostedDesc": "Your own server on your network.",
         "enterprise": "Enterprise cloud",
         "enterpriseDesc": "Audio goes to your organization's own cloud."
@@ -3581,7 +3586,7 @@
       "providers": "Bring your own key",
       "providersDesc": "Connect to OpenAI, Anthropic, Gemini, or Groq with your own API key.",
       "local": "Local",
-      "localDesc": "Runs a local model on this device. Nothing leaves it.",
+      "localDesc": "Runs a local model on this device. Loqui doesn't send your content to a provider.",
       "selfHosted": "Self-hosted",
       "selfHostedDesc": "Point at a self-hosted OpenAI-compatible endpoint.",
       "enterprise": "Enterprise",
@@ -3603,7 +3608,7 @@
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "Runs on this device. Nothing leaves it.",
+        "localDesc": "Runs on this device. Loqui doesn't send your content to a provider.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       }
@@ -4219,7 +4224,7 @@
     "tasks": "Tasks",
     "destinations": "Destinations",
     "openSettings": "Open {{task}} settings",
-    "sealed": "Sealed mode is on. Tasks can only run on this device.",
+    "sealed": "Sealed mode is on: Loqui blocks tasks that would send content off this computer. On this build, its local engines don't run while Sealed mode is on either.",
     "undo": "Undo",
     "kind": {
       "speech": "speech",
@@ -4242,13 +4247,13 @@
     },
     "locked": {
       "speakerId": "Locked to this device: speaker identification needs your recordings on-device.",
-      "semanticSearch": "Locked to this device: embeddings stay local, so search never sends your notes anywhere."
+      "semanticSearch": "Locked to this device: embeddings stay local, and search doesn't send your notes to a provider."
     },
     "no": {
       "capability": "{{provider}} can't run this task in Loqui.",
       "visionCloudOnly": "Screenshots can only go to a cloud vision model today.",
       "meetingServer": "Note recording can't use your own server yet.",
-      "sealed": "Sealed mode keeps this task on this device.",
+      "sealed": "Sealed mode is on, so this task can't be sent here.",
       "uploadServer": "File upload uses the server set for Dictation. Change it there.",
       "serverKind": "{{server}} hasn't been set up for {{kind}} tasks. Use “Add a server” to enter its address."
     },
@@ -4264,7 +4269,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Add a server",
       "addServerHint": "You enter its address next",
-      "nothingLeaves": "Nothing leaves",
+      "nothingLeaves": "Not sent to a provider",
       "yourServer": "Your own server",
       "unencrypted": "http, not encrypted",
       "hosted": "Hosted provider",
@@ -4284,7 +4289,7 @@
       "network_other": "{{count}} on your server"
     },
     "leaves": {
-      "none": "Nothing leaves this device.",
+      "none": "No task sends anything to a provider or server.",
       "prefix": "Leaves this device:",
       "item": "{{task}} → {{destination}}"
     }
@@ -4872,8 +4877,8 @@
       },
       "privacy": {
         "title": "Where your words go",
-        "bodyMac": "Nothing leaves this Mac unless you choose a provider.",
-        "bodyOther": "Nothing leaves this computer unless you choose a provider.",
+        "bodyMac": "Loqui doesn't send your voice or text from this Mac to a provider unless you choose one.",
+        "bodyOther": "Loqui doesn't send your voice or text from this computer to a provider unless you choose one.",
         "nodes": {
           "mic": "Mic",
           "loqui": "Loqui",

@@ -728,7 +728,7 @@
       "cloud": "Cloud",
       "local": "Local",
       "enterprise": "Entreprise",
-      "localDescription": "S'exécute sur votre appareil. Confidentialité totale et fonctionnement hors ligne.",
+      "localDescription": "S'exécute sur votre appareil et fonctionne hors ligne.",
       "cloudDescription": "Modèles avancés via API. Rapides et puissants, nécessitent internet.",
       "enterpriseDescription": "Utilisez les identifiants cloud de votre organisation."
     },
@@ -1628,7 +1628,7 @@
         "selfHosted": "Auto-hébergé",
         "enterprise": "Enterprise",
         "providersDesc": "Utilisez votre propre clé API.",
-        "localDesc": "S’exécute sur cet appareil. Rien n’en sort.",
+        "localDesc": "S’exécute sur cet appareil. Loqui n’envoie votre contenu à aucun fournisseur.",
         "selfHostedDesc": "Votre serveur sur votre réseau.",
         "enterpriseDesc": "Utilisez le compte cloud de votre organisation (AWS, Azure, GCP)."
       },
@@ -2034,10 +2034,11 @@
           "childUnknown": "Loqui ne peut pas lire l’état des programmes qu’il a lancés. Il continue de vérifier.",
           "chromium": "Une requête de page commencée avant l’activation du mode scellé est toujours ouverte. Loqui continue de vérifier.",
           "dns": "Une résolution de nom commencée avant l’activation du mode scellé est toujours en attente. Loqui continue de vérifier.",
-          "active": "Arrêt des requêtes commencées avant l’activation du mode scellé…"
+          "active": "Arrêt des requêtes commencées avant l’activation du mode scellé…",
+          "other": "Loqui n’a pas pu confirmer chaque étape de l’activation du mode scellé : il ne peut donc pas confirmer que toutes ses requêtes sont bloquées."
         },
-        "blocked_one": "{{count}} requête bloquée depuis l’activation du mode scellé.",
-        "blocked_other": "{{count}} requêtes bloquées depuis l’activation du mode scellé.",
+        "blocked_one": "{{count}} requête bloquée depuis l’activation du mode scellé ou le démarrage de Loqui.",
+        "blocked_other": "{{count}} requêtes bloquées depuis l’activation du mode scellé ou le démarrage de Loqui.",
         "loadError": "Loqui n’a pas pu lire votre réglage enregistré du mode scellé : il a donc activé le mode scellé par précaution. Désactivez-le ici si c’était votre intention.",
         "saveError": "Loqui n’a pas pu enregistrer ce réglage du mode scellé. Au prochain démarrage, Loqui pourrait utiliser le réglage précédent.",
         "toggleError": "Impossible de modifier le mode scellé. L’interrupteur indique le réglage que Loqui utilise actuellement."
@@ -2047,7 +2048,7 @@
         "subtitle": "Ce que les protections réseau de Loqui ont enregistré aujourd’hui, depuis minuit. Métadonnées uniquement : aucun audio, texte, prompt, clé ni adresse web complète n’est stocké ici.",
         "loading": "Chargement…",
         "loadError": "Impossible de charger l’enregistreur de vol.",
-        "unavailable": "L’enregistreur de vol ne peut pas lire ni enregistrer ses entrées pour le moment ; cette liste est peut-être incomplète.",
+        "unavailable": "L’enregistreur de vol n’a pas pu enregistrer certaines entrées ; cette liste est peut-être incomplète.",
         "unavailableRead": "L’enregistreur de vol ne peut pas lire ni enregistrer ses entrées pour le moment.",
         "retry": "Réessayer",
         "observedToday_one": "Requêtes sortantes enregistrées aujourd’hui : {{count}}",
@@ -2136,8 +2137,12 @@
           "appUpdate": "Mises à jour",
           "codex": "ChatGPT (Codex)",
           "calendar": "Calendriers",
-          "unattributed": "Inexpliquée"
-        }
+          "unattributed": "Inexpliquée",
+          "nativeLaunch": "Programme local (non démarré)"
+        },
+        "nativeRefusedToday_one": "Démarrages de programmes locaux refusés par le mode scellé : {{count}}. Un démarrage de programme n’est pas une requête : il n’est pas compté plus haut.",
+        "nativeRefusedToday_other": "Démarrages de programmes locaux refusés par le mode scellé : {{count}}. Un démarrage de programme n’est pas une requête : il n’est pas compté plus haut.",
+        "nativeRefusedPrograms": "Programmes non démarrés : {{names}}"
       }
     },
     "prompts": {
@@ -2187,7 +2192,7 @@
         "local": "Local",
         "selfHosted": "Auto-hébergé",
         "providersDesc": "Utilisez votre propre clé API.",
-        "localDesc": "S’exécute sur cet appareil. Rien n’en sort.",
+        "localDesc": "S’exécute sur cet appareil. Loqui n’envoie votre contenu à aucun fournisseur.",
         "selfHostedDesc": "Votre serveur sur votre réseau.",
         "enterprise": "Cloud d'entreprise",
         "enterpriseDesc": "L'audio est envoyé vers le cloud de votre organisation."
@@ -3582,7 +3587,7 @@
       "providers": "Utilisez votre propre clé API",
       "providersDesc": "Connectez-vous à OpenAI, Anthropic, Gemini ou Groq avec votre propre clé API.",
       "local": "Local",
-      "localDesc": "Exécute un modèle local sur cet appareil. Rien n’en sort.",
+      "localDesc": "Exécute un modèle local sur cet appareil. Loqui n’envoie votre contenu à aucun fournisseur.",
       "selfHosted": "Auto-hébergé",
       "selfHostedDesc": "Pointez vers un point de terminaison auto-hébergé compatible OpenAI.",
       "enterprise": "Enterprise",
@@ -3604,7 +3609,7 @@
         "selfHosted": "Auto-hébergé",
         "enterprise": "Enterprise",
         "providersDesc": "Apportez votre propre clé API.",
-        "localDesc": "S’exécute sur cet appareil. Rien n’en sort.",
+        "localDesc": "S’exécute sur cet appareil. Loqui n’envoie votre contenu à aucun fournisseur.",
         "selfHostedDesc": "Votre propre serveur sur votre réseau.",
         "enterpriseDesc": "Utilisez le compte cloud de votre organisation (AWS, Azure, GCP)."
       }
@@ -4222,7 +4227,7 @@
     "tasks": "Tâches",
     "destinations": "Destinations",
     "openSettings": "Ouvrir les paramètres {{task}}",
-    "sealed": "Le mode scellé est activé. Les tâches ne peuvent s'exécuter que sur cet appareil.",
+    "sealed": "Le mode scellé est activé : Loqui bloque les tâches qui enverraient du contenu hors de cet ordinateur. Dans cette version, ses moteurs locaux ne s’exécutent pas non plus tant que le mode scellé est activé.",
     "undo": "Annuler",
     "kind": {
       "speech": "discours",
@@ -4245,13 +4250,13 @@
     },
     "locked": {
       "speakerId": "Verrouillé sur cet appareil : l'identification du locuteur nécessite vos enregistrements sur l'appareil.",
-      "semanticSearch": "Verrouillé sur cet appareil : les intégrations restent locales, donc la recherche n'envoie jamais vos notes nulle part."
+      "semanticSearch": "Verrouillé sur cet appareil : les intégrations restent locales et la recherche n'envoie pas vos notes à un fournisseur."
     },
     "no": {
       "capability": "{{provider}} ne peut pas exécuter cette tâche dans Loqui.",
       "visionCloudOnly": "Les captures d'écran ne peuvent aujourd'hui être transmises qu'à un modèle de vision cloud.",
       "meetingServer": "L'enregistrement des notes ne peut pas encore utiliser votre propre serveur.",
-      "sealed": "Le mode scellé conserve cette tâche sur cet appareil.",
+      "sealed": "Le mode scellé est activé : cette tâche ne peut donc pas être envoyée ici.",
       "uploadServer": "Le téléchargement de fichiers utilise le serveur défini pour la dictée. Changez-le là.",
       "serverKind": "{{server}} n'a pas été configuré pour les tâches {{kind}}. Utilisez « Ajouter un serveur » pour saisir son adresse."
     },
@@ -4267,7 +4272,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Ajouter un serveur",
       "addServerHint": "Vous entrez ensuite son adresse",
-      "nothingLeaves": "Rien ne part",
+      "nothingLeaves": "Aucun envoi à un fournisseur",
       "yourServer": "Votre propre serveur",
       "unencrypted": "http, non crypté",
       "hosted": "Fournisseur hébergé",
@@ -4277,7 +4282,7 @@
       "keyUnknown": "Vérification des clés enregistrées…"
     },
     "leaves": {
-      "none": "Rien ne sort de cet appareil.",
+      "none": "Aucune tâche n’envoie quoi que ce soit à un fournisseur ou à un serveur.",
       "prefix": "Données envoyées hors de cet appareil :",
       "item": "{{task}} → {{destination}}"
     },
@@ -4883,8 +4888,8 @@
       },
       "privacy": {
         "title": "Où vont vos mots",
-        "bodyMac": "Rien ne quitte ce Mac sauf si vous choisissez un fournisseur.",
-        "bodyOther": "Rien ne quitte cet ordinateur sauf si vous choisissez un fournisseur.",
+        "bodyMac": "Loqui n’envoie votre voix ou votre texte depuis ce Mac à un fournisseur que si vous en choisissez un.",
+        "bodyOther": "Loqui n’envoie votre voix ou votre texte depuis cet ordinateur à un fournisseur que si vous en choisissez un.",
         "nodes": {
           "mic": "Micro",
           "loqui": "Loqui",

@@ -23,6 +23,7 @@ import {
   type KeyState,
   type RouteDestination,
 } from "./destinations.ts";
+import { sealedFailureMessage } from "../../../utils/sealedModeError.ts";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -172,7 +173,10 @@ export function usePatchbayBoard(deps: PatchbayBoardDeps): PatchbayBoard {
           announce(selected, dest, outcome);
         }
       } catch (error) {
-        setMessage(t("patchbay.hint.failed", { error: (error as Error).message }));
+        setMessage(
+          sealedFailureMessage(error, t) ??
+            t("patchbay.hint.failed", { error: (error as Error).message })
+        );
       } finally {
         busy.current = false;
       }

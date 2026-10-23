@@ -612,7 +612,8 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
             ? t(`notes.upload.${errorKey}`)
             : res.messageKey
               ? t(res.messageKey)
-              : res.error || t("notes.upload.transcriptionFailed")
+              : (sealedFailureMessage(res, t) ??
+                (res.error || t("notes.upload.transcriptionFailed")))
         );
         setState("error");
       }
@@ -626,7 +627,10 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
       if (errorKey) {
         setError(t(`notes.upload.${errorKey}`));
       } else {
-        setError(err instanceof Error ? err.message : t("notes.upload.errorOccurred"));
+        setError(
+          sealedFailureMessage(err, t) ??
+            (err instanceof Error ? err.message : t("notes.upload.errorOccurred"))
+        );
       }
       setState("error");
     }

@@ -11,6 +11,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useAgentName } from "../../utils/agentName";
 import { getLanguageLabel } from "../../utils/languageSupport";
 import logger from "../../utils/logger";
+import { sealedFailureMessage } from "../../utils/sealedModeError";
 import { getDictionaryHintWords } from "../../utils/snippets";
 import { AlertTriangle, Check, Copy, Edit3, Eye, Play, RotateCcw, Save, TestTube } from "../icons";
 import { Button } from "./button";
@@ -265,7 +266,8 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
       setTestResult(
         typed?.code === "API_KEY_MISSING"
           ? t("promptStudio.test.apiKeyMissing", { provider: typed.provider })
-          : t("promptStudio.test.failed", { error: errorMessage })
+          : (sealedFailureMessage(error, t) ??
+              t("promptStudio.test.failed", { error: errorMessage }))
       );
     } finally {
       setIsLoading(false);

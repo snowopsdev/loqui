@@ -220,6 +220,9 @@ export function processBatchQueue(
               : transcriptionResult.messageKey
                 ? i18n.t(transcriptionResult.messageKey)
                 : undefined) ||
+            (isSealedModeError(transcriptionResult)
+              ? sealedGenericMessageKey(transcriptionResult)
+              : undefined) ||
             transcriptionResult.error ||
             "batchTranscriptionFailed",
         });

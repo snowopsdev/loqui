@@ -101,6 +101,29 @@ test("URL import: a sealed failure is a translated key, in the single view and t
   );
 });
 
+// Fix-wave round 2 (re-review N1 and its sweep): the exact texts main's
+// refusals reach these surfaces with. The Codex model list gets the IPC
+// wrapper's text; a local engine's test-load gets a result envelope; meeting
+// and background-action toasts keep only the string.
+test("sealedFailureMessage: Codex list, engine envelopes and bare strings from main", async () => {
+  const { sealedFailureMessage, sealedGenericMessageKey } =
+    await import("../../src/utils/sealedModeError.ts");
+  const blocked = "t:sealedMode.blocked.generic";
+  const codex =
+    "Error invoking remote method 'personal-inference:codex-models': SealedModeError: [SEALED_MODE] Sealed mode blocked codex to chatgpt.com before any socket opened; nothing was sent.";
+  assert.equal(sealedFailureMessage(new Error(codex), t), blocked);
+  const engine =
+    "[SEALED_MODE] Sealed mode blocked nativeLaunch to native-llama-server before any socket opened; nothing was sent.";
+  assert.equal(sealedFailureMessage({ success: false, error: engine }, t), blocked);
+  // A string a store kept (meeting and action toasts) is wrapped as { error }.
+  assert.equal(sealedFailureMessage({ error: engine }, t), blocked);
+  assert.equal(sealedFailureMessage({ error: INTERRUPTED }, t), "t:sealedMode.interrupted.generic");
+  assert.equal(sealedGenericMessageKey(new Error(codex)), "sealedMode.blocked.generic");
+  // Ordinary failures keep their own text.
+  assert.equal(sealedFailureMessage({ error: "Model file is corrupt" }, t), null);
+  assert.equal(sealedFailureMessage(new Error("socket hang up"), t), null);
+});
+
 // Source ratchet beside the executed tests above: every I6 surface consults
 // the helper (directly or through the two helpers built on it) before it
 // would show main's text.
@@ -117,7 +140,46 @@ test("every I6 surface checks for a sealed failure before showing main's text", 
     "src/components/settings/LocalSupportModels.tsx": /sealedFailureMessage\(/,
     "src/components/TranscriptionModelPicker.tsx": /sealedFailureMessage\(/,
     "src/components/CodexConnection.tsx": /sealedFailureMessage\(/,
+    // Fix-wave round 2: N1 and the raw-message sweep.
+    "src/components/LocalModelPicker.tsx":
+      /sealedFailureMessage\(result, t\)[\s\S]*sealedFailureMessage\(error, t\)[\s\S]*sealedFailureMessage\(result, t\)[\s\S]*sealedFailureMessage\(error, t\)/,
+    "src/hooks/useTinfoilModels.ts": /sealedFailureMessage\(err, translate\)/,
+    "src/components/chat/useVoiceDraft.ts":
+      /sealedFailureMessage\(result, translate\)[\s\S]*sealedFailureMessage\(error, translate\)/,
+    "src/components/ui/PromptStudio.tsx": /sealedFailureMessage\(error, t\)/,
+    "src/components/ControlPanel.tsx":
+      /sealedFailureMessage\(failure, t\)[\s\S]*sealedFailureMessage\(result, t\)/,
+    "src/components/settings/routing/usePatchbayBoard.ts": /sealedFailureMessage\(error, t\)/,
+    "src/components/MeetingRecordingMount.tsx": /sealedFailureMessage\(\{ error \}, t\)/,
+    "src/stores/meetingRecordingStore.ts":
+      /meetingFailure\(startResult[\s\S]*meetingFailure\(result/,
+    "src/stores/actionProcessingStore.ts": /sealedGenericMessageKey\(err\)/,
+    "src/components/notes/BackgroundActionNoticeListener.tsx": /sealedFailureMessage\(/,
   };
+  const reasoning = read("src/components/ReasoningModelSelector.tsx");
+  // N1: the Codex "List models" alert.
+  assert.match(
+    reasoning,
+    /setError\(sealedFailureMessage\(err, t\) \?\? \(err as Error\)\.message\)/
+  );
+  assert.doesNotMatch(reasoning, /setError\(\(err as Error\)\.message\)/);
+  const upload = read("src/components/notes/UploadAudioView.tsx");
+  assert.match(upload, /sealedFailureMessage\(res, t\)/);
+  assert.match(upload, /sealedFailureMessage\(err, t\)/);
+  assert.match(
+    read("src/stores/batchQueueStore.ts"),
+    /isSealedModeError\(transcriptionResult\)[\s\S]*transcriptionResult\.error \|\|/
+  );
+  // No swept surface puts a caught message on screen unchecked any more.
+  for (const [file, raw] of [
+    [
+      "src/components/LocalModelPicker.tsx",
+      /setOperationMessage\(error instanceof Error \? error\.message/,
+    ],
+    ["src/hooks/useTinfoilModels.ts", /setError\(\(err as Error\)\.message/],
+    ["src/components/notes/UploadAudioView.tsx", /setError\(err instanceof Error \? err\.message/],
+  ])
+    assert.doesNotMatch(read(file), raw, file);
   for (const [file, pattern] of Object.entries(sites)) assert.match(read(file), pattern, file);
   // No surface shows a bare caught message any more.
   assert.doesNotMatch(

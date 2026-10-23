@@ -24,6 +24,7 @@ import { useHotkey } from "../hooks/useHotkey";
 
 import { AlertDialog, ConfirmDialog } from "./ui/dialog";
 import { notify } from "./ui/notices";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 
 import { useSettings } from "../hooks/useSettings";
 
@@ -699,7 +700,9 @@ export default function ControlPanel({
                 kind: "notice",
                 id: "cleanup-failed",
                 title: t("notices.cleanupFailed.title"),
-                body: failure.messageKey ? t(failure.messageKey) : failure.message,
+                body: failure.messageKey
+                  ? t(failure.messageKey)
+                  : (sealedFailureMessage(failure, t) ?? failure.message),
               });
             }
           }
@@ -751,7 +754,9 @@ export default function ControlPanel({
           notify({
             kind: "alert",
             title: t("controlPanel.history.retryError"),
-            body: result.messageKey ? t(result.messageKey) : result.error,
+            body: result.messageKey
+              ? t(result.messageKey)
+              : (sealedFailureMessage(result, t) ?? result.error),
           });
         }
       } catch {

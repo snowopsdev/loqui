@@ -772,11 +772,14 @@ function CodexModelPicker({
         }))
       );
     } catch (err) {
-      if (request === requestGeneration.current) setError((err as Error).message);
+      // Re-review N1: a sealed refusal is translated copy, never main's raw
+      // [SEALED_MODE] text.
+      if (request === requestGeneration.current)
+        setError(sealedFailureMessage(err, t) ?? (err as Error).message);
     } finally {
       if (request === requestGeneration.current) setLoading(false);
     }
-  }, []);
+  }, [t]);
   useEffect(() => {
     const unsubscribe = window.electronAPI.personalInference.onTextEvent((event) => {
       if (event.type !== "account") return;

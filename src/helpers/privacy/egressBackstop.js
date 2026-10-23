@@ -109,29 +109,89 @@ const NORMALIZED_ARGS =
       ) ?? null)
     : null;
 
+// Node's own normalizer, captured when the hook is installed (T18R-02): a
+// normalizer replaced later is never consulted.
+let nodeNormalizeArgs = net._normalizeArgs;
+// The connect options Node reads (lookupAndConnect and friends). They are read
+// even when inherited or non-enumerable; any other own or enumerable key is
+// kept as well, so the snapshot carries everything the caller passed.
+const CONNECT_KEYS = [
+  "host",
+  "port",
+  "path",
+  "family",
+  "hints",
+  "lookup",
+  "localAddress",
+  "localPort",
+  "autoSelectFamily",
+  "autoSelectFamilyAttemptTimeout",
+  "timeout",
+  "noDelay",
+  "keepAlive",
+  "keepAliveInitialDelay",
+  "allowHalfOpen",
+  "signal",
+  "onread",
+  "blockList",
+];
+// A plain copy of the options, each key read exactly once (T18R-02): the
+// destination that is judged is the destination Node is handed.
+function snapshotOptions(raw) {
+  const keys = new Set(CONNECT_KEYS);
+  for (const key in raw) keys.add(key);
+  for (const key of Reflect.ownKeys(raw)) keys.add(key);
+  const copy = {};
+  for (const key of keys) {
+    const value = raw[key];
+    if (value !== undefined) copy[key] = value;
+  }
+  return copy;
+}
+
 // Reads Socket#connect arguments exactly as Node does (Task 18 T18-01): a
 // pre-normalized array only when it carries Node's symbol, otherwise Node's
 // own normalizer, so a port string such as "0x50" or " 443" or an array that
 // merely looks normalized is read as the TCP target Node will connect to.
-// A shape that cannot be classified is { unknown: true }: refused sealed.
+// The options are then snapshotted once and that snapshot is what Node gets
+// (T18R-02). A shape that cannot be classified is { unknown: true }: refused
+// sealed.
 function connectTarget(args) {
   let normalized;
   if (NORMALIZED_ARGS && Array.isArray(args[0]) && args[0][NORMALIZED_ARGS] === true)
     normalized = args[0];
   else {
     try {
-      normalized = net._normalizeArgs(args);
+      normalized = nodeNormalizeArgs(args);
     } catch {
       return { unknown: true };
     }
   }
-  const options = normalized?.[0];
-  if (!options || typeof options !== "object") return { unknown: true };
+  const raw = normalized?.[0];
+  if (!raw || typeof raw !== "object") return { unknown: true };
+  let options;
+  try {
+    options = snapshotOptions(raw);
+  } catch {
+    return { unknown: true };
+  }
+  const callback = typeof normalized[1] === "function" ? normalized[1] : null;
   // Node: a truthy path is a pipe; it must then be a string.
-  if (options.path) return typeof options.path === "string" ? { local: true } : { unknown: true };
+  if (options.path)
+    return typeof options.path === "string"
+      ? { local: true, options, callback }
+      : { unknown: true };
   const host = options.host || "localhost";
   if (typeof host !== "string") return { unknown: true };
-  return { host, options, callback: normalized[1] ?? null };
+  return { host, options, callback };
+}
+// Node's arguments for a judged target: the snapshot, as one normalized
+// array carrying Node's symbol, so Node reads nothing else.
+function handOver(options, callback) {
+  if (!NORMALIZED_ARGS) return callback ? [options, callback] : [options];
+  const normalized = [options, callback];
+  normalized[NORMALIZED_ARGS] = true;
+  return [normalized];
 }
 
 function pinOptions(options, host) {
@@ -147,20 +207,22 @@ function pinOptions(options, host) {
 // Hands Node one normalized [options, callback] array carrying its symbol, so
 // Node uses the pinned options instead of re-reading the array as options.
 function pinLocal(target, host) {
-  const normalized = [pinOptions(target.options, host), target.callback];
-  if (NORMALIZED_ARGS) normalized[NORMALIZED_ARGS] = true;
-  return [normalized];
+  return handOver(pinOptions(target.options, host), target.callback);
 }
 
 function installSocketHook() {
   const originalConnect = net.Socket.prototype.connect;
+  if (typeof net._normalizeArgs === "function") nodeNormalizeArgs = net._normalizeArgs;
   net.Socket.prototype.connect = function egressAwareConnect(...args) {
     const target = connectTarget(args);
-    if (target.local) return originalConnect.apply(this, args);
+    // Every allowed connect gets the judged snapshot, never the caller's
+    // arguments. An unclassifiable shape (unsealed only) goes to Node as is.
+    const judged = () => (target.unknown ? args : handOver(target.options, target.callback));
+    if (target.local) return originalConnect.apply(this, judged());
     const host = target.unknown ? "unknown" : (normalizeHost(target.host) ?? "unknown");
     if (isLoopbackHost(host)) {
       notify({ layer: "node", host, allowed: true });
-      return originalConnect.apply(this, isPinnedName(host) ? pinLocal(target, host) : args);
+      return originalConnect.apply(this, isPinnedName(host) ? pinLocal(target, host) : judged());
     }
     const ticket = liveOwner(gate.currentTicket());
     if (gate.isSealed()) {
@@ -197,7 +259,7 @@ function installSocketHook() {
     });
     notify({ layer: "node", host, allowed: true });
     try {
-      return originalConnect.apply(this, args);
+      return originalConnect.apply(this, judged());
     } catch (error) {
       // A throwing connect can still own a socket. Retire it only on close.
       this.destroy(error);

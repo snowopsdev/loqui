@@ -30,9 +30,11 @@ net.Socket.prototype.connect = function (...args) {
   ) {
     const physical = { ...options, host: "127.0.0.1", lookup: undefined };
     leaves.push({ kind: "physical", options: physical });
-    const forwarded = Array.isArray(args[0])
-      ? [[physical, ...args[0].slice(1)]]
-      : [physical, ...args.slice(1)];
+    // Re-target a normalized array as a normalized array: keep Node's symbol.
+    const retargeted = Array.isArray(args[0]) ? [physical, ...args[0].slice(1)] : null;
+    for (const symbol of Array.isArray(args[0]) ? Object.getOwnPropertySymbols(args[0]) : [])
+      retargeted[symbol] = args[0][symbol];
+    const forwarded = retargeted ? [retargeted] : [physical, ...args.slice(1)];
     return socketLeaf.apply(this, forwarded);
   }
   if (this instanceof net.Socket && options?.host === "127.0.0.1")
@@ -1374,6 +1376,89 @@ test("pinned localhost connects hand Node arguments it treats as already normali
   }
   assert.equal(leaves.length, 2);
   assert.equal(typeof leaves[1].args[0][1], "function");
+});
+
+// Task 18 re-review T18R-02: the hook judges one read of the destination and
+// hands Node exactly that: a symbol-tagged array holding a plain snapshot of
+// the options it judged, normalized by Node's own normalizer captured at
+// install. A getter, a Proxy or a replaced net._normalizeArgs cannot make Node
+// connect somewhere other than what was judged. Fixture sockets only: the leaf
+// records what Node would receive and never connects.
+test("Socket#connect hands Node the snapshot it judged, never a second read", async () => {
+  flags.sealed = true;
+  const flip = (first, then) => {
+    const counter = { reads: 0 };
+    return Object.assign(counter, {
+      options: {
+        port: 80,
+        get host() {
+          return counter.reads++ === 0 ? first : then;
+        },
+      },
+    });
+  };
+  const handed = () => {
+    const leaf = leaves.at(-1);
+    assert.equal(Array.isArray(leaf.args[0]), true, "a normalized array");
+    assert.equal(leaf.args[0][NORMALIZED_ARGS], true, "carrying Node's symbol");
+    const options = leaf.args[0][0];
+    assert.equal(Object.getOwnPropertyDescriptor(options, "host")?.get, undefined, "a plain value");
+    return options;
+  };
+  const getter = flip("127.0.0.1", "evil.example");
+  net.Socket.prototype.connect.call(new SocketFixture(), getter.options);
+  assert.equal(handed().host, "127.0.0.1");
+  assert.equal(getter.reads, 1, "the destination is read once");
+  // A pre-tagged array holding such options is snapshotted too.
+  const tagged = [flip("127.0.0.1", "evil.example").options, null];
+  tagged[NORMALIZED_ARGS] = true;
+  net.Socket.prototype.connect.call(new SocketFixture(), tagged);
+  assert.equal(handed().host, "127.0.0.1");
+  // A Proxy answers once.
+  let proxyReads = 0;
+  const proxy = new Proxy(
+    { port: 80 },
+    { get: (t, k) => (k === "host" ? (proxyReads++ === 0 ? "127.0.0.1" : "evil.example") : t[k]) }
+  );
+  net.Socket.prototype.connect.call(new SocketFixture(), proxy);
+  assert.equal(handed().host, "127.0.0.1");
+  assert.equal(proxyReads, 1);
+  // A pipe path read once stays the pipe Node is given.
+  let pathReads = 0;
+  const pathFlip = {
+    host: "evil.example",
+    port: 80,
+    get path() {
+      return pathReads++ < 1 ? "/nonexistent-loqui.sock" : undefined;
+    },
+  };
+  net.Socket.prototype.connect.call(new SocketFixture(), pathFlip);
+  assert.equal(handed().path, "/nonexistent-loqui.sock");
+  // A replaced normalizer is not consulted: the captured one reads the target.
+  const realNormalize = net._normalizeArgs;
+  net._normalizeArgs = () => {
+    const fake = [{ path: "/nonexistent-loqui.sock" }, null];
+    fake[NORMALIZED_ARGS] = true;
+    return fake;
+  };
+  const before = leaves.length;
+  const socket = new SocketFixture();
+  try {
+    net.Socket.prototype.connect.call(socket, 80, "remote.invalid");
+  } finally {
+    net._normalizeArgs = realNormalize;
+  }
+  await new Promise((r) => process.nextTick(r));
+  assert.ok(isSealedModeError(socket.reason));
+  assert.equal(leaves.length, before, "nothing reached the leaf");
+  // Unsealed, an allowed remote connect is handed the same kind of snapshot.
+  flags.sealed = false;
+  const unsealed = flip("remote.invalid", "other.invalid");
+  const open = new SocketFixture();
+  net.Socket.prototype.connect.call(open, unsealed.options);
+  assert.equal(handed().host, "remote.invalid");
+  assert.equal(unsealed.reads, 1);
+  open.emit("close", false); // retire the fixture's open-socket entry
 });
 
 // Task 18 T18-03: a loopback forwarder must not carry a request for another

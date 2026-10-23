@@ -18,16 +18,18 @@
 // - `shell.openExternal` / `shell.openPath` and `app.relaunch` (OS handoffs).
 // Nothing in this file talks to a provider, resolves DNS or launches a child.
 //
-// Every refused row asserts: a typed SEALED_MODE result (or the confirmation
-// path for OS handoffs); no transport, socket, native leaf or credential read;
+// Every refused row asserts: a typed SEALED_MODE result that states the phase
+// "refused" (or a documented typed shape, or the confirmation path for OS
+// handoffs); no transport, socket, native leaf or credential read;
 // a blocked ledger row with bytesOut 0 and the right task; content preserved
 // where the row carries user content. Every refused row then runs again with
 // Layer A disabled; that run must reach a terminal leaf or a Layer B refusal,
 // or its "refusal" proved nothing (a missing fake or an early validation error).
 //
 // The ratchet at the end enumerates every channel the real code registers and
-// fails when one is neither a matrix row nor explicitly declared to have no
-// outbound or native capability.
+// fails when one is neither a matrix row nor declared with its reason. A
+// declared channel must not be able to make a request without a native launch
+// (those are rows); declared native launches go through the spawn guard.
 //
 // What this does not prove: real Chromium sessions, ws upgrades over real
 // sockets, redirects, electron-updater, OS isolation of native children
@@ -499,11 +501,18 @@ test.after(async () => {
     inference.dispose?.();
     ipc.instance?.keyring?.dispose?.();
     ipc.instance?.dictationStreamingOperations?.dispose?.();
+    eraseIpc.instance?.keyring?.dispose?.();
   } finally {
-    ipc.restore();
-    for (const fn of cleanups.splice(0)) fn();
-    gate._resetForTests();
-    registry._resetForTests();
+    try {
+      // Loaded second, so restored first: each restore puts back the module
+      // loader it wrapped.
+      eraseIpc.restore();
+    } finally {
+      ipc.restore();
+      for (const fn of cleanups.splice(0)) fn();
+      gate._resetForTests();
+      registry._resetForTests();
+    }
   }
 });
 
@@ -549,16 +558,38 @@ async function outcomeOf(action) {
     return { thrown };
   }
 }
-// A typed sealed refusal: a thrown SealedModeError, or an envelope whose code
-// is SEALED_MODE (and whose message keeps the marker, which survives IPC).
+// The phase a sealed result states: `phase`, `details.phase`, or the marker in
+// its message/error text ("[SEALED_MODE]" refused, "[SEALED_MODE:interrupted]"),
+// searched down a bounded cause chain. This is sealedPhaseOf without its
+// code-only fallback: a bare `code: "SEALED_MODE"` states no phase, and an
+// explicit phase wins over a marker, so an interrupted result never reads as
+// a refusal (review M6).
+function statedPhaseOf(subject, depth = 0) {
+  if (!subject || typeof subject !== "object" || depth > 3) return null;
+  const explicit = subject.phase ?? subject.details?.phase;
+  if (explicit != null) return explicit;
+  for (const text of [subject.message, subject.error]) {
+    if (typeof text !== "string") continue;
+    if (text.includes("[SEALED_MODE:interrupted]")) return "interrupted";
+    if (text.includes("[SEALED_MODE]")) return "refused";
+  }
+  return statedPhaseOf(subject.cause, depth + 1);
+}
+// A typed sealed refusal: a thrown SealedModeError, an envelope whose code is
+// SEALED_MODE, or a streaming error event with that code, each of which must
+// state the phase "refused" (sealedPhaseOf agrees for thrown errors).
 function sealedRefusal(outcome) {
   if (outcome.thrown)
-    return isSealedModeError(outcome.thrown) && sealedPhaseOf(outcome.thrown) === "refused";
-  const value = outcome.value;
-  if (!value || typeof value !== "object") return false;
-  if (value.code === "SEALED_MODE") return value.phase ? value.phase === "refused" : true;
-  if (value.type === "error" && value.code === "SEALED_MODE") return true;
-  return false;
+    return (
+      isSealedModeError(outcome.thrown) &&
+      sealedPhaseOf(outcome.thrown) === "refused" &&
+      statedPhaseOf(outcome.thrown) === "refused"
+    );
+  return sealedEnvelope(outcome.value);
+}
+function sealedEnvelope(value) {
+  if (!value || typeof value !== "object" || value.code !== "SEALED_MODE") return false;
+  return statedPhaseOf(value) === "refused";
 }
 
 function snapshot() {
@@ -603,6 +634,7 @@ const ROWS = [];
 //   secrets?: false when the row legitimately reads no credential either way,
 //   drill?: "bypass" (default) | "unsealed" | (async () => void) custom,
 //   reached?: () => boolean (custom "reached its egress point" predicate),
+//   drillCheck?: () => void (row-specific assertions after the drill),
 // }
 const row = (spec) => ROWS.push(spec);
 
@@ -669,7 +701,7 @@ async function enterprise(values) {
 const keyringSealed = (o) => o.value?.outcome === "sealed" || o.value?.errorCode === "sealed";
 const probeSealed = (o) => o.value?.ok === false && o.value?.code === "sealed";
 const streamSealed = (who) => (o) =>
-  sealedRefusal(o) || who.sent.some(([, p]) => p?.type === "error" && p.code === "SEALED_MODE");
+  sealedRefusal(o) || who.sent.some(([, p]) => p?.type === "error" && sealedEnvelope(p));
 
 // ---------------------------------------------------------------------------
 // 7. The blocked rows (inventory N1-N20), each through its real handler.
@@ -1305,6 +1337,227 @@ for (const [channel, args] of [
       require("../../src/helpers/oauthLoopbackFlow").cancelAllOAuthFlows(new Error("matrix drill")),
   });
 
+// N19 (review I1): "Erase all data" (cleanup-app) revokes the Google grant
+// (googleCalendarManager.revokeAllTokens -> oauth2.googleapis.com/revoke) with
+// no native launch. It runs on its own instance of the real handlers, because
+// the erase is real: it resets the credential store (process.env and the
+// environment module), closes and deletes the database, and removes audio,
+// models, caches, the autostart entry and browser storage. Its managers are
+// real and its own (calendar, local engines, credentials over a second real
+// EnvironmentManager); Electron is the same counted stub. Task 11 decided the
+// sealed outcome: the revoke is refused before any socket (one blocked
+// calendar row, swallowed by revokeToken's best-effort catch) and the local
+// erase still completes, local Google tokens included.
+const eraseRun = {
+  googleCleared: 0,
+  dbClosed: 0,
+  resets: 0,
+  browser: { storage: 0, cache: 0 },
+  tokens: [],
+  savedEnv: null,
+};
+const eraseDb = {
+  db: { close: () => eraseRun.dbClosed++ },
+  getAllGoogleTokens: () => eraseRun.tokens.map((t) => ({ ...t })),
+  getGoogleAccounts: () => (eraseRun.tokens.length ? [{ google_email: "erase@example.test" }] : []),
+  getGoogleTokens: () => eraseRun.tokens[0] ?? null,
+  getGoogleTokensByEmail: () => eraseRun.tokens[0] ?? null,
+  getMicrosoftAccounts: () => [],
+  clearGoogleCalendarData: () => {
+    eraseRun.googleCleared++;
+    eraseRun.tokens = [];
+  },
+  getKeyHealth: () => [],
+  saveKeyHealth() {},
+  deleteKeyHealth() {},
+};
+const eraseEnv = realCredentialEnv({ after: (fn) => cleanups.push(fn) });
+// The in-memory secure-keys folder (the harness marks its migration there).
+const eraseSecureKeys = path.dirname(
+  [...eraseEnv.fs.files.keys()].find((file) => file.endsWith(".migrated"))
+);
+const eraseIpc = (() => {
+  const liveSpeakerIdentifier = require("../../src/helpers/liveSpeakerIdentifier");
+  const loaded = loadIpcHandlers({
+    electron: { ...electron, app: { isReady: () => true } },
+    leaves: {
+      "./tinfoilSecureClient": tinfoilSdk,
+      [TINFOIL_CLIENT]: tinfoilSdk,
+      ws: RoutedWebSocket,
+    },
+    managers: () => {
+      const GoogleCalendarManager = require("../../src/helpers/googleCalendarManager");
+      const MicrosoftCalendarManager = require("../../src/helpers/microsoftCalendarManager");
+      const AppleCalendarManager = require("../../src/helpers/appleCalendarManager");
+      const WhisperManager = require("../../src/helpers/whisper");
+      const ParakeetManager = require("../../src/helpers/parakeet");
+      const DiarizationManager = require("../../src/helpers/diarization");
+      return {
+        environmentManager: eraseEnv.env,
+        databaseManager: eraseDb,
+        whisperManager: new WhisperManager(),
+        parakeetManager: new ParakeetManager(),
+        diarizationManager: new DiarizationManager(),
+        googleCalendarManager: new GoogleCalendarManager(eraseDb, inertUi(), reminders),
+        microsoftCalendarManager: new MicrosoftCalendarManager(eraseDb, reminders),
+        appleCalendarManager: new AppleCalendarManager(eraseDb, reminders),
+        isSealed: mainSealed,
+        getTrayManager: () => null,
+        windowManager: inertUi(),
+        clipboardManager: inertUi(),
+        windowsKeyManager: inertUi(),
+        linuxKeyManager: inertUi(),
+        textEditMonitor: inertUi(),
+        selectionManager: inertUi(),
+        meetingDetectionEngine: inertUi(),
+        audioTapManager: inertUi(),
+        linuxPortalAudioManager: inertUi(),
+        windowsLoopbackAudioManager: inertUi(),
+        meetingAecManager: inertUi(),
+      };
+    },
+  });
+  // The constructor points the process-wide live speaker identifier at its own
+  // diarization manager; hand it back to the matrix's main instance.
+  liveSpeakerIdentifier.setDiarizationManager(ipc.instance.diarizationManager);
+  // AudioStorageManager reads userData through the Electron module it was
+  // first loaded with (the main instance's): give this instance its own audio
+  // folder, so the erase never deletes the matrix's stored recordings.
+  const audio = loaded.instance.audioStorageManager;
+  audio.audioDir = path.join(loaded.userData, "audio");
+  audio.ensureAudioDir();
+  const reset = loaded.instance.credentials.reset;
+  loaded.instance.credentials.reset = function countedReset(...args) {
+    eraseRun.resets++;
+    return reset.apply(this, args);
+  };
+  return loaded;
+})();
+const eraser = Object.assign(sender(41), {
+  session: {
+    clearStorageData: async () => eraseRun.browser.storage++,
+    clearCache: async () => eraseRun.browser.cache++,
+  },
+});
+const eraseFiles = () => {
+  const configHome = path.join(eraseIpc.userData, "xdg-config");
+  const { getModelsDirForService } = require("../../src/helpers/modelDirUtils");
+  const { getSupportCacheDir } = require("../../src/helpers/supportCacheDir");
+  return {
+    configHome,
+    database: path.join(
+      eraseIpc.userData,
+      process.env.NODE_ENV === "development" ? "transcriptions-dev.db" : "transcriptions.db"
+    ),
+    autostart: path.join(
+      configHome,
+      "autostart",
+      path.basename(require("../../src/helpers/linuxAutostart").getDesktopFilePath())
+    ),
+    whisperModel: path.join(getModelsDirForService("whisper"), "erase-fixture.bin"),
+    ytDlpCache: path.join(getSupportCacheDir("yt-dlp"), "erase-fixture"),
+  };
+};
+const storedAudio = () => {
+  const { isStoredAudioFile } = require("../../src/helpers/storageOps");
+  return fs.readdirSync(eraseIpc.instance.audioStorageManager.audioDir).filter(isStoredAudioFile);
+};
+function restoreEraseEnv() {
+  const saved = eraseRun.savedEnv;
+  if (!saved) return;
+  for (const name of Object.keys(process.env)) if (!(name in saved)) delete process.env[name];
+  Object.assign(process.env, saved);
+  eraseRun.savedEnv = null;
+}
+const secureKeyFiles = () =>
+  [...eraseEnv.fs.files.keys()].filter((f) => f.startsWith(eraseSecureKeys + path.sep));
+row({
+  id: "N19",
+  family: "calendar",
+  label: "cleanup-app (erase all data: Google token revoke)",
+  channel: "cleanup-app",
+  task: "calendar",
+  setup: () => {
+    // The erase must only ever touch this run's own temporary trees: the
+    // runner's LOQUI_CACHE_ROOT/XDG_CACHE_HOME, and an XDG_CONFIG_HOME under
+    // this instance's userData for the autostart entry (never HOME).
+    eraseRun.savedEnv = { ...process.env };
+    try {
+      const tmp = require("node:os").tmpdir();
+      const roots = [tmp, fs.realpathSync(tmp)];
+      const within = (p) => roots.some((root) => path.resolve(p).startsWith(root + path.sep));
+      process.env.XDG_CONFIG_HOME = eraseFiles().configHome;
+      const files = eraseFiles();
+      for (const [name, file] of Object.entries(files)) {
+        // Checked before anything is created: a missing LOQUI_CACHE_ROOT would
+        // otherwise point the model and cache erase at the real profile.
+        assert.ok(within(file), `cleanup-app fixture ${name} is outside the temp dir: ${file}`);
+        if (name === "configHome") continue;
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, "fixture");
+      }
+      eraseRun.tokens = [
+        {
+          google_email: "erase@example.test",
+          access_token: "fixture-erase-access",
+          refresh_token: "fixture-erase-refresh",
+          expires_at: FAR_FUTURE,
+        },
+      ];
+      eraseRun.googleCleared = 0;
+      eraseRun.dbClosed = 0;
+      eraseRun.resets = 0;
+      eraseRun.browser = { storage: 0, cache: 0 };
+      eraseEnv.fs.files.set(path.join(eraseSecureKeys, ".migrated"), Buffer.from(""));
+      eraseEnv.fs.files.set(path.join(eraseSecureKeys, "ERASE_FIXTURE.enc"), Buffer.from("x"));
+      eraseIpc.instance.audioStorageManager.saveAudio(++storedAudioSeq, WAV, Date.now());
+      assert.equal(storedAudio().length, 1, "a stored recording to erase");
+      eraseIpc.instance.googleCalendarManager._loadAccounts();
+    } catch (error) {
+      restoreEraseEnv();
+      throw error;
+    }
+  },
+  // The real environment reset deletes every persisted key from process.env,
+  // which the matrix's main fixture shares: put it back exactly.
+  teardown: () => restoreEraseEnv(),
+  action: () => eraseIpc.invokeWith({ sender: eraser }, "cleanup-app"),
+  // Task 11: the refusal is swallowed by the best-effort revoke, so the erase
+  // reports an ordinary, error-free result; the typed refusal is the blocked
+  // calendar row at the revoke endpoint (asserted with the rest below).
+  accept: (o) =>
+    o.value?.success === true &&
+    o.value.message === "Cleanup completed" &&
+    Array.isArray(o.value.errors) &&
+    o.value.errors.length === 0,
+  check: () => {
+    const [revoke] = recorder.list();
+    assert.deepEqual(
+      [revoke.task, revoke.host, revoke.outcome, revoke.errorClass, revoke.bytesOut],
+      ["calendar", "oauth2.googleapis.com", "blocked", "SEALED_MODE", 0]
+    );
+    assert.equal(recorder.list().length, 1, "one refusal: the revoke");
+    // The local erase completed, local Google tokens included.
+    assert.equal(eraseRun.googleCleared, 1, "local Google calendar data cleared");
+    assert.equal(eraseIpc.instance.googleCalendarManager.accounts.size, 0);
+    assert.equal(eraseRun.dbClosed, 1, "database closed");
+    assert.equal(eraseRun.resets, 1, "credential store reset");
+    assert.deepEqual(secureKeyFiles(), [], "stored credentials erased");
+    assert.deepEqual(eraseRun.browser, { storage: 1, cache: 1 }, "browser storage cleared");
+    assert.deepEqual(storedAudio(), [], "stored recordings erased");
+    for (const [name, file] of Object.entries(eraseFiles())) {
+      if (name === "configHome") continue;
+      assert.equal(fs.existsSync(file), false, `${name} erased`);
+    }
+  },
+  // Layer A off: the same revoke reaches Electron's net.fetch leaf (and the
+  // erase still completes).
+  drillCheck: () => {
+    assert.equal(transport.netFetch, 1, "the revoke reached net.fetch");
+    assert.equal(eraseRun.googleCleared, 1);
+  },
+});
+
 // N16: the updater through the real attachUpdateIPC and UpdateManager. Only
 // electron-updater itself is a terminal leaf (its feed request and download).
 const updater = Object.assign(new EventEmitter(), {
@@ -1446,6 +1699,25 @@ nativeRow({
   channel: "toggle-media-playback",
   action: () => call("toggle-media-playback"),
 });
+// Pause and resume use the same media helper as the toggle (playerctl and
+// dbus-send by PATH name on Linux). Resume only acts on media the app paused
+// itself, so its setup leaves the state a pause before the seal would leave.
+const mediaPlayer = require("../../src/helpers/mediaPlayer");
+nativeRow({
+  id: "N26",
+  label: "pause-media-playback",
+  channel: "pause-media-playback",
+  action: () => call("pause-media-playback"),
+});
+nativeRow({
+  id: "N26",
+  label: "resume-media-playback (media paused before the seal)",
+  channel: "resume-media-playback",
+  setup: () => {
+    mediaPlayer._pausedPlayers = ["playerctl"];
+  },
+  action: () => call("resume-media-playback"),
+});
 nativeRow({
   id: "N26",
   label: "get-ydotool-status",
@@ -1457,6 +1729,22 @@ nativeRow({
   label: "detect-gpu",
   channel: "detect-gpu",
   action: () => call("detect-gpu"),
+});
+// The GPU picker runs nvidia-smi by PATH name, like detect-gpu. Its answer is
+// cached per process, so each run starts from an empty cache.
+nativeRow({
+  id: "N26",
+  label: "list-gpus",
+  channel: "list-gpus",
+  setup: () => require("../../src/utils/gpuDetection").clearCache(),
+  action: () => call("list-gpus"),
+});
+// The llama.cpp check looks the binary up with `which`/`where` first.
+nativeRow({
+  id: "N26",
+  label: "llama-cpp-check",
+  channel: "llama-cpp-check",
+  action: () => call("llama-cpp-check"),
 });
 
 for (const r of NATIVE) {
@@ -1660,6 +1948,69 @@ test("N20 prevented: main's calendar guard starts, focus-syncs and wake-syncs no
   } finally {
     flags.sealed = true;
     for (const manager of managers) manager.stop?.();
+  }
+});
+
+// N16 (re-audit for review I1): two update channels that were declared local
+// can start a request with no native launch. Finishing setup starts the
+// automatic checks (the first runs at once), and turning automatic updates on
+// fetches an update a manual check already found. While sealed both are
+// skipped without a record (D13: a scheduled check is not a refusal and does
+// not advance lastCheck); with Layer A off the same IPC reaches
+// electron-updater's feed request.
+test("N16 prevented: setup-complete and enabling automatic updates start no check or fetch while sealed", async () => {
+  const saved = { prefs: { ...updateManager.prefs }, state: { ...updateManager.state } };
+  const stopTimer = () => {
+    clearInterval(updateManager.timer);
+    updateManager.timer = null;
+  };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const drive = {
+    "setup-complete": async () => {
+      stopTimer();
+      Object.assign(updateManager.prefs, { onboarded: false, enabled: true, lastCheck: 0 });
+      updateManager.failures = 0;
+      await updateCall("setup-complete");
+    },
+    preferences: async () => {
+      stopTimer();
+      Object.assign(updateManager.prefs, { onboarded: true, enabled: false, lastCheck: 0 });
+      updateManager.state = {
+        ...updateManager.state,
+        phase: "available",
+        availableVersion: "1.0.1",
+      };
+      await ipc.invokeWith({ sender: updateOwner }, "loqui-update:preferences", { enabled: true });
+    },
+  };
+  try {
+    for (const [channel, run] of Object.entries(drive)) {
+      resetCounters();
+      updater.checks = 0;
+      recorder.clear();
+      await run();
+      await settle();
+      assert.equal(updater.checks, 0, `${channel}: no feed request while sealed`);
+      assert.deepEqual(transport, zeroTransport(), `${channel} touched a transport`);
+      assert.equal(recorder.list().length, 0, `${channel}: nothing attempted, nothing recorded`);
+      // Layer A disabled: the same IPC reaches electron-updater.
+      flags.layerAOff = true;
+      gate._setBypassForTests(true);
+      try {
+        await run();
+        await waitFor(() => updater.checks > 0 && !updateManager.running, `${channel} check`);
+      } finally {
+        gate._setBypassForTests(false);
+        flags.layerAOff = false;
+      }
+      assert.equal(transport.netRequest, 1, `${channel} reached electron-updater's feed request`);
+    }
+  } finally {
+    stopTimer();
+    updateManager.failures = 0;
+    Object.assign(updateManager.prefs, saved.prefs);
+    updateManager.state = saved.state;
+    updater.checks = 0;
   }
 });
 
@@ -2126,6 +2477,7 @@ for (const r of ROWS) {
         `${name} never reached its egress point with Layer A disabled (${mode}): ${JSON.stringify(snapshot())} ${JSON.stringify(recorder.list())}`
       );
       if (mode !== "bypass") assert.ok(touched() > 0, `${name} unsealed did not reach its leaf`);
+      await r.drillCheck?.();
       t.diagnostic(
         `reached: ${JSON.stringify({ ...Object.fromEntries(Object.entries(transport).filter(([, v]) => v)), layerB, nativeRefusals: nativeRefusals() })}`
       );
@@ -2226,13 +2578,18 @@ const DECLARED = {
     "personal-inference:text-tool-result",
     "request-stop-meeting-recording",
   ],
-  // Launch a native helper (local engines, OS tools, permission probes, GPU
-  // probes, ONNX/Qdrant, autostart entry) only when its binary, model or
-  // platform is present. The process-wide spawn guard refuses every native
-  // start while sealed (section 9 drives that guard through real IPC; 07b owns
-  // isolation). Not driven here: their prerequisites are not on this machine,
-  // or (whisper) the start probes a 0.0.0.0 port the safety chain forbids.
-  native: [
+  // Local engines (Whisper, Parakeet, llama.cpp, diarization, the ONNX/Qdrant
+  // index) and their GPU/runtime settings. They spawn a sidecar only when its
+  // binary and model are present, and neither is on this machine (downloads
+  // are forbidden here); a Whisper/Parakeet/llama cold start also first probes
+  // its port with a 0.0.0.0 bind, which the safety chain forbids. Stops and
+  // settings act on a running sidecar, and none runs; the semantic searches
+  // fall back to SQLite while the index is not ready; diarization returns
+  // "models not downloaded"; model-check-runtime only checks the bundled
+  // binary's file. No request either way: the process-wide spawn guard refuses
+  // every start while sealed (the native rows, Codex, relaunch and A23 drive
+  // it). 07b owns isolation.
+  engine: [
     "transcribe-local-whisper",
     "transcribe-local-parakeet",
     "whisper-server-start",
@@ -2241,21 +2598,6 @@ const DECLARED = {
     "process-local-reasoning",
     "diarize-audio-file",
     "transcribe-audio-file",
-    "capture-screen-context",
-    "paste-text",
-    "paste-at-captured-target",
-    "capture-selected-text",
-    "replace-selected-text",
-    "check-paste-tools",
-    "list-gpus",
-    "get-hyprland-config-status",
-    "update-hotkey",
-    "update-voice-agent-hotkey",
-    "update-translation-hotkey",
-    "register-cancel-hotkey",
-    "pause-media-playback",
-    "resume-media-playback",
-    "llama-cpp-check",
     "model-check-runtime",
     "model-test-load",
     "whisper-gpu-retry",
@@ -2264,27 +2606,58 @@ const DECLARED = {
     "db-semantic-search-notes",
     "db-semantic-reindex-all",
     "db-semantic-search-conversations",
-    "check-system-audio-access",
-    "request-system-audio-access",
-    "request-microphone-access",
-    "check-accessibility-permission",
-    "prompt-accessibility-permission",
-    "request-screen-recording-access",
-    "check-screen-recording-access",
-    "set-auto-start-enabled",
-    "show-system-notification",
-    "get-system-profile",
     "start-dictation-preview",
     "dictation-preview-audio",
-    "cleanup-app",
     "whisper-server-stop",
     "parakeet-server-stop",
     "llama-server-stop",
+  ],
+  // Not driven because the manager they act through is an inertUi stand-in in
+  // this harness (windowManager and its hotkey manager/leases,
+  // clipboardManager, selectionManager): the real ones need live windows, key
+  // listeners or accessibility access. They paste, read or replace the
+  // selection, register hotkeys or check the paste/accessibility tools on this
+  // machine (some backends run an OS tool, which the spawn guard governs). None
+  // makes a request.
+  standIn: [
+    "paste-text",
+    "paste-at-captured-target",
+    "capture-selected-text",
+    "replace-selected-text",
+    "check-paste-tools",
+    "check-accessibility-permission",
+    "get-hyprland-config-status",
+    "update-hotkey",
+    "update-voice-agent-hotkey",
+    "update-translation-hotkey",
+    "register-cancel-hotkey",
+    "unregister-cancel-hotkey",
     "set-hotkey-listening-mode",
     "acquire-pill-hotkey",
     "release-pill-hotkey",
-    "unregister-cancel-hotkey",
   ],
+  // OS permission, capture and system-audio access. On Linux the access
+  // checks go through linuxPortalAudioManager, and on macOS through
+  // audioTapManager, both inertUi stand-ins here; the macOS-only APIs
+  // (systemPreferences prompts, desktopCapturer) give their non-darwin answer
+  // on this Linux run, and the test rules forbid native capture. On macOS,
+  // request-screen-recording-access may hand off to System Settings through
+  // the guarded opener that the N21 settings rows drive. None makes a request.
+  permission: [
+    "request-microphone-access",
+    "prompt-accessibility-permission",
+    "check-system-audio-access",
+    "request-system-audio-access",
+    "check-screen-recording-access",
+    "request-screen-recording-access",
+    "capture-screen-context",
+  ],
+  // Local OS facts and settings, no request: the system profile (OS and memory
+  // facts, plus the nvidia-smi probe that the detect-gpu row drives), the
+  // login-item/XDG autostart entry (a local file; the cleanup-app row runs its
+  // disable path under a temporary XDG_CONFIG_HOME), and an OS notification
+  // through Electron's Notification (stubbed unsupported here).
+  os: ["get-system-profile", "set-auto-start-enabled", "show-system-notification"],
   // File-manager reveals of app-owned local paths: no destination, so not
   // confirmed (Task 11 decision, threat-model N21).
   reveal: [
@@ -2294,12 +2667,20 @@ const DECLARED = {
     "open-logs-folder",
     "open-whisper-models-folder",
   ],
-  // Hands a meeting link to the guarded opener (N21 confirmation, as above);
-  // driven through the meeting detection engine, which is a UI stand-in here.
-  handoff: ["join-calendar-meeting"],
+  // Hand a meeting link to the guarded opener (N21 confirmation, as above):
+  // joining a calendar meeting, or answering "join" on a meeting notification.
+  // Not driven because both act through the meeting detection engine, which
+  // is an inertUi stand-in here; the opener they reach is the one the N21 rows
+  // drive.
+  handoff: ["join-calendar-meeting", "meeting-notification-respond"],
   // Local only: history, notes, dictionary, credentials and config storage
   // (main-owned, never sent), windows, hotkeys, dictation lifecycle, privacy
-  // IPC, update status, onboarding, model bookkeeping, recipient description.
+  // IPC, update status, onboarding, model bookkeeping, recipient description,
+  // calendar reads and disconnects (no revoke: only cleanup-app revokes), and
+  // GPU/runtime status reads (get-cuda-/get-vulkan-whisper-status also run the
+  // nvidia-smi probe the detect-gpu row drives). Re-audited for review I1: none
+  // makes a request while sealed. (privacy:set-sealed(false) leaves sealed
+  // mode; the resume work after it runs unsealed, Task 11.)
   local: [
     "acal-disconnect",
     "acal-get-connection-status",
@@ -2501,9 +2882,7 @@ const DECLARED = {
     "llama-cpp-install",
     "llama-cpp-uninstall",
     "llama-server-status",
-    "loqui-update:preferences",
     "loqui-update:prepared",
-    "loqui-update:setup-complete",
     "loqui-update:status",
     "mac-accessibility-features-ready",
     "mcal-disconnect",
@@ -2511,7 +2890,6 @@ const DECLARED = {
     "meeting-detection-get-preferences",
     "meeting-detection-set-preferences",
     "meeting-notification-ready",
-    "meeting-notification-respond",
     "meeting-recording-outcome",
     "meeting-recording-presence",
     "meeting-set-session-speaker-config",
@@ -2672,6 +3050,8 @@ const MATRIX_CHANNELS = () =>
     "open-external",
     "acal-connect",
     "personal-inference:codex-cancel-login",
+    "loqui-update:setup-complete",
+    "loqui-update:preferences",
     ...SETTINGS_CHANNELS,
     ...Object.keys(CROSS_FILE_ROWS),
   ]);

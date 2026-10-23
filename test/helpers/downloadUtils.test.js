@@ -22,6 +22,9 @@ require.cache[initialElectronPath] = {
     },
   },
 };
+// These tests describe unsealed downloads. The gate fails closed until main
+// configures it, so configure it unsealed here (Sealed: downloadsSealed).
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 let ParakeetManager;
 try {
   ParakeetManager = require("../../src/helpers/parakeet");
@@ -75,7 +78,10 @@ test("fetchJson sends the app User-Agent and returns the parsed body", async (t)
     tag_name: "v1",
   });
   assert.equal(calls[0].init.method, "GET");
-  assert.equal(calls[0].init.headers["User-Agent"], "io.github.snowopsdev.loqui/0.1");
+  assert.equal(
+    new Headers(calls[0].init.headers).get("User-Agent"),
+    "io.github.snowopsdev.loqui/0.1"
+  );
 });
 
 // The status is the only thing standing between an error page and a caller that
@@ -99,7 +105,8 @@ test("fetchJson forwards caller init and keeps the User-Agent alongside caller h
     return Response.json({});
   });
   t.after(restore);
-  const signal = new AbortController().signal;
+  const controller = new AbortController();
+  const signal = controller.signal;
 
   await downloadUtils.fetchJson("https://example.com/pinned.json", {
     headers: { Accept: "application/vnd.github+json" },
@@ -111,10 +118,20 @@ test("fetchJson forwards caller init and keeps the User-Agent alongside caller h
   const { init } = calls[0];
   assert.equal(init.credentials, "omit");
   assert.equal(init.cache, "no-store");
-  assert.equal(init.signal, signal);
-  assert.deepEqual(init.headers, {
-    "User-Agent": "io.github.snowopsdev.loqui/0.1",
-    Accept: "application/vnd.github+json",
+  // The caller's signal is composed with the egress ticket's (sealing aborts
+  // it too), so it is forwarded as a combined signal that follows the caller.
+  assert.equal(init.signal.aborted, false);
+  controller.abort();
+  assert.equal(init.signal.aborted, true);
+  // Caller headers and the User-Agent, plus the egress tag the session
+  // backstop strips before the request leaves (Task 6).
+  const headers = new Headers(init.headers);
+  const tag = headers.get("x-loqui-egress");
+  headers.delete("x-loqui-egress");
+  assert.match(tag, /^\d+\.\d+\./);
+  assert.deepEqual(Object.fromEntries(headers), {
+    "user-agent": "io.github.snowopsdev.loqui/0.1",
+    accept: "application/vnd.github+json",
   });
 });
 

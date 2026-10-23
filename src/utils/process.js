@@ -30,8 +30,11 @@ function killProcess(proc, signal = "SIGTERM") {
 
 // Signals the whole process group on Unix so grandchildren get reaped too.
 // Windows' killProcess already passes /T, which covers the descendant tree.
+// Only while the root is unreaped: its pid, and so the group id, cannot be
+// reused. A root that ended by a signal has signalCode set and exitCode null,
+// and is reaped too (owner decision D-3: never signal an unproven group).
 function killProcessGroup(proc, signal = "SIGTERM") {
-  if (!proc || proc.exitCode !== null) return;
+  if (!proc || proc.exitCode !== null || (proc.signalCode ?? null) !== null) return;
   if (process.platform === "win32") {
     killProcess(proc, signal);
     return;

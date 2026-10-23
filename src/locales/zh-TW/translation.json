@@ -728,7 +728,7 @@
       "cloud": "雲端",
       "local": "本機",
       "enterprise": "企業",
-      "localDescription": "在你的裝置上執行。完全私密，可離線使用。",
+      "localDescription": "在你的裝置上執行，可離線使用。",
       "cloudDescription": "透過 API 使用進階模型。快速且強大，需要網路。",
       "enterpriseDescription": "使用你組織的雲端服務商憑證。"
     },
@@ -1533,7 +1533,7 @@
         "local": "本機",
         "selfHosted": "自架主機",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
+        "localDesc": "在此裝置上執行。Loqui 不會將你的內容傳送給服務供應商。",
         "selfHostedDesc": "你的伺服器，在你的網路上。",
         "enterprise": "企業級",
         "enterpriseDesc": "使用你組織的雲端帳號（AWS、Azure、GCP）。"
@@ -1922,7 +1922,127 @@
       "clearAllAudioDone": "已刪除儲存的音訊",
       "clearAllAudioFailed": "並非所有儲存的音訊都已刪除。請再試一次，或確認沒有其他應用程式正在使用這些檔案。",
       "audioStorageChecking": "正在檢查儲存的音訊…",
-      "audioStorageUnavailable": "Loqui 無法讀取其音訊資料夾，因此目前無法顯示或清除儲存的音訊。"
+      "audioStorageUnavailable": "Loqui 無法讀取其音訊資料夾，因此目前無法顯示或清除儲存的音訊。",
+      "sealed": {
+        "title": "封閉模式",
+        "description": "開啟後，Loqui 會封鎖自身傳送到其他電腦的請求，包括雲端路由、下載、更新和行事曆。此版本尚無法隔離本機引擎，因此封閉模式開啟期間無法使用本機引擎。",
+        "checking": "正在檢查封閉模式…",
+        "on": "封閉模式已開啟。Loqui 會封鎖自身傳送到其他電腦的請求。",
+        "buildLimit": "此版本無法完整提供封閉模式：本機引擎尚無法隔離，因此封閉模式開啟期間不會執行。使用它們的路由會顯示為無法使用。",
+        "statusChecking": "正在檢查封閉模式狀態…",
+        "scope": "封閉模式涵蓋 Loqui 自身發出的請求。瀏覽器、其他應用程式和作業系統不在其範圍內，連結只有在你確認後才會在其中開啟。",
+        "forwarders": "你自己執行的程式（例如代理伺服器、連接埠轉送工具、SOCKS 或通道工具）同樣不在封閉模式範圍內。開啟期間，Loqui 不會透過代理伺服器傳送自身的請求，但無法看到或阻止這些程式傳送的內容。",
+        "unverified": {
+          "guards": "Loqui 無法確認其所有網路防護皆已啟用。請結束 Loqui 並重新開啟。",
+          "envProxy": "Loqui 啟動時其環境中帶有 Proxy 設定，因此無法確認每個請求都已被封鎖。",
+          "stopFailed": "自開啟封閉模式以來，尚未確認已停止：{{names}}。Loqui 會繼續檢查。",
+          "stopFailedUnnamed": "開啟封閉模式之前開始的部分工作尚未確認已停止。Loqui 會繼續檢查。",
+          "child": "Loqui 無法確認這些程式及其啟動的所有項目都已結束：{{names}}。Loqui 會繼續檢查。",
+          "childUnknown": "Loqui 無法讀取其啟動的程式狀態。它會繼續檢查。",
+          "chromium": "開啟封閉模式之前開始的頁面請求仍未結束。Loqui 會繼續檢查。",
+          "dns": "開啟封閉模式之前開始的網域名稱查詢仍在等待中。Loqui 會繼續檢查。",
+          "active": "正在停止開啟封閉模式之前開始的請求…",
+          "other": "Loqui 無法確認開啟封閉模式的每個步驟，因此無法確認它自己的所有請求都已被封鎖。"
+        },
+        "blocked_other": "自開啟封閉模式或 Loqui 啟動以來已封鎖 {{count}} 個請求。",
+        "loadError": "Loqui 無法讀取已儲存的封閉模式設定，因此為了安全起見開啟了封閉模式。如需關閉，請在這裡關閉。",
+        "saveError": "Loqui 無法儲存此封閉模式設定。下次 Loqui 啟動時，可能會使用先前的設定。",
+        "toggleError": "無法變更封閉模式。開關顯示的是 Loqui 目前使用的設定。"
+      },
+      "recorder": {
+        "title": "飛行記錄器",
+        "subtitle": "Loqui 自身的網路防護今天（自午夜起）記錄的內容。僅限中繼資料：這裡不會儲存任何音訊、文字、提示詞、金鑰或完整網址。",
+        "loading": "正在載入…",
+        "loadError": "無法載入飛行記錄器。",
+        "unavailable": "飛行記錄器未能儲存部分記錄，因此此清單可能不完整。",
+        "unavailableRead": "飛行記錄器目前無法讀取或儲存其記錄。",
+        "deleteFailed": "飛行記錄器未能刪除部分記錄，因此較早的記錄可能仍被儲存。",
+        "readStale": "飛行記錄器剛才未能讀取其記錄，因此此清單可能不是最新的。",
+        "retry": "重試",
+        "observedToday_other": "今天記錄的外送請求：{{count}} 個",
+        "connectionsToday_other": "另有與請求分開列出的連線：{{count}} 個",
+        "sessionsToday_other": "另有 Loqui 無法看到其請求的輔助程式（Codex 或 yt-dlp）工作階段：{{count}} 個",
+        "blockedToday_other": "在傳送前被封閉模式封鎖的請求：{{count}} 個",
+        "coverage": "這些計數只包含此處記錄的內容。記錄可能已被清除或依保留設定刪除，且看不到其他程式的流量，因此無法顯示離開這台電腦的全部內容。",
+        "recordFailures_other": "自 Loqui 啟動以來，有 {{count}} 個請求未能寫入記錄器，因此此清單不完整。",
+        "unexplained": "Loqui 發現了傳往 {{hosts}} 的請求，但無法將其對應到任何工作。",
+        "unexplainedMore_other": "另有 {{count}} 個主機。",
+        "timelineLabel": "今天記錄的請求（依時間）",
+        "timelineLabelPartial": "今天記錄的請求（依時間，部分：只繪出最新的記錄）",
+        "timelinePartial": "時間軸只顯示下方清單中的記錄；今天較早的時段可能還有未繪出的記錄。",
+        "tick": "{{time}} · {{task}} · {{host}}",
+        "legend": {
+          "sent": "已傳送",
+          "session": "輔助程式工作階段",
+          "blocked": "已封鎖，未傳送",
+          "unexplained": "無法解釋"
+        },
+        "empty": "此期間沒有記錄的請求。",
+        "tableCaption": "今天記錄的請求，最新的在前",
+        "columns": {
+          "time": "時間",
+          "task": "工作",
+          "host": "主機",
+          "sent": "已傳送",
+          "received": "已接收",
+          "status": "狀態",
+          "model": "模型"
+        },
+        "usualHost": "通常為 {{host}}",
+        "unknownHost": "未知主機",
+        "connection": "連線；Loqui 看不到其中的各個請求",
+        "opaque": "工作階段；其流量對 Loqui 不可見",
+        "notSent": "未傳送",
+        "unknownBytes": "未知",
+        "outcome": {
+          "ok": "已傳送",
+          "error": "失敗",
+          "blocked": "已封鎖",
+          "cancelled": "已停止；服務供應商可能已收到部分內容"
+        },
+        "truncated_other": "正在顯示今天最新的 {{count}} 筆記錄。",
+        "showMore": "顯示更多",
+        "exportForAll": "若要查看全部記錄，請匯出 CSV。",
+        "loopbackNote": "Loqui 傳往這台電腦上位址（回送）的請求，例如傳往本機模型伺服器的請求，不會列出。如果你在這裡執行的程式（例如 Proxy 或連接埠轉送器）將其轉送出去，該流量不會顯示；本機引擎或其他程式自行產生的流量也不會顯示。",
+        "bytesNote": "「已傳送」和「已接收」計算請求和回應的內文，不含標頭。連線列（包括即時轉錄）則計算整個連線的全部位元組。「—」表示 Loqui 無法測量。",
+        "retention": "記錄遵循你的本機歷程記錄和轉錄保留設定。",
+        "retentionMemory": "本機歷程記錄已關閉：新記錄只保存在記憶體中（最多保留最新 500 筆），Loqui 結束後即消失。關閉前已儲存的記錄會保留在這台電腦上，直到你的保留設定將其刪除或你手動清除。",
+        "retentionDays_other": "記錄會依照你的轉錄保留設定，在 {{count}} 天後刪除。",
+        "retentionForever": "記錄遵循你的轉錄保留設定（永久）：保留最新的 100,000 筆。",
+        "export": "匯出 CSV",
+        "clear": "清除歷程記錄",
+        "actionsNote": "匯出和清除涵蓋所有已儲存的記錄，而不只是今天的。清除任何內容前，Loqui 會在自己的對話框中請你確認。",
+        "notice": {
+          "exported": "已儲存 CSV 副本。",
+          "exportError": "無法匯出 CSV。",
+          "cleared": "已清除飛行記錄器歷程記錄。",
+          "clearError": "無法清除歷程記錄。"
+        },
+        "tasks": {
+          "dictationStt": "聽寫",
+          "noteRecordingStt": "筆記錄音",
+          "uploadStt": "音訊上傳",
+          "dictationCleanup": "聽寫整理",
+          "voiceAssistant": "語音助理",
+          "assistantVision": "助理視覺",
+          "translation": "翻譯",
+          "noteFormatting": "筆記格式化",
+          "chat": "聊天",
+          "speakerId": "說話者辨識",
+          "semanticSearch": "語意搜尋",
+          "providerCheck": "服務供應商檢查",
+          "modelDownload": "模型下載",
+          "runtimeDownload": "執行階段下載",
+          "urlImport": "URL 匯入",
+          "appUpdate": "更新",
+          "codex": "ChatGPT（Codex）",
+          "calendar": "行事曆",
+          "unattributed": "無法解釋",
+          "nativeLaunch": "本機程式（未啟動）"
+        },
+        "nativeRefusedToday_other": "封閉模式未啟動 {{count}} 個本機程式。未啟動的程式不是請求，因此不計入上方的數量。",
+        "nativeRefusedPrograms": "未啟動的程式：{{names}}"
+      }
     },
     "prompts": {
       "description": "檢視、自訂和測試用於文字整理和指令偵測的統一系統提示詞",
@@ -1951,7 +2071,7 @@
       },
       "supportModels": {
         "title": "裝置端支援模型",
-        "description": "始終在此裝置上執行的小型模型。處理這些工作時，錄音和筆記不會離開此裝置。",
+        "description": "在此裝置上執行的小型模型。處理這些工作時，Loqui 不會將錄音和筆記傳送給服務供應商。",
         "downloaded": "已下載",
         "checking": "正在檢查…",
         "download": "下載 {{size}}",
@@ -1971,7 +2091,7 @@
         "local": "本機",
         "selfHosted": "自架主機",
         "providersDesc": "使用你自己的 API Key。",
-        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
+        "localDesc": "在此裝置上執行。Loqui 不會將你的內容傳送給服務供應商。",
         "selfHostedDesc": "你的伺服器，在你的網路上。",
         "enterprise": "企業雲端",
         "enterpriseDesc": "音訊會傳送到貴組織自己的雲端。"
@@ -2854,9 +2974,10 @@
       "addKey": "新增金鑰",
       "needsUrl": "操作需要你的伺服器位址",
       "addUrl": "新增位址",
-      "sealed": "封存模式開啟時，操作會暫停",
+      "sealed": "封閉模式開啟時，操作會暫停",
       "unreachable": "操作無法連線至筆記模型",
-      "openSettings": "開啟設定"
+      "openSettings": "開啟設定",
+      "nativeUnavailable": "此版本在封閉模式下無法使用操作：本機模型尚無法隔離"
     },
     "slash": {
       "label": "插入區塊",
@@ -3288,7 +3409,7 @@
       "providers": "使用你自己的 API Key",
       "providersDesc": "用你自己的 API Key 連接 OpenAI、Anthropic、Gemini 或 Groq。",
       "local": "本機",
-      "localDesc": "在此裝置上執行本機模型。不會向外傳送任何內容。",
+      "localDesc": "在此裝置上執行本機模型。Loqui 不會將你的內容傳送給服務供應商。",
       "selfHosted": "自架主機",
       "selfHostedDesc": "指向自架的 OpenAI 相容端點。",
       "enterprise": "企業級",
@@ -3309,7 +3430,7 @@
         "local": "本機",
         "selfHosted": "自架主機",
         "providersDesc": "使用自己的 API 金鑰。",
-        "localDesc": "在此裝置上執行。不會向外傳送任何內容。",
+        "localDesc": "在此裝置上執行。Loqui 不會將你的內容傳送給服務供應商。",
         "selfHostedDesc": "你自己網路上的伺服器。",
         "enterprise": "企業級",
         "enterpriseDesc": "使用你組織的雲端帳號（AWS、Azure、GCP）。"
@@ -3938,7 +4059,9 @@
     "available": "Loqui {{version}} 已可使用。開啟自動更新即可安裝，或從 GitHub 下載。",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "封閉模式已開啟，因此 Loqui 不會檢查、下載或安裝更新。關閉封閉模式後即可更新。",
+    "sealedRefused": "封閉模式已開啟，因此 Loqui 沒有檢查或安裝更新。未傳送任何內容。"
   },
   "locality": {
     "device": "在此裝置上",
@@ -4016,10 +4139,11 @@
       "addKey": "新增 API 金鑰",
       "chooseProvider": "選擇提供者",
       "addUrl": "新增伺服器網址",
-      "sealed": "已暫停 · 封存模式",
+      "sealed": "已暫停 · 封閉模式",
       "retired": "服務已停用 · 請重新選擇",
       "unsupported": "此任務無法使用",
-      "cantReach": "無法連線至伺服器"
+      "cantReach": "無法連線至伺服器",
+      "nativeUnavailable": "此版本在封閉模式下無法使用"
     },
     "toast": {
       "local": "{{task}}現在在此裝置上執行。",
@@ -4091,7 +4215,7 @@
     "tasks": "任務",
     "destinations": "執行位置",
     "openSettings": "開啟 {{task}} 設定",
-    "sealed": "密封模式已開啟。任務只能在此設備上運行。",
+    "sealed": "封閉模式已開啟：Loqui 會封鎖將內容傳送到這台電腦以外的任務。在此版本中，封閉模式開啟期間，Loqui 的本機引擎也不會執行。",
     "undo": "撤銷",
     "kind": {
       "speech": "語音",
@@ -4114,13 +4238,13 @@
     },
     "locked": {
       "speakerId": "鎖定到此裝置：說話者辨識需要您在裝置上的錄音。",
-      "semanticSearch": "鎖定到此裝置：嵌入保留在本地，因此搜尋永遠不會將您的筆記發送到任何地方。"
+      "semanticSearch": "鎖定到此裝置：嵌入保留在本地，搜尋不會將您的筆記傳送給服務供應商。"
     },
     "no": {
       "capability": "{{provider}} 無法在 Loqui 中執行此任務。",
       "visionCloudOnly": "目前，螢幕截圖只能轉到雲視覺模型。",
       "meetingServer": "筆記錄音尚不支援使用您自己的伺服器。",
-      "sealed": "密封模式將此任務保留在此設備上。",
+      "sealed": "封閉模式已開啟，因此無法將此任務傳送到這裡。",
       "uploadServer": "文件上傳使用為聽寫設定的伺服器。在那裡改變它。",
       "serverKind": "尚未為 {{kind}} 任務設定 {{server}}。使用“新增伺服器”輸入其位址。"
     },
@@ -4136,7 +4260,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "新增伺服器",
       "addServerHint": "接下來輸入它的地址",
-      "nothingLeaves": "不向外傳送任何內容",
+      "nothingLeaves": "不傳送給服務供應商",
       "yourServer": "您自己的伺服器",
       "unencrypted": "http，未加密",
       "hosted": "託管提供者",
@@ -4146,7 +4270,7 @@
       "keyUnknown": "檢查已儲存的密鑰..."
     },
     "leaves": {
-      "none": "不會向此裝置以外傳送任何內容。",
+      "none": "沒有任務會向服務供應商或伺服器傳送內容。",
       "prefix": "向此裝置以外傳送內容的任務：",
       "item": "{{task}} → {{destination}}"
     },
@@ -4197,7 +4321,7 @@
     "loadFailed": "無法重新整理此清單。目前顯示先前載入的內容。",
     "remind": "90 天後提醒",
     "remindLabel": "90 天後提醒我輪替 {{identity}}",
-    "sealed": "密封模式已開啟，驗證已暫停。",
+    "sealed": "封閉模式已開啟，驗證已暫停。",
     "empty": "沒有已儲存的憑證。需要憑證的工作會在「路由」中顯示「新增 API 金鑰」。",
     "identity": {
       "cortiText": "{{provider}} · 文字 API 金鑰",
@@ -4304,7 +4428,10 @@
       "word": "重設",
       "running": "正在重設…",
       "failed": "重設尚未完成，因此 Loqui 不會自動重新啟動。以下步驟失敗：",
-      "done": "重設完成。Loqui 正在重新啟動…"
+      "done": "重設完成。Loqui 正在重新啟動…",
+      "doneSealed": "重設完成。封閉模式開啟時，Loqui 無法自行重新啟動。請結束 Loqui 並重新開啟以完成。",
+      "restartFailed": "重設完成，但 Loqui 無法自行重新啟動。請結束 Loqui 並重新開啟以完成。",
+      "doneRevoke": "重設完成。請閱讀下方關於 Google 的說明，然後結束 Loqui 並重新開啟以完成作業。"
     }
   },
   "settingsSearch": {
@@ -4355,7 +4482,7 @@
     },
     "pasteFailed": "無法貼上您的文字",
     "undo": {
-      "sealed": "無法復原：密封模式已開啟，而此錄音的路由會將資料傳送至裝置外。",
+      "sealed": "無法復原：封閉模式已開啟，而此錄音的路由會將資料傳送至裝置外。",
       "routeUnavailable": "無法復原：此錄音原先使用的路由已無法使用。",
       "noAudio": "無法復原：錄音為空。",
       "busy": "請先完成目前的聽寫，再復原取消操作。",
@@ -4387,7 +4514,7 @@
       "mayHaveText": "{{provider}} 可能已收到文字。",
       "mayHaveImage": "{{provider}} 可能已收到圖片。",
       "mayHaveSeveral": "{{provider}} 可能已收到本次聽寫的部分內容。",
-      "sealedPaused": "聽寫已暫停：隔離模式已開啟"
+      "sealedPaused": "聽寫已暫停：封閉模式已開啟"
     },
     "stage": {
       "transcribing": "正在轉寫…",
@@ -4397,7 +4524,7 @@
       "pasted_other": "已貼上 · {{count}} 字詞"
     },
     "locality": {
-      "sealed": "已被隔離模式封鎖",
+      "sealed": "已被封閉模式封鎖",
       "remote": "傳送至 {{provider}}"
     },
     "route": {
@@ -4423,7 +4550,104 @@
     "recovery": {
       "availableTitle": "錄音已可復原",
       "transcribe": "轉錄錄音",
-      "discard": "捨棄錄音"
+      "discard": "捨棄錄音",
+      "transcribeOne": "轉錄",
+      "stillSealedTitle": "錄音仍被保留",
+      "stillSealedDetail": "封閉模式仍處於開啟狀態，因此這段錄音未被轉錄。Loqui 仍僅在記憶體中保留它，最長為聽寫後 30 分鐘或直到你結束應用程式。請在關閉封閉模式後轉錄。",
+      "evictedOldest": "為騰出空間，Loqui 已捨棄它保留的最早一段錄音。",
+      "goneTitle": "這段錄音已不再保留",
+      "goneExpired": "Loqui 已在記憶體中保留它 30 分鐘，之後將其捨棄。現在無法轉錄。",
+      "goneEvicted": "為了給較新的錄音騰出空間，Loqui 已將它從記憶體中捨棄。現在無法轉錄。",
+      "goneDiscarded": "它已從記憶體中捨棄。現在無法轉錄。",
+      "goneTranscribed": "Loqui 已轉錄它，並且不再在記憶體中保留它。",
+      "goneUnknown": "Loqui 已不再在記憶體中保留它，因此現在無法轉錄。",
+      "expiredDuringReplay": "它在記憶體中的 30 分鐘已在本次嘗試期間用完，因此 Loqui 已將其捨棄。"
+    },
+    "confirmUnseal": {
+      "title": "關閉封閉模式？",
+      "message": "雲端連線、下載、更新和行事曆將能夠再次使用網路。",
+      "detail": "Loqui 在應用程式視窗之外的此對話框中要求確認，以確保只有你能關閉封閉模式。",
+      "keep": "保持封閉",
+      "turnOff": "關閉封閉模式"
+    },
+    "confirmClear": {
+      "title": "清除通訊記錄？",
+      "message": "這將刪除此電腦上的通訊歷史記錄。",
+      "detail": "將刪除 {{count}} 筆記錄。服務供應商已收到的內容不受影響。",
+      "keep": "保留記錄",
+      "clear": "清除歷史記錄",
+      "detail_other": "將刪除 {{count}} 筆記錄。服務供應商已收到的內容不受影響。"
+    },
+    "confirmLink": {
+      "title": "在 Loqui 之外開啟此連結？",
+      "message": "此連結會在其他應用程式中開啟。封閉模式不涵蓋該應用程式對網路的使用。",
+      "detail": "目的地：{{host}}",
+      "mailDetail": "目的地：你的電子郵件應用程式",
+      "keep": "不要開啟",
+      "open": "開啟連結"
+    },
+    "confirmSettings": {
+      "title": "在 Loqui 之外開啟系統設定？",
+      "message": "系統設定會在其他應用程式中開啟。封閉模式不涵蓋該應用程式對網路的使用。",
+      "keep": "不要開啟",
+      "open": "開啟設定"
+    },
+    "blocked": {
+      "dictationPreflight": "聽寫已暫停：封閉模式已開啟",
+      "dictationPreflightDetail": "你的語音路由會將音訊傳送到這台電腦之外，而封閉模式會阻擋這項操作。未錄製也未傳送任何內容。請選擇裝置上的路由，或關閉封閉模式。",
+      "nativeUnavailableTitle": "封閉模式下無法使用本機聽寫",
+      "nativeUnavailableDetail": "此版本尚無法隔離 Loqui 的本機語音引擎，因此在封閉模式開啟時該引擎不會執行。未錄製任何內容。關閉封閉模式即可使用它聽寫。",
+      "dictationTitle": "封閉模式停止了這次聽寫",
+      "dictationKept": "封閉模式在傳送前阻擋了這次聽寫。未傳送任何內容。錄音已儲存在歷史記錄中，關閉封閉模式後即可轉錄。",
+      "dictationNotKept": "封閉模式在傳送前阻擋了這次聽寫。未傳送任何內容。錄音未保留。",
+      "dictationHeld": "封閉模式在傳送前阻擋了這次聽寫。未傳送任何內容。Loqui 僅在記憶體中保留這段錄音，最長 30 分鐘或直到你結束應用程式。請在關閉封閉模式後轉錄。",
+      "generic": "封閉模式已開啟，因此 Loqui 沒有傳送此內容。未傳送任何內容。",
+      "chat": "封閉模式已開啟，因此 Loqui 沒有傳送這則訊息。未傳送任何內容。你的訊息保留在這裡。",
+      "nativeUnconfirmedTitle": "封閉模式下未啟動本機聽寫",
+      "nativeUnconfirmedDetail": "封閉模式已開啟，且 Loqui 無法確認其本機引擎的目前狀態，因此未啟動語音引擎。未錄製任何內容。關閉封閉模式即可使用它聽寫。"
+    },
+    "paused": {
+      "dictationPreflightDetail": "封閉模式在 Loqui 的本機語音引擎啟動前將其暫停。未錄製任何內容。關閉封閉模式即可使用它聽寫。"
+    },
+    "interrupted": {
+      "dictationKept": "這次聽寫傳送期間封閉模式被開啟，因此已停止。服務供應商可能已收到其中一部分。錄音已儲存在歷史記錄中。",
+      "dictationNotKept": "這次聽寫傳送期間封閉模式被開啟，因此已停止。服務供應商可能已收到其中一部分。錄音未保留。",
+      "dictationHeld": "這次聽寫傳送期間封閉模式被開啟，因此已停止。服務供應商可能已收到其中一部分。Loqui 僅在記憶體中保留這段錄音，最長 30 分鐘或直到你結束應用程式。",
+      "dictationPartial": "這次聽寫期間封閉模式被開啟。已收到的文字會保留。服務供應商可能已收到部分錄音。",
+      "cortiRetained": "Corti 可能仍保留著這次聽寫的一部分：封閉模式開啟時，Loqui 無法要求 Corti 刪除它，之後也不會聯絡 Corti 刪除它。",
+      "generic": "封閉模式在傳送過程中停止了此操作。服務供應商可能已收到其中一部分。",
+      "chat": "封閉模式在要求傳送過程中停止了此回覆。服務供應商可能已收到部分對話。你的訊息保留在這裡。"
+    },
+    "markdown": {
+      "imageBlocked": "圖片未載入：封閉模式已開啟",
+      "imageBlockedNamed": "圖片未載入：封閉模式已開啟（{{alt}}）",
+      "imageChecking": "Loqui 檢查封閉模式期間不載入圖片",
+      "imageCheckingNamed": "Loqui 檢查封閉模式期間不載入圖片（{{alt}}）"
+    },
+    "calendar": {
+      "connectTitle": "封閉模式開啟時無法連線",
+      "connectRefused": "連接此行事曆需要網際網路，而封閉模式會阻擋這項操作。未傳送任何內容。關閉封閉模式即可連接。",
+      "connectInterrupted": "登入期間封閉模式被開啟，因此登入已停止。服務供應商可能已收到部分登入資訊。未連接任何帳號。",
+      "appleUnavailable": "此版本在封閉模式開啟時無法執行 Apple 行事曆的本機輔助程式。關閉封閉模式即可連接。",
+      "googleGrantKept": "封閉模式當時已開啟，因此 Loqui 無法要求 Google 撤銷其行事曆存取權。Loqui 已刪除自己保存的登入資訊，但在你於 Google 帳戶中移除之前，Google 仍會保留 Loqui 的存取權。Loqui 之後不會為此聯絡 Google。",
+      "revokeQueuedTitle": "Google 存取權將稍後移除",
+      "revokeQueued": "封閉模式已開啟，因此 Loqui 現在無法要求 Google 移除其日曆存取權。Loqui 已中斷日曆連線，只保留了提出要求所需的內容。關閉封閉模式後，Loqui 會自動向 Google 提出要求。",
+      "revokeDoneTitle": "已移除 Google 存取權",
+      "revokeDone": "Loqui 已要求 Google 移除其日曆存取權，並刪除了為此保留的內容。",
+      "revokeFailedTitle": "無法移除 Google 存取權",
+      "revokeFailed": "Loqui 未能讓 Google 移除其日曆存取權，因此該存取權可能仍在 Google 生效。Loqui 只保留重試所需的內容。你也可以在你的 Google 帳戶中自行移除該存取權。",
+      "revokeRetry": "重試",
+      "revokeOpenAccount": "開啟 Google 帳戶",
+      "revokeUnreadableTitle": "Google 存取權可能仍然有效",
+      "revokeUnreadable": "Loqui 保留了請求 Google 移除其日曆存取權所需的內容，但現在無法再讀取，因此無法發出請求。該存取權可能仍在 Google 生效。請在你的 Google 帳戶中自行移除該存取權。",
+      "revokeUnreadableDismiss": "知道了",
+      "revokeUnsaved": "封閉模式已開啟，因此 Loqui 無法要求 Google 移除其日曆存取權，也無法安全保留稍後提出要求所需的內容。Loqui 已刪除其保存的登入資訊副本，但在你於 Google 帳戶中移除之前，Google 會保留 Loqui 的存取權。",
+      "googleRevokeFailedReset": "Loqui 在重設前未能讓 Google 移除其日曆存取權，因此該存取權可能仍在 Google 生效。Loqui 已刪除其保存的登入資訊副本，之後不會就此聯絡 Google。請在你的 Google 帳戶中移除該存取權。"
+    },
+    "paste": {
+      "title": "封閉模式停止了自動貼上",
+      "copied": "封閉模式已開啟，因此 Loqui 無法自動貼上。您的文字已在剪貼簿中，您可以自行貼上。",
+      "notCopied": "封閉模式已開啟，因此 Loqui 無法自動貼上。"
     }
   },
   "setupFlow": {
@@ -4634,8 +4858,8 @@
       },
       "privacy": {
         "title": "你的話會去哪裡",
-        "bodyMac": "除非你選擇服務供應商，否則不會有任何內容離開這台 Mac。",
-        "bodyOther": "除非你選擇服務供應商，否則不會有任何內容離開這台電腦。",
+        "bodyMac": "除非你選擇服務供應商，否則 Loqui 不會將你的語音或文字從這台 Mac 傳送給服務供應商。",
+        "bodyOther": "除非你選擇服務供應商，否則 Loqui 不會將你的語音或文字從這台電腦傳送給服務供應商。",
         "nodes": {
           "mic": "麥克風",
           "loqui": "Loqui",
@@ -4741,7 +4965,8 @@
         "needsModel": "此裝置上還沒有本機文字整理模型。請在「設定 → 語言模型」中下載（1.3 GB）。",
         "unreachable": "Loqui 目前無法連接 {{provider}}。你的話會原樣保留。",
         "modelSetup": "已連接 ChatGPT。請取得模型清單，選擇用於文字潤飾的模型。",
-        "review": "請檢視此變更，然後選擇「套用」。"
+        "review": "請檢視此變更，然後選擇「套用」。",
+        "nativeUnavailable": "此版本在封閉模式下無法使用本機清理：本機模型尚無法隔離。你的話會保持原樣。"
       },
       "reuse": "其他文字功能也使用此選擇",
       "exampleInProgress": "請求執行期間顯示範例文字。只有文字整理成功後，才會顯示你的結果。",
@@ -4793,7 +5018,8 @@
           "configured": "{{voice}}，尚未試用",
           "downloading": "仍在下載",
           "needsModel": "下載語音模型",
-          "unavailable": "在設定中完成配置"
+          "unavailable": "在設定中完成配置",
+          "nativeUnavailable": "此版本在封閉模式下無法使用"
         },
         "microphone": {
           "heard": "運作正常",
@@ -4823,7 +5049,8 @@
           "configured": "已設定 {{name}}",
           "configuredNetwork": "已在 {{provider}} 設定 {{name}}",
           "modelSetup": "取得用於文字潤飾的 ChatGPT 模型清單",
-          "review": "請檢視此變更，然後選擇「套用」。"
+          "review": "請檢視此變更，然後選擇「套用」。",
+          "nativeUnavailable": "此版本在封閉模式下無法使用"
         }
       },
       "dictateNote": "在筆記中語音輸入",
@@ -4834,11 +5061,12 @@
       "noteBlocked": {
         "microphone": "筆記需要使用麥克風。",
         "unsupported": "筆記錄音設定了尚未支援的服務，例如自行託管的伺服器。",
-        "sealed": "密封模式已開啟，筆記錄音無法連接 {{provider}}。",
+        "sealed": "封閉模式已開啟，筆記錄音無法連接 {{provider}}。",
         "needsModel": "筆記錄音需要此裝置上的語音模型。",
         "needsKey": "筆記錄音需要你的 {{provider}} 金鑰。",
         "needsUrl": "筆記錄音需要伺服器位址。",
-        "unreachable": "Loqui 無法連接 {{provider}} 進行筆記錄音。"
+        "unreachable": "Loqui 無法連接 {{provider}} 進行筆記錄音。",
+        "nativeUnavailable": "此版本在封閉模式下無法錄製筆記：本機引擎尚無法隔離。"
       },
       "fixNote": "修正此項",
       "noteNetwork": "筆記已設為向 {{provider}} 傳送音訊。"

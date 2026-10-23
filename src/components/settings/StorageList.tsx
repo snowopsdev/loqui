@@ -3,7 +3,11 @@ import type { ElementType, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { clearMissingLocalModelSelections } from "../../stores/settingsStore";
 import { invalidatePendingNoteNavigation } from "../../stores/noteStore";
+import { getSealedSnapshot } from "../../stores/sealedStore";
+import { isSealedModeError } from "../../utils/sealedModeError";
 import { formatDecimalBytes } from "../../utils/formatBytes";
+import { createExternalLinkHandler } from "../../utils/externalLinks";
+import { GOOGLE_ACCOUNT_PERMISSIONS_URL } from "../../utils/googleAccount";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
@@ -41,6 +45,12 @@ export const RESET_RELAUNCH_DELAY_MS = 1000;
 
 export type DeletePhase = "review" | "running" | "failed";
 export type ResetPhase = "review" | "running" | "failed" | "done";
+// Why a finished reset can't restart Loqui by itself: main refuses
+// relaunch-app while sealed (it would launch a native waiter), or the
+// relaunch failed for another reason. Either way, the user quits and reopens.
+// "revoke": a Google revoke failed before the erase (D-1). Loqui does not
+// restart on its own, so the note about Google stays on screen.
+export type ResetRestartBlocked = "sealed" | "failed" | "revoke";
 type T = ReturnType<typeof useTranslation>["t"];
 type Api = Window["electronAPI"] | undefined;
 type Rows = {
@@ -57,7 +67,15 @@ type DialogState = {
   phase: DeletePhase;
   last: Last | null;
 };
-type ResetState = { owner: ResetIntent; phase: ResetPhase; typed: string; errors: string[] };
+type ResetState = {
+  owner: ResetIntent;
+  phase: ResetPhase;
+  typed: string;
+  errors: string[];
+  googleGrantKept?: boolean;
+  googleRevokeFailed?: boolean;
+  restartBlocked?: ResetRestartBlocked;
+};
 
 const LOADING: Rows = {
   audio: { status: "loading" },
@@ -345,6 +363,14 @@ export interface ResetProps {
   typed: string;
   confirmDisabled: boolean;
   errors: string[];
+  // T11-M5: Sealed mode kept Loqui from revoking the Google grant.
+  googleGrantKept?: boolean;
+  // D-1: a pending Google revoke failed before the erase (unsealed), or its
+  // record could not be read (sealed or not, review I-1).
+  googleRevokeFailed?: boolean;
+  // Plan 07 fix round 1 (I2): Loqui can't restart itself; there is no button
+  // for an action main would refuse, only honest instructions.
+  restartBlocked?: ResetRestartBlocked;
   onTypedChange: (value: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -359,14 +385,41 @@ export function ResetContent({
   const running = props.phase === "running";
   const failed = props.phase === "failed";
   if (props.phase === "done") {
+    const googleAccountLink = (
+      <a
+        href={GOOGLE_ACCOUNT_PERMISSIONS_URL}
+        onClick={createExternalLinkHandler(GOOGLE_ACCOUNT_PERMISSIONS_URL)}
+        className="underline underline-offset-2"
+      >
+        {t("sealedMode.calendar.revokeOpenAccount")}
+      </a>
+    );
     return (
       <div className="space-y-3">
         <Title className="text-base font-semibold text-foreground">
           {t("storage.reset.confirmTitle")}
         </Title>
         <Description role="status" className="text-sm text-foreground">
-          {t("storage.reset.done")}
+          {t(
+            props.restartBlocked === "sealed"
+              ? "storage.reset.doneSealed"
+              : props.restartBlocked === "failed"
+                ? "storage.reset.restartFailed"
+                : props.restartBlocked === "revoke"
+                  ? "storage.reset.doneRevoke"
+                  : "storage.reset.done"
+          )}
         </Description>
+        {props.googleGrantKept && (
+          <p data-google-grant-kept="" className="text-sm text-foreground">
+            {t("sealedMode.calendar.googleGrantKept")} {googleAccountLink}
+          </p>
+        )}
+        {props.googleRevokeFailed && !props.googleGrantKept && (
+          <p data-google-revoke-failed="" className="text-sm text-foreground">
+            {t("sealedMode.calendar.googleRevokeFailedReset")} {googleAccountLink}
+          </p>
+        )}
       </div>
     );
   }
@@ -670,7 +723,12 @@ export function StorageList() {
     resetBusy.current = true;
     const typed = reset.typed;
     publishReset(owner, { phase: "running", typed, errors: [] });
-    let result: { ok: boolean; errors: string[] };
+    let result: {
+      ok: boolean;
+      errors: string[];
+      googleGrantKept?: true;
+      googleRevokeFailed?: true;
+    };
     try {
       result = resetOutcome(await call(window.electronAPI?.cleanupApp));
     } catch (error) {
@@ -682,9 +740,56 @@ export function StorageList() {
       publishReset(owner, { phase: "failed", typed, errors: result.errors });
       return;
     }
-    publishReset(owner, { phase: "done", typed, errors: [] });
+    const googleGrantKept = result.googleGrantKept === true ? { googleGrantKept: true } : {};
+    // Review I-1: a sealed reset can also report an unreadable pending revoke.
+    const googleRevokeFailed =
+      result.googleRevokeFailed === true ? { googleRevokeFailed: true } : {};
+    // D-1: say plainly that Google may still allow Loqui's access, and stay
+    // on screen instead of restarting.
+    if (result.googleRevokeFailed === true && getSealedSnapshot().sealed !== true) {
+      publishReset(owner, {
+        phase: "done",
+        typed,
+        errors: [],
+        googleRevokeFailed: true,
+        restartBlocked: "revoke",
+      });
+      return;
+    }
+    // Plan 07 fix round 1 (I2): main refuses relaunch-app while sealed. A
+    // revoke refused by the seal, or the sole store's known seal, means Loqui
+    // can't restart itself: say so instead of "restarting", and try nothing.
+    if (result.googleGrantKept || getSealedSnapshot().sealed === true) {
+      publishReset(owner, {
+        phase: "done",
+        typed,
+        errors: [],
+        ...googleGrantKept,
+        ...googleRevokeFailed,
+        restartBlocked: "sealed",
+      });
+      return;
+    }
+    publishReset(owner, { phase: "done", typed, errors: [], ...googleGrantKept });
     setTimeout(() => {
-      if (owns(owner)) void window.electronAPI?.relaunchApp?.();
+      if (!owns(owner)) return;
+      // A refusal (sealed in the meantime) or any other failure is handled
+      // and explained; it never becomes an unhandled rejection.
+      Promise.resolve()
+        .then(() => call(window.electronAPI?.relaunchApp))
+        .catch((error: unknown) => {
+          const sealed =
+            getSealedSnapshot().sealed === true ||
+            isSealedModeError(error) ||
+            /NATIVE_BOUNDARY_UNAVAILABLE/.test(errorText(error));
+          publishReset(owner, {
+            phase: "done",
+            typed,
+            errors: [],
+            ...googleGrantKept,
+            restartBlocked: sealed ? "sealed" : "failed",
+          });
+        });
     }, RESET_RELAUNCH_DELAY_MS);
   };
 
@@ -749,6 +854,9 @@ export function StorageList() {
           phase={reset.phase}
           typed={reset.typed}
           errors={reset.errors}
+          googleGrantKept={reset.googleGrantKept === true}
+          googleRevokeFailed={reset.googleRevokeFailed === true}
+          restartBlocked={reset.restartBlocked}
           confirmDisabled={
             reset.phase === "running" ||
             reset.phase === "done" ||

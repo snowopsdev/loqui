@@ -48,6 +48,34 @@ test("a second failure keeps the raw words and raises an alert", async () => {
   assert.equal(calls.notices[0].words, "raw words");
 });
 
+// TR-1: a sealed refusal on Retry shows translated copy, never main's English text.
+test("a sealed failure on Retry raises translated copy, not main's [SEALED_MODE] text (TR-1)", async () => {
+  const { retryDictationCleanup } = await load();
+  const cases = [
+    [
+      "Error invoking remote method 'personal-inference:text-generate': SealedModeError: [SEALED_MODE] Sealed mode blocked cleanup to api.example.test before any socket opened; nothing was sent.",
+      "sealedMode.blocked.generic",
+    ],
+    [
+      "[SEALED_MODE:interrupted] Sealed mode stopped cleanup mid-transfer",
+      "sealedMode.interrupted.generic",
+    ],
+  ];
+  for (const [message, expected] of cases) {
+    const { calls, deps: d } = deps(async () => {
+      throw new Error(message);
+    });
+    assert.equal(await retryDictationCleanup("raw words", d), "failed");
+    assert.equal(calls.notices[0].body, expected);
+    assert.equal(calls.notices[0].words, "raw words");
+  }
+  const { calls, deps: d } = deps(async () => {
+    throw Object.assign(new Error("ignored"), { code: "SEALED_MODE" });
+  });
+  await retryDictationCleanup("raw words", d);
+  assert.equal(calls.notices[0].body, "sealedMode.interrupted.generic");
+});
+
 for (const [label, writeClipboard] of [
   ["false", async () => false],
   ["absent acknowledgment", async () => undefined],

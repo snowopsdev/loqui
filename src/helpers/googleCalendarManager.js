@@ -1,10 +1,13 @@
-const { net } = require("electron");
 const debugLogger = require("./debugLogger");
+const egress = require("./privacy/egressGate");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 const GoogleCalendarOAuth = require("./googleCalendarOAuth");
 const CalendarSyncInterval = require("./calendarSyncInterval");
 const { MAX_BUFFER_MINUTES } = require("./calendarAvailability");
 const { extractMeetingUrl } = require("./meetingJoinUrl");
 const { broadcastToWindows } = require("./windowBroadcast");
+const { createGooglePendingRevoke } = require("./googlePendingRevoke");
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 const BUFFER_COVERAGE_MS = MAX_BUFFER_MINUTES * 60 * 1000;
@@ -17,20 +20,39 @@ const SYNC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const GOOGLE_RESPONSE_STATUSES = new Set(["accepted", "declined", "tentative", "needsAction"]);
 
 class GoogleCalendarManager {
-  constructor(databaseManager, windowManager, reminderScheduler) {
+  // options.pendingRevoke = { dir, crypto }: where D-1's pending revoke lives
+  // (main passes secure-keys/ and secretCrypto). Without it a sealed
+  // disconnect cannot keep a revoke for later and says so.
+  constructor(databaseManager, windowManager, reminderScheduler, options = {}) {
     this.databaseManager = databaseManager;
     this.windowManager = windowManager;
     this.reminderScheduler = reminderScheduler;
     this.oauth = new GoogleCalendarOAuth(databaseManager);
+    this.pendingRevoke = options.pendingRevoke
+      ? createGooglePendingRevoke({
+          ...options.pendingRevoke,
+          revoke: (token) => this.oauth.revokeGrant(token),
+          isSealed: () => egress.isSealed(),
+          broadcast: (payload) => broadcastToWindows("gcal-pending-revoke", payload),
+        })
+      : null;
     this.accounts = new Map();
     this.primaryOnly = true;
     this.syncRunner = new CalendarSyncInterval(
       () => this.syncEvents().then(() => this.reminderScheduler.scheduleNextMeeting()),
-      { intervalMs: 2 * 60 * 1000, maxIntervalMs: 30 * 60 * 1000, logScope: "gcal" }
+      {
+        intervalMs: 2 * 60 * 1000,
+        maxIntervalMs: 30 * 60 * 1000,
+        logScope: "gcal",
+        isSealed: () => egress.isSealed(),
+      }
     );
   }
 
   start() {
+    // D-1: a revoke kept from a sealed disconnect runs once Loqui is unsealed,
+    // including after a restart.
+    this._runPendingRevoke();
     this._loadAccounts();
     if (this.accounts.size === 0) return;
 
@@ -46,6 +68,47 @@ class GoogleCalendarManager {
 
   stop() {
     this.syncRunner.stop();
+  }
+
+  // After Sealed mode turns off: re-arm the existing 2-minute schedule only.
+  // No request is made now; the next interval, focus or wake trigger syncs
+  // exactly as it would have without the seal.
+  resumeAfterSeal() {
+    this._runPendingRevoke();
+    this._loadAccounts();
+    if (this.accounts.size === 0) return;
+    this.syncRunner.start();
+  }
+
+  // Never while sealed (runAutomatic checks), and never awaited by the seal
+  // transition: the revoke is an ordinary ticketed calendar request.
+  _runPendingRevoke() {
+    if (!this.pendingRevoke || egress.isSealed()) return null;
+    return this.pendingRevoke
+      .runAutomatic()
+      .catch((err) =>
+        debugLogger.error("Pending Google revoke failed", { error: err.message }, "gcal")
+      );
+  }
+
+  // A disconnect while sealed keeps a pending revoke (D-1) before Loqui's own
+  // copy is deleted. Unsealed, a disconnect stays local, as before.
+  // Returns { pendingRevoke: n } or { googleGrantKept: true } when a sealed
+  // disconnect could not keep one.
+  disconnectAccount(email) {
+    let outcome = {};
+    if (egress.isSealed()) {
+      const tokens = this.databaseManager
+        .getAllGoogleTokens()
+        .filter((t) => !email || t.google_email === email)
+        .map((t) => t.refresh_token || t.access_token);
+      if (tokens.length > 0) {
+        const kept = this.pendingRevoke ? this.pendingRevoke.add(tokens) : { unavailable: true };
+        outcome = kept.queued > 0 ? { pendingRevoke: kept.queued } : { googleGrantKept: true };
+      }
+    }
+    this.disconnect(email);
+    return outcome;
   }
 
   isConnected() {
@@ -81,14 +144,22 @@ class GoogleCalendarManager {
     return result;
   }
 
+  // Returns how many grants Sealed mode kept Loqui from revoking. Those stay
+  // valid at Google; nothing revokes them automatically later (Plan 03: no
+  // automatic provider calls), so the caller tells the user (T11-M5).
   async revokeAllTokens() {
+    let sealedRefused = 0;
     try {
       const allTokens = this.databaseManager.getAllGoogleTokens();
-      await Promise.allSettled(allTokens.map((t) => this.oauth.revokeToken(t.access_token)));
+      const results = await Promise.allSettled(
+        allTokens.map((t) => this.oauth.revokeToken(t.access_token))
+      );
+      sealedRefused = results.filter((r) => r.status === "fulfilled" && r.value?.sealed).length;
     } catch (err) {
       debugLogger.error("Error revoking Google tokens", { error: err.message }, "gcal");
     }
     this.disconnect();
+    return { sealedRefused };
   }
 
   disconnect(email) {
@@ -135,6 +206,8 @@ class GoogleCalendarManager {
         this.databaseManager.saveGoogleCalendars(calendars, email);
         allCalendars.push(...calendars);
       } catch (err) {
+        // A seal ends the whole sync: no further account or calendar is tried.
+        if (isSealedModeError(err)) throw err;
         debugLogger.error("Error fetching calendars", { email, error: err.message }, "gcal");
       }
     }
@@ -152,6 +225,7 @@ class GoogleCalendarManager {
       try {
         await this._syncCalendar(calendar);
       } catch (err) {
+        if (isSealedModeError(err)) throw err;
         debugLogger.error(
           "Error syncing calendar",
           { calendarId: calendar.id, error: err.message },
@@ -354,12 +428,16 @@ class GoogleCalendarManager {
     const accessToken = await this.oauth.getValidAccessToken(accountEmail);
     const urlString = path.startsWith("http") ? path : `${CALENDAR_API_BASE}${path}`;
 
-    const response = await net.fetch(urlString, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(10000),
-      useSessionCookies: false,
-    });
+    // Gated (Task 11): refused while sealed, aborted when sealing interrupts it.
+    const response = await gatedNetFetch(
+      urlString,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(10000),
+      },
+      { task: "calendar", provider: "google" }
+    );
     const text = await response.text();
     let parsed = null;
     try {

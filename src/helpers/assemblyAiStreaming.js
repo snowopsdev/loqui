@@ -3,7 +3,10 @@ const {
   discardPendingAudio,
   zeroAudio,
   sendContentFrame,
+  holdFrame,
+  heldRecording,
 } = require("./streamingHandOff");
+const { openRealtimeSocket } = require("./sttTransport");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -199,7 +202,16 @@ class AssemblyAiStreaming {
         reject(new Error("AssemblyAI warmup connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      const socket = new WebSocket(url);
+      let socket;
+      try {
+        // A warm socket is a connection resource with no recording (Task 9a).
+        socket = openRealtimeSocket(this, url, () => new WebSocket(url));
+      } catch (error) {
+        clearTimeout(warmupTimeout);
+        settled = true;
+        reject(error);
+        return;
+      }
       this.warmConnection = socket;
       // A replaced warm socket's late events must not touch its successor.
       const isCurrent = () => this.warmConnection === socket;
@@ -441,7 +453,17 @@ class AssemblyAiStreaming {
         reject(new Error("AssemblyAI WebSocket connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      const ws = new WebSocket(url);
+      let ws;
+      try {
+        ws = openRealtimeSocket(this, url, () => new WebSocket(url));
+      } catch (error) {
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+        this.pendingResolve = null;
+        this.pendingReject = null;
+        reject(error);
+        return;
+      }
       this.ws = ws;
 
       ws.on("open", () => {
@@ -635,7 +657,8 @@ class AssemblyAiStreaming {
       .trim();
   }
 
-  sendAudio(pcmBuffer) {
+  // recording: the immutable realtime recording handle this audio belongs to.
+  sendAudio(pcmBuffer, recording) {
     if (!this._egressOpen()) {
       this.discardPendingAudio();
       return false;
@@ -644,7 +667,14 @@ class AssemblyAiStreaming {
       return false;
     }
 
-    this.pendingAudio.push(Buffer.from(pcmBuffer));
+    // A carried remainder belongs to the recording it was captured for. It is
+    // never merged into another recording's frame (Task 9a).
+    if (this.pendingAudio.some((part) => heldRecording(part) !== recording)) {
+      for (const part of this.pendingAudio) zeroAudio(part);
+      this.pendingAudio = [];
+      this.pendingAudioBytes = 0;
+    }
+    this.pendingAudio.push(holdFrame(Buffer.from(pcmBuffer), recording));
     this.pendingAudioBytes += pcmBuffer.length;
     const minBytes = minFrameBytes(this.sessionSampleRate);
     if (this.pendingAudioBytes < minBytes) {
@@ -663,11 +693,11 @@ class AssemblyAiStreaming {
     let offset = 0;
     while (frame.length - offset >= minBytes) {
       const end = Math.min(offset + maxBytes, frame.length);
-      sendContentFrame(this, frame.subarray(offset, end));
+      sendContentFrame(this, frame.subarray(offset, end), recording);
       offset = end;
     }
     if (offset < frame.length) {
-      const remainder = Buffer.from(frame.subarray(offset));
+      const remainder = holdFrame(Buffer.from(frame.subarray(offset)), recording);
       this.pendingAudio.push(remainder);
       this.pendingAudioBytes = remainder.length;
     }

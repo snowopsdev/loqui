@@ -114,6 +114,7 @@ export type CleanupSituation =
   | "modelSetup"
   | "needsConnection"
   | "needsKey"
+  | "nativeUnavailable"
   | "unreachable";
 
 const UNMET: Record<Exclude<CleanupChoice, "none">, CleanupSituation> = {
@@ -148,6 +149,10 @@ export function cleanupSituation(
       return "needsModel";
     case "needsKey":
       return "needsKey";
+    case "unreachable":
+      // Plan 07 (fix round 1, I1): main attests the local engine doesn't run
+      // while sealed on this build; that is not a server Loqui can't reach.
+      return route.state.detail === "nativeUnavailable" ? "nativeUnavailable" : "unreachable";
     default:
       return "unreachable";
   }

@@ -6,6 +6,12 @@ const { WebSocketServer } = require("ws");
 const AssemblyAiStreaming = require("../../src/helpers/assemblyAiStreaming");
 const { deferred } = require("./harness/deferred");
 
+const { fixtureRecording } = require("./harness/realtimeRecording");
+const REC = fixtureRecording();
+
+// Task 9a: this fixture models an unsealed main; its sockets are ordinary connections.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+
 async function withPrematureCloseServer(run) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await new Promise((resolve) => server.once("listening", resolve));
@@ -208,7 +214,7 @@ async function collectFrames(chunks, assertFrames) {
           mode: "byok",
           sampleRate: MEETING_SAMPLE_RATE,
         });
-        for (const bytes of chunks) streaming.sendAudio(Buffer.alloc(bytes));
+        for (const bytes of chunks) streaming.sendAudio(Buffer.alloc(bytes), REC);
         await Promise.race([
           allReceived.promise,
           new Promise((_, reject) =>

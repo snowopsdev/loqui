@@ -1,4 +1,5 @@
-const { net } = require("electron");
+const { isSealedModeError } = require("./privacy/egressPolicy");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
 const { runOAuthLoopbackFlow, OAuthFlowError } = require("./oauthLoopbackFlow");
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -41,8 +42,10 @@ class GoogleCalendarOAuth {
         });
         return `${GOOGLE_AUTH_URL}?${params.toString()}`;
       },
-      handleCallback: async (code, redirectUri, codeVerifier) => {
-        const tokenData = await this.exchangeCodeForTokens(code, redirectUri, codeVerifier);
+      handleCallback: async (code, redirectUri, codeVerifier, signal) => {
+        const tokenData = await this.exchangeCodeForTokens(code, redirectUri, codeVerifier, signal);
+        // A cancelled flow (sealing) saves nothing, even if the reply arrived.
+        signal?.throwIfAborted();
 
         if (tokenData.error) {
           throw new OAuthFlowError(
@@ -89,7 +92,7 @@ class GoogleCalendarOAuth {
     return params;
   }
 
-  async exchangeCodeForTokens(code, redirectUri, codeVerifier) {
+  async exchangeCodeForTokens(code, redirectUri, codeVerifier, signal) {
     const body = new URLSearchParams({
       code,
       ...this._clientParams(),
@@ -98,7 +101,7 @@ class GoogleCalendarOAuth {
       code_verifier: codeVerifier,
     }).toString();
 
-    return this._httpsPost(GOOGLE_TOKEN_URL, body);
+    return this._httpsPost(GOOGLE_TOKEN_URL, body, signal);
   }
 
   async refreshAccessToken(refreshToken) {
@@ -140,23 +143,62 @@ class GoogleCalendarOAuth {
     return tokens.access_token;
   }
 
+  // Best-effort: the token may already be revoked or the network down. The
+  // result says whether Sealed mode stopped the request (T11-M5), so the
+  // caller can tell the user the grant stays valid at Google.
   async revokeToken(token) {
     const body = new URLSearchParams({ token }).toString();
     try {
       await this._httpsPost("https://oauth2.googleapis.com/revoke", body);
-    } catch {
-      // Best-effort — token may already be revoked or network unavailable
+      return { revoked: true, sealed: false };
+    } catch (error) {
+      return { revoked: false, sealed: isSealedModeError(error) };
     }
   }
 
-  async _httpsPost(urlString, body) {
-    const response = await net.fetch(urlString, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-      signal: AbortSignal.timeout(10000),
-      useSessionCookies: false,
-    });
+  // D-1's pending revoke: done only when Google accepted it (HTTP 200), or
+  // answered that the token is no longer valid (400 invalid_token: the grant
+  // is already gone). Anything else, including a sealed refusal, keeps it.
+  async revokeGrant(token) {
+    const body = new URLSearchParams({ token }).toString();
+    try {
+      const response = await gatedNetFetch(
+        "https://oauth2.googleapis.com/revoke",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body,
+          signal: AbortSignal.timeout(10000),
+        },
+        { task: "calendar", provider: "google" }
+      );
+      // The body is always read first (I7); then the status decides.
+      const text = await response.text();
+      const status = response.status;
+      if (status === 200) return { ok: true };
+      if (status === 400 && /"invalid_token"/.test(text)) return { ok: true };
+      return { ok: false, failure: status >= 500 ? "http5xx" : "http4xx" };
+    } catch (error) {
+      return isSealedModeError(error)
+        ? { ok: false, sealed: true, failure: "sealed" }
+        : { ok: false, failure: "network" };
+    }
+  }
+
+  // Every Google OAuth request goes through the egress gate (Task 11): refused
+  // while sealed before any socket, aborted when sealing interrupts it.
+  async _httpsPost(urlString, body, signal) {
+    const timeout = AbortSignal.timeout(10000);
+    const response = await gatedNetFetch(
+      urlString,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      },
+      { task: "calendar", provider: "google" }
+    );
     const text = await response.text();
     try {
       return JSON.parse(text);

@@ -40,8 +40,13 @@ class MeetingDetectionEngine {
       now = Date.now,
       setInterval = global.setInterval,
       clearInterval = global.clearInterval,
+      // Main's sealed state. While sealed the detectors stay stopped: they
+      // poll OS tools (pactl, ps) that Sealed mode refuses (final review I1).
+      isSealed = () => false,
     } = {}
   ) {
+    this._isSealed = isSealed;
+    this._started = false;
     this.reminderScheduler = reminderScheduler;
     this.meetingProcessDetector = meetingProcessDetector;
     this.audioActivityDetector = audioActivityDetector;
@@ -162,8 +167,17 @@ class MeetingDetectionEngine {
     );
   }
 
+  // A sealed state that cannot be read is sealed.
+  _sealed() {
+    try {
+      return this._isSealed() !== false;
+    } catch {
+      return true;
+    }
+  }
+
   _syncAudioActivityDetector() {
-    if (this.preferences.audioDetection || this._isAutoEndWanted()) {
+    if (!this._sealed() && (this.preferences.audioDetection || this._isAutoEndWanted())) {
       return this.audioActivityDetector.start();
     }
 
@@ -174,7 +188,7 @@ class MeetingDetectionEngine {
   // The process-exit fast path needs the detector even when the user has turned
   // process detection off for meeting prompts.
   _syncMeetingProcessDetector() {
-    if (this.preferences.processDetection || this._isAutoEndWanted()) {
+    if (!this._sealed() && (this.preferences.processDetection || this._isAutoEndWanted())) {
       this.meetingProcessDetector.start();
       return;
     }
@@ -748,12 +762,27 @@ class MeetingDetectionEngine {
 
   start() {
     debugLogger.info("Meeting detection engine started", this.preferences, "meeting");
+    this._started = true;
     this._syncMeetingProcessDetector();
     this._syncAudioActivityDetector();
   }
 
+  // Seal transition hooks (privacyBoot.createSealTransition). Pausing keeps
+  // preferences and recording state; only the polling detectors stop.
+  pauseForSeal() {
+    this.meetingProcessDetector.stop();
+    this.audioActivityDetector.stop();
+  }
+
+  resumeAfterSeal() {
+    if (!this._started || this._sealed()) return undefined;
+    this._syncMeetingProcessDetector();
+    return this._syncAudioActivityDetector();
+  }
+
   stop() {
     debugLogger.info("Meeting detection engine stopped", {}, "meeting");
+    this._started = false;
     this._deactivateAutoEnd();
     this._recordingSession = null;
     this.meetingProcessDetector.stop();

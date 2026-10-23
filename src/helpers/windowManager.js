@@ -16,7 +16,11 @@ const DragManager = require("./dragManager");
 const MainWindowPlacementCoordinator = require("./mainWindowPlacementCoordinator");
 const MenuManager = require("./menuManager");
 const DevServerManager = require("./devServerManager");
-const { isAllowedAppNavigation, isExternalBrowserUrl } = require("./navigationGuard");
+const {
+  isAllowedAppNavigation,
+  isExternalBrowserUrl,
+  guardWindowNavigation,
+} = require("./navigationGuard");
 const { pathToFileURL } = require("url");
 const dockManager = require("./dockManager");
 const { i18nMain } = require("./i18nMain");
@@ -221,6 +225,8 @@ class WindowManager {
       ...MAIN_WINDOW_CONFIG,
       ...position,
     });
+    // Assistant answers render links here: no in-app windows (I3).
+    this._guardWindowNavigation(this.mainWindow);
 
     this.setMainWindowInteractivity(false);
     this.registerMainWindowEvents(this.mainWindow.webContents.id);
@@ -1461,6 +1467,31 @@ class WindowManager {
     return result;
   }
 
+  // Every window shares one app document (index.html with a query), so one
+  // app URL serves the navigation check. Unknown is null: nothing is allowed.
+  _appUrl() {
+    try {
+      return (
+        DevServerManager.getAppUrl(false) ??
+        pathToFileURL(DevServerManager.getAppFilePath(false).path).href
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  // Main, pill and notification windows: deny window.open and navigation away
+  // from the app; http(s) and mailto go through the guarded opener, which
+  // asks while sealed (final review I3, T11-M7). The control panel installs
+  // the equivalent handlers itself.
+  _guardWindowNavigation(win) {
+    guardWindowNavigation(win.webContents, {
+      getAppUrl: () => this._appUrl(),
+      openExternal: (url) => this.openExternalUrl(url),
+      allowDevtools: !app.isPackaged,
+    });
+  }
+
   openExternalUrl(url, showError = true) {
     openUrlInExternalBrowser(url).catch((error) => {
       if (showError) {
@@ -1496,7 +1527,7 @@ class WindowManager {
         DevServerManager.getAppUrl(true) ??
         pathToFileURL(DevServerManager.getAppFilePath(true).path).href;
 
-      if (isAllowedAppNavigation(url, appUrl)) {
+      if (isAllowedAppNavigation(url, appUrl, { allowDevtools: !app.isPackaged })) {
         return;
       }
 
@@ -2204,6 +2235,7 @@ class WindowManager {
         ...NOTIFICATION_WINDOW_CONFIG,
         ...AGENT_DICTATION_PILL_SIZE,
       });
+      this._guardWindowNavigation(pillWindow);
       this.agentDictationPillWindow = pillWindow;
       this._agentDictationPillReady = false;
       this._agentDictationPillSize = AGENT_DICTATION_PILL_SIZE;
@@ -2481,6 +2513,7 @@ class WindowManager {
       ...NOTIFICATION_WINDOW_CONFIG,
       ...position,
     });
+    this._guardWindowNavigation(win);
     this.notificationWindow = win;
     prompt.window = win;
 

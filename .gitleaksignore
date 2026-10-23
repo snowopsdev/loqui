@@ -21,3 +21,12 @@ be12d046466265df5d686565f101df8b2f278874:docs/superpowers/plans/2026-10-15-loqui
 1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:295
 1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:436
 1002e7afbf54fea21caefdfd60aea96892517e22:test/components/commandSearchMounted.test.js:generic-api-key:437
+## Reviewed false positives: Plan 07a's key-shaped model-id filter fixtures (synthetic or
+## vendor-documented example values such as AKIAIOSFODNN7EXAMPLE) and RFC 6455's sample
+## WebSocket key ("the sample nonce"). None is a real credential.
+619d26bc637a24890382a8ab1ce71c6d0da3a81c:test/helpers/egressGate.test.js:github-pat:1037
+619d26bc637a24890382a8ab1ce71c6d0da3a81c:test/helpers/egressGate.test.js:slack-bot-token:1038
+619d26bc637a24890382a8ab1ce71c6d0da3a81c:test/helpers/flightRecorder.test.js:github-pat:184
+619d26bc637a24890382a8ab1ce71c6d0da3a81c:test/helpers/flightRecorder.test.js:slack-bot-token:185
+619d26bc637a24890382a8ab1ce71c6d0da3a81c:test/helpers/flightRecorder.test.js:generic-api-key:190
+610766821d806fd184f109972e616d2fcdbb33ae:test/scripts/sealedAcceptance.test.js:generic-api-key:57

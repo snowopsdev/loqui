@@ -32,6 +32,7 @@ import { buildRagContext } from "./ragContext";
 import { resolveRoute, routeSnapshotFromSettings } from "../../lib/routes";
 import { toMessageRoute } from "./messageRoute";
 import type { RagNoteRef } from "./citations";
+import { chatErrorContent } from "./chatErrorContent";
 type PinnedContext = { text: string; notes: RagNoteRef[] };
 const STREAM_FLUSH_INTERVAL_MS = 32;
 
@@ -691,7 +692,7 @@ export function useChatStreaming({
               m.id === assistantId
                 ? {
                     ...m,
-                    content: `${t("agentMode.chat.errorPrefix")}: ${(error as Error).message}`,
+                    content: chatErrorContent(error, t),
                     isStreaming: false,
                   }
                 : m

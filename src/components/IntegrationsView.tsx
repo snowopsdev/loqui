@@ -4,6 +4,11 @@ import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { CalendarAccount } from "../types/calendar";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
+import {
+  calendarConnectFailure,
+  SEALED_CONNECT_COPY,
+  type CalendarConnectFailure,
+} from "../utils/calendarConnectOutcome";
 import { CalendarDays, Info, Loader2, Mail, Plus, Unlink } from "./icons";
 import { cn } from "./lib/utils";
 import { Badge } from "./ui/badge";
@@ -13,6 +18,8 @@ import { AlertDialog, ConfirmDialog } from "./ui/dialog";
 import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
 import { SettingsPanel, SettingsPanelRow, SettingsRow } from "./ui/SettingsSection";
 import { Toggle } from "./ui/toggle";
+import { notify } from "./ui/notices";
+import { GOOGLE_ACCOUNT_PERMISSIONS_URL } from "../utils/googleAccount";
 
 import appleCalendarIcon from "../assets/icons/apple-calendar.svg";
 import googleCalendarIcon from "../assets/icons/google-calendar.svg";
@@ -173,6 +180,23 @@ export default function IntegrationsView() {
   const [appleConnectError, setAppleConnectError] = useState<"denied" | "failed" | null>(null);
   // i18n prefix of the provider whose OAuth flow failed, e.g. "integrations.googleCalendar"
   const [oauthErrorKey, setOauthErrorKey] = useState<string | null>(null);
+  // T11-M6: Sealed mode refused or interrupted a connect; honest copy, not "failed".
+  const [sealedConnect, setSealedConnect] = useState<Extract<
+    CalendarConnectFailure,
+    `sealed${string}`
+  > | null>(null);
+  const showConnectFailure = useCallback(
+    (failure: CalendarConnectFailure | null, onFailed: () => void) => {
+      if (
+        failure === "sealedRefused" ||
+        failure === "sealedInterrupted" ||
+        failure === "sealedNative"
+      )
+        setSealedConnect(failure);
+      else if (failure === "failed" || failure === "denied") onFailed();
+    },
+    []
+  );
 
   const systemAudio = useSystemAudioPermission();
   const { request: requestSystemAudioAccess } = systemAudio;
@@ -190,14 +214,15 @@ export default function IntegrationsView() {
           ...current.filter((a) => a.email !== result.email),
           { email: result.email },
         ]);
-      } else if (!result?.error?.includes("access_denied")) {
-        // access_denied means the user cancelled on the consent screen
-        setOauthErrorKey("integrations.googleCalendar");
+      } else {
+        showConnectFailure(calendarConnectFailure(result, "oauth"), () =>
+          setOauthErrorKey("integrations.googleCalendar")
+        );
       }
     } finally {
       setIsConnecting(false);
     }
-  }, [setGcalAccounts]);
+  }, [setGcalAccounts, showConnectFailure]);
 
   const startMicrosoftOAuth = useCallback(async () => {
     setIsMsConnecting(true);
@@ -209,13 +234,15 @@ export default function IntegrationsView() {
           ...current.filter((a) => a.email !== result.email),
           { email: result.email },
         ]);
-      } else if (!result?.error?.includes("access_denied")) {
-        setOauthErrorKey("integrations.microsoftCalendar");
+      } else {
+        showConnectFailure(calendarConnectFailure(result, "oauth"), () =>
+          setOauthErrorKey("integrations.microsoftCalendar")
+        );
       }
     } finally {
       setIsMsConnecting(false);
     }
-  }, [setMcalAccounts]);
+  }, [setMcalAccounts, showConnectFailure]);
 
   const connectAppleCalendar = useCallback(async () => {
     setIsAppleConnecting(true);
@@ -226,12 +253,15 @@ export default function IntegrationsView() {
       } else {
         // Only send the user to Privacy settings when access was actually
         // denied; helper-missing/snapshot-failed are not permission problems.
-        setAppleConnectError(result?.reason === "denied" ? "denied" : "failed");
+        const failure = calendarConnectFailure(result, "apple");
+        showConnectFailure(failure, () =>
+          setAppleConnectError(failure === "denied" ? "denied" : "failed")
+        );
       }
     } finally {
       setIsAppleConnecting(false);
     }
-  }, [setAppleCalendarConnected]);
+  }, [setAppleCalendarConnected, showConnectFailure]);
 
   const withSystemAudioGate = useCallback(
     async (connect: () => Promise<void>) => {
@@ -272,14 +302,31 @@ export default function IntegrationsView() {
     async (email: string) => {
       setDisconnectingEmail(email);
       try {
-        await window.electronAPI?.gcalDisconnect?.(email);
+        const result = await window.electronAPI?.gcalDisconnect?.(email);
+        // D-1: a sealed disconnect that could not keep a revoke for later.
+        // (A kept one is announced by main, through GoogleRevokeNoticeListener.)
+        if (result?.googleGrantKept) {
+          notify({
+            kind: "alert",
+            title: t("sealedMode.calendar.revokeFailedTitle"),
+            body: t("sealedMode.calendar.revokeUnsaved"),
+            actions: [
+              {
+                label: t("sealedMode.calendar.revokeOpenAccount"),
+                onClick: () => {
+                  void window.electronAPI?.openExternal?.(GOOGLE_ACCOUNT_PERMISSIONS_URL);
+                },
+              },
+            ],
+          });
+        }
         const current = useSettingsStore.getState().gcalAccounts;
         setGcalAccounts(current.filter((a) => a.email !== email));
       } finally {
         setDisconnectingEmail(null);
       }
     },
-    [setGcalAccounts]
+    [setGcalAccounts, t]
   );
 
   const handleMicrosoftDisconnect = useCallback(
@@ -507,6 +554,14 @@ export default function IntegrationsView() {
         onOpenChange={(open) => !open && setAppleConnectError(null)}
         title={t("integrations.appleCalendar.connectFailed")}
         description={t("integrations.appleCalendar.connectFailedDescription")}
+        onOk={() => {}}
+      />
+
+      <AlertDialog
+        open={sealedConnect !== null}
+        onOpenChange={(open) => !open && setSealedConnect(null)}
+        title={t("sealedMode.calendar.connectTitle")}
+        description={sealedConnect ? t(SEALED_CONNECT_COPY[sealedConnect]) : ""}
         onOk={() => {}}
       />
 

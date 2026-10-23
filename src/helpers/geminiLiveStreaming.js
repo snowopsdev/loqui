@@ -3,7 +3,10 @@ const {
   discardPendingAudio,
   zeroAudio,
   sendContentFrame,
+  holdFrame,
+  heldRecording,
 } = require("./streamingHandOff");
+const { openRealtimeSocket } = require("./sttTransport");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 const { computePcm16Rms } = require("../utils/audioUtils");
@@ -206,7 +209,19 @@ class GeminiLiveStreaming {
         reject(new Error("Gemini Live connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      const ws = new WebSocket(url);
+      let ws;
+      try {
+        // Every socket, including a re-minted one, is its own connection (Task 9a).
+        ws = openRealtimeSocket(this, url, () => new WebSocket(url));
+      } catch (error) {
+        this.isConnecting = false;
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+        this.pendingResolve = null;
+        this.pendingReject = null;
+        reject(error);
+        return;
+      }
       this.ws = ws;
 
       ws.on("open", () => {
@@ -382,7 +397,7 @@ class GeminiLiveStreaming {
     }
   }
 
-  _sendAudioFrame(pcmBuffer) {
+  _sendAudioFrame(pcmBuffer, recording) {
     if (!this._egressOpen()) {
       this.discardPendingAudio();
       return false;
@@ -393,13 +408,15 @@ class GeminiLiveStreaming {
         realtimeInput: {
           audio: { data: pcmBuffer.toString("base64"), mimeType: `audio/pcm;rate=${SAMPLE_RATE}` },
         },
-      })
+      }),
+      recording
     );
     this.audioBytesSent += pcmBuffer.length;
     if (this._turnEnded && computePcm16Rms(pcmBuffer) >= TURN_REOPEN_RMS) this._turnEnded = false;
   }
 
-  sendAudio(pcmBuffer) {
+  // recording: the immutable realtime recording handle this audio belongs to.
+  sendAudio(pcmBuffer, recording) {
     if (!this._egressOpen()) {
       this.discardPendingAudio();
       return false;
@@ -411,7 +428,7 @@ class GeminiLiveStreaming {
 
     if (this.ws?.readyState !== WebSocket.OPEN || !this.isConnected) {
       if (this.bufferingAudio && this.coldStartBufferSize < COLD_START_BUFFER_MAX) {
-        const copy = Buffer.from(pcmBuffer);
+        const copy = holdFrame(Buffer.from(pcmBuffer), recording);
         this.coldStartBuffer.push(copy);
         this.coldStartBufferSize += copy.length;
       }
@@ -419,7 +436,7 @@ class GeminiLiveStreaming {
     }
 
     this._flushColdStartBuffer();
-    this._sendAudioFrame(pcmBuffer);
+    this._sendAudioFrame(pcmBuffer, recording);
     return true;
   }
 
@@ -434,7 +451,7 @@ class GeminiLiveStreaming {
       bytes: this.coldStartBufferSize,
     });
     for (const buffered of this.coldStartBuffer) {
-      this._sendAudioFrame(buffered);
+      this._sendAudioFrame(buffered, heldRecording(buffered));
       zeroAudio(buffered);
     }
     this.coldStartBuffer = [];

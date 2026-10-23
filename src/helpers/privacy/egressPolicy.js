@@ -1,0 +1,316 @@
+const net = require("node:net");
+
+const ROUTE_TASKS = Object.freeze([
+  "dictationStt",
+  "noteRecordingStt",
+  "uploadStt",
+  "dictationCleanup",
+  "voiceAssistant",
+  "assistantVision",
+  "translation",
+  "noteFormatting",
+  "chat",
+  "speakerId",
+  "semanticSearch",
+]);
+const PURPOSE_TASKS = Object.freeze([
+  "providerCheck",
+  "modelDownload",
+  "runtimeDownload",
+  "urlImport",
+  "appUpdate",
+  "codex",
+  "calendar",
+  // A program start main refused while sealed. Not a request: nothing was
+  // sent, and the row names the program, not a host (final review I1).
+  "nativeLaunch",
+  "unattributed",
+]);
+const EGRESS_TASKS = Object.freeze([...ROUTE_TASKS, ...PURPOSE_TASKS]);
+const SCOPE_TO_TASK = Object.freeze({
+  dictationCleanup: "dictationCleanup",
+  dictationAgent: "voiceAssistant",
+  dictationAgentVision: "assistantVision",
+  noteFormatting: "noteFormatting",
+  chatIntelligence: "chat",
+  dictationTranslation: "translation",
+});
+
+function taskForScope(scope) {
+  return Object.hasOwn(SCOPE_TO_TASK, scope) ? SCOPE_TO_TASK[scope] : "unattributed";
+}
+
+function validDnsName(host) {
+  if (host.length > 253 || host.startsWith(".") || host.endsWith(".")) return false;
+  return host
+    .split(".")
+    .every(
+      (label) =>
+        label.length > 0 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)
+    );
+}
+
+function parsePort(port) {
+  if (port === undefined || port === "") return true;
+  if (!/^\d+$/.test(port)) return false;
+  const value = Number(port);
+  return Number.isInteger(value) && value >= 0 && value <= 65535;
+}
+
+// Returns only a validated bare host. Optional ports are accepted for host
+// fields, but paths, credentials, queries, fragments and malformed brackets
+// are never stripped into an apparently trusted host.
+function normalizeHost(value) {
+  if (typeof value !== "string") return null;
+  const input = value.trim();
+  // "%" starts an IPv6 zone id (or a percent escape): neither names a
+  // loopback address, and a zone can hide extra words (T11a-M1).
+  if (!input || /[\s/@?#\\%]/.test(input)) return null;
+
+  let rawHost;
+  let port;
+  if (input.startsWith("[")) {
+    const close = input.indexOf("]");
+    if (close < 0) return null;
+    rawHost = input.slice(1, close);
+    const rest = input.slice(close + 1);
+    if (rest && !rest.startsWith(":")) return null;
+    if (rest.startsWith(":")) port = rest.slice(1);
+    if (net.isIP(rawHost) !== 6) return null;
+  } else {
+    if (input.includes("[") || input.includes("]")) return null;
+    const colonCount = (input.match(/:/g) || []).length;
+    if (colonCount > 1) {
+      rawHost = input;
+      if (net.isIP(rawHost) !== 6) return null;
+    } else if (colonCount === 1) {
+      [rawHost, port] = input.split(":");
+    } else {
+      rawHost = input;
+    }
+  }
+  if (!parsePort(port)) return null;
+
+  rawHost = rawHost.toLowerCase();
+  if (rawHost.endsWith(".")) rawHost = rawHost.slice(0, -1);
+  if (!rawHost) return null;
+  if (net.isIP(rawHost)) return rawHost;
+  // Reject nonstandard numeric IPv4 spellings that WHATWG URL would otherwise
+  // reinterpret (for example 127.1 or 0177.0.0.1).
+  if (/^[0-9.]+$/.test(rawHost)) return null;
+  return validDnsName(rawHost) ? rawHost : null;
+}
+
+function authorityHost(authority) {
+  const at = authority.lastIndexOf("@");
+  const raw = authority.slice(at + 1);
+  if (!raw) return null;
+  if (raw.startsWith("[")) {
+    const close = raw.indexOf("]");
+    if (close < 0) return null;
+    const host = raw.slice(1, close);
+    const tail = raw.slice(close + 1);
+    return net.isIP(host) === 6 && (!tail || (tail.startsWith(":") && parsePort(tail.slice(1))))
+      ? normalizeHost(host)
+      : null;
+  }
+  if (raw.includes("[") || raw.includes("]")) return null;
+  const colon = raw.lastIndexOf(":");
+  if (colon >= 0) {
+    if (raw.slice(0, colon).includes(":")) return null;
+    if (!parsePort(raw.slice(colon + 1))) return null;
+  }
+  return normalizeHost(raw);
+}
+
+function sameHostAddress(left, right) {
+  if (left === right) return true;
+  if (net.isIP(left) !== 6 || net.isIP(right) !== 6) return false;
+  const leftWords = ipv6Words(left);
+  const rightWords = ipv6Words(right);
+  return (
+    !!leftWords && !!rightWords && leftWords.every((word, index) => word === rightWords[index])
+  );
+}
+
+function hostOf(target) {
+  if (target instanceof URL) {
+    const authority = target.href.match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i)?.[1];
+    return authority ? authorityHost(authority) : null;
+  }
+  if (target && typeof target === "object") {
+    const candidate = target.hostname ?? target.host;
+    return normalizeHost(candidate);
+  }
+  if (typeof target !== "string") return null;
+  const match = target.match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i);
+  if (!match) return null;
+  // WHATWG treats backslashes as separators for special URLs and strips some
+  // ASCII controls during parsing. Reject these raw authority spellings so
+  // validation cannot authorize a different destination than the transport.
+  if (/[\\\u0000-\u0020\u007f]/.test(match[1])) return null;
+  const host = authorityHost(match[1]);
+  if (!host) return null;
+  try {
+    const parsed = new URL(target);
+    const parsedHost = normalizeHost(parsed.hostname);
+    if (!parsedHost || !sameHostAddress(parsedHost, host)) return null;
+    // Do not let URL's permissive legacy IPv4 parser turn malformed raw
+    // numeric hosts into a loopback address.
+    if (
+      parsed.hostname &&
+      net.isIP(parsed.hostname) === 4 &&
+      !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(
+        match[1].slice(match[1].lastIndexOf("@") + 1).replace(/:\d+$/, "")
+      )
+    )
+      return null;
+    return parsedHost;
+  } catch {
+    return null;
+  }
+}
+
+function ipv6Words(host) {
+  let address = host;
+  if (address.includes(".")) {
+    const colon = address.lastIndexOf(":");
+    if (colon < 0) return null;
+    const octets = address
+      .slice(colon + 1)
+      .split(".")
+      .map(Number);
+    if (octets.length !== 4 || octets.some((octet) => octet < 0 || octet > 255)) return null;
+    const high = ((octets[0] << 8) | octets[1]).toString(16);
+    const low = ((octets[2] << 8) | octets[3]).toString(16);
+    address = `${address.slice(0, colon)}:${high}:${low}`;
+  }
+  const halves = address.split("::");
+  if (halves.length > 2) return null;
+  // Hex words only: a zone suffix ("1%lo") is not a word.
+  const parseHalf = (part) =>
+    part
+      ? part.split(":").map((word) => (/^[0-9a-f]{1,4}$/i.test(word) ? parseInt(word, 16) : NaN))
+      : [];
+  const left = parseHalf(halves[0]);
+  const right = halves.length === 2 ? parseHalf(halves[1]) : [];
+  if ([...left, ...right].some(Number.isNaN)) return null;
+  const missing = 8 - left.length - right.length;
+  // Too many words for "::" to stand for: not an address (and Array(-n) throws).
+  if (missing < 0) return null;
+  const words = halves.length === 2 ? [...left, ...Array(missing).fill(0), ...right] : left;
+  return words.length === 8 ? words : null;
+}
+
+function isLoopbackHost(value) {
+  const host = normalizeHost(value);
+  if (!host) return false;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (net.isIP(host) === 4) return Number(host.split(".")[0]) === 127;
+  if (net.isIP(host) !== 6) return false;
+  const words = ipv6Words(host);
+  if (!words) return false;
+  if (words.slice(0, 7).every((word) => word === 0) && words[7] === 1) return true;
+  return (
+    words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff && words[6] >> 8 === 127
+  );
+}
+
+function decideEgress({ sealed, target }) {
+  const host = hostOf(target);
+  const loopback = isLoopbackHost(host);
+  if (loopback) return { allow: true, host, loopback: true, reason: "loopback" };
+  return {
+    allow: !sealed,
+    host: host ?? "unknown",
+    loopback: false,
+    reason: sealed ? "sealed" : "unsealed",
+  };
+}
+
+// Credential shapes a user could paste into a model-id field (Task 18
+// T18-07). The flight recorder keeps metadata only, so a model id that looks
+// like a key is dropped rather than stored:
+// - a known key prefix at the start or after a separator;
+// - a 32+ run of word characters (hex and base64 secrets);
+// - a 16+ letter/digit segment that mixes cases or letters with digits
+//   (random base64url), which real model ids do not have;
+// - a 32+ run with "-"/"_" whose segments are mostly mixed, as random
+//   base64url with separators is.
+const KEY_PREFIX =
+  /(?:^|[^A-Za-z0-9])(?:AIza|sk[-_]|AKIA|ASIA|gh[pousr]_|github_pat_|xox[a-z]-|glpat-|gsk_|hf_|ya29\.)/;
+const mixedSegment = (s) => (/[0-9]/.test(s) && /[A-Za-z]/.test(s)) || /[a-z][A-Z]/.test(s);
+function looksLikeSecret(value) {
+  if (typeof value !== "string") return false;
+  if (KEY_PREFIX.test(value) || /[A-Za-z0-9_]{32,}/.test(value)) return true;
+  for (const segment of value.match(/[A-Za-z0-9]{16,}/g) ?? [])
+    if (/[A-Z]/.test(segment) + /[a-z]/.test(segment) + /[0-9]/.test(segment) >= 2) return true;
+  for (const run of value.match(/[A-Za-z0-9_-]{32,}/g) ?? []) {
+    const segments = run.split(/[-_]+/).filter(Boolean);
+    if (segments.length >= 3 && segments.filter(mixedSegment).length * 4 >= segments.length * 3)
+      return true;
+  }
+  return false;
+}
+
+const SEALED_MODE = "SEALED_MODE";
+class SealedModeError extends Error {
+  constructor({ task, host, phase = "refused" }) {
+    const interrupted = phase === "interrupted";
+    super(
+      interrupted
+        ? `[${SEALED_MODE}:interrupted] Sealed mode interrupted ${task} to ${host}; the provider may have received part of the request.`
+        : `[${SEALED_MODE}] Sealed mode blocked ${task} to ${host} before any socket opened; nothing was sent.`
+    );
+    this.name = "SealedModeError";
+    this.code = SEALED_MODE;
+    this.messageKey = interrupted ? "sealedMode.interrupted.generic" : "sealedMode.blocked.generic";
+    this.details = { task, host, phase: interrupted ? "interrupted" : "refused" };
+  }
+}
+
+function messageOf(error) {
+  return error && typeof error.message === "string" ? error.message : "";
+}
+
+function isSealedModeError(error, depth = 0) {
+  if (!error || depth > 3) return false;
+  if (error.code === SEALED_MODE || messageOf(error).includes(`[${SEALED_MODE}`)) return true;
+  return isSealedModeError(error.cause, depth + 1);
+}
+
+function sealedPhaseOf(error, depth = 0) {
+  if (!error || depth > 3) return null;
+  if (error.details?.phase === "interrupted" || error.details?.phase === "refused")
+    return error.details.phase;
+  const message = messageOf(error);
+  if (message.includes(`[${SEALED_MODE}:interrupted]`)) return "interrupted";
+  if (message.includes(`[${SEALED_MODE}]`)) return "refused";
+  // Prefer explicit phase evidence anywhere in the bounded cause chain over
+  // a wrapper's code-only fallback, which cannot distinguish interruption.
+  const causePhase = sealedPhaseOf(error.cause, depth + 1);
+  if (causePhase) return causePhase;
+  // No phase anywhere: unknown, never "nothing was sent" (Task 18 T18-06).
+  // Main states every refusal explicitly; the safe reading of silence is that
+  // the provider may have received part of the request.
+  if (error.code === SEALED_MODE) return "interrupted";
+  return null;
+}
+
+module.exports = {
+  ROUTE_TASKS,
+  PURPOSE_TASKS,
+  EGRESS_TASKS,
+  SCOPE_TO_TASK,
+  taskForScope,
+  normalizeHost,
+  hostOf,
+  sameHostAddress,
+  isLoopbackHost,
+  decideEgress,
+  looksLikeSecret,
+  SEALED_MODE,
+  SealedModeError,
+  isSealedModeError,
+  sealedPhaseOf,
+};

@@ -183,3 +183,107 @@ for (const boundary of ["import", "result"]) {
     assert.equal(await admitted.result, "Cleaned A.");
   });
 }
+
+// Task 18 T18-06: a local cleanup envelope that says SEALED_MODE without
+// main's explicit "refused" is not reported as a refusal.
+test("a phase-less SEALED_MODE local cleanup envelope is never a refusal", async (t) => {
+  installBrowserGlobals(t, { initialStorage: MIGRATED_STORAGE });
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-setup-sealed-phaseless-" });
+  const service = await vite.ssrLoadModule("/services/capturedCleanupOperation.ts");
+  const { sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
+  for (const [envelope, phase] of [
+    [{ success: false, code: "SEALED_MODE" }, "interrupted"],
+    [{ success: false, code: "SEALED_MODE", phase: "unknown" }, "interrupted"],
+    [{ success: false, code: "SEALED_MODE", phase: "refused" }, "refused"],
+  ]) {
+    globalThis.window.electronAPI = {
+      processLocalReasoning: async () => envelope,
+      personalInference: {
+        captureTextOperation: async () => "fixture-token",
+        runTextOperation: async () => ({ text: "unused" }),
+        retireTextOperation: async () => {},
+      },
+    };
+    const operation = service.createCapturedCleanupOperation(undefined, {
+      provider: "local",
+      model: "fixture-model",
+      inferenceScope: "dictationCleanup",
+    });
+    await assert.rejects(
+      operation.run("fixture words"),
+      (error) => error.code === "SEALED_MODE" && sealedPhaseOf(error) === phase,
+      JSON.stringify(envelope)
+    );
+  }
+});
+
+// Re-review m3: a remote cleanup rejected with SEALED_MODE but no stated phase
+// (no details, no marker) is never reported as a refusal.
+test("a phase-less SEALED_MODE remote cleanup rejection is interrupted, never refused", async (t) => {
+  installBrowserGlobals(t, { initialStorage: MIGRATED_STORAGE });
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-setup-sealed-remote-phaseless-",
+  });
+  const service = await vite.ssrLoadModule("/services/capturedCleanupOperation.ts");
+  const { sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
+  globalThis.window.electronAPI = {
+    personalInference: {
+      captureTextOperation: async () => "fixture-token",
+      runTextOperation: async () => {
+        throw Object.assign(new Error("stopped"), { code: "SEALED_MODE" });
+      },
+      retireTextOperation: async () => {},
+    },
+  };
+  const operation = service.createCapturedCleanupOperation(undefined, {
+    provider: "openai",
+    model: "fixture-model",
+    inferenceScope: "dictationCleanup",
+  });
+  await assert.rejects(
+    operation.run("fixture words"),
+    (error) => error.code === "SEALED_MODE" && sealedPhaseOf(error) === "interrupted"
+  );
+});
+
+// Task 8: a Sealed mode refusal or interruption from main keeps its type and
+// phase through the captured operation, under the existing translated copy.
+test("a captured cleanup refused or interrupted by Sealed mode stays typed with its phase", async (t) => {
+  installBrowserGlobals(t, { initialStorage: MIGRATED_STORAGE });
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-setup-sealed-" });
+  const service = await vite.ssrLoadModule("/services/capturedCleanupOperation.ts");
+  const { isSealedModeError, sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
+  // installBrowserGlobals restores the whole window after this test.
+  for (const phase of ["refused", "interrupted"]) {
+    const sealed = Object.assign(
+      new Error(
+        phase === "interrupted"
+          ? "[SEALED_MODE:interrupted] Sealed mode"
+          : "[SEALED_MODE] Sealed mode"
+      ),
+      { code: "SEALED_MODE", details: { phase } }
+    );
+    globalThis.window.electronAPI = {
+      personalInference: {
+        captureTextOperation: async () => "fixture-token",
+        runTextOperation: async () => {
+          throw sealed;
+        },
+        retireTextOperation: async () => {},
+      },
+    };
+    const operation = service.createCapturedCleanupOperation(undefined, {
+      provider: "openai",
+      model: "fixture-model",
+      inferenceScope: "dictationCleanup",
+    });
+    await assert.rejects(
+      operation.run("fixture words"),
+      (error) =>
+        error.code === "SEALED_MODE" &&
+        isSealedModeError(error) &&
+        sealedPhaseOf(error) === phase &&
+        error.messageKey === "setupFlow.cleanupAuthority.failed"
+    );
+  }
+});

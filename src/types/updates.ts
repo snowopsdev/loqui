@@ -9,6 +9,8 @@ export type UpdateStatus = {
   busy: boolean;
   supported: boolean;
   releasesUrl: string;
+  /** Sealed mode is on: checks and downloads are paused (main-owned). */
+  sealed?: boolean;
 };
 export interface UpdatesAPI {
   status(): Promise<UpdateStatus>;

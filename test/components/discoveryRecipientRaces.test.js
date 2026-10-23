@@ -1,3 +1,5 @@
+// Provider transports are gated (Sealed mode, Plan 07); these tests run unsealed.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
@@ -95,8 +97,9 @@ for (const mutation of ["first save", "replacement", "removal"])
     await probes.settle();
     assert.equal(calls.length, 1, "only a newly reviewed explicit click dispatches");
     assert.deepEqual(
-      calls[0][1].headers,
-      mutation === "removal" ? {} : { Authorization: "Bearer fixture-new" }
+      // The metered transport (Sealed mode) normalizes headers into a Headers object.
+      Object.fromEntries(new Headers(calls[0][1].headers)),
+      mutation === "removal" ? {} : { authorization: "Bearer fixture-new" }
     );
   });
 

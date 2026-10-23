@@ -129,6 +129,60 @@ test("change-driving: authenticated discovery runs only from the List models but
   });
 });
 
+// TR-m1: a sealed refusal embeds the host, so a host with port 401 or 403 must not
+// read as "unauthorized". The sealed test comes before the 401/403 mapping.
+test("List models: a sealed refusal never reads as unauthorized, even for a :401 host with no key", async (t) => {
+  let failure = null;
+  const api = discoveryApi([]);
+  api.personalInference.models = async () => {
+    throw failure;
+  };
+  api.personalInference.describeModels = async () => ({
+    recipientToken: "no-key-token",
+    host: "models.example.test",
+    credentialId: "custom:noteFormatting",
+    present: false,
+    generation: 1,
+  });
+  installBrowserGlobals(t, { window: { electronAPI: api } });
+  const vite = await rendererServer(t, "loqui-endpoint-sealed-401-");
+  const Panel = (await vite.ssrLoadModule("/components/OpenAICompatiblePanel.tsx")).default;
+  const probes = createProbeRoot(t);
+  const props = {
+    credentialRef: "custom:noteFormatting",
+    baseUrl: "https://models.example.test/v1",
+    onUseEndpoint() {},
+    apiKey: "",
+    saveApiKey() {},
+    model: "",
+    onSelectModel() {},
+  };
+  const alertText = async (name, error) => {
+    failure = error;
+    const panel = await probes.mount(name, () => Panel(props));
+    await probes.settle();
+    await probes.act(() => listButton(panel()).props.onClick());
+    await probes.settle();
+    const alert = findElement(panel(), (node) => node.props?.role === "alert");
+    return alert ? String(alert.props.children) : null;
+  };
+  const refused =
+    "Error invoking remote method 'personal-inference:models': SealedModeError: [SEALED_MODE] Sealed mode blocked customEndpoint to models.example.test:401 before any socket opened; nothing was sent.";
+  assert.equal(await alertText("sealed-refused", new Error(refused)), "sealedMode.blocked.generic");
+  assert.equal(
+    await alertText(
+      "sealed-interrupted",
+      new Error("[SEALED_MODE:interrupted] Sealed mode stopped customEndpoint at host:403")
+    ),
+    "sealedMode.interrupted.generic"
+  );
+  // An ordinary 401 with no key still maps to the unauthorized copy.
+  assert.equal(
+    await alertText("plain-401", new Error("HTTP 401 Unauthorized")),
+    "reasoning.custom.endpointUnauthorized"
+  );
+});
+
 // Change-driving: the OpenRouter and custom panels discovered as soon as their tab was browsed,
 // and CodexModelPicker listed models on mount.
 test("change-driving: browsing ReasoningModelSelector's custom, OpenRouter and Codex tabs sends nothing", async (t) => {

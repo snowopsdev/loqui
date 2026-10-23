@@ -209,12 +209,15 @@ function setup(t, { ttlMs, timers } = {}) {
         if (specifier !== "electron")
           throw new Error(`Unexpected preload dependency: ${specifier}`);
         return {
-          contextBridge: { exposeInMainWorld: (_name, exposed) => (api = exposed) },
+          contextBridge: {
+            executeInMainWorld: () => {},
+            exposeInMainWorld: (_name, exposed) => (api = exposed),
+          },
           ipcRenderer,
           webUtils: {},
         };
       },
-      process,
+      process: { ...process, isMainFrame: true },
     });
     contents.document = {
       deliver: (channel, payload) =>

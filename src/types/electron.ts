@@ -18,6 +18,37 @@ import type {
 } from "../services/ai/personalInferenceTypes";
 import type { TableBoardData, TableEntityRef, TablePlacement, TableViewport } from "./table";
 export type VertexAuthSource = "adc" | "apiKey";
+// A handoff to another app (browser, mail, OS settings). While sealed main asks
+// first; a declined handoff is `declined`, not an error (Task 11).
+export interface ExternalOpenResult {
+  success: boolean;
+  error?: string;
+  declined?: boolean;
+}
+// A calendar action that reaches a provider; refused while sealed (Task 11).
+// D-1: main's pending Google revoke, as the renderer may see it (no token).
+export interface GooglePendingRevokeStatus {
+  pending: number;
+  failed: number;
+  unreadable: boolean;
+  running: boolean;
+}
+export interface GooglePendingRevokeEvent {
+  // unreadable: the kept record can't be decrypted, so the grant may remain;
+  // forgotten: the user was told and main removed that record.
+  kind: "queued" | "revoked" | "failed" | "unreadable" | "forgotten";
+  revoked?: number;
+  failed?: number;
+  sealed?: boolean;
+  status: GooglePendingRevokeStatus;
+}
+
+export interface CalendarActionResult {
+  success: boolean;
+  error?: string;
+  code?: "SEALED_MODE";
+  phase?: "refused" | "interrupted";
+}
 export interface EnterpriseRouteSettings {
   bedrockRegion: string;
   azureEndpoint: string;
@@ -968,12 +999,8 @@ declare global {
     electronAPI: {
       getSearchModelStatus: () => Promise<{ downloaded: boolean }>;
       downloadSearchModel: () => Promise<{ success: boolean; error?: string }>;
-      // Sealed mode (spec §5.4, Plan 07). Optional until Plan 07 ships the
-      // preload namespace; src/stores/sealedStore.ts is its only reader.
-      privacy?: {
-        getSealed: () => Promise<boolean>;
-        onSealedChange: (callback: (sealed: boolean) => void) => (() => void) | void;
-      };
+      // Main-owned privacy and metadata recorder (Plan 07).
+      privacy: import("./privacy").PrivacyAPI;
 
       updates: import("./updates").UpdatesAPI;
       personalInference: import("../services/ai/personalInferenceTypes").PersonalInferenceAPI;
@@ -1060,7 +1087,18 @@ declare global {
           restoreClipboard?: boolean;
           allowClipboardFallback?: boolean;
         }
-      ) => Promise<{ success: true; pasted: boolean }>;
+      ) => Promise<
+        | { success: true; pasted: boolean }
+        // Sealed mode refused the native paste helpers (touch-up 3, O1).
+        // `copiedToClipboard`: main wrote the text to the clipboard and left it.
+        | {
+            success: false;
+            pasted: false;
+            code: "SEALED_MODE";
+            phase: "refused" | "interrupted";
+            copiedToClipboard: boolean;
+          }
+      >;
       captureSelectedText?: (options?: { probeEditable?: boolean }) => Promise<
         | {
             status: "selected";
@@ -1708,6 +1746,7 @@ declare global {
         text?: string;
         error?: string;
         code?: string;
+        phase?: "refused" | "interrupted";
         details?: Record<string, unknown>;
       }>;
       checkLocalReasoningAvailable: () => Promise<boolean>;
@@ -1843,7 +1882,7 @@ declare global {
       relaunchApp: () => Promise<void>;
       getAppVersion: () => Promise<AppVersionResult>;
 
-      openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+      openExternal: (url: string) => Promise<ExternalOpenResult>;
 
       // Hotkey management
       acquirePillHotkey?: (
@@ -2092,12 +2131,12 @@ declare global {
       }>;
       checkSystemAudioAccess?: () => Promise<SystemAudioAccessResult>;
       requestSystemAudioAccess?: () => Promise<SystemAudioAccessResult>;
-      openMicrophoneSettings?: () => Promise<{ success: boolean; error?: string }>;
-      openSoundInputSettings?: () => Promise<{ success: boolean; error?: string }>;
-      openAccessibilitySettings?: () => Promise<{ success: boolean; error?: string }>;
-      openSystemAudioSettings?: () => Promise<{ success: boolean; error?: string }>;
-      openScreenRecordingSettings?: () => Promise<{ success: boolean; error?: string }>;
-      openLoginItemsSettings?: () => Promise<{ success: boolean; error?: string }>;
+      openMicrophoneSettings?: () => Promise<ExternalOpenResult>;
+      openSoundInputSettings?: () => Promise<ExternalOpenResult>;
+      openAccessibilitySettings?: () => Promise<ExternalOpenResult>;
+      openSystemAudioSettings?: () => Promise<ExternalOpenResult>;
+      openScreenRecordingSettings?: () => Promise<ExternalOpenResult>;
+      openLoginItemsSettings?: () => Promise<ExternalOpenResult>;
       checkScreenRecordingAccess?: () => Promise<ScreenRecordingAccessResult>;
       requestScreenRecordingAccess?: () => Promise<ScreenRecordingAccessResult>;
       captureScreenContext?: () => Promise<ScreenContextImage | null>;
@@ -2440,8 +2479,28 @@ declare global {
       agentOpenNote?: (noteId: number) => Promise<{ success: boolean; error?: string }>;
 
       // Google Calendar
-      gcalStartOAuth?: () => Promise<{ success: boolean; email?: string; error?: string }>;
-      gcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
+      gcalStartOAuth?: () => Promise<{
+        success: boolean;
+        email?: string;
+        error?: string;
+        code?: "SEALED_MODE";
+        phase?: "refused" | "interrupted";
+      }>;
+      // D-1: a sealed disconnect keeps a pending revoke (or says it could not).
+      gcalDisconnect?: (email?: string) => Promise<{
+        success: boolean;
+        error?: string;
+        pendingRevoke?: number;
+        googleGrantKept?: true;
+      }>;
+      gcalPendingRevokeStatus?: () => Promise<GooglePendingRevokeStatus>;
+      gcalPendingRevokeForget?: () => Promise<{ removed: boolean }>;
+      gcalPendingRevokeRetry?: () => Promise<{
+        revoked: number;
+        failed: number;
+        sealed?: true;
+        skipped?: string;
+      }>;
       gcalGetConnectionStatus?: () => Promise<{
         connected: boolean;
         accounts: Array<{ email: string }>;
@@ -2451,9 +2510,9 @@ declare global {
       gcalSetCalendarSelection?: (
         calendarId: string,
         isSelected: boolean
-      ) => Promise<{ success: boolean; error?: string }>;
-      gcalSetPrimaryOnly?: (value: boolean) => Promise<{ success: boolean; error?: string }>;
-      gcalSyncEvents?: () => Promise<{ success: boolean; error?: string }>;
+      ) => Promise<CalendarActionResult>;
+      gcalSetPrimaryOnly?: (value: boolean) => Promise<CalendarActionResult>;
+      gcalSyncEvents?: () => Promise<CalendarActionResult>;
       gcalGetUpcomingEvents?: (
         windowMinutes?: number
       ) => Promise<{ success: boolean; events: any[] }>;
@@ -2699,16 +2758,23 @@ declare global {
 
       // Google Calendar event listeners
       onGcalConnectionChanged?: (callback: (data: any) => void) => () => void;
+      onGcalPendingRevoke?: (callback: (event: GooglePendingRevokeEvent) => void) => () => void;
       onGcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
       // Microsoft Calendar
-      mcalStartOAuth?: () => Promise<{ success: boolean; email?: string; error?: string }>;
+      mcalStartOAuth?: () => Promise<{
+        success: boolean;
+        email?: string;
+        error?: string;
+        code?: "SEALED_MODE";
+        phase?: "refused" | "interrupted";
+      }>;
       mcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
       mcalGetConnectionStatus?: () => Promise<{
         connected: boolean;
         accounts: Array<{ email: string }>;
       }>;
-      mcalSetPrimaryOnly?: (value: boolean) => Promise<{ success: boolean; error?: string }>;
+      mcalSetPrimaryOnly?: (value: boolean) => Promise<CalendarActionResult>;
       onMcalConnectionChanged?: (callback: (data: any) => void) => () => void;
       onMcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
@@ -2716,7 +2782,7 @@ declare global {
       acalConnect?: () => Promise<{ success: boolean; reason?: string; error?: string }>;
       acalDisconnect?: () => Promise<{ success: boolean; error?: string }>;
       acalGetConnectionStatus?: () => Promise<{ connected: boolean; sourceNames: string[] }>;
-      openCalendarPrivacySettings?: () => Promise<{ success: boolean; error?: string }>;
+      openCalendarPrivacySettings?: () => Promise<ExternalOpenResult>;
       onAcalConnectionChanged?: (
         callback: (data: { connected: boolean; sourceNames: string[] }) => void
       ) => () => void;

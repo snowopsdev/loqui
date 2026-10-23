@@ -1,3 +1,5 @@
+// Provider transports are gated (Sealed mode, Plan 07); these tests run unsealed.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");

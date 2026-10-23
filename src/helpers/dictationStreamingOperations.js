@@ -5,6 +5,22 @@ const {
   disarmFirstFrame,
   zeroAudio,
 } = require("./streamingHandOff");
+const egress = require("./privacy/egressGate");
+const {
+  realtimeProviderId,
+  realtimeTarget,
+  admitRealtimeConnection,
+  bindRealtimeEgress,
+  beginRealtimeRecording,
+  finishRealtimeRecording,
+  realtimeSealedFields,
+  realtimeFailureFields,
+} = require("./sttTransport");
+
+// Sealed mode (Task 9a): dictation streaming is the dictationStt task. Each
+// operation record owns one immutable recording handle; its adapter's sockets
+// are connection resources that never adopt that handle's identity.
+const TASK = "dictationStt";
 
 // One main authority: captured sender/attempt/adapter plus the complete main
 // credential/configuration fingerprint. Setup and ordinary dictation share it.
@@ -115,6 +131,10 @@ function createDictationStreamingOperations(
       .digest("hex");
   };
   const alive = (record) => !disposed && !record.cancelled && !record.sender.isDestroyed?.();
+  // Settles only this record's recording handle; later calls are no-ops.
+  const endRecording = (record, outcome) => {
+    if (record?.recording) finishRealtimeRecording(record.recording, outcome);
+  };
   const owns = (row, record) =>
     alive(record) &&
     dictationOperations.get(row.id) === record &&
@@ -128,6 +148,7 @@ function createDictationStreamingOperations(
     }
     record.cancelled = true;
     record.adapter.discardPendingAudio();
+    endRecording(record, "cancelled");
     return false;
   };
   const warmTransportReady = (row, record) => {
@@ -163,6 +184,7 @@ function createDictationStreamingOperations(
     const lost = () => {
       if (registry.get(row.id) !== record) return;
       record.cancelled = true;
+      endRecording(record, "cancelled");
       record.detachOwner?.();
       clearTimeout(record.idleTimer);
       releaseAdapter(record.adapter);
@@ -195,11 +217,18 @@ function createDictationStreamingOperations(
     record.adapter.onError = (error) => emit("error", error.message);
     record.adapter.onSessionEnd = (data) => emit("session-end", data || {});
   };
-  const acquireStreamingToken = async (row, event, options) => {
-    if (row.id === "corti") return host._mintStoredCortiToken(options);
-    const provider = row.id === "realtime" ? options.provider : `${row.id}-realtime`;
-    return { token: await fetchRealtimeToken(event, { ...options, provider }) };
-  };
+  // Token and auth requests (N10) belong to the connection being opened: task
+  // dictationStt, metadata only, and never a recording's correlation id.
+  const acquireStreamingToken = (row, event, options) =>
+    egress.withTask(TASK, () =>
+      egress.withContext({ provider: realtimeProviderId(options.provider) }, async () => {
+        if (row.id === "corti") return host._mintStoredCortiToken(options);
+        const provider = row.id === "realtime" ? options.provider : `${row.id}-realtime`;
+        return { token: await fetchRealtimeToken(event, { ...options, provider }) };
+      })
+    );
+  const newAdapter = (row, options) =>
+    bindRealtimeEgress(new row.Ctor(), { task: TASK, provider: options.provider });
   const connectOwnedStreaming = async (row, record, material, warm = false) => {
     const adapter = record.adapter;
     const options = record.options;
@@ -245,6 +274,8 @@ function createDictationStreamingOperations(
       let record;
       try {
         const options = normalizeStreaming(row, input);
+        // Sealed: refused before any credential read, token request or socket.
+        admitRealtimeConnection({ task: TASK, provider: options.provider, options });
         const authority = streamingAuthority(options);
         const prior = dictationWarm.get(row.id);
         if (
@@ -269,7 +300,7 @@ function createDictationStreamingOperations(
           prior.detachOwner?.();
           releaseAdapter(prior.adapter);
         }
-        const adapter = new row.Ctor();
+        const adapter = newAdapter(row, options);
         adapter.setEgressGate(() => false);
         record = {
           generation: ++dictationGeneration,
@@ -354,7 +385,7 @@ function createDictationStreamingOperations(
           releaseAdapter(record.adapter);
           if (host[row.slot] === record.adapter) host[row.slot] = null;
         }
-        return streamingStartFailure(error);
+        return { ...streamingStartFailure(error), ...realtimeFailureFields(error) };
       }
     });
     ipcMain.handle(`${row.prefix}-start`, async (event, input = {}) => {
@@ -379,7 +410,22 @@ function createDictationStreamingOperations(
             options.operationId.length > 100)
         )
           throw streamingOperationError("Invalid streaming operation identity");
-        const authority = streamingAuthority(options);
+        // A distinct recording handle for this attempt, even on a warm socket.
+        // Sealed: refused here, before any credential read, token or socket.
+        const recording = beginRealtimeRecording({
+          task: TASK,
+          provider: options.provider,
+          target: realtimeTarget(options.provider, options),
+          correlationId: labeled ? options.correlationId : null,
+          sessionId: labeled ? options.dictationSessionId : null,
+        });
+        let authority;
+        try {
+          authority = streamingAuthority(options);
+        } catch (error) {
+          finishRealtimeRecording(recording, "error");
+          throw error;
+        }
         record = {
           generation: ++dictationGeneration,
           sender: event.sender,
@@ -387,6 +433,7 @@ function createDictationStreamingOperations(
           authority,
           correlationId: options.correlationId,
           operationId: options.operationId,
+          recording,
           adapter: null,
           cancelled: false,
           pending: true,
@@ -401,13 +448,16 @@ function createDictationStreamingOperations(
         const pending = (promise) => Promise.race([promise, record.ended]);
         if (labeled) {
           const attempts = usedStreamingAttempts.get(event.sender) ?? new Set();
-          if (attempts.has(options.operationId))
+          if (attempts.has(options.operationId)) {
+            endRecording(record, "cancelled");
             throw streamingOperationError("Streaming attempt already ended");
+          }
           attempts.add(options.operationId);
           usedStreamingAttempts.set(event.sender, attempts);
         }
         if (prior) {
           prior.cancelled = true;
+          endRecording(prior, "cancelled");
           prior.detachOwner?.();
           releaseAdapter(prior.adapter);
         }
@@ -439,7 +489,7 @@ function createDictationStreamingOperations(
             releaseAdapter(warm.adapter);
           }
         }
-        const adapter = reuseAdapter ? warm.adapter : new row.Ctor();
+        const adapter = reuseAdapter ? warm.adapter : newAdapter(row, options);
         record.adapter = adapter;
         host[row.slot] = adapter;
         adapter.setLifecycleGate(() => contentAuthorized(row, record));
@@ -483,7 +533,12 @@ function createDictationStreamingOperations(
           dictationOperations.delete(row.id);
           if (host[row.slot] === record.adapter) host[row.slot] = null;
         }
-        return streamingStartFailure(error);
+        // Only this attempt's recording; a replaced attempt was ended by its successor.
+        endRecording(record, "error");
+        return {
+          ...streamingStartFailure(error),
+          ...realtimeFailureFields(error, record?.recording),
+        };
       }
     });
     ipcMain.on(`${row.prefix}-send`, (event, data, identity) => {
@@ -499,7 +554,8 @@ function createDictationStreamingOperations(
         new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength)
       );
       try {
-        record.adapter.sendAudio(frame);
+        // The immutable handle of the operation the identity selected.
+        record.adapter.sendAudio(frame, record.recording);
       } catch (error) {
         record.adapter.onError?.(error);
       } finally {
@@ -519,6 +575,7 @@ function createDictationStreamingOperations(
         return { success: false, reason: "stale-session" };
       record.cancelled = true;
       record.adapter?.discardPendingAudio();
+      endRecording(record, "cancelled");
       if (record.pending) {
         releaseAdapter(record.adapter);
         record.endPending?.();
@@ -533,6 +590,7 @@ function createDictationStreamingOperations(
         return { success: false, reason: "stale-session" };
       if (record.pending) {
         record.cancelled = true;
+        endRecording(record, "cancelled");
         record.detachOwner?.();
         // Retire only this exact attempt. A fresh Undo may reuse the frozen
         // session id immediately, but always has a new operationId/adapter.
@@ -543,21 +601,48 @@ function createDictationStreamingOperations(
         } finally {
           record.endPending?.();
         }
-        return { success: true, text: "" };
+        return { success: true, text: "", ...realtimeSealedFields(record.recording) };
       }
       if (record.stopPromise) return record.stopPromise;
       record.stopping = true;
       const adapter = record.adapter;
       record.stopPromise = Promise.resolve().then(async () => {
+        let outcome = record.cancelled ? "cancelled" : "error";
         try {
           const model = adapter.currentModel || record.options.model;
           const audioBytesSent = adapter.audioBytesSent || 0;
           const result = await adapter.disconnect(
             row.id === "realtime" ? { commit: !record.cancelled } : !record.cancelled
           );
-          return { success: true, text: result?.text || "", model, audioBytesSent };
+          if (!record.cancelled) outcome = "ok";
+          // Settled after the flush/stop acknowledgement, before the result.
+          endRecording(record, outcome);
+          const text = result?.text || "";
+          const sealed = realtimeSealedFields(record.recording);
+          return {
+            // A sealed stop with no words is a failure the renderer recovers
+            // from, never an empty success (T9a-M1).
+            success: !(sealed.code && !text),
+            text,
+            model,
+            audioBytesSent,
+            ...sealed,
+            ...(sealed.code && !text
+              ? {
+                  error:
+                    sealed.phase === "interrupted"
+                      ? "[SEALED_MODE:interrupted] Sealed mode interrupted dictationStt; the provider may have received part of the request."
+                      : "[SEALED_MODE] Sealed mode blocked dictationStt before any socket opened; nothing was sent.",
+                }
+              : {}),
+          };
         } catch (error) {
-          return { success: false, error: error.message };
+          endRecording(record, outcome);
+          return {
+            success: false,
+            error: error.message,
+            ...realtimeSealedFields(record.recording),
+          };
         } finally {
           const stillOwner = dictationOperations.get(row.id) === record;
           record.cancelled = true;
@@ -586,6 +671,7 @@ function createDictationStreamingOperations(
       for (const registry of [dictationOperations, dictationWarm]) {
         for (const [id, record] of registry) {
           record.cancelled = true;
+          endRecording(record, "cancelled");
           record.detachOwner?.();
           clearTimeout(record.idleTimer);
           record.endPending?.();

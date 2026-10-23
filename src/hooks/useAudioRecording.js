@@ -30,7 +30,14 @@ import { waitForVisualFrames } from "../utils/visualFrame";
 import { resolveLifecycleInputKind } from "../helpers/dictationRouting";
 import { createAssistantResponseDelivery } from "../helpers/assistantResponseDelivery";
 import { notify, dismissNotice, getNotices } from "../components/ui/notices";
-import { buildDictationErrorNotice, DICTATION_STATUS_NOTICE_ID } from "../components/voiceNotices";
+import {
+  buildDictationErrorNotice,
+  buildSealedRecoveryNotice,
+  DICTATION_STATUS_NOTICE_ID,
+} from "../components/voiceNotices";
+import { watchHeldRecordingCards } from "../components/heldRecordingCards";
+import { getSealedSnapshot, subscribeSealed } from "../stores/sealedStore";
+import { discardRecovery, recoveryCount } from "../lib/sealedRecovery";
 import { recordCleanupFailure } from "../stores/cleanupFailureStore";
 
 // Maps a failed selection-replacement code to its `selectionEditing.*` toast
@@ -589,6 +596,33 @@ export const useAudioRecording = (options = {}) => {
     // would otherwise wait on the device lookup before the mic can open.
     void manager.cacheMicrophoneDeviceId?.();
 
+    // Plan 07: the sole sealed store starts here, before any microphone
+    // preparation, so the pre-flight reads main's answer (A12). A dictation
+    // held in memory while sealed is offered again once Sealed mode is off;
+    // nothing is sent until the user clicks Transcribe.
+    const transcribeAllRecovered = async () => {
+      while (recoveryCount() > 0) {
+        const replay = await audioManagerRef.current?.transcribeRecovered?.();
+        if (!replay?.started || !replay.succeeded) break;
+      }
+    };
+    let wasSealed = getSealedSnapshot().sealed;
+    const offSealed = subscribeSealed(() => {
+      const { sealed } = getSealedSnapshot();
+      if (wasSealed === true && sealed === false && recoveryCount() > 0) {
+        notify(
+          buildSealedRecoveryNotice(t, {
+            transcribe: transcribeAllRecovered,
+            discard: () => discardRecovery(),
+          })
+        );
+      }
+      wasSealed = sealed;
+    });
+    // Fix round 2, N2: each held-recording card follows the hold it names, so
+    // an expired or evicted recording's card says so instead of offering it.
+    const heldCards = watchHeldRecordingCards(t);
+
     // Reset stale main-process state after a renderer reload or crash recovery.
     reportLifecycle("idle");
 
@@ -860,7 +894,26 @@ export const useAudioRecording = (options = {}) => {
         }
         const title = getRecordingErrorTitle(error, t);
         const description = getRecordingErrorDescription(error, t);
-        if (error?.variant === "default") {
+        if (error?.code === "SEALED_MODE" && error?.recoveryHeld === true) {
+          // §5.3: the audio is held in memory only; Transcribe is the way back.
+          // It names this card's own hold (fix round 2, N2): never the oldest,
+          // never another recording. Without an id there is no Transcribe here;
+          // the unseal prompt still offers every held recording.
+          const holdId = typeof error?.recoveryId === "number" ? error.recoveryId : null;
+          const transcribeOne =
+            holdId === null
+              ? null
+              : heldCards.transcribeAction({
+                  holdId,
+                  label: t("sealedMode.recovery.transcribeOne"),
+                  transcribe: (id) => audioManagerRef.current?.transcribeRecovered?.({ id }),
+                });
+          const noticeId = showDictationError(
+            { title, description, sessionId, recoveryHeld: true },
+            transcribeOne ? [transcribeOne] : []
+          );
+          if (transcribeOne) heldCards.track(noticeId, holdId, transcribeOne);
+        } else if (error?.variant === "default") {
           // Informational outcomes (SCREEN_CONTEXT_SKIPPED after a successful
           // text-only retry) are notices, not failures: no card, no Retry.
           notify({ kind: "notice", title, body: description });
@@ -1127,6 +1180,8 @@ export const useAudioRecording = (options = {}) => {
           } else if (autoPasteEnabled && !result.assistantConversation) {
             const pasteStart = performance.now();
             let pasteSucceeded;
+            // Touch-up 4, N1: a sealed refusal titles the words card itself.
+            let sealedPasteFailure = null;
             if (result.selectionEdit?.sessionId) {
               const replacement = await window.electronAPI?.replaceSelectedText?.(
                 result.selectionEdit.sessionId,
@@ -1154,11 +1209,19 @@ export const useAudioRecording = (options = {}) => {
                 });
               }
             } else {
-              pasteSucceeded = await manager.safePaste(result.text, {
-                ...(isStreaming ? { fromStreaming: true } : {}),
-                restoreClipboard: !keepTranscriptionInClipboard,
-                allowClipboardFallback: isAccessibilitySkipped(),
-              });
+              pasteSucceeded = await manager.safePaste(
+                result.text,
+                {
+                  ...(isStreaming ? { fromStreaming: true } : {}),
+                  restoreClipboard: !keepTranscriptionInClipboard,
+                  allowClipboardFallback: isAccessibilitySkipped(),
+                },
+                {
+                  onSealed: (failure) => {
+                    sealedPasteFailure = failure;
+                  },
+                }
+              );
             }
             logger.info(
               "Paste timing",
@@ -1176,11 +1239,18 @@ export const useAudioRecording = (options = {}) => {
             // failed paste keeps the final flash so the transcript stays
             // visible somewhere.
             if (!pasteSucceeded && !result.selectionEdit?.sessionId) {
+              // The one card the user sees: holding the words, and saying why
+              // when Sealed mode stopped the paste.
               showDictationError({
                 outcomeGeneration,
                 presentation,
                 sessionId,
-                title: t("notices.pasteFailed"),
+                ...(sealedPasteFailure
+                  ? {
+                      title: getRecordingErrorTitle(sealedPasteFailure, t),
+                      description: getRecordingErrorDescription(sealedPasteFailure, t),
+                    }
+                  : { title: t("notices.pasteFailed") }),
                 transcript: result.rawText ?? result.text,
               });
             }
@@ -1575,6 +1645,8 @@ export const useAudioRecording = (options = {}) => {
       disposeCleanupRetry?.();
       disposeCleanupRetired?.();
       disposeForceStopped?.();
+      offSealed();
+      heldCards.dispose();
       manager.cleanup();
     };
   }, [

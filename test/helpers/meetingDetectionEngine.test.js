@@ -33,15 +33,17 @@ function loadEngine() {
   }
 }
 
-function createEngine() {
+function createEngine({ isSealed } = {}) {
   const MeetingDetectionEngine = loadEngine();
 
   const reminderScheduler = {
     getActiveMeetingState: () => ({ activeMeeting: null, activeEvents: [], upcomingEvents: [] }),
   };
   const processDetector = new EventEmitter();
-  processDetector.start = () => {};
-  processDetector.stop = () => {};
+  processDetector.starts = 0;
+  processDetector.stops = 0;
+  processDetector.start = () => processDetector.starts++;
+  processDetector.stop = () => processDetector.stops++;
 
   const audioDetector = new EventEmitter();
   audioDetector.dismissals = 0;
@@ -51,8 +53,10 @@ function createEngine() {
   audioDetector.setMicWarmHold = () => {};
   audioDetector.meetingAppNotifications = 0;
   audioDetector.notifyMeetingAppsChanged = () => audioDetector.meetingAppNotifications++;
-  audioDetector.start = () => {};
-  audioDetector.stop = () => {};
+  audioDetector.starts = 0;
+  audioDetector.stops = 0;
+  audioDetector.start = () => audioDetector.starts++;
+  audioDetector.stop = () => audioDetector.stops++;
 
   const shown = [];
   const meetingNavigations = [];
@@ -70,7 +74,8 @@ function createEngine() {
     processDetector,
     audioDetector,
     windowManager,
-    {}
+    {},
+    isSealed ? { isSealed } : {}
   );
 
   return { engine, audioDetector, processDetector, shown, meetingNavigations, noteNavigations };
@@ -211,4 +216,38 @@ test("audio prompt names the detected meeting process, with explicit event app t
   assert.equal(shown.at(-1).appName, "Zoom");
   engine._showPrompt("audio:B", "audio", "B", { appName: "Webex" });
   assert.equal(shown.at(-1).appName, "Webex");
+});
+
+// Final review I1 / T12-m4: while sealed, detection never starts the OS tools
+// it polls (pactl, ps): not at startup, not from a preference change, and not
+// before unsealing resumes it.
+test("meeting detection starts no detector while sealed and resumes after unseal", () => {
+  let sealed = true;
+  const { engine, audioDetector, processDetector } = createEngine({ isSealed: () => sealed });
+  engine.start();
+  engine.setPreferences({ processDetection: true, audioDetection: true });
+  assert.deepEqual([processDetector.starts, audioDetector.starts], [0, 0]);
+  sealed = false;
+  engine.resumeAfterSeal();
+  assert.deepEqual([processDetector.starts, audioDetector.starts], [1, 1]);
+  sealed = true;
+  const stops = [processDetector.stops, audioDetector.stops];
+  engine.pauseForSeal();
+  assert.deepEqual([processDetector.stops, audioDetector.stops], [stops[0] + 1, stops[1] + 1]);
+  engine.setPreferences({ audioDetection: true });
+  assert.deepEqual([processDetector.starts, audioDetector.starts], [1, 1]);
+  // A sealed state that cannot be read is sealed.
+  const failing = createEngine({
+    isSealed: () => {
+      throw new Error("fixture");
+    },
+  });
+  failing.engine.start();
+  assert.deepEqual([failing.processDetector.starts, failing.audioDetector.starts], [0, 0]);
+});
+
+test("resumeAfterSeal before start starts nothing", () => {
+  const { engine, audioDetector, processDetector } = createEngine({ isSealed: () => false });
+  engine.resumeAfterSeal();
+  assert.deepEqual([processDetector.starts, audioDetector.starts], [0, 0]);
 });

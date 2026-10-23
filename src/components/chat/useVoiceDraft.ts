@@ -7,8 +7,12 @@ import {
   type FileTranscriptionConfig,
 } from "../../services/fileTranscription";
 import { useSettingsStore } from "../../stores/settingsStore";
+import i18n from "../../i18n";
 import { analyserRms } from "../../utils/audioLevel";
+import { sealedFailureMessage } from "../../utils/sealedModeError";
 import { getBaseLanguageCode } from "../../utils/languageSupport";
+
+const translate = (key: string) => i18n.t(key);
 
 export type VoiceDraftStatus = "idle" | "recording" | "transcribing";
 
@@ -144,13 +148,17 @@ export function useVoiceDraft({ active = true, onTranscript, onError }: UseVoice
         if (!isCurrent(generation)) return;
         const text = result.text?.trim();
         if (!result.success || !text) {
-          onErrorRef.current(result.error || "");
+          // A sealed refusal is translated copy, never main's raw text.
+          onErrorRef.current(sealedFailureMessage(result, translate) ?? (result.error || ""));
         } else {
           onTranscriptRef.current(text);
         }
       } catch (error) {
         if (isCurrent(generation))
-          onErrorRef.current(error instanceof Error ? error.message : String(error));
+          onErrorRef.current(
+            sealedFailureMessage(error, translate) ??
+              (error instanceof Error ? error.message : String(error))
+          );
       } finally {
         if (tempPath) void window.electronAPI.deleteTempAudio(tempPath);
         if (isCurrent(generation)) setStatus("idle");

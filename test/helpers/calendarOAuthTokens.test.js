@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
+const gate = require("../../src/helpers/privacy/egressGate");
 
 const originalLoad = Module._load;
 const modulePaths = {
@@ -8,25 +9,35 @@ const modulePaths = {
   microsoft: require.resolve("../../src/helpers/microsoftCalendarOAuth.js"),
 };
 
+// Token requests go through the egress gate (Task 11), which reaches Electron's
+// net.fetch at call time; the stand-in stays installed for the whole file and
+// the gate is configured unsealed.
+let fetchImpl = null;
+Module._load = function loadWithElectronMock(request, parent, isMain) {
+  if (request === "electron")
+    return { net: { fetch: (...args) => fetchImpl(...args) }, shell: { openExternal() {} } };
+  return originalLoad.call(this, request, parent, isMain);
+};
+test.beforeEach(() => {
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => false, recorder: null });
+});
+test.after(() => {
+  Module._load = originalLoad;
+  gate._resetForTests();
+});
+
 // Loads an OAuth helper against a recording stand-in for Electron's net.fetch.
 // `reply` receives the request and returns { status, body } like a token endpoint.
 function load(name, reply) {
   const requests = [];
-  const fetch = async (url, init) => {
+  fetchImpl = async (url, init) => {
     requests.push({ url, body: String(init.body ?? ""), headers: init.headers });
     const { status = 200, body = "" } = await reply({ url });
-    return { status, text: async () => body, json: async () => JSON.parse(body) };
+    return new Response(body, { status });
   };
   delete require.cache[modulePaths[name]];
-  Module._load = function loadWithElectronMock(request, parent, isMain) {
-    if (request === "electron") return { net: { fetch }, shell: { openExternal() {} } };
-    return originalLoad.call(this, request, parent, isMain);
-  };
-  try {
-    return { OAuth: require(modulePaths[name]), requests };
-  } finally {
-    Module._load = originalLoad;
-  }
+  return { OAuth: require(modulePaths[name]), requests };
 }
 
 const json = (value, status = 200) => ({ status, body: JSON.stringify(value) });

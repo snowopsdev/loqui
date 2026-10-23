@@ -3,6 +3,12 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const WS = require("ws");
 
+const { fixtureRecording } = require("./harness/realtimeRecording");
+const REC = fixtureRecording();
+
+// Task 9a: this fixture models an unsealed main; its sockets are ordinary connections.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+
 const load = () => import("../../src/helpers/tinfoilRealtimeStreaming.js");
 const COMPLETED_EVENT = "conversation.item.input_audio_transcription.completed";
 
@@ -282,10 +288,10 @@ test("speech followed by 600ms of PCM silence commits the turn", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
 
     t.mock.timers.tick(500);
-    streaming.sendAudio(Buffer.alloc(960));
+    streaming.sendAudio(Buffer.alloc(960), REC);
     assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 0);
 
     t.mock.timers.tick(250);
@@ -299,12 +305,12 @@ test("continuous speech is bounded by a 30-second turn", (t) => {
     const streaming = await makeConnected();
 
     for (let index = 0; index < 119; index += 1) {
-      streaming.sendAudio(speechPcm());
+      streaming.sendAudio(speechPcm(), REC);
       t.mock.timers.tick(250);
     }
     assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 0);
 
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(250);
     assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
   })();
@@ -314,7 +320,7 @@ test("a silent backend turn is recycled before the provider zombie window", (t) 
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
-    streaming.sendAudio(Buffer.alloc(960));
+    streaming.sendAudio(Buffer.alloc(960), REC);
 
     t.mock.timers.tick(29750);
     assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 0);
@@ -339,11 +345,11 @@ test("completed re-arms the next buffered turn", (t) => {
     const finals = [];
     streaming.onFinalTranscript = (text) => finals.push(text);
 
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(750);
     assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
 
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(750);
     assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
 
@@ -361,7 +367,7 @@ test("commit timeout requests recovery without sending a duplicate commit", (t) 
     const errors = [];
     streaming.onConnectionLost = (error) => errors.push(error.message);
 
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(750);
     t.mock.timers.tick(20250);
 
@@ -375,10 +381,10 @@ test("speech timing comes from PCM activity rather than transcript timing", (t) 
   return (async () => {
     const streaming = await makeConnected();
 
-    streaming.sendAudio(Buffer.alloc(960));
+    streaming.sendAudio(Buffer.alloc(960), REC);
     assert.equal(streaming.speechStartedAt, null);
     t.mock.timers.tick(250);
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     assert.equal(streaming.speechStartedAt, 100250);
   })();
 });
@@ -389,9 +395,9 @@ test("disconnect drains an in-flight commit before committing the tail", (t) => 
     const streaming = await makeConnected();
     const socket = streaming.ws;
 
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(750);
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
 
     const disconnected = streaming.disconnect();
     await new Promise((resolve) => setImmediate(resolve));
@@ -410,7 +416,7 @@ test("disconnect remains bounded when the provider never completes", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(750);
 
     const disconnected = streaming.disconnect();
@@ -427,9 +433,9 @@ test("disconnect uses one drain deadline across the active turn and its tail", (
   return (async () => {
     const streaming = await makeConnected();
     const socket = streaming.ws;
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(750);
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
 
     let finished = false;
     const disconnected = streaming.disconnect().then((result) => {
@@ -460,7 +466,7 @@ test("empty commit replies are swallowed without a retry loop", (t) => {
       surfaced += 1;
     };
 
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(750);
     streaming.handleMessage(commitEmptyError());
     t.mock.timers.tick(5000);
@@ -479,7 +485,7 @@ test("provider errors surface and request connection recovery", (t) => {
     streaming.onError = (error) => errors.push(error.message);
     streaming.onConnectionLost = (error) => recoveries.push(error.message);
 
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     t.mock.timers.tick(750);
     streaming.handleMessage(
       JSON.stringify({ type: "error", error: { code: "server_error", message: "failed" } })
@@ -495,7 +501,7 @@ test("cleanup stops the turn timer", (t) => {
   return (async () => {
     const streaming = await makeConnected();
     const socket = streaming.ws;
-    streaming.sendAudio(speechPcm());
+    streaming.sendAudio(speechPcm(), REC);
     streaming.cleanup();
 
     t.mock.timers.tick(5000);

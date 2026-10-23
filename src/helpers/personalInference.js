@@ -9,6 +9,12 @@ const { randomUUID } = require("node:crypto");
 const { createAbortError } = require("./abortError");
 const { CodexAppServer } = require("./codexAppServer");
 const { isSecureHttpEndpoint } = require("../utils/urlUtils.ts");
+const egress = require("./privacy/egressGate");
+const { taskForScope, isSealedModeError, sealedPhaseOf } = require("./privacy/egressPolicy");
+const { effectiveEndpoint } = require("./privacy/providerEndpoints");
+const { guardMetered } = require("./privacy/gatedFetch");
+const childRegistry = require("./privacy/childRegistry");
+const CODEX_HOST = "https://chatgpt.com";
 
 const {
   captureEnterpriseEnvironment,
@@ -233,6 +239,8 @@ async function createModel(
   execution
 ) {
   execution?.assertLive();
+  // Slot 8 is main's metered transport (Sealed mode). Captured operations
+  // compose their liveness and redirect refusal over it; others use it as is.
   const guardedFetch = execution
     ? (input, init) => {
         execution.assertLive();
@@ -244,7 +252,7 @@ async function createModel(
           redirect: "error",
         });
       }
-    : undefined;
+    : fetchImpl;
   if (["bedrock", "azure", "vertex"].includes(provider))
     return require("./enterpriseAiProviders").getEnterpriseAIModel(
       provider,
@@ -301,6 +309,107 @@ async function createModel(
   }).chat(model);
 }
 
+// The Codex release check downloads from GitHub before the app-server starts.
+// Its only transport is the metered fetch; a cached digest sends nothing.
+function gatedVerifyRelease(verify = require("./codexCli").verifyOfficialCodex) {
+  return (options) =>
+    guardMetered({ task: "codex", target: "https://api.github.com" }, (ticket) =>
+      verify({
+        ...options,
+        fetchImpl: egress.meteredFetch(
+          ticket,
+          options?.fetchImpl ?? ((...args) => globalThis.fetch(...args))
+        ),
+      })
+    );
+}
+
+// One opaque ledger session per app-server process: main cannot see the
+// child's own requests, only that it ran (owner decision, 2026-10-15). The
+// session settles only on the OS exit event, never on a kill signal, and the
+// child stays in the registry (Task 6a), whose descendant coverage outlives it.
+const codexSessions = new WeakMap();
+const codexTicket = () =>
+  egress.authorize({
+    task: "codex",
+    target: CODEX_HOST,
+    provider: "codex",
+    meter: "opaque",
+    payload: "text",
+  });
+function codexSession(child, ticket = codexSessions.get(child) ?? codexTicket()) {
+  codexSessions.delete(child);
+  childRegistry.register(child, { kind: "codex" });
+  const kill = () => {
+    try {
+      child.kill();
+    } catch {} // Only the exit settles the session.
+  };
+  ticket.signal.addEventListener("abort", kill, { once: true });
+  if (ticket.signal.aborted) kill();
+  childRegistry.onChildEnd(child, ({ code, signal, failedToStart }) => {
+    ticket.signal.removeEventListener("abort", kill);
+    // A process that never started could not send anything.
+    if (failedToStart) ticket.discard();
+    else
+      ticket.settle({
+        outcome: ticket.signal.aborted || signal ? "cancelled" : code === 0 ? "ok" : "error",
+      });
+  });
+}
+// Authorize the session before the launch and run the launch inside it, so
+// the production spawn guard reuses this session rather than opening another.
+function spawnInCodexSession(spawn, args) {
+  const ticket = codexTicket();
+  let child;
+  try {
+    child = egress.runWithTicket(ticket, () => spawn(...args));
+  } catch (error) {
+    ticket.discard();
+    throw error;
+  }
+  codexSessions.set(child, ticket);
+  return child;
+}
+
+// The production Codex server with every Sealed-mode hook wired. Tests pass
+// only the process seams (executable lookup, version probe, spawn); they
+// cannot replace the gate hooks, so they exercise the shipped wiring.
+const CODEX_TEST_SEAMS = [
+  "resolveExecutable",
+  "runFile",
+  "spawnProcess",
+  "env",
+  "homeDir",
+  "platform",
+  "timeoutMs",
+  "stopTimeoutMs",
+];
+function createCodexServer({ userDataPath, ...seams } = {}) {
+  const allowed = Object.fromEntries(
+    Object.entries(seams).filter(([key]) => CODEX_TEST_SEAMS.includes(key))
+  );
+  // Read the (guarded) spawn at launch time, never a capture from import time.
+  const spawn = allowed.spawnProcess ?? ((...args) => require("node:child_process").spawn(...args));
+  return new CodexAppServer({
+    userDataPath,
+    ...allowed,
+    spawnProcess: (...args) => spawnInCodexSession(spawn, args),
+    verifyRelease: gatedVerifyRelease(),
+    beforeSpawn: () => egress.assertAllowed({ task: "codex", target: CODEX_HOST }),
+    onSpawn: (child) => codexSession(child),
+  });
+}
+
+const payloadOf = (messages) =>
+  messages.some(
+    (m) =>
+      Array.isArray(m.content) &&
+      m.content.some((part) => part?.type === "image" || part?.type === "image_url")
+  )
+    ? "image"
+    : "text";
+
 function registerPersonalInferenceIPC({
   ipcMain,
   userDataPath,
@@ -309,7 +418,7 @@ function registerPersonalInferenceIPC({
   fetchModels = (...args) => globalThis.fetch(...args),
   saveCredential,
   openExternal,
-  codex = new CodexAppServer({ userDataPath }),
+  codex = createCodexServer({ userDataPath }),
   modelFactory = createModel,
   getEnterpriseConfig = () => ({}),
   waitForAdmission = async () => {},
@@ -371,11 +480,16 @@ function registerPersonalInferenceIPC({
       for (const sender of subscribers) send(sender, { type: "account", ...payload });
   };
   codex.on("notification", notification);
+  // Sealed mode: every handler that can start or use the app-server refuses
+  // before it could start it. Its traffic is the opaque session row.
+  const assertCodexAllowed = () => egress.assertAllowed({ task: "codex", target: CODEX_HOST });
   handle("codex-status", async (event) => {
+    assertCodexAllowed();
     track(event.sender);
     return codex.status();
   });
   handle("codex-login", async (event) => {
+    assertCodexAllowed();
     track(event.sender);
     const login = await codex.login();
     const url = new URL(login.authUrl);
@@ -387,11 +501,25 @@ function registerPersonalInferenceIPC({
     await openExternal(url.href);
     return { loginId: login.loginId };
   });
+  // Cancel stays usable while sealed; it never needs a new connection. With no
+  // app-server running or starting it resolves without starting one.
   handle("codex-cancel-login", (_event, loginId) => codex.cancelLogin(loginId));
-  handle("codex-logout", () => codex.logout());
-  handle("codex-models", () => codex.models());
-  handle("codex-model-catalog", () => codex.modelCatalog());
-  handle("codex-rate-limits", () => codex.rateLimits());
+  handle("codex-logout", () => {
+    assertCodexAllowed();
+    return codex.logout();
+  });
+  handle("codex-models", () => {
+    assertCodexAllowed();
+    return codex.models();
+  });
+  handle("codex-model-catalog", () => {
+    assertCodexAllowed();
+    return codex.modelCatalog();
+  });
+  handle("codex-rate-limits", () => {
+    assertCodexAllowed();
+    return codex.rateLimits();
+  });
   handle("credential-status", async (_event, ref) => {
     validateCredentialRef(ref);
     const enterprise = ["bedrock", "vertex"].includes(ref) ? await getEnterpriseConfig(ref) : {};
@@ -452,6 +580,13 @@ function registerPersonalInferenceIPC({
   handle("models", async (event, input) => {
     const config = discoveryConfig(input);
     recipients.validate(input.recipientToken, event.sender, config, discoveryCredential(config));
+    // Sealed mode: refuse the reviewed recipient before credentials are captured.
+    return guardMetered(
+      { task: "providerCheck", target: config.baseUrl, provider: config.provider },
+      (ticket) => discoverModels(event, input, config, egress.meteredFetch(ticket, fetchModels))
+    );
+  });
+  async function discoverModels(event, input, config, fetchModels) {
     const captured = await credentials.captureCommitted(config.credentialId);
     // Credential persistence can settle while this click waits. Never upgrade
     // a reviewed no-key action or send a replacement/removal under an old label.
@@ -500,7 +635,7 @@ function registerPersonalInferenceIPC({
           description: model.description,
         })),
     };
-  });
+  }
   handle("text-cancel", (event, requestId) => {
     active.get(ownerKey(event.sender, requestId))?.controller.abort();
   });
@@ -585,157 +720,220 @@ function registerPersonalInferenceIPC({
         });
         send(sender, { type: "tool", requestId: request.requestId, callId, name, arguments: args });
       });
+    // Sealed mode: one egress ticket per request. Sealing aborts it with the
+    // SealedModeError as the reason, which this request then reports.
+    const egressTask = request.disclosureTask ?? taskForScope(request.inferenceScope);
+    const gated = (target, fn) =>
+      egress.guard(
+        {
+          task: egressTask,
+          target,
+          model: request.model,
+          provider: request.provider,
+          payload: payloadOf(request.messages),
+          correlationId: request.correlationId ?? null,
+        },
+        (ticket) => {
+          ticket.signal.addEventListener("abort", () => controller.abort(ticket.signal.reason), {
+            once: true,
+          });
+          return fn(ticket);
+        }
+      );
     try {
-      if (request.provider === "codex") {
-        handOff();
-        const text = await codex.generate({
-          ...request,
-          signal: controller.signal,
-          executeTool,
-          onText: (text) => {
-            if (streaming) emit({ type: "content", text });
-          },
+      if (request.provider === "codex")
+        return await gated(CODEX_HOST, async (ticket) => {
+          handOff();
+          // The app-server sends from its own process: the hand-off is the
+          // dispatch evidence; its traffic is the opaque session row.
+          ticket.markDispatched();
+          const text = await codex.generate({
+            ...request,
+            signal: controller.signal,
+            executeTool,
+            onText: (text) => {
+              if (streaming) emit({ type: "content", text });
+            },
+          });
+          if (!text.trim())
+            throw new Error(
+              "The selected model returned no text. Your original content is preserved."
+            );
+          if (streaming) emit({ type: "done", finishReason: "stop" });
+          return { text };
         });
-        if (!text.trim())
+      // Credentials and enterprise configuration, read only after admission.
+      const credentialInputs = async () => {
+        execution?.assertLive();
+        const apiKey = captured
+          ? captured.apiKey
+          : ["local", "bedrock"].includes(request.provider)
+            ? ""
+            : await getCredential(request.credentialRef);
+        if (!apiKey && !["local", "lan", "custom", "bedrock", "vertex"].includes(request.provider))
+          throw new Error(`Configure the ${request.provider} API key in Settings.`);
+        let enterprise, material;
+        if (!captured) {
+          const enterpriseConfigSnapshot = isEnterpriseProvider(request.provider)
+            ? await getEnterpriseConfig(request.provider)
+            : undefined;
+          const enterpriseEnvironmentSnapshot = isEnterpriseProvider(request.provider)
+            ? captureEnterpriseEnvironment(request.provider, process.env)
+            : undefined;
+          enterprise = isEnterpriseProvider(request.provider)
+            ? resolveEnterpriseExecutor(
+                request.provider,
+                enterpriseConfigSnapshot,
+                enterpriseEnvironmentSnapshot
+              )
+            : undefined;
+          if (enterprise && enterprise.status !== "ready")
+            throw recipientFailure("recipientUnknown");
+          if (
+            request.dictationOperation &&
+            enterprise &&
+            enterprise.tag !== request.enterpriseRecipientTag
+          )
+            throw recipientFailure("recipientChanged");
+          material = enterprise
+            ? resolveEnterpriseCredentialMaterial(
+                request.provider,
+                enterpriseConfigSnapshot,
+                apiKey,
+                enterpriseEnvironmentSnapshot
+              )
+            : undefined;
+          controller.signal.throwIfAborted();
+        }
+        return { apiKey, enterprise, material };
+      };
+      // Tinfoil's SDK brings its own transport: Layer B attributes its sockets,
+      // and the hand-off is its dispatch evidence. Every other provider sends
+      // through the metered slot-8 fetch, which reports each attempt.
+      const unmetered = request.provider === "tinfoil";
+      const dispatch = async (ticket, { apiKey, enterprise, material }) => {
+        execution?.assertLive();
+        const model = await modelFactory(
+          request.provider,
+          request.model,
+          apiKey,
+          request.baseUrl,
+          request.disableThinking,
+          captured ? captured.enterprise : enterprise?.executor,
+          material,
+          // Slot 8: the metered transport, composed over any injected fetch.
+          egress.meteredFetch(ticket, fetchImpl),
+          execution
+        );
+        execution?.assertLive();
+        const { streamText, generateText, isStepCount, jsonSchema } = aiRuntime();
+        let tools = request.tools?.length
+          ? Object.fromEntries(
+              request.tools.map((tool) => [
+                tool.name,
+                {
+                  description: tool.description,
+                  inputSchema: jsonSchema(tool.parameters),
+                  execute: (args) => executeTool(tool.name, args),
+                },
+              ])
+            )
+          : undefined;
+        if (request.webSearch) tools = { ...tools, ...providerSearchTools(request.provider) };
+        const providerOptions = {};
+        if (request.disableThinking && request.provider === "gemini") {
+          providerOptions.google = {
+            thinkingConfig: request.model.startsWith("gemini-3")
+              ? {
+                  thinkingLevel: request.model.includes("pro") ? "low" : "minimal",
+                  includeThoughts: false,
+                }
+              : { thinkingBudget: request.model.includes("pro") ? 128 : 0, includeThoughts: false },
+          };
+        }
+        if (request.disableThinking && request.provider === "groq")
+          providerOptions.groq = {
+            reasoningEffort: request.model.includes("gpt-oss") ? "low" : "none",
+          };
+        const options = {
+          model,
+          messages: request.messages,
+          instructions: request.systemPrompt || undefined,
+          abortSignal: execution?.signal || controller.signal,
+          tools,
+          stopWhen: isStepCount(tools ? 20 : 1),
+          maxRetries: 0,
+          providerOptions,
+          onError: () => {},
+        };
+        // OpenAI reasoning and recent Claude models reject temperature. Gemini
+        // thinking uses the output budget too: do not impose a transcript-sized cap.
+        if (
+          !["openai", "anthropic", "gemini", "bedrock", "azure", "vertex"].includes(
+            request.provider
+          )
+        ) {
+          options.maxOutputTokens = request.maxTokens || 4096;
+          if (request.temperature !== undefined) options.temperature = request.temperature;
+        }
+        if (streaming) {
+          handOff();
+          if (unmetered) ticket.markDispatched();
+          const result = streamText(options);
+          const sources = [];
+          let finishReason;
+          for await (const part of result.stream) {
+            if (part.type === "text-delta") emit({ type: "content", text: part.text });
+            if (part.type === "error") throw part.error;
+            // The SDK reports an aborted request as a clean "abort" part and
+            // closes the stream. Surface it so a timeout is not mistaken for a
+            // (possibly empty or truncated) completed answer.
+            if (part.type === "abort") throw abortFailure();
+            if (part.type === "source") sources.push(part);
+            if (part.type === "finish") finishReason = part.finishReason;
+          }
+          const references = request.webSearch ? searchSourcesText(sources) : "";
+          if (references) emit({ type: "content", text: references });
+          emit({ type: "done", finishReason });
+          return {};
+        }
+        handOff();
+        execution?.assertLive();
+        if (unmetered) ticket.markDispatched();
+        const result = await generateText(options);
+        execution?.assertLive();
+        if (request.requireCompleteOutput && result.finishReason === "length")
+          throw new Error(
+            "The model truncated its response. Your original content is preserved; retry with a larger context or output budget."
+          );
+        if (!result.text.trim())
           throw new Error(
             "The selected model returned no text. Your original content is preserved."
           );
-        if (streaming) emit({ type: "done", finishReason: "stop" });
-        return { text };
-      }
-      execution?.assertLive();
-      const apiKey = captured
-        ? captured.apiKey
-        : ["local", "bedrock"].includes(request.provider)
-          ? ""
-          : await getCredential(request.credentialRef);
-      if (!apiKey && !["local", "lan", "custom", "bedrock", "vertex"].includes(request.provider))
-        throw new Error(`Configure the ${request.provider} API key in Settings.`);
-      let enterprise, material;
-      if (!captured) {
-        const enterpriseConfigSnapshot = isEnterpriseProvider(request.provider)
-          ? await getEnterpriseConfig(request.provider)
-          : undefined;
-        const enterpriseEnvironmentSnapshot = isEnterpriseProvider(request.provider)
-          ? captureEnterpriseEnvironment(request.provider, process.env)
-          : undefined;
-        enterprise = isEnterpriseProvider(request.provider)
-          ? resolveEnterpriseExecutor(
-              request.provider,
-              enterpriseConfigSnapshot,
-              enterpriseEnvironmentSnapshot
-            )
-          : undefined;
-        if (enterprise && enterprise.status !== "ready") throw recipientFailure("recipientUnknown");
-        if (
-          request.dictationOperation &&
-          enterprise &&
-          enterprise.tag !== request.enterpriseRecipientTag
-        )
-          throw recipientFailure("recipientChanged");
-        material = enterprise
-          ? resolveEnterpriseCredentialMaterial(
-              request.provider,
-              enterpriseConfigSnapshot,
-              apiKey,
-              enterpriseEnvironmentSnapshot
-            )
-          : undefined;
-        controller.signal.throwIfAborted();
-      }
-      execution?.assertLive();
-      const model = await modelFactory(
-        request.provider,
-        request.model,
-        apiKey,
-        request.baseUrl,
-        request.disableThinking,
-        captured ? captured.enterprise : enterprise?.executor,
-        material,
-        fetchImpl,
-        execution
-      );
-      execution?.assertLive();
-      const { streamText, generateText, isStepCount, jsonSchema } = aiRuntime();
-      let tools = request.tools?.length
-        ? Object.fromEntries(
-            request.tools.map((tool) => [
-              tool.name,
-              {
-                description: tool.description,
-                inputSchema: jsonSchema(tool.parameters),
-                execute: (args) => executeTool(tool.name, args),
-              },
-            ])
-          )
-        : undefined;
-      if (request.webSearch) tools = { ...tools, ...providerSearchTools(request.provider) };
-      const providerOptions = {};
-      if (request.disableThinking && request.provider === "gemini") {
-        providerOptions.google = {
-          thinkingConfig: request.model.startsWith("gemini-3")
-            ? {
-                thinkingLevel: request.model.includes("pro") ? "low" : "minimal",
-                includeThoughts: false,
-              }
-            : { thinkingBudget: request.model.includes("pro") ? 128 : 0, includeThoughts: false },
-        };
-      }
-      if (request.disableThinking && request.provider === "groq")
-        providerOptions.groq = {
-          reasoningEffort: request.model.includes("gpt-oss") ? "low" : "none",
-        };
-      const options = {
-        model,
-        messages: request.messages,
-        instructions: request.systemPrompt || undefined,
-        abortSignal: execution?.signal || controller.signal,
-        tools,
-        stopWhen: isStepCount(tools ? 20 : 1),
-        maxRetries: 0,
-        providerOptions,
-        onError: () => {},
+        return { text: result.text + (request.webSearch ? searchSourcesText(result.sources) : "") };
       };
-      // OpenAI reasoning and recent Claude models reject temperature. Gemini
-      // thinking uses the output budget too: do not impose a transcript-sized cap.
-      if (
-        !["openai", "anthropic", "gemini", "bedrock", "azure", "vertex"].includes(request.provider)
-      ) {
-        options.maxOutputTokens = request.maxTokens || 4096;
-        if (request.temperature !== undefined) options.temperature = request.temperature;
-      }
-      if (streaming) {
-        handOff();
-        const result = streamText(options);
-        const sources = [];
-        let finishReason;
-        for await (const part of result.stream) {
-          if (part.type === "text-delta") emit({ type: "content", text: part.text });
-          if (part.type === "error") throw part.error;
-          // The SDK reports an aborted request as a clean "abort" part and
-          // closes the stream. Surface it so a timeout is not mistaken for a
-          // (possibly empty or truncated) completed answer.
-          if (part.type === "abort") throw abortFailure();
-          if (part.type === "source") sources.push(part);
-          if (part.type === "finish") finishReason = part.finishReason;
-        }
-        const references = request.webSearch ? searchSourcesText(sources) : "";
-        if (references) emit({ type: "content", text: references });
-        emit({ type: "done", finishReason });
-        return {};
-      }
-      handOff();
-      execution?.assertLive();
-      const result = await generateText(options);
-      execution?.assertLive();
-      if (request.requireCompleteOutput && result.finishReason === "length")
-        throw new Error(
-          "The model truncated its response. Your original content is preserved; retry with a larger context or output budget."
+      if (captured || !isEnterpriseProvider(request.provider))
+        return await gated(
+          effectiveEndpoint(request.provider, {
+            baseUrl: request.baseUrl,
+            enterprise: captured?.enterprise,
+            env: captured ? undefined : process.env,
+          }),
+          async (ticket) => dispatch(ticket, await credentialInputs())
         );
-      if (!result.text.trim())
-        throw new Error("The selected model returned no text. Your original content is preserved.");
-      return { text: result.text + (request.webSearch ? searchSourcesText(result.sources) : "") };
+      // An enterprise recipient is known only from main's own configuration.
+      // Refuse while sealed before reading it, naming no fixed label it would
+      // never contact (T8-M2: recorded as "unknown"); then gate the resolved
+      // executor.
+      egress.assertAllowed({ task: egressTask, target: null });
+      const inputs = await credentialInputs();
+      return await gated(
+        effectiveEndpoint(request.provider, { enterprise: inputs.enterprise?.executor }),
+        (ticket) => dispatch(ticket, inputs)
+      );
     } catch (error) {
+      // Sealing cut this request off: report that, never a timeout or a cancel.
+      if (isSealedModeError(controller.signal.reason)) throw controller.signal.reason;
       // A request that ended because it was aborted (timeout or cancel) can
       // surface as a transport error such as "Failed to process successful
       // response"; report the abort reason so a timeout is recognizable.
@@ -755,18 +953,23 @@ function registerPersonalInferenceIPC({
   // channels return a safe code envelope; preload reconstructs the typed error.
   const operationHandle = (name, fn) =>
     handle(name, (...args) => {
-      const refused = (error) => ({
-        ok: false,
-        code: [
-          "RECIPIENT_CHANGED",
-          "UNSUPPORTED_AUTH_SOURCE",
-          "CLEANUP_OPERATION_UNAVAILABLE",
-          "CLEANUP_OPERATION_BUSY",
-          "CLEANUP_REQUEST_CHANGED",
-        ].includes(error?.code)
-          ? error.code
-          : "CLEANUP_FAILED",
-      });
+      const refused = (error) =>
+        // Sealed mode keeps its type and phase: a refusal sent nothing, an
+        // interruption may have reached the provider.
+        isSealedModeError(error)
+          ? { ok: false, code: "SEALED_MODE", phase: sealedPhaseOf(error) }
+          : {
+              ok: false,
+              code: [
+                "RECIPIENT_CHANGED",
+                "UNSUPPORTED_AUTH_SOURCE",
+                "CLEANUP_OPERATION_UNAVAILABLE",
+                "CLEANUP_OPERATION_BUSY",
+                "CLEANUP_REQUEST_CHANGED",
+              ].includes(error?.code)
+                ? error.code
+                : "CLEANUP_FAILED",
+            };
       try {
         return Promise.resolve(fn(...args)).then((value) => ({ ok: true, value }), refused);
       } catch (error) {
@@ -860,6 +1063,12 @@ function registerPersonalInferenceIPC({
     },
     isBusy: () => active.size > 0 || textOperations.isBusy(),
     eraseCodexProfile: () => codex.erase(),
+    // Sealed mode: resolves only after the app-server has exited (a pending
+    // start is cancelled first); rejects CODEX_STOP_FAILED if it will not.
+    stopCodex: () => codex.stopAndWait(),
+    // True while a start is pending or a spawned app-server has not exited.
+    // Unresolved descendant coverage is reported by the child registry.
+    codexRunning: () => codex.alive(),
     dispose() {
       for (const { controller } of active.values()) controller.abort();
       for (const channel of channels) ipcMain.removeHandler(channel);
@@ -873,6 +1082,9 @@ function registerPersonalInferenceIPC({
 }
 module.exports = {
   registerPersonalInferenceIPC,
+  gatedVerifyRelease,
+  createCodexServer,
+  codexSession,
   validateRequest,
   validateCredentialRef,
   APP_TOOLS,

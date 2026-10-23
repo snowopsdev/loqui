@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 import { Button } from "./ui/button";
 import { applyImportedModels, type ModelDefinition } from "../models/ModelRegistry";
 import { LOCAL_MODELS_CHANGED_EVENT } from "../hooks/useModelDownload";
@@ -179,10 +180,15 @@ export default function LocalModelPicker({
             onModelSelect(modelId);
           }
         } else if (!result.canceled) {
-          setOperationMessage(result.error || t("localModels.loadFailed"));
+          setOperationMessage(
+            sealedFailureMessage(result, t) ?? (result.error || t("localModels.loadFailed"))
+          );
         }
       } catch (error) {
-        setOperationMessage(error instanceof Error ? error.message : t("localModels.loadFailed"));
+        setOperationMessage(
+          sealedFailureMessage(error, t) ??
+            (error instanceof Error ? error.message : t("localModels.loadFailed"))
+        );
       } finally {
         setModelOperation(null);
         await loadDownloadedModels();
@@ -202,10 +208,15 @@ export default function LocalModelPicker({
         onProviderSelect("imported");
         await testModel(result.modelId, true);
       } else if (!result.canceled) {
-        setOperationMessage(result.error || t("localModels.importFailed"));
+        setOperationMessage(
+          sealedFailureMessage(result, t) ?? (result.error || t("localModels.importFailed"))
+        );
       }
     } catch (error) {
-      setOperationMessage(error instanceof Error ? error.message : t("localModels.importFailed"));
+      setOperationMessage(
+        sealedFailureMessage(error, t) ??
+          (error instanceof Error ? error.message : t("localModels.importFailed"))
+      );
     } finally {
       setModelOperation(null);
     }

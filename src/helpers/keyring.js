@@ -235,10 +235,20 @@ function createKeyring({
   now = Date.now,
   broadcast = () => {},
   isSealed = () => false,
+  // Records a sealed refusal (main's ledger) for a check refused before any
+  // credential is read. Never throws into the keyring.
+  refuseSealed = () => {},
   enterpriseConfig = () => ({}),
   environment = () => process.env,
 }) {
   const recipients = createRecipientAuthority({ now });
+  const sealedRefusal = (check) => {
+    try {
+      refuseSealed(check);
+    } catch {
+      // The ledger is diagnostic; the refusal stands either way.
+    }
+  };
   const inflight = new Map();
   const latest = new Map();
   let legacyValue;
@@ -380,6 +390,11 @@ function createKeyring({
     } catch {
       return result("recipientChanged");
     }
+    // Sealed: refused before the stored credential is read.
+    if (isSealed()) {
+      sealedRefusal({ config: target.config, requestEnvironment: target.requestEnvironment });
+      return result("sealed");
+    }
     const captured = await credentials.captureCommitted(identity);
     if (!captured) return result("unavailable");
     if (isSealed()) return result("sealed");
@@ -406,6 +421,10 @@ function createKeyring({
         if (error?.code === "RECIPIENT_CHANGED") return result("recipientChanged");
         response = { success: false, errorCode: "network" };
       }
+      // Sealing can end a test as an ordinary transport failure (a severed
+      // socket) before the typed error arrives. That says nothing about the
+      // credential: never record a verdict from a failure while sealed.
+      if (response?.success !== true && isSealed()) return result("sealed");
       const meta = metadata(identity);
       const current = fixedSnapshot(identity, options);
       if (
@@ -573,6 +592,11 @@ function createKeyring({
     } catch {
       return changedResult;
     }
+    // Sealed: refused before the stored credential is read.
+    if (isSealed()) {
+      sealedRefusal({ provider: identity, enterprise: snapshot.enterprise });
+      return { success: false, errorCode: "sealed" };
+    }
     const captured = await credentials.captureCommitted(identity);
     if (!captured) return { success: false, errorCode: "unavailable" };
     try {
@@ -596,7 +620,11 @@ function createKeyring({
     });
     const admit = () => {
       validate(metadata(identity));
-      if (isSealed()) throw Object.assign(new Error("Sealed"), { code: "SEALED_MODE" });
+      if (isSealed())
+        throw Object.assign(new Error("[SEALED_MODE] Sealed"), {
+          code: "SEALED_MODE",
+          details: { phase: "refused" },
+        });
     };
     try {
       admit();
@@ -617,7 +645,7 @@ function createKeyring({
       if (error?.code === "RECIPIENT_CHANGED") return changedResult;
       if (error?.code === "UNSUPPORTED_AUTH_SOURCE")
         return { success: false, errorCode: "unsupportedAuthSource" };
-      if (isSealedRefusal(error)) return { success: false, errorCode: "sealed" };
+      if (isSealedRefusal(error) || isSealed()) return { success: false, errorCode: "sealed" };
       if (error?.name === "AbortError" || error?.name === "TimeoutError")
         return { success: false, errorCode: "timeout" };
       const status = Number.isInteger(error?.statusCode)

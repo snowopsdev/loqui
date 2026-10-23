@@ -12,6 +12,7 @@ import logger from "../utils/logger";
 import { createQuietDetector, MEETING_LEVEL_SAMPLE_MS } from "../utils/meetingQuiet";
 import { serializeTranscriptSegments } from "../utils/transcriptSpeakerState";
 import { notify, dismissNotice } from "./ui/notices";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 
 // Survives route remounts so delivered native interruptions are never replayed.
 let lastNativeInterruptionNonce: number | null = null;
@@ -113,9 +114,15 @@ export default function MeetingRecordingMount(): null {
     if (!error) return;
     const [sentinel, argument] = error.split(":");
     const errorKey = MEETING_ERROR_KEYS[sentinel];
+    // The store keeps a sealed failure as its translated key; a raw string
+    // that still carries main's [SEALED_MODE] marker is translated too.
     notify({
       title: t("notes.meeting.title"),
-      body: errorKey ? t(errorKey, { provider: argument }) : error,
+      body: errorKey
+        ? t(errorKey, { provider: argument })
+        : error.startsWith("sealedMode.")
+          ? t(error)
+          : (sealedFailureMessage({ error }, t) ?? error),
       kind: "alert",
     });
     // errorNonce re-fires this toast when the same error repeats back-to-back.

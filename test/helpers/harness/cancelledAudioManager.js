@@ -146,4 +146,119 @@ function startBatch(
   return recorder;
 }
 
-module.exports = { deferred, RETAIN, LOCAL, blob, firstByte, allZero, setup, startBatch };
+// A real streaming Start with synthetic device leaves (worklet, stream, provider).
+function installRealStreamingStart(manager, t) {
+  const worklets = [];
+  const streamingEgressStopped = manager._streamingEgressStopped ?? new Set();
+  streamingEgressStopped.clear();
+  const previous = globalThis.AudioWorkletNode;
+  globalThis.AudioWorkletNode = class {
+    constructor() {
+      this.port = { postMessage() {} };
+      worklets.push(this);
+    }
+    connect() {}
+    disconnect() {}
+  };
+  t.after(() => {
+    if (previous === undefined) delete globalThis.AudioWorkletNode;
+    else globalThis.AudioWorkletNode = previous;
+  });
+
+  const stream = {
+    getAudioTracks: () => [{ getSettings: () => ({}) }],
+    getTracks: () => [{ stop() {} }],
+  };
+  const source = { connect() {}, disconnect() {} };
+  const sent = [];
+  const provider = {
+    onPartial: () => () => {},
+    onFinal: () => () => {},
+    onError: () => () => {},
+    onSessionEnd: () => () => {},
+    start: async () => ({ success: true }),
+    send(frame) {
+      sent.push([...new Int16Array(frame)]);
+    },
+    cancel: async () => ({}),
+    stop: async () => ({}),
+  };
+  Object.assign(manager, {
+    isRecording: false,
+    isProcessing: false,
+    isStreaming: false,
+    streamingStartInProgress: false,
+    stopRequestedDuringStreamingStart: false,
+    _streamingSessionGeneration: 0,
+    _activeStreamingSessionId: null,
+    _streamingCancellationGeneration: 0,
+    _streamingEgressStopped: streamingEgressStopped,
+    _streamingStopPromise: null,
+    _streamingStopMode: null,
+    _streamingStartSettlementWaiters: [],
+    _activeTranscriptionAbortController: null,
+    streamingCleanupFns: [],
+    streamingTextDebounce: null,
+    streamingFallbackRecorder: null,
+    streamingFallbackChunks: [],
+    _streamingFallbackSegments: [],
+    preparedMicCapture: { take: async () => null, cancel() {} },
+    getAudioConstraints: async () => ({}),
+    _acquireCaptureStream: async () => stream,
+    startStreamingFallbackRecorder() {},
+    getOrCreateAudioContext: async () => ({
+      createMediaStreamSource: () => source,
+      createAnalyser: () => ({}),
+      audioWorklet: { addModule: async () => {} },
+    }),
+    getWorkletBlobUrl: () => "",
+    workletModuleLoaded: false,
+    getStreamingProviderName: () => "openai-realtime",
+    getStreamingProvider: () => provider,
+    getEffectiveSttLanguage: () => "auto",
+    getKeyterms: () => [],
+    beginMicRecovery: async () => {},
+    cleanupStreamingAudio() {},
+    cleanupStreamingListeners() {},
+    _markCaptureStreamReleased() {},
+  });
+  return { worklets, sent, provider };
+}
+
+// A manager mid-streaming-capture with held frames, for streaming cancel and replay tests.
+function streamingManager(manager, streamingProviderName = "openai-realtime") {
+  manager.beginDictationSession({ streaming: true, streamingProviderName });
+  manager._sessionAudio = {
+    session: manager.activeSession,
+    kind: "streaming",
+    frames: [new Int16Array([1, 2]), new Int16Array([3])],
+    fallbackChunks: [blob(5)],
+    fallbackSegments: [],
+    mimeType: "audio/webm",
+    durationSeconds: null,
+    analyticsOccurredAt: "2026-10-20T12:00:00.000Z",
+  };
+  manager.isStreaming = true;
+  manager.recordingStartTime = Date.now() - 40_000;
+  manager.cleanupStreamingAudio = () => {};
+  manager.cleanupStreamingListeners = () => {};
+  manager.getStreamingProvider = () => ({ stop: async () => ({}) });
+  manager._streamingTransport = {
+    adapter: manager.getStreamingProvider(),
+    operation: manager._streamingOperation,
+    closed: false,
+  };
+}
+
+module.exports = {
+  deferred,
+  RETAIN,
+  LOCAL,
+  blob,
+  firstByte,
+  allZero,
+  setup,
+  startBatch,
+  installRealStreamingStart,
+  streamingManager,
+};

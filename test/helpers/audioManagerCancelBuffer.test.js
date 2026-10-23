@@ -1,3 +1,7 @@
+// Real AudioManager cancel buffer and Undo (Plan 04 Task 8): batch holds, expiry,
+// merge-time cancel, Undo and the recorder's final chunk; streaming holds, provider
+// buffer drop, Start races and replay; failed restores, flushes, private takes, audio
+// ownership and merge erasure.
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
@@ -12,84 +16,9 @@ const {
   allZero,
   setup,
   startBatch,
+  streamingManager,
+  installRealStreamingStart,
 } = require("./harness/cancelledAudioManager");
-function installRealStreamingStart(manager, t) {
-  const worklets = [];
-  const streamingEgressStopped = manager._streamingEgressStopped ?? new Set();
-  streamingEgressStopped.clear();
-  const previous = globalThis.AudioWorkletNode;
-  globalThis.AudioWorkletNode = class {
-    constructor() {
-      this.port = { postMessage() {} };
-      worklets.push(this);
-    }
-    connect() {}
-    disconnect() {}
-  };
-  t.after(() => {
-    if (previous === undefined) delete globalThis.AudioWorkletNode;
-    else globalThis.AudioWorkletNode = previous;
-  });
-
-  const stream = {
-    getAudioTracks: () => [{ getSettings: () => ({}) }],
-    getTracks: () => [{ stop() {} }],
-  };
-  const source = { connect() {}, disconnect() {} };
-  const sent = [];
-  const provider = {
-    onPartial: () => () => {},
-    onFinal: () => () => {},
-    onError: () => () => {},
-    onSessionEnd: () => () => {},
-    start: async () => ({ success: true }),
-    send(frame) {
-      sent.push([...new Int16Array(frame)]);
-    },
-    cancel: async () => ({}),
-    stop: async () => ({}),
-  };
-  Object.assign(manager, {
-    isRecording: false,
-    isProcessing: false,
-    isStreaming: false,
-    streamingStartInProgress: false,
-    stopRequestedDuringStreamingStart: false,
-    _streamingSessionGeneration: 0,
-    _activeStreamingSessionId: null,
-    _streamingCancellationGeneration: 0,
-    _streamingEgressStopped: streamingEgressStopped,
-    _streamingStopPromise: null,
-    _streamingStopMode: null,
-    _streamingStartSettlementWaiters: [],
-    _activeTranscriptionAbortController: null,
-    streamingCleanupFns: [],
-    streamingTextDebounce: null,
-    streamingFallbackRecorder: null,
-    streamingFallbackChunks: [],
-    _streamingFallbackSegments: [],
-    preparedMicCapture: { take: async () => null, cancel() {} },
-    getAudioConstraints: async () => ({}),
-    _acquireCaptureStream: async () => stream,
-    startStreamingFallbackRecorder() {},
-    getOrCreateAudioContext: async () => ({
-      createMediaStreamSource: () => source,
-      createAnalyser: () => ({}),
-      audioWorklet: { addModule: async () => {} },
-    }),
-    getWorkletBlobUrl: () => "",
-    workletModuleLoaded: false,
-    getStreamingProviderName: () => "openai-realtime",
-    getStreamingProvider: () => provider,
-    getEffectiveSttLanguage: () => "auto",
-    getKeyterms: () => [],
-    beginMicRecovery: async () => {},
-    cleanupStreamingAudio() {},
-    cleanupStreamingListeners() {},
-    _markCaptureStreamReleased() {},
-  });
-  return { worklets, sent, provider };
-}
 
 test("two segments, retention off: no merge, no write, every byte zeroed (C1)", async (t) => {
   const { manager, io, advance } = await setup(t);
@@ -296,29 +225,165 @@ test("Sealed mode refuses a non-device Undo and keeps the recording held", async
   assert.equal(manager.isProcessing, false);
 });
 
-function streamingManager(manager, streamingProviderName = "openai-realtime") {
-  manager.beginDictationSession({ streaming: true, streamingProviderName });
-  manager._sessionAudio = {
-    session: manager.activeSession,
-    kind: "streaming",
-    frames: [new Int16Array([1, 2]), new Int16Array([3])],
-    fallbackChunks: [blob(5)],
-    fallbackSegments: [],
-    mimeType: "audio/webm",
-    durationSeconds: null,
-    analyticsOccurredAt: "2026-10-20T12:00:00.000Z",
+test("an immediate Undo waits for the recorder's final chunk instead of calling it empty (R2-C1)", async (t) => {
+  const { manager, io, advance } = await setup(t);
+  const rec = startBatch(manager, [1], 3, { manualStop: true });
+  manager.cancelRecording();
+  const restoring = manager.restoreCancelled(); // before onstop
+  await advance(0);
+  rec.finish(); // the final dataavailable/onstop
+  const result = await restoring;
+  assert.equal(result.restored, true);
+  await manager._restoreRun;
+  assert.deepEqual(io.mergeInputs[0], [1, 3], "the earlier segment and the tail");
+  assert.equal(io.local, 1);
+
+  const single = await setup(t);
+  const rec2 = startBatch(single.manager, [], 4, { manualStop: true });
+  single.manager.cancelRecording();
+  const restoring2 = single.manager.restoreCancelled();
+  rec2.finish();
+  assert.equal((await restoring2).restored, true, "one segment: not reported empty");
+  await single.manager._restoreRun;
+  assert.equal(single.io.local, 1);
+});
+
+test("a final chunk that never arrives: Undo keeps the hold unzeroed, and a late chunk still lands (R2-C1)", async (t) => {
+  const { manager, advance } = await setup(t);
+  const rec = startBatch(manager, [], 3, { manualStop: true });
+  manager.cancelRecording();
+  const held = manager._undo.peek();
+  const restoring = manager.restoreCancelled();
+  await advance(5000); // FINAL_AUDIO_WAIT_MS
+  const result = await restoring;
+  assert.deepEqual([result.restored, result.reason], [false, "noAudio"]);
+  assert.equal(manager._undo.peek(), held, "back in its window");
+  assert.equal(held.isZeroed(), false);
+  assert.equal(manager.isProcessing, false);
+  rec.finish();
+  await advance(0);
+  assert.deepEqual(held.bytes("segment").map(firstByte), [3]);
+});
+
+test("expiry before the final chunk, retention off: zeroed at the deadline, the late chunk is never kept", async (t) => {
+  const { manager, advance } = await setup(t);
+  const rec = startBatch(manager, [1], 3, { manualStop: true });
+  manager.cancelRecording();
+  await advance(0);
+  const held = manager._undo.peek();
+  const early = held.bytes("segment");
+  await advance(5000);
+  assert.ok(early.every(allZero));
+  assert.equal(held.isZeroed(), true);
+  rec.finish();
+  await advance(0);
+  assert.deepEqual(held.bytes("segment"), [], "zeroed on arrival");
+});
+
+test("expiry zeroes at the deadline even when a copy never settles (R1-I1)", async (t) => {
+  const never = { arrayBuffer: () => new Promise(() => {}) };
+  const broken = {
+    arrayBuffer: async () => {
+      throw new Error("gone");
+    },
   };
-  manager.isStreaming = true;
-  manager.recordingStartTime = Date.now() - 40_000;
-  manager.cleanupStreamingAudio = () => {};
-  manager.cleanupStreamingListeners = () => {};
-  manager.getStreamingProvider = () => ({ stop: async () => ({}) });
-  manager._streamingTransport = {
-    adapter: manager.getStreamingProvider(),
-    operation: manager._streamingOperation,
-    closed: false,
+
+  // Retention off: nothing will be saved, so zero now.
+  const off = await setup(t);
+  startBatch(off.manager, [1], 3);
+  off.manager.cancelRecording();
+  await off.advance(0);
+  const heldOff = off.manager._undo.peek();
+  heldOff.adoptBlob(never, "segment");
+  heldOff.adoptBlob(broken, "segment");
+  const viewsOff = heldOff.bytes("segment");
+  await off.advance(5000);
+  assert.ok(viewsOff.every(allZero));
+  assert.equal(heldOff.isZeroed(), true);
+
+  // Private, retention on: never persisted, zeroed at the deadline too.
+  const priv = await setup(t, { ...LOCAL, ...RETAIN });
+  priv.setSettings({ ...LOCAL, ...RETAIN });
+  startBatch(priv.manager, [1], 3, { private: true });
+  priv.manager.cancelRecording();
+  await priv.advance(0);
+  const heldPriv = priv.manager._undo.peek();
+  heldPriv.adoptBlob(never, "segment");
+  await priv.advance(5000);
+  assert.equal(heldPriv.isZeroed(), true);
+  assert.equal(priv.io.saves, 0);
+
+  // Retention on: a bounded wait, then the bytes that arrived are saved and zeroed.
+  const on = await setup(t, { ...LOCAL, ...RETAIN });
+  on.setSettings({ ...LOCAL, ...RETAIN });
+  startBatch(on.manager, [1], 3);
+  on.manager.cancelRecording();
+  await on.advance(0);
+  const heldOn = on.manager._undo.peek();
+  heldOn.adoptBlob(never, "segment");
+  const viewsOn = heldOn.bytes("segment");
+  await on.advance(5000);
+  assert.equal(heldOn.isZeroed(), false, "waiting, bounded, for the stuck copy");
+  await on.advance(3000); // CLOSE_SAVE_WAIT_MS
+  assert.equal(on.io.saves, 1);
+  assert.ok(viewsOn.every(allZero));
+  assert.equal(heldOn.isZeroed(), true);
+});
+
+test("Esc, then a new recording, while an Undo waits: the old restore touches neither (R1-I3)", async (t) => {
+  for (const settle of ["resolve", "reject"]) {
+    const { manager, advance } = await setup(t);
+    const states = [];
+    manager.onStateChange = (state) => states.push(state);
+    startBatch(manager, [], 3);
+    manager.cancelRecording();
+    await advance(0);
+    const held = manager._undo.peek();
+    const gate = deferred();
+    held.ready = () => gate.promise;
+    const restoring = manager.restoreCancelled();
+    manager.cancelProcessing(); // Esc
+    startBatch(manager, [], 5); // a new recording starts
+    const before = states.length;
+    if (settle === "resolve") gate.resolve(true);
+    else gate.reject(new Error("copy failed"));
+    const result = await restoring;
+    await advance(0);
+    assert.equal(result.restored, false);
+    assert.equal(manager.isRecording, true, `${settle}: the new recording is untouched`);
+    assert.equal(states.length, before, `${settle}: no idle broadcast from the old restore`);
+    assert.equal(
+      manager._undo.peek(),
+      null,
+      `${settle}: the old recording does not take the window`
+    );
+    assert.equal(
+      held.isZeroed(),
+      true,
+      `${settle}: retention off, it closed as a newer start closes a window`
+    );
+  }
+});
+
+test("a merge failure during Undo settles idle and puts the recording back (R2-C2)", async (t) => {
+  const { manager, advance } = await setup(t);
+  startBatch(manager, [1, 2], 3);
+  manager.cancelRecording();
+  await advance(0);
+  manager.mergeRecordedSegments = async () => {
+    throw new Error("ffmpeg failed");
   };
-}
+  const errors = [];
+  manager.onError = (error) => errors.push(error);
+  assert.equal((await manager.restoreCancelled()).restored, true);
+  await manager._restoreRun;
+  await advance(0);
+  assert.equal(manager.isProcessing, false, "never stuck busy");
+  assert.equal(errors.length, 1);
+  const again = manager._undo.peek();
+  assert.ok(await again.ready());
+  assert.deepEqual(again.bytes("segment").map(firstByte).sort(), [1, 2, 3]);
+});
 
 // §5.2 "Cancel stops further egress": each buffering provider's IPC names (preload, Task 7).
 const STREAMING_IPC = {
@@ -603,165 +668,347 @@ test("a private hold is never persisted, and its restore stays private (§5.2)",
   await manager._restoreRun;
 });
 
-test("an immediate Undo waits for the recorder's final chunk instead of calling it empty (R2-C1)", async (t) => {
-  const { manager, io, advance } = await setup(t);
-  const rec = startBatch(manager, [1], 3, { manualStop: true });
-  manager.cancelRecording();
-  const restoring = manager.restoreCancelled(); // before onstop
-  await advance(0);
-  rec.finish(); // the final dataavailable/onstop
-  const result = await restoring;
-  assert.equal(result.restored, true);
-  await manager._restoreRun;
-  assert.deepEqual(io.mergeInputs[0], [1, 3], "the earlier segment and the tail");
-  assert.equal(io.local, 1);
+test("a delayed cancelled pipeline preserves a newer real streaming capture and its Undo (R5-I1)", async (t) => {
+  for (const pending of ["row", "audio"]) {
+    const settings = { ...LOCAL, ...RETAIN };
+    const { manager, advance, window: win, setSettings } = await setup(t, settings);
+    setSettings(settings);
+    const row = deferred();
+    const audioWrite = deferred();
+    const uploaded = [];
+    win.electronAPI.saveTranscription = async () => (pending === "row" ? row.promise : { id: 1 });
+    win.electronAPI.saveTranscriptionAudio = async (_id, arrayBuffer) => {
+      uploaded.push(new Uint8Array(arrayBuffer)[0]);
+      return pending === "audio" ? audioWrite.promise : { success: true };
+    };
 
-  const single = await setup(t);
-  const rec2 = startBatch(single.manager, [], 4, { manualStop: true });
-  single.manager.cancelRecording();
-  const restoring2 = single.manager.restoreCancelled();
-  rec2.finish();
-  assert.equal((await restoring2).restored, true, "one segment: not reported empty");
-  await single.manager._restoreRun;
-  assert.equal(single.io.local, 1);
-});
-
-test("a final chunk that never arrives: Undo keeps the hold unzeroed, and a late chunk still lands (R2-C1)", async (t) => {
-  const { manager, advance } = await setup(t);
-  const rec = startBatch(manager, [], 3, { manualStop: true });
-  manager.cancelRecording();
-  const held = manager._undo.peek();
-  const restoring = manager.restoreCancelled();
-  await advance(5000); // FINAL_AUDIO_WAIT_MS
-  const result = await restoring;
-  assert.deepEqual([result.restored, result.reason], [false, "noAudio"]);
-  assert.equal(manager._undo.peek(), held, "back in its window");
-  assert.equal(held.isZeroed(), false);
-  assert.equal(manager.isProcessing, false);
-  rec.finish();
-  await advance(0);
-  assert.deepEqual(held.bytes("segment").map(firstByte), [3]);
-});
-
-test("expiry before the final chunk, retention off: zeroed at the deadline, the late chunk is never kept", async (t) => {
-  const { manager, advance } = await setup(t);
-  const rec = startBatch(manager, [1], 3, { manualStop: true });
-  manager.cancelRecording();
-  await advance(0);
-  const held = manager._undo.peek();
-  const early = held.bytes("segment");
-  await advance(5000);
-  assert.ok(early.every(allZero));
-  assert.equal(held.isZeroed(), true);
-  rec.finish();
-  await advance(0);
-  assert.deepEqual(held.bytes("segment"), [], "zeroed on arrival");
-});
-
-test("expiry zeroes at the deadline even when a copy never settles (R1-I1)", async (t) => {
-  const never = { arrayBuffer: () => new Promise(() => {}) };
-  const broken = {
-    arrayBuffer: async () => {
-      throw new Error("gone");
-    },
-  };
-
-  // Retention off: nothing will be saved, so zero now.
-  const off = await setup(t);
-  startBatch(off.manager, [1], 3);
-  off.manager.cancelRecording();
-  await off.advance(0);
-  const heldOff = off.manager._undo.peek();
-  heldOff.adoptBlob(never, "segment");
-  heldOff.adoptBlob(broken, "segment");
-  const viewsOff = heldOff.bytes("segment");
-  await off.advance(5000);
-  assert.ok(viewsOff.every(allZero));
-  assert.equal(heldOff.isZeroed(), true);
-
-  // Private, retention on: never persisted, zeroed at the deadline too.
-  const priv = await setup(t, { ...LOCAL, ...RETAIN });
-  priv.setSettings({ ...LOCAL, ...RETAIN });
-  startBatch(priv.manager, [1], 3, { private: true });
-  priv.manager.cancelRecording();
-  await priv.advance(0);
-  const heldPriv = priv.manager._undo.peek();
-  heldPriv.adoptBlob(never, "segment");
-  await priv.advance(5000);
-  assert.equal(heldPriv.isZeroed(), true);
-  assert.equal(priv.io.saves, 0);
-
-  // Retention on: a bounded wait, then the bytes that arrived are saved and zeroed.
-  const on = await setup(t, { ...LOCAL, ...RETAIN });
-  on.setSettings({ ...LOCAL, ...RETAIN });
-  startBatch(on.manager, [1], 3);
-  on.manager.cancelRecording();
-  await on.advance(0);
-  const heldOn = on.manager._undo.peek();
-  heldOn.adoptBlob(never, "segment");
-  const viewsOn = heldOn.bytes("segment");
-  await on.advance(5000);
-  assert.equal(heldOn.isZeroed(), false, "waiting, bounded, for the stuck copy");
-  await on.advance(3000); // CLOSE_SAVE_WAIT_MS
-  assert.equal(on.io.saves, 1);
-  assert.ok(viewsOn.every(allZero));
-  assert.equal(heldOn.isZeroed(), true);
-});
-
-test("Esc, then a new recording, while an Undo waits: the old restore touches neither (R1-I3)", async (t) => {
-  for (const settle of ["resolve", "reject"]) {
-    const { manager, advance } = await setup(t);
-    const states = [];
-    manager.onStateChange = (state) => states.push(state);
     startBatch(manager, [], 3);
+    const oldSession = manager.activeSession;
     manager.cancelRecording();
     await advance(0);
-    const held = manager._undo.peek();
-    const gate = deferred();
-    held.ready = () => gate.promise;
-    const restoring = manager.restoreCancelled();
-    manager.cancelProcessing(); // Esc
-    startBatch(manager, [], 5); // a new recording starts
-    const before = states.length;
-    if (settle === "resolve") gate.resolve(true);
-    else gate.reject(new Error("copy failed"));
-    const result = await restoring;
+    manager.processWithLocalParakeet = async () => {
+      throw new Error("provider 500");
+    };
+    await manager.restoreCancelled();
+    for (let i = 0; i < 5; i += 1) await advance(0); // A's row or audio write is now pending
+
+    manager.cancelProcessing(); // Esc detaches A's pipeline and re-holds its audio
     await advance(0);
-    assert.equal(result.restored, false);
-    assert.equal(manager.isRecording, true, `${settle}: the new recording is untouched`);
-    assert.equal(states.length, before, `${settle}: no idle broadcast from the old restore`);
-    assert.equal(
-      manager._undo.peek(),
-      null,
-      `${settle}: the old recording does not take the window`
+    const lifecycle = [];
+    manager.onStateChange = (state) => lifecycle.push(state);
+    const { worklets, sent } = installRealStreamingStart(manager, t);
+    assert.ok(manager._streamingEgressStopped instanceof Set);
+    assert.equal(await manager.startStreamingRecording(), true);
+    const newerSession = manager.activeSession;
+    const pcm = new Int16Array([11, 12, 13, 14]);
+    worklets[0].port.onmessage({ data: pcm.buffer }); // the real worklet callback records B's frame
+    assert.deepEqual(sent, [[11, 12, 13, 14]], "B's frame left through its streaming provider");
+    assert.deepEqual(
+      manager._sessionAudio.frames.map((frame) => [...frame]),
+      [[11, 12, 13, 14]]
     );
+    const lifecycleAtCapture = lifecycle.length;
+
+    if (pending === "row") row.resolve({ id: 1 });
+    else audioWrite.resolve({ success: true });
+    await manager._restoreRun;
+    await advance(0);
+
     assert.equal(
-      held.isZeroed(),
+      manager._sessionAudio?.session,
+      newerSession,
+      `${pending}: A cannot clear B's capture`
+    );
+    assert.deepEqual(
+      manager._sessionAudio.frames.map((frame) => [...frame]),
+      [[11, 12, 13, 14]],
+      `${pending}: B's PCM survives`
+    );
+    assert.equal(manager.activeSession, newerSession, `${pending}: A cannot end B's session`);
+    assert.equal(lifecycle.length, lifecycleAtCapture, `${pending}: A cannot publish idle over B`);
+
+    await manager.cancelStreamingRecording();
+    await advance(0);
+    const held = manager._undo.peek();
+    assert.equal(held?.session.id, newerSession.id, `${pending}: Esc holds B`);
+    assert.deepEqual(
+      held.frames().map((frame) => [...frame]),
+      [[11, 12, 13, 14]]
+    );
+
+    const replayed = [];
+    win.electronAPI.dictationRealtimeStart = async () => ({ success: true });
+    win.electronAPI.dictationRealtimeSend = (frame) => replayed.push([...new Int16Array(frame)]);
+    win.electronAPI.dictationRealtimeStop = async () => ({ success: true });
+    manager._attachStreamingListeners = () => {};
+    manager._finalizeStreamingRecording = async (_id, { replay } = {}) =>
+      assert.equal(replay, true);
+    assert.equal(
+      (await manager.restoreCancelled(newerSession.id)).restored,
       true,
-      `${settle}: retention off, it closed as a newer start closes a window`
+      `${pending}: Undo resumes B`
+    );
+    await manager._restoreRun;
+    assert.deepEqual(replayed, [[11, 12, 13, 14]], `${pending}: Undo replays the captured PCM`);
+    assert.equal(held.isZeroed(), true, `${pending}: the restored hold releases its owned copy`);
+    assert.equal(manager.isProcessing, false);
+    assert.equal(manager.isStreaming, false);
+    assert.notEqual(oldSession.id, newerSession.id);
+    assert.equal(
+      uploaded.every((byte) => byte === 3),
+      true,
+      `${pending}: A never uploads B's captured audio`
     );
   }
 });
 
-test("a merge failure during Undo settles idle and puts the recording back (R2-C2)", async (t) => {
-  const { manager, advance } = await setup(t);
-  startBatch(manager, [1, 2], 3);
-  manager.cancelRecording();
-  await advance(0);
-  manager.mergeRecordedSegments = async () => {
-    throw new Error("ffmpeg failed");
-  };
-  const errors = [];
-  manager.onError = (error) => errors.push(error);
-  assert.equal((await manager.restoreCancelled()).restored, true);
-  await manager._restoreRun;
-  await advance(0);
-  assert.equal(manager.isProcessing, false, "never stuck busy");
-  assert.equal(errors.length, 1);
-  const again = manager._undo.peek();
-  assert.ok(await again.ready());
-  assert.deepEqual(again.bytes("segment").map(firstByte).sort(), [1, 2, 3]);
+test("streaming fallback's final chunk enters the hold and late chunks cannot survive expiry", async (t) => {
+  for (const expiresFirst of [false, true]) {
+    const { manager, advance } = await setup(t);
+    streamingManager(manager);
+    manager.isRecording = true;
+    const chunks = [blob(7)];
+    manager._sessionAudio.fallbackChunks = chunks;
+    manager.streamingFallbackChunks = chunks;
+    let finish;
+    const recorder = {
+      state: "recording",
+      mimeType: "audio/webm",
+      stop() {
+        this.state = "inactive";
+        finish = () => {
+          chunks.push(blob(8));
+          this.onstop();
+        };
+      },
+    };
+    manager.streamingFallbackRecorder = recorder;
+    await manager.cancelStreamingRecording();
+    const held = manager._undo.peek();
+    if (expiresFirst) await advance(10000);
+    finish();
+    await advance(0);
+    if (expiresFirst) {
+      assert.deepEqual(chunks, []);
+      assert.deepEqual(held.bytes("fallback"), []);
+    } else {
+      await held.ready();
+      const bytes = held.bytes("fallback")[0];
+      assert.equal(bytes.length, 600);
+      assert.equal(bytes[0], 7);
+      assert.equal(bytes[300], 8);
+      await manager.flushCancelHold();
+      assert.equal(
+        bytes.every((value) => value === 0),
+        true
+      );
+    }
+  }
 });
+
+test("cancel during actual streaming Start retires transport before awaiting startup settlement", async (t) => {
+  const { manager } = await setup(t);
+  const { worklets, provider } = installRealStreamingStart(manager, t);
+  const starting = deferred();
+  provider.start = () => starting.promise;
+  const order = [];
+  provider.cancel = () => {
+    order.push("cancel");
+    // Actual main Cancel retires the pending attempt and settles its public
+    // Start immediately; a later core connection remains fenced in main.
+    starting.resolve({ success: false });
+  };
+  provider.stop = async () => {
+    order.push("stop");
+    starting.resolve({ success: false });
+    return {};
+  };
+  const started = manager.startStreamingRecording();
+  for (let i = 0; i < 30 && !manager.isRecording; i++)
+    await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(manager.isRecording, true);
+  worklets[0].port.onmessage({ data: Int16Array.of(5, 6).buffer });
+  const session = manager.activeSession;
+  const cancelled = manager.cancelStreamingRecording();
+  await new Promise((resolve) => setImmediate(resolve));
+  const stoppedBeforeSettlement = order.includes("stop");
+  starting.resolve({ success: false }); // teardown stays bounded even in RED
+  await started;
+  await cancelled;
+  assert.equal(stoppedBeforeSettlement, true);
+  assert.deepEqual(order.slice(0, 2), ["cancel", "stop"]);
+  assert.equal(manager._undo.peek().session, session);
+  assert.deepEqual(
+    manager._undo
+      .peek()
+      .frames()
+      .map((frame) => [...frame]),
+    [[5, 6]]
+  );
+});
+
+test("cancel while replay Start waits erases its original and lets a new capture own the lifecycle", async (t) => {
+  const { manager, advance, window: win } = await setup(t);
+  streamingManager(manager);
+  manager.isRecording = true;
+  await manager.cancelStreamingRecording();
+  await advance(0);
+  const original = manager._undo.peek();
+  const starting = deferred();
+  win.electronAPI.dictationRealtimeStart = () => starting.promise;
+  win.electronAPI.dictationRealtimeCancel = () => starting.resolve({ success: false });
+  win.electronAPI.dictationRealtimeStop = async () => ({});
+  manager._attachStreamingListeners = () => {};
+  await manager.restoreCancelled();
+  assert.equal(original.isZeroed(), true, "only replay capture owns mutable bytes during Start");
+  const oldRun = manager._restoreRun;
+  await manager.cancelStreamingRecording();
+  const held = manager._undo.peek(),
+    aliases = held.frames();
+  await advance(10000);
+  assert.equal(aliases.every(allZero), true);
+  assert.equal(held.isZeroed(), true);
+  startBatch(manager, [], 9);
+  const current = manager.activeSession;
+  starting.resolve({ success: true });
+  await oldRun;
+  assert.equal(manager.activeSession, current);
+  assert.equal(manager.isRecording, true);
+});
+
+for (const stage of ["control", "Start", "pacing"]) {
+  test(`Esc during replay ${stage} cannot finalize a held recording and a second Undo retains its operation`, async (t) => {
+    const { manager, advance, window: win } = await setup(t);
+    streamingManager(manager);
+    manager.isRecording = true;
+    await manager.cancelStreamingRecording();
+    await advance(0);
+    const original = manager._undo.peek();
+    const session = original.session,
+      context = original.context,
+      tracker = original.tracker;
+    const expected = original.frames().map((frame) => [...frame]);
+    const starting = deferred(),
+      sent = deferred();
+    const starts = [],
+      frames = [],
+      completions = [],
+      errors = [],
+      states = [],
+      effects = [];
+    let finalizes = 0,
+      banks = 0;
+    const finalize = manager._finalizeStreamingRecording;
+    manager._finalizeStreamingRecording = async function (...args) {
+      finalizes++;
+      try {
+        return await finalize.apply(this, args);
+      } catch (error) {
+        errors.push({ message: error.message, stack: error.stack });
+        throw error;
+      }
+    };
+    const bank = manager._bankAssistantDirective;
+    manager._bankAssistantDirective = function (...args) {
+      banks++;
+      return bank.apply(this, args);
+    };
+    win.electronAPI.dictationRealtimeStart = async (operation) => {
+      starts.push(operation);
+      if (stage === "Start" && starts.length === 1) await starting.promise;
+      return { success: true };
+    };
+    win.electronAPI.dictationRealtimeSend = (bytes, operation) => {
+      frames.push({ bytes: [...new Int16Array(bytes)], operation });
+      sent.resolve();
+    };
+    win.electronAPI.dictationRealtimeCancel = () => {};
+    win.electronAPI.dictationRealtimeStop = async () => ({ text: "Retained words" });
+    for (const name of [
+      "onDictationRealtimePartial",
+      "onDictationRealtimeFinal",
+      "onDictationRealtimeError",
+      "onDictationRealtimeSessionEnd",
+    ])
+      win.electronAPI[name] = () => () => {};
+    win.electronAPI.pasteText = async () => {
+      effects.push("paste");
+      return { pasted: true };
+    };
+    win.electronAPI.recordAnalyticsEvent = async () => effects.push("analytics");
+    win.electronAPI.saveTranscription = async () => {
+      effects.push("row");
+      return { id: 1 };
+    };
+    win.electronAPI.saveTranscriptionAudio = async () => {
+      effects.push("audio");
+      return { success: true };
+    };
+    manager.onStateChange = (state) => states.push(state);
+    manager.onError = (error) => errors.push(error);
+    manager.shouldUseStreaming = () => false;
+    manager.processTranscription = async (text) => {
+      manager._bankAssistantDirective(text, {});
+      return text;
+    };
+    const saved = [];
+    manager.onTranscriptionComplete = (result) => {
+      completions.push(result);
+      saved.push(manager.safePaste(result.text));
+      saved.push(
+        manager.saveTranscription(result.text, result.text, {
+          sessionId: session.id,
+          private: session.private,
+        })
+      );
+    };
+    assert.equal((await manager.restoreCancelled()).restored, true);
+    const oldRun = manager._restoreRun;
+    if (stage !== "control") {
+      if (stage === "pacing") await sent.promise;
+      assert.equal(manager.cancelProcessing(), true); // Esc, without any replacement
+      const held = manager._undo.peek();
+      await held.ready();
+      const notifications = states.length;
+      starting.resolve();
+      await oldRun;
+      assert.equal(finalizes, 0, "abandoned replay never enters real finalization");
+      assert.deepEqual(completions, []);
+      assert.deepEqual(effects, [], "no paste, row, audio or analytics after Esc");
+      assert.equal(banks, 0);
+      assert.equal(manager.pendingAssistantConversation ?? null, null);
+      assert.equal(
+        states.length,
+        notifications,
+        "abandoned replay publishes no processing or idle"
+      );
+      assert.equal(manager._undo.peek(), held);
+      assert.equal(held.session, session);
+      assert.equal(held.context, context);
+      assert.equal(held.tracker, tracker);
+      assert.equal(context.released, false);
+      assert.deepEqual(
+        held.frames().map((frame) => [...frame]),
+        expected
+      );
+      frames.length = 0;
+      assert.equal((await manager.restoreCancelled(session.id)).restored, true);
+      await manager._restoreRun;
+      assert.notEqual(starts[0].operationId, starts[1].operationId);
+    } else await oldRun;
+    await Promise.all(saved);
+    assert.equal(finalizes, 1);
+    assert.equal(completions.length, 1, JSON.stringify(errors));
+    assert.deepEqual(
+      frames.map((frame) => frame.bytes),
+      expected
+    );
+    assert.equal(starts.at(-1).dictationSessionId, session.id);
+    assert.ok(effects.includes("paste"));
+    assert.equal(manager._undo.peek(), null);
+    assert.equal(context.released, true);
+  });
+}
 
 test("an STT or Sealed failure during Undo keeps the audio, retention on or off (R2-C2)", async (t) => {
   for (const retention of [true, false]) {
@@ -1194,100 +1441,6 @@ test("an old release cannot clear the same Blob reassigned to the same session (
   assert.notEqual(manager._lastAudioOwnerToken, oldSnapshot.ownerToken);
 });
 
-test("a delayed cancelled pipeline preserves a newer real streaming capture and its Undo (R5-I1)", async (t) => {
-  for (const pending of ["row", "audio"]) {
-    const settings = { ...LOCAL, ...RETAIN };
-    const { manager, advance, window: win, setSettings } = await setup(t, settings);
-    setSettings(settings);
-    const row = deferred();
-    const audioWrite = deferred();
-    const uploaded = [];
-    win.electronAPI.saveTranscription = async () => (pending === "row" ? row.promise : { id: 1 });
-    win.electronAPI.saveTranscriptionAudio = async (_id, arrayBuffer) => {
-      uploaded.push(new Uint8Array(arrayBuffer)[0]);
-      return pending === "audio" ? audioWrite.promise : { success: true };
-    };
-
-    startBatch(manager, [], 3);
-    const oldSession = manager.activeSession;
-    manager.cancelRecording();
-    await advance(0);
-    manager.processWithLocalParakeet = async () => {
-      throw new Error("provider 500");
-    };
-    await manager.restoreCancelled();
-    for (let i = 0; i < 5; i += 1) await advance(0); // A's row or audio write is now pending
-
-    manager.cancelProcessing(); // Esc detaches A's pipeline and re-holds its audio
-    await advance(0);
-    const lifecycle = [];
-    manager.onStateChange = (state) => lifecycle.push(state);
-    const { worklets, sent } = installRealStreamingStart(manager, t);
-    assert.ok(manager._streamingEgressStopped instanceof Set);
-    assert.equal(await manager.startStreamingRecording(), true);
-    const newerSession = manager.activeSession;
-    const pcm = new Int16Array([11, 12, 13, 14]);
-    worklets[0].port.onmessage({ data: pcm.buffer }); // the real worklet callback records B's frame
-    assert.deepEqual(sent, [[11, 12, 13, 14]], "B's frame left through its streaming provider");
-    assert.deepEqual(
-      manager._sessionAudio.frames.map((frame) => [...frame]),
-      [[11, 12, 13, 14]]
-    );
-    const lifecycleAtCapture = lifecycle.length;
-
-    if (pending === "row") row.resolve({ id: 1 });
-    else audioWrite.resolve({ success: true });
-    await manager._restoreRun;
-    await advance(0);
-
-    assert.equal(
-      manager._sessionAudio?.session,
-      newerSession,
-      `${pending}: A cannot clear B's capture`
-    );
-    assert.deepEqual(
-      manager._sessionAudio.frames.map((frame) => [...frame]),
-      [[11, 12, 13, 14]],
-      `${pending}: B's PCM survives`
-    );
-    assert.equal(manager.activeSession, newerSession, `${pending}: A cannot end B's session`);
-    assert.equal(lifecycle.length, lifecycleAtCapture, `${pending}: A cannot publish idle over B`);
-
-    await manager.cancelStreamingRecording();
-    await advance(0);
-    const held = manager._undo.peek();
-    assert.equal(held?.session.id, newerSession.id, `${pending}: Esc holds B`);
-    assert.deepEqual(
-      held.frames().map((frame) => [...frame]),
-      [[11, 12, 13, 14]]
-    );
-
-    const replayed = [];
-    win.electronAPI.dictationRealtimeStart = async () => ({ success: true });
-    win.electronAPI.dictationRealtimeSend = (frame) => replayed.push([...new Int16Array(frame)]);
-    win.electronAPI.dictationRealtimeStop = async () => ({ success: true });
-    manager._attachStreamingListeners = () => {};
-    manager._finalizeStreamingRecording = async (_id, { replay } = {}) =>
-      assert.equal(replay, true);
-    assert.equal(
-      (await manager.restoreCancelled(newerSession.id)).restored,
-      true,
-      `${pending}: Undo resumes B`
-    );
-    await manager._restoreRun;
-    assert.deepEqual(replayed, [[11, 12, 13, 14]], `${pending}: Undo replays the captured PCM`);
-    assert.equal(held.isZeroed(), true, `${pending}: the restored hold releases its owned copy`);
-    assert.equal(manager.isProcessing, false);
-    assert.equal(manager.isStreaming, false);
-    assert.notEqual(oldSession.id, newerSession.id);
-    assert.equal(
-      uploaded.every((byte) => byte === 3),
-      true,
-      `${pending}: A never uploads B's captured audio`
-    );
-  }
-});
-
 test("flush persists once when retention allows; with retention off it only zeroes", async (t) => {
   const on = await setup(t, { ...LOCAL, ...RETAIN });
   on.setSettings({ ...LOCAL, ...RETAIN });
@@ -1358,91 +1511,6 @@ test("held late receipts retain the same tracker while paused; expiry disposes i
   assert.deepEqual(held.bytes("segment"), []);
 });
 
-test("streaming fallback's final chunk enters the hold and late chunks cannot survive expiry", async (t) => {
-  for (const expiresFirst of [false, true]) {
-    const { manager, advance } = await setup(t);
-    streamingManager(manager);
-    manager.isRecording = true;
-    const chunks = [blob(7)];
-    manager._sessionAudio.fallbackChunks = chunks;
-    manager.streamingFallbackChunks = chunks;
-    let finish;
-    const recorder = {
-      state: "recording",
-      mimeType: "audio/webm",
-      stop() {
-        this.state = "inactive";
-        finish = () => {
-          chunks.push(blob(8));
-          this.onstop();
-        };
-      },
-    };
-    manager.streamingFallbackRecorder = recorder;
-    await manager.cancelStreamingRecording();
-    const held = manager._undo.peek();
-    if (expiresFirst) await advance(10000);
-    finish();
-    await advance(0);
-    if (expiresFirst) {
-      assert.deepEqual(chunks, []);
-      assert.deepEqual(held.bytes("fallback"), []);
-    } else {
-      await held.ready();
-      const bytes = held.bytes("fallback")[0];
-      assert.equal(bytes.length, 600);
-      assert.equal(bytes[0], 7);
-      assert.equal(bytes[300], 8);
-      await manager.flushCancelHold();
-      assert.equal(
-        bytes.every((value) => value === 0),
-        true
-      );
-    }
-  }
-});
-
-test("cancel during actual streaming Start retires transport before awaiting startup settlement", async (t) => {
-  const { manager } = await setup(t);
-  const { worklets, provider } = installRealStreamingStart(manager, t);
-  const starting = deferred();
-  provider.start = () => starting.promise;
-  const order = [];
-  provider.cancel = () => {
-    order.push("cancel");
-    // Actual main Cancel retires the pending attempt and settles its public
-    // Start immediately; a later core connection remains fenced in main.
-    starting.resolve({ success: false });
-  };
-  provider.stop = async () => {
-    order.push("stop");
-    starting.resolve({ success: false });
-    return {};
-  };
-  const started = manager.startStreamingRecording();
-  for (let i = 0; i < 30 && !manager.isRecording; i++)
-    await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(manager.isRecording, true);
-  worklets[0].port.onmessage({ data: Int16Array.of(5, 6).buffer });
-  const session = manager.activeSession;
-  const cancelled = manager.cancelStreamingRecording();
-  await new Promise((resolve) => setImmediate(resolve));
-  const stoppedBeforeSettlement = order.includes("stop");
-  starting.resolve({ success: false }); // teardown stays bounded even in RED
-  await started;
-  await cancelled;
-  assert.equal(stoppedBeforeSettlement, true);
-  assert.deepEqual(order.slice(0, 2), ["cancel", "stop"]);
-  assert.equal(manager._undo.peek().session, session);
-  assert.deepEqual(
-    manager._undo
-      .peek()
-      .frames()
-      .map((frame) => [...frame]),
-    [[5, 6]]
-  );
-});
-
 test("microphone recovery with no live recorder still holds every batch segment for Undo", async (t) => {
   const { manager, advance, io } = await setup(t);
   startBatch(manager, [2], 4);
@@ -1457,169 +1525,6 @@ test("microphone recovery with no live recorder still holds every batch segment 
   await advance(5000);
   assert.equal(held.isZeroed(), true);
 });
-
-test("cancel while replay Start waits erases its original and lets a new capture own the lifecycle", async (t) => {
-  const { manager, advance, window: win } = await setup(t);
-  streamingManager(manager);
-  manager.isRecording = true;
-  await manager.cancelStreamingRecording();
-  await advance(0);
-  const original = manager._undo.peek();
-  const starting = deferred();
-  win.electronAPI.dictationRealtimeStart = () => starting.promise;
-  win.electronAPI.dictationRealtimeCancel = () => starting.resolve({ success: false });
-  win.electronAPI.dictationRealtimeStop = async () => ({});
-  manager._attachStreamingListeners = () => {};
-  await manager.restoreCancelled();
-  assert.equal(original.isZeroed(), true, "only replay capture owns mutable bytes during Start");
-  const oldRun = manager._restoreRun;
-  await manager.cancelStreamingRecording();
-  const held = manager._undo.peek(),
-    aliases = held.frames();
-  await advance(10000);
-  assert.equal(aliases.every(allZero), true);
-  assert.equal(held.isZeroed(), true);
-  startBatch(manager, [], 9);
-  const current = manager.activeSession;
-  starting.resolve({ success: true });
-  await oldRun;
-  assert.equal(manager.activeSession, current);
-  assert.equal(manager.isRecording, true);
-});
-
-for (const stage of ["control", "Start", "pacing"]) {
-  test(`Esc during replay ${stage} cannot finalize a held recording and a second Undo retains its operation`, async (t) => {
-    const { manager, advance, window: win } = await setup(t);
-    streamingManager(manager);
-    manager.isRecording = true;
-    await manager.cancelStreamingRecording();
-    await advance(0);
-    const original = manager._undo.peek();
-    const session = original.session,
-      context = original.context,
-      tracker = original.tracker;
-    const expected = original.frames().map((frame) => [...frame]);
-    const starting = deferred(),
-      sent = deferred();
-    const starts = [],
-      frames = [],
-      completions = [],
-      errors = [],
-      states = [],
-      effects = [];
-    let finalizes = 0,
-      banks = 0;
-    const finalize = manager._finalizeStreamingRecording;
-    manager._finalizeStreamingRecording = async function (...args) {
-      finalizes++;
-      try {
-        return await finalize.apply(this, args);
-      } catch (error) {
-        errors.push({ message: error.message, stack: error.stack });
-        throw error;
-      }
-    };
-    const bank = manager._bankAssistantDirective;
-    manager._bankAssistantDirective = function (...args) {
-      banks++;
-      return bank.apply(this, args);
-    };
-    win.electronAPI.dictationRealtimeStart = async (operation) => {
-      starts.push(operation);
-      if (stage === "Start" && starts.length === 1) await starting.promise;
-      return { success: true };
-    };
-    win.electronAPI.dictationRealtimeSend = (bytes, operation) => {
-      frames.push({ bytes: [...new Int16Array(bytes)], operation });
-      sent.resolve();
-    };
-    win.electronAPI.dictationRealtimeCancel = () => {};
-    win.electronAPI.dictationRealtimeStop = async () => ({ text: "Retained words" });
-    for (const name of [
-      "onDictationRealtimePartial",
-      "onDictationRealtimeFinal",
-      "onDictationRealtimeError",
-      "onDictationRealtimeSessionEnd",
-    ])
-      win.electronAPI[name] = () => () => {};
-    win.electronAPI.pasteText = async () => {
-      effects.push("paste");
-      return { pasted: true };
-    };
-    win.electronAPI.recordAnalyticsEvent = async () => effects.push("analytics");
-    win.electronAPI.saveTranscription = async () => {
-      effects.push("row");
-      return { id: 1 };
-    };
-    win.electronAPI.saveTranscriptionAudio = async () => {
-      effects.push("audio");
-      return { success: true };
-    };
-    manager.onStateChange = (state) => states.push(state);
-    manager.onError = (error) => errors.push(error);
-    manager.shouldUseStreaming = () => false;
-    manager.processTranscription = async (text) => {
-      manager._bankAssistantDirective(text, {});
-      return text;
-    };
-    const saved = [];
-    manager.onTranscriptionComplete = (result) => {
-      completions.push(result);
-      saved.push(manager.safePaste(result.text));
-      saved.push(
-        manager.saveTranscription(result.text, result.text, {
-          sessionId: session.id,
-          private: session.private,
-        })
-      );
-    };
-    assert.equal((await manager.restoreCancelled()).restored, true);
-    const oldRun = manager._restoreRun;
-    if (stage !== "control") {
-      if (stage === "pacing") await sent.promise;
-      assert.equal(manager.cancelProcessing(), true); // Esc, without any replacement
-      const held = manager._undo.peek();
-      await held.ready();
-      const notifications = states.length;
-      starting.resolve();
-      await oldRun;
-      assert.equal(finalizes, 0, "abandoned replay never enters real finalization");
-      assert.deepEqual(completions, []);
-      assert.deepEqual(effects, [], "no paste, row, audio or analytics after Esc");
-      assert.equal(banks, 0);
-      assert.equal(manager.pendingAssistantConversation ?? null, null);
-      assert.equal(
-        states.length,
-        notifications,
-        "abandoned replay publishes no processing or idle"
-      );
-      assert.equal(manager._undo.peek(), held);
-      assert.equal(held.session, session);
-      assert.equal(held.context, context);
-      assert.equal(held.tracker, tracker);
-      assert.equal(context.released, false);
-      assert.deepEqual(
-        held.frames().map((frame) => [...frame]),
-        expected
-      );
-      frames.length = 0;
-      assert.equal((await manager.restoreCancelled(session.id)).restored, true);
-      await manager._restoreRun;
-      assert.notEqual(starts[0].operationId, starts[1].operationId);
-    } else await oldRun;
-    await Promise.all(saved);
-    assert.equal(finalizes, 1);
-    assert.equal(completions.length, 1, JSON.stringify(errors));
-    assert.deepEqual(
-      frames.map((frame) => frame.bytes),
-      expected
-    );
-    assert.equal(starts.at(-1).dictationSessionId, session.id);
-    assert.ok(effects.includes("paste"));
-    assert.equal(manager._undo.peek(), null);
-    assert.equal(context.released, true);
-  });
-}
 
 for (const owner of ["batch", "restored batch", "streaming fallback"]) {
   test(`${owner} conversion cannot admit a disk merge after cancel and erases early and late copies`, async (t) => {

@@ -4,6 +4,7 @@ import { AlertTriangle, Check, X, Loader2, Clock, Trash2 } from "../icons";
 import { Button } from "../ui/button";
 import { cn } from "../lib/utils";
 import type { QueueItem } from "../../stores/batchQueueStore";
+import { queueErrorText } from "./shared";
 
 interface BatchQueueViewProps {
   queue: QueueItem[];
@@ -156,15 +157,9 @@ export default function BatchQueueView({
             {item.status === "error" && item.error && (
               <span
                 className="text-[10px] text-destructive/50 truncate max-w-20"
-                title={t(`notes.upload.${item.error}`, {
-                  defaultValue: item.error,
-                  size: byokMaxFileSizeMb,
-                })}
+                title={queueErrorText(item.error, t, { size: byokMaxFileSizeMb })}
               >
-                {t(`notes.upload.${item.error}`, {
-                  defaultValue: item.error,
-                  size: byokMaxFileSizeMb,
-                })}
+                {queueErrorText(item.error, t, { size: byokMaxFileSizeMb })}
               </span>
             )}
 

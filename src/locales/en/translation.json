@@ -728,7 +728,7 @@
       "cloud": "Cloud",
       "local": "Local",
       "enterprise": "Enterprise",
-      "localDescription": "Runs on your device. Complete privacy, works offline.",
+      "localDescription": "Runs on your device and works offline.",
       "cloudDescription": "Advanced models via API. Fast and capable, requires internet.",
       "enterpriseDescription": "Use your organization's own cloud provider credentials."
     },
@@ -1628,7 +1628,7 @@
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "Runs on this device. Nothing leaves it.",
+        "localDesc": "Runs on this device. Loqui doesn't send your content to a provider.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       },
@@ -2016,7 +2016,137 @@
       "clearAllAudioDone": "Stored audio deleted",
       "clearAllAudioFailed": "Not all stored audio was deleted. Try again, or check that no other app is using the files.",
       "audioStorageChecking": "Checking stored audio…",
-      "audioStorageUnavailable": "Loqui couldn't read its audio folder, so it can't show or clear stored audio right now."
+      "audioStorageUnavailable": "Loqui couldn't read its audio folder, so it can't show or clear stored audio right now.",
+      "sealed": {
+        "title": "Sealed mode",
+        "description": "When on, Loqui blocks its own requests to other computers, including cloud routes, downloads, updates and calendars. On this build, local engines can't yet be isolated, so they're unavailable while Sealed mode is on.",
+        "checking": "Checking Sealed mode…",
+        "on": "Sealed mode is on. Loqui blocks its own requests to other computers.",
+        "buildLimit": "Sealed mode is not fully available on this build: local engines can't yet be isolated, so they don't run while it's on. Routes that use them show as unavailable.",
+        "statusChecking": "Checking Sealed mode status…",
+        "scope": "Sealed mode covers requests Loqui makes itself. Your browser, other apps and the operating system are outside it, and links open in them only after you confirm.",
+        "forwarders": "Programs you run yourself, such as a proxy, port forwarder, SOCKS or tunnel tool, are outside Sealed mode too. While it's on, Loqui won't send its own requests through a proxy, but it can't see or stop what those programs send.",
+        "unverified": {
+          "guards": "Loqui can't confirm that all of its network guards are active. Quit Loqui and open it again.",
+          "envProxy": "Loqui was started with a proxy setting in its environment, so it can't confirm that every request is blocked.",
+          "stopFailed": "Not yet confirmed as stopped since Sealed mode was turned on: {{names}}. Loqui keeps checking.",
+          "stopFailedUnnamed": "Some work that started before Sealed mode was turned on hasn't confirmed that it stopped. Loqui keeps checking.",
+          "child": "Loqui can't confirm that these programs and everything they started have exited: {{names}}. Loqui keeps checking.",
+          "childUnknown": "Loqui can't read the status of the programs it started. It keeps checking.",
+          "chromium": "A page request that started before Sealed mode was turned on is still open. Loqui keeps checking.",
+          "dns": "A name lookup that started before Sealed mode was turned on is still pending. Loqui keeps checking.",
+          "active": "Stopping requests that started before Sealed mode was turned on…",
+          "other": "Loqui couldn't confirm every step of turning on Sealed mode, so it can't confirm that all of its own requests are blocked."
+        },
+        "blocked_one": "{{count}} request blocked since Sealed mode was turned on or Loqui started.",
+        "blocked_other": "{{count}} requests blocked since Sealed mode was turned on or Loqui started.",
+        "loadError": "Loqui couldn't read your saved Sealed mode setting, so it turned Sealed mode on to be safe. Turn it off here if you meant to.",
+        "saveError": "Loqui couldn't save this Sealed mode setting. The next time Loqui starts, it may use the previous setting.",
+        "toggleError": "Couldn't change Sealed mode. The switch shows the setting Loqui is using now."
+      },
+      "recorder": {
+        "title": "Flight recorder",
+        "subtitle": "What Loqui's own network guards recorded today, since midnight. Metadata only: no audio, text, prompts, keys or full web addresses are stored here.",
+        "loading": "Loading…",
+        "loadError": "Couldn't load the flight recorder.",
+        "unavailable": "The flight recorder couldn't save some records, so this list may be incomplete.",
+        "unavailableRead": "The flight recorder can't read or save its records right now.",
+        "deleteFailed": "The flight recorder couldn't delete some records, so older entries may still be stored.",
+        "readStale": "The flight recorder couldn't read its records just now, so this list may be out of date.",
+        "retry": "Try again",
+        "observedToday_one": "{{count}} outgoing request recorded today",
+        "observedToday_other": "{{count}} outgoing requests recorded today",
+        "connectionsToday_one": "Plus {{count}} connection, listed separately from requests",
+        "connectionsToday_other": "Plus {{count}} connections, listed separately from requests",
+        "sessionsToday_one": "Plus {{count}} helper session (Codex or yt-dlp) whose requests Loqui can't see",
+        "sessionsToday_other": "Plus {{count}} helper sessions (Codex or yt-dlp) whose requests Loqui can't see",
+        "blockedToday_one": "{{count}} request blocked by Sealed mode before it was sent",
+        "blockedToday_other": "{{count}} requests blocked by Sealed mode before they were sent",
+        "coverage": "These counts cover only what was recorded here. Records can be cleared or removed by your retention settings, and other programs' traffic isn't seen, so they can't show everything that left this computer.",
+        "recordFailures_one": "Since Loqui started, {{count}} request couldn't be written to the recorder, so this list is incomplete.",
+        "recordFailures_other": "Since Loqui started, {{count}} requests couldn't be written to the recorder, so this list is incomplete.",
+        "unexplained": "Loqui saw requests to {{hosts}} that it couldn't match to a task.",
+        "unexplainedMore_one": "And {{count}} more host.",
+        "unexplainedMore_other": "And {{count}} more hosts.",
+        "timelineLabel": "Recorded requests today, by time of day",
+        "timelineLabelPartial": "Recorded requests today, by time of day (partial: only the newest records are drawn)",
+        "timelinePartial": "The timeline shows only the records listed below; earlier hours today may have more that aren't drawn.",
+        "tick": "{{time}} · {{task}} · {{host}}",
+        "legend": {
+          "sent": "Sent",
+          "session": "Helper session",
+          "blocked": "Blocked, not sent",
+          "unexplained": "Unexplained"
+        },
+        "empty": "No recorded requests for this period.",
+        "tableCaption": "Requests recorded today, newest first",
+        "columns": {
+          "time": "Time",
+          "task": "Task",
+          "host": "Host",
+          "sent": "Sent",
+          "received": "Received",
+          "status": "Status",
+          "model": "Model"
+        },
+        "usualHost": "Usually {{host}}",
+        "unknownHost": "Unknown host",
+        "connection": "connection; the requests inside it aren't visible to Loqui",
+        "opaque": "Session; its traffic isn't visible to Loqui",
+        "notSent": "Not sent",
+        "unknownBytes": "unknown",
+        "outcome": {
+          "ok": "Sent",
+          "error": "Failed",
+          "blocked": "Blocked",
+          "cancelled": "Stopped; the provider may have received part"
+        },
+        "truncated_one": "Showing the newest {{count}} record from today.",
+        "truncated_other": "Showing the newest {{count}} records from today.",
+        "showMore": "Show more",
+        "exportForAll": "To see every record, export the CSV.",
+        "loopbackNote": "Requests Loqui sends to addresses on this computer (loopback), such as a local model server, are not listed. If a program you run here, such as a proxy or port forwarder, passes them on, that traffic isn't shown, and neither is traffic that local engines or other programs make themselves.",
+        "bytesNote": "Sent and received count request and response bodies, not headers. Connection rows, including live transcription, count all bytes on the whole connection instead. “—” means Loqui couldn't measure it.",
+        "retention": "Records follow your local history and transcript retention settings.",
+        "retentionMemory": "Local history is off: new records are kept in memory only (the newest 500) and are gone when Loqui quits. Records saved before you turned it off stay on this computer until your retention setting removes them or you clear them.",
+        "retentionDays_one": "Records are deleted after {{count}} day, following your transcript retention setting.",
+        "retentionDays_other": "Records are deleted after {{count}} days, following your transcript retention setting.",
+        "retentionForever": "Records follow your transcript retention setting (Forever): the newest 100,000 are kept.",
+        "export": "Export CSV",
+        "clear": "Clear history",
+        "actionsNote": "Export and Clear cover every stored record, not only today's. Loqui asks in its own dialog before it clears anything.",
+        "notice": {
+          "exported": "Saved a CSV copy.",
+          "exportError": "Couldn't export the CSV.",
+          "cleared": "Flight recorder history cleared.",
+          "clearError": "Couldn't clear the history."
+        },
+        "tasks": {
+          "dictationStt": "Dictation",
+          "noteRecordingStt": "Note recording",
+          "uploadStt": "Audio upload",
+          "dictationCleanup": "Dictation cleanup",
+          "voiceAssistant": "Voice assistant",
+          "assistantVision": "Assistant vision",
+          "translation": "Translation",
+          "noteFormatting": "Note formatting",
+          "chat": "Chat",
+          "speakerId": "Speaker identification",
+          "semanticSearch": "Semantic search",
+          "providerCheck": "Provider check",
+          "modelDownload": "Model download",
+          "runtimeDownload": "Runtime download",
+          "urlImport": "URL import",
+          "appUpdate": "Updates",
+          "codex": "ChatGPT (Codex)",
+          "calendar": "Calendars",
+          "unattributed": "Unexplained",
+          "nativeLaunch": "Local program (not started)"
+        },
+        "nativeRefusedToday_one": "Sealed mode didn't start {{count}} local program. A program that wasn't started isn't a request, so it isn't counted above.",
+        "nativeRefusedToday_other": "Sealed mode didn't start {{count}} local programs. Programs that weren't started aren't requests, so they aren't counted above.",
+        "nativeRefusedPrograms": "Programs not started: {{names}}"
+      }
     },
     "prompts": {
       "description": "View, customize, and test the unified system prompt that powers text cleanup and instruction detection",
@@ -2045,7 +2175,7 @@
       },
       "supportModels": {
         "title": "On-device support models",
-        "description": "Small models that always run on this device. Your recordings and notes never leave it for these tasks.",
+        "description": "Small models that run on this device. Loqui doesn't send your recordings or notes to a provider for these tasks.",
         "downloaded": "Downloaded",
         "checking": "Checking…",
         "download": "Download {{size}}",
@@ -2065,7 +2195,7 @@
         "local": "Local",
         "selfHosted": "Self-Hosted",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "Runs on this device. Nothing leaves it.",
+        "localDesc": "Runs on this device. Loqui doesn't send your content to a provider.",
         "selfHostedDesc": "Your own server on your network.",
         "enterprise": "Enterprise cloud",
         "enterpriseDesc": "Audio goes to your organization's own cloud."
@@ -3232,7 +3362,8 @@
       "addUrl": "Add the address",
       "sealed": "Actions are paused while Sealed mode is on",
       "unreachable": "Actions can't reach the notes model",
-      "openSettings": "Open Settings"
+      "openSettings": "Open Settings",
+      "nativeUnavailable": "Actions are unavailable in Sealed mode on this build: local models can't be isolated yet"
     },
     "slash": {
       "label": "Insert block",
@@ -3458,7 +3589,7 @@
       "providers": "Bring your own key",
       "providersDesc": "Connect to OpenAI, Anthropic, Gemini, or Groq with your own API key.",
       "local": "Local",
-      "localDesc": "Runs a local model on this device. Nothing leaves it.",
+      "localDesc": "Runs a local model on this device. Loqui doesn't send your content to a provider.",
       "selfHosted": "Self-hosted",
       "selfHostedDesc": "Point at a self-hosted OpenAI-compatible endpoint.",
       "enterprise": "Enterprise",
@@ -3480,7 +3611,7 @@
         "selfHosted": "Self-Hosted",
         "enterprise": "Enterprise",
         "providersDesc": "Bring your own API key.",
-        "localDesc": "Runs on this device. Nothing leaves it.",
+        "localDesc": "Runs on this device. Loqui doesn't send your content to a provider.",
         "selfHostedDesc": "Your own server on your network.",
         "enterpriseDesc": "Use your organization's cloud account (AWS, Azure, GCP)."
       }
@@ -3940,7 +4071,9 @@
     "available": "Loqui {{version}} is available. Turn on automatic updates to install it, or download it from GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "Sealed mode is on, so Loqui doesn't check for, download or install updates. Turn off Sealed mode to update.",
+    "sealedRefused": "Sealed mode is on, so Loqui didn't check for or install an update. Nothing was sent."
   },
   "locality": {
     "device": "On this device",
@@ -4021,7 +4154,8 @@
       "sealed": "Paused · Sealed mode",
       "retired": "Service retired · choose again",
       "unsupported": "Not available for this task",
-      "cantReach": "Can't reach the server"
+      "cantReach": "Can't reach the server",
+      "nativeUnavailable": "Unavailable in Sealed mode on this build"
     },
     "toast": {
       "local": "{{task}} now runs on this device.",
@@ -4093,7 +4227,7 @@
     "tasks": "Tasks",
     "destinations": "Destinations",
     "openSettings": "Open {{task}} settings",
-    "sealed": "Sealed mode is on. Tasks can only run on this device.",
+    "sealed": "Sealed mode is on: Loqui blocks tasks that would send content off this computer. On this build, its local engines don't run while Sealed mode is on either.",
     "undo": "Undo",
     "kind": {
       "speech": "speech",
@@ -4116,13 +4250,13 @@
     },
     "locked": {
       "speakerId": "Locked to this device: speaker identification needs your recordings on-device.",
-      "semanticSearch": "Locked to this device: embeddings stay local, so search never sends your notes anywhere."
+      "semanticSearch": "Locked to this device: embeddings stay local, and search doesn't send your notes to a provider."
     },
     "no": {
       "capability": "{{provider}} can't run this task in Loqui.",
       "visionCloudOnly": "Screenshots can only go to a cloud vision model today.",
       "meetingServer": "Note recording can't use your own server yet.",
-      "sealed": "Sealed mode keeps this task on this device.",
+      "sealed": "Sealed mode is on, so this task can't be sent here.",
       "uploadServer": "File upload uses the server set for Dictation. Change it there.",
       "serverKind": "{{server}} hasn't been set up for {{kind}} tasks. Use “Add a server” to enter its address."
     },
@@ -4138,7 +4272,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Add a server",
       "addServerHint": "You enter its address next",
-      "nothingLeaves": "Nothing leaves",
+      "nothingLeaves": "Not sent to a provider",
       "yourServer": "Your own server",
       "unencrypted": "http, not encrypted",
       "hosted": "Hosted provider",
@@ -4158,7 +4292,7 @@
       "network_other": "{{count}} on your server"
     },
     "leaves": {
-      "none": "Nothing leaves this device.",
+      "none": "No task sends anything to a provider or server.",
       "prefix": "Leaves this device:",
       "item": "{{task}} → {{destination}}"
     }
@@ -4331,7 +4465,10 @@
       "word": "reset",
       "running": "Resetting…",
       "failed": "Reset did not finish, so Loqui will not restart on its own. These steps failed:",
-      "done": "Reset complete. Loqui is restarting…"
+      "done": "Reset complete. Loqui is restarting…",
+      "doneSealed": "Reset complete. Loqui can't restart itself while Sealed mode is on. Quit Loqui and open it again to finish.",
+      "restartFailed": "Reset complete, but Loqui couldn't restart itself. Quit Loqui and open it again to finish.",
+      "doneRevoke": "Reset complete. Read the note about Google below, then quit Loqui and open it again to finish."
     }
   },
   "settingsSearch": {
@@ -4453,7 +4590,105 @@
     "recovery": {
       "availableTitle": "Recordings ready to recover",
       "transcribe": "Transcribe recordings",
-      "discard": "Discard recordings"
+      "discard": "Discard recordings",
+      "transcribeOne": "Transcribe",
+      "stillSealedTitle": "The recording is still held",
+      "stillSealedDetail": "Sealed mode is still on, so this recording wasn't transcribed. Loqui is still holding it in memory only, for up to 30 minutes after the dictation or until you quit. Transcribe it after you turn off Sealed mode.",
+      "evictedOldest": "To make room, Loqui discarded the oldest recording it was holding.",
+      "goneTitle": "This recording is no longer held",
+      "goneExpired": "Loqui held it in memory for 30 minutes, then discarded it. It can't be transcribed now.",
+      "goneEvicted": "Loqui discarded it from memory to make room for a newer recording. It can't be transcribed now.",
+      "goneDiscarded": "It was discarded from memory. It can't be transcribed now.",
+      "goneTranscribed": "Loqui transcribed it and no longer holds it in memory.",
+      "goneUnknown": "Loqui no longer holds it in memory, so it can't be transcribed now.",
+      "expiredDuringReplay": "Its 30 minutes in memory ran out during this attempt, so Loqui discarded it."
+    },
+    "confirmUnseal": {
+      "title": "Turn off Sealed mode?",
+      "message": "Cloud routes, downloads, updates and calendars will be able to use the network again.",
+      "detail": "Loqui asks here, outside the app window, so that only you can turn Sealed mode off.",
+      "keep": "Keep sealed",
+      "turnOff": "Turn off Sealed mode"
+    },
+    "confirmClear": {
+      "title": "Clear the flight recorder?",
+      "message": "This deletes the flight recorder history on this computer.",
+      "detail": "{{count}} records will be deleted. Nothing a provider already received is affected.",
+      "keep": "Keep records",
+      "clear": "Clear history",
+      "detail_one": "{{count}} record will be deleted. Nothing a provider already received is affected.",
+      "detail_other": "{{count}} records will be deleted. Nothing a provider already received is affected."
+    },
+    "confirmLink": {
+      "title": "Open this link outside Loqui?",
+      "message": "The link opens in another app. Sealed mode does not cover that app's network use.",
+      "detail": "Destination: {{host}}",
+      "mailDetail": "Destination: your email app",
+      "keep": "Don't open",
+      "open": "Open link"
+    },
+    "confirmSettings": {
+      "title": "Open system settings outside Loqui?",
+      "message": "System settings open in another app. Sealed mode does not cover that app's network use.",
+      "keep": "Don't open",
+      "open": "Open settings"
+    },
+    "blocked": {
+      "dictationPreflight": "Dictation paused: Sealed mode is on",
+      "dictationPreflightDetail": "Your speech route sends audio off this computer, and Sealed mode blocks that. Nothing was recorded or sent. Choose an on-device route, or turn off Sealed mode.",
+      "nativeUnavailableTitle": "Local dictation is unavailable in Sealed mode",
+      "nativeUnavailableDetail": "This build can't isolate Loqui's local speech engine yet, so the engine doesn't run while Sealed mode is on. Nothing was recorded. Turn off Sealed mode to dictate with it.",
+      "dictationTitle": "Sealed mode stopped this dictation",
+      "dictationKept": "Sealed mode blocked this dictation before it was sent. Nothing was sent. The recording is saved in History, so you can transcribe it after you turn off Sealed mode.",
+      "dictationNotKept": "Sealed mode blocked this dictation before it was sent. Nothing was sent. The recording wasn't kept.",
+      "dictationHeld": "Sealed mode blocked this dictation before it was sent. Nothing was sent. Loqui is holding the recording in memory only, for up to 30 minutes or until you quit. Transcribe it after you turn off Sealed mode.",
+      "generic": "Sealed mode is on, so Loqui didn't send this. Nothing was sent.",
+      "chat": "Sealed mode is on, so Loqui didn't send this message. Nothing was sent. Your message is kept here.",
+      "nativeUnconfirmedTitle": "Local dictation didn't start in Sealed mode",
+      "nativeUnconfirmedDetail": "Sealed mode is on and Loqui couldn't confirm the current status of its local engines, so the speech engine didn't start. Nothing was recorded. Turn off Sealed mode to dictate with it."
+    },
+    "paused": {
+      "dictationPreflightDetail": "Sealed mode paused Loqui's local speech engine before it started. Nothing was recorded. Turn off Sealed mode to dictate with it."
+    },
+    "interrupted": {
+      "dictationKept": "Sealed mode was turned on while this dictation was being sent, so it stopped. The provider may have received part of it. The recording is saved in History.",
+      "dictationNotKept": "Sealed mode was turned on while this dictation was being sent, so it stopped. The provider may have received part of it. The recording wasn't kept.",
+      "dictationHeld": "Sealed mode was turned on while this dictation was being sent, so it stopped. The provider may have received part of it. Loqui is holding the recording in memory only, for up to 30 minutes or until you quit.",
+      "dictationPartial": "Sealed mode was turned on during this dictation. The words that arrived are kept. The provider may have received part of the recording.",
+      "cortiRetained": "Corti may still hold part of this dictation: Loqui can't ask Corti to delete it while Sealed mode is on, and won't contact Corti later to delete it.",
+      "generic": "Sealed mode stopped this while it was being sent. The provider may have received part of it.",
+      "chat": "Sealed mode stopped this reply while the request was being sent. The provider may have received part of the conversation. Your message is kept here."
+    },
+    "markdown": {
+      "imageBlocked": "Image not loaded: Sealed mode is on",
+      "imageBlockedNamed": "Image not loaded: Sealed mode is on ({{alt}})",
+      "imageChecking": "Image not loaded while Loqui checks Sealed mode",
+      "imageCheckingNamed": "Image not loaded while Loqui checks Sealed mode ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Can't connect while Sealed mode is on",
+      "connectRefused": "Connecting this calendar needs the internet, and Sealed mode blocks that. Nothing was sent. Turn off Sealed mode to connect.",
+      "connectInterrupted": "Sealed mode was turned on during sign-in, so it stopped. The provider may have received part of the sign-in. No account was connected.",
+      "appleUnavailable": "This build can't run Apple Calendar's local helper while Sealed mode is on. Turn off Sealed mode to connect.",
+      "googleGrantKept": "Sealed mode was on, so Loqui couldn't ask Google to revoke its calendar access. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account. Loqui won't contact Google about it later.",
+      "revokeQueuedTitle": "Google access will be removed later",
+      "revokeQueued": "Sealed mode is on, so Loqui can't ask Google now to remove its calendar access. Loqui disconnected the calendar and kept only what it needs to ask. It will ask Google automatically after you turn off Sealed mode.",
+      "revokeDoneTitle": "Google access removed",
+      "revokeDone": "Loqui asked Google to remove its calendar access and deleted what it kept for that.",
+      "revokeFailedTitle": "Couldn't remove Google access",
+      "revokeFailed": "Loqui couldn't get Google to remove its calendar access, so that access may still be active at Google. Loqui keeps only what it needs to try again. You can also remove the access yourself in your Google Account.",
+      "revokeRetry": "Try again",
+      "revokeOpenAccount": "Open Google Account",
+      "revokeUnreadableTitle": "Google access may still be active",
+      "revokeUnreadable": "Loqui kept what it needed to ask Google to remove its calendar access, but it can no longer read it, so it can't ask. That access may still be active at Google. Remove the access yourself in your Google Account.",
+      "revokeUnreadableDismiss": "Got it",
+      "revokeUnsaved": "Sealed mode is on, so Loqui couldn't ask Google to remove its calendar access, and it couldn't safely keep what it needs to ask later. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account.",
+      "googleRevokeFailedReset": "Loqui couldn't get Google to remove its calendar access before the reset, so that access may still be active at Google. Loqui deleted its own copy of your sign-in and won't contact Google about it later. Remove the access in your Google Account."
+    },
+    "paste": {
+      "title": "Sealed mode stopped automatic paste",
+      "copied": "Sealed mode is on, so Loqui couldn't paste automatically. Your text is on the clipboard, so you can paste it yourself.",
+      "notCopied": "Sealed mode is on, so Loqui couldn't paste automatically."
     }
   },
   "setupFlow": {
@@ -4664,8 +4899,8 @@
       },
       "privacy": {
         "title": "Where your words go",
-        "bodyMac": "Nothing leaves this Mac unless you choose a provider.",
-        "bodyOther": "Nothing leaves this computer unless you choose a provider.",
+        "bodyMac": "Loqui doesn't send your voice or text from this Mac to a provider unless you choose one.",
+        "bodyOther": "Loqui doesn't send your voice or text from this computer to a provider unless you choose one.",
         "nodes": {
           "mic": "Mic",
           "loqui": "Loqui",
@@ -4774,7 +5009,8 @@
         "needsModel": "The local cleanup model isn't on this device yet. Download it in Settings, Language Models (1.3 GB).",
         "unreachable": "Loqui can't reach {{provider}} right now. Your words are kept as you said them.",
         "modelSetup": "ChatGPT is connected. List its models to choose one for cleanup.",
-        "review": "Review this change, then choose Apply."
+        "review": "Review this change, then choose Apply.",
+        "nativeUnavailable": "Local cleanup is unavailable in Sealed mode on this build: local models can't be isolated yet. Your words stay as you said them."
       },
       "reuse": "Also use this choice for other text features",
       "exampleInProgress": "Example text while your request runs. Your result appears only when cleanup succeeds.",
@@ -4828,7 +5064,8 @@
           "configured": "{{voice}}, not tried yet",
           "downloading": "Still downloading",
           "needsModel": "Download a voice",
-          "unavailable": "Finish setting it up in Settings"
+          "unavailable": "Finish setting it up in Settings",
+          "nativeUnavailable": "Unavailable in Sealed mode on this build"
         },
         "microphone": {
           "heard": "Working",
@@ -4858,7 +5095,8 @@
           "configured": "Set up with {{name}}",
           "configuredNetwork": "Set up at {{provider}} with {{name}}",
           "modelSetup": "List ChatGPT models for cleanup",
-          "review": "Review this change, then choose Apply."
+          "review": "Review this change, then choose Apply.",
+          "nativeUnavailable": "Unavailable in Sealed mode on this build"
         }
       },
       "dictateNote": "Dictate into a note",
@@ -4873,7 +5111,8 @@
         "needsModel": "Note recording needs a voice model on this device.",
         "needsKey": "Note recording needs your {{provider}} key.",
         "needsUrl": "Note recording needs a server address.",
-        "unreachable": "Loqui can't reach {{provider}} for note recording."
+        "unreachable": "Loqui can't reach {{provider}} for note recording.",
+        "nativeUnavailable": "Note recording is unavailable in Sealed mode on this build: local engines can't be isolated yet."
       },
       "fixNote": "Fix this",
       "noteNetwork": "Notes are set to send audio to {{provider}}."

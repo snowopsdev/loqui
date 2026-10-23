@@ -34,6 +34,7 @@ import type { ParakeetCheckResult } from "../types/electron";
 import { createExternalLinkHandler } from "../utils/externalLinks";
 import logger from "../utils/logger";
 import { getCachedPlatform } from "../utils/platform";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 import { getRemoteProviderIcon } from "../utils/providerIcons";
 import { type TranscriptionPolicyContext } from "../utils/providerSelection";
 import { Check, CircleAlert, Cloud, Lock, Zap } from "./icons";
@@ -317,6 +318,8 @@ export default function TranscriptionModelPicker({
   const [gpuDismissed, setGpuDismissed] = useState(false);
   // The pack fell back to CPU on this machine (persisted by main until retried)
   const [gpuFailed, setGpuFailed] = useState(false);
+  // Why the last GPU pack download failed, when it was Sealed mode (I6).
+  const [gpuError, setGpuError] = useState<string | null>(null);
   // A server reload with the new backend is in flight (Vulkan cold starts are slow)
   const [gpuActivating, setGpuActivating] = useState(false);
   // Live truth from the running server; "active" is never inferred from a download
@@ -560,6 +563,7 @@ export default function TranscriptionModelPicker({
 
   const handleGpuDownload = async () => {
     setGpuDownloading(true);
+    setGpuError(null);
     try {
       const result =
         gpuBackend === "cuda"
@@ -571,7 +575,12 @@ export default function TranscriptionModelPicker({
         // Main reloads the server with the new backend only when one is loaded;
         // otherwise the pack simply engages on the next dictation.
         setGpuActivating(!!result.willRestart);
+      } else {
+        // A sealed refusal says so in translated copy, never main's text.
+        setGpuError(sealedFailureMessage(result, t));
       }
+    } catch (error) {
+      setGpuError(sealedFailureMessage(error, t));
     } finally {
       setGpuDownloading(false);
     }
@@ -1225,6 +1234,11 @@ export default function TranscriptionModelPicker({
                           {t("gpu.dismiss")}
                         </button>
                       </div>
+                      {gpuError && (
+                        <p role="alert" className="mt-1.5 text-xs leading-snug text-destructive">
+                          {gpuError}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

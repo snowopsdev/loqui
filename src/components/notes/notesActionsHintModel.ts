@@ -23,9 +23,12 @@ export function notesActionsHint(
       : { titleKey: `${K}.needsKey`, actionKey: `${K}.addKey` };
   }
   if (state.status === "needsUrl") return { titleKey: `${K}.needsUrl`, actionKey: `${K}.addUrl` };
-  return state.detail === "sealed"
-    ? { titleKey: `${K}.sealed`, actionKey: `${K}.openSettings` }
-    : { titleKey: `${K}.unreachable`, actionKey: `${K}.openSettings` };
+  if (state.detail === "sealed") return { titleKey: `${K}.sealed`, actionKey: `${K}.openSettings` };
+  // Plan 07 (A14, fix round 1): main attests that local engines don't run
+  // while sealed on this build. A settled answer, so it is never "checking".
+  if (state.detail === "nativeUnavailable")
+    return { titleKey: `${K}.nativeUnavailable`, actionKey: `${K}.openSettings` };
+  return { titleKey: `${K}.unreachable`, actionKey: `${K}.openSettings` };
 }
 
 export function notesActionsDisabledByRoute(state: RouteState): boolean {

@@ -8,6 +8,12 @@ const {
   buildGeminiLiveUrl,
 } = require("../../src/helpers/geminiLiveStreaming");
 
+const { fixtureRecording } = require("./harness/realtimeRecording");
+const REC = fixtureRecording();
+
+// Task 9a: this fixture models an unsealed main; its sockets are ordinary connections.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+
 const FRAME = Buffer.alloc(1600); // one 50ms worklet frame at 16kHz s16le (silence)
 const LOUD_FRAME = Buffer.alloc(1600, 0x20); // same frame at speech level (~0.25 RMS)
 
@@ -87,12 +93,12 @@ test("connect resolves on setupComplete, not on socket open", async () => {
     async ({ streaming, received }) => {
       streaming.beginConnecting();
       // Frames from the token-fetch / handshake window are buffered, not sent.
-      assert.equal(streaming.sendAudio(FRAME), false);
+      assert.equal(streaming.sendAudio(FRAME, REC), false);
 
       const connected = streaming.connect({ token: "t", mode: "byok", keyterms: ["OpenWhispr"] });
       await new Promise((resolve) => setTimeout(resolve, 30));
       assert.equal(streaming.isConnected, false, "open alone must not mark the session ready");
-      assert.equal(streaming.sendAudio(FRAME), false);
+      assert.equal(streaming.sendAudio(FRAME, REC), false);
 
       await connected;
       assert.equal(streaming.isConnected, true);
@@ -125,12 +131,12 @@ test("audio: buffered frames flush in order, then stream as base64 PCM frames", 
     streaming.beginConnecting();
     const first = Buffer.alloc(1600, 1);
     const second = Buffer.alloc(1600, 2);
-    streaming.sendAudio(first);
-    streaming.sendAudio(second);
+    streaming.sendAudio(first, REC);
+    streaming.sendAudio(second, REC);
 
     await streaming.connect({ token: "t", mode: "byok" });
     const live = Buffer.alloc(1600, 3);
-    assert.equal(streaming.sendAudio(live), true);
+    assert.equal(streaming.sendAudio(live, REC), true);
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     const frames = audioFrames(received);
@@ -151,8 +157,8 @@ test("audio: a dictation shorter than the handshake still reaches the wire", asy
     // Every frame arrives before setupComplete and no frame follows it, so the
     // only drain opportunity is readiness itself.
     streaming.beginConnecting();
-    streaming.sendAudio(Buffer.alloc(1600, 7));
-    streaming.sendAudio(Buffer.alloc(1600, 8));
+    streaming.sendAudio(Buffer.alloc(1600, 7), REC);
+    streaming.sendAudio(Buffer.alloc(1600, 8), REC);
 
     await streaming.connect({ token: "t", mode: "byok" });
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -190,14 +196,14 @@ test("setup: a non-Gemini model id never reaches the wire", async () => {
 test("audio: cold-start buffering is bounded at three seconds of PCM", async () => {
   const streaming = new GeminiLiveStreaming();
   streaming.beginConnecting();
-  for (let i = 0; i < 100; i++) streaming.sendAudio(Buffer.alloc(1600));
+  for (let i = 0; i < 100; i++) streaming.sendAudio(Buffer.alloc(1600), REC);
   assert.equal(streaming.coldStartBufferSize, 96000);
 });
 
 test("characterization: the worklet's flush sentinel is never sent as audio", async () => {
   await withServer(async ({ streaming, received }) => {
     await streaming.connect({ token: "t", mode: "byok" });
-    assert.equal(streaming.sendAudio(Buffer.from("flushed")), false);
+    assert.equal(streaming.sendAudio(Buffer.from("flushed"), REC), false);
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(audioFrames(received).length, 0);
     assert.equal(streaming.audioBytesSent, 0);
@@ -213,7 +219,7 @@ test("transcripts: partials replace, finals accumulate", async () => {
       streaming.onFinalTranscript = (text) => finals.push(text);
 
       await streaming.connect({ token: "t", mode: "byok" });
-      streaming.sendAudio(FRAME);
+      streaming.sendAudio(FRAME, REC);
       await new Promise((resolve) => setTimeout(resolve, 60));
 
       // Partials are revised, not appended to — casing included.
@@ -252,7 +258,7 @@ test("disconnect sends audioStreamEnd once and waits for the end of the turn", a
   await withServer(
     async ({ streaming, received }) => {
       await streaming.connect({ token: "t", mode: "byok" });
-      streaming.sendAudio(FRAME);
+      streaming.sendAudio(FRAME, REC);
 
       // The stop sequence calls finalize(), waits for the text to settle, then
       // stops — so disconnect must not send audioStreamEnd a second time.
@@ -284,7 +290,7 @@ test("disconnect still waits for the final when finalize() already closed the tu
   await withServer(
     async ({ streaming, received }) => {
       await streaming.connect({ token: "t", mode: "byok" });
-      streaming.sendAudio(FRAME);
+      streaming.sendAudio(FRAME, REC);
 
       // The stop sequence finalizes, then stops as soon as its own wait gives
       // up — disconnect must not treat the sent audioStreamEnd as "answered".
@@ -314,7 +320,7 @@ test("disconnect spends only what is left of the budget since audioStreamEnd", a
   await withServer(
     async ({ streaming }) => {
       await streaming.connect({ token: "t", mode: "byok" });
-      streaming.sendAudio(FRAME);
+      streaming.sendAudio(FRAME, REC);
       await new Promise((resolve) => setTimeout(resolve, 30));
 
       assert.equal(streaming.finalize(), true);
@@ -344,12 +350,12 @@ test("a turn the server closed before the hotkey release answers the stop immedi
   await withServer(
     async ({ streaming, received }) => {
       await streaming.connect({ token: "t", mode: "byok" });
-      streaming.sendAudio(FRAME);
+      streaming.sendAudio(FRAME, REC);
       await new Promise((resolve) => setTimeout(resolve, 30));
       // Trailing silence let the server finalize on its own; nothing more will come.
       assert.equal(streaming._turnEnded, true);
       // Room-noise frames keep arriving until the hotkey is released; they are not speech.
-      streaming.sendAudio(FRAME);
+      streaming.sendAudio(FRAME, REC);
       assert.equal(streaming._turnEnded, true);
 
       const startedAt = Date.now();
@@ -381,12 +387,12 @@ test("speech after a closed turn reopens it, so the stop waits for the last turn
   await withServer(
     async ({ streaming }) => {
       await streaming.connect({ token: "t", mode: "byok" });
-      streaming.sendAudio(Buffer.alloc(1600, 1));
+      streaming.sendAudio(Buffer.alloc(1600, 1), REC);
       await new Promise((resolve) => setTimeout(resolve, 30));
       assert.equal(streaming._turnEnded, true);
 
       // The user keeps talking: a speech-level frame reopens the turn and the stop must wait.
-      streaming.sendAudio(LOUD_FRAME);
+      streaming.sendAudio(LOUD_FRAME, REC);
       assert.equal(streaming._turnEnded, false);
 
       assert.deepEqual(await streaming.disconnect(true), { text: "first segment last words" });
@@ -417,7 +423,7 @@ test("disconnect returns the accumulated text when the turn never ends cleanly",
   await withServer(
     async ({ streaming }) => {
       await streaming.connect({ token: "t", mode: "byok" });
-      streaming.sendAudio(FRAME);
+      streaming.sendAudio(FRAME, REC);
       await new Promise((resolve) => setTimeout(resolve, 30));
 
       // No generationComplete: the socket dies instead, which must release the
@@ -508,7 +514,7 @@ test("an unexpected close hands the transcript over and reports the loss once", 
       streaming.onSessionEnd = (data) => sessionEnds.push(data);
 
       await streaming.connect({ token: "t", mode: "byok" });
-      streaming.sendAudio(FRAME);
+      streaming.sendAudio(FRAME, REC);
       await new Promise((resolve) => setTimeout(resolve, 60));
 
       assert.deepEqual(sessionEnds, [{ text: "half a sentence" }]);

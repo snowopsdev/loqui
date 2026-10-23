@@ -316,6 +316,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_spaces_private ON spaces(kind);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_personal_name ON folders(space_id, name) WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_analytics_date ON analytics_events(local_date);
+-- Flight recorder (Plan 07). Metadata about requests that left this computer:
+-- never content, prompts, keys, URL paths/queries or error messages.
+CREATE TABLE IF NOT EXISTS egress_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  ended_at INTEGER,
+  task TEXT NOT NULL,
+  host TEXT NOT NULL,
+  hosts TEXT NOT NULL,
+  bytes_out INTEGER,
+  bytes_in INTEGER,
+  outcome TEXT NOT NULL CHECK (outcome IN ('ok', 'error', 'blocked', 'cancelled')),
+  status INTEGER,
+  error_class TEXT,
+  model TEXT,
+  attributed INTEGER NOT NULL DEFAULT 1,
+  opaque INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT 'request' CHECK (kind IN ('request', 'stream', 'connection', 'session', 'operation')),
+  operation_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_egress_ts ON egress_events(ts);
+CREATE INDEX IF NOT EXISTS idx_egress_ended ON egress_events(ended_at);
 CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
   INSERT INTO notes_fts(rowid, title, content, enhanced_content) VALUES (new.id, new.title, new.content, new.enhanced_content);
 END;

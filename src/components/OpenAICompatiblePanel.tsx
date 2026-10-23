@@ -6,6 +6,7 @@ import { credentialSlotForRef } from "../lib/credentialSlots";
 import { providerDisplayLabel } from "../lib/locality";
 import { SCOPE_ROUTE, type LlmRouteScope } from "../lib/routes";
 import { useSealedStore } from "../stores/sealedStore";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 import { isSecureHttpEndpoint } from "../utils/urlUtils";
 import { EndpointDraft } from "./settings/routing/EndpointDraft";
 import ApiKeyInput, { type AcknowledgedSecretSave } from "./ui/ApiKeyInput";
@@ -183,8 +184,12 @@ export default function OpenAICompatiblePanel({
     } catch (error) {
       if (seq !== epoch.current || latestIdentity.current !== identity) return;
       void describe(); // refresh disclosure only; a new explicit click is required
-      const message = (error as Error).message || t("reasoning.custom.unableToLoadModels");
-      const unauthorized = /\b(401|403)\b/.test(message);
+      const raw = (error as Error).message || t("reasoning.custom.unableToLoadModels");
+      // A sealed refusal or interruption shows translated copy, never main's text.
+      const sealedFailure = sealedFailureMessage(error, t);
+      const message = sealedFailure ?? raw;
+      // A sealed refusal names the host, so a :401 port must never read as unauthorized.
+      const unauthorized = !sealedFailure && /\b(401|403)\b/.test(raw);
       setListing({
         base,
         identity,

@@ -4,6 +4,16 @@ const Module = require("node:module");
 
 const catalogModulePath = require.resolve("../../src/helpers/tinfoilCatalog.js");
 const originalLoad = Module._load;
+// The catalog is gated (Sealed mode). These tests run unsealed unless stated.
+const gate = require("../../src/helpers/privacy/egressGate");
+const { FlightRecorder } = require("../../src/helpers/privacy/flightRecorder");
+const { sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
+let sealed = false;
+// A strictly increasing clock keeps the ledger's newest-first order exact.
+let clock = 0;
+const now = () => ++clock;
+const recorder = new FlightRecorder({ now });
+gate.configureEgress({ isSealed: () => sealed, recorder, now });
 
 function loadCatalog(fetchImpl) {
   delete require.cache[catalogModulePath];
@@ -103,4 +113,31 @@ test("backs off after a failure instead of refetching on every call", async () =
   await assert.rejects(getTinfoilChatModels(), /unavailable/);
 
   assert.equal(calls, 1);
+});
+
+test("sealed: the catalog is refused before the SDK attests, and a refusal is not a Tinfoil failure", async () => {
+  let calls = 0;
+  const { getTinfoilChatModels } = loadCatalog(async () => {
+    calls += 1;
+    return okResponse([CHAT_MODEL]);
+  });
+  sealed = true;
+  try {
+    await assert.rejects(getTinfoilChatModels(), (error) => sealedPhaseOf(error) === "refused");
+  } finally {
+    sealed = false;
+  }
+  assert.equal(calls, 0, "nothing reached the attested client");
+  assert.deepEqual(
+    [recorder.list()[0].task, recorder.list()[0].host, recorder.list()[0].outcome],
+    ["providerCheck", "inference.tinfoil.sh", "blocked"]
+  );
+  // No back-off: the first unsealed request is sent.
+  assert.equal((await getTinfoilChatModels()).length, 1);
+  assert.equal(calls, 1);
+  const row = recorder.list()[0];
+  assert.deepEqual(
+    [row.task, row.kind, row.outcome, row.status],
+    ["providerCheck", "request", "ok", 200]
+  );
 });

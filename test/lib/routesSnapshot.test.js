@@ -539,7 +539,13 @@ test("[change-driving] routeSnapshotFromSettings reads the facts store, the seal
   useRouteFactsStore.setState({ facts: FACTS });
   useSealedStore.setState({ sealed: true, known: true });
   const s = routes.routeSnapshotFromSettings(base);
-  assert.equal(s.facts, FACTS);
+  // Plan 07 Task 13: while sealed, the facade adds main's native availability
+  // projection to the store's facts (spec §5.1 "Native availability"); every
+  // other fact is the store's own object.
+  const { nativeAvailability, ...storeFacts } = s.facts;
+  assert.deepEqual(Object.keys(storeFacts), Object.keys(FACTS));
+  for (const key of Object.keys(FACTS)) assert.equal(storeFacts[key], FACTS[key], key);
+  assert.equal(Object.keys(nativeAvailability).length, 11);
   assert.equal(s.sealed, true);
   assert.equal(s.copy.parts.audio, "your audio");
   assert.equal(s.copy.parts.webSearch, "permission for the provider to search the web");

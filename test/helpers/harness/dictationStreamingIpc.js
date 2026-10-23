@@ -28,6 +28,9 @@ function sender(id) {
   return wc;
 }
 function mainFixture(t, { DeepgramStreaming = null } = {}) {
+  // Task 9a: the real authority admits realtime sockets through the egress
+  // gate, which defaults to sealed. These fixtures model an unsealed main.
+  require("../../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
   const source = fs.readFileSync(
     path.resolve(__dirname, "../../../src/helpers/ipcHandlers.js"),
     "utf8"
@@ -223,6 +226,7 @@ function mainFixture(t, { DeepgramStreaming = null } = {}) {
         assert.equal(name, "electron");
         return {
           contextBridge: {
+            executeInMainWorld: () => {},
             exposeInMainWorld(_name, value) {
               api = value;
             },
@@ -243,7 +247,7 @@ function mainFixture(t, { DeepgramStreaming = null } = {}) {
           webUtils: {},
         };
       },
-      process,
+      process: { ...process, isMainFrame: true },
     });
     return api;
   }

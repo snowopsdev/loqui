@@ -220,8 +220,9 @@ const modelsIdentity = ({ whisper, parakeet, llm }) =>
     )
     .digest("hex");
 
-function fakeApi({ storage = {}, ...rest } = {}) {
+function fakeApi({ storage = {}, sealed = false, ...rest } = {}) {
   const calls = [];
+  const main = { sealed };
   const disk = { whisper: true, parakeet: false, llm: true };
   // Stands in for main's storage-preview-models/storage-delete-models: one read of
   // the three family lists with its identity, and a delete that refuses a changed set.
@@ -306,12 +307,18 @@ function fakeApi({ storage = {}, ...rest } = {}) {
       return { success: true };
     },
     cleanupApp: async () => ({ success: true, message: "Cleanup completed", errors: [] }),
+    // Main's relaunch-app refuses while sealed (A5: it would launch a native
+    // waiter), and the rejection crosses IPC as an invoke error.
     relaunchApp: async () => {
       calls.push(["relaunch"]);
+      if (main.sealed)
+        throw new Error(
+          "Error invoking remote method 'relaunch-app': Error: NATIVE_BOUNDARY_UNAVAILABLE"
+        );
     },
     ...rest,
   };
-  return { api, calls, disk };
+  return { api, calls, main, disk };
 }
 
 async function mount(t, api) {
@@ -1235,4 +1242,177 @@ test("R1 I2 integration: admitted reset retires tree selection and failure prese
   assert.equal(store.getNoteFromStore(7)?.content, "Fixture content", "held content survives");
   assert.equal(store.getNoteFromStore(8)?.content, "Fixture content", "loaded page survives");
   assert.deepEqual(calls, [], "failed cleanup never relaunches");
+});
+
+// T11-M5 (Plan 07 Task 13; fix round 1, I2): Sealed mode refused the Google
+// revoke during the erase. Main also refuses relaunch-app while sealed, so the
+// done state never says "restarting", offers no Restart that cannot work, and
+// asks the user to quit and reopen. No relaunch is attempted.
+function unhandledRejections(t) {
+  const seen = [];
+  const onRejection = (reason) => seen.push(reason);
+  process.on("unhandledRejection", onRejection);
+  t.after(() => process.off("unhandledRejection", onRejection));
+  return seen;
+}
+
+// React reports a state update outside act() through console.error; collect only those (m2).
+function actWarnings(t) {
+  const seen = [];
+  const original = console.error;
+  console.error = (...args) => {
+    const text = args.map(String).join(" ");
+    if (text.includes("not wrapped in act(")) seen.push(text.slice(0, 120));
+    else original(...args);
+  };
+  t.after(() => {
+    console.error = original;
+  });
+  return seen;
+}
+
+async function runResetTo(h) {
+  await React.act(async () => h.view().onReset());
+  await React.act(async () => h.reset().onTypedChange("storage.reset.word"));
+  await React.act(async () => h.reset().onConfirm());
+  await settle();
+}
+
+// D-1: unsealed, a pending Google revoke was tried before the erase and failed.
+// The note stays on screen (no automatic restart) and gives the manual route.
+test("an unsealed reset whose pending Google revoke failed says so, links the Google Account page, and does not restart", async (t) => {
+  const rejections = unhandledRejections(t);
+  const { api, calls } = fakeApi({
+    cleanupApp: async () => ({
+      success: true,
+      message: "Cleanup completed",
+      errors: [],
+      googleRevokeFailed: true,
+    }),
+  });
+  const h = await mount(t, api);
+  await runResetTo(h);
+  assert.equal(h.reset().phase, "done");
+  assert.equal(h.reset().googleRevokeFailed, true);
+  assert.equal(h.reset().restartBlocked, "revoke");
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.ok(html.includes("sealedMode.calendar.googleRevokeFailedReset"));
+  assert.ok(html.includes("https://myaccount.google.com/permissions"));
+  assert.ok(html.includes("storage.reset.doneRevoke"));
+  assert.ok(!html.includes("storage.reset.done<"), "never says Loqui is restarting");
+  await wait(1100);
+  assert.deepEqual(calls, [], "no relaunch while the note must be read");
+  assert.deepEqual(rejections, []);
+});
+
+test("a sealed-refused Google revoke is surfaced; the done state asks to quit and reopen, with no dead Restart", async (t) => {
+  const rejections = unhandledRejections(t);
+  const { api, calls } = fakeApi({
+    sealed: true,
+    cleanupApp: async () => ({
+      success: true,
+      message: "Cleanup completed",
+      errors: [],
+      googleGrantKept: true,
+    }),
+  });
+  const h = await mount(t, api);
+  await runResetTo(h);
+  assert.equal(h.reset().phase, "done");
+  assert.equal(h.reset().googleGrantKept, true);
+  assert.equal(h.reset().restartBlocked, "sealed");
+  assert.equal("onRestart" in h.reset(), false, "no restart action is offered");
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.ok(html.includes("sealedMode.calendar.googleGrantKept"));
+  assert.ok(html.includes("https://myaccount.google.com/permissions"), "the manual route");
+  assert.ok(html.includes("storage.reset.doneSealed"));
+  assert.ok(!html.includes("storage.reset.done<"), "never says Loqui is restarting");
+  assert.ok(!html.includes("restartNow"));
+  assert.ok(!html.includes("<button"), "no button that cannot work");
+  await wait(1100);
+  assert.deepEqual(calls, [], "no relaunch is attempted while sealed");
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(rejections, []);
+  const en = require("../../src/locales/en/translation.json").storage.reset;
+  assert.doesNotMatch(en.doneSealed, /restarting/i);
+  assert.match(en.doneSealed, /quit/i);
+});
+
+// Review I-1: a sealed reset whose pending revoke could not be read (main
+// reports googleRevokeFailed) still says the access may remain, with the link.
+test("a sealed reset with an unreadable pending Google revoke says the access may remain and links the Google Account page", async (t) => {
+  const rejections = unhandledRejections(t);
+  const { api, calls } = fakeApi({
+    sealed: true,
+    cleanupApp: async () => ({
+      success: true,
+      message: "Cleanup completed",
+      errors: [],
+      googleRevokeFailed: true,
+    }),
+  });
+  const h = await mount(t, api);
+  await runResetTo(h);
+  assert.equal(h.reset().phase, "done");
+  assert.equal(h.reset().googleRevokeFailed, true);
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.ok(html.includes("sealedMode.calendar.googleRevokeFailedReset"));
+  assert.ok(html.includes("https://myaccount.google.com/permissions"));
+  assert.ok(!html.includes("<button"), "no button that cannot work");
+  await wait(1100);
+  assert.deepEqual(calls, [], "no relaunch while the note must be read");
+  assert.deepEqual(rejections, []);
+  // With the renderer's sealed state known, the sealed done state keeps the note.
+  const sealedHtml = renderToStaticMarkup(
+    React.createElement(h.s.ResetContent, { ...h.reset(), restartBlocked: "sealed" })
+  );
+  assert.ok(sealedHtml.includes("storage.reset.doneSealed"));
+  assert.ok(sealedHtml.includes("sealedMode.calendar.googleRevokeFailedReset"));
+  assert.ok(sealedHtml.includes("https://myaccount.google.com/permissions"));
+});
+
+test("an automatic relaunch that main refuses because Sealed mode came on is caught and explained", async (t) => {
+  const rejections = unhandledRejections(t);
+  const { api, calls, main } = fakeApi();
+  const h = await mount(t, api);
+  await runResetTo(h);
+  assert.equal(h.reset().phase, "done");
+  assert.equal(h.reset().restartBlocked ?? null, null, "unsealed: Loqui restarts on its own");
+  main.sealed = true; // sealed between the erase and the relaunch
+  const warnings = actWarnings(t);
+  await React.act(async () => {
+    await wait(1100); // the automatic relaunch timer and its refusal land inside act
+  });
+  await settle();
+  assert.deepEqual(warnings, [], "every state update is wrapped in act");
+  assert.deepEqual(calls, [["relaunch"]]);
+  assert.equal(h.reset().restartBlocked, "sealed");
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.ok(html.includes("storage.reset.doneSealed"));
+  assert.ok(!html.includes("storage.reset.done<"));
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(rejections, [], "the refusal is handled, not left unhandled");
+});
+
+test("any other relaunch failure is caught and asks the user to quit and reopen", async (t) => {
+  const rejections = unhandledRejections(t);
+  const { api } = fakeApi({
+    relaunchApp: async () => {
+      throw new Error("Error invoking remote method 'relaunch-app': Error: spawn EACCES");
+    },
+  });
+  const h = await mount(t, api);
+  await runResetTo(h);
+  const warnings = actWarnings(t);
+  await React.act(async () => {
+    await wait(1100); // the automatic relaunch timer and its failure land inside act
+  });
+  await settle();
+  assert.deepEqual(warnings, [], "every state update is wrapped in act");
+  assert.equal(h.reset().restartBlocked, "failed");
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.ok(html.includes("storage.reset.restartFailed"));
+  assert.ok(!html.includes("storage.reset.done<"));
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(rejections, []);
 });

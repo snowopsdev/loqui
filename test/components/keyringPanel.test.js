@@ -36,6 +36,9 @@ Module._load = function loadWithNetStub(request, parent, isMain) {
   }
   return originalLoad.call(this, request, parent, isMain);
 };
+// cortiAuth's default transport is gated (Task 9); this fixture models an
+// unsealed main. The sealed refusals are covered by sttTransportSealed.test.js.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 test.after(() => {
   Module._load = originalLoad;
 });

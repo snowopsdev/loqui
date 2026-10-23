@@ -1,0 +1,1480 @@
+const net = require("node:net");
+const dns = require("node:dns");
+const dgram = require("node:dgram");
+const http = require("node:http");
+const https = require("node:https");
+const tls = require("node:tls");
+const { Writable } = require("node:stream");
+const { syncBuiltinESMExports } = require("node:module");
+const diagnostics = require("node:diagnostics_channel");
+const {
+  decideEgress,
+  isLoopbackHost,
+  normalizeHost,
+  hostOf,
+  SealedModeError,
+} = require("./egressPolicy");
+const gate = require("./egressGate");
+
+// Layer B is a JavaScript transport backstop, not an OS isolation boundary.
+// Node traffic is checked at the socket, DNS, UDP and proxy level; Chromium traffic (Electron
+// net, electron-updater, renderer loads) at each session's webRequest.
+const LOCAL_SCHEMES = new Set([
+  "file:",
+  "devtools:",
+  "chrome:",
+  "chrome-extension:",
+  "data:",
+  "blob:",
+  "about:",
+]);
+const NETWORK_SCHEMES = new Set(["http:", "https:", "ws:", "wss:"]);
+// Every name-resolution entry point Node exposes (C2-R2). The list is checked
+// against the live modules by a test, so a new Node API cannot slip past.
+const RESOLVER_METHODS = [
+  "resolve",
+  "resolve4",
+  "resolve6",
+  "resolveAny",
+  "resolveCaa",
+  "resolveCname",
+  "resolveMx",
+  "resolveNaptr",
+  "resolveNs",
+  "resolvePtr",
+  "resolveSoa",
+  "resolveSrv",
+  "resolveTlsa",
+  "resolveTxt",
+  "reverse",
+];
+
+const installed = {
+  node: false,
+  dns: false,
+  dgram: false,
+  http: false,
+  webContents: false,
+  binding: false,
+};
+const sessions = new Set();
+const openRemoteSockets = new Set();
+// Loopback TCP sockets Loqui opened (socket → { host, port }), so sealing can
+// retire the ones that turn out to lead to a proxy (review M-2).
+const openLoopbackSockets = new Map();
+const severedSockets = new WeakMap();
+const chromiumInFlight = new Map(); // `${sessionTag}:${id}` → { host, ts, ticket, webContentsId }
+const observers = new Set();
+let pendingDns = 0;
+
+function addObserver(fn) {
+  observers.add(fn);
+  return () => observers.delete(fn);
+}
+function notify(event) {
+  let veto = false;
+  for (const fn of observers) {
+    try {
+      if (fn(event) === true) veto = true;
+    } catch {
+      // An observer must not break enforcement.
+    }
+  }
+  return veto;
+}
+
+// Retained tags/ALS can outlive JS settlement for existing transport evidence.
+// They are not fresh authority: validate only when acquiring a new owner, never
+// when retiring a socket/request that already captured one.
+function liveOwner(owner) {
+  const ticket = owner?.ticket ?? owner;
+  return owner && !owner.settled && !ticket.settled && !ticket.signal.aborted ? owner : null;
+}
+
+const block = (host) =>
+  gate.recordBackstopBlock({
+    host: isLoopbackHost(host) ? "unknown" : (normalizeHost(String(host ?? "")) ?? "unknown"),
+    ticket: liveOwner(gate.currentTicket()),
+  });
+const isPinnedName = (host) => !!host && (host === "localhost" || host.endsWith(".localhost"));
+
+// localhost and *.localhost are answered here, never by DNS or a caller-
+// supplied lookup, so a name that claims to be local cannot be steered away.
+function pinnedLoopbackLookup(_hostname, options, callback) {
+  if (typeof options === "function") [callback, options] = [options, {}];
+  if (typeof options === "number") options = { family: options };
+  const both = [
+    { address: "127.0.0.1", family: 4 },
+    { address: "::1", family: 6 },
+  ];
+  const wanted =
+    options?.family === 6 || options?.family === "IPv6"
+      ? both.slice(1)
+      : options?.family === 4 || options?.family === "IPv4"
+        ? both.slice(0, 1)
+        : both;
+  if (options?.all) process.nextTick(callback, null, wanted);
+  else process.nextTick(callback, null, wanted[0].address, wanted[0].family);
+}
+
+// Node's own marker for an argument array it has already normalized. Socket#
+// connect uses such an array as is; any other arguments it normalizes itself.
+const NORMALIZED_ARGS =
+  typeof net._normalizeArgs === "function"
+    ? (Object.getOwnPropertySymbols(net._normalizeArgs([])).find(
+        (symbol) => String(symbol) === "Symbol(normalizedArgs)"
+      ) ?? null)
+    : null;
+
+// Node's own normalizer, captured when the hook is installed (T18R-02): a
+// normalizer replaced later is never consulted.
+let nodeNormalizeArgs = net._normalizeArgs;
+// The connect options Node reads (lookupAndConnect and friends). They are read
+// even when inherited or non-enumerable; any other own or enumerable key is
+// kept as well, so the snapshot carries everything the caller passed.
+const CONNECT_KEYS = [
+  "host",
+  "port",
+  "path",
+  "family",
+  "hints",
+  "lookup",
+  "localAddress",
+  "localPort",
+  "autoSelectFamily",
+  "autoSelectFamilyAttemptTimeout",
+  "timeout",
+  "noDelay",
+  "keepAlive",
+  "keepAliveInitialDelay",
+  "allowHalfOpen",
+  "signal",
+  "onread",
+  "blockList",
+];
+// A plain copy of the options, each key read exactly once (T18R-02): the
+// destination that is judged is the destination Node is handed.
+function snapshotOptions(raw) {
+  const keys = new Set(CONNECT_KEYS);
+  for (const key in raw) keys.add(key);
+  for (const key of Reflect.ownKeys(raw)) keys.add(key);
+  const copy = {};
+  for (const key of keys) {
+    const value = raw[key];
+    if (value !== undefined) copy[key] = value;
+  }
+  return copy;
+}
+
+// Reads Socket#connect arguments exactly as Node does (Task 18 T18-01): a
+// pre-normalized array only when it carries Node's symbol, otherwise Node's
+// own normalizer, so a port string such as "0x50" or " 443" or an array that
+// merely looks normalized is read as the TCP target Node will connect to.
+// The options are then snapshotted once and that snapshot is what Node gets
+// (T18R-02). A shape that cannot be classified is { unknown: true }: refused
+// sealed.
+function connectTarget(args) {
+  let normalized;
+  if (NORMALIZED_ARGS && Array.isArray(args[0]) && args[0][NORMALIZED_ARGS] === true)
+    normalized = args[0];
+  else {
+    try {
+      normalized = nodeNormalizeArgs(args);
+    } catch {
+      return { unknown: true };
+    }
+  }
+  const raw = normalized?.[0];
+  if (!raw || typeof raw !== "object") return { unknown: true };
+  let options;
+  try {
+    options = snapshotOptions(raw);
+  } catch {
+    return { unknown: true };
+  }
+  const callback = typeof normalized[1] === "function" ? normalized[1] : null;
+  // Node: a truthy path is a pipe; it must then be a string.
+  if (options.path)
+    return typeof options.path === "string"
+      ? { local: true, options, callback }
+      : { unknown: true };
+  const host = options.host || "localhost";
+  if (typeof host !== "string") return { unknown: true };
+  return { host, options, callback };
+}
+// Node's arguments for a judged target: the snapshot, as one normalized
+// array carrying Node's symbol, so Node reads nothing else.
+function handOver(options, callback) {
+  if (!NORMALIZED_ARGS) return callback ? [options, callback] : [options];
+  const normalized = [options, callback];
+  normalized[NORMALIZED_ARGS] = true;
+  return [normalized];
+}
+
+function pinOptions(options, host) {
+  // Pin the physical address as well as lookup, including caller-supplied
+  // lookup functions. Preserve the TLS name independently of that address.
+  return {
+    ...options,
+    host: options.family === 6 ? "::1" : "127.0.0.1",
+    lookup: pinnedLoopbackLookup,
+    ...(options.servername === undefined ? { servername: host } : {}),
+  };
+}
+// Hands Node one normalized [options, callback] array carrying its symbol, so
+// Node uses the pinned options instead of re-reading the array as options.
+function pinLocal(target, host) {
+  return handOver(pinOptions(target.options, host), target.callback);
+}
+
+// Owner decision D-5 (2026-10-23): while sealed, Loqui's own Node requests
+// are never forwarded through a proxy. A proxy may relay anywhere, so a
+// loopback socket to one is not local traffic. Proxies come from the
+// environment (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY and their lowercase forms,
+// read live and as they were at startup; NODE_USE_ENV_PROXY makes Node's own
+// agents and fetch use them), from Node's proxy-configured agents, from undici
+// ProxyAgent/EnvHttpProxyAgent dispatchers (the global one included) and from
+// agent-base proxy agents (http-proxy-agent, https-proxy-agent and the like,
+// as gaxios builds from the environment). While sealed, a Node socket to any
+// proxy endpoint Loqui knows of is refused before it connects, with a
+// SealedModeError naming the reason; the caller keeps its content. Sealing
+// also retires every pooled socket to a known proxy (severAll), and an undici
+// request is judged on the socket it is about to be written to, so a socket
+// opened before the seal, or a dispatcher no hook saw, carries nothing either.
+// A request that NO_PROXY sends direct is unaffected. Remote proxies are
+// refused like any remote socket. A program the user runs (a forwarder, SOCKS
+// or tunnel tool) listening where no proxy setting names it is outside the
+// guarantee (threat model, threat 8).
+const PROXY_ENV_KEYS = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+];
+const PROXY_DEFAULT_PORTS = {
+  "http:": 80,
+  "https:": 443,
+  "socks:": 1080,
+  "socks4:": 1080,
+  "socks4a:": 1080,
+  "socks5:": 1080,
+  "socks5h:": 1080,
+};
+// { host, port } for a proxy URL (a scheme is optional, as Node and undici
+// accept), or null when it names nothing a client could connect to.
+function proxyEndpoint(value) {
+  const raw = (value instanceof URL ? value.href : String(value ?? "")).trim();
+  if (!raw) return null;
+  let url;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`);
+  } catch {
+    return null;
+  }
+  const port = url.port ? Number(url.port) : PROXY_DEFAULT_PORTS[url.protocol];
+  if (!Number.isInteger(port)) return null;
+  return { host: normalizeHost(url.hostname) ?? "unknown", port };
+}
+function envProxyEndpoints(env) {
+  const endpoints = [];
+  for (const key of PROXY_ENV_KEYS) {
+    const endpoint = proxyEndpoint(typeof env?.[key] === "string" ? env[key] : "");
+    if (endpoint) endpoints.push(endpoint);
+  }
+  return endpoints;
+}
+const startupProxyEndpoints = envProxyEndpoints(process.env);
+const UNDICI_GLOBAL_DISPATCHER = Symbol.for("undici.globalDispatcher.1");
+// Proxy endpoints learned from agents and dispatchers that passed a hook,
+// sealed or not, so one built before the seal is still known after it.
+const learnedProxyEndpoints = new Map(); // `${host} ${port}` → { host, port }
+let proxyRefusals = 0;
+function learnEndpoint(endpoint) {
+  if (endpoint) learnedProxyEndpoints.set(`${endpoint.host} ${endpoint.port}`, endpoint);
+}
+const ownSymbol = (value, description) =>
+  Object.getOwnPropertySymbols(value).find((s) => s.description === description);
+// Reads one agent or dispatcher's proxy without calling into it. Nested undici
+// agents (EnvHttpProxyAgent holds a ProxyAgent per scheme) are followed.
+// Node keeps an agent's proxy settings (NODE_USE_ENV_PROXY, or an agent built
+// with proxyEnv) under its own kProxyConfig symbol, set only on such agents,
+// so it is read from the agent itself.
+function learnProxyAgent(agent, depth = 0) {
+  if (!agent || typeof agent !== "object" || depth > 2) return;
+  try {
+    const kProxyConfig = ownSymbol(agent, "kProxyConfig");
+    const via = kProxyConfig ? agent[kProxyConfig]?.proxyConnectionOptions : null;
+    if (via) learnEndpoint({ host: normalizeHost(String(via.host)) ?? "unknown", port: +via.port });
+    const options = ownSymbol(agent, "proxy agent options");
+    if (options) learnEndpoint(proxyEndpoint(agent[options]?.uri));
+    for (const nested of ["http proxy agent", "https proxy agent"]) {
+      const key = ownSymbol(agent, nested);
+      if (key) learnProxyAgent(agent[key], depth + 1);
+    }
+    // agent-base proxy agents keep their proxy as a URL in .proxy.
+    if (agent.proxy && /ProxyAgent$/.test(agent.constructor?.name ?? ""))
+      learnEndpoint(proxyEndpoint(agent.proxy));
+  } catch {
+    // An agent that cannot be read teaches nothing; its socket is still judged.
+  }
+}
+function learnRequestAgents(args) {
+  for (const arg of args) {
+    if (!arg || typeof arg !== "object") continue;
+    try {
+      if (arg.agent) learnProxyAgent(arg.agent);
+    } catch {}
+  }
+}
+// Every undici copy (Node's own fetch and each npm undici) publishes a request
+// on undici:request:create when it is created, before its client connects. A
+// CONNECT tunnel is sent to the proxy itself, so its origin is a proxy
+// endpoint, even for a ProxyAgent no Loqui hook ever saw. A forward-mode
+// request (absolute-form target) keeps the target as its origin, so its proxy
+// is learned from the socket instead (review M-1).
+//
+// Each copy also publishes undici:client:sendHeaders with the request and the
+// socket it is about to be written to, before any byte of it is written. That
+// is where the proxy of a forward-mode request is learned, and where, while
+// sealed, a request on a loopback socket is refused when the socket leads to
+// a known proxy, the request is proxy-shaped (CONNECT or absolute-form), or it
+// is for a host that is not loopback (a tunnel opened earlier carries it). The
+// socket is destroyed with the refusal, so nothing of the request is written,
+// whichever dispatcher built it and whenever the socket was opened (M-2).
+const PROXY_SHAPED_PATH = /^[a-z][a-z0-9+.-]*:\/\//i;
+function proxyShaped(request) {
+  const method = String(request?.method ?? "").toUpperCase();
+  return method === "CONNECT" || PROXY_SHAPED_PATH.test(String(request?.path ?? ""));
+}
+// The TCP peer of a socket undici writes to (a TLS socket over a tunnel or a
+// proxy connection reports its underlying socket's peer).
+function socketPeer(socket) {
+  for (let s = socket, i = 0; s && i < 3; s = s._parent, i++) {
+    const port = Number(s.remotePort);
+    const host = normalizeHost(String(s.remoteAddress ?? "").replace(/^::ffff:/i, ""));
+    if (host && Number.isInteger(port) && port > 0) return { host, port };
+  }
+  return null;
+}
+function installUndiciProxyWatch() {
+  if (typeof diagnostics.subscribe !== "function") return;
+  diagnostics.subscribe("undici:request:create", (message) => {
+    try {
+      const request = message?.request;
+      if (String(request?.method ?? "").toUpperCase() === "CONNECT")
+        learnEndpoint(proxyEndpoint(request.origin));
+    } catch {
+      // A malformed message teaches nothing; enforcement must not throw here.
+    }
+  });
+  diagnostics.subscribe("undici:client:sendHeaders", (message) => {
+    const socket = message?.socket;
+    try {
+      const request = message?.request;
+      const peer = socketPeer(socket);
+      if (!peer || !isLoopbackHost(peer.host)) return; // a remote socket was judged at connect
+      const viaProxy = proxyShaped(request);
+      if (viaProxy) learnEndpoint(peer);
+      if (!gate.isSealed()) return;
+      let target = null;
+      try {
+        target = normalizeHost(new URL(String(request?.origin)).hostname);
+      } catch {}
+      if (
+        viaProxy ||
+        isProxyDestination(peer.host, peer.port) ||
+        !target ||
+        !isLoopbackHost(target)
+      )
+        socket.destroy(proxyRefusal());
+    } catch {
+      // Enforcement must not throw into undici. Sealed and unjudgeable: refuse.
+      if (gate.isSealed()) socket?.destroy?.(proxyRefusal());
+    }
+  });
+}
+function knownProxyEndpoints() {
+  learnProxyAgent(http.globalAgent);
+  learnProxyAgent(https.globalAgent);
+  learnProxyAgent(globalThis[UNDICI_GLOBAL_DISPATCHER]);
+  return [
+    ...startupProxyEndpoints,
+    ...envProxyEndpoints(process.env),
+    ...learnedProxyEndpoints.values(),
+  ];
+}
+// A loopback destination is a proxy when a known loopback proxy uses its port.
+// Loopback addresses are not told apart: refusing too much fails closed.
+function isProxyDestination(host, port) {
+  const wanted = Number(port);
+  if (!Number.isInteger(wanted)) return false;
+  return knownProxyEndpoints().some(
+    (endpoint) => endpoint.port === wanted && isLoopbackHost(endpoint.host) && isLoopbackHost(host)
+  );
+}
+function proxyRefusal() {
+  const owner = liveOwner(gate.currentTicket());
+  const ticket = owner?.ticket ?? owner;
+  const error = new SealedModeError({ task: ticket?.task ?? "unattributed", host: "proxy" });
+  error.details.reason = "proxy";
+  proxyRefusals++;
+  notify({ layer: "node", host: "proxy", allowed: false, reason: "proxy" });
+  return error;
+}
+
+function installSocketHook() {
+  const originalConnect = net.Socket.prototype.connect;
+  if (typeof net._normalizeArgs === "function") nodeNormalizeArgs = net._normalizeArgs;
+  net.Socket.prototype.connect = function egressAwareConnect(...args) {
+    const target = connectTarget(args);
+    // Every allowed connect gets the judged snapshot, never the caller's
+    // arguments. An unclassifiable shape (unsealed only) goes to Node as is.
+    const judged = () => (target.unknown ? args : handOver(target.options, target.callback));
+    if (target.local) return originalConnect.apply(this, judged());
+    const host = target.unknown ? "unknown" : (normalizeHost(target.host) ?? "unknown");
+    if (isLoopbackHost(host)) {
+      if (gate.isSealed() && isProxyDestination(host, target.options.port)) {
+        const error = proxyRefusal();
+        process.nextTick(() => this.destroy(error));
+        return this;
+      }
+      openLoopbackSockets.set(this, { host, port: Number(target.options.port) });
+      this.once("close", () => openLoopbackSockets.delete(this));
+      notify({ layer: "node", host, allowed: true });
+      return originalConnect.apply(this, isPinnedName(host) ? pinLocal(target, host) : judged());
+    }
+    const ticket = liveOwner(gate.currentTicket());
+    if (gate.isSealed()) {
+      const error = gate.recordBackstopBlock({ host, ticket });
+      notify({ layer: "node", host, allowed: false });
+      process.nextTick(() => this.destroy(error));
+      return this;
+    }
+    // Attribution by context only: a same-host socket opened elsewhere is unexplained.
+    let release;
+    if (ticket) {
+      release = ticket.retainTransport();
+      ticket.addHost(host);
+      ticket.noteConnection?.(); // an operation with sockets but no metered request is a "connection" row (I3)
+      ticket.attachSocket(this);
+    }
+    const startedAt = Date.now();
+    openRemoteSockets.add(this);
+    this.once("close", (hadError) => {
+      openRemoteSockets.delete(this);
+      release?.();
+      // One row per connection, recorded when it closes: Loqui cannot see the
+      // requests inside it (keep-alive reuse is one row, labelled as such).
+      if (!ticket)
+        gate.recordUnattributed({
+          host,
+          kind: "connection",
+          outcome: hadError ? "error" : severedSockets.has(this) ? "cancelled" : "ok",
+          errorClass: hadError ? "CONNECTION" : (severedSockets.get(this) ?? null),
+          bytesOut: this.bytesWritten,
+          bytesIn: this.bytesRead,
+          ts: startedAt,
+        });
+    });
+    notify({ layer: "node", host, allowed: true });
+    try {
+      return originalConnect.apply(this, judged());
+    } catch (error) {
+      // A throwing connect can still own a socket. Retire it only on close.
+      this.destroy(error);
+      throw error;
+    }
+  };
+  installed.node = true;
+}
+
+// A local proxy forwards to another machine, so a loopback socket is not proof
+// that nothing leaves. While sealed, a request to a loopback server is refused
+// when it names another host: a CONNECT tunnel, an absolute-form or any other
+// non-origin-form request target (one-slash "http:/host", scheme-relative
+// "//host", a bare "host/path"), or any Host header for a non-loopback host.
+//
+// Two checks cover every request Node's HTTP/1 client builds (http/https
+// .request and .get, new http.ClientRequest, the internal _http_client class,
+// subclasses and references cached before boot):
+// - before construction, the arguments are read the way Node reads them (its
+//   URL duck typing and second-argument merge), so most refusals open no
+//   socket at all;
+// - authoritatively, ClientRequest.prototype._storeHeader judges the exact
+//   request head Node is about to send (request line and every Host line),
+//   after construction and before the first write, so a method, path or
+//   header changed later is judged too (Task 18 T18R-01). setHeader and
+//   appendHeader refuse a remote Host as soon as it is set (re-review m4).
+// undici requests are judged on undici:client:sendHeaders instead
+// (installUndiciProxyWatch). Raw socket writes, SOCKS and HTTP/2 are not
+// inspected (threat model, threat 8).
+function headerHosts(headers) {
+  const hosts = [];
+  const add = (value) => {
+    for (const one of Array.isArray(value) ? value : [value]) hosts.push(String(one));
+  };
+  if (Array.isArray(headers)) {
+    // Node accepts flat [name, value, ...] and nested [[name, value], ...].
+    const pairs = Array.isArray(headers[0])
+      ? headers
+      : headers.flatMap((_, i) => (i % 2 === 0 ? [[headers[i], headers[i + 1]]] : []));
+    for (const [name, value] of pairs) if (String(name).toLowerCase() === "host") add(value);
+  } else if (headers && typeof headers === "object") {
+    for (const [name, value] of Object.entries(headers))
+      if (name.toLowerCase() === "host") add(value);
+  }
+  return hosts;
+}
+// The host a non-origin-form request target names, read with the policy's
+// strict parser. Anything it cannot read is "unknown", which is never loopback.
+function requestTargetHost(requestPath) {
+  const target = requestPath.startsWith("//") ? `http:${requestPath}` : requestPath;
+  return hostOf(target) ?? "unknown";
+}
+// Node's isURL(): an object with href and protocol, and no auth or path.
+const isNodeUrl = (value) =>
+  Boolean(value?.href && value.protocol && value.auth === undefined && value.path === undefined);
+// Node's urlToHttpOptions(), for the fields the forwarding check reads.
+function urlRequestOptions(url) {
+  const { hostname, pathname, search } = url;
+  return {
+    ...url,
+    protocol: url.protocol,
+    hostname: hostname && hostname[0] === "[" ? hostname.slice(1, -1) : hostname,
+    path: `${pathname || ""}${search || ""}`,
+  };
+}
+// The options Node's ClientRequest constructor works from: a string or a
+// URL-like first argument merged with the second; any other first argument
+// alone (Node then treats the second as the callback).
+function nodeRequestOptions(args) {
+  let [input, options] = args;
+  // A string or URL is judged by its raw host with the policy's strict parser,
+  // before WHATWG canonicalization ("127.1" is not loopback).
+  if (typeof input === "string" || input instanceof URL)
+    input = { ...urlRequestOptions(new URL(String(input))), hostname: hostOf(input) ?? "unknown" };
+  else if (isNodeUrl(input)) input = urlRequestOptions(input);
+  else {
+    options = input;
+    input = null;
+  }
+  if (typeof options === "function") return input || {};
+  return Object.assign({}, input, options);
+}
+// The forwarded host a request target names, or null when it stays local.
+function targetRefusal(method, requestPath) {
+  if (method === "CONNECT") {
+    const to = normalizeHost(requestPath);
+    return isLoopbackHost(to) ? null : (to ?? "unknown");
+  }
+  if (requestPath === "*" || /^\/(?!\/)/.test(requestPath)) return null;
+  const to = requestTargetHost(requestPath);
+  return isLoopbackHost(to) ? null : to;
+}
+function forwardTarget(args) {
+  const options = nodeRequestOptions(args);
+  const host = normalizeHost(String(options.hostname || options.host || "localhost"));
+  const method = String(options.method || "GET").toUpperCase();
+  const forwardTo =
+    targetRefusal(method, String(options.path || "/")) ??
+    headerHosts(options.headers)
+      .map((value) => normalizeHost(value) ?? "unknown")
+      .find((named) => !isLoopbackHost(named)) ??
+    null;
+  return { host, forwardTo };
+}
+// The host a sealed request would reach, or null when it stays on loopback.
+function sealedForwardRefusal(args) {
+  let target;
+  try {
+    target = forwardTarget(args);
+  } catch {
+    target = {};
+  }
+  if (!isLoopbackHost(target.host)) return { host: target.host ?? "unknown" };
+  return target.forwardTo ? { host: target.forwardTo } : null;
+}
+// Judges the exact request head Node built: its request line and every Host
+// line. Anything not shaped like an HTTP/1 request head is refused.
+const REQUEST_LINE = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+) (\S+) HTTP\/1\.[01]$/;
+function headRefusal(head) {
+  const lines = String(head).split(/\r\n|\n|\r/);
+  const first = REQUEST_LINE.exec(lines[0]);
+  if (!first) return "unknown";
+  const target = targetRefusal(first[1].toUpperCase(), first[2]);
+  if (target) return target;
+  for (const line of lines.slice(1)) {
+    const colon = line.indexOf(":");
+    if (colon < 0 || line.slice(0, colon).trim().toLowerCase() !== "host") continue;
+    const named = normalizeHost(line.slice(colon + 1).trim());
+    if (!isLoopbackHost(named)) return named ?? "unknown";
+  }
+  return null;
+}
+// A refused request writes nothing more, even to a socket that is already
+// connected (a reused keep-alive socket), and records one blocked row.
+const refusedRequests = new WeakSet();
+function refuseRequest(req, host) {
+  if (refusedRequests.has(req)) return;
+  refusedRequests.add(req);
+  notify({ layer: "node", host: host ?? "unknown", allowed: false });
+  const error = block(host);
+  req._writeRaw = () => false;
+  if (Array.isArray(req.outputData)) req.outputData.length = 0;
+  req.destroy(error);
+}
+function installRequestHeadGuard(proto) {
+  const storeHeader = proto._storeHeader;
+  proto._storeHeader = function egressAwareStoreHeader(...args) {
+    const result = storeHeader.apply(this, args);
+    if (gate.isSealed() && !refusedRequests.has(this)) {
+      const host = headRefusal(this._header);
+      if (host) refuseRequest(this, host);
+    }
+    return result;
+  };
+  // Checked at call time, so a request created before the seal is covered.
+  for (const name of ["setHeader", "appendHeader"]) {
+    const original = proto[name];
+    if (typeof original !== "function") continue;
+    proto[name] = function egressAwareHeader(header, value) {
+      if (gate.isSealed() && String(header).toLowerCase() === "host") {
+        const named = headerHosts({ host: value })
+          .map((one) => normalizeHost(one) ?? "unknown")
+          .find((one) => !isLoopbackHost(one));
+        if (named) {
+          refuseRequest(this, named);
+          return this;
+        }
+      }
+      return original.call(this, header, value);
+    };
+  }
+}
+
+function rejectedRequest(error) {
+  // Do not construct a ClientRequest: its constructor can open a connection.
+  const req = new Writable({
+    write(_chunk, _encoding, done) {
+      done();
+    },
+  });
+  req.setHeader = () => req;
+  req.getHeader = () => undefined;
+  req.removeHeader = () => {};
+  req.abort = () => req.destroy(error);
+  process.nextTick(() => req.destroy(error));
+  return req;
+}
+function installProxyHook() {
+  for (const client of [http, https]) {
+    const original = client.request;
+    const request = function egressAwareRequest(...args) {
+      learnRequestAgents(args);
+      if (gate.isSealed()) {
+        const refusal = sealedForwardRefusal(args);
+        if (refusal) {
+          notify({ layer: "node", host: refusal.host, allowed: false });
+          return rejectedRequest(block(refusal.host));
+        }
+      }
+      return original.apply(this, args);
+    };
+    client.request = request;
+    client.get = function egressAwareGet(...args) {
+      const req = request.apply(this, args);
+      req.end();
+      return req;
+    };
+  }
+  // Constructing a ClientRequest directly never calls http.request (T18-03).
+  // https has no ClientRequest of its own; https.request builds this class.
+  const OriginalClientRequest = http.ClientRequest;
+  function ClientRequest(...args) {
+    learnRequestAgents(args);
+    if (gate.isSealed()) {
+      const refusal = sealedForwardRefusal(args);
+      if (refusal) {
+        notify({ layer: "node", host: refusal.host, allowed: false });
+        return rejectedRequest(block(refusal.host));
+      }
+    }
+    return Reflect.construct(OriginalClientRequest, args, new.target ?? ClientRequest);
+  }
+  ClientRequest.prototype = OriginalClientRequest.prototype;
+  Object.setPrototypeOf(ClientRequest, OriginalClientRequest);
+  http.ClientRequest = ClientRequest;
+  // The same class, exported by Node's internal module: patch that reference
+  // too (T18R-01). The head guard on the shared prototype covers it anyway.
+  try {
+    const internal = require("_http_client");
+    if (internal.ClientRequest === OriginalClientRequest) internal.ClientRequest = ClientRequest;
+  } catch {
+    // Not every runtime exposes the internal module.
+  }
+  installRequestHeadGuard(OriginalClientRequest.prototype);
+  installed.http = true;
+}
+
+// tls.connect with an already supplied socket need not invoke Socket.connect.
+// Check the declared destination here as well as at the physical socket hook.
+function installTlsHook() {
+  const original = tls.connect;
+  tls.connect = function egressAwareTls(...args) {
+    let options;
+    if (args[0] && typeof args[0] === "object") options = { ...args[0] };
+    else {
+      options =
+        typeof args[0] === "string" && !/^\d+$/.test(args[0])
+          ? { path: args[0] }
+          : { port: args[0] };
+      for (const arg of args.slice(1)) {
+        if (typeof arg === "string") options.host = arg;
+        else if (arg && typeof arg === "object") Object.assign(options, arg);
+      }
+    }
+    const host = normalizeHost(String(options.host ?? "localhost"));
+    const suppliedHost = options.socket ? normalizeHost(options.socket.remoteAddress) : null;
+    const unsafeSocket =
+      options.socket && (!suppliedHost || !net.isIP(suppliedHost) || !isLoopbackHost(suppliedHost));
+    if (gate.isSealed() && (unsafeSocket || (!options.path && !isLoopbackHost(host)))) {
+      const socket = new net.Socket();
+      const destination = unsafeSocket ? suppliedHost : host;
+      const error = block(destination);
+      notify({ layer: "node", host: destination ?? "unknown", allowed: false });
+      process.nextTick(() => socket.destroy(error));
+      return socket;
+    }
+    if (!options.path && isPinnedName(host)) options = pinOptions(options, host);
+    const callback = args.find((arg) => typeof arg === "function");
+    return original.call(this, options, ...(callback ? [callback] : []));
+  };
+}
+
+function withRedirectMetadata(response) {
+  Object.defineProperty(response, "redirected", { value: true, configurable: true });
+  const clone = response.clone.bind(response);
+  Object.defineProperty(response, "clone", {
+    value: () => withRedirectMetadata(clone()),
+    configurable: true,
+  });
+  return response;
+}
+
+function installFetchHook() {
+  if (typeof globalThis.fetch !== "function") return;
+  const original = globalThis.fetch;
+  globalThis.fetch = async function egressAwareFetch(input, init = {}) {
+    // Following ourselves ensures a seal between hops is checked before the
+    // next dispatch, even when bundled undici bypasses public net exports.
+    const ticket = liveOwner(gate.currentTicket());
+    learnProxyAgent(init?.dispatcher);
+    const initialTarget = typeof input === "string" || input instanceof URL ? input : input?.url;
+    if (gate.isSealed() && !isLoopbackHost(hostOf(initialTarget))) {
+      notify({ layer: "node", host: hostOf(initialTarget) ?? "unknown", allowed: false });
+      throw block(hostOf(initialTarget));
+    }
+    const callerSignal = init.signal === undefined ? input?.signal : init.signal;
+    const signal = ticket
+      ? callerSignal
+        ? AbortSignal.any([ticket.signal, callerSignal])
+        : ticket.signal
+      : callerSignal;
+    let request = new Request(input, { ...init, ...(signal ? { signal } : {}) });
+    const mode = request.redirect;
+    let replayBody = init.body;
+    const reusable = (body) =>
+      typeof body === "string" ||
+      body instanceof ArrayBuffer ||
+      ArrayBuffer.isView(body) ||
+      body instanceof Blob ||
+      body instanceof URLSearchParams ||
+      body instanceof FormData;
+    const hosts = [];
+    for (let hop = 0; ; hop++) {
+      const host = hostOf(request.url);
+      if (gate.isSealed() && !isLoopbackHost(host)) {
+        notify({ layer: "node", host: host ?? "unknown", allowed: false });
+        throw gate.recordBackstopBlock({
+          host: host ?? "unknown",
+          hosts: hosts.length ? [...hosts, host ?? "unknown"] : null,
+          ticket,
+        });
+      }
+      request.signal.throwIfAborted();
+      if (host && !hosts.includes(host)) hosts.push(host);
+      ticket?.addHost(host);
+      const response = await original.call(this, request, {
+        ...(init.dispatcher ? { dispatcher: init.dispatcher } : {}),
+        redirect: "manual",
+        signal: request.signal,
+      });
+      if (![301, 302, 303, 307, 308].includes(response.status))
+        return hop > 0 ? withRedirectMetadata(response) : response;
+      const location = response.headers.get("location");
+      if (mode === "manual" || !location)
+        return hop > 0 ? withRedirectMetadata(response) : response;
+      try {
+        await response.body?.cancel();
+      } catch {}
+      if (mode === "error" || hop >= 20) throw new TypeError("Fetch redirect refused");
+      const url = new URL(location, request.url);
+      const headers = new Headers(request.headers);
+      if (url.origin !== new URL(request.url).origin) {
+        for (const name of ["authorization", "proxy-authorization", "cookie", "host"])
+          headers.delete(name);
+      }
+      let method = request.method;
+      let body = null;
+      if (
+        (response.status === 303 && method !== "HEAD") ||
+        ([301, 302].includes(response.status) && method === "POST")
+      ) {
+        method = "GET";
+        replayBody = null;
+        for (const name of [
+          "content-type",
+          "content-length",
+          "content-encoding",
+          "content-language",
+          "content-location",
+        ])
+          headers.delete(name);
+      } else if (request.body) {
+        // Static init bodies can be replayed; a consumed streaming Request
+        // cannot be reissued safely (the native fetch restriction as well).
+        if (!reusable(replayBody)) throw new TypeError("Fetch redirect requires a replayable body");
+        body = replayBody;
+        if (body instanceof FormData) {
+          headers.delete("content-type");
+          headers.delete("content-length");
+        }
+      }
+      request = new Request(url, {
+        method,
+        body,
+        headers,
+        signal: request.signal,
+        redirect: mode,
+        credentials: request.credentials,
+        mode: request.mode,
+        cache: request.cache,
+        referrer: request.referrer,
+        referrerPolicy: request.referrerPolicy,
+        ...(body ? { duplex: "half" } : {}),
+      });
+    }
+  };
+}
+
+function refuseDns(host, callback) {
+  const error = block(host);
+  if (typeof callback === "function") process.nextTick(callback, error);
+  return error;
+}
+
+// One query counts in pendingDns from the call until its callback or promise
+// settles, exactly once, including a synchronous throw. The sealing barrier and
+// the attestation wait for it to reach 0 (Task 7).
+function counted(original, self, args, style) {
+  let done = false;
+  const finish = () => {
+    if (!done) {
+      done = true;
+      pendingDns--;
+    }
+  };
+  pendingDns++;
+  try {
+    if (style === "promise") return Promise.resolve(original.apply(self, args)).finally(finish);
+    const last = args.length - 1;
+    const callback = args[last];
+    if (typeof callback === "function") {
+      args[last] = (...result) => {
+        finish();
+        callback(...result);
+      };
+    } else {
+      finish(); // Node throws on a missing callback; nothing is in flight.
+    }
+    return original.apply(self, args);
+  } catch (error) {
+    finish();
+    throw error;
+  }
+}
+
+// While sealed, nothing reaches the native resolver, except an answer Loqui can
+// give itself: localhost names and loopback literals for lookup, and loopback
+// addresses for lookupService. Resolver queries (resolve*, reverse) always go to
+// a DNS server, so they are refused outright.
+function sealedAnswer(kind, args) {
+  if (kind === "lookup") {
+    const [hostname, maybeOptions] = args;
+    const host = normalizeHost(String(hostname ?? ""));
+    if (isPinnedName(host)) return { lookup: true };
+    if (host && isLoopbackHost(host) && net.isIP(host)) {
+      return {
+        literal: { address: host, family: net.isIP(host) },
+        options: typeof maybeOptions === "object" ? maybeOptions : {},
+      };
+    }
+    return null;
+  }
+  if (kind === "lookupService") {
+    const [address, port] = args;
+    return net.isIP(String(address)) && isLoopbackHost(String(address))
+      ? { service: { hostname: "localhost", service: String(port) } }
+      : null;
+  }
+  return null;
+}
+
+function answerSealed(kind, args, style, answer) {
+  if (answer.lookup) {
+    if (style === "promise") {
+      return new Promise((resolve, reject) =>
+        pinnedLoopbackLookup(args[0], args[1] ?? {}, (error, address, family) =>
+          error ? reject(error) : resolve(Array.isArray(address) ? address : { address, family })
+        )
+      );
+    }
+    pinnedLoopbackLookup(...args);
+    return {};
+  }
+  if (answer.literal) {
+    const value = answer.options?.all ? [answer.literal] : answer.literal;
+    if (style === "promise") return Promise.resolve(value);
+    const callback = args[args.length - 1];
+    if (answer.options?.all) process.nextTick(callback, null, value);
+    else process.nextTick(callback, null, value.address, value.family);
+    return {};
+  }
+  if (style === "promise") return Promise.resolve(answer.service);
+  process.nextTick(args[args.length - 1], null, answer.service.hostname, answer.service.service);
+  return undefined;
+}
+
+function wrapDnsEntry(target, name, style) {
+  const original = target[name];
+  if (typeof original !== "function" || original.__loquiEgress) return;
+  const kind = name === "lookup" || name === "lookupService" ? name : "resolver";
+  const wrapped = function egressAwareDns(...args) {
+    if (gate.isSealed()) {
+      const answer = sealedAnswer(kind, args);
+      if (answer) return answerSealed(kind, args, style, answer);
+      const query = String(args[0] ?? "unknown");
+      notify({ layer: "node", host: normalizeHost(query) ?? "unknown", allowed: false });
+      if (style === "promise") return Promise.reject(block(query));
+      refuseDns(query, args[args.length - 1]);
+      return kind === "lookup" ? {} : undefined;
+    }
+    return counted(original, this, args, style);
+  };
+  wrapped.__loquiEgress = true;
+  target[name] = wrapped;
+}
+
+function installDnsHook() {
+  const targets = [
+    [dns, "callback"],
+    [dns.Resolver.prototype, "callback"],
+    [dns.promises, "promise"],
+    [dns.promises.Resolver.prototype, "promise"],
+  ];
+  for (const [target, style] of targets) {
+    for (const name of ["lookup", "lookupService", ...RESOLVER_METHODS])
+      wrapDnsEntry(target, name, style);
+  }
+  installed.dns = true;
+}
+
+function installDgramHook() {
+  const originalSend = dgram.Socket.prototype.send;
+  dgram.Socket.prototype.send = function egressAwareSend(...args) {
+    const index = args.findIndex((value, i) => i > 0 && typeof value === "string");
+    let address = index >= 0 ? args[index] : null;
+    if (address === null) {
+      try {
+        address = this.remoteAddress().address;
+      } catch {
+        address = this.type === "udp6" ? "::1" : "127.0.0.1";
+      }
+    }
+    const host = normalizeHost(address);
+    if (gate.isSealed() && !isLoopbackHost(host)) {
+      const error = block(host);
+      notify({ layer: "node", host: host ?? "unknown", allowed: false });
+      const callback = args.at(-1);
+      process.nextTick(() =>
+        typeof callback === "function" ? callback(error) : this.emit("error", error)
+      );
+      return undefined;
+    }
+    if (index >= 0 && isPinnedName(host)) args[index] = this.type === "udp6" ? "::1" : "127.0.0.1";
+    return originalSend.apply(this, args);
+  };
+  const originalConnect = dgram.Socket.prototype.connect;
+  dgram.Socket.prototype.connect = function egressAwareUdpConnect(port, address, callback) {
+    if (typeof address === "function") {
+      callback = address;
+      address = undefined;
+    }
+    const host = normalizeHost(address ?? (this.type === "udp6" ? "::1" : "127.0.0.1"));
+    if (gate.isSealed() && !isLoopbackHost(host)) {
+      const error = block(host);
+      notify({ layer: "node", host: host ?? "unknown", allowed: false });
+      process.nextTick(() => this.emit("error", error));
+      return undefined;
+    }
+    if (isPinnedName(host)) address = this.type === "udp6" ? "::1" : "127.0.0.1";
+    return originalConnect.call(this, port, address, callback);
+  };
+  installed.dgram = true;
+}
+
+// Task 18 T18R-07: Node's deprecated process.binding() returns the raw native
+// bindings beneath every guarded spawn and transport API. While sealed, the
+// spawn, TCP, UDP and resolver bindings are refused. Node's own library uses
+// internalBinding, and no shipped dependency asks for these names. Whether
+// Electron's own code calls process.binding for them is NOT VERIFIED: Electron
+// was not run, and no Task 16 checklist row covers it yet. The name is read
+// once and the primitive is passed on, so a toString that changes between
+// reads cannot swap it.
+// A binding obtained before the seal (or before boot) is not taken back, so
+// this narrows the surface; it is not a boundary (threat model, Layer B).
+const SEALED_BINDINGS = new Set([
+  "spawn_sync",
+  "process_wrap",
+  "tcp_wrap",
+  "udp_wrap",
+  "cares_wrap",
+]);
+function installBindingGuard() {
+  const original = process.binding;
+  if (typeof original !== "function") return;
+  process.binding = function egressAwareBinding(name) {
+    const key = String(name);
+    if (gate.isSealed() && SEALED_BINDINGS.has(key))
+      throw new SealedModeError({ task: "processBinding", host: key });
+    return original.call(this, key);
+  };
+  installed.binding = true;
+}
+
+function installNodeBackstop() {
+  if (installed.node) return;
+  installSocketHook();
+  installProxyHook();
+  installTlsHook();
+  installFetchHook();
+  installDnsHook();
+  installDgramHook();
+  installBindingGuard();
+  installUndiciProxyWatch();
+  // ESM importers of node builtins (SDKs loaded with import()) see the patches too.
+  syncBuiltinESMExports();
+}
+
+function judge(url) {
+  let protocol;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    return { cancel: gate.isSealed(), remote: false };
+  }
+  if (protocol === "file:") {
+    // A file: URL that names a host (not localhost) is a network fetch: SMB on
+    // Windows (Task 18 T18-05). It is remote and refused while sealed.
+    let fileHost = "";
+    try {
+      fileHost = new URL(url).hostname.toLowerCase();
+    } catch {}
+    if (fileHost && fileHost !== "localhost") {
+      const host = normalizeHost(fileHost) ?? "unknown";
+      if (!gate.isSealed()) return { cancel: false, remote: false };
+      notify({ layer: "chromium", host, url, allowed: false });
+      return { cancel: true, remote: true, host };
+    }
+  }
+  if (LOCAL_SCHEMES.has(protocol)) return { cancel: false, remote: false };
+  if (!NETWORK_SCHEMES.has(protocol)) return { cancel: gate.isSealed(), remote: false };
+  const decision = decideEgress({ sealed: gate.isSealed(), target: url });
+  if (decision.loopback)
+    return {
+      cancel: notify({ layer: "chromium", host: decision.host, url, allowed: true }),
+      remote: false,
+      network: true,
+    };
+  if (!decision.allow) {
+    notify({ layer: "chromium", host: decision.host, url, allowed: false });
+    return { cancel: true, remote: true, host: decision.host };
+  }
+  if (notify({ layer: "chromium", host: decision.host, url, allowed: true }))
+    return { cancel: true, remote: true, host: decision.host };
+  return { cancel: false, remote: true, network: true, host: decision.host };
+}
+
+const judgeChromiumRequest = (url) => ({ cancel: judge(url).cancel });
+
+function finishChromium(key, { outcome, status = null, errorClass = null }) {
+  const entry = chromiumInFlight.get(key);
+  if (!entry) return;
+  chromiumInFlight.delete(key);
+  try {
+    const owner = entry.attempt;
+    if (owner) {
+      for (const host of entry.hosts) owner.addHost(host);
+      if (entry.cancelPending && entry.managedAttempt) {
+        owner.settle({ outcome: "cancelled", errorClass: "SEALED_MODE" });
+      } else if (!entry.cancelPending) {
+        if (Number.isInteger(status)) {
+          owner.noteStatus(status);
+          owner.markDelivered();
+        }
+        if (entry.managedAttempt)
+          owner.settle({
+            outcome,
+            errorClass:
+              status >= 500
+                ? "HTTP_5XX"
+                : status >= 400
+                  ? "HTTP_4XX"
+                  : (errorClass ?? (outcome === "error" ? "OTHER" : null)),
+          });
+      }
+    } else if (entry.remote && !entry.cancelPending && !entry.ticket) {
+      gate.recordUnattributed({
+        host: entry.host,
+        hosts: entry.hosts,
+        kind: "request",
+        outcome,
+        status,
+        errorClass:
+          status >= 500
+            ? "HTTP_5XX"
+            : status >= 400
+              ? "HTTP_4XX"
+              : (errorClass ?? (outcome === "error" ? "OTHER" : null)),
+        ts: entry.ts,
+      });
+    }
+  } finally {
+    entry.release?.();
+  }
+}
+
+// Chromium fetches that never reach webRequest (Task 18 T18-02): PAC/WPAD
+// proxy auto-configuration and the Hunspell dictionary download. While sealed,
+// every watched session uses a direct (no proxy script) connection, its
+// spellchecker is off, and the dictionary URL points at an unroutable loopback
+// port. Unsealing restores the system proxy, Chromium's default dictionary
+// server and the spellchecker's previous state. Electron has no getter for the
+// proxy or dictionary URL, and Loqui never sets either elsewhere, so those
+// return to Electron's defaults. This narrows what Chromium may fetch; it is
+// not a network boundary (NOT VERIFIED at runtime without Electron).
+const SEALED_DICTIONARY_URL = "http://127.0.0.1:9/";
+const DEFAULT_DICTIONARY_URL = "https://redirector.gvt1.com/edgedl/chrome/dict/";
+// Per watched session (Task 18 T18R-05): `applied` is the state Loqui has
+// confirmed (true sealed, false open, null unknown after a failed attempt),
+// `target` the latest state asked for, `gen` orders overlapping attempts, and
+// `spellcheck` the spellchecker's state before the seal, kept until a restore
+// succeeds. A session counts as hardened only after every call fulfilled; an
+// unconfirmed session is retried on the next sync, and its failure stays in
+// sessionHardeningFailures() until a later attempt succeeds.
+const hardening = new WeakMap();
+const hardeningFailures = new Map(); // session → "sessionHardening" | "sessionRestore"
+// Re-review m1: { isSet, set, clear } for the marker beside the sealed state
+// that says Loqui turned the spellchecker off (sealedState.createSpellcheckMarker).
+let spellcheckMemory = null;
+let bootRestoreDone = false;
+function configureSpellcheckMemory(memory) {
+  spellcheckMemory = memory ?? null;
+  bootRestoreDone = false;
+}
+function memory(name) {
+  try {
+    return spellcheckMemory?.[name]?.() === true;
+  } catch {
+    return false;
+  }
+}
+function hardenSession(session, sealed) {
+  let entry = hardening.get(session);
+  if (!entry) {
+    entry = { applied: false, target: false, gen: 0, spellcheck: null, recorded: false };
+    hardening.set(session, entry);
+  }
+  if (entry.applied === sealed && entry.target === sealed) return Promise.resolve(true);
+  const gen = ++entry.gen;
+  entry.target = sealed;
+  const pending = [];
+  let ok = true;
+  const call = (name, ...args) => {
+    if (typeof session[name] !== "function") return; // not an Electron session API
+    try {
+      pending.push(Promise.resolve(session[name](...args)));
+    } catch {
+      ok = false;
+    }
+  };
+  if (sealed) {
+    // The state before the seal is read once, not again on a retry that would
+    // see Loqui's own "off". A marker from an earlier run means Loqui turned it
+    // off then and never turned it back on (m1).
+    if (!entry.recorded) {
+      let previous = null;
+      try {
+        if (typeof session.isSpellCheckerEnabled === "function")
+          previous = session.isSpellCheckerEnabled() === true;
+      } catch {}
+      if (memory("isSet")) previous = true;
+      entry.spellcheck = previous;
+      entry.recorded = true;
+    }
+    // Written before spellcheck is turned off, so a sealed quit can restore it.
+    if (entry.spellcheck === true) memory("set");
+    call("setProxy", { mode: "direct" });
+    call("setSpellCheckerEnabled", false);
+    call("setSpellCheckerDictionaryDownloadURL", SEALED_DICTIONARY_URL);
+  } else {
+    call("setProxy", { mode: "system" });
+    call("setSpellCheckerDictionaryDownloadURL", DEFAULT_DICTIONARY_URL);
+    if (entry.spellcheck !== null) call("setSpellCheckerEnabled", entry.spellcheck);
+  }
+  const restoresSpellcheck = !sealed && entry.spellcheck === true;
+  return Promise.allSettled(pending).then((results) => {
+    const done = ok && results.every((result) => result.status === "fulfilled");
+    // Only the latest attempt for this session decides its state.
+    if (entry.gen === gen) {
+      if (done) {
+        entry.applied = sealed;
+        hardeningFailures.delete(session);
+        if (!sealed) {
+          entry.spellcheck = null;
+          entry.recorded = false;
+          if (restoresSpellcheck && hardeningFailures.size === 0) memory("clear");
+        }
+      } else {
+        entry.applied = null;
+        hardeningFailures.set(session, sealed ? "sessionHardening" : "sessionRestore");
+      }
+    }
+    return done;
+  });
+}
+// Applies the current seal state to every watched session. The calls are
+// issued synchronously; the promise says whether all of them succeeded.
+function syncSessionHardening() {
+  const sealed = gate.isSealed();
+  return Promise.all([...sessions].map((session) => hardenSession(session, sealed))).then(
+    (results) => results.every(Boolean)
+  );
+}
+// The named failures of sessions not yet hardened (or restored).
+const sessionHardeningFailures = () => [...new Set(hardeningFailures.values())];
+// m1: an unsealed start after Loqui left spellcheck off (a quit or crash while
+// sealed) turns it back on once, on the first session watched.
+function restoreSpellcheckAfterSealedQuit(session) {
+  if (bootRestoreDone || !memory("isSet")) return;
+  if (typeof session.setSpellCheckerEnabled !== "function") return;
+  bootRestoreDone = true;
+  let result;
+  try {
+    result = session.setSpellCheckerEnabled(true);
+  } catch {
+    bootRestoreDone = false;
+    return;
+  }
+  Promise.resolve(result).then(
+    () => memory("clear"),
+    () => {
+      bootRestoreDone = false; // keep the marker for the next start
+    }
+  );
+}
+
+// Electron keeps one listener per event. Consumers (including smoke) observe
+// through addObserver instead of replacing this module's enforcement hooks.
+let sessionSeq = 0;
+function watchSession(session) {
+  if (!session?.webRequest || sessions.has(session)) return;
+  sessions.add(session);
+  // A failure is kept in sessionHardeningFailures() (T18R-05).
+  if (gate.isSealed()) void hardenSession(session, true);
+  else restoreSpellcheckAfterSealedQuit(session);
+  const sessionId = ++sessionSeq;
+  const key = (details) => `${sessionId}:${details.id}`;
+  session.webRequest.onBeforeRequest((details, callback) => {
+    const verdict = judge(details.url);
+    let entry = chromiumInFlight.get(key(details));
+    const host = hostOf(details.url) ?? "unknown";
+    if (entry && !entry.hosts.includes(host) && entry.hosts.length < 8) entry.hosts.push(host);
+    if (verdict.cancel && gate.isSealed() && (verdict.remote || !isLoopbackHost(host))) {
+      if (!entry?.cancelPending) {
+        gate.recordBackstopBlock({
+          host,
+          hosts: entry?.hosts,
+          ticket: entry?.attempt ?? entry?.ticket ?? null,
+        });
+        if (entry) entry.cancelPending = true;
+      }
+      if (entry && verdict.remote) entry.remote = true;
+    } else if (!verdict.cancel) {
+      // Track local network requests too: their tags must survive a later
+      // remote redirect, without counting local work as remote evidence.
+      if (verdict.network && !entry) {
+        entry = {
+          host,
+          hosts: [host],
+          ts: Date.now(),
+          ticket: null,
+          remote: verdict.remote,
+          webContentsId: details.webContentsId,
+        };
+        chromiumInFlight.set(key(details), entry);
+      } else if (entry && verdict.remote) entry.remote = true;
+      if (entry) entry.attempt?.addHost(host);
+    }
+    callback({ cancel: verdict.cancel });
+  });
+  session.webRequest.onBeforeSendHeaders((details, callback) => {
+    const requestHeaders = { ...details.requestHeaders };
+    const names = Object.keys(requestHeaders).filter(
+      (name) => name.toLowerCase() === gate.EGRESS_TAG_HEADER
+    );
+    const tags = [...new Set(names.map((name) => requestHeaders[name]))];
+    for (const name of names) delete requestHeaders[name];
+    const entry = chromiumInFlight.get(key(details));
+    const owner = tags.length === 1 ? liveOwner(gate.ticketByTag(tags[0])) : null;
+    if (entry && owner && !entry.ticket) {
+      const ticket = owner.ticket ?? owner;
+      // Never interpret the public numeric receipt as an operation/tag ID.
+      // Retain the exact attempt owner through JS cancellation/settlement.
+      entry.ticket = ticket;
+      entry.managedAttempt = !owner.ticket;
+      entry.attempt = owner.ticket ? owner : ticket.beginAttempt(entry.host);
+      entry.release = entry.attempt.retainTransport();
+      for (const host of entry.hosts) entry.attempt.addHost(host);
+      entry.attempt.markDispatched();
+    }
+    let cancel = false;
+    if (entry && gate.isSealed() && !isLoopbackHost(hostOf(details.url) ?? entry.hosts.at(-1))) {
+      if (!entry.cancelPending)
+        gate.recordBackstopBlock({
+          host: hostOf(details.url) ?? entry.hosts.at(-1),
+          hosts: entry.hosts,
+          ticket: entry.attempt ?? entry.ticket,
+        });
+      entry.cancelPending = true;
+      cancel = true;
+    }
+    callback({ requestHeaders, ...(cancel ? { cancel: true } : {}) });
+  });
+  session.webRequest.onBeforeRedirect((details) => {
+    const entry = chromiumInFlight.get(key(details));
+    if (!entry) return;
+    // The redirect response is delivery evidence for the previous hop only.
+    if (Number.isInteger(details.statusCode)) {
+      entry.attempt?.noteStatus(details.statusCode);
+      entry.attempt?.markDelivered();
+    }
+    const next = hostOf(details.redirectURL) ?? "unknown";
+    if (!entry.hosts.includes(next) && entry.hosts.length < 8) entry.hosts.push(next);
+  });
+  session.webRequest.onCompleted((details) =>
+    finishChromium(key(details), {
+      outcome: details.statusCode >= 400 ? "error" : "ok",
+      status: details.statusCode,
+    })
+  );
+  session.webRequest.onErrorOccurred((details) =>
+    finishChromium(key(details), {
+      outcome: details.error === "net::ERR_ABORTED" ? "cancelled" : "error",
+      errorClass: details.error === "net::ERR_ABORTED" ? "ABORTED" : "OTHER",
+      status: Number.isInteger(details.statusCode) ? details.statusCode : null,
+    })
+  );
+}
+
+const guardedApps = new WeakSet();
+function installWebContentsGuard(app) {
+  if (guardedApps.has(app)) return;
+  guardedApps.add(app);
+  app.on("web-contents-created", (_event, contents) => {
+    contents.setWebRTCIPHandlingPolicy?.("disable_non_proxied_udp");
+    contents.once?.("destroyed", () => {
+      for (const entry of chromiumInFlight.values())
+        if (entry.webContentsId === contents.id) entry.orphaned = true;
+    });
+  });
+  installed.webContents = true;
+}
+
+// Node sockets only: loopback connections (self-hosted STT, llama-server) and
+// Chromium's pool are left alone. A ticketed Chromium request stops only where
+// its owner acts on the ticket's abort signal (gate.abortAllRemote): metered
+// net.fetch bodies and the updater's download do. A request already handed to
+// Chromium with no such owner (the update feed check, un-ticketed requests) is
+// waited for, and keeps the attestation unverified until it ends.
+// Each socket leaves openRemoteSockets on its own "close" (the connect hook),
+// so the count drops only once a socket has actually closed.
+// While sealed, a loopback socket to a known proxy endpoint is retired too
+// (review M-2): a keep-alive socket pooled through a proxy before the seal
+// would otherwise carry a sealed request to it. Other loopback sockets stay.
+function severAll() {
+  const sockets = [...openRemoteSockets];
+  if (gate.isSealed())
+    for (const [socket, { host, port }] of openLoopbackSockets)
+      if (isProxyDestination(host, port)) sockets.push(socket);
+  for (const socket of sockets) {
+    try {
+      severedSockets.set(socket, gate.isSealed() ? "SEALED_MODE" : "ABORTED");
+      socket.destroy();
+    } catch {} // keep failed stops represented until close
+  }
+  return sockets.length;
+}
+
+function proxyConfigured() {
+  // NODE_OPTIONS is not reflected in execArgv. Environment enablement is
+  // Node's literal "1", not arbitrary truthy strings such as "false".
+  const flags = [...(process.env.NODE_OPTIONS ?? "").split(/\s+/), ...process.execArgv];
+  let enabled = process.env.NODE_USE_ENV_PROXY === "1";
+  for (const flag of flags) {
+    if (flag === "--use-env-proxy") enabled = true;
+    if (flag === "--no-use-env-proxy") enabled = false;
+  }
+  return enabled;
+}
+// Removing a startup setting later cannot prove an existing agent is safe.
+const startupEnvProxy = proxyConfigured();
+const envProxy = () => startupEnvProxy || proxyConfigured();
+
+const status = () => ({
+  ...installed,
+  sessions: sessions.size,
+  envProxy: envProxy(),
+  proxyRefusals,
+  openRemoteSockets: openRemoteSockets.size,
+  chromiumInFlightRemote: [...chromiumInFlight.values()].filter((e) => e.remote).length,
+  chromiumUnresolvedAfterDestroy: [...chromiumInFlight.values()].filter(
+    (e) => e.remote && e.orphaned
+  ).length,
+  pendingDns,
+});
+
+module.exports = {
+  installNodeBackstop,
+  watchSession,
+  installWebContentsGuard,
+  judgeChromiumRequest,
+  syncSessionHardening,
+  sessionHardeningFailures,
+  configureSpellcheckMemory,
+  severAll,
+  addObserver,
+  status,
+};

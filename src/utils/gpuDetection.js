@@ -2,6 +2,7 @@ const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const debugLogger = require("../helpers/debugLogger");
+const { isSealedModeError } = require("../helpers/privacy/egressPolicy");
 
 // The shipped CUDA whisper build (release 0.0.10) carries kernels for Pascal
 // (compute capability 6.1) and newer; 6.1's embedded PTX also covers Volta via
@@ -15,6 +16,11 @@ const MIN_CUDA_COMPUTE_CAP = 6.1;
 let cachedGpuInfo = null;
 let cachedGpuList = null;
 let cachedSmiPath; // undefined = unresolved, null = no nvidia-smi anywhere
+// A refusal by Sealed mode says nothing about the GPU, so an answer reached
+// after one is never cached (m1). Each detection call carries its own record
+// of a refusal (`call.sealedRefusalSeen`), so a concurrent call can neither
+// reset nor borrow it (re-review m10).
+const newCall = () => ({ sealedRefusalSeen: false });
 
 function clearCache() {
   cachedGpuInfo = null;
@@ -22,14 +28,23 @@ function clearCache() {
   cachedSmiPath = undefined;
 }
 
-function runNvidiaSmi(smiPath, fields, execFileImpl) {
+function runNvidiaSmi(smiPath, fields, execFileImpl, call = newCall()) {
   return new Promise((resolve) => {
-    execFileImpl(
-      smiPath,
-      ["--query-gpu=" + fields, "--format=csv,noheader,nounits"],
-      { timeout: 5000, windowsHide: true },
-      (error, stdout) => resolve({ error, stdout: stdout || "" })
-    );
+    const done = (error, stdout) => {
+      if (isSealedModeError(error)) call.sealedRefusalSeen = true;
+      resolve({ error, stdout: stdout || "" });
+    };
+    try {
+      execFileImpl(
+        smiPath,
+        ["--query-gpu=" + fields, "--format=csv,noheader,nounits"],
+        { timeout: 5000, windowsHide: true },
+        done
+      );
+    } catch (error) {
+      // The spawn guard refuses synchronously while sealed.
+      done(error, "");
+    }
   });
 }
 
@@ -37,12 +52,17 @@ function runNvidiaSmi(smiPath, fields, execFileImpl) {
 // some ship it only in System32, some only inside the DriverStore, and nothing
 // a user runs day-to-day (games, CUDA apps) ever needs it, so only detection
 // notices. Climb the ladder once and cache the answer. See #1606.
-async function resolveNvidiaSmiPath({ execFileImpl = execFile, fsImpl = fs, quiet = false } = {}) {
+async function resolveNvidiaSmiPath(
+  { execFileImpl = execFile, fsImpl = fs, quiet = false } = {},
+  call = newCall()
+) {
   if (cachedSmiPath !== undefined) return cachedSmiPath;
 
   // A probe error other than ENOENT (timeout, driver refusing the query)
   // still proves the binary exists, so the rung is kept.
-  const probe = await runNvidiaSmi("nvidia-smi", "name", execFileImpl);
+  const probe = await runNvidiaSmi("nvidia-smi", "name", execFileImpl, call);
+  // Sealed: unknown, not absent. Leave the ladder unresolved for after unseal.
+  if (isSealedModeError(probe.error)) return null;
   if (probe.error?.code !== "ENOENT") {
     cachedSmiPath = { smiPath: "nvidia-smi", source: "path" };
     return cachedSmiPath;
@@ -125,19 +145,28 @@ function isCudaCapableGpuName(name) {
 // Last resort when no nvidia-smi exists at all: ask WMI for the display
 // adapters. Works with zero NVIDIA tooling installed. wmic is gone from
 // Windows 11, so go through PowerShell's CIM cmdlet.
-function queryWmiVideoControllers(execFileImpl) {
+function queryWmiVideoControllers(execFileImpl, call = newCall()) {
   return new Promise((resolve) => {
-    execFileImpl(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
-      ],
-      { timeout: 15000, windowsHide: true },
-      (error, stdout) => resolve({ error, stdout: stdout || "" })
-    );
+    const done = (error, stdout) => {
+      if (isSealedModeError(error)) call.sealedRefusalSeen = true;
+      resolve({ error, stdout: stdout || "" });
+    };
+    try {
+      execFileImpl(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
+        ],
+        { timeout: 15000, windowsHide: true },
+        done
+      );
+    } catch (error) {
+      // The spawn guard refuses synchronously while sealed.
+      done(error, "");
+    }
   });
 }
 
@@ -146,6 +175,7 @@ function queryWmiVideoControllers(execFileImpl) {
 // as before; other callers keep their normal diagnostics and logger state.
 async function detectNvidiaGpu(deps = {}) {
   if (cachedGpuInfo) return cachedGpuInfo;
+  const call = newCall();
 
   if (process.platform === "darwin") {
     cachedGpuInfo = { hasNvidiaGpu: false };
@@ -153,12 +183,13 @@ async function detectNvidiaGpu(deps = {}) {
   }
 
   const execFileImpl = deps.execFileImpl || execFile;
-  const resolved = await resolveNvidiaSmiPath(deps);
+  const resolved = await resolveNvidiaSmiPath(deps, call);
   if (resolved) {
     let { error, stdout } = await runNvidiaSmi(
       resolved.smiPath,
       "name,driver_version,memory.total,compute_cap",
-      execFileImpl
+      execFileImpl,
+      call
     );
     if (error || !stdout) {
       // Drivers too old to answer the compute_cap query (pre-R470) also predate
@@ -166,7 +197,8 @@ async function detectNvidiaGpu(deps = {}) {
       ({ error, stdout } = await runNvidiaSmi(
         resolved.smiPath,
         "name,driver_version,memory.total",
-        execFileImpl
+        execFileImpl,
+        call
       ));
     }
     if (!error && stdout) {
@@ -189,7 +221,7 @@ async function detectNvidiaGpu(deps = {}) {
   }
 
   if (process.platform === "win32") {
-    const wmi = await queryWmiVideoControllers(execFileImpl);
+    const wmi = await queryWmiVideoControllers(execFileImpl, call);
     const gpuName = wmi.error ? null : parseWmiVideoControllers(wmi.stdout);
     if (gpuName) {
       cachedGpuInfo = {
@@ -208,12 +240,15 @@ async function detectNvidiaGpu(deps = {}) {
     }
   }
 
+  // A sealed refusal is not "no GPU": answer for now, cache nothing (m1).
+  if (call.sealedRefusalSeen) return { hasNvidiaGpu: false };
   cachedGpuInfo = { hasNvidiaGpu: false };
   return cachedGpuInfo;
 }
 
 async function listNvidiaGpus(deps = {}) {
   if (cachedGpuList) return cachedGpuList;
+  const call = newCall();
 
   if (process.platform === "darwin") {
     cachedGpuList = [];
@@ -222,8 +257,9 @@ async function listNvidiaGpus(deps = {}) {
 
   // WMI can't supply UUIDs, so on machines where the whole nvidia-smi ladder
   // misses the per-GPU picker simply has no choices to offer.
-  const resolved = await resolveNvidiaSmiPath(deps);
+  const resolved = await resolveNvidiaSmiPath(deps, call);
   if (!resolved) {
+    if (call.sealedRefusalSeen) return [];
     cachedGpuList = [];
     return cachedGpuList;
   }
@@ -231,13 +267,15 @@ async function listNvidiaGpus(deps = {}) {
   const { error, stdout } = await runNvidiaSmi(
     resolved.smiPath,
     "index,uuid,name,memory.total",
-    deps.execFileImpl || execFile
+    deps.execFileImpl || execFile,
+    call
   );
   if (error || !stdout) {
     debugLogger.debug("nvidia-smi GPU list query failed", {
       source: resolved.source,
       error: error ? error.message : "empty output",
     });
+    if (call.sealedRefusalSeen) return [];
     cachedGpuList = [];
     return cachedGpuList;
   }

@@ -327,6 +327,8 @@ async function verifyOfficialCodex({
     if (!expected) expected = await publishedHash(version, platform, target, fetchImpl, timeoutMs);
   } catch (error) {
     if (error.code === "CODEX_UNVERIFIED") throw error;
+    // Sealed mode is not a connection problem; keep its typed refusal/interruption.
+    if (require("./privacy/egressPolicy").isSealedModeError(error)) throw error;
     throw failure(
       "Could not verify Codex CLI with OpenAI's official release on GitHub. Check your connection and click Refresh.",
       "CODEX_VERIFICATION_UNAVAILABLE"

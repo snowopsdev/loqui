@@ -11,6 +11,9 @@ const debugLogger = require("./debugLogger");
 const { getSafeTempDir } = require("./safeTempDir");
 const { getSupportCacheDir } = require("./supportCacheDir");
 const { getFFmpegPath } = require("./ffmpegUtils");
+const egress = require("./privacy/egressGate");
+const childRegistry = require("./privacy/childRegistry");
+const { hostOf, isSealedModeError } = require("./privacy/egressPolicy");
 
 const YOUTUBE_HOSTS = new Set([
   "youtube.com",
@@ -41,6 +44,71 @@ const YT_DLP_METADATA_TIMEOUT_MS = 2 * 60 * 1000;
 const YT_DLP_EXTRACTION_TIMEOUT_MS = 30 * 60 * 1000;
 let ytDlpUpdateInFlight = false;
 let ytDlpBusyCount = 0;
+// yt-dlp's self-update fetches from GitHub itself (threat model N15).
+const YT_DLP_UPDATE_TARGET = "https://github.com/yt-dlp/yt-dlp";
+// POSIX: each yt-dlp leads its own process group (detached), so helpers it
+// starts (FFmpeg, the JS runtime) are in it. Windows has no groups: a tree.
+const YT_DLP_CHILD = {
+  kind: "yt-dlp",
+  group: process.platform !== "win32",
+  tree: process.platform === "win32",
+};
+
+// A view over the child registry (Task 6a) for diagnostics and tests. In 07a,
+// alive() stays true once any yt-dlp has started: a root exit, an absent group
+// or a kill signal is never whole-tree proof (DESCENDANTS_UNVERIFIED), and only
+// 07b can resolve that coverage. stop() is the registry's TERM/KILL escalation;
+// it rejects with CHILD_STOP_FAILED while coverage stays unresolved. Sealing
+// aborts the yt-dlp sessions (which signals them) and the seal barrier stops
+// them through the same registry records.
+const ytDlpControl = {
+  alive: () => childRegistry.alive("yt-dlp").length > 0,
+  stop: (options) => childRegistry.stopAll({ ...options, kinds: ["yt-dlp"] }),
+};
+
+// One opaque ledger session for work done by yt-dlp children (a YouTube import,
+// or a self-update). Main cannot see their traffic, so the row never carries
+// bytes. It is settled only when the work has returned AND every child it
+// started has actually exited, never when a caller is released early by a
+// timeout, an error or an abort. Work that never started a child claims no
+// session at all.
+const childSessions = new WeakMap();
+function openChildSession(meta) {
+  const ticket = egress.authorize({ ...meta, meter: "opaque" });
+  let open = 1;
+  let started = false;
+  let patch = { outcome: "ok" };
+  const release = () => {
+    if (--open > 0) return;
+    childSessions.delete(ticket);
+    if (started) ticket.settle(patch);
+    else ticket.discard();
+  };
+  const session = {
+    ticket,
+    track(child, onEnd) {
+      open++;
+      const start = () => {
+        started = true;
+        ticket.markDispatched();
+      };
+      if (child.pid) start();
+      else child.once("spawn", start);
+      childRegistry.onChildEnd(child, (detail) => {
+        if (!detail.failedToStart) started = true;
+        onEnd?.(detail);
+        release();
+      });
+    },
+    // Called once, when the work itself has returned or failed.
+    finish(outcome) {
+      patch = outcome;
+      release();
+    },
+  };
+  childSessions.set(ticket, session);
+  return session;
+}
 
 // Decode the IPv4 embedded in the trailing 32 bits of a NAT64 (64:ff9b::/96) address.
 // Handles "::" compression; returns dotted IPv4 or null.
@@ -389,6 +457,8 @@ async function runYtDlpTracked(binaryPath, args, abortSignal, timeoutMs, onOutpu
 // only (never the bundled binary). Never throws/rejects to the caller.
 function maybeUpdateYtDlp({ force, abortSignal, timeoutMs } = {}) {
   return new Promise((resolve) => {
+    // Sealed mode: yt-dlp would contact GitHub itself, out of main's sight.
+    if (egress.isSealed()) return resolve();
     const stampPath = path.join(YT_DLP_CACHE_DIR, ".last-update");
     const touchStamp = () => {
       try {
@@ -418,21 +488,68 @@ function maybeUpdateYtDlp({ force, abortSignal, timeoutMs } = {}) {
         if (!fs.existsSync(cacheBinary) || !cacheChecksumValid(cacheBinary)) return resolve();
       }
 
+      // Its own opaque runtimeDownload session, which sealing aborts (and so
+      // kills the child). If sealing raced in, give up without a row.
+      let session;
+      try {
+        session = openChildSession({ task: "runtimeDownload", target: YT_DLP_UPDATE_TARGET });
+      } catch {
+        return resolve();
+      }
+      const callerSignal = abortSignal;
+      abortSignal = callerSignal
+        ? AbortSignal.any([callerSignal, session.ticket.signal])
+        : session.ticket.signal;
+
       ytDlpUpdateInFlight = true;
       let child;
       try {
         // Nightly: upstream calls stable "prone to external breakage"; the updater
-        // self-verifies against the release's SHA2-256SUMS.
-        child = childProcess.spawn(cacheBinary, ["--update-to", "nightly"], { windowsHide: true });
+        // self-verifies against the release's SHA2-256SUMS. Spawned inside the
+        // session so the spawn guard attributes the child to it, not a second one.
+        child = egress.runWithTicket(session.ticket, () =>
+          childProcess.spawn(cacheBinary, ["--update-to", "nightly"], {
+            windowsHide: true,
+            detached: process.platform !== "win32",
+          })
+        );
       } catch (e) {
+        session.finish({ outcome: "error" }); // nothing started: no row
         ytDlpUpdateInFlight = false;
         debugLogger.warn("yt-dlp self-update failed to start", { error: e.message });
         touchStamp();
         return resolve();
       }
+      childRegistry.register(child, YT_DLP_CHILD);
+      let timedOut = false;
+      // The session ends with the process, whatever the caller was told.
+      session.track(child, ({ code, signal }) =>
+        session.finish(
+          callerSignal?.aborted
+            ? { outcome: "cancelled", errorClass: "ABORTED" }
+            : timedOut
+              ? { outcome: "error", errorClass: "TIMEOUT" }
+              : code === 0 && !signal
+                ? { outcome: "ok" }
+                : { outcome: "error", errorClass: "CHILD_EXIT" }
+        )
+      );
       // Drain stdio so the child never blocks on a full pipe buffer.
       if (child.stdout) child.stdout.on("data", () => {});
       if (child.stderr) child.stderr.on("data", () => {});
+
+      // The bundled yt-dlp is a PyInstaller one-file build: its bootloader root
+      // runs the real program as a child and cannot forward SIGKILL. On POSIX
+      // the root leads its own group (detached above), so stop the whole group
+      // through the registry, which signals it only while continuity is observed.
+      // Windows keeps the root-only kill: taskkill is a native launch, refused
+      // while sealed; whole-tree stop there is 07b.
+      const killUpdate = () => {
+        if (childRegistry.signalGroup(child, "SIGKILL")) return;
+        try {
+          child.kill("SIGKILL");
+        } catch {}
+      };
 
       // Bounded kill timer so a stalled -U network request can never hang.
       const limit = typeof timeoutMs === "number" ? timeoutMs : UPDATE_TIMEOUT_MS;
@@ -454,23 +571,18 @@ function maybeUpdateYtDlp({ force, abortSignal, timeoutMs } = {}) {
       };
 
       killTimer = setTimeout(() => {
-        try {
-          child.kill("SIGKILL");
-        } catch {}
+        timedOut = true;
+        killUpdate();
         finish("yt-dlp -U timed out");
       }, limit);
 
       if (abortSignal) {
         if (abortSignal.aborted) {
-          try {
-            child.kill("SIGKILL");
-          } catch {}
+          killUpdate();
           return finish(null);
         }
         onAbort = () => {
-          try {
-            child.kill("SIGKILL");
-          } catch {}
+          killUpdate();
           finish(null);
         };
         abortSignal.addEventListener("abort", onAbort, { once: true });
@@ -594,7 +706,9 @@ function jsRuntimeSpawnConfig() {
 
 // Kill yt-dlp AND its subprocesses (ffmpeg postprocessor, node JS-runtime):
 // the detached process group on Unix, taskkill /T on Windows — a plain kill on
-// the parent orphans them mid-download.
+// the parent orphans them mid-download. On POSIX the group is signalled only
+// through the registry, which does so only while group continuity holds
+// (T10-m4); otherwise the root alone is signalled.
 function killYtDlpTree(child, signal) {
   if (process.platform === "win32" && child.pid) {
     try {
@@ -604,12 +718,7 @@ function killYtDlpTree(child, signal) {
       return;
     } catch {}
   }
-  if (child.pid) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch {}
-  }
+  if (childRegistry.signalGroup(child, signal)) return;
   try {
     child.kill(signal);
   } catch {}
@@ -637,6 +746,11 @@ function runYtDlp(binaryPath, args, abortSignal, timeoutMs, onOutput) {
       );
       return;
     }
+    // Detached on POSIX: the whole group must be gone, not just this root.
+    childRegistry.register(child, YT_DLP_CHILD);
+    // The import's opaque session stays open until this process exits, even if
+    // this promise settles first (an error event after start).
+    childSessions.get(egress.currentTicket())?.track(child);
 
     let stdout = "";
     let stderr = "";
@@ -1008,26 +1122,76 @@ async function downloadYouTube(url, onProgress, abortSignal) {
   }
 }
 
+// One ledger attempt per actual request of the URL import running in this
+// context (each HEAD, GET and redirect hop). Null outside a gated import.
+function beginImportAttempt(target) {
+  const ticket = egress.currentTicket();
+  if (!ticket || ticket.settled || ticket.meter !== "body") return null;
+  return ticket.beginAttempt(hostOf(target));
+}
+// The response's attempt, settled by whoever consumes (or drops) its body.
+const responseAttempts = new WeakMap();
+function settleAttempt(attempt, error) {
+  if (!attempt) return;
+  if (!error) return attempt.settle({});
+  const cancelled = error.code === "DOWNLOAD_CANCELLED";
+  attempt.settle(
+    cancelled
+      ? { outcome: "cancelled", errorClass: "ABORTED" }
+      : {
+          outcome: "error",
+          errorClass: /timed out|stalled/i.test(error.message) ? "TIMEOUT" : "OTHER",
+        }
+  );
+}
+
+// An import whose signal was already aborted (a seal or a cancel) starts no
+// further request or attempt; download() reports a seal as interrupted.
+function throwIfCancelled(signal) {
+  if (signal?.aborted)
+    throw Object.assign(new Error("Download cancelled"), { code: "DOWNLOAD_CANCELLED" });
+}
+
 function httpRequest(parsed, options) {
   const mod = parsed.protocol === "https:" ? https : http;
+  try {
+    throwIfCancelled(options.signal); // never a dispatched attempt for a cancelled request
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  // Node requests never carry an egress tag: the socket backstop attributes
+  // them by context instead (Task 6).
+  const attempt = beginImportAttempt(parsed.href);
   return new Promise((resolve, reject) => {
+    const fail = (error) => {
+      settleAttempt(attempt, error);
+      reject(error);
+    };
     // UA-less requests get bot-walled by common CDN fronts. `signal` lets a
     // cancel land during the connect phase, not just once data is streaming.
     const req = mod.request(
       parsed,
       { timeout: CONNECT_TIMEOUT_MS, headers: { "User-Agent": USER_AGENT }, ...options },
-      resolve
+      (response) => {
+        if (attempt) {
+          attempt.noteStatus(response.statusCode);
+          attempt.markDelivered();
+          responseAttempts.set(response, attempt);
+        }
+        resolve(response);
+      }
     );
+    attempt?.markDispatched();
     req.on("error", (err) => {
       if (options.signal?.aborted) {
-        reject(Object.assign(new Error("Download cancelled"), { code: "DOWNLOAD_CANCELLED" }));
+        fail(Object.assign(new Error("Download cancelled"), { code: "DOWNLOAD_CANCELLED" }));
       } else {
-        reject(err);
+        fail(err);
       }
     });
     req.on("timeout", () => {
       req.destroy();
-      reject(new Error("Connection timed out"));
+      fail(new Error("Connection timed out"));
     });
     req.end();
   });
@@ -1039,15 +1203,29 @@ function httpRequest(parsed, options) {
 function streamToFile(
   response,
   tempPath,
-  { contentLength, title, onProgress, abortSignal, abort }
+  { contentLength, title, onProgress, abortSignal, abort, attempt = null }
 ) {
+  // Body bytes this request received; unknown (null) unless the body ended.
+  if (attempt) attempt.openBodies++;
+  const settleBody = (error) => {
+    if (!attempt) return;
+    if (!error) {
+      attempt.openBodies--;
+      attempt.addBytes({ in: 0 });
+    }
+    settleAttempt(attempt, error);
+  };
   return new Promise((resolve, reject) => {
     // An already-dispatched abort event never re-fires for a late listener.
     if (abortSignal?.aborted) {
       try {
         abort();
       } catch {}
-      reject(Object.assign(new Error("Download cancelled"), { code: "DOWNLOAD_CANCELLED" }));
+      const cancelled = Object.assign(new Error("Download cancelled"), {
+        code: "DOWNLOAD_CANCELLED",
+      });
+      settleBody(cancelled);
+      reject(cancelled);
       return;
     }
     const fileStream = fs.createWriteStream(tempPath);
@@ -1090,6 +1268,7 @@ function streamToFile(
     const bail = (err) => {
       if (settled) return;
       settled = true;
+      settleBody(err);
       stall.clear();
       if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
       cleanupFile().then(() => reject(err));
@@ -1109,6 +1288,7 @@ function streamToFile(
 
       stall.touch();
       downloaded += chunk.length;
+      attempt?.addBytes({ in: chunk.length });
 
       if (downloaded > MAX_DOWNLOAD_BYTES) {
         try {
@@ -1141,6 +1321,7 @@ function streamToFile(
     fileStream.on("finish", () => {
       if (settled) return;
       settled = true;
+      settleBody(null);
       stall.clear();
       if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
       try {
@@ -1176,6 +1357,7 @@ const REDIRECT_RESTART = "REDIRECT_RESTART";
 async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0) {
   const net = getElectronNet();
 
+  throwIfCancelled(abortSignal); // before the pre-flight's DNS lookup
   await assertPublicHost(new URL(url).hostname);
 
   const settledResponse = await new Promise((resolve, reject) => {
@@ -1186,11 +1368,21 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
 
     let redirects = redirectCount;
     let request;
+    // One ledger attempt per Electron request (each redirect hop restarts).
+    const attempt = beginImportAttempt(url);
+    const settle = (error) => settleAttempt(attempt, error);
     try {
       request = net.request({ url, method: "GET", redirect: "manual" });
       request.setHeader("User-Agent", USER_AGENT);
+      // The session backstop attributes the request to this attempt and
+      // strips the tag before it leaves (Task 6).
+      if (attempt) request.setHeader(egress.EGRESS_TAG_HEADER, attempt.tag);
     } catch (e) {
-      reject(Object.assign(new Error(e.message || "Download failed"), { code: "DOWNLOAD_FAILED" }));
+      const failed = Object.assign(new Error(e.message || "Download failed"), {
+        code: "DOWNLOAD_FAILED",
+      });
+      settle(failed);
+      reject(failed);
       return;
     }
 
@@ -1201,7 +1393,11 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
         request.abort();
       } catch {}
       detach();
-      reject(Object.assign(new Error("Download cancelled"), { code: "DOWNLOAD_CANCELLED" }));
+      const cancelled = Object.assign(new Error("Download cancelled"), {
+        code: "DOWNLOAD_CANCELLED",
+      });
+      settle(cancelled);
+      reject(cancelled);
     };
     if (abortSignal) abortSignal.addEventListener("abort", onAbort, { once: true });
     // Chromium's net stack has no response-header timeout; without this a proxy
@@ -1212,7 +1408,11 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
         request.abort();
       } catch {}
       detach();
-      reject(Object.assign(new Error("Connection timed out"), { code: "DOWNLOAD_FAILED" }));
+      const timedOut = Object.assign(new Error("Connection timed out"), {
+        code: "DOWNLOAD_FAILED",
+      });
+      settle(timedOut);
+      reject(timedOut);
     }, CONNECT_TIMEOUT_MS);
     const detach = () => {
       clearTimeout(connectTimer);
@@ -1220,6 +1420,10 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
     };
 
     request.on("redirect", (statusCode, method, redirectUrl) => {
+      // The redirect answer ends this request; the next hop is a new attempt.
+      attempt?.noteStatus(statusCode);
+      attempt?.markDelivered();
+      settle(null);
       redirects += 1;
       if (redirects > MAX_REDIRECTS) {
         try {
@@ -1269,8 +1473,11 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
     request.on("response", (response) => {
       detach();
       const statusCode = response.statusCode;
+      attempt?.noteStatus(statusCode);
+      attempt?.markDelivered();
       if (statusCode !== 200) {
         response.resume();
+        settle(null); // a refused body is never read, so its bytes stay unknown
         try {
           request.abort();
         } catch {}
@@ -1281,6 +1488,7 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
       const contentType = (firstHeaderValue(response.headers, "content-type") || "").toLowerCase();
       if (!isAcceptableAudioContentType(contentType)) {
         response.resume();
+        settle(null); // a refused body is never read, so its bytes stay unknown
         try {
           request.abort();
         } catch {}
@@ -1297,6 +1505,7 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
       const contentLength = clHeader ? Number(clHeader) : null;
       if (contentLength && contentLength > MAX_DOWNLOAD_BYTES) {
         response.resume();
+        settle(null); // a refused body is never read, so its bytes stay unknown
         try {
           request.abort();
         } catch {}
@@ -1308,20 +1517,19 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
         return;
       }
 
-      resolve({ response, contentLength, request });
+      resolve({ response, contentLength, request, attempt });
     });
 
     request.on("error", (err) => {
       detach();
-      if (abortSignal?.aborted) {
-        reject(Object.assign(new Error("Download cancelled"), { code: "DOWNLOAD_CANCELLED" }));
-      } else {
-        reject(
-          Object.assign(new Error(err.message || "Download failed"), { code: "DOWNLOAD_FAILED" })
-        );
-      }
+      const failed = abortSignal?.aborted
+        ? Object.assign(new Error("Download cancelled"), { code: "DOWNLOAD_CANCELLED" })
+        : Object.assign(new Error(err.message || "Download failed"), { code: "DOWNLOAD_FAILED" });
+      settle(failed);
+      reject(failed);
     });
 
+    attempt?.markDispatched();
     request.end();
   }).catch((err) => {
     if (err && err.code === REDIRECT_RESTART) return err;
@@ -1337,7 +1545,7 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
     );
   }
 
-  const { response, contentLength, request } = settledResponse;
+  const { response, contentLength, request, attempt } = settledResponse;
 
   const { title, ext } = deriveTitleAndExt(new URL(url).pathname);
   const tempPath = path.join(getSafeTempDir(), `ow-url-${Date.now()}.${ext}`);
@@ -1354,6 +1562,7 @@ async function downloadViaProxy(url, onProgress, abortSignal, redirectCount = 0)
         request.abort();
       } catch {}
     },
+    attempt,
   });
 
   onProgress?.({ stage: "ready", percent: 100, title });
@@ -1382,6 +1591,9 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
   // Electron net.request instead; keep the airtight node-https + ssrfSafeLookup path
   // as the default for the common no-proxy case.
   const proxyUrl = await resolveProxyForUrl(url);
+  // Sealing (or a cancel) may land while the proxy is resolved: stop here,
+  // before any DNS lookup, request or attempt.
+  throwIfCancelled(abortSignal);
   if (proxyUrl) {
     return downloadViaProxy(url, onProgress, abortSignal, redirectCount);
   }
@@ -1399,6 +1611,8 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
         signal: abortSignal,
       });
       headResponse.resume();
+      // A HEAD has no body to count; its attempt ends with its answer.
+      settleAttempt(responseAttempts.get(headResponse), null);
       if (
         headResponse.statusCode >= 300 &&
         headResponse.statusCode < 400 &&
@@ -1432,7 +1646,9 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
       e.code === "SSRF_BLOCKED" ||
       e.code === "INVALID_URL" ||
       e.code === "DOWNLOAD_FAILED" ||
-      e.code === "DOWNLOAD_CANCELLED"
+      e.code === "DOWNLOAD_CANCELLED" ||
+      isSealedModeError(e) ||
+      abortSignal?.aborted
     ) {
       throw e;
     }
@@ -1469,9 +1685,15 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
     lookup: ssrfSafeLookup,
     signal: abortSignal,
   });
+  const getAttempt = responseAttempts.get(response) ?? null;
+  // Every path below that drops the body ends this attempt with its status.
+  const dropBody = () => {
+    response.destroy();
+    settleAttempt(getAttempt, null);
+  };
 
   if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-    response.destroy();
+    dropBody();
     if (redirectCount + headRedirects >= MAX_REDIRECTS) {
       const err = new Error("Too many redirects");
       err.code = "DOWNLOAD_FAILED";
@@ -1482,7 +1704,7 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
   }
 
   if (response.statusCode !== 200) {
-    response.destroy();
+    dropBody();
     const err = new Error(`HTTP ${response.statusCode}`);
     err.code = "DOWNLOAD_FAILED";
     throw err;
@@ -1490,7 +1712,7 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
 
   const getContentType = (response.headers["content-type"] || "").toLowerCase();
   if (!isAcceptableAudioContentType(getContentType)) {
-    response.destroy();
+    dropBody();
     const err = new Error(`URL does not point to an audio file (content-type: ${getContentType})`);
     err.code = "CONTENT_TYPE_INVALID";
     throw err;
@@ -1499,7 +1721,7 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
   if (contentLength == null && response.headers["content-length"]) {
     contentLength = Number(response.headers["content-length"]);
     if (contentLength > MAX_DOWNLOAD_BYTES) {
-      response.destroy();
+      dropBody();
       const err = new Error("File too large. Maximum download size is 500 MB.");
       err.code = "FILE_TOO_LARGE";
       throw err;
@@ -1516,21 +1738,51 @@ async function downloadDirect(url, onProgress, abortSignal, redirectCount = 0) {
         response.destroy();
       } catch {}
     },
+    attempt: getAttempt,
   });
 
   onProgress?.({ stage: "ready", percent: 100, title });
   return { tempPath, title, durationSeconds: null, sizeBytes };
 }
 
+// URL import (threat model N14). While sealed it is refused before any DNS,
+// socket or child. Direct imports go through main's own transports and are
+// metered per request. A YouTube import runs yt-dlp, whose traffic main cannot
+// see: one opaque session that ends only when every yt-dlp it started has
+// exited. Sealing aborts the ticket, which cancels the transfer or signals
+// yt-dlp; the caller then hears "interrupted", never "nothing was sent".
 async function download(url, onProgress, abortSignal) {
   const type = detectUrlType(url);
+  const youtube = type === "youtube";
+  const session = youtube ? openChildSession({ task: "urlImport", target: url }) : null;
+  const ticket = session ? session.ticket : egress.authorize({ task: "urlImport", target: url });
+  const signal = abortSignal ? AbortSignal.any([abortSignal, ticket.signal]) : ticket.signal;
+  const sealedReason = () =>
+    ticket.signal.aborted && isSealedModeError(ticket.signal.reason) ? ticket.signal.reason : null;
+  // A direct import that failed before any request contacted nothing: no row
+  // names its host (T10-M4). The YouTube session discards its own.
+  const finish = (patch) =>
+    session
+      ? session.finish(patch)
+      : patch.outcome !== "ok" && ticket.untouched()
+        ? ticket.discard()
+        : ticket.settle(patch);
   debugLogger.log("URL audio download starting", { url, type });
-
-  if (type === "youtube") {
-    return downloadYouTube(url, onProgress, abortSignal);
+  try {
+    const result = await egress.runWithTicket(ticket, () =>
+      youtube ? downloadYouTube(url, onProgress, signal) : downloadDirect(url, onProgress, signal)
+    );
+    finish({ outcome: "ok" });
+    return result;
+  } catch (error) {
+    const sealed = sealedReason();
+    finish(
+      sealed || error?.code === "DOWNLOAD_CANCELLED"
+        ? { outcome: "cancelled", errorClass: "ABORTED" }
+        : { outcome: "error", errorClass: youtube ? "CHILD_EXIT" : "OTHER" }
+    );
+    throw sealed ?? error;
   }
-
-  return downloadDirect(url, onProgress, abortSignal);
 }
 
 module.exports = {
@@ -1543,6 +1795,7 @@ module.exports = {
   isAcceptableAudioContentType,
   ssrfSafeLookup,
   maybeUpdateYtDlp,
+  ytDlpControl,
   downloadViaProxy,
   // Test-only seam: lets the regression test confirm the single-flight flag is cleared.
   _isYtDlpUpdateInFlight: () => ytDlpUpdateInFlight,

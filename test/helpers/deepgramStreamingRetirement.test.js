@@ -57,6 +57,8 @@ function providerFixture(t) {
     require(name) {
       if (name === "ws") return Socket;
       if (name === "./streamingHandOff") return require("../../src/helpers/streamingHandOff");
+      // Task 9a: sockets and frames are attributed by the realtime egress seam.
+      if (name === "./sttTransport") return require("../../src/helpers/sttTransport");
       assert.equal(name, "./debugLogger", `forbidden provider import ${name}`);
       return { debug() {}, warn() {}, error() {} };
     },

@@ -35,6 +35,7 @@ class LlamaCppInstaller {
     }
 
     this.installDir = path.join(app.getPath("userData"), "llama-cpp");
+    require("./privacy/childRegistry").registerLocalBinaryDir(this.installDir);
     this._initialized = true;
   }
 

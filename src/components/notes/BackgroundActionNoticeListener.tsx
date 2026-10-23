@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { notify } from "../ui/notices";
+import { sealedFailureMessage } from "../../utils/sealedModeError";
 import { useActionProcessingStore, consumeErrorEvents } from "../../stores/actionProcessingStore";
 
 /**
@@ -17,7 +18,9 @@ export default function BackgroundActionNoticeListener() {
     for (const event of consumeErrorEvents()) {
       notify({
         title: t("notes.enhance.title"),
-        body: event.messageKey ? t(event.messageKey, event.messageParams) : event.message,
+        body: event.messageKey
+          ? t(event.messageKey, event.messageParams)
+          : (sealedFailureMessage({ error: event.message }, t) ?? event.message),
         kind: "alert",
       });
     }

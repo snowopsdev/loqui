@@ -20,7 +20,11 @@ const REALTIME_TOKEN_PROVIDERS = {
           headers: { Authorization: apiKey },
         }
       );
-      if (!response.ok) throw new Error(`AssemblyAI token request failed: ${response.status}`);
+      if (!response.ok) {
+        // Release the unread body so the gate settles and records it (I7).
+        await response.body?.cancel().catch(() => {});
+        throw new Error(`AssemblyAI token request failed: ${response.status}`);
+      }
       const data = await response.json();
       if (!data.token) throw new Error("No AssemblyAI token received");
       return data.token;

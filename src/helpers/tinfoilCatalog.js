@@ -2,6 +2,8 @@
 // Fetching from the main process rather than the renderer lets every window share one request.
 const debugLogger = require("./debugLogger");
 const { tinfoilSecureFetch } = require("./tinfoilSecureClient");
+const egress = require("./privacy/egressGate");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 
 const TINFOIL_MODELS_PATH = "/v1/models";
 const RETRY_AFTER_FAILURE_MS = 60 * 1000;
@@ -38,16 +40,26 @@ function parseModels(payload) {
     .map(toCatalogModel);
 }
 
+// Sealed mode: one providerCheck ticket spans the attestation, the request and
+// the JSON read. The Tinfoil SDK has its own transport, so the hand-off is the
+// dispatch evidence and Layer B attributes its sockets to this ticket.
 async function fetchModels() {
-  // The first call also attests the enclave, so allow for more than a plain GET.
-  const response = await tinfoilSecureFetch(TINFOIL_MODELS_PATH, {
-    method: "GET",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    throw new Error(`Tinfoil models request failed: ${response.status}`);
-  }
-  return parseModels(await response.json());
+  return egress.guard(
+    { task: "providerCheck", target: "https://inference.tinfoil.sh", provider: "tinfoil" },
+    async (ticket) => {
+      ticket.markDispatched();
+      // The first call also attests the enclave, so allow for more than a plain GET.
+      const response = await tinfoilSecureFetch(TINFOIL_MODELS_PATH, {
+        method: "GET",
+        signal: AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), ticket.signal]),
+      });
+      ticket.noteStatus(response.status);
+      if (!response.ok) {
+        throw new Error(`Tinfoil models request failed: ${response.status}`);
+      }
+      return parseModels(await response.json());
+    }
+  );
 }
 
 /**
@@ -67,7 +79,8 @@ async function getTinfoilChatModels() {
         return models;
       })
       .catch((error) => {
-        lastFailureAt = Date.now();
+        // A Sealed mode refusal says nothing about Tinfoil; do not back off.
+        if (!isSealedModeError(error)) lastFailureAt = Date.now();
         debugLogger.warn("Failed to fetch Tinfoil models", { error: error.message });
         throw error;
       })

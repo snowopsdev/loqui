@@ -47,6 +47,8 @@ import {
   deliverAssistantResponse,
   type AssistantResponseDelivery,
 } from "../../helpers/assistantResponseDelivery";
+import { chatErrorContent } from "../chat/chatErrorContent";
+import { isSealedModeError } from "../../utils/sealedModeError";
 
 interface AssistantCommand {
   operation: DictationOperation | null;
@@ -280,7 +282,9 @@ export function AssistantPanel({
           {
             id: crypto.randomUUID(),
             role: "assistant",
-            content: `${t("agentMode.chat.errorPrefix")}: ${errorMessage}`,
+            content: isSealedModeError(error)
+              ? chatErrorContent(error, t)
+              : `${t("agentMode.chat.errorPrefix")}: ${errorMessage}`,
             isStreaming: false,
           },
         ]);

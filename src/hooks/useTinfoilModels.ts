@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getTinfoilModels, type CloudModelDefinition } from "../models/ModelRegistry";
 import { isTinfoilListFresh, refreshTinfoilModels } from "../models/tinfoilModels";
+import i18n from "../i18n";
 import logger from "../utils/logger";
+import { sealedFailureMessage } from "../utils/sealedModeError";
+
+const translate = (key: string) => i18n.t(key);
 
 interface UseTinfoilModelsResult {
   models: CloudModelDefinition[];
@@ -49,7 +53,11 @@ export function useTinfoilModels(enabled: boolean): UseTinfoilModelsResult {
       // retired model from an unreachable endpoint.
       logger.error("Failed to load Tinfoil models", { error: err }, "models");
       if (isMountedRef.current) {
-        setError((err as Error).message || "Unable to load models");
+        // A sealed refusal is translated copy, never main's raw text.
+        setError(
+          sealedFailureMessage(err, translate) ??
+            ((err as Error).message || "Unable to load models")
+        );
       }
     } finally {
       if (willFetch && isMountedRef.current) {

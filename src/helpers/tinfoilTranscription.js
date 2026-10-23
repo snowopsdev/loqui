@@ -1,8 +1,10 @@
 const debugLogger = require("./debugLogger");
 const modelRegistryData = require("../models/modelRegistryData.json");
 const { tinfoilSecureFetch } = require("./tinfoilSecureClient");
+const egress = require("./privacy/egressGate");
 
 const TINFOIL_TRANSCRIPTION_PATH = "/v1/audio/transcriptions";
+const TINFOIL_TRANSCRIPTION_TARGET = "https://inference.tinfoil.sh";
 
 // "Voxtral" is one picker choice but two Tinfoil models: the realtime one streams
 // over /v1/realtime; this batch model handles every non-streaming path.
@@ -45,32 +47,45 @@ async function transcribeWithTinfoil({
 
   debugLogger.debug("Tinfoil batch transcription starting", { model, language }, "transcription");
 
-  const response = await tinfoilSecureFetch(TINFOIL_TRANSCRIPTION_PATH, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: formData,
-    signal,
-  });
+  // Sealed mode: one ticket spans the attested request (and any attestation it
+  // triggers) and the response read. The Tinfoil SDK has its own transport, so
+  // the hand-off is the dispatch evidence and a response is delivery evidence;
+  // Layer B attributes its sockets to this ticket. Task and correlation come
+  // from the calling handler's egress context.
+  return egress.guard(
+    { target: TINFOIL_TRANSCRIPTION_TARGET, provider: "tinfoil", payload: "audio" },
+    async (ticket) => {
+      ticket.markDispatched();
+      const response = await tinfoilSecureFetch(TINFOIL_TRANSCRIPTION_PATH, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: formData,
+        signal: signal ? AbortSignal.any([signal, ticket.signal]) : ticket.signal,
+      });
+      ticket.markDelivered();
+      ticket.noteStatus(response.status);
 
-  if (response.status === 401) {
-    const error = new Error("Invalid Tinfoil API key. Check your key in Settings.");
-    error.code = "INVALID_KEY";
-    throw error;
-  }
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    const error = new Error(`Tinfoil API Error: ${response.status} ${errorText}`.trim());
-    if (response.status === 429) {
-      error.code = "PROVIDER_RATE_LIMITED";
-      error.messageKey = "hooks.audioRecording.errorDescriptions.providerRateLimited";
-    } else if (response.status >= 500) {
-      error.code = "SERVER_ERROR";
+      if (response.status === 401) {
+        const error = new Error("Invalid Tinfoil API key. Check your key in Settings.");
+        error.code = "INVALID_KEY";
+        throw error;
+      }
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        const error = new Error(`Tinfoil API Error: ${response.status} ${errorText}`.trim());
+        if (response.status === 429) {
+          error.code = "PROVIDER_RATE_LIMITED";
+          error.messageKey = "hooks.audioRecording.errorDescriptions.providerRateLimited";
+        } else if (response.status >= 500) {
+          error.code = "SERVER_ERROR";
+        }
+        throw error;
+      }
+
+      const data = await response.json();
+      return { text: data?.text || "", model };
     }
-    throw error;
-  }
-
-  const data = await response.json();
-  return { text: data?.text || "", model };
+  );
 }
 
-module.exports = { transcribeWithTinfoil };
+module.exports = { transcribeWithTinfoil, TINFOIL_TRANSCRIPTION_TARGET };

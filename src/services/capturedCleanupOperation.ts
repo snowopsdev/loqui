@@ -20,6 +20,21 @@ import type {
   TextOperationDescriptor,
 } from "./ai/personalInferenceTypes";
 
+// Main's typed envelope for a Sealed mode refusal or interruption. Only main's
+// explicit "refused" is a refusal; a missing phase never says nothing was sent
+// (Task 18 T18-06).
+function sealedModeError(result: { phase?: unknown }) {
+  const interrupted = result.phase !== "refused";
+  return Object.assign(
+    new Error(interrupted ? "[SEALED_MODE:interrupted] Sealed mode" : "[SEALED_MODE] Sealed mode"),
+    {
+      code: "SEALED_MODE",
+      messageKey: interrupted ? "sealedMode.interrupted.generic" : "sealedMode.blocked.generic",
+      details: { phase: interrupted ? "interrupted" : "refused" },
+    }
+  );
+}
+
 function operationError(code = "CLEANUP_FAILED", provider = "") {
   const suffix =
     code === "RECIPIENT_CHANGED"
@@ -180,6 +195,7 @@ export function createCapturedCleanupOperation(
           )
         );
         live();
+        if (result.code === "SEALED_MODE") throw sealedModeError(result);
         if (!result.success || !result.text?.trim())
           throw Object.assign(new Error("Cleanup failed. Your original words are preserved."), {
             code: result.code || "CLEANUP_FAILED",
@@ -190,7 +206,17 @@ export function createCapturedCleanupOperation(
       live();
       return await finalizeOutput(result.text);
     } catch (error) {
-      throw operationError((error as { code?: string }).code, selected.provider);
+      const code = (error as { code?: string }).code;
+      // Sealed mode stays typed with its phase (refused vs interrupted) under
+      // the existing translated failure copy; the caller keeps the words.
+      if (code === "SEALED_MODE")
+        throw Object.assign(operationError(code, selected.provider), {
+          // A rejection that states no phase may have reached the provider:
+          // never "refused" by default (T18-06, re-review m3).
+          details: (error as { details?: unknown }).details ?? { phase: "interrupted" },
+          cause: error,
+        });
+      throw operationError(code, selected.provider);
     } finally {
       busy = false;
     }

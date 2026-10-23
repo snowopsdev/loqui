@@ -2,6 +2,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const debugLogger = require("./debugLogger");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 
 const START_TIMEOUT_MS = 15000;
 const STOP_TIMEOUT_MS = 5000;
@@ -72,8 +73,12 @@ class LinuxPortalAudioManager {
       return this.capabilityPromise;
     }
 
+    // A sealed refusal of the probe says nothing about the helper: it is
+    // answered for now but never cached, so unsealing probes again (m1).
+    let sealedRefusal = false;
     const promise = this._probeCapability()
       .catch((error) => {
+        sealedRefusal = isSealedModeError(error);
         debugLogger.warn(
           "[LinuxPortalAudioManager] Capability probe failed",
           { error: error.message },
@@ -82,7 +87,7 @@ class LinuxPortalAudioManager {
         return this._buildCapability({ available: false, error: error.message });
       })
       .then((capability) => {
-        this.cachedCapability = capability;
+        if (!sealedRefusal) this.cachedCapability = capability;
         return capability;
       })
       .finally(() => {

@@ -63,9 +63,9 @@ class TinfoilRealtimeStreaming extends OpenAIRealtimeStreaming {
     });
   }
 
-  sendAudio(pcmBuffer) {
+  sendAudio(pcmBuffer, recording) {
     const buffer = Buffer.isBuffer(pcmBuffer) ? pcmBuffer : Buffer.from(pcmBuffer);
-    const accepted = super.sendAudio(buffer);
+    const accepted = super.sendAudio(buffer, recording);
     if ((!accepted && !this.bufferingAudio) || !buffer.length) return accepted;
 
     const now = Date.now();

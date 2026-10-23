@@ -53,16 +53,64 @@ test("the preview attestation is never positive, in either state, and always fre
     assert.deepEqual(a.children, []);
     assert.equal(a.phase, sealed ? "sealing" : "open", "never reaches the sealed phase in 07a");
     assert.equal(a.failures.includes("NATIVE_BOUNDARY_UNAVAILABLE"), sealed);
-    // No guard is claimed: the preview installs none.
-    const { sessions, ...flags } = a.guards;
-    assert.equal(sessions, 0);
-    assert.ok(Object.values(flags).every((value) => value === false || value === 0));
   }
   const first = await api.getAttestation();
   clock += 5000;
   const second = await api.getAttestation();
   assert.ok(second.version > first.version);
   assert.equal(second.at - first.at, 5000);
+});
+
+// What main's backstop reports once privacy boot has installed its guards (the
+// five Node/Chromium guards on, the default session watched, no proxy from the
+// environment, nothing in flight). The preview is sample data of that state.
+const INSTALLED_GUARDS = {
+  node: true,
+  dns: true,
+  dgram: true,
+  http: true,
+  webContents: true,
+  sessions: 1,
+  envProxy: false,
+  openRemoteSockets: 0,
+  chromiumInFlightRemote: 0,
+  chromiumUnresolvedAfterDestroy: 0,
+  pendingDns: 0,
+};
+
+test("the preview guards mirror what a real 07a main reports once its guards are installed", async () => {
+  const { createPreviewPrivacyAPI } = await load();
+  const backstop = require("../../src/helpers/privacy/egressBackstop");
+  const api = createPreviewPrivacyAPI(() => NOON);
+  for (const sealed of [false, true]) {
+    await api.setSealed(sealed);
+    const a = await api.getAttestation();
+    assert.deepEqual(a.guards, INSTALLED_GUARDS);
+    // Same fields, same types as main's real producer.
+    const real = backstop.status();
+    assert.deepEqual(Object.keys(a.guards).sort(), Object.keys(real).sort());
+    for (const key of Object.keys(real)) assert.equal(typeof a.guards[key], typeof real[key], key);
+    // With guards installed, the one unresolved fact is the missing boundary.
+    assert.deepEqual(a.failures, sealed ? ["NATIVE_BOUNDARY_UNAVAILABLE"] : []);
+    assert.equal(a.nothingLeaves, false);
+    assert.equal(a.effectiveSince, null);
+  }
+});
+
+test("the sealed panel shows the true 07a lines for the preview attestation", async () => {
+  const { createPreviewPrivacyAPI } = await load();
+  const { sealedStatusLines } = await import("../../src/components/settings/sealedModeCopy.ts");
+  const api = createPreviewPrivacyAPI(() => NOON);
+  await api.setSealed(true);
+  const lines = sealedStatusLines(true, await api.getAttestation(), NOON);
+  assert.deepEqual(
+    lines.map((line) => line.key),
+    [
+      "settingsPage.privacy.sealed.on",
+      "settingsPage.privacy.sealed.buildLimit",
+      "settingsPage.privacy.sealed.scope",
+    ]
+  );
 });
 
 test("toggling updates in memory and notifies both listeners, then stops when unsubscribed", async () => {

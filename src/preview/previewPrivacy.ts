@@ -168,34 +168,25 @@ export function createPreviewPrivacyAPI(clock: () => number = Date.now): Privacy
       };
     };
 
-  // The preview runs none of main's guards, so none is claimed, and while sealed
-  // the unavailable native boundary is the first unresolved fact, as in 07a.
+  // Sample data for what a real 07a main reports: privacy boot has installed
+  // its guards and watches the default session, and the one unresolved fact
+  // while sealed is the unavailable native boundary. Nothing here is verified.
   const attest = (): Attestation => ({
     sealed,
     sealedSince,
     effectiveSince: null,
     phase: sealed ? "sealing" : "open",
-    failures: sealed
-      ? [
-          UNAVAILABLE,
-          "guard:node",
-          "guard:dns",
-          "guard:dgram",
-          "guard:http",
-          "guard:webContents",
-          "guard:sessions",
-        ]
-      : [],
+    failures: sealed ? [UNAVAILABLE] : [],
     notes: [],
     loadError: null,
     saveError: null,
     guards: {
-      node: false,
-      dns: false,
-      dgram: false,
-      http: false,
-      webContents: false,
-      sessions: 0,
+      node: true,
+      dns: true,
+      dgram: true,
+      http: true,
+      webContents: true,
+      sessions: 1,
       envProxy: false,
       openRemoteSockets: 0,
       chromiumInFlightRemote: 0,

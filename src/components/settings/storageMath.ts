@@ -368,14 +368,18 @@ export function resetOutcome(raw: unknown): {
   ok: boolean;
   errors: string[];
   googleGrantKept?: true;
+  googleRevokeFailed?: true;
 } {
   if (!isObject(raw)) return { ok: false, errors: ["reset-failed: no result"] };
   const errors = Array.isArray(raw.errors) ? raw.errors.map(String) : [];
   // T11-M5: Sealed mode refused the Google revoke; the grant stays valid there.
+  // D-1: unsealed, a pending revoke was tried and failed before the erase.
   if (raw.success === true && errors.length === 0)
     return raw.googleGrantKept === true
       ? { ok: true, errors: [], googleGrantKept: true }
-      : { ok: true, errors: [] };
+      : raw.googleRevokeFailed === true
+        ? { ok: true, errors: [], googleRevokeFailed: true }
+        : { ok: true, errors: [] };
   if (errors.length > 0) return { ok: false, errors };
   return {
     ok: false,

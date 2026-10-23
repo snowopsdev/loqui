@@ -4474,7 +4474,8 @@
       "failed": "El restablecimiento no terminó, por lo que Loqui no se reiniciará automáticamente. Fallaron estos pasos:",
       "done": "Restablecimiento completado. Loqui se está reiniciando…",
       "doneSealed": "Restablecimiento completado. Loqui no puede reiniciarse por sí solo mientras el modo sellado está activado. Sal de Loqui y vuelve a abrirlo para terminar.",
-      "restartFailed": "Restablecimiento completado, pero Loqui no pudo reiniciarse por sí solo. Sal de Loqui y vuelve a abrirlo para terminar."
+      "restartFailed": "Restablecimiento completado, pero Loqui no pudo reiniciarse por sí solo. Sal de Loqui y vuelve a abrirlo para terminar.",
+      "doneRevoke": "Restablecimiento completado. Lee la nota sobre Google de abajo y luego cierra Loqui y vuelve a abrirlo para terminar."
     }
   },
   "settingsSearch": {
@@ -4680,7 +4681,17 @@
       "connectRefused": "Conectar este calendario requiere internet, y el modo sellado lo bloquea. No se envió nada. Desactiva el modo sellado para conectarlo.",
       "connectInterrupted": "El modo sellado se activó durante el inicio de sesión, así que se detuvo. Es posible que el proveedor haya recibido una parte del inicio de sesión. No se conectó ninguna cuenta.",
       "appleUnavailable": "Esta versión no puede ejecutar el asistente local de Calendario de Apple con el modo sellado activado. Desactiva el modo sellado para conectarlo.",
-      "googleGrantKept": "El modo sellado estaba activado, así que Loqui no pudo pedirle a Google que revocara su acceso al calendario. Loqui eliminó su propia copia de tu inicio de sesión, pero Google mantiene el acceso de Loqui hasta que lo quites en tu cuenta de Google. Loqui no contactará con Google por esto más tarde."
+      "googleGrantKept": "El modo sellado estaba activado, así que Loqui no pudo pedirle a Google que revocara su acceso al calendario. Loqui eliminó su propia copia de tu inicio de sesión, pero Google mantiene el acceso de Loqui hasta que lo quites en tu cuenta de Google. Loqui no contactará con Google por esto más tarde.",
+      "revokeQueuedTitle": "El acceso de Google se quitará más tarde",
+      "revokeQueued": "El modo sellado está activado, así que Loqui no puede pedirle ahora a Google que quite su acceso al calendario. Loqui desconectó el calendario y solo guardó lo necesario para pedirlo. Se lo pedirá a Google automáticamente cuando desactives el modo sellado.",
+      "revokeDoneTitle": "Acceso de Google quitado",
+      "revokeDone": "Loqui le pidió a Google que quitara su acceso al calendario y eliminó lo que había guardado para ello.",
+      "revokeFailedTitle": "No se pudo quitar el acceso de Google",
+      "revokeFailed": "Loqui no consiguió que Google quitara su acceso al calendario, así que ese acceso puede seguir activo en Google. Loqui solo guarda lo necesario para volver a intentarlo. También puedes quitar el acceso tú mismo en tu cuenta de Google.",
+      "revokeRetry": "Reintentar",
+      "revokeOpenAccount": "Abrir cuenta de Google",
+      "revokeUnsaved": "El modo sellado está activado, así que Loqui no pudo pedirle a Google que quitara su acceso al calendario, ni pudo guardar de forma segura lo necesario para pedirlo más tarde. Loqui eliminó su propia copia de tu inicio de sesión, pero Google mantiene el acceso de Loqui hasta que lo quites en tu cuenta de Google.",
+      "googleRevokeFailedReset": "Loqui no consiguió que Google quitara su acceso al calendario antes del restablecimiento, así que ese acceso puede seguir activo en Google. Loqui eliminó su propia copia de tu inicio de sesión y no volverá a contactar con Google por ello. Quita el acceso en tu cuenta de Google."
     },
     "paste": {
       "title": "El modo sellado detuvo el pegado automático",

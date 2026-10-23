@@ -7,6 +7,7 @@ const CalendarSyncInterval = require("./calendarSyncInterval");
 const { MAX_BUFFER_MINUTES } = require("./calendarAvailability");
 const { extractMeetingUrl } = require("./meetingJoinUrl");
 const { broadcastToWindows } = require("./windowBroadcast");
+const { createGooglePendingRevoke } = require("./googlePendingRevoke");
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 const BUFFER_COVERAGE_MS = MAX_BUFFER_MINUTES * 60 * 1000;
@@ -19,11 +20,22 @@ const SYNC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const GOOGLE_RESPONSE_STATUSES = new Set(["accepted", "declined", "tentative", "needsAction"]);
 
 class GoogleCalendarManager {
-  constructor(databaseManager, windowManager, reminderScheduler) {
+  // options.pendingRevoke = { dir, crypto }: where D-1's pending revoke lives
+  // (main passes secure-keys/ and secretCrypto). Without it a sealed
+  // disconnect cannot keep a revoke for later and says so.
+  constructor(databaseManager, windowManager, reminderScheduler, options = {}) {
     this.databaseManager = databaseManager;
     this.windowManager = windowManager;
     this.reminderScheduler = reminderScheduler;
     this.oauth = new GoogleCalendarOAuth(databaseManager);
+    this.pendingRevoke = options.pendingRevoke
+      ? createGooglePendingRevoke({
+          ...options.pendingRevoke,
+          revoke: (token) => this.oauth.revokeGrant(token),
+          isSealed: () => egress.isSealed(),
+          broadcast: (payload) => broadcastToWindows("gcal-pending-revoke", payload),
+        })
+      : null;
     this.accounts = new Map();
     this.primaryOnly = true;
     this.syncRunner = new CalendarSyncInterval(
@@ -38,6 +50,9 @@ class GoogleCalendarManager {
   }
 
   start() {
+    // D-1: a revoke kept from a sealed disconnect runs once Loqui is unsealed,
+    // including after a restart.
+    this._runPendingRevoke();
     this._loadAccounts();
     if (this.accounts.size === 0) return;
 
@@ -59,9 +74,41 @@ class GoogleCalendarManager {
   // No request is made now; the next interval, focus or wake trigger syncs
   // exactly as it would have without the seal.
   resumeAfterSeal() {
+    this._runPendingRevoke();
     this._loadAccounts();
     if (this.accounts.size === 0) return;
     this.syncRunner.start();
+  }
+
+  // Never while sealed (runAutomatic checks), and never awaited by the seal
+  // transition: the revoke is an ordinary ticketed calendar request.
+  _runPendingRevoke() {
+    if (!this.pendingRevoke || egress.isSealed()) return null;
+    return this.pendingRevoke
+      .runAutomatic()
+      .catch((err) =>
+        debugLogger.error("Pending Google revoke failed", { error: err.message }, "gcal")
+      );
+  }
+
+  // A disconnect while sealed keeps a pending revoke (D-1) before Loqui's own
+  // copy is deleted. Unsealed, a disconnect stays local, as before.
+  // Returns { pendingRevoke: n } or { googleGrantKept: true } when a sealed
+  // disconnect could not keep one.
+  disconnectAccount(email) {
+    let outcome = {};
+    if (egress.isSealed()) {
+      const tokens = this.databaseManager
+        .getAllGoogleTokens()
+        .filter((t) => !email || t.google_email === email)
+        .map((t) => t.refresh_token || t.access_token);
+      if (tokens.length > 0) {
+        const kept = this.pendingRevoke ? this.pendingRevoke.add(tokens) : { unavailable: true };
+        outcome = kept.queued > 0 ? { pendingRevoke: kept.queued } : { googleGrantKept: true };
+      }
+    }
+    this.disconnect(email);
+    return outcome;
   }
 
   isConnected() {

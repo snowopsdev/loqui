@@ -3608,9 +3608,27 @@ class IPCHandlers {
       // revoke is refused; the local tokens are still deleted, and the result
       // says the grant stays valid at Google (T11-M5).
       let googleGrantKept = false;
+      let googleRevokeFailed = false;
+      // D-1: a revoke kept from a sealed disconnect is erased with every other
+      // credential, never silently. Unsealed, it is tried first; whatever is
+      // still pending afterwards is a grant that may remain at Google.
+      try {
+        const pending = this.googleCalendarManager?.pendingRevoke;
+        if (pending && pending.status().pending > 0) {
+          if (!egressGate.isSealed()) await pending.retry();
+          const left = pending.status();
+          if (left.pending > 0 || left.unreadable) {
+            if (egressGate.isSealed()) googleGrantKept = true;
+            else googleRevokeFailed = true;
+          }
+          pending.erase();
+        }
+      } catch (e) {
+        errors.push(`GCal pending revoke: ${e.message}`);
+      }
       try {
         const revoked = await this.googleCalendarManager?.revokeAllTokens();
-        googleGrantKept = (revoked?.sealedRefused ?? 0) > 0;
+        googleGrantKept ||= (revoked?.sealedRefused ?? 0) > 0;
       } catch (e) {
         errors.push(`GCal revoke: ${e.message}`);
       }
@@ -3745,6 +3763,7 @@ class IPCHandlers {
         message: "Cleanup completed",
         errors,
         ...(googleGrantKept ? { googleGrantKept: true } : {}),
+        ...(googleRevokeFailed && !googleGrantKept ? { googleRevokeFailed: true } : {}),
       };
     });
 
@@ -9286,8 +9305,8 @@ class IPCHandlers {
 
     ipcMain.handle("gcal-disconnect", async (_event, email) => {
       try {
-        this.googleCalendarManager.disconnect(email);
-        return { success: true };
+        // D-1: while sealed this keeps a pending revoke; it never sends one.
+        return { success: true, ...this.googleCalendarManager.disconnectAccount(email) };
       } catch (error) {
         debugLogger.error(
           "Google Calendar disconnect failed",
@@ -9296,6 +9315,24 @@ class IPCHandlers {
         );
         return { success: false, error: error.message };
       }
+    });
+
+    // D-1: the pending revoke's counts (never a token), and Retry: the same
+    // ticketed calendar revoke, refused by the gate while sealed.
+    ipcMain.handle("gcal-pending-revoke-status", async () => {
+      return (
+        this.googleCalendarManager?.pendingRevoke?.status() ?? {
+          pending: 0,
+          failed: 0,
+          unreadable: false,
+          running: false,
+        }
+      );
+    });
+    ipcMain.handle("gcal-pending-revoke-retry", async () => {
+      const store = this.googleCalendarManager?.pendingRevoke;
+      if (!store) return { revoked: 0, failed: 0, skipped: "none" };
+      return store.retry();
     });
 
     ipcMain.handle("gcal-get-connection-status", async () => {

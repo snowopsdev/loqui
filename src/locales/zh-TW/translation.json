@@ -4430,7 +4430,8 @@
       "failed": "重設尚未完成，因此 Loqui 不會自動重新啟動。以下步驟失敗：",
       "done": "重設完成。Loqui 正在重新啟動…",
       "doneSealed": "重設完成。封閉模式開啟時，Loqui 無法自行重新啟動。請結束 Loqui 並重新開啟以完成。",
-      "restartFailed": "重設完成，但 Loqui 無法自行重新啟動。請結束 Loqui 並重新開啟以完成。"
+      "restartFailed": "重設完成，但 Loqui 無法自行重新啟動。請結束 Loqui 並重新開啟以完成。",
+      "doneRevoke": "重設完成。請閱讀下方關於 Google 的說明，然後結束 Loqui 並重新開啟以完成作業。"
     }
   },
   "settingsSearch": {
@@ -4628,7 +4629,17 @@
       "connectRefused": "連接此行事曆需要網際網路，而封閉模式會阻擋這項操作。未傳送任何內容。關閉封閉模式即可連接。",
       "connectInterrupted": "登入期間封閉模式被開啟，因此登入已停止。服務供應商可能已收到部分登入資訊。未連接任何帳號。",
       "appleUnavailable": "此版本在封閉模式開啟時無法執行 Apple 行事曆的本機輔助程式。關閉封閉模式即可連接。",
-      "googleGrantKept": "封閉模式當時已開啟，因此 Loqui 無法要求 Google 撤銷其行事曆存取權。Loqui 已刪除自己保存的登入資訊，但在你於 Google 帳戶中移除之前，Google 仍會保留 Loqui 的存取權。Loqui 之後不會為此聯絡 Google。"
+      "googleGrantKept": "封閉模式當時已開啟，因此 Loqui 無法要求 Google 撤銷其行事曆存取權。Loqui 已刪除自己保存的登入資訊，但在你於 Google 帳戶中移除之前，Google 仍會保留 Loqui 的存取權。Loqui 之後不會為此聯絡 Google。",
+      "revokeQueuedTitle": "Google 存取權將稍後移除",
+      "revokeQueued": "封閉模式已開啟，因此 Loqui 現在無法要求 Google 移除其日曆存取權。Loqui 已中斷日曆連線，只保留了提出要求所需的內容。關閉封閉模式後，Loqui 會自動向 Google 提出要求。",
+      "revokeDoneTitle": "已移除 Google 存取權",
+      "revokeDone": "Loqui 已要求 Google 移除其日曆存取權，並刪除了為此保留的內容。",
+      "revokeFailedTitle": "無法移除 Google 存取權",
+      "revokeFailed": "Loqui 未能讓 Google 移除其日曆存取權，因此該存取權可能仍在 Google 生效。Loqui 只保留重試所需的內容。你也可以在你的 Google 帳戶中自行移除該存取權。",
+      "revokeRetry": "重試",
+      "revokeOpenAccount": "開啟 Google 帳戶",
+      "revokeUnsaved": "封閉模式已開啟，因此 Loqui 無法要求 Google 移除其日曆存取權，也無法安全保留稍後提出要求所需的內容。Loqui 已刪除其保存的登入資訊副本，但在你於 Google 帳戶中移除之前，Google 會保留 Loqui 的存取權。",
+      "googleRevokeFailedReset": "Loqui 在重設前未能讓 Google 移除其日曆存取權，因此該存取權可能仍在 Google 生效。Loqui 已刪除其保存的登入資訊副本，之後不會就此聯絡 Google。請在你的 Google 帳戶中移除該存取權。"
     },
     "paste": {
       "title": "封閉模式停止了自動貼上",

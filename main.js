@@ -384,7 +384,14 @@ function initializeCoreManagers() {
   googleCalendarManager = new GoogleCalendarManager(
     databaseManager,
     windowManager,
-    calendarReminderScheduler
+    calendarReminderScheduler,
+    // D-1: a sealed disconnect's pending revoke, in the secure credential storage.
+    {
+      pendingRevoke: {
+        dir: path.join(app.getPath("userData"), "secure-keys"),
+        crypto: require("./src/helpers/secretCrypto"),
+      },
+    }
   );
   microsoftCalendarManager = new MicrosoftCalendarManager(
     databaseManager,

@@ -156,6 +156,35 @@ class GoogleCalendarOAuth {
     }
   }
 
+  // D-1's pending revoke: done only when Google accepted it (HTTP 200), or
+  // answered that the token is no longer valid (400 invalid_token: the grant
+  // is already gone). Anything else, including a sealed refusal, keeps it.
+  async revokeGrant(token) {
+    const body = new URLSearchParams({ token }).toString();
+    try {
+      const response = await gatedNetFetch(
+        "https://oauth2.googleapis.com/revoke",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body,
+          signal: AbortSignal.timeout(10000),
+        },
+        { task: "calendar", provider: "google" }
+      );
+      // The body is always read first (I7); then the status decides.
+      const text = await response.text();
+      const status = response.status;
+      if (status === 200) return { ok: true };
+      if (status === 400 && /"invalid_token"/.test(text)) return { ok: true };
+      return { ok: false, failure: status >= 500 ? "http5xx" : "http4xx" };
+    } catch (error) {
+      return isSealedModeError(error)
+        ? { ok: false, sealed: true, failure: "sealed" }
+        : { ok: false, failure: "network" };
+    }
+  }
+
   // Every Google OAuth request goes through the egress gate (Task 11): refused
   // while sealed before any socket, aborted when sealing interrupts it.
   async _httpsPost(urlString, body, signal) {

@@ -1329,6 +1329,9 @@ exposeElectronAPI("electronAPI", {
   // Google Calendar
   gcalStartOAuth: () => ipcRenderer.invoke("gcal-start-oauth"),
   gcalDisconnect: (email) => ipcRenderer.invoke("gcal-disconnect", email),
+  // D-1: counts only, never a token; Retry is the same ticketed revoke.
+  gcalPendingRevokeStatus: () => ipcRenderer.invoke("gcal-pending-revoke-status"),
+  gcalPendingRevokeRetry: () => ipcRenderer.invoke("gcal-pending-revoke-retry"),
   gcalGetConnectionStatus: () => ipcRenderer.invoke("gcal-get-connection-status"),
   gcalGetCalendars: () => ipcRenderer.invoke("gcal-get-calendars"),
   gcalSetCalendarSelection: (calendarId, isSelected) =>
@@ -1364,6 +1367,10 @@ exposeElectronAPI("electronAPI", {
   ),
   onGcalEventsSynced: registerListener(
     "gcal-events-synced",
+    (callback) => (_event, data) => callback(data)
+  ),
+  onGcalPendingRevoke: registerListener(
+    "gcal-pending-revoke",
     (callback) => (_event, data) => callback(data)
   ),
 

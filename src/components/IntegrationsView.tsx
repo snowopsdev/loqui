@@ -18,6 +18,8 @@ import { AlertDialog, ConfirmDialog } from "./ui/dialog";
 import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
 import { SettingsPanel, SettingsPanelRow, SettingsRow } from "./ui/SettingsSection";
 import { Toggle } from "./ui/toggle";
+import { notify } from "./ui/notices";
+import { GOOGLE_ACCOUNT_PERMISSIONS_URL } from "../utils/googleAccount";
 
 import appleCalendarIcon from "../assets/icons/apple-calendar.svg";
 import googleCalendarIcon from "../assets/icons/google-calendar.svg";
@@ -300,14 +302,31 @@ export default function IntegrationsView() {
     async (email: string) => {
       setDisconnectingEmail(email);
       try {
-        await window.electronAPI?.gcalDisconnect?.(email);
+        const result = await window.electronAPI?.gcalDisconnect?.(email);
+        // D-1: a sealed disconnect that could not keep a revoke for later.
+        // (A kept one is announced by main, through GoogleRevokeNoticeListener.)
+        if (result?.googleGrantKept) {
+          notify({
+            kind: "alert",
+            title: t("sealedMode.calendar.revokeFailedTitle"),
+            body: t("sealedMode.calendar.revokeUnsaved"),
+            actions: [
+              {
+                label: t("sealedMode.calendar.revokeOpenAccount"),
+                onClick: () => {
+                  void window.electronAPI?.openExternal?.(GOOGLE_ACCOUNT_PERMISSIONS_URL);
+                },
+              },
+            ],
+          });
+        }
         const current = useSettingsStore.getState().gcalAccounts;
         setGcalAccounts(current.filter((a) => a.email !== email));
       } finally {
         setDisconnectingEmail(null);
       }
     },
-    [setGcalAccounts]
+    [setGcalAccounts, t]
   );
 
   const handleMicrosoftDisconnect = useCallback(

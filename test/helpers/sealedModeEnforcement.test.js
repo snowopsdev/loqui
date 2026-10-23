@@ -367,7 +367,7 @@ const ipc = loadIpcHandlers({
     ws: RoutedWebSocket,
   },
   // Real local-engine and calendar managers, constructed the way main.js does.
-  managers: () => {
+  managers: (stub) => {
     const WhisperManager = require("../../src/helpers/whisper");
     const ParakeetManager = require("../../src/helpers/parakeet");
     const DiarizationManager = require("../../src/helpers/diarization");
@@ -388,7 +388,18 @@ const ipc = loadIpcHandlers({
       whisperVulkanManager,
       parakeetManager: new ParakeetManager(),
       diarizationManager: new DiarizationManager(),
-      googleCalendarManager: new GoogleCalendarManager(databaseManager, inertUi(), reminders),
+      // D-1: main's pending revoke, in this run's own secure-keys/ (a
+      // reversible fake cipher stands in for secretCrypto).
+      googleCalendarManager: new GoogleCalendarManager(databaseManager, inertUi(), reminders, {
+        pendingRevoke: {
+          dir: path.join(stub.app.getPath("userData"), "secure-keys"),
+          crypto: {
+            isAvailable: () => true,
+            encrypt: (text) => Buffer.from(text, "utf8").map((b) => b ^ 0x5a),
+            decrypt: (buffer) => ({ value: Buffer.from(buffer.map((b) => b ^ 0x5a)).toString() }),
+          },
+        },
+      }),
       microsoftCalendarManager: new MicrosoftCalendarManager(databaseManager, reminders),
       appleCalendarManager: new AppleCalendarManager(databaseManager, reminders),
       isSealed: mainSealed,
@@ -1299,6 +1310,27 @@ row({
       platform: "linux",
       timeoutMs: 1000,
     }),
+});
+
+// N19 / D-1: Retry of a pending Google revoke (kept by a sealed disconnect).
+// While sealed the same ticketed revoke is refused at the gate, and the
+// record stays pending.
+row({
+  id: "N19",
+  family: "calendar",
+  label: "gcal-pending-revoke-retry",
+  channel: "gcal-pending-revoke-retry",
+  task: "calendar",
+  setup: () => {
+    ipc.instance.googleCalendarManager.pendingRevoke.add(["fixture-pending-refresh"]);
+  },
+  action: () => call("gcal-pending-revoke-retry"),
+  accept: (o) => o.value?.sealed === true && o.value.failed === 1 && o.value.revoked === 0,
+  check: () => {
+    assert.equal(ipc.instance.googleCalendarManager.pendingRevoke.status().pending, 1);
+  },
+  teardown: () => ipc.instance.googleCalendarManager.pendingRevoke.erase(),
+  drill: "unsealed",
 });
 
 // N19: calendar sign-in, sync and selection through the real handlers.
@@ -2717,7 +2749,8 @@ const DECLARED = {
   // Local only: history, notes, dictionary, credentials and config storage
   // (main-owned, never sent), windows, hotkeys, dictation lifecycle, privacy
   // IPC, update status, onboarding, model bookkeeping, recipient description,
-  // calendar reads and disconnects (no revoke: only cleanup-app revokes), and
+  // calendar reads and disconnects (no revoke: a sealed disconnect only keeps a
+  // pending revoke, D-1; gcal-pending-revoke-retry and cleanup-app revoke), and
   // GPU/runtime status reads (get-cuda-/get-vulkan-whisper-status also run the
   // nvidia-smi probe the detect-gpu row drives). Re-audited for review I1: none
   // makes a request while sealed. (privacy:set-sealed(false) leaves sealed
@@ -2835,6 +2868,7 @@ const DECLARED = {
     "gcal-disconnect",
     "gcal-get-calendars",
     "gcal-get-connection-status",
+    "gcal-pending-revoke-status",
     "gcal-get-event",
     "gcal-get-upcoming-events",
     "get-activation-mode",

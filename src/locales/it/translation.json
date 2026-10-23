@@ -4474,7 +4474,8 @@
       "failed": "Il ripristino non è terminato, quindi Loqui non si riavvierà automaticamente. Questi passaggi non sono riusciti:",
       "done": "Ripristino completato. Loqui si sta riavviando…",
       "doneSealed": "Ripristino completato. Loqui non può riavviarsi da solo mentre la modalità sigillata è attiva. Chiudi Loqui e riaprilo per completare.",
-      "restartFailed": "Ripristino completato, ma Loqui non è riuscito a riavviarsi da solo. Chiudi Loqui e riaprilo per completare."
+      "restartFailed": "Ripristino completato, ma Loqui non è riuscito a riavviarsi da solo. Chiudi Loqui e riaprilo per completare.",
+      "doneRevoke": "Ripristino completato. Leggi la nota su Google qui sotto, poi chiudi Loqui e riaprilo per terminare."
     }
   },
   "settingsSearch": {
@@ -4680,7 +4681,17 @@
       "connectRefused": "Per connettere questo calendario serve internet, e la modalità sigillata lo blocca. Non è stato inviato nulla. Disattiva la modalità sigillata per connetterlo.",
       "connectInterrupted": "La modalità sigillata è stata attivata durante l'accesso, quindi si è interrotto. Il provider potrebbe aver ricevuto una parte dell'accesso. Nessun account è stato connesso.",
       "appleUnavailable": "Questa versione non può eseguire l'helper locale di Calendario di Apple con la modalità sigillata attiva. Disattiva la modalità sigillata per connetterlo.",
-      "googleGrantKept": "La modalità sigillata era attiva, quindi Loqui non ha potuto chiedere a Google di revocare il suo accesso al calendario. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google. Loqui non contatterà Google per questo in seguito."
+      "googleGrantKept": "La modalità sigillata era attiva, quindi Loqui non ha potuto chiedere a Google di revocare il suo accesso al calendario. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google. Loqui non contatterà Google per questo in seguito.",
+      "revokeQueuedTitle": "L'accesso Google verrà rimosso più tardi",
+      "revokeQueued": "La modalità sigillata è attiva, quindi Loqui ora non può chiedere a Google di rimuovere il suo accesso al calendario. Loqui ha scollegato il calendario e ha tenuto solo ciò che serve per chiederlo. Lo chiederà a Google automaticamente quando disattivi la modalità sigillata.",
+      "revokeDoneTitle": "Accesso Google rimosso",
+      "revokeDone": "Loqui ha chiesto a Google di rimuovere il suo accesso al calendario e ha eliminato ciò che aveva tenuto a questo scopo.",
+      "revokeFailedTitle": "Impossibile rimuovere l'accesso Google",
+      "revokeFailed": "Loqui non è riuscito a far rimuovere a Google il suo accesso al calendario, quindi quell'accesso potrebbe essere ancora attivo su Google. Loqui tiene solo ciò che serve per riprovare. Puoi anche rimuovere l'accesso tu stesso nel tuo account Google.",
+      "revokeRetry": "Riprova",
+      "revokeOpenAccount": "Apri account Google",
+      "revokeUnsaved": "La modalità sigillata è attiva, quindi Loqui non ha potuto chiedere a Google di rimuovere il suo accesso al calendario, né tenere in modo sicuro ciò che serve per chiederlo più tardi. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google.",
+      "googleRevokeFailedReset": "Loqui non è riuscito a far rimuovere a Google il suo accesso al calendario prima del ripristino, quindi quell'accesso potrebbe essere ancora attivo su Google. Loqui ha eliminato la propria copia del tuo accesso e non contatterà Google in seguito per questo. Rimuovi l'accesso nel tuo account Google."
     },
     "paste": {
       "title": "La modalità sigillata ha interrotto l'incolla automatico",

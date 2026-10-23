@@ -4474,7 +4474,8 @@
       "failed": "La réinitialisation n’est pas terminée. Loqui ne redémarrera donc pas automatiquement. Ces étapes ont échoué :",
       "done": "Réinitialisation terminée. Loqui redémarre…",
       "doneSealed": "Réinitialisation terminée. Loqui ne peut pas redémarrer de lui-même tant que le mode scellé est activé. Quittez Loqui et rouvrez-le pour terminer.",
-      "restartFailed": "Réinitialisation terminée, mais Loqui n'a pas pu redémarrer de lui-même. Quittez Loqui et rouvrez-le pour terminer."
+      "restartFailed": "Réinitialisation terminée, mais Loqui n'a pas pu redémarrer de lui-même. Quittez Loqui et rouvrez-le pour terminer.",
+      "doneRevoke": "Réinitialisation terminée. Lisez la note sur Google ci-dessous, puis quittez Loqui et rouvrez-le pour terminer."
     }
   },
   "settingsSearch": {
@@ -4680,7 +4681,17 @@
       "connectRefused": "La connexion de ce calendrier nécessite Internet, et le mode scellé le bloque. Rien n'a été envoyé. Désactivez le mode scellé pour le connecter.",
       "connectInterrupted": "Le mode scellé a été activé pendant la connexion, qui s'est donc arrêtée. Le fournisseur a peut-être reçu une partie de la connexion. Aucun compte n'a été connecté.",
       "appleUnavailable": "Cette version ne peut pas exécuter l'assistant local de Calendrier Apple tant que le mode scellé est activé. Désactivez le mode scellé pour le connecter.",
-      "googleGrantKept": "Le mode scellé était activé, Loqui n'a donc pas pu demander à Google de révoquer son accès au calendrier. Loqui a supprimé sa propre copie de votre connexion, mais Google conserve l'accès de Loqui jusqu'à ce que vous le retiriez dans votre compte Google. Loqui ne contactera pas Google à ce sujet plus tard."
+      "googleGrantKept": "Le mode scellé était activé, Loqui n'a donc pas pu demander à Google de révoquer son accès au calendrier. Loqui a supprimé sa propre copie de votre connexion, mais Google conserve l'accès de Loqui jusqu'à ce que vous le retiriez dans votre compte Google. Loqui ne contactera pas Google à ce sujet plus tard.",
+      "revokeQueuedTitle": "L’accès Google sera retiré plus tard",
+      "revokeQueued": "Le mode scellé est activé, donc Loqui ne peut pas demander maintenant à Google de retirer son accès à l’agenda. Loqui a déconnecté l’agenda et n’a gardé que ce qu’il lui faut pour le demander. Il le demandera automatiquement à Google une fois le mode scellé désactivé.",
+      "revokeDoneTitle": "Accès Google retiré",
+      "revokeDone": "Loqui a demandé à Google de retirer son accès à l’agenda et a supprimé ce qu’il avait gardé pour cela.",
+      "revokeFailedTitle": "Impossible de retirer l’accès Google",
+      "revokeFailed": "Loqui n’a pas pu obtenir de Google qu’il retire son accès à l’agenda : cet accès est peut-être toujours actif chez Google. Loqui ne garde que ce qu’il lui faut pour réessayer. Vous pouvez aussi retirer l’accès vous-même dans votre compte Google.",
+      "revokeRetry": "Réessayer",
+      "revokeOpenAccount": "Ouvrir le compte Google",
+      "revokeUnsaved": "Le mode scellé est activé, donc Loqui n’a pas pu demander à Google de retirer son accès à l’agenda, ni garder en sécurité ce qu’il lui faut pour le demander plus tard. Loqui a supprimé sa propre copie de votre connexion, mais Google conserve l’accès de Loqui jusqu’à ce que vous le retiriez dans votre compte Google.",
+      "googleRevokeFailedReset": "Loqui n’a pas pu obtenir de Google qu’il retire son accès à l’agenda avant la réinitialisation : cet accès est peut-être toujours actif chez Google. Loqui a supprimé sa propre copie de votre connexion et ne contactera pas Google à ce sujet plus tard. Retirez l’accès dans votre compte Google."
     },
     "paste": {
       "title": "Le mode scellé a arrêté le collage automatique",

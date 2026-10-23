@@ -4430,7 +4430,8 @@
       "failed": "重置未完成，因此 Loqui 不会自动重启。以下步骤失败：",
       "done": "重置完成。Loqui 正在重启…",
       "doneSealed": "重置完成。封闭模式开启时，Loqui 无法自行重启。请退出 Loqui 并重新打开以完成。",
-      "restartFailed": "重置完成，但 Loqui 无法自行重启。请退出 Loqui 并重新打开以完成。"
+      "restartFailed": "重置完成，但 Loqui 无法自行重启。请退出 Loqui 并重新打开以完成。",
+      "doneRevoke": "重置完成。请阅读下方关于 Google 的说明，然后退出 Loqui 并重新打开以完成操作。"
     }
   },
   "settingsSearch": {
@@ -4628,7 +4629,17 @@
       "connectRefused": "连接此日历需要互联网，而封闭模式会阻止这样做。未发送任何内容。关闭封闭模式即可连接。",
       "connectInterrupted": "登录期间封闭模式被开启，因此登录已停止。服务提供商可能已收到部分登录信息。未连接任何账户。",
       "appleUnavailable": "此版本在封闭模式开启时无法运行 Apple 日历的本地辅助程序。关闭封闭模式即可连接。",
-      "googleGrantKept": "封闭模式当时已开启，因此 Loqui 无法请求 Google 撤销其日历访问权限。Loqui 已删除自己保存的登录信息，但在你于 Google 账号中移除之前，Google 仍会保留 Loqui 的访问权限。Loqui 之后不会为此联系 Google。"
+      "googleGrantKept": "封闭模式当时已开启，因此 Loqui 无法请求 Google 撤销其日历访问权限。Loqui 已删除自己保存的登录信息，但在你于 Google 账号中移除之前，Google 仍会保留 Loqui 的访问权限。Loqui 之后不会为此联系 Google。",
+      "revokeQueuedTitle": "Google 访问权限将稍后移除",
+      "revokeQueued": "封闭模式已开启，因此 Loqui 现在无法请求 Google 移除其日历访问权限。Loqui 已断开日历，只保留了发出请求所需的内容。关闭封闭模式后，Loqui 会自动向 Google 发出请求。",
+      "revokeDoneTitle": "已移除 Google 访问权限",
+      "revokeDone": "Loqui 已请求 Google 移除其日历访问权限，并删除了为此保留的内容。",
+      "revokeFailedTitle": "无法移除 Google 访问权限",
+      "revokeFailed": "Loqui 未能让 Google 移除其日历访问权限，因此该访问权限可能仍在 Google 生效。Loqui 只保留重试所需的内容。你也可以在你的 Google 账号中自行移除该访问权限。",
+      "revokeRetry": "重试",
+      "revokeOpenAccount": "打开 Google 账号",
+      "revokeUnsaved": "封闭模式已开启，因此 Loqui 无法请求 Google 移除其日历访问权限，也无法安全保留稍后请求所需的内容。Loqui 已删除其保存的登录信息副本，但在你于 Google 账号中移除之前，Google 会保留 Loqui 的访问权限。",
+      "googleRevokeFailedReset": "Loqui 在重置前未能让 Google 移除其日历访问权限，因此该访问权限可能仍在 Google 生效。Loqui 已删除其保存的登录信息副本，之后不会就此联系 Google。请在你的 Google 账号中移除该访问权限。"
     },
     "paste": {
       "title": "封闭模式停止了自动粘贴",

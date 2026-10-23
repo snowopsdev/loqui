@@ -75,6 +75,7 @@ import { isAccessibilitySkipped } from "../utils/permissions";
 import { getCachedPlatform } from "../utils/platform";
 import HistoryView from "./HistoryView";
 import BackgroundActionNoticeListener from "./notes/BackgroundActionNoticeListener";
+import GoogleRevokeNoticeListener from "./GoogleRevokeNoticeListener";
 import FinishDictationSetupCard from "./FinishDictationSetupCard";
 
 import { readPersistedWorkspace, writePersistedWorkspace } from "../lib/workspaceView";
@@ -1119,6 +1120,7 @@ export default function ControlPanel({
           </main>
         </div>
         <BackgroundActionNoticeListener />
+        <GoogleRevokeNoticeListener />
       </WorkspacePresentation>
     </WorkspaceNavigationProvider>
   );

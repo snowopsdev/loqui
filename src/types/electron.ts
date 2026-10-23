@@ -26,6 +26,21 @@ export interface ExternalOpenResult {
   declined?: boolean;
 }
 // A calendar action that reaches a provider; refused while sealed (Task 11).
+// D-1: main's pending Google revoke, as the renderer may see it (no token).
+export interface GooglePendingRevokeStatus {
+  pending: number;
+  failed: number;
+  unreadable: boolean;
+  running: boolean;
+}
+export interface GooglePendingRevokeEvent {
+  kind: "queued" | "revoked" | "failed";
+  revoked?: number;
+  failed?: number;
+  sealed?: boolean;
+  status: GooglePendingRevokeStatus;
+}
+
 export interface CalendarActionResult {
   success: boolean;
   error?: string;
@@ -2469,7 +2484,20 @@ declare global {
         code?: "SEALED_MODE";
         phase?: "refused" | "interrupted";
       }>;
-      gcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
+      // D-1: a sealed disconnect keeps a pending revoke (or says it could not).
+      gcalDisconnect?: (email?: string) => Promise<{
+        success: boolean;
+        error?: string;
+        pendingRevoke?: number;
+        googleGrantKept?: true;
+      }>;
+      gcalPendingRevokeStatus?: () => Promise<GooglePendingRevokeStatus>;
+      gcalPendingRevokeRetry?: () => Promise<{
+        revoked: number;
+        failed: number;
+        sealed?: true;
+        skipped?: string;
+      }>;
       gcalGetConnectionStatus?: () => Promise<{
         connected: boolean;
         accounts: Array<{ email: string }>;
@@ -2727,6 +2755,7 @@ declare global {
 
       // Google Calendar event listeners
       onGcalConnectionChanged?: (callback: (data: any) => void) => () => void;
+      onGcalPendingRevoke?: (callback: (event: GooglePendingRevokeEvent) => void) => () => void;
       onGcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
       // Microsoft Calendar

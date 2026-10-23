@@ -4474,7 +4474,8 @@
       "failed": "A redefinição não terminou, por isso o Loqui não reiniciará automaticamente. Estas etapas falharam:",
       "done": "Redefinição concluída. O Loqui está reiniciando…",
       "doneSealed": "Redefinição concluída. O Loqui não consegue reiniciar sozinho enquanto o modo selado está ativado. Saia do Loqui e abra-o novamente para concluir.",
-      "restartFailed": "Redefinição concluída, mas o Loqui não conseguiu reiniciar sozinho. Saia do Loqui e abra-o novamente para concluir."
+      "restartFailed": "Redefinição concluída, mas o Loqui não conseguiu reiniciar sozinho. Saia do Loqui e abra-o novamente para concluir.",
+      "doneRevoke": "Redefinição concluída. Leia a observação sobre o Google abaixo e depois feche o Loqui e abra-o de novo para terminar."
     }
   },
   "settingsSearch": {
@@ -4680,7 +4681,17 @@
       "connectRefused": "Conectar este calendário exige internet, e o modo selado bloqueia isso. Nada foi enviado. Desative o modo selado para conectar.",
       "connectInterrupted": "O modo selado foi ativado durante o login, então ele foi interrompido. O provedor pode ter recebido parte do login. Nenhuma conta foi conectada.",
       "appleUnavailable": "Esta versão não consegue executar o assistente local do Calendário da Apple com o modo selado ativado. Desative o modo selado para conectar.",
-      "googleGrantKept": "O modo selado estava ativado, então o Loqui não pôde pedir ao Google que revogasse o acesso ao calendário. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google. O Loqui não entrará em contato com o Google sobre isso depois."
+      "googleGrantKept": "O modo selado estava ativado, então o Loqui não pôde pedir ao Google que revogasse o acesso ao calendário. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google. O Loqui não entrará em contato com o Google sobre isso depois.",
+      "revokeQueuedTitle": "O acesso do Google será removido depois",
+      "revokeQueued": "O modo selado está ativado, então o Loqui não pode pedir agora ao Google que remova o acesso dele à agenda. O Loqui desconectou a agenda e guardou só o necessário para fazer o pedido. Ele vai pedir ao Google automaticamente quando você desativar o modo selado.",
+      "revokeDoneTitle": "Acesso do Google removido",
+      "revokeDone": "O Loqui pediu ao Google que removesse o acesso dele à agenda e excluiu o que tinha guardado para isso.",
+      "revokeFailedTitle": "Não foi possível remover o acesso do Google",
+      "revokeFailed": "O Loqui não conseguiu fazer o Google remover o acesso dele à agenda, então esse acesso pode continuar ativo no Google. O Loqui guarda só o necessário para tentar de novo. Você também pode remover o acesso por conta própria na sua Conta do Google.",
+      "revokeRetry": "Tentar de novo",
+      "revokeOpenAccount": "Abrir Conta do Google",
+      "revokeUnsaved": "O modo selado está ativado, então o Loqui não pôde pedir ao Google que removesse o acesso dele à agenda, nem guardar com segurança o necessário para pedir depois. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google.",
+      "googleRevokeFailedReset": "O Loqui não conseguiu fazer o Google remover o acesso dele à agenda antes da redefinição, então esse acesso pode continuar ativo no Google. O Loqui excluiu a própria cópia do seu login e não vai contatar o Google sobre isso depois. Remova o acesso na sua Conta do Google."
     },
     "paste": {
       "title": "O modo selado interrompeu a colagem automática",

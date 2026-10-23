@@ -4467,7 +4467,8 @@
       "failed": "Reset did not finish, so Loqui will not restart on its own. These steps failed:",
       "done": "Reset complete. Loqui is restarting…",
       "doneSealed": "Reset complete. Loqui can't restart itself while Sealed mode is on. Quit Loqui and open it again to finish.",
-      "restartFailed": "Reset complete, but Loqui couldn't restart itself. Quit Loqui and open it again to finish."
+      "restartFailed": "Reset complete, but Loqui couldn't restart itself. Quit Loqui and open it again to finish.",
+      "doneRevoke": "Reset complete. Read the note about Google below, then quit Loqui and open it again to finish."
     }
   },
   "settingsSearch": {
@@ -4669,7 +4670,17 @@
       "connectRefused": "Connecting this calendar needs the internet, and Sealed mode blocks that. Nothing was sent. Turn off Sealed mode to connect.",
       "connectInterrupted": "Sealed mode was turned on during sign-in, so it stopped. The provider may have received part of the sign-in. No account was connected.",
       "appleUnavailable": "This build can't run Apple Calendar's local helper while Sealed mode is on. Turn off Sealed mode to connect.",
-      "googleGrantKept": "Sealed mode was on, so Loqui couldn't ask Google to revoke its calendar access. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account. Loqui won't contact Google about it later."
+      "googleGrantKept": "Sealed mode was on, so Loqui couldn't ask Google to revoke its calendar access. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account. Loqui won't contact Google about it later.",
+      "revokeQueuedTitle": "Google access will be removed later",
+      "revokeQueued": "Sealed mode is on, so Loqui can't ask Google now to remove its calendar access. Loqui disconnected the calendar and kept only what it needs to ask. It will ask Google automatically after you turn off Sealed mode.",
+      "revokeDoneTitle": "Google access removed",
+      "revokeDone": "Loqui asked Google to remove its calendar access and deleted what it kept for that.",
+      "revokeFailedTitle": "Couldn't remove Google access",
+      "revokeFailed": "Loqui couldn't get Google to remove its calendar access, so that access may still be active at Google. Loqui keeps only what it needs to try again. You can also remove the access yourself in your Google Account.",
+      "revokeRetry": "Try again",
+      "revokeOpenAccount": "Open Google Account",
+      "revokeUnsaved": "Sealed mode is on, so Loqui couldn't ask Google to remove its calendar access, and it couldn't safely keep what it needs to ask later. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account.",
+      "googleRevokeFailedReset": "Loqui couldn't get Google to remove its calendar access before the reset, so that access may still be active at Google. Loqui deleted its own copy of your sign-in and won't contact Google about it later. Remove the access in your Google Account."
     },
     "paste": {
       "title": "Sealed mode stopped automatic paste",

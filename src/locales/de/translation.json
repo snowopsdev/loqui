@@ -4467,7 +4467,8 @@
       "failed": "Das Zurücksetzen wurde nicht abgeschlossen. Loqui startet daher nicht automatisch neu. Diese Schritte sind fehlgeschlagen:",
       "done": "Zurücksetzen abgeschlossen. Loqui startet neu…",
       "doneSealed": "Zurücksetzen abgeschlossen. Loqui kann sich nicht selbst neu starten, solange der abgeschottete Modus aktiv ist. Beende Loqui und öffne es erneut, um den Vorgang abzuschließen.",
-      "restartFailed": "Zurücksetzen abgeschlossen, aber Loqui konnte sich nicht selbst neu starten. Beende Loqui und öffne es erneut, um den Vorgang abzuschließen."
+      "restartFailed": "Zurücksetzen abgeschlossen, aber Loqui konnte sich nicht selbst neu starten. Beende Loqui und öffne es erneut, um den Vorgang abzuschließen.",
+      "doneRevoke": "Zurücksetzen abgeschlossen. Lies den Hinweis zu Google unten, beende dann Loqui und öffne es erneut, um den Vorgang abzuschließen."
     }
   },
   "settingsSearch": {
@@ -4669,7 +4670,17 @@
       "connectRefused": "Zum Verbinden dieses Kalenders wird das Internet benötigt, und der abgeschottete Modus blockiert das. Es wurde nichts gesendet. Schalte den abgeschotteten Modus aus, um zu verbinden.",
       "connectInterrupted": "Der abgeschottete Modus wurde während der Anmeldung eingeschaltet, daher wurde sie gestoppt. Der Anbieter hat möglicherweise einen Teil der Anmeldung erhalten. Es wurde kein Konto verbunden.",
       "appleUnavailable": "Dieser Build kann das lokale Hilfsprogramm von Apple Kalender im abgeschotteten Modus nicht ausführen. Schalte den abgeschotteten Modus aus, um zu verbinden.",
-      "googleGrantKept": "Der abgeschottete Modus war aktiv, daher konnte Loqui Google nicht bitten, den Kalenderzugriff zu widerrufen. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält Loquis Zugriff, bis du ihn in deinem Google-Konto entfernst. Loqui wird Google später nicht deswegen kontaktieren."
+      "googleGrantKept": "Der abgeschottete Modus war aktiv, daher konnte Loqui Google nicht bitten, den Kalenderzugriff zu widerrufen. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält Loquis Zugriff, bis du ihn in deinem Google-Konto entfernst. Loqui wird Google später nicht deswegen kontaktieren.",
+      "revokeQueuedTitle": "Der Google-Zugriff wird später entfernt",
+      "revokeQueued": "Der abgeschottete Modus ist aktiv, daher kann Loqui Google gerade nicht bitten, seinen Kalenderzugriff zu entfernen. Loqui hat den Kalender getrennt und nur behalten, was es für die Anfrage braucht. Sobald du den abgeschotteten Modus ausschaltest, fragt Loqui Google automatisch.",
+      "revokeDoneTitle": "Google-Zugriff entfernt",
+      "revokeDone": "Loqui hat Google gebeten, seinen Kalenderzugriff zu entfernen, und gelöscht, was es dafür behalten hatte.",
+      "revokeFailedTitle": "Google-Zugriff konnte nicht entfernt werden",
+      "revokeFailed": "Loqui konnte Google nicht dazu bringen, seinen Kalenderzugriff zu entfernen, daher ist dieser Zugriff bei Google möglicherweise noch aktiv. Loqui behält nur, was es für einen neuen Versuch braucht. Du kannst den Zugriff auch selbst in deinem Google-Konto entfernen.",
+      "revokeRetry": "Erneut versuchen",
+      "revokeOpenAccount": "Google-Konto öffnen",
+      "revokeUnsaved": "Der abgeschottete Modus ist aktiv, daher konnte Loqui Google nicht bitten, seinen Kalenderzugriff zu entfernen, und konnte auch nicht sicher behalten, was es für eine spätere Anfrage braucht. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält den Zugriff von Loqui, bis du ihn in deinem Google-Konto entfernst.",
+      "googleRevokeFailedReset": "Loqui konnte Google vor dem Zurücksetzen nicht dazu bringen, seinen Kalenderzugriff zu entfernen, daher ist dieser Zugriff bei Google möglicherweise noch aktiv. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht und wird Google später nicht deswegen kontaktieren. Entferne den Zugriff in deinem Google-Konto."
     },
     "paste": {
       "title": "Der abgeschottete Modus hat das automatische Einfügen gestoppt",

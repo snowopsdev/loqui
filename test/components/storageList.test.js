@@ -1278,6 +1278,33 @@ async function runResetTo(h) {
   await settle();
 }
 
+// D-1: unsealed, a pending Google revoke was tried before the erase and failed.
+// The note stays on screen (no automatic restart) and gives the manual route.
+test("an unsealed reset whose pending Google revoke failed says so, links the Google Account page, and does not restart", async (t) => {
+  const rejections = unhandledRejections(t);
+  const { api, calls } = fakeApi({
+    cleanupApp: async () => ({
+      success: true,
+      message: "Cleanup completed",
+      errors: [],
+      googleRevokeFailed: true,
+    }),
+  });
+  const h = await mount(t, api);
+  await runResetTo(h);
+  assert.equal(h.reset().phase, "done");
+  assert.equal(h.reset().googleRevokeFailed, true);
+  assert.equal(h.reset().restartBlocked, "revoke");
+  const html = renderToStaticMarkup(React.createElement(h.s.ResetContent, h.reset()));
+  assert.ok(html.includes("sealedMode.calendar.googleRevokeFailedReset"));
+  assert.ok(html.includes("https://myaccount.google.com/permissions"));
+  assert.ok(html.includes("storage.reset.doneRevoke"));
+  assert.ok(!html.includes("storage.reset.done<"), "never says Loqui is restarting");
+  await wait(1100);
+  assert.deepEqual(calls, [], "no relaunch while the note must be read");
+  assert.deepEqual(rejections, []);
+});
+
 test("a sealed-refused Google revoke is surfaced; the done state asks to quit and reopen, with no dead Restart", async (t) => {
   const rejections = unhandledRejections(t);
   const { api, calls } = fakeApi({

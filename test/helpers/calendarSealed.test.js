@@ -639,10 +639,11 @@ test("sealed calendar IPC refuses before a listener, a browser, a request or a h
   assert.deepEqual(opened, []);
   assert.deepEqual(fetches, []);
 
-  // Local reads and disconnects stay available while sealed.
+  // Local reads and disconnects stay available while sealed (a sealed
+  // disconnect keeps a pending revoke and sends nothing, D-1).
   await handlers.get("gcal-get-connection-status")({});
   await handlers.get("gcal-disconnect")({}, "me@example.test");
-  assert.deepEqual(calls, ["google.getConnectionStatus", "google.disconnect"]);
+  assert.deepEqual(calls, ["google.getConnectionStatus", "google.disconnectAccount"]);
 
   sealed = false;
   calls.length = 0;

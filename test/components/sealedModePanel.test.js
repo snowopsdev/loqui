@@ -92,6 +92,7 @@ const PANEL_KEYS = [
   "unverified.chromium",
   "unverified.dns",
   "unverified.active",
+  "unverified.other",
   "loadError",
   "saveError",
   "toggleError",
@@ -219,10 +220,20 @@ test("each unresolved fact names its cause, most fundamental first", async () =>
     cause({ failures: ["NATIVE_BOUNDARY_UNAVAILABLE", "childDiagnosticsUnavailable"] }).key,
     `${P}.unverified.childUnknown`
   );
-  assert.equal(
-    cause({ failures: ["NATIVE_BOUNDARY_UNAVAILABLE", "timeout:children"] }).key,
-    `${P}.unverified.childUnknown`
-  );
+  // T14-M2: main read the status and the programs were still running at the
+  // deadline; that is unconfirmed stopping, not an unreadable status.
+  for (const failure of ["timeout:children", "timeout:codex"])
+    assert.equal(
+      cause({ failures: ["NATIVE_BOUNDARY_UNAVAILABLE", failure] }).key,
+      `${P}.unverified.stopFailedUnnamed`,
+      failure
+    );
+  for (const failure of ["timeout:childrenUnknown", "timeout:codexStatusUnavailable"])
+    assert.equal(
+      cause({ failures: ["NATIVE_BOUNDARY_UNAVAILABLE", failure] }).key,
+      `${P}.unverified.childUnknown`,
+      failure
+    );
   assert.equal(
     cause({ guards: guards({ chromiumInFlightRemote: 1 }) }).key,
     `${P}.unverified.chromium`
@@ -240,6 +251,82 @@ test("each unresolved fact names its cause, most fundamental first", async () =>
   );
   for (const l of sealedStatusLines(true, attestation07a({ activeRemote: 1 }), NOW))
     if (l.key.startsWith(`${P}.unverified.`)) assert.equal(l.tone, "warn");
+});
+
+// T14-M1: a failure the panel has no dedicated line for, or a malformed list,
+// still names an unresolved cause; it never reads like the clean steady state.
+test("any other unresolved failure, or a malformed failure list, shows the generic cause", async () => {
+  const { sealedStatusLines } = await copy();
+  const keys = (over) => sealedStatusLines(true, attestation07a(over), NOW).map((l) => l.key);
+  const clean = [`${P}.on`, `${P}.buildLimit`, `${P}.scope`];
+  assert.deepEqual(keys({}), clean, "the build limit alone is not an extra cause");
+  assert.deepEqual(keys({ failures: [] }), clean);
+  for (const failure of [
+    "startupBarrierUnavailable",
+    // FW-A's transition steps (fw-a-report contract 6).
+    "meetingDetectionPause",
+    "meetingDetectionResume",
+    "meetingDetectionPauseUnavailable",
+    "meetingDetectionResumeUnavailable",
+    "sessionHardening",
+    "sessionRestore",
+    "a-name-a-later-build-adds",
+  ]) {
+    const lines = sealedStatusLines(
+      true,
+      attestation07a({ failures: ["NATIVE_BOUNDARY_UNAVAILABLE", failure] }),
+      NOW
+    );
+    const cause = lines.filter((l) => l.key.startsWith(`${P}.unverified.`));
+    assert.deepEqual(
+      cause.map((l) => [l.key, l.tone]),
+      [[`${P}.unverified.other`, "warn"]],
+      failure
+    );
+  }
+  for (const failures of [null, "NATIVE_BOUNDARY_UNAVAILABLE", { 0: "x" }, [42], [null]])
+    assert.ok(keys({ failures }).includes(`${P}.unverified.other`), JSON.stringify(failures));
+  // A known cause still wins over the generic one.
+  assert.ok(
+    keys({ failures: ["meetingDetectionPause"], guards: guards({ dns: false }) }).includes(
+      `${P}.unverified.guards`
+    )
+  );
+  assert.equal(
+    keys({ failures: ["meetingDetectionPause"], guards: guards({ dns: false }) }).includes(
+      `${P}.unverified.other`
+    ),
+    false
+  );
+  // While unsealed, failures name no cause (the panel shows the description).
+  assert.deepEqual(
+    sealedStatusLines(
+      false,
+      attestation07a({ sealed: false, failures: ["sessionRestore"] }),
+      NOW
+    ).map((l) => l.key),
+    [`${P}.description`]
+  );
+});
+
+// T14-M5: the gate's tally resets on a seal change and at launch, so the
+// count says "since Sealed mode was turned on or Loqui started".
+test("the blocked count says it runs since sealing or since Loqui started", () => {
+  for (const form of ["blocked_one", "blocked_other"])
+    assert.match(
+      resources.en.settingsPage.privacy.sealed[form],
+      /since Sealed mode was turned on or Loqui started/,
+      form
+    );
+  for (const l of LOCALES) {
+    const rules = new Intl.PluralRules(l);
+    const forms = new Set([0, 1, 2, 3, 5, 11, 21, 100].map((n) => rules.select(n)));
+    for (const form of forms) {
+      const value = resources[l].settingsPage.privacy.sealed[`blocked_${form}`];
+      assert.equal(typeof value, "string", `${l}:blocked_${form}`);
+      assert.match(value, /Loqui/, `${l}:blocked_${form} names Loqui's start`);
+    }
+  }
 });
 
 test("paused, verified and isolated states are unavailable in 07a, whatever main's fields hold", async () => {
@@ -451,6 +538,11 @@ test("the panel copy renders through i18next in every locale without a raw key",
       NOW
     ),
     sealedStatusLines(true, attestation07a({ loadError: "corrupt", saveError: "EACCES" }), NOW),
+    sealedStatusLines(
+      true,
+      attestation07a({ failures: ["NATIVE_BOUNDARY_UNAVAILABLE", "sessionHardening"] }),
+      NOW
+    ),
   ].flat();
   for (const l of LOCALES) {
     const i18n = i18next.createInstance();

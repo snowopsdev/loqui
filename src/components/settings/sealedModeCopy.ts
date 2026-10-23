@@ -31,21 +31,29 @@ const STOP_FAILURES = new Set([
   "calendarsUnavailable",
   "pendingCancel",
 ]);
+// Main could not read whether its programs are still running.
 const CHILD_STATUS_UNKNOWN = new Set([
   "childrenUnavailable",
   "childDiagnosticsUnavailable",
   "codexStatusUnavailable",
-  "timeout:children",
   "timeout:childrenUnknown",
-  "timeout:codex",
   "timeout:codexStatusUnavailable",
 ]);
+// Main read the status, and the programs were still running at the deadline
+// (privacyBoot running()): work that hasn't confirmed it stopped (T14-M2).
+const CHILD_STILL_RUNNING = new Set(["timeout:children", "timeout:codex"]);
+// The one failure every 07a attestation carries; it is the build limit, which
+// the panel states on its own line.
+const BUILD_LIMIT = "NATIVE_BOUNDARY_UNAVAILABLE";
 
 const unique = (values: string[]) => [...new Set(values.filter(Boolean))];
 
 // The most fundamental unresolved fact first; one at a time.
 function unresolvedCause(a: Attestation): StatusLine | null {
-  const failures = Array.isArray(a.failures) ? a.failures : [];
+  // A malformed list cannot vouch for anything: it is an unresolved failure.
+  const listed: unknown[] = Array.isArray(a.failures) ? a.failures : [];
+  const malformed = !Array.isArray(a.failures) || listed.some((f) => typeof f !== "string");
+  const failures = listed.filter((f): f is string => typeof f === "string");
   const g = a.guards;
   if (
     !g ||
@@ -76,6 +84,8 @@ function unresolvedCause(a: Attestation): StatusLine | null {
   const names = unique([...networkChildren, ...unresolvedKinds]);
   if (names.length > 0)
     return { key: `${P}.unverified.child`, params: { names: isolate(names) }, tone: "warn" };
+  if (failures.some((f) => CHILD_STILL_RUNNING.has(f)))
+    return { key: `${P}.unverified.stopFailedUnnamed`, tone: "warn" };
   if (failures.some((f) => CHILD_STATUS_UNKNOWN.has(f)))
     return { key: `${P}.unverified.childUnknown`, tone: "warn" };
   if (
@@ -94,6 +104,11 @@ function unresolvedCause(a: Attestation): StatusLine | null {
     )
   )
     return { key: `${P}.unverified.active`, tone: "warn" };
+  // Any other failure main names (a transition step such as
+  // meetingDetectionPause or sessionHardening, a startup barrier, or a name a
+  // later build adds) is still unresolved: never the clean steady state (T14-M1).
+  if (malformed || failures.some((f) => f !== BUILD_LIMIT))
+    return { key: `${P}.unverified.other`, tone: "warn" };
   return null;
 }
 

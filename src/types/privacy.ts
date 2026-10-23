@@ -95,6 +95,8 @@ export interface Attestation {
     dgram: boolean;
     http: boolean;
     webContents: boolean;
+    // process.binding refuses the raw spawn and transport bindings while sealed (T18R-07).
+    binding?: boolean;
     sessions: number;
     envProxy: boolean;
     openRemoteSockets: number;

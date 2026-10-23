@@ -70,6 +70,7 @@ const INSTALLED_GUARDS = {
   dgram: true,
   http: true,
   webContents: true,
+  binding: true,
   sessions: 1,
   envProxy: false,
   openRemoteSockets: 0,

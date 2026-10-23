@@ -59,6 +59,9 @@ const installed = {
 };
 const sessions = new Set();
 const openRemoteSockets = new Set();
+// Loopback TCP sockets Loqui opened (socket → { host, port }), so sealing can
+// retire the ones that turn out to lead to a proxy (review M-2).
+const openLoopbackSockets = new Map();
 const severedSockets = new WeakMap();
 const chromiumInFlight = new Map(); // `${sessionTag}:${id}` → { host, ts, ticket, webContentsId }
 const observers = new Set();
@@ -234,11 +237,14 @@ function pinLocal(target, host) {
 // agent-base proxy agents (http-proxy-agent, https-proxy-agent and the like,
 // as gaxios builds from the environment). While sealed, a Node socket to any
 // proxy endpoint Loqui knows of is refused before it connects, with a
-// SealedModeError naming the reason; the caller keeps its content. A request
-// that NO_PROXY sends direct is unaffected. Remote proxies are refused like
-// any remote socket. A program the user runs (a forwarder, SOCKS or tunnel
-// tool) listening where no proxy setting names it is outside the guarantee
-// (threat model, threat 8).
+// SealedModeError naming the reason; the caller keeps its content. Sealing
+// also retires every pooled socket to a known proxy (severAll), and an undici
+// request is judged on the socket it is about to be written to, so a socket
+// opened before the seal, or a dispatcher no hook saw, carries nothing either.
+// A request that NO_PROXY sends direct is unaffected. Remote proxies are
+// refused like any remote socket. A program the user runs (a forwarder, SOCKS
+// or tunnel tool) listening where no proxy setting names it is outside the
+// guarantee (threat model, threat 8).
 const PROXY_ENV_KEYS = [
   "HTTP_PROXY",
   "HTTPS_PROXY",
@@ -280,11 +286,6 @@ function envProxyEndpoints(env) {
   return endpoints;
 }
 const startupProxyEndpoints = envProxyEndpoints(process.env);
-// Node's own symbol for an agent's proxy settings (NODE_USE_ENV_PROXY, or an
-// agent built with proxyEnv). Absent on runtimes without proxy support.
-const K_PROXY_CONFIG =
-  Object.getOwnPropertySymbols(new http.Agent()).find((s) => s.description === "kProxyConfig") ??
-  null;
 const UNDICI_GLOBAL_DISPATCHER = Symbol.for("undici.globalDispatcher.1");
 // Proxy endpoints learned from agents and dispatchers that passed a hook,
 // sealed or not, so one built before the seal is still known after it.
@@ -297,11 +298,14 @@ const ownSymbol = (value, description) =>
   Object.getOwnPropertySymbols(value).find((s) => s.description === description);
 // Reads one agent or dispatcher's proxy without calling into it. Nested undici
 // agents (EnvHttpProxyAgent holds a ProxyAgent per scheme) are followed.
+// Node keeps an agent's proxy settings (NODE_USE_ENV_PROXY, or an agent built
+// with proxyEnv) under its own kProxyConfig symbol, set only on such agents,
+// so it is read from the agent itself.
 function learnProxyAgent(agent, depth = 0) {
   if (!agent || typeof agent !== "object" || depth > 2) return;
   try {
-    const config = K_PROXY_CONFIG ? agent[K_PROXY_CONFIG] : null;
-    const via = config?.proxyConnectionOptions;
+    const kProxyConfig = ownSymbol(agent, "kProxyConfig");
+    const via = kProxyConfig ? agent[kProxyConfig]?.proxyConnectionOptions : null;
     if (via) learnEndpoint({ host: normalizeHost(String(via.host)) ?? "unknown", port: +via.port });
     const options = ownSymbol(agent, "proxy agent options");
     if (options) learnEndpoint(proxyEndpoint(agent[options]?.uri));
@@ -325,21 +329,69 @@ function learnRequestAgents(args) {
   }
 }
 // Every undici copy (Node's own fetch and each npm undici) publishes a request
-// here when it is created, before its client connects. A CONNECT tunnel or an
-// absolute-form target is a request to a proxy, so its origin is a proxy
-// endpoint, even for a ProxyAgent no Loqui hook ever saw. A socket already
-// pooled to that proxy before the seal is not re-judged (threat 8).
+// on undici:request:create when it is created, before its client connects. A
+// CONNECT tunnel is sent to the proxy itself, so its origin is a proxy
+// endpoint, even for a ProxyAgent no Loqui hook ever saw. A forward-mode
+// request (absolute-form target) keeps the target as its origin, so its proxy
+// is learned from the socket instead (review M-1).
+//
+// Each copy also publishes undici:client:sendHeaders with the request and the
+// socket it is about to be written to, before any byte of it is written. That
+// is where the proxy of a forward-mode request is learned, and where, while
+// sealed, a request on a loopback socket is refused when the socket leads to
+// a known proxy, the request is proxy-shaped (CONNECT or absolute-form), or it
+// is for a host that is not loopback (a tunnel opened earlier carries it). The
+// socket is destroyed with the refusal, so nothing of the request is written,
+// whichever dispatcher built it and whenever the socket was opened (M-2).
 const PROXY_SHAPED_PATH = /^[a-z][a-z0-9+.-]*:\/\//i;
+function proxyShaped(request) {
+  const method = String(request?.method ?? "").toUpperCase();
+  return method === "CONNECT" || PROXY_SHAPED_PATH.test(String(request?.path ?? ""));
+}
+// The TCP peer of a socket undici writes to (a TLS socket over a tunnel or a
+// proxy connection reports its underlying socket's peer).
+function socketPeer(socket) {
+  for (let s = socket, i = 0; s && i < 3; s = s._parent, i++) {
+    const port = Number(s.remotePort);
+    const host = normalizeHost(String(s.remoteAddress ?? "").replace(/^::ffff:/i, ""));
+    if (host && Number.isInteger(port) && port > 0) return { host, port };
+  }
+  return null;
+}
 function installUndiciProxyWatch() {
   if (typeof diagnostics.subscribe !== "function") return;
   diagnostics.subscribe("undici:request:create", (message) => {
     try {
       const request = message?.request;
-      const method = String(request?.method ?? "").toUpperCase();
-      if (method === "CONNECT" || PROXY_SHAPED_PATH.test(String(request?.path ?? "")))
+      if (String(request?.method ?? "").toUpperCase() === "CONNECT")
         learnEndpoint(proxyEndpoint(request.origin));
     } catch {
       // A malformed message teaches nothing; enforcement must not throw here.
+    }
+  });
+  diagnostics.subscribe("undici:client:sendHeaders", (message) => {
+    const socket = message?.socket;
+    try {
+      const request = message?.request;
+      const peer = socketPeer(socket);
+      if (!peer || !isLoopbackHost(peer.host)) return; // a remote socket was judged at connect
+      const viaProxy = proxyShaped(request);
+      if (viaProxy) learnEndpoint(peer);
+      if (!gate.isSealed()) return;
+      let target = null;
+      try {
+        target = normalizeHost(new URL(String(request?.origin)).hostname);
+      } catch {}
+      if (
+        viaProxy ||
+        isProxyDestination(peer.host, peer.port) ||
+        !target ||
+        !isLoopbackHost(target)
+      )
+        socket.destroy(proxyRefusal());
+    } catch {
+      // Enforcement must not throw into undici. Sealed and unjudgeable: refuse.
+      if (gate.isSealed()) socket?.destroy?.(proxyRefusal());
     }
   });
 }
@@ -388,6 +440,8 @@ function installSocketHook() {
         process.nextTick(() => this.destroy(error));
         return this;
       }
+      openLoopbackSockets.set(this, { host, port: Number(target.options.port) });
+      this.once("close", () => openLoopbackSockets.delete(this));
       notify({ layer: "node", host, allowed: true });
       return originalConnect.apply(this, isPinnedName(host) ? pinLocal(target, host) : judged());
     }
@@ -453,8 +507,9 @@ function installSocketHook() {
 //   after construction and before the first write, so a method, path or
 //   header changed later is judged too (Task 18 T18R-01). setHeader and
 //   appendHeader refuse a remote Host as soon as it is set (re-review m4).
-// Raw socket writes, SOCKS, HTTP/2 and clients with their own HTTP stack
-// (undici's proxy agents) are not inspected (threat model, threat 8).
+// undici requests are judged on undici:client:sendHeaders instead
+// (installUndiciProxyWatch). Raw socket writes, SOCKS and HTTP/2 are not
+// inspected (threat model, threat 8).
 function headerHosts(headers) {
   const hosts = [];
   const add = (value) => {
@@ -1366,8 +1421,14 @@ function installWebContentsGuard(app) {
 // waited for, and keeps the attestation unverified until it ends.
 // Each socket leaves openRemoteSockets on its own "close" (the connect hook),
 // so the count drops only once a socket has actually closed.
+// While sealed, a loopback socket to a known proxy endpoint is retired too
+// (review M-2): a keep-alive socket pooled through a proxy before the seal
+// would otherwise carry a sealed request to it. Other loopback sockets stay.
 function severAll() {
   const sockets = [...openRemoteSockets];
+  if (gate.isSealed())
+    for (const [socket, { host, port }] of openLoopbackSockets)
+      if (isProxyDestination(host, port)) sockets.push(socket);
   for (const socket of sockets) {
     try {
       severedSockets.set(socket, gate.isSealed() ? "SEALED_MODE" : "ABORTED");

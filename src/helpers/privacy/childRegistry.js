@@ -167,6 +167,19 @@ let groupWatches = new Set();
 // pid or group id, a mismatch) sends no signal, records a typed reason in
 // entry.groupProof and leaves the obligation unresolved, so the sealing
 // barrier fails closed and diagnostics name GROUP_OWNERSHIP_UNPROVEN.
+// Review M-3: those facts cannot tell our group from a reuser that took the
+// pid after our group ended, called setsid (so its pgid and sid equal ours),
+// forked and exited. So the group's members are also read when the root
+// exits ({ pid, startTime }), and at least one current member must be one of
+// them: a reuser's group, created after ours ended, never contains one. A
+// legitimate group whose every exit-time member has since been replaced by a
+// newer one is refused too, which fails closed.
+// Review M-4: where the reader is asynchronous (macOS ps), the reads at spawn
+// and at the root's exit never block main; until one lands the group is
+// unproven, and a spawn read that lands after the root was reaped is
+// discarded. The proof just before the signal is synchronous, so only
+// synchronous code separates it from process.kill (a reuse inside that window
+// would need the group to end and the pid space to wrap within it).
 // None of this resolves the tree: a signal, a root exit or an absent group is
 // never evidence that descendants ended (A2/A23), and the entry stays
 // DESCENDANTS_UNVERIFIED.
@@ -200,10 +213,31 @@ function groupStillOurs(entry) {
   continuity.seenAt = at;
   return true;
 }
+// The group's members as the root exits: { pid, startTime } each (M-3).
+function snapshotExitMembers(entry) {
+  const keep = (members) => {
+    entry.exitMembers = Array.isArray(members)
+      ? members.map((m) => ({ pid: m?.pid, startTime: m?.startTime }))
+      : null;
+    if (!entry.exitMembers) entry.exitMembersError = "PROC_UNREADABLE";
+  };
+  const fail = () => {
+    entry.exitMembers = null;
+    entry.exitMembersError = "PROC_UNREADABLE";
+  };
+  try {
+    if (typeof system.groupMembersAsync === "function")
+      Promise.resolve(system.groupMembersAsync(entry.pid)).then(keep, fail);
+    else keep(system.groupMembers(entry.pid));
+  } catch {
+    fail();
+  }
+}
 function observeGroupAtRootExit(entry) {
   if (!posixGroup(entry)) return;
   entry.groupContinuity = { state: "observed", seenAt: system.now() };
   if (!groupStillOurs(entry)) return;
+  snapshotExitMembers(entry);
   let stop = null;
   let stopped = false;
   entry.stopGroupWatch = () => {
@@ -220,20 +254,37 @@ function observeGroupAtRootExit(entry) {
 }
 // The leader's identity, read once at spawn. A detached POSIX child leads its
 // own group (and, through setsid, its own session) before spawn returns.
+function acceptIdentity(entry, identity) {
+  if (!identity) {
+    entry.identity = null;
+    entry.identityError = "IDENTITY_NOT_RECORDED";
+  } else if (identity.pid !== entry.pid || identity.pgid !== entry.pid) {
+    entry.identity = null;
+    entry.identityError = "NOT_GROUP_LEADER";
+  } else entry.identity = { ...identity };
+}
 function recordIdentity(entry) {
-  if (!posixGroup(entry) || entry.identity !== undefined) return;
-  try {
-    const identity = system.readIdentity(entry.pid);
-    if (!identity) {
-      entry.identity = null;
-      entry.identityError = "IDENTITY_NOT_RECORDED";
-    } else if (identity.pid !== entry.pid || identity.pgid !== entry.pid) {
-      entry.identity = null;
-      entry.identityError = "NOT_GROUP_LEADER";
-    } else entry.identity = { ...identity };
-  } catch {
+  if (!posixGroup(entry) || entry.identity !== undefined || entry.identityPending) return;
+  const unreadable = () => {
     entry.identity = null;
     entry.identityError = "PROC_UNREADABLE";
+  };
+  try {
+    if (typeof system.readIdentityAsync !== "function")
+      return acceptIdentity(entry, system.readIdentity(entry.pid));
+    entry.identityPending = true;
+    Promise.resolve(system.readIdentityAsync(entry.pid))
+      .then((identity) => {
+        // Landed after the root was reaped: the pid may name another process.
+        if (entry.exited) acceptIdentity(entry, null);
+        else acceptIdentity(entry, identity);
+      }, unreadable)
+      .finally(() => {
+        entry.identityPending = false;
+      });
+  } catch {
+    entry.identityPending = false;
+    unreadable();
   }
 }
 // D-3: proof that a reaped root's group id still names our group.
@@ -256,6 +307,13 @@ function proveGroup(entry) {
     if (member.startTime < id.startTime) return "PGID_REUSED";
     if (id.sid !== null && id.sid !== undefined && member.sid !== id.sid) return "PGID_REUSED";
   }
+  // M-3: at least one member the root's exit saw is still in the group.
+  const seen = entry.exitMembers;
+  if (!Array.isArray(seen)) return entry.exitMembersError ?? "EXIT_MEMBERS_UNKNOWN";
+  const continuing = members.some((member) =>
+    seen.some((s) => s.pid === member.pid && s.startTime === member.startTime)
+  );
+  if (!continuing) return "PGID_REUSED";
   return null;
 }
 function unproven(entry, reason) {
@@ -704,6 +762,11 @@ function _resetForTests() {
 function _setSystemForTests(overrides) {
   assertTestProcess();
   system = { ...system, ...overrides };
+  // A fake synchronous reader replaces the platform's asynchronous one too.
+  if ("readIdentity" in overrides && !("readIdentityAsync" in overrides))
+    system.readIdentityAsync = undefined;
+  if ("groupMembers" in overrides && !("groupMembersAsync" in overrides))
+    system.groupMembersAsync = undefined;
 }
 module.exports = {
   installSpawnGuard,

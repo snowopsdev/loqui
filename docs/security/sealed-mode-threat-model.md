@@ -507,11 +507,21 @@ decision D-3 (2026-10-23) also requires identity proof before a reaped root's
 group is signalled. At spawn the registry records the leader's pid, pgid,
 session id and start time (`src/helpers/privacy/processIdentity.js`: Linux
 `/proc/<pid>/stat`; macOS `ps` lstart, which is a native launch and so refused
-while sealed, and reports no session id). Before the signal it requires that no
+while sealed, and reports no session id). When the root exits it also reads
+the group's members (pid and start time). Before the signal it requires that no
 process now holds the leader's pid and that the group has members, each in the
-recorded session (where reported) and started no earlier than the leader. Any
+recorded session (where reported) and started no earlier than the leader, and
+at least one of them a member seen at the root's exit (review M-3). Without
+that last check, a process that reused the pid after our group ended, called
+`setsid` (so its pgid and sid equal ours), forked and exited would match every
+other field; its group, created after ours ended, never contains a member from
+our root's exit. A legitimate group whose every exit-time member has since
+been replaced by a newer one is refused as well, which fails closed. On macOS
+the reads at spawn and at the root's exit run `ps` asynchronously, so they
+never block main (review M-4); until one lands the group is unproven, and a
+spawn read that lands after the root was reaped is discarded. Any
 failure (no recorded identity, `NOT_GROUP_LEADER`, `PROC_UNREADABLE`,
-`PID_REUSED`, `PGID_REUSED`, `GROUP_CONTINUITY_LOST`) sends no signal, leaves
+`PID_REUSED`, `PGID_REUSED`, `EXIT_MEMBERS_UNKNOWN`, `GROUP_CONTINUITY_LOST`) sends no signal, leaves
 the obligation unresolved so the sealing barrier fails closed, and is named:
 the diagnostics reason is `GROUP_OWNERSHIP_UNPROVEN` with the typed
 `groupProof`, which the attestation's `child:` failures carry to the panel, and
@@ -520,6 +530,16 @@ signalled without proof, since its pid cannot be reused; `killProcessGroup`
 (`src/utils/process.js`) now also skips a root that ended by a signal. Proof is
 of the group id, never of the tree. On macOS, a sealed stop of a group whose
 root exited is therefore always unproven (NOT VERIFIED on macOS: no Mac run).
+**D-3 residuals (review M-3/M-4).** The proof just before the signal is
+synchronous (on macOS a blocking `ps` with a 2 s timeout, unsealed only), and
+only synchronous code separates it from `process.kill(-pgid)`. A reuse inside
+that window would need our group to end and the pid space to wrap within it.
+The exit-time member check rests on the root's exit being observed while the
+group still has the members it had then (the same turn as Node's exit
+notification on Linux; one asynchronous `ps` later on macOS), so it cannot
+tell a reuser from our group if the reuse happened before that read, which
+again needs the group to end and the pid space to wrap first. Continuity
+polling (100 ms, gap 400 ms) still has to see the group throughout.
 Windows keeps the root-only kill (`taskkill` is refused while sealed; 07b).
 
 A seal that interrupts the optional MTP drafter or diarization VAD download

@@ -640,6 +640,125 @@ test("D-3: a spawn read that finds no group leader records why", posixGroups, as
   assert.equal(fact.groupProof, "NOT_GROUP_LEADER");
 });
 
+// Review M-3: after our group fully ended, an unrelated process got the pid,
+// called setsid (so its pgid and sid equal ours), forked and exited. Every
+// field the spawn-time identity checks matches; only the members seen when
+// our root exited tell the groups apart.
+test("D-3: a reuser that leads a new session and exits is never killed", posixGroups, async () => {
+  const facts = groupFacts();
+  const root = exitedRoot(facts);
+  facts.members = [{ pid: FAKE_GROUP + 7, pgid: FAKE_GROUP, sid: FAKE_GROUP, startTime: 5000 }];
+  assert.equal(registry.signalGroup(root, "SIGKILL"), false);
+  const { fact } = await stopRefused(facts);
+  assert.equal(fact.groupProof, "PGID_REUSED");
+});
+
+test(
+  "D-3: a member seen at the root's exit proves the group, even after it gained members",
+  posixGroups,
+  () => {
+    const facts = groupFacts();
+    const root = exitedRoot(facts);
+    facts.members = [{ ...PAYLOAD }, { ...PAYLOAD, pid: FAKE_GROUP + 2, startTime: 4000 }];
+    assert.equal(registry.signalGroup(root, "SIGTERM"), true);
+    assert.deepEqual(facts.kills, [[FAKE_GROUP, "SIGTERM"]]);
+  }
+);
+
+test(
+  "D-3: a group whose members could not be read at the root's exit fails closed",
+  posixGroups,
+  async () => {
+    const facts = groupFacts();
+    const readable = facts.members;
+    facts.members = Object.assign(new Error("EACCES"), { code: "EACCES" });
+    const root = exitedRoot(facts);
+    facts.members = readable; // readable again when the stop comes
+    assert.equal(registry.signalGroup(root, "SIGKILL"), false);
+    const { fact } = await stopRefused(facts);
+    assert.equal(fact.groupProof, "PROC_UNREADABLE");
+  }
+);
+
+// Review M-4: macOS reads identities with ps. At spawn (and at the root's
+// exit) that read is asynchronous, so it never blocks main; until it lands
+// the group is unproven, and a read that lands after the root was reaped is
+// discarded.
+test(
+  "D-3: an asynchronous identity read never proves a group before it lands",
+  posixGroups,
+  async () => {
+    const facts = groupFacts();
+    const pending = [];
+    registry._setSystemForTests({
+      readIdentity: () => null, // before the signal: nothing holds the leader's pid
+      readIdentityAsync: (pid) =>
+        new Promise((resolve) => pending.push(() => resolve({ ...LEADER, pid }))),
+      groupMembersAsync: async () => [{ ...PAYLOAD }],
+    });
+    const root = child(FAKE_GROUP);
+    registry.register(root, { kind: "yt-dlp", group: true, tree: true });
+    root.emit("spawn");
+    assert.equal(pending.length, 1, "the spawn read is asynchronous");
+    pending[0](); // lands while the root runs
+    await new Promise((r) => setImmediate(r));
+    root.emit("exit", 0, null);
+    await new Promise((r) => setImmediate(r));
+    facts.tick(100);
+    assert.equal(registry.signalGroup(root, "SIGTERM"), true, "proven once both reads landed");
+
+    registry._resetForTests();
+    const late = groupFacts();
+    const waiting = [];
+    registry._setSystemForTests({
+      readIdentityAsync: (pid) =>
+        new Promise((resolve) => waiting.push(() => resolve({ ...LEADER, pid }))),
+      groupMembersAsync: async () => [{ ...PAYLOAD }],
+    });
+    const lateRoot = child(FAKE_GROUP);
+    registry.register(lateRoot, { kind: "yt-dlp", group: true, tree: true });
+    lateRoot.emit("spawn");
+    lateRoot.emit("exit", 0, null); // reaped before the read landed
+    waiting[0]();
+    await new Promise((r) => setImmediate(r));
+    late.tick(100);
+    assert.equal(registry.signalGroup(lateRoot, "SIGKILL"), false);
+    const { fact } = await stopRefused(late);
+    assert.equal(fact.groupProof, "IDENTITY_NOT_RECORDED");
+  }
+);
+
+test("D-3: the macOS ps reader runs asynchronously and never while sealed", async () => {
+  const { forPlatform } = require("../../src/helpers/privacy/processIdentity");
+  const calls = [];
+  const execFile = (file, args, options, callback) => {
+    calls.push([file, args, options.env.LC_ALL]);
+    setImmediate(() =>
+      callback(
+        null,
+        `${FAKE_GROUP} ${FAKE_GROUP} Fri Oct 23 10:00:00 2026\n${FAKE_GROUP + 1} ${FAKE_GROUP} Fri Oct 23 10:00:01 2026\n`
+      )
+    );
+  };
+  const darwin = forPlatform("darwin", { execFile });
+  const read = darwin.readIdentityAsync(FAKE_GROUP);
+  assert.ok(read instanceof Promise);
+  assert.deepEqual(await read, {
+    pid: FAKE_GROUP,
+    pgid: FAKE_GROUP,
+    sid: null,
+    startTime: Date.parse("Fri Oct 23 10:00:00 2026"),
+  });
+  assert.deepEqual(
+    (await darwin.groupMembersAsync(FAKE_GROUP)).map((m) => m.pid),
+    [FAKE_GROUP, FAKE_GROUP + 1]
+  );
+  assert.deepEqual(calls[0], ["ps", ["-o", "pid=,pgid=,lstart=", "-p", String(FAKE_GROUP)], "C"]);
+  sealed = true;
+  await assert.rejects(darwin.readIdentityAsync(FAKE_GROUP), /INSPECTION_REFUSED_SEALED/);
+  assert.equal(calls.length, 2, "no ps launch while sealed");
+});
+
 test(
   "D-3: a live root is signalled without a proc read (its pid cannot be reused)",
   posixGroups,

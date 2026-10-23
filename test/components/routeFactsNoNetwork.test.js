@@ -121,6 +121,8 @@ test("[source guard, baseline] only src/stores/sealedStore.ts reads the privacy 
     const rel = path.relative(root, full).split(path.sep).join("/");
     if (
       rel === "src/stores/sealedStore.ts" ||
+      // The browser preview's in-memory bridge implements the API; it reads nothing.
+      rel === "src/preview/previewPrivacy.ts" ||
       rel.startsWith("src/types/") ||
       rel.endsWith(".d.ts")
     )

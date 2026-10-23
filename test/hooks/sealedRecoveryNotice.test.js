@@ -50,6 +50,72 @@ test("sealed dictation copy is always translated and never a raw main-process me
   );
 });
 
+// Touch-up 3, TS2-1: a dictation card whose code is not SEALED_MODE but whose
+// text carries main's marker (the private take's refused FFmpeg merge, shown
+// as AUDIO_CONVERSION_FAILED) is sealed copy too, never main's English text.
+test("a dictation card with main's sealed marker under another code is translated sealed copy", async () => {
+  const { getRecordingErrorTitle, getRecordingErrorDescription } =
+    await import("../../src/utils/recordingErrors.ts");
+  const merge = {
+    title: "Transcription Error",
+    description:
+      "[SEALED_MODE] Sealed mode blocked nativeLaunch to native-ffmpeg before any socket opened; nothing was sent.",
+    code: "AUDIO_CONVERSION_FAILED",
+  };
+  assert.equal(getRecordingErrorTitle(merge, t), "t:sealedMode.blocked.dictationTitle");
+  assert.equal(getRecordingErrorDescription(merge, t), "t:sealedMode.blocked.generic");
+  const wrapped = {
+    title: "Streaming Error",
+    message:
+      "Error invoking remote method 'x': SealedModeError: [SEALED_MODE:interrupted] Sealed mode interrupted dictationStt to api.openai.com; the provider may have received part of the request.",
+  };
+  assert.equal(
+    getRecordingErrorDescription(wrapped, t),
+    "t:sealedMode.interrupted.generic",
+    "the marker in `message` counts too, by phase"
+  );
+  for (const text of [getRecordingErrorDescription(merge, t), getRecordingErrorTitle(merge, t)])
+    assert.doesNotMatch(text, /\[SEALED_MODE|nothing was sent/);
+  // Ordinary conversion failures keep their own text and title.
+  const plain = {
+    title: "Transcription Error",
+    description: "ffmpeg exited 1",
+    code: "AUDIO_CONVERSION_FAILED",
+  };
+  assert.equal(getRecordingErrorTitle(plain, t), "Transcription Error");
+  assert.equal(getRecordingErrorDescription(plain, t), "ffmpeg exited 1");
+});
+
+// Touch-up 3, O1: main settles a sealed auto-paste as a typed failure; the
+// card says why, and claims the clipboard only when main said it copied.
+test("a sealed paste card says Sealed mode stopped the paste, and the clipboard only when main copied", async () => {
+  const { getRecordingErrorTitle, getRecordingErrorDescription } =
+    await import("../../src/utils/recordingErrors.ts");
+  const card = (messageKey) => ({
+    code: "SEALED_MODE",
+    title: "Paste Error",
+    titleKey: "sealedMode.paste.title",
+    messageKey,
+  });
+  assert.equal(
+    getRecordingErrorTitle(card("sealedMode.paste.copied"), t),
+    "t:sealedMode.paste.title"
+  );
+  assert.equal(
+    getRecordingErrorDescription(card("sealedMode.paste.copied"), t),
+    "t:sealedMode.paste.copied"
+  );
+  assert.equal(
+    getRecordingErrorDescription(card("sealedMode.paste.notCopied"), t),
+    "t:sealedMode.paste.notCopied"
+  );
+  const en = JSON.parse(fs.readFileSync(path.join(root, "src/locales/en/translation.json"), "utf8"))
+    .sealedMode.paste;
+  assert.match(en.copied, /clipboard/);
+  assert.doesNotMatch(en.notCopied, /clipboard|History/, "no claim main did not make");
+  assert.doesNotMatch(en.copied, /History|nothing was sent|verified/i);
+});
+
 test("a held-audio refusal is a persistent alert whose only way back is Transcribe", async () => {
   const { buildDictationErrorNotice, buildSealedRecoveryNotice } =
     await import("../../src/components/voiceNotices.ts");

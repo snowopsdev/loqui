@@ -180,6 +180,13 @@ test("every I6 surface checks for a sealed failure before showing main's text", 
     "src/components/voiceNotices.ts": /sealedFailureMessage\(failure, t\) \?\? failure\.message/,
     "src/helpers/retryDictationCleanup.js":
       /sealedFailureMessage\(error, t\) \?\? String\(error\?\.message \?\? error\)/,
+    // Touch-up 3, TS2-1: every dictation card, whatever its code, checks the
+    // marker in its text (the private take's refused FFmpeg merge).
+    "src/utils/recordingErrors.ts":
+      /isSealedModeError\(\{ message: error\.description \}\) \|\|\s*isSealedModeError\(\{ message: error\.message \}\)/,
+    // Touch-up 3, O1: a sealed auto-paste is sealed copy by key, never main's text.
+    "src/helpers/audioManager.js":
+      /result\?\.code === "SEALED_MODE"[\s\S]*sealedPasteError\(result\.copiedToClipboard === true\)[\s\S]*isSealedModeError\(error\)[\s\S]*sealedPasteError\(false\)/,
     "src/components/settings/routing/usePatchbayBoard.ts": /sealedFailureMessage\(error, t\)/,
     "src/components/MeetingRecordingMount.tsx": /sealedFailureMessage\(\{ error \}, t\)/,
     "src/stores/meetingRecordingStore.ts":

@@ -7,6 +7,8 @@ const os = require("os");
 const debugLogger = require("./debugLogger");
 const { getLinuxSessionInfo } = require("./linuxSession");
 const { getSupportCacheDir } = require("./supportCacheDir");
+const egress = require("./privacy/egressGate");
+const { SealedModeError, isSealedModeError } = require("./privacy/egressPolicy");
 
 const CACHE_TTL_MS = 30000;
 
@@ -67,6 +69,36 @@ const LINUX_TERMINAL_CLASSES = [
 // no entry above because it has no Linux window class. Matching it on Linux too
 // is harmless — no such window class exists there.
 const TERMINAL_SIGNATURES = [...LINUX_TERMINAL_CLASSES, "iterm"];
+
+// Plan 07a touch-up 3, O1. Paste helpers start inside timer callbacks. A
+// synchronous throw from spawn there (the sealed spawn guard's refusal, or
+// Node's own argument validation) was an uncaught exception in main that left
+// the paste promise, and the paste queue behind it, pending forever. Reject
+// the paste instead; the caller returns when this yields null.
+function spawnOrReject(reject, start) {
+  try {
+    return start();
+  } catch (error) {
+    reject(error);
+    return null;
+  }
+}
+
+// A sealed paste failure. `copiedToClipboard` is main's own statement that the
+// text was written to the clipboard (Electron's API, not a native program)
+// and left there, so the renderer may say so.
+function sealedPasteFailure(cause, copiedToClipboard) {
+  // Only the refusal itself is reused; a fallback's summary that merely
+  // quotes one ("Attempted tools: xdotool ([SEALED_MODE] …)") is wrapped.
+  const error =
+    cause?.code === "SEALED_MODE"
+      ? cause
+      : Object.assign(new SealedModeError({ task: "nativeLaunch", host: "native-paste" }), {
+          cause,
+        });
+  error.copiedToClipboard = copiedToClipboard;
+  return error;
+}
 
 function writeClipboardInRenderer(webContents, text) {
   if (!webContents || !webContents.executeJavaScript) {
@@ -805,6 +837,10 @@ class ClipboardManager {
   }
 
   commandExists(cmd) {
+    // While sealed the spawn guard refuses every program, the `sh` probe
+    // included, so no tool can run: answer "absent" without starting one,
+    // and without caching it, so unsealing finds installed tools at once.
+    if (egress.isSealed()) return false;
     const now = Date.now();
     const cached = this.commandAvailabilityCache.get(cmd);
     if (cached && now < cached.expiresAt) {
@@ -867,6 +903,7 @@ class ClipboardManager {
     let method = "unknown";
     const webContents = options.webContents;
     const allowClipboardFallback = options.allowClipboardFallback === true;
+    let copied = false;
 
     try {
       const shouldRestore = options.restoreClipboard !== false;
@@ -888,6 +925,18 @@ class ClipboardManager {
         await clipboard.writeText(text);
       }
       this.safeLog("📋 Text copied to clipboard:", text.substring(0, 50) + "...");
+      copied = true;
+
+      // Touch-up 3, O1: every way to paste starts a native helper, and Sealed
+      // mode refuses those before launch (A2). Settle now as a sealed failure,
+      // recorded as the refused launch it is. The text stays on the clipboard:
+      // nothing restores the earlier contents over it.
+      if (egress.isSealed()) {
+        throw sealedPasteFailure(
+          egress.refuseNativeLaunch(path.basename(this._sealedPasteProgram())),
+          true
+        );
+      }
 
       let pasteResult = { restoreComplete: Promise.resolve() };
 
@@ -914,6 +963,8 @@ class ClipboardManager {
             expectedClipboardText: text,
           });
         } catch (firstError) {
+          // A retry would meet the same refusal.
+          if (isSealedModeError(firstError) || egress.isSealed()) throw firstError;
           this.safeLog("⚠️ First paste attempt failed, retrying...", firstError?.message);
           await clipboard.writeText(text);
           await new Promise((r) => setTimeout(r, 200));
@@ -957,8 +1008,23 @@ class ClipboardManager {
         elapsedMs: Date.now() - startTime,
         error: error.message,
       });
+      // Sealed mid-paste: the helpers were refused, whatever the last
+      // fallback's message says ("install xdotool"). Say why, and whether the
+      // text reached the clipboard.
+      if (isSealedModeError(error) || (copied && egress.isSealed())) {
+        throw sealedPasteFailure(error, copied);
+      }
       throw error;
     }
+  }
+
+  // The helper this platform starts first, named in the sealed refusal record.
+  _sealedPasteProgram() {
+    if (process.platform === "darwin") return this.resolveFastPasteBinary() || "osascript";
+    if (process.platform === "win32") {
+      return this.resolveWindowsFastPasteBinary() || this.getNircmdPath() || "powershell.exe";
+    }
+    return this.resolveLinuxFastPasteBinary() || "paste-tool";
   }
 
   async pasteMacOS(originalClipboard, options = {}) {
@@ -968,12 +1034,15 @@ class ClipboardManager {
 
     return new Promise((resolve, reject) => {
       setTimeout(() => {
-        const pasteProcess = useFastPaste
-          ? spawn(fastPasteBinary)
-          : spawn("osascript", [
-              "-e",
-              'tell application "System Events" to key code 9 using command down',
-            ]);
+        const pasteProcess = spawnOrReject(reject, () =>
+          useFastPaste
+            ? spawn(fastPasteBinary)
+            : spawn("osascript", [
+                "-e",
+                'tell application "System Events" to key code 9 using command down',
+              ])
+        );
+        if (!pasteProcess) return;
 
         let errorOutput = "";
         let hasTimedOut = false;
@@ -1134,10 +1203,13 @@ class ClipboardManager {
 
         this.safeLog("⚡ Windows fast-paste starting", { targetWindow: options.targetWindow });
 
-        const pasteProcess = spawn(fastPastePath, args, {
-          stdio: ["ignore", "pipe", "pipe"],
-          windowsHide: true,
-        });
+        const pasteProcess = spawnOrReject(reject, () =>
+          spawn(fastPastePath, args, {
+            stdio: ["ignore", "pipe", "pipe"],
+            windowsHide: true,
+          })
+        );
+        if (!pasteProcess) return;
 
         let stdoutData = "";
         let stderrData = "";
@@ -1223,9 +1295,12 @@ class ClipboardManager {
 
         this.safeLog(`⚡ nircmd paste starting (delay: ${pasteDelay}ms)`);
 
-        const pasteProcess = spawn(nircmdPath, ["sendkeypress", "ctrl+v"], {
-          windowsHide: true,
-        });
+        const pasteProcess = spawnOrReject(reject, () =>
+          spawn(nircmdPath, ["sendkeypress", "ctrl+v"], {
+            windowsHide: true,
+          })
+        );
+        if (!pasteProcess) return;
 
         let errorOutput = "";
 
@@ -1297,20 +1372,23 @@ class ClipboardManager {
 
         this.safeLog(`🪟 PowerShell paste starting (delay: ${pasteDelay}ms)`);
 
-        const pasteProcess = spawn(
-          "powershell.exe",
-          [
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            "[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms');[System.Windows.Forms.SendKeys]::SendWait('^v')",
-          ],
-          { windowsHide: true }
+        const pasteProcess = spawnOrReject(reject, () =>
+          spawn(
+            "powershell.exe",
+            [
+              "-NoProfile",
+              "-NonInteractive",
+              "-WindowStyle",
+              "Hidden",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms');[System.Windows.Forms.SendKeys]::SendWait('^v')",
+            ],
+            { windowsHide: true }
+          )
         );
+        if (!pasteProcess) return;
 
         let errorOutput = "";
 
@@ -1691,7 +1769,10 @@ class ClipboardManager {
             this.safeLog("✅ Paste successful using linux-fast-paste --portal (RemoteDesktop)");
             return { restoreComplete: restoreClipboard() };
           } catch (portalError) {
-            if (portalError?.message === "portal-denied") {
+            if (isSealedModeError(portalError)) {
+              // Refused before launch: says nothing about the portal itself.
+              return false;
+            } else if (portalError?.message === "portal-denied") {
               this.portalDenied = true;
             } else if (
               portalError?.message === "portal support not compiled in" ||
@@ -1906,7 +1987,8 @@ class ClipboardManager {
             "clipboard"
           );
 
-          const proc = spawn(tool.cmd, tool.args);
+          const proc = spawnOrReject(reject, () => spawn(tool.cmd, tool.args));
+          if (!proc) return;
           let stderr = "";
           let stdout = "";
 

@@ -4669,6 +4669,11 @@
       "connectInterrupted": "Sealed mode was turned on during sign-in, so it stopped. The provider may have received part of the sign-in. No account was connected.",
       "appleUnavailable": "This build can't run Apple Calendar's local helper while Sealed mode is on. Turn off Sealed mode to connect.",
       "googleGrantKept": "Sealed mode was on, so Loqui couldn't ask Google to revoke its calendar access. Loqui deleted its own copy of your sign-in, but Google keeps Loqui's access until you remove it in your Google Account. Loqui won't contact Google about it later."
+    },
+    "paste": {
+      "title": "Sealed mode stopped automatic paste",
+      "copied": "Sealed mode is on, so Loqui couldn't paste automatically. Your text is on the clipboard, so you can paste it yourself.",
+      "notCopied": "Sealed mode is on, so Loqui couldn't paste automatically."
     }
   },
   "setupFlow": {

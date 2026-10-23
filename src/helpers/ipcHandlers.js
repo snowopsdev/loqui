@@ -2661,9 +2661,11 @@ class IPCHandlers {
 
       // Activating the target by PID is more reliable than hide()'s implicit
       // focus hand-off for Chromium apps like Claude desktop and Brave (#668).
+      // Activation is best effort: it runs osascript, which the spawn guard
+      // refuses while sealed. A refusal must not skip the clipboard step below.
       let activated = false;
       if (process.platform === "darwin" && this.textEditMonitor) {
-        activated = await this.textEditMonitor.activateTargetPid();
+        activated = await this.textEditMonitor.activateTargetPid().catch(() => false);
       }
 
       if (!activated && mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
@@ -2703,11 +2705,27 @@ class IPCHandlers {
           ? winTarget.id
           : null;
 
-      const pasteResult = await this.clipboardManager.pasteText(textToPaste, {
-        ...options,
-        webContents: event.sender,
-        targetWindow,
-      });
+      let pasteResult;
+      try {
+        pasteResult = await this.clipboardManager.pasteText(textToPaste, {
+          ...options,
+          webContents: event.sender,
+          targetWindow,
+        });
+      } catch (error) {
+        // Touch-up 3, O1: while sealed, every paste helper is a native program
+        // the spawn guard refuses. ClipboardManager settles that as a sealed
+        // failure and says whether the text is on the clipboard; the renderer
+        // shows translated copy from this typed result, never main's text.
+        if (!isSealedModeError(error)) throw error;
+        return {
+          success: false,
+          pasted: false,
+          code: "SEALED_MODE",
+          phase: sealedPhaseOf(error) ?? "refused",
+          copiedToClipboard: error.copiedToClipboard === true,
+        };
+      }
       const pasted = pasteResult?.pasted !== false;
       debugLogger.debug("[AutoLearn] Paste completed", {
         autoLearnEnabled: this._autoLearnEnabled,

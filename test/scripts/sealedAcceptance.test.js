@@ -826,6 +826,7 @@ test("not-run: missing prerequisites exit non-zero with NOT RUN and a non-pass r
     "T18-02",
     "FWR-m1",
     "T18R-04",
+    "O1-PASTE",
   ])
     assert.ok(ids.includes(id), id);
   assert.equal(electronLoaded(), false, "the not-run path never loads Electron or Playwright");
@@ -1263,6 +1264,11 @@ test("the checklist carries the Task 7a desktop smoke (fixture-only downloads) a
   assert.match(byId["FWR-m1"].check, /quit while sealed/i);
   assert.match(byId["T18R-04"].check, /geolocation/);
   assert.match(byId["T18R-04"].check, /display-capture/);
+  // Touch-up 3, O1: sealed auto-paste on Linux and macOS.
+  assert.match(byId["O1-PASTE"].check, /Linux/);
+  assert.match(byId["O1-PASTE"].check, /macOS/);
+  assert.match(byId["O1-PASTE"].check, /clipboard/);
+  assert.match(byId["O1-PASTE"].check, /uncaught exception/);
   // The popup check names WebRTC and the bridge in a same-origin popup (T7a-M2).
   assert.match(byId["T7a-M2"].check, /popup/);
   assert.match(byId["T7a-M2"].check, /RTCPeerConnection/);

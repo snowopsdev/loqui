@@ -4680,6 +4680,11 @@
       "connectInterrupted": "El modo sellado se activó durante el inicio de sesión, así que se detuvo. Es posible que el proveedor haya recibido una parte del inicio de sesión. No se conectó ninguna cuenta.",
       "appleUnavailable": "Esta versión no puede ejecutar el asistente local de Calendario de Apple con el modo sellado activado. Desactiva el modo sellado para conectarlo.",
       "googleGrantKept": "El modo sellado estaba activado, así que Loqui no pudo pedirle a Google que revocara su acceso al calendario. Loqui eliminó su propia copia de tu inicio de sesión, pero Google mantiene el acceso de Loqui hasta que lo quites en tu cuenta de Google. Loqui no contactará con Google por esto más tarde."
+    },
+    "paste": {
+      "title": "El modo sellado detuvo el pegado automático",
+      "copied": "El modo sellado está activado, así que Loqui no pudo pegar automáticamente. Tu texto está en el portapapeles, así que puedes pegarlo tú mismo.",
+      "notCopied": "El modo sellado está activado, así que Loqui no pudo pegar automáticamente."
     }
   },
   "setupFlow": {

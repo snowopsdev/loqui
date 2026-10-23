@@ -1056,7 +1056,18 @@ declare global {
           restoreClipboard?: boolean;
           allowClipboardFallback?: boolean;
         }
-      ) => Promise<{ success: true; pasted: boolean }>;
+      ) => Promise<
+        | { success: true; pasted: boolean }
+        // Sealed mode refused the native paste helpers (touch-up 3, O1).
+        // `copiedToClipboard`: main wrote the text to the clipboard and left it.
+        | {
+            success: false;
+            pasted: false;
+            code: "SEALED_MODE";
+            phase: "refused" | "interrupted";
+            copiedToClipboard: boolean;
+          }
+      >;
       captureSelectedText?: (options?: { probeEditable?: boolean }) => Promise<
         | {
             status: "selected";

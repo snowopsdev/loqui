@@ -4628,6 +4628,11 @@
       "connectInterrupted": "登录期间封闭模式被开启，因此登录已停止。服务提供商可能已收到部分登录信息。未连接任何账户。",
       "appleUnavailable": "此版本在封闭模式开启时无法运行 Apple 日历的本地辅助程序。关闭封闭模式即可连接。",
       "googleGrantKept": "封闭模式当时已开启，因此 Loqui 无法请求 Google 撤销其日历访问权限。Loqui 已删除自己保存的登录信息，但在你于 Google 账号中移除之前，Google 仍会保留 Loqui 的访问权限。Loqui 之后不会为此联系 Google。"
+    },
+    "paste": {
+      "title": "封闭模式停止了自动粘贴",
+      "copied": "封闭模式已开启，因此 Loqui 无法自动粘贴。您的文字已在剪贴板中，您可以自行粘贴。",
+      "notCopied": "封闭模式已开启，因此 Loqui 无法自动粘贴。"
     }
   },
   "setupFlow": {

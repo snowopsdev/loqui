@@ -4771,10 +4771,27 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async safePaste(text, options = {}) {
+    // Touch-up 3, O1: while sealed, main refuses the native paste helpers and
+    // settles with a typed result. The card says so in translated copy, and
+    // says the text is on the clipboard only when main reports it copied it.
+    const sealedPasteError = (copied) => ({
+      code: "SEALED_MODE",
+      title: "Paste Error",
+      titleKey: "sealedMode.paste.title",
+      messageKey: copied ? "sealedMode.paste.copied" : "sealedMode.paste.notCopied",
+    });
     try {
       const result = await window.electronAPI.pasteText(text, options);
+      if (result?.code === "SEALED_MODE") {
+        this.onError?.(sealedPasteError(result.copiedToClipboard === true));
+        return false;
+      }
       return result?.pasted === true;
     } catch (error) {
+      if (isSealedModeError(error)) {
+        this.onError?.(sealedPasteError(false));
+        return false;
+      }
       const message =
         error?.message ??
         (typeof error?.toString === "function" ? error.toString() : String(error));

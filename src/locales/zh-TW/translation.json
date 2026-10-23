@@ -4628,6 +4628,11 @@
       "connectInterrupted": "登入期間封閉模式被開啟，因此登入已停止。服務供應商可能已收到部分登入資訊。未連接任何帳號。",
       "appleUnavailable": "此版本在封閉模式開啟時無法執行 Apple 行事曆的本機輔助程式。關閉封閉模式即可連接。",
       "googleGrantKept": "封閉模式當時已開啟，因此 Loqui 無法要求 Google 撤銷其行事曆存取權。Loqui 已刪除自己保存的登入資訊，但在你於 Google 帳戶中移除之前，Google 仍會保留 Loqui 的存取權。Loqui 之後不會為此聯絡 Google。"
+    },
+    "paste": {
+      "title": "封閉模式停止了自動貼上",
+      "copied": "封閉模式已開啟，因此 Loqui 無法自動貼上。您的文字已在剪貼簿中，您可以自行貼上。",
+      "notCopied": "封閉模式已開啟，因此 Loqui 無法自動貼上。"
     }
   },
   "setupFlow": {

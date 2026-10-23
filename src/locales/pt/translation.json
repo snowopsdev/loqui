@@ -4680,6 +4680,11 @@
       "connectInterrupted": "O modo selado foi ativado durante o login, então ele foi interrompido. O provedor pode ter recebido parte do login. Nenhuma conta foi conectada.",
       "appleUnavailable": "Esta versão não consegue executar o assistente local do Calendário da Apple com o modo selado ativado. Desative o modo selado para conectar.",
       "googleGrantKept": "O modo selado estava ativado, então o Loqui não pôde pedir ao Google que revogasse o acesso ao calendário. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google. O Loqui não entrará em contato com o Google sobre isso depois."
+    },
+    "paste": {
+      "title": "O modo selado interrompeu a colagem automática",
+      "copied": "O modo selado está ativado, então o Loqui não pôde colar automaticamente. Seu texto está na área de transferência, então você mesmo pode colá-lo.",
+      "notCopied": "O modo selado está ativado, então o Loqui não pôde colar automaticamente."
     }
   },
   "setupFlow": {

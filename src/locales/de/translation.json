@@ -4669,6 +4669,11 @@
       "connectInterrupted": "Der abgeschottete Modus wurde während der Anmeldung eingeschaltet, daher wurde sie gestoppt. Der Anbieter hat möglicherweise einen Teil der Anmeldung erhalten. Es wurde kein Konto verbunden.",
       "appleUnavailable": "Dieser Build kann das lokale Hilfsprogramm von Apple Kalender im abgeschotteten Modus nicht ausführen. Schalte den abgeschotteten Modus aus, um zu verbinden.",
       "googleGrantKept": "Der abgeschottete Modus war aktiv, daher konnte Loqui Google nicht bitten, den Kalenderzugriff zu widerrufen. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält Loquis Zugriff, bis du ihn in deinem Google-Konto entfernst. Loqui wird Google später nicht deswegen kontaktieren."
+    },
+    "paste": {
+      "title": "Der abgeschottete Modus hat das automatische Einfügen gestoppt",
+      "copied": "Der abgeschottete Modus ist aktiv, daher konnte Loqui nicht automatisch einfügen. Dein Text ist in der Zwischenablage, sodass du ihn selbst einfügen kannst.",
+      "notCopied": "Der abgeschottete Modus ist aktiv, daher konnte Loqui nicht automatisch einfügen."
     }
   },
   "setupFlow": {

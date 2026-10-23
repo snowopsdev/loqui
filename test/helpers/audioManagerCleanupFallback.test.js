@@ -209,6 +209,54 @@ test("safePaste returns true only when the preload reports a completed paste", a
   assert.equal(await manager.safePaste("completed transcript"), true);
 });
 
+// Touch-up 3, O1: main settles a sealed auto-paste as a typed result. The
+// card is sealed copy by key, and promises the clipboard only when main says
+// it copied the text; a rejection carrying the marker promises nothing.
+test("safePaste turns main's typed sealed paste failure into translated sealed copy", async (t) => {
+  const { createManager, window } = await loadAudioManager(t, {
+    cachePrefix: "loqui-audio-sealed-paste-",
+    settingsKey: "__audioSealedPasteSettings",
+  });
+  const errors = [];
+  const manager = createManager({ onError: (error) => errors.push(error) });
+  window.electronAPI.pasteText = async () => ({
+    success: false,
+    pasted: false,
+    code: "SEALED_MODE",
+    phase: "refused",
+    copiedToClipboard: true,
+  });
+  assert.equal(await manager.safePaste("sealed words"), false);
+  window.electronAPI.pasteText = async () => ({
+    success: false,
+    pasted: false,
+    code: "SEALED_MODE",
+    phase: "refused",
+    copiedToClipboard: false,
+  });
+  assert.equal(await manager.safePaste("sealed words"), false);
+  window.electronAPI.pasteText = async () => {
+    throw new Error(
+      "Error invoking remote method 'paste-text': SealedModeError: [SEALED_MODE] Sealed mode blocked nativeLaunch to native-osascript before any socket opened; nothing was sent."
+    );
+  };
+  assert.equal(await manager.safePaste("sealed words"), false);
+  assert.deepEqual(
+    errors.map(({ code, title, titleKey, messageKey }) => ({ code, title, titleKey, messageKey })),
+    [
+      ["sealedMode.paste.copied"],
+      ["sealedMode.paste.notCopied"],
+      ["sealedMode.paste.notCopied"],
+    ].map(([messageKey]) => ({
+      code: "SEALED_MODE",
+      title: "Paste Error",
+      titleKey: "sealedMode.paste.title",
+      messageKey,
+    }))
+  );
+  for (const error of errors) assert.equal(error.description, undefined, "no raw main text");
+});
+
 test("translation cleanup failures survive successful and skipped translation for post-paste warnings", async (t) => {
   const { createManager } = await loadAudioManager(t, {
     cachePrefix: "openwhispr-translation-cleanup-warning-",

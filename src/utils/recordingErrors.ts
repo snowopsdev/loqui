@@ -1,5 +1,5 @@
 import { TFunction } from "i18next";
-import { sealedGenericMessageKey } from "./sealedModeError";
+import { isSealedModeError, sealedGenericMessageKey } from "./sealedModeError";
 
 type RecordingError = {
   code?: string;
@@ -13,13 +13,23 @@ type RecordingError = {
   /** Sealed mode: a replay outlived its hold's 30 minutes, so nothing is held now. */
   recoveryExpired?: boolean;
   description?: string;
+  /** Some cards carry main's text here instead of in `description`. */
+  message?: string;
   messageKey?: string;
   /** Toast variant; defaults to destructive for genuine failures. */
   variant?: "default" | "destructive";
 };
 
+// Touch-up 3, TS2-1: a card is sealed by its code or by main's marker in its
+// text, whatever its code. The private take's FFmpeg merge, refused while
+// sealed, reaches the card as AUDIO_CONVERSION_FAILED with main's English text.
+const isSealedRecordingError = (error: RecordingError): boolean =>
+  error.code === "SEALED_MODE" ||
+  isSealedModeError({ message: error.description }) ||
+  isSealedModeError({ message: error.message });
+
 export function getRecordingErrorTitle(error: RecordingError, t: TFunction): string {
-  if (error.code === "SEALED_MODE")
+  if (isSealedRecordingError(error))
     return t(
       error.titleKey?.startsWith("sealedMode.")
         ? error.titleKey
@@ -49,13 +59,13 @@ export function getRecordingErrorTitle(error: RecordingError, t: TFunction): str
 }
 
 export function getRecordingErrorDescription(error: RecordingError, t: TFunction): string {
-  if (error.code === "SEALED_MODE") {
+  if (isSealedRecordingError(error)) {
     // Never a raw main-process message: sealed copy is always translated, and
     // "nothing was sent" only when main refused before anything left.
     const body = t(
       error.messageKey?.startsWith("sealedMode.")
         ? error.messageKey
-        : sealedGenericMessageKey({ ...error, message: error.description })
+        : sealedGenericMessageKey({ ...error, message: error.description ?? error.message })
     );
     // T9-M1: Corti keeps an interaction until it is deleted, and the delete
     // is refused while sealed. Fix round 1, M2: a full hold dropped the oldest.

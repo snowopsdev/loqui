@@ -441,6 +441,20 @@ const MANUAL_CHECKLIST = [
       "copy and paste still work.",
   },
   {
+    id: "O1-PASTE",
+    source: "Fix-wave round 2 touch-up 3, O1 (sealed auto-paste)",
+    check:
+      "On Linux (X11, and a Wayland session: GNOME or KDE, and a wlroots compositor where " +
+      "available) and on macOS, with auto-paste on: seal, then dictate into a text field. No paste " +
+      "helper starts (no xdotool, wtype, ydotool, linux-fast-paste, osascript or macos-fast-paste " +
+      "process; the flight recorder names the refused helper under programs not started). The card " +
+      "reads 'Sealed mode stopped automatic paste' and says the text is on the clipboard, and a " +
+      "manual paste inserts the dictated text. Main logs no uncaught exception, and the next " +
+      "dictation and a selection edit still finish (the paste queue is free). Unseal: auto-paste " +
+      "works again at once. History keeps the text only when retention is on. NOT runtime-checked " +
+      "yet.",
+  },
+  {
     id: "OBS-PACKET",
     source: "Task 16 review r1 M6 (handoff: no packet to a non-loopback address)",
     check:

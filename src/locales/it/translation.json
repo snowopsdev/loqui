@@ -4680,6 +4680,11 @@
       "connectInterrupted": "La modalità sigillata è stata attivata durante l'accesso, quindi si è interrotto. Il provider potrebbe aver ricevuto una parte dell'accesso. Nessun account è stato connesso.",
       "appleUnavailable": "Questa versione non può eseguire l'helper locale di Calendario di Apple con la modalità sigillata attiva. Disattiva la modalità sigillata per connetterlo.",
       "googleGrantKept": "La modalità sigillata era attiva, quindi Loqui non ha potuto chiedere a Google di revocare il suo accesso al calendario. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google. Loqui non contatterà Google per questo in seguito."
+    },
+    "paste": {
+      "title": "La modalità sigillata ha interrotto l'incolla automatico",
+      "copied": "La modalità sigillata è attiva, quindi Loqui non ha potuto incollare automaticamente. Il tuo testo è negli appunti, quindi puoi incollarlo tu.",
+      "notCopied": "La modalità sigillata è attiva, quindi Loqui non ha potuto incollare automaticamente."
     }
   },
   "setupFlow": {

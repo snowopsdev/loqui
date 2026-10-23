@@ -159,3 +159,65 @@ test("paste-text does not schedule AutoLearn monitoring after a clipboard-only f
   assert.deepEqual(result, { success: true, pasted: false });
   assert.deepEqual(monitored, []);
 });
+
+// Touch-up 3, O1: a sealed auto-paste settles as a typed result, never a
+// rejection the renderer would show as main's text. `copiedToClipboard` is
+// main's own statement that the text is on the clipboard.
+test("paste-text settles a sealed refusal as a typed sealed result", async () => {
+  const { SealedModeError } = require("../../src/helpers/privacy/egressPolicy");
+  target.windowManager = { isOnboardingDemoActive: () => false };
+  for (const copied of [true, false]) {
+    target.clipboardManager = {
+      pasteText: async () => {
+        throw Object.assign(new SealedModeError({ task: "nativeLaunch", host: "native-xdotool" }), {
+          copiedToClipboard: copied,
+        });
+      },
+    };
+    const result = await handlers.get("paste-text")({ sender: { id: 1 } }, "sealed words");
+    assert.deepEqual(result, {
+      success: false,
+      pasted: false,
+      code: "SEALED_MODE",
+      phase: "refused",
+      copiedToClipboard: copied,
+    });
+  }
+  // Anything else still rejects as before.
+  target.clipboardManager = {
+    pasteText: async () => {
+      throw new Error("xdotool exited with code 1");
+    },
+  };
+  await assert.rejects(
+    handlers.get("paste-text")({ sender: { id: 1 } }, "words"),
+    /xdotool exited with code 1/
+  );
+});
+
+test("paste-text still copies and pastes when the macOS target activation is refused", async (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+  t.after(() => {
+    Object.defineProperty(process, "platform", platform);
+    target.textEditMonitor = null;
+  });
+  const { SealedModeError } = require("../../src/helpers/privacy/egressPolicy");
+  target.textEditMonitor = {
+    lastTargetPid: 42,
+    // Activation runs osascript, which the spawn guard refuses while sealed.
+    activateTargetPid: async () => {
+      throw new SealedModeError({ task: "nativeLaunch", host: "native-osascript" });
+    },
+  };
+  target.windowManager = { isOnboardingDemoActive: () => false, mainWindow: null };
+  const pastes = [];
+  target.clipboardManager = {
+    pasteText: async (text) => {
+      pastes.push(text);
+    },
+  };
+  const result = await handlers.get("paste-text")({ sender: { id: 1 } }, "mac words");
+  assert.deepEqual(result, { success: true, pasted: true });
+  assert.equal(pastes.length, 1, "the clipboard step still ran");
+});

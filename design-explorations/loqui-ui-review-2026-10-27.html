@@ -1240,9 +1240,11 @@ function lifeIdle() { life.set("idle"); life.showCaption(false); life.clearWords
 function lifeStart() {
   if (recording) return; clearLife(); recording = true; life.clearWords(); wi = 0;
   life.set("recording"); stateMsg("recording · 98×36"); playCue("start");
+  // A release before the 300ms bars beat must not start the stream later.
   lt(() => {
+    if (!recording) return;
     const step = () => {
-      if (wi >= RAW.length) { clearInterval(wordTimer); return; }
+      if (!recording || wi >= RAW.length) { clearInterval(wordTimer); return; }
       life.pushWord(RAW[wi], { partial: true });
       const word = RAW[wi];
       lifeTimers.push(setTimeout(() => { if (recording) life.pushWord(word); }, ms(160)));

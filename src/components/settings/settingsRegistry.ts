@@ -328,6 +328,24 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
     link
   ),
   // Privacy & Data
+  // Both open the panel; the seal itself changes only through its own switch
+  // and main's confirmation (T14-M4).
+  item(
+    "sealedMode",
+    "privacyData",
+    "settingsPage.privacy.sealed.title",
+    "settingsPage.privacy.sealed.description",
+    "sealed offline airplane network block requests privacy",
+    link
+  ),
+  item(
+    "flightRecorder",
+    "privacyData",
+    "settingsPage.privacy.recorder.title",
+    "settingsPage.privacy.recorder.subtitle",
+    "flight recorder network requests log egress export csv privacy",
+    link
+  ),
   item(
     "audioRetention",
     "privacyData",

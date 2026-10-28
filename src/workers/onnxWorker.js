@@ -1,3 +1,6 @@
+require("../helpers/privacy/egressGate").configureEgress({ isSealed: () => true });
+require("../helpers/privacy/egressBackstop").installNodeBackstop();
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");

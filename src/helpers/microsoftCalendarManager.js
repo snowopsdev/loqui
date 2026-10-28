@@ -1,5 +1,7 @@
-const { net } = require("electron");
 const debugLogger = require("./debugLogger");
+const egress = require("./privacy/egressGate");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 const MicrosoftCalendarOAuth = require("./microsoftCalendarOAuth");
 const CalendarSyncInterval = require("./calendarSyncInterval");
 const { MAX_BUFFER_MINUTES } = require("./calendarAvailability");
@@ -61,7 +63,12 @@ class MicrosoftCalendarManager {
     this.primaryOnly = true;
     this.syncRunner = new CalendarSyncInterval(
       () => this.syncEvents().then(() => this.reminderScheduler.scheduleNextMeeting()),
-      { intervalMs: 2 * 60 * 1000, maxIntervalMs: 30 * 60 * 1000, logScope: "mcal" }
+      {
+        intervalMs: 2 * 60 * 1000,
+        maxIntervalMs: 30 * 60 * 1000,
+        logScope: "mcal",
+        isSealed: () => egress.isSealed(),
+      }
     );
   }
 
@@ -81,6 +88,15 @@ class MicrosoftCalendarManager {
 
   stop() {
     this.syncRunner.stop();
+  }
+
+  // After Sealed mode turns off: re-arm the existing 2-minute schedule only.
+  // No request is made now; the next interval, focus or wake trigger syncs
+  // exactly as it would have without the seal.
+  resumeAfterSeal() {
+    this._loadAccounts();
+    if (this.accounts.size === 0) return;
+    this.syncRunner.start();
   }
 
   isConnected() {
@@ -163,6 +179,8 @@ class MicrosoftCalendarManager {
         this.databaseManager.saveMicrosoftCalendars(calendars, email);
         allCalendars.push(...calendars);
       } catch (err) {
+        // A seal ends the whole sync: no further account or calendar is tried.
+        if (isSealedModeError(err)) throw err;
         debugLogger.error("Error fetching calendars", { email, error: err.message }, "mcal");
       }
     }
@@ -180,6 +198,7 @@ class MicrosoftCalendarManager {
       try {
         await this._syncCalendar(calendar);
       } catch (err) {
+        if (isSealedModeError(err)) throw err;
         debugLogger.error(
           "Error syncing calendar",
           { calendarId: calendar.id, error: err.message },
@@ -295,6 +314,9 @@ class MicrosoftCalendarManager {
         );
         masters.set(id, master);
       } catch (err) {
+        // A sealed interruption fails the calendar's sync instead of
+        // committing bare stubs and a delta token.
+        if (isSealedModeError(err)) throw err;
         debugLogger.error(
           "Error fetching series master",
           { seriesMasterId: id, error: err.message },
@@ -397,15 +419,19 @@ class MicrosoftCalendarManager {
     const accessToken = await this.oauth.getValidAccessToken(accountEmail);
     const urlString = path.startsWith("http") ? path : `${GRAPH_API_BASE}${path}`;
 
-    const response = await net.fetch(urlString, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Prefer: 'outlook.timezone="UTC"',
+    // Gated (Task 11): refused while sealed, aborted when sealing interrupts it.
+    const response = await gatedNetFetch(
+      urlString,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Prefer: 'outlook.timezone="UTC"',
+        },
+        signal: AbortSignal.timeout(10000),
       },
-      signal: AbortSignal.timeout(10000),
-      useSessionCookies: false,
-    });
+      { task: "calendar", provider: "microsoft" }
+    );
     const text = await response.text();
     let parsed = null;
     try {

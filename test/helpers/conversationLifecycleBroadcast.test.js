@@ -115,13 +115,16 @@ function loadPreloadApi() {
     require: (s) => {
       if (s === "electron")
         return {
-          contextBridge: { exposeInMainWorld: (_n, a) => (api = a) },
+          contextBridge: {
+            executeInMainWorld: () => {},
+            exposeInMainWorld: (_n, a) => (api = a),
+          },
           ipcRenderer,
           webUtils: {},
         };
       throw new Error(`Unexpected preload dependency: ${s}`);
     },
-    process,
+    process: { ...process, isMainFrame: true },
   });
   return { api, listeners, invocations };
 }

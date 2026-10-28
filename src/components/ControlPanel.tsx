@@ -24,6 +24,7 @@ import { useHotkey } from "../hooks/useHotkey";
 
 import { AlertDialog, ConfirmDialog } from "./ui/dialog";
 import { notify } from "./ui/notices";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 
 import { useSettings } from "../hooks/useSettings";
 
@@ -74,6 +75,7 @@ import { isAccessibilitySkipped } from "../utils/permissions";
 import { getCachedPlatform } from "../utils/platform";
 import HistoryView from "./HistoryView";
 import BackgroundActionNoticeListener from "./notes/BackgroundActionNoticeListener";
+import GoogleRevokeNoticeListener from "./GoogleRevokeNoticeListener";
 import FinishDictationSetupCard from "./FinishDictationSetupCard";
 
 import { readPersistedWorkspace, writePersistedWorkspace } from "../lib/workspaceView";
@@ -629,7 +631,7 @@ export default function ControlPanel({
                       title: t("notices.cleanupFailed.title"),
                       body: cleanupError.messageKey
                         ? t(cleanupError.messageKey)
-                        : cleanupError.message,
+                        : (sealedFailureMessage(cleanupError, t) ?? cleanupError.message),
                     });
                   },
                   onEmptyTranslate: () =>
@@ -699,7 +701,9 @@ export default function ControlPanel({
                 kind: "notice",
                 id: "cleanup-failed",
                 title: t("notices.cleanupFailed.title"),
-                body: failure.messageKey ? t(failure.messageKey) : failure.message,
+                body: failure.messageKey
+                  ? t(failure.messageKey)
+                  : (sealedFailureMessage(failure, t) ?? failure.message),
               });
             }
           }
@@ -751,7 +755,9 @@ export default function ControlPanel({
           notify({
             kind: "alert",
             title: t("controlPanel.history.retryError"),
-            body: result.messageKey ? t(result.messageKey) : result.error,
+            body: result.messageKey
+              ? t(result.messageKey)
+              : (sealedFailureMessage(result, t) ?? result.error),
           });
         }
       } catch {
@@ -1114,6 +1120,7 @@ export default function ControlPanel({
           </main>
         </div>
         <BackgroundActionNoticeListener />
+        <GoogleRevokeNoticeListener />
       </WorkspacePresentation>
     </WorkspaceNavigationProvider>
   );

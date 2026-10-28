@@ -5,6 +5,88 @@ const path = require("path");
 const debugLogger = require("./debugLogger");
 const { createAbortError } = require("./abortError");
 
+// The only production filter graph: resample/format existing audio streams,
+// then concatenate them. No filter may open its own file, socket or script.
+function audioMergeFilter(inputCount) {
+  const inputs = Array.from(
+    { length: inputCount },
+    (_, index) =>
+      `[${index}:a]aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono[s${index}]`
+  );
+  const labels = Array.from({ length: inputCount }, (_, index) => `[s${index}]`).join("");
+  return [...inputs, `${labels}concat=n=${inputCount}:v=0:a=1[out]`].join(";");
+}
+
+// FFmpeg's per-input whitelist is defense in depth, never native isolation.
+// Reject alternate spellings/overrides and dynamic output protocols rather
+// than accepting a whitelist somewhere else in the command line.
+function localOnlyInputs(args) {
+  const fail = () => {
+    throw Object.assign(new Error("FFmpeg requires file,pipe inputs and local outputs"), {
+      code: "FFMPEG_UNSAFE_INPUT",
+    });
+  };
+  if (!Array.isArray(args) || args.some((a) => typeof a !== "string" || a.includes("\0"))) fail();
+  const inputCount = args.filter((arg) => arg === "-i").length;
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    // Input whitelists do not constrain filter-created inputs. Accept only
+    // our generated graph, before FFmpeg can interpret quotes/escapes/URLs.
+    // Reject aliases, stream suffixes, scripts and option values read from files.
+    if (/^-\//.test(arg)) fail();
+    if (/^-(?:filter|lavfi|[av]f(?:$|[:=]))/i.test(arg)) {
+      if (
+        arg !== "-filter_complex" ||
+        inputCount === 0 ||
+        args[i + 1] !== audioMergeFilter(inputCount)
+      )
+        fail();
+      out.push(arg, args[++i]);
+      continue;
+    }
+    if (/^-f[:=]/i.test(arg) || (arg === "-f" && /^lavfi$/i.test(args[i + 1] ?? ""))) fail();
+    // Muxer/filter values can embed protocols without // (tee/udp, movie,
+    // concat, etc.). Input restrictions must not become output authorization.
+    if (
+      /(?:^|[^a-z0-9+.-])(?:https?|tcp|udp|tls|rtmp[a-z]*|rtsp|srt|rist|ftps?|smb|ssh|unix|zmq|amqp|crypto|concatf?|subfile|data|fd):/i.test(
+        arg
+      )
+    )
+      fail();
+    if (/^-protocol_/i.test(arg)) {
+      if (arg !== "-protocol_whitelist" || args[i + 1] !== "file,pipe" || args[i + 2] !== "-i")
+        fail();
+      out.push(arg, args[++i]);
+      continue;
+    }
+    if (
+      /^-(?:hls|segment_list|tee|filter_script|filter_complex_script|attach|dump_attachment)/i.test(
+        arg
+      )
+    )
+      fail();
+    if (arg === "-f" && /^(?:tee|hls|dash)$/i.test(args[i + 1] ?? "")) fail();
+    // Windows drive paths are files; all other protocol-looking values must
+    // use file or a numeric pipe descriptor. Includes embedded tee URLs.
+    const protocols = arg.matchAll(/(?:^|[^a-z0-9+.-])([a-z][a-z0-9+.-]*):/gi);
+    for (const match of protocols) {
+      const scheme = match[1].toLowerCase();
+      if (/^[a-z]:[\\/]/i.test(arg) && match.index === 0) continue;
+      if (!["file", "pipe"].includes(scheme) && !arg.startsWith("-") && !arg.startsWith("["))
+        fail();
+      if (arg.includes("://") && scheme !== "file") fail();
+    }
+    if (arg === "-i") {
+      if (!args[i + 1] || args[i + 1].startsWith("-")) fail();
+      if (out.at(-2) !== "-protocol_whitelist" || out.at(-1) !== "file,pipe")
+        out.push("-protocol_whitelist", "file,pipe");
+    }
+    out.push(arg);
+  }
+  return out;
+}
+
 let cachedFFmpegPath = null;
 
 function getFFmpegPath() {
@@ -129,7 +211,7 @@ function runFFmpegConversion(args, outputPath, { signal } = {}) {
       return;
     }
 
-    const proc = spawn(ffmpegPath, [...args, "-y", outputPath], {
+    const proc = spawn(ffmpegPath, localOnlyInputs([...args, "-y", outputPath]), {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -401,7 +483,7 @@ function splitAudioFile(inputPath, outputDir, options = {}) {
       audioBitrate,
     });
 
-    const proc = spawn(ffmpegPath, args, {
+    const proc = spawn(ffmpegPath, localOnlyInputs(args), {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -472,7 +554,7 @@ async function decodePrivatePcm(audioBuffer, { signal } = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       binary,
-      [
+      localOnlyInputs([
         "-nostdin",
         "-i",
         "pipe:0",
@@ -486,7 +568,7 @@ async function decodePrivatePcm(audioBuffer, { signal } = {}) {
         "-f",
         "s16le",
         "pipe:1",
-      ],
+      ]),
       {
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
@@ -591,19 +673,11 @@ async function mergeAudioSegments(segments, options = {}) {
       return inputPath;
     });
 
-    const filters = inputPaths.map(
-      (_, index) =>
-        `[${index}:a]aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono[s${index}]`
-    );
-    filters.push(
-      `${inputPaths.map((_, index) => `[s${index}]`).join("")}concat=n=${inputPaths.length}:v=0:a=1[out]`
-    );
-
     await new Promise((resolve, reject) => {
       const args = inputPaths.flatMap((inputPath) => ["-i", inputPath]);
       args.push(
         "-filter_complex",
-        filters.join(";"),
+        audioMergeFilter(inputPaths.length),
         "-map",
         "[out]",
         "-c:a",
@@ -613,7 +687,7 @@ async function mergeAudioSegments(segments, options = {}) {
         "-y",
         outputPath
       );
-      const proc = spawn(ffmpegPath, args, {
+      const proc = spawn(ffmpegPath, localOnlyInputs(args), {
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       });
@@ -645,6 +719,8 @@ function clearCache() {
 }
 
 module.exports = {
+  localOnlyInputs,
+  splitAudioFile,
   getFFmpegPath,
   isWavFormat,
   parseWavFormat,

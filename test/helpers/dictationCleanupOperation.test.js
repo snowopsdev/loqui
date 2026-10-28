@@ -1,3 +1,5 @@
+// Provider transports are gated (Sealed mode, Plan 07); these tests run unsealed.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -81,11 +83,12 @@ async function fixture(t, { private: isPrivate = true } = {}) {
   // binary, profile, keychain, filesystem-backed credential or provider is used.
   let api;
   vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, "../../preload.js"), "utf8"), {
-    process,
+    process: { ...process, isMainFrame: true },
     require: (name) => {
       assert.equal(name, "electron");
       return {
         contextBridge: {
+          executeInMainWorld: () => {},
           exposeInMainWorld: (_, value) => {
             api = value;
           },

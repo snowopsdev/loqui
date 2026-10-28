@@ -18,14 +18,16 @@ function checkVerification(execution) {
     throw new DOMException("The connection test timed out.", "TimeoutError");
 }
 
-const verificationFetch = (execution) => (input, init) => {
+// Composed over main's metered transport when one is supplied (Sealed mode),
+// so captured SDK, ADC and auth requests are each gated and recorded.
+const verificationFetch = (execution, fetchImpl) => (input, init) => {
   checkVerification(execution);
   const signal =
     init?.signal && init.signal !== execution.signal
       ? AbortSignal.any([execution.signal, init.signal])
       : execution.signal;
   signal.throwIfAborted();
-  return fetch(input, { ...init, signal, redirect: "error" });
+  return (fetchImpl || fetch)(input, { ...init, signal, redirect: "error" });
 };
 
 async function getEnterpriseAIModel(
@@ -73,11 +75,11 @@ async function getEnterpriseAIModel(
   checkVerification(verification);
   switch (provider) {
     case "bedrock":
-      return createBedrockModel(model, enterprise, verification);
+      return createBedrockModel(model, enterprise, verification, fetchImpl);
     case "azure":
-      return createAzureModel(model, apiKey, enterprise, verification);
+      return createAzureModel(model, apiKey, enterprise, verification, fetchImpl);
     case "vertex":
-      return createVertexModel(model, apiKey, enterprise, verification);
+      return createVertexModel(model, apiKey, enterprise, verification, fetchImpl);
     default:
       throw new Error(`Unsupported enterprise provider: ${provider}`);
   }
@@ -132,7 +134,7 @@ async function createExplicitModel(provider, model, apiKey, executor, material, 
   throw new Error("Unsupported enterprise provider");
 }
 
-async function createBedrockModel(model, enterprise, execution) {
+async function createBedrockModel(model, enterprise, execution, fetchImpl) {
   checkVerification(execution);
   const { createAmazonBedrock } = require("@ai-sdk/amazon-bedrock");
   const region = enterprise?.bedrockRegion || "us-east-1";
@@ -216,7 +218,7 @@ async function createBedrockModel(model, enterprise, execution) {
           apiKey: "",
           accessKeyId: "",
           secretAccessKey: "",
-          fetch: verificationFetch(execution),
+          fetch: verificationFetch(execution, fetchImpl),
         }
       : {}),
     ...(credentials
@@ -229,7 +231,7 @@ async function createBedrockModel(model, enterprise, execution) {
   })(model);
 }
 
-function createAzureModel(model, apiKey, enterprise, execution) {
+function createAzureModel(model, apiKey, enterprise, execution, fetchImpl) {
   checkVerification(execution);
   const { createAzure } = require("@ai-sdk/azure");
   if (!apiKey || !enterprise?.azureEndpoint)
@@ -242,11 +244,11 @@ function createAzureModel(model, apiKey, enterprise, execution) {
     apiKey,
     baseURL: enterprise.azureEndpoint,
     apiVersion: enterprise.azureApiVersion || "2024-10-21",
-    ...(enterprise.frozenCredentials ? { fetch: verificationFetch(execution) } : {}),
+    ...(enterprise.frozenCredentials ? { fetch: verificationFetch(execution, fetchImpl) } : {}),
   })(model);
 }
 
-async function createVertexModel(model, apiKey, enterprise, execution) {
+async function createVertexModel(model, apiKey, enterprise, execution, fetchImpl) {
   checkVerification(execution);
   const { createVertex } = require("@ai-sdk/google-vertex");
   if (enterprise?.vertexAuthSource === "apiKey") {
@@ -256,7 +258,7 @@ async function createVertexModel(model, apiKey, enterprise, execution) {
     checkVerification(execution);
     return createVertex({
       apiKey: effectiveKey,
-      ...(enterprise.frozenCredentials ? { fetch: verificationFetch(execution) } : {}),
+      ...(enterprise.frozenCredentials ? { fetch: verificationFetch(execution, fetchImpl) } : {}),
     })(model);
   }
   if (enterprise?.vertexAuthSource === "adc") {
@@ -351,7 +353,7 @@ async function createVertexModel(model, apiKey, enterprise, execution) {
         scopes: ["https://www.googleapis.com/auth/cloud-platform"],
         clientOptions: {
           transporterOptions: {
-            fetchImplementation: verificationFetch(execution),
+            fetchImplementation: verificationFetch(execution, fetchImpl),
             maxRedirects: 0,
             signal: execution.signal,
             retry: false,
@@ -381,7 +383,9 @@ async function createVertexModel(model, apiKey, enterprise, execution) {
       apiKey: "",
       project: enterprise.vertexProject,
       location: enterprise.vertexLocation || "us-central1",
-      ...(googleAuthOptions ? { googleAuthOptions, fetch: verificationFetch(execution) } : {}),
+      ...(googleAuthOptions
+        ? { googleAuthOptions, fetch: verificationFetch(execution, fetchImpl) }
+        : {}),
     })(model);
   }
   throw new Error("Choose a supported Vertex authentication source.");

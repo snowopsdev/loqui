@@ -1,3 +1,5 @@
+import { sealedFailureMessage } from "../utils/sealedModeError";
+
 // UI dependencies load lazily; the operation itself is captured BEFORE this await.
 async function loadDefaultDeps() {
   const [{ default: i18n }, { notify }, { writeClipboardText }] = await Promise.all([
@@ -47,7 +49,10 @@ export async function retryDictationCleanup(rawText, deps) {
       id: "cleanup-recovery",
       kind: "alert",
       title: t("notices.cleanupFailed.retryFailed"),
-      body: error?.messageKey ? t(error.messageKey) : String(error?.message ?? error),
+      // A sealed refusal shows translated copy, never main's English text (TR-1).
+      body: error?.messageKey
+        ? t(error.messageKey)
+        : (sealedFailureMessage(error, t) ?? String(error?.message ?? error)),
       words: rawText,
     });
     return "failed";

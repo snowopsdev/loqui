@@ -9,6 +9,12 @@ const AssemblyAiStreaming = require("../../src/helpers/assemblyAiStreaming");
 const CortiStreaming = require("../../src/helpers/cortiStreaming");
 const { GeminiLiveStreaming } = require("../../src/helpers/geminiLiveStreaming");
 
+const { fixtureRecording } = require("./harness/realtimeRecording");
+const REC = fixtureRecording();
+
+// Task 9a: this fixture models an unsealed main; its sockets are ordinary connections.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+
 // Loopback provider: the first socket completes its handshake at once; the next
 // one answers late, so the previous socket's close event (one round trip after
 // cleanup()) arrives while the replacement is still connecting. That is what a
@@ -145,7 +151,7 @@ test("a Deepgram liveness reconnect survives the unresponsive warm socket's clos
   try {
     await streaming.warmup({ token: "key", mode: "byok" });
     await streaming.connect({ token: "key", mode: "byok" });
-    streaming.sendAudio(Buffer.alloc(3200));
+    streaming.sendAudio(Buffer.alloc(3200), REC);
     t.mock.timers.tick(2501);
     while (sockets < 2) await new Promise((resolve) => setImmediate(resolve));
     await new Promise((resolve) => setImmediate(resolve));
@@ -177,7 +183,7 @@ test("a Gemini Live disconnect does not wait out the turn-end budget when the so
   streaming.buildWebSocketUrl = () => `ws://127.0.0.1:${server.address().port}`;
   try {
     await streaming.connect({ token: "key", mode: "byok" });
-    streaming.sendAudio(Buffer.alloc(3200));
+    streaming.sendAudio(Buffer.alloc(3200), REC);
     streaming.finalize();
     const started = Date.now();
     await streaming.disconnect();

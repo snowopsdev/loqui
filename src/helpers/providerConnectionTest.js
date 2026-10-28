@@ -158,9 +158,9 @@ function buildModelEndpoints(base) {
   });
 }
 
-function resolveProviderRequest(config, environment = process.env) {
+// Credential-free: the endpoints a test would contact, or a ConnectionTestError.
+function resolveEndpoints(config, environment = process.env) {
   const provider = String(config?.provider || "").toLowerCase();
-  const apiKey = typeof config?.apiKey === "string" ? config.apiKey.trim() : "";
   let endpoints = ENDPOINTS[provider] ? [ENDPOINTS[provider]] : [];
 
   if (provider === "openai") {
@@ -199,6 +199,35 @@ function resolveProviderRequest(config, environment = process.env) {
       "Connection testing is not available for this provider."
     );
   }
+  return endpoints;
+}
+
+const UNKNOWN_TARGET = "https://unknown-provider.invalid";
+// Sealed mode admits a test at the endpoint it would contact first, before any
+// stored credential is read. A config that cannot be resolved is unknown, which
+// is remote (refused while sealed); it would fail validation without sending.
+function connectionTestTarget(config, environment = process.env) {
+  if (
+    String(config?.provider || "").toLowerCase() === "corti" &&
+    config?.scope === "transcription"
+  ) {
+    const region = config.environment || "us";
+    const tenant = String(config.tenant || "").trim() || "base";
+    return ["eu", "us"].includes(region) && /^[a-zA-Z0-9_-]+$/.test(tenant)
+      ? `https://auth.${region}.corti.app/realms/${tenant}/protocol/openid-connect/token`
+      : UNKNOWN_TARGET;
+  }
+  try {
+    return resolveEndpoints(config, environment)[0];
+  } catch {
+    return UNKNOWN_TARGET;
+  }
+}
+
+function resolveProviderRequest(config, environment = process.env) {
+  const provider = String(config?.provider || "").toLowerCase();
+  const apiKey = typeof config?.apiKey === "string" ? config.apiKey.trim() : "";
+  const endpoints = resolveEndpoints(config, environment);
   if (!apiKey && provider !== "custom") {
     throw new ConnectionTestError("apiKeyRequired", "Add an API key before testing.");
   }
@@ -340,4 +369,10 @@ async function testProviderConnection(config, fetchImpl = fetch, environment = p
   return { success: false, ...failure };
 }
 
-module.exports = { isSealedRefusal, isPrivateHost, resolveProviderRequest, testProviderConnection };
+module.exports = {
+  isSealedRefusal,
+  isPrivateHost,
+  resolveProviderRequest,
+  connectionTestTarget,
+  testProviderConnection,
+};

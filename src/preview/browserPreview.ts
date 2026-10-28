@@ -1,4 +1,5 @@
 import { createPreviewTable } from "./previewTable";
+import { createPreviewPrivacyAPI } from "./previewPrivacy";
 import { normalizeRouteVerificationOptions } from "../helpers/routeVerificationOptions.mjs";
 import type { NoteItem, SpaceItem, TranscriptionItem } from "../types/electron";
 import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes";
@@ -233,6 +234,7 @@ function createBrowserPreviewAPI(
     },
     credentials,
     keyring,
+    privacy: createPreviewPrivacyAPI(),
     updates: {
       status: async () => ({ ...updateStatus }),
       preferences: async (patch) => {

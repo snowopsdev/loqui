@@ -96,6 +96,7 @@ Module._load = function loadWithMocks(request, parent, isMain) {
     }
     if (request === "./tinfoilTranscription") {
       return {
+        TINFOIL_TRANSCRIPTION_TARGET: "https://inference.tinfoil.sh",
         transcribeWithTinfoil: async (opts) => {
           tinfoilCalls.push(opts);
           return { text: "tinfoil text", model: "tinfoil-model" };
@@ -133,6 +134,12 @@ Module._load = function loadWithMocks(request, parent, isMain) {
       "./streamingHandOff",
       "../models/modelRegistryData.json",
       "fs",
+      // Task 9: the real gate and the moved multipart transport.
+      "./privacy/egressGate",
+      "./privacy/gatedFetch",
+      "./privacy/egressPolicy",
+      "./privacy/providerEndpoints",
+      "./sttTransport",
     ]);
     if (
       !allowed.has(request) &&
@@ -190,6 +197,13 @@ function buildFakeThis() {
     get: (t, prop) => (prop in t ? t[prop] : anything()),
   });
 }
+
+// The speech handlers now run through the real egress gate (Task 9), which
+// defaults sealed; these cases model an unsealed main. Sealed behaviour is
+// covered by sttTransportSealed.test.js.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+// The gated transport normalizes headers into a Headers object.
+const header = (call, name) => new Headers(call.init.headers).get(name);
 
 let retryHandler;
 test.before(() => {
@@ -266,8 +280,8 @@ test("retry: Azure custom endpoints get deployment URLs and api-key auth", async
   assert.equal(result.success, true);
   assert.equal(fetches.length, 1);
   assert.match(fetches[0].url, /myres\.openai\.azure\.com\/openai\/deployments\/my-deployment/);
-  assert.equal(fetches[0].init.headers["api-key"], "ck-custom");
-  assert.equal(fetches[0].init.headers.Authorization, undefined);
+  assert.equal(header(fetches[0], "api-key"), "ck-custom");
+  assert.equal(header(fetches[0], "authorization"), null);
 });
 
 test("retry: plain custom endpoints use Bearer auth at the configured URL", async () => {
@@ -281,7 +295,7 @@ test("retry: plain custom endpoints use Bearer auth at the configured URL", asyn
   });
   assert.equal(result.success, true);
   assert.equal(fetches[0].url, "https://stt.parasail.example.com/v1/audio/transcriptions");
-  assert.equal(fetches[0].init.headers.Authorization, "Bearer ck-custom");
+  assert.equal(header(fetches[0], "authorization"), "Bearer ck-custom");
 });
 
 const CUSTOM_SETTINGS = {
@@ -402,7 +416,7 @@ test("retry: mistral goes to Mistral with x-api-key", async () => {
   });
   assert.equal(result.success, true);
   assert.match(fetches[0].url, /api\.mistral\.ai/);
-  assert.equal(fetches[0].init.headers["x-api-key"], "mk-mistral");
+  assert.equal(header(fetches[0], "x-api-key"), "mk-mistral");
 });
 
 test("proxy transcription handlers resolve to structured errors instead of rejecting", async () => {
@@ -460,8 +474,8 @@ test("upload: mistral sends x-api-key with a provider-validated model and no lan
   });
   assert.equal(result.success, true);
   assert.match(fetches[0].url, /api\.mistral\.ai/);
-  assert.equal(fetches[0].init.headers["x-api-key"], "mk-mistral");
-  assert.equal(fetches[0].init.headers.Authorization, undefined);
+  assert.equal(header(fetches[0], "x-api-key"), "mk-mistral");
+  assert.equal(header(fetches[0], "authorization"), null);
   const body = fetches[0].init.body.toString();
   assert.match(body, /voxtral-mini-latest/);
   assert.doesNotMatch(body, /name="language"/);
@@ -479,7 +493,7 @@ test("upload: openai diarization fields ride the route, Bearer auth", async () =
     transcriptionMode: "providers",
   });
   assert.equal(result.success, true);
-  assert.equal(fetches[0].init.headers.Authorization, "Bearer sk-openai");
+  assert.equal(header(fetches[0], "authorization"), "Bearer sk-openai");
   const body = fetches[0].init.body.toString();
   assert.match(body, /gpt-4o-transcribe-diarize/);
   assert.match(body, /diarized_json/);
@@ -659,7 +673,7 @@ test("captured audio uses only the stored provider key, preserves byte offsets, 
     language: "de",
   });
   assert.equal(result.success, true);
-  assert.equal(fetches[0].init.headers.Authorization, "Bearer sk-openai");
+  assert.equal(header(fetches[0], "authorization"), "Bearer sk-openai");
   const body = fetches[0].init.body;
   assert.ok(body.includes(WAV_BUFFER));
   assert.ok(!body.includes("private-prefix"));

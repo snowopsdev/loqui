@@ -4,10 +4,19 @@ const FOCUS_SYNC_THROTTLE_MS = 30 * 1000;
 
 // Interval runner for calendar REST providers: exponential backoff on
 // consecutive failures (intervalMs × 2 per failure, capped at maxIntervalMs)
-// and a 30s throttle on focus-triggered syncs.
+// and a 30s throttle on focus-triggered syncs. While sealed it never arms,
+// ticks or focus-syncs, whichever path asks it to (Task 11); an unreadable
+// seal state counts as sealed.
 class CalendarSyncInterval {
-  constructor(syncFn, { intervalMs, maxIntervalMs, logScope }) {
+  constructor(syncFn, { intervalMs, maxIntervalMs, logScope, isSealed = () => false }) {
     this.syncFn = syncFn;
+    this.isSealed = () => {
+      try {
+        return isSealed() !== false;
+      } catch {
+        return true;
+      }
+    };
     this.intervalMs = intervalMs;
     this.maxIntervalMs = maxIntervalMs;
     this.logScope = logScope;
@@ -37,6 +46,7 @@ class CalendarSyncInterval {
   }
 
   syncOnFocus() {
+    if (this.isSealed()) return;
     const now = Date.now();
     if (now - this._lastFocusSync < FOCUS_SYNC_THROTTLE_MS) return;
     this._lastFocusSync = now;
@@ -50,6 +60,8 @@ class CalendarSyncInterval {
 
   _schedule() {
     if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    if (this.isSealed()) return;
 
     const interval = this._getInterval();
     debugLogger.info(
@@ -59,6 +71,11 @@ class CalendarSyncInterval {
     );
 
     this.timer = setInterval(() => {
+      // A seal that lands between ticks: stop instead of syncing.
+      if (this.isSealed()) {
+        this.stop();
+        return;
+      }
       this.syncFn()
         .then(() => this.notifySuccess())
         .catch((err) => {

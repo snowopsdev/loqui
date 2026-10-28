@@ -37,7 +37,8 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
       {
         module,
         exports: module.exports,
-        process,
+        // Only the preload runs in a renderer frame; main modules never see isMainFrame (T7a-M4).
+        process: relative === "preload.js" ? { ...process, isMainFrame: true } : { ...process },
         Date,
         setTimeout,
         clearTimeout,
@@ -100,6 +101,8 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
     electron,
     "./onboardingInputPolicy": policy,
     "./onboardingCleanupRelay": require("../../../src/helpers/onboardingCleanupRelay"),
+    // Real pure policy: an inert stand-in would make every error look sealed.
+    "./privacy/egressPolicy": require("../../../src/helpers/privacy/egressPolicy"),
     "./onboardingDemoAdmission": {
       createOnboardingDemoAdmission: (options) =>
         require("../../../src/helpers/onboardingDemoAdmission").createOnboardingDemoAdmission({
@@ -127,6 +130,7 @@ function bridgeFixture({ localReasoning, admissionOwner = true, admissionTimeout
     load("preload.js", {
       electron: {
         contextBridge: {
+          executeInMainWorld: () => {},
           exposeInMainWorld: (_, value) => {
             exposed = value;
           },

@@ -417,6 +417,57 @@ test("cancelling an optional drafter does not complete the model download", asyn
   );
 });
 
+// Fix round 1 (M1): sealing interrupts the optional drafter. That is not a
+// completed download: it fails like the main file would, and the partial
+// drafter download stays on disk for a later resume.
+test("a sealed drafter interruption fails the download and keeps its partial file", async (t) => {
+  const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "openwhispr-drafter-sealed-"));
+  electronHome = tmpHome;
+  t.after(() => fs.rm(tmpHome, { recursive: true, force: true }));
+  const { SealedModeError, sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
+
+  let downloadCount = 0;
+  const modelManager = loadModelManager({
+    checkDiskSpace: async () => ({ ok: true, availableBytes: Number.MAX_SAFE_INTEGER }),
+    downloadFile: async (_url, destination) => {
+      downloadCount += 1;
+      if (downloadCount % 2 === 1) {
+        await fs.writeFile(destination, Buffer.alloc(1_000_001));
+        return;
+      }
+      // What downloadFile does on a seal: keep `<dest>.tmp`, reject interrupted.
+      await fs.writeFile(`${destination}.tmp`, Buffer.alloc(4096));
+      throw Object.assign(
+        new SealedModeError({
+          task: "modelDownload",
+          host: "huggingface.co",
+          phase: "interrupted",
+        }),
+        { keptBytes: 4096 }
+      );
+    },
+  });
+  const model = modelRegistryData.localProviders
+    .flatMap((provider) => provider.models)
+    .find((candidate) => candidate.draftFileName);
+  const draftPath = () => path.join(modelManager.modelsDir, model.draftFileName);
+
+  const error = await modelManager.downloadModel(model.id).catch((e) => e);
+  assert.ok(error instanceof Error, "never a success");
+  assert.equal(sealedPhaseOf(error), "interrupted");
+  assert.equal((await fs.stat(`${draftPath()}.tmp`)).size, 4096, "partial drafter kept");
+  assert.equal(await modelManager.checkFileExists(draftPath()), false);
+
+  // Through the production IPC handler: a failure, never "complete".
+  await fs.rm(path.join(modelManager.modelsDir, model.fileName), { force: true });
+  const { handleDownload, events } = await loadModelDownloadHandler(modelManager);
+  const result = await handleDownload({}, model.id);
+  assert.equal(result.success, false);
+  assert.equal(sealedPhaseOf({ message: result.error }), "interrupted");
+  const terminal = events.filter((event) => event.type !== "progress").map((e) => e.type);
+  assert.deepEqual(terminal, ["error"]);
+});
+
 test("downloadModel rejects a duplicate local model download", async (t) => {
   const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "openwhispr-duplicate-download-"));
   electronHome = tmpHome;

@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useDialogs } from "./useDialogs";
 import { notify } from "../components/ui/notices";
@@ -9,6 +8,7 @@ import type {
   WhisperDownloadProgressData,
 } from "../types/electron";
 import { clearMissingLocalModelSelections } from "../stores/settingsStore";
+import { getDownloadErrorMessage } from "../utils/modelDownloadErrorMessage";
 import "../types/electron";
 
 const PROGRESS_THROTTLE_MS = 100;
@@ -53,32 +53,6 @@ export function formatETA(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${Math.round(seconds % 60)}s`;
-}
-
-function getDownloadErrorMessage(t: TFunction, error: string, code?: string): string {
-  if (code === "EXTRACTION_FAILED" || error.includes("installation failed")) {
-    return t("hooks.modelDownload.errors.extractionFailed");
-  }
-  if (code === "TLS_ERROR" || error.includes("certificate") || error.includes("issuer")) {
-    return t("hooks.modelDownload.errors.tlsError");
-  }
-  if (code === "ETIMEDOUT" || error.includes("timeout") || error.includes("stalled")) {
-    return t("hooks.modelDownload.errors.timeout");
-  }
-  if (code === "ENOTFOUND" || error.includes("ENOTFOUND")) {
-    return t("hooks.modelDownload.errors.notFound");
-  }
-  if (error.includes("disk space")) return error;
-  if (error.includes("corrupted") || error.includes("incomplete") || error.includes("too small")) {
-    return t("hooks.modelDownload.errors.corrupted");
-  }
-  if (error.includes("HTTP 429") || error.includes("rate limit")) {
-    return t("hooks.modelDownload.errors.rateLimited");
-  }
-  if (error.includes("HTTP 4") || error.includes("HTTP 5")) {
-    return t("hooks.modelDownload.errors.server", { error });
-  }
-  return t("hooks.modelDownload.errors.generic", { error });
 }
 
 function isCancellation(error?: string, code?: string) {
@@ -359,7 +333,8 @@ export function useModelDownload({
           const message = getDownloadErrorMessage(
             t,
             result?.error || t("hooks.modelDownload.errors.unknown"),
-            result?.code
+            result?.code,
+            (result as { phase?: string } | undefined)?.phase
           );
           setDownloadErrors((current) => ({ ...current, [modelId]: message }));
           showAlertDialog({
@@ -373,7 +348,11 @@ export function useModelDownload({
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         if (!isCancellation(errorMessage)) {
-          const message = getDownloadErrorMessage(t, errorMessage);
+          const message = getDownloadErrorMessage(
+            t,
+            errorMessage,
+            (error as { code?: string } | null)?.code
+          );
           setDownloadErrors((current) => ({ ...current, [modelId]: message }));
           showAlertDialog({
             title: t("hooks.modelDownload.downloadFailed.title"),

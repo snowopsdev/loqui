@@ -26,7 +26,20 @@ function trackUpdateActivity(ipcMain) {
     },
   };
 }
-function attachUpdateIPC({ app, ipcMain, BrowserWindow, updater, busy, activity, teardown }) {
+function attachUpdateIPC({
+  app,
+  ipcMain,
+  BrowserWindow,
+  updater,
+  busy,
+  activity,
+  teardown,
+  // Main's live seal state; the default is the gate's own fail-closed predicate.
+  sealed = () => require("./privacy/egressGate").isSealed(),
+  assertRestartAllowed = () => {
+    if (require("./privacy/egressGate").isSealed()) throw new Error("NATIVE_BOUNDARY_UNAVAILABLE");
+  },
+}) {
   const product = require("../config/product.json");
   const [owner, repo] = product.repository.split("/");
   const fs = require("node:fs");
@@ -50,6 +63,7 @@ function attachUpdateIPC({ app, ipcMain, BrowserWindow, updater, busy, activity,
     BrowserWindow.getAllWindows().some((w) => w.webContents === event.sender) &&
     /^(file:|http:\/\/localhost:)/.test(event.sender.getURL());
   const prepare = async () => {
+    assertRestartAllowed();
     activity.lock(true);
     try {
       const windows = BrowserWindow.getAllWindows().filter(
@@ -91,8 +105,11 @@ function attachUpdateIPC({ app, ipcMain, BrowserWindow, updater, busy, activity,
       (process.platform === "darwin" || (process.platform === "linux" && !!process.env.APPIMAGE)),
     busy,
     prepare,
+    sealed,
     install: async () => {
+      assertRestartAllowed();
       await teardown();
+      assertRestartAllowed();
       updater.quitAndInstall();
     },
   });
@@ -106,6 +123,7 @@ function attachUpdateIPC({ app, ipcMain, BrowserWindow, updater, busy, activity,
   handle("check", () => manager.check(true));
   handle("setup-complete", () => manager.completeSetup());
   handle("restart", async () => {
+    assertRestartAllowed();
     try {
       return await manager.restart();
     } catch (error) {

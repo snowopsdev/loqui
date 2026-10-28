@@ -728,7 +728,7 @@
       "cloud": "Cloud",
       "local": "Locale",
       "enterprise": "Aziendale",
-      "localDescription": "Funziona sul tuo dispositivo. Privacy completa, funziona offline.",
+      "localDescription": "Funziona sul tuo dispositivo, anche offline.",
       "cloudDescription": "Modelli avanzati via API. Veloci e potenti, richiedono internet.",
       "enterpriseDescription": "Usa le credenziali cloud della tua organizzazione."
     },
@@ -1533,7 +1533,7 @@
         "local": "Locale",
         "selfHosted": "Self-hosted",
         "providersDesc": "Usa la tua chiave API.",
-        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
+        "localDesc": "Viene eseguito su questo dispositivo. Loqui non invia i tuoi contenuti a nessun fornitore.",
         "selfHostedDesc": "Il tuo server nella tua rete.",
         "enterprise": "Enterprise",
         "enterpriseDesc": "Usa l'account cloud della tua organizzazione (AWS, Azure, GCP)."
@@ -1922,7 +1922,137 @@
       "clearAllAudioDone": "Audio salvato eliminato",
       "clearAllAudioFailed": "Non tutto l'audio salvato è stato eliminato. Riprova o verifica che nessun'altra app stia usando i file.",
       "audioStorageChecking": "Controllo dell'audio salvato…",
-      "audioStorageUnavailable": "Loqui non è riuscito a leggere la cartella audio, quindi ora non può mostrare né cancellare l'audio salvato."
+      "audioStorageUnavailable": "Loqui non è riuscito a leggere la cartella audio, quindi ora non può mostrare né cancellare l'audio salvato.",
+      "sealed": {
+        "title": "Modalità sigillata",
+        "description": "Quando è attiva, Loqui blocca le proprie richieste verso altri computer, inclusi percorsi cloud, download, aggiornamenti e calendari. In questa versione i motori locali non possono ancora essere isolati, quindi non sono disponibili mentre la modalità sigillata è attiva.",
+        "checking": "Verifica della modalità sigillata…",
+        "on": "La modalità sigillata è attiva. Loqui blocca le proprie richieste verso altri computer.",
+        "buildLimit": "La modalità sigillata non è completamente disponibile in questa versione: i motori locali non possono ancora essere isolati, quindi non vengono eseguiti mentre è attiva. I percorsi che li usano risultano non disponibili.",
+        "statusChecking": "Verifica dello stato della modalità sigillata…",
+        "scope": "La modalità sigillata copre le richieste che Loqui fa direttamente. Il browser, le altre app e il sistema operativo ne restano fuori, e i link si aprono in essi solo dopo la tua conferma.",
+        "forwarders": "Anche i programmi che avvii tu, come un proxy, un inoltro di porte o uno strumento SOCKS o di tunnel, restano fuori dalla modalità sigillata. Mentre è attiva, Loqui non invia le proprie richieste tramite un proxy, ma non può vedere né fermare ciò che inviano quei programmi.",
+        "unverified": {
+          "guards": "Loqui non può confermare che tutte le sue protezioni di rete siano attive. Chiudi Loqui e riaprilo.",
+          "envProxy": "Loqui è stato avviato con un’impostazione proxy nel suo ambiente, quindi non può confermare che ogni richiesta venga bloccata.",
+          "stopFailed": "Arresto non ancora confermato dall’attivazione della modalità sigillata: {{names}}. Loqui continua a verificare.",
+          "stopFailedUnnamed": "Alcune attività iniziate prima dell’attivazione della modalità sigillata non hanno ancora confermato l’arresto. Loqui continua a verificare.",
+          "child": "Loqui non può confermare che questi programmi e tutto ciò che hanno avviato siano terminati: {{names}}. Loqui continua a verificare.",
+          "childUnknown": "Loqui non riesce a leggere lo stato dei programmi che ha avviato. Continua a verificare.",
+          "chromium": "Una richiesta di pagina iniziata prima dell’attivazione della modalità sigillata è ancora aperta. Loqui continua a verificare.",
+          "dns": "Una risoluzione di nomi iniziata prima dell’attivazione della modalità sigillata è ancora in sospeso. Loqui continua a verificare.",
+          "active": "Arresto delle richieste iniziate prima dell’attivazione della modalità sigillata…",
+          "other": "Loqui non ha potuto confermare ogni passaggio dell’attivazione della modalità sigillata, quindi non può confermare che tutte le sue richieste vengano bloccate."
+        },
+        "blocked_one": "{{count}} richiesta bloccata dall’attivazione della modalità sigillata o dall’avvio di Loqui.",
+        "blocked_other": "{{count}} richieste bloccate dall’attivazione della modalità sigillata o dall’avvio di Loqui.",
+        "loadError": "Loqui non è riuscito a leggere l’impostazione salvata della modalità sigillata, quindi ha attivato la modalità sigillata per sicurezza. Disattivala qui se era tua intenzione.",
+        "saveError": "Loqui non è riuscito a salvare questa impostazione della modalità sigillata. Al prossimo avvio, Loqui potrebbe usare l’impostazione precedente.",
+        "toggleError": "Impossibile cambiare la modalità sigillata. L’interruttore mostra l’impostazione che Loqui sta usando ora."
+      },
+      "recorder": {
+        "title": "Registratore di volo",
+        "subtitle": "Ciò che le protezioni di rete di Loqui hanno registrato oggi, dalla mezzanotte. Solo metadati: qui non vengono salvati audio, testo, prompt, chiavi o indirizzi web completi.",
+        "loading": "Caricamento…",
+        "loadError": "Impossibile caricare il registratore di volo.",
+        "unavailable": "Il registratore di volo non è riuscito a salvare alcune voci, quindi questo elenco potrebbe essere incompleto.",
+        "unavailableRead": "Il registratore di volo non riesce a leggere o salvare le sue voci in questo momento.",
+        "deleteFailed": "Il registratore di volo non è riuscito a eliminare alcune voci, quindi potrebbero essere ancora conservate voci meno recenti.",
+        "readStale": "Il registratore di volo non è riuscito a leggere le sue voci poco fa, quindi questo elenco potrebbe non essere aggiornato.",
+        "retry": "Riprova",
+        "observedToday_one": "{{count}} richiesta in uscita registrata oggi",
+        "observedToday_other": "{{count}} richieste in uscita registrate oggi",
+        "connectionsToday_one": "Più {{count}} connessione, elencata a parte rispetto alle richieste",
+        "connectionsToday_other": "Più {{count}} connessioni, elencate a parte rispetto alle richieste",
+        "sessionsToday_one": "Più {{count}} sessione di un programma ausiliario (Codex o yt-dlp) di cui Loqui non vede le richieste",
+        "sessionsToday_other": "Più {{count}} sessioni di programmi ausiliari (Codex o yt-dlp) di cui Loqui non vede le richieste",
+        "blockedToday_one": "{{count}} richiesta bloccata dalla modalità sigillata prima dell’invio",
+        "blockedToday_other": "{{count}} richieste bloccate dalla modalità sigillata prima dell’invio",
+        "coverage": "Questi conteggi includono solo ciò che è stato registrato qui. Le voci possono essere cancellate o rimosse in base alle impostazioni di conservazione, e il traffico di altri programmi non è visibile, quindi non possono mostrare tutto ciò che ha lasciato questo computer.",
+        "recordFailures_one": "Dall’avvio di Loqui, {{count}} richiesta non è stata scritta nel registratore, quindi questo elenco è incompleto.",
+        "recordFailures_other": "Dall’avvio di Loqui, {{count}} richieste non sono state scritte nel registratore, quindi questo elenco è incompleto.",
+        "unexplained": "Loqui ha visto richieste a {{hosts}} che non è riuscito ad associare a nessuna attività.",
+        "unexplainedMore_one": "E {{count}} altro host.",
+        "unexplainedMore_other": "E altri {{count}} host.",
+        "timelineLabel": "Richieste registrate oggi, per ora del giorno",
+        "timelineLabelPartial": "Richieste registrate oggi, per ora del giorno (parziale: sono disegnate solo le voci più recenti)",
+        "timelinePartial": "La sequenza temporale mostra solo le voci elencate sotto; le ore precedenti di oggi potrebbero averne altre non disegnate.",
+        "tick": "{{time}} · {{task}} · {{host}}",
+        "legend": {
+          "sent": "Inviata",
+          "session": "Sessione ausiliaria",
+          "blocked": "Bloccata, non inviata",
+          "unexplained": "Non spiegata"
+        },
+        "empty": "Nessuna richiesta registrata in questo periodo.",
+        "tableCaption": "Richieste registrate oggi, dalla più recente",
+        "columns": {
+          "time": "Ora",
+          "task": "Attività",
+          "host": "Host",
+          "sent": "Inviati",
+          "received": "Ricevuti",
+          "status": "Stato",
+          "model": "Modello"
+        },
+        "usualHost": "Di solito {{host}}",
+        "unknownHost": "Host sconosciuto",
+        "connection": "connessione; le richieste al suo interno non sono visibili a Loqui",
+        "opaque": "Sessione; il suo traffico non è visibile a Loqui",
+        "notSent": "Non inviata",
+        "unknownBytes": "sconosciuto",
+        "outcome": {
+          "ok": "Inviata",
+          "error": "Non riuscita",
+          "blocked": "Bloccata",
+          "cancelled": "Interrotta; il provider potrebbe averne ricevuto una parte"
+        },
+        "truncated_one": "Viene mostrata la voce più recente di oggi ({{count}}).",
+        "truncated_other": "Vengono mostrate le {{count}} voci più recenti di oggi.",
+        "showMore": "Mostra altro",
+        "exportForAll": "Per vedere tutte le voci, esporta il CSV.",
+        "loopbackNote": "Le richieste che Loqui invia a indirizzi di questo computer (loopback), come un server di modelli locale, non sono elencate. Se un programma che esegui qui, come un proxy o un port forwarder, le inoltra, quel traffico non viene mostrato, e nemmeno il traffico che i motori locali o altri programmi generano da sé.",
+        "bytesNote": "Inviati e Ricevuti contano il corpo di richieste e risposte, non le intestazioni. Le righe di connessione, compresa la trascrizione dal vivo, contano invece tutti i byte dell’intera connessione. «—» significa che Loqui non è riuscito a misurarlo.",
+        "retention": "Le voci seguono le impostazioni della cronologia locale e della conservazione delle trascrizioni.",
+        "retentionMemory": "La cronologia locale è disattivata: le nuove voci restano solo in memoria (le 500 più recenti) e spariscono quando chiudi Loqui. Le voci salvate prima di disattivarla restano su questo computer finché l’impostazione di conservazione non le elimina o finché non le cancelli.",
+        "retentionDays_one": "Le voci vengono eliminate dopo {{count}} giorno, secondo l’impostazione di conservazione delle trascrizioni.",
+        "retentionDays_other": "Le voci vengono eliminate dopo {{count}} giorni, secondo l’impostazione di conservazione delle trascrizioni.",
+        "retentionForever": "Le voci seguono l’impostazione di conservazione delle trascrizioni (Per sempre): vengono conservate le 100.000 più recenti.",
+        "export": "Esporta CSV",
+        "clear": "Cancella cronologia",
+        "actionsNote": "Esporta e Cancella riguardano tutte le voci salvate, non solo quelle di oggi. Loqui chiede conferma in una propria finestra di dialogo prima di cancellare qualcosa.",
+        "notice": {
+          "exported": "Copia CSV salvata.",
+          "exportError": "Impossibile esportare il CSV.",
+          "cleared": "Cronologia del registratore di volo cancellata.",
+          "clearError": "Impossibile cancellare la cronologia."
+        },
+        "tasks": {
+          "dictationStt": "Dettatura",
+          "noteRecordingStt": "Registrazione nota",
+          "uploadStt": "Caricamento audio",
+          "dictationCleanup": "Pulizia della dettatura",
+          "voiceAssistant": "Assistente vocale",
+          "assistantVision": "Visione dell’assistente",
+          "translation": "Traduzione",
+          "noteFormatting": "Formattazione note",
+          "chat": "Chat",
+          "speakerId": "Identificazione dei parlanti",
+          "semanticSearch": "Ricerca semantica",
+          "providerCheck": "Verifica del provider",
+          "modelDownload": "Download del modello",
+          "runtimeDownload": "Download del runtime",
+          "urlImport": "Importazione URL",
+          "appUpdate": "Aggiornamenti",
+          "codex": "ChatGPT (Codex)",
+          "calendar": "Calendari",
+          "unattributed": "Non spiegata",
+          "nativeLaunch": "Programma locale (non avviato)"
+        },
+        "nativeRefusedToday_one": "La modalità sigillata non ha avviato {{count}} programma locale. Un programma non avviato non è una richiesta, quindi non è conteggiato sopra.",
+        "nativeRefusedToday_other": "La modalità sigillata non ha avviato {{count}} programmi locali. I programmi non avviati non sono richieste, quindi non sono conteggiati sopra.",
+        "nativeRefusedPrograms": "Programmi non avviati: {{names}}"
+      }
     },
     "prompts": {
       "description": "Visualizza, personalizza e testa il prompt di sistema unificato che gestisce la correzione del testo e il rilevamento delle istruzioni",
@@ -1951,7 +2081,7 @@
       },
       "supportModels": {
         "title": "Modelli di supporto sul dispositivo",
-        "description": "Modelli piccoli che funzionano sempre su questo dispositivo. Per queste attività, registrazioni e note non lo lasciano mai.",
+        "description": "Modelli piccoli che funzionano su questo dispositivo. Per queste attività, Loqui non invia registrazioni e note a nessun fornitore.",
         "downloaded": "Scaricato",
         "checking": "Verifica…",
         "download": "Scarica {{size}}",
@@ -1971,7 +2101,7 @@
         "local": "Locale",
         "selfHosted": "Self-hosted",
         "providersDesc": "Usa la tua chiave API.",
-        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
+        "localDesc": "Viene eseguito su questo dispositivo. Loqui non invia i tuoi contenuti a nessun fornitore.",
         "selfHostedDesc": "Il tuo server nella tua rete.",
         "enterprise": "Cloud aziendale",
         "enterpriseDesc": "L'audio viene inviato al cloud della tua organizzazione."
@@ -2857,7 +2987,8 @@
       "addUrl": "Aggiungi l’indirizzo",
       "sealed": "Le azioni sono in pausa mentre la modalità sigillata è attiva",
       "unreachable": "Le azioni non riescono a raggiungere il modello delle note",
-      "openSettings": "Apri le impostazioni"
+      "openSettings": "Apri le impostazioni",
+      "nativeUnavailable": "Le azioni non sono disponibili in modalità sigillata in questa versione: i modelli locali non possono ancora essere isolati"
     },
     "slash": {
       "label": "Inserisci blocco",
@@ -3289,7 +3420,7 @@
       "providers": "Usa la tua chiave API",
       "providersDesc": "Connettiti a OpenAI, Anthropic, Gemini o Groq con la tua chiave API.",
       "local": "Locale",
-      "localDesc": "Esegue un modello locale su questo dispositivo. Nulla lo lascia.",
+      "localDesc": "Esegue un modello locale su questo dispositivo. Loqui non invia i tuoi contenuti a nessun fornitore.",
       "selfHosted": "Self-hosted",
       "selfHostedDesc": "Punta a un endpoint self-hosted compatibile con OpenAI.",
       "enterprise": "Enterprise",
@@ -3310,7 +3441,7 @@
         "local": "Locale",
         "selfHosted": "Self-Hosted",
         "providersDesc": "Porta la tua chiave API.",
-        "localDesc": "Viene eseguito su questo dispositivo. Nulla lo lascia.",
+        "localDesc": "Viene eseguito su questo dispositivo. Loqui non invia i tuoi contenuti a nessun fornitore.",
         "selfHostedDesc": "Il tuo server sulla tua rete.",
         "enterprise": "Enterprise",
         "enterpriseDesc": "Usa l'account cloud della tua organizzazione (AWS, Azure, GCP)."
@@ -3943,7 +4074,9 @@
     "available": "Loqui {{version}} è disponibile. Attiva gli aggiornamenti automatici per installarlo oppure scaricalo da GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "La modalità sigillata è attiva, quindi Loqui non cerca, non scarica e non installa aggiornamenti. Disattiva la modalità sigillata per aggiornare.",
+    "sealedRefused": "La modalità sigillata è attiva, quindi Loqui non ha cercato né installato aggiornamenti. Non è stato inviato nulla."
   },
   "locality": {
     "device": "Su questo dispositivo",
@@ -4024,7 +4157,8 @@
       "sealed": "In pausa · modalità sigillata",
       "retired": "Servizio ritirato · scegli di nuovo",
       "unsupported": "Non disponibile per questa attività",
-      "cantReach": "Impossibile raggiungere il server"
+      "cantReach": "Impossibile raggiungere il server",
+      "nativeUnavailable": "Non disponibile in modalità sigillata in questa versione"
     },
     "toast": {
       "local": "{{task}} ora viene eseguita su questo dispositivo.",
@@ -4096,7 +4230,7 @@
     "tasks": "Compiti",
     "destinations": "Destinazioni",
     "openSettings": "Apri le impostazioni {{task}}",
-    "sealed": "La modalità sigillata è attiva. Le attività possono essere eseguite solo su questo dispositivo.",
+    "sealed": "La modalità sigillata è attiva: Loqui blocca le attività che invierebbero contenuti fuori da questo computer. In questa versione, nemmeno i suoi motori locali vengono eseguiti mentre la modalità sigillata è attiva.",
     "undo": "Annulla",
     "kind": {
       "speech": "discorso",
@@ -4119,13 +4253,13 @@
     },
     "locked": {
       "speakerId": "Bloccato su questo dispositivo: l'identificazione del relatore richiede le tue registrazioni sul dispositivo.",
-      "semanticSearch": "Bloccato su questo dispositivo: gli incorporamenti rimangono locali, quindi la ricerca non invia mai le tue note da nessuna parte."
+      "semanticSearch": "Bloccato su questo dispositivo: gli incorporamenti rimangono locali e la ricerca non invia le tue note a nessun fornitore."
     },
     "no": {
       "capability": "{{provider}} non può eseguire questa attività in Loqui.",
       "visionCloudOnly": "Oggi gli screenshot possono essere inviati solo a un modello di visione cloud.",
       "meetingServer": "La registrazione delle note non può ancora utilizzare il tuo server.",
-      "sealed": "La modalità sigillata mantiene questa attività su questo dispositivo.",
+      "sealed": "La modalità sigillata è attiva, quindi questa attività non può essere inviata qui.",
       "uploadServer": "Il caricamento dei file utilizza il server impostato per Dettatura. Cambialo lì.",
       "serverKind": "{{server}} non è stato configurato per le attività {{kind}}. Utilizza \"Aggiungi un server\" per inserire il suo indirizzo."
     },
@@ -4141,7 +4275,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Aggiungi un server",
       "addServerHint": "Successivamente inserisci il suo indirizzo",
-      "nothingLeaves": "Nessun invio all’esterno",
+      "nothingLeaves": "Nessun invio a un fornitore",
       "yourServer": "Il tuo server",
       "unencrypted": "http, non crittografato",
       "hosted": "Fornitore ospitato",
@@ -4151,7 +4285,7 @@
       "keyUnknown": "Controllo delle chiavi salvate…"
     },
     "leaves": {
-      "none": "Niente lascia questo dispositivo.",
+      "none": "Nessuna attività invia nulla a un fornitore o a un server.",
       "prefix": "Dati inviati fuori da questo dispositivo:",
       "item": "{{task}} → {{destination}}"
     },
@@ -4338,7 +4472,10 @@
       "word": "ripristina",
       "running": "Ripristino…",
       "failed": "Il ripristino non è terminato, quindi Loqui non si riavvierà automaticamente. Questi passaggi non sono riusciti:",
-      "done": "Ripristino completato. Loqui si sta riavviando…"
+      "done": "Ripristino completato. Loqui si sta riavviando…",
+      "doneSealed": "Ripristino completato. Loqui non può riavviarsi da solo mentre la modalità sigillata è attiva. Chiudi Loqui e riaprilo per completare.",
+      "restartFailed": "Ripristino completato, ma Loqui non è riuscito a riavviarsi da solo. Chiudi Loqui e riaprilo per completare.",
+      "doneRevoke": "Ripristino completato. Leggi la nota su Google qui sotto, poi chiudi Loqui e riaprilo per terminare."
     }
   },
   "settingsSearch": {
@@ -4463,7 +4600,106 @@
     "recovery": {
       "availableTitle": "Registrazioni pronte per il recupero",
       "transcribe": "Trascrivi registrazioni",
-      "discard": "Elimina registrazioni"
+      "discard": "Elimina registrazioni",
+      "transcribeOne": "Trascrivi",
+      "stillSealedTitle": "La registrazione è ancora conservata",
+      "stillSealedDetail": "La modalità sigillata è ancora attiva, quindi questa registrazione non è stata trascritta. Loqui la conserva ancora solo in memoria, per un massimo di 30 minuti dopo la dettatura o finché non chiudi l'app. Trascrivila dopo aver disattivato la modalità sigillata.",
+      "evictedOldest": "Per fare spazio, Loqui ha scartato la registrazione più vecchia che conservava.",
+      "goneTitle": "Questa registrazione non è più conservata",
+      "goneExpired": "Loqui l'ha conservata in memoria per 30 minuti, poi l'ha scartata. Ora non può più essere trascritta.",
+      "goneEvicted": "Loqui l'ha scartata dalla memoria per fare spazio a una registrazione più recente. Ora non può più essere trascritta.",
+      "goneDiscarded": "È stata scartata dalla memoria. Ora non può più essere trascritta.",
+      "goneTranscribed": "Loqui l'ha trascritta e non la conserva più in memoria.",
+      "goneUnknown": "Loqui non la conserva più in memoria, quindi ora non può essere trascritta.",
+      "expiredDuringReplay": "I suoi 30 minuti in memoria sono scaduti durante questo tentativo, quindi Loqui l'ha scartata."
+    },
+    "confirmUnseal": {
+      "title": "Disattivare la modalità sigillata?",
+      "message": "I collegamenti al cloud, i download, gli aggiornamenti e i calendari potranno usare di nuovo la rete.",
+      "detail": "Loqui chiede conferma qui, fuori dalla finestra dell’app, affinché solo tu possa disattivare la modalità sigillata.",
+      "keep": "Mantieni sigillato",
+      "turnOff": "Disattiva la modalità sigillata"
+    },
+    "confirmClear": {
+      "title": "Cancellare il registro delle connessioni?",
+      "message": "Questa operazione elimina la cronologia delle connessioni su questo computer.",
+      "detail": "Verranno eliminate {{count}} voci. I dati già ricevuti da un fornitore non subiranno modifiche.",
+      "keep": "Conserva le voci",
+      "clear": "Cancella cronologia",
+      "detail_one": "Verrà eliminata {{count}} voce. I dati già ricevuti da un fornitore non subiranno modifiche.",
+      "detail_many": "Verranno eliminate {{count}} voci. I dati già ricevuti da un fornitore non subiranno modifiche.",
+      "detail_other": "Verranno eliminate {{count}} voci. I dati già ricevuti da un fornitore non subiranno modifiche."
+    },
+    "confirmLink": {
+      "title": "Aprire questo link fuori da Loqui?",
+      "message": "Il link si apre in un’altra app. La modalità sigillata non copre l’uso della rete da parte di quell’app.",
+      "detail": "Destinazione: {{host}}",
+      "mailDetail": "Destinazione: la tua app di posta",
+      "keep": "Non aprire",
+      "open": "Apri link"
+    },
+    "confirmSettings": {
+      "title": "Aprire le impostazioni di sistema fuori da Loqui?",
+      "message": "Le impostazioni di sistema si aprono in un’altra app. La modalità sigillata non copre l’uso della rete da parte di quell’app.",
+      "keep": "Non aprire",
+      "open": "Apri impostazioni"
+    },
+    "blocked": {
+      "dictationPreflight": "Dettatura in pausa: la modalità sigillata è attiva",
+      "dictationPreflightDetail": "Il tuo percorso vocale invia l'audio fuori da questo computer e la modalità sigillata lo blocca. Non è stato registrato né inviato nulla. Scegli un percorso sul dispositivo o disattiva la modalità sigillata.",
+      "nativeUnavailableTitle": "La dettatura locale non è disponibile in modalità sigillata",
+      "nativeUnavailableDetail": "Questa versione non può ancora isolare il motore vocale locale di Loqui, quindi non viene eseguito mentre la modalità sigillata è attiva. Non è stato registrato nulla. Disattiva la modalità sigillata per dettare con esso.",
+      "dictationTitle": "La modalità sigillata ha interrotto questa dettatura",
+      "dictationKept": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. La registrazione è salvata nella cronologia, quindi puoi trascriverla dopo aver disattivato la modalità sigillata.",
+      "dictationNotKept": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. La registrazione non è stata conservata.",
+      "dictationHeld": "La modalità sigillata ha bloccato questa dettatura prima dell'invio. Non è stato inviato nulla. Loqui conserva la registrazione solo in memoria, per un massimo di 30 minuti o finché non chiudi l'app. Trascrivila dopo aver disattivato la modalità sigillata.",
+      "generic": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo contenuto. Non è stato inviato nulla.",
+      "chat": "La modalità sigillata è attiva, quindi Loqui non ha inviato questo messaggio. Non è stato inviato nulla. Il tuo messaggio resta qui.",
+      "nativeUnconfirmedTitle": "La dettatura locale non è stata avviata in modalità sigillata",
+      "nativeUnconfirmedDetail": "La modalità sigillata è attiva e Loqui non ha potuto confermare lo stato attuale dei suoi motori locali, quindi il motore vocale non è stato avviato. Non è stato registrato nulla. Disattiva la modalità sigillata per dettare con esso."
+    },
+    "paused": {
+      "dictationPreflightDetail": "La modalità sigillata ha messo in pausa il motore vocale locale di Loqui prima dell'avvio. Non è stato registrato nulla. Disattiva la modalità sigillata per dettare con esso."
+    },
+    "interrupted": {
+      "dictationKept": "La modalità sigillata è stata attivata mentre questa dettatura veniva inviata, quindi si è interrotta. Il provider potrebbe averne ricevuto una parte. La registrazione è salvata nella cronologia.",
+      "dictationNotKept": "La modalità sigillata è stata attivata mentre questa dettatura veniva inviata, quindi si è interrotta. Il provider potrebbe averne ricevuto una parte. La registrazione non è stata conservata.",
+      "dictationHeld": "La modalità sigillata è stata attivata mentre questa dettatura veniva inviata, quindi si è interrotta. Il provider potrebbe averne ricevuto una parte. Loqui conserva la registrazione solo in memoria, per un massimo di 30 minuti o finché non chiudi l'app.",
+      "dictationPartial": "La modalità sigillata è stata attivata durante questa dettatura. Le parole già arrivate vengono conservate. Il provider potrebbe aver ricevuto una parte della registrazione.",
+      "cortiRetained": "Corti potrebbe ancora conservare una parte di questa dettatura: Loqui non può chiedere a Corti di eliminarla mentre la modalità sigillata è attiva, e non contatterà Corti in seguito per eliminarla.",
+      "generic": "La modalità sigillata ha interrotto questo invio. Il provider potrebbe averne ricevuto una parte.",
+      "chat": "La modalità sigillata ha interrotto questa risposta durante l'invio della richiesta. Il provider potrebbe aver ricevuto una parte della conversazione. Il tuo messaggio resta qui."
+    },
+    "markdown": {
+      "imageBlocked": "Immagine non caricata: la modalità sigillata è attiva",
+      "imageBlockedNamed": "Immagine non caricata: la modalità sigillata è attiva ({{alt}})",
+      "imageChecking": "Immagine non caricata mentre Loqui verifica la modalità sigillata",
+      "imageCheckingNamed": "Immagine non caricata mentre Loqui verifica la modalità sigillata ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Impossibile connettersi con la modalità sigillata attiva",
+      "connectRefused": "Per connettere questo calendario serve internet, e la modalità sigillata lo blocca. Non è stato inviato nulla. Disattiva la modalità sigillata per connetterlo.",
+      "connectInterrupted": "La modalità sigillata è stata attivata durante l'accesso, quindi si è interrotto. Il provider potrebbe aver ricevuto una parte dell'accesso. Nessun account è stato connesso.",
+      "appleUnavailable": "Questa versione non può eseguire l'helper locale di Calendario di Apple con la modalità sigillata attiva. Disattiva la modalità sigillata per connetterlo.",
+      "googleGrantKept": "La modalità sigillata era attiva, quindi Loqui non ha potuto chiedere a Google di revocare il suo accesso al calendario. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google. Loqui non contatterà Google per questo in seguito.",
+      "revokeQueuedTitle": "L'accesso Google verrà rimosso più tardi",
+      "revokeQueued": "La modalità sigillata è attiva, quindi Loqui ora non può chiedere a Google di rimuovere il suo accesso al calendario. Loqui ha scollegato il calendario e ha tenuto solo ciò che serve per chiederlo. Lo chiederà a Google automaticamente quando disattivi la modalità sigillata.",
+      "revokeDoneTitle": "Accesso Google rimosso",
+      "revokeDone": "Loqui ha chiesto a Google di rimuovere il suo accesso al calendario e ha eliminato ciò che aveva tenuto a questo scopo.",
+      "revokeFailedTitle": "Impossibile rimuovere l'accesso Google",
+      "revokeFailed": "Loqui non è riuscito a far rimuovere a Google il suo accesso al calendario, quindi quell'accesso potrebbe essere ancora attivo su Google. Loqui tiene solo ciò che serve per riprovare. Puoi anche rimuovere l'accesso tu stesso nel tuo account Google.",
+      "revokeRetry": "Riprova",
+      "revokeOpenAccount": "Apri account Google",
+      "revokeUnreadableTitle": "L'accesso Google potrebbe essere ancora attivo",
+      "revokeUnreadable": "Loqui aveva tenuto ciò che serve per chiedere a Google di rimuovere il suo accesso al calendario, ma non riesce più a leggerlo, quindi non può chiederlo. Quell'accesso potrebbe essere ancora attivo su Google. Rimuovi l'accesso tu stesso nel tuo account Google.",
+      "revokeUnreadableDismiss": "Ho capito",
+      "revokeUnsaved": "La modalità sigillata è attiva, quindi Loqui non ha potuto chiedere a Google di rimuovere il suo accesso al calendario, né tenere in modo sicuro ciò che serve per chiederlo più tardi. Loqui ha eliminato la propria copia del tuo accesso, ma Google mantiene l'accesso di Loqui finché non lo rimuovi nel tuo account Google.",
+      "googleRevokeFailedReset": "Loqui non è riuscito a far rimuovere a Google il suo accesso al calendario prima del ripristino, quindi quell'accesso potrebbe essere ancora attivo su Google. Loqui ha eliminato la propria copia del tuo accesso e non contatterà Google in seguito per questo. Rimuovi l'accesso nel tuo account Google."
+    },
+    "paste": {
+      "title": "La modalità sigillata ha interrotto l'incolla automatico",
+      "copied": "La modalità sigillata è attiva, quindi Loqui non ha potuto incollare automaticamente. Il tuo testo è negli appunti, quindi puoi incollarlo tu.",
+      "notCopied": "La modalità sigillata è attiva, quindi Loqui non ha potuto incollare automaticamente."
     }
   },
   "setupFlow": {
@@ -4674,8 +4910,8 @@
       },
       "privacy": {
         "title": "Dove vanno le tue parole",
-        "bodyMac": "Nulla lascia questo Mac a meno che tu non scelga un fornitore.",
-        "bodyOther": "Nulla lascia questo computer a meno che tu non scelga un fornitore.",
+        "bodyMac": "Loqui non invia la tua voce o il tuo testo da questo Mac a un fornitore, a meno che tu non ne scelga uno.",
+        "bodyOther": "Loqui non invia la tua voce o il tuo testo da questo computer a un fornitore, a meno che tu non ne scelga uno.",
         "nodes": {
           "mic": "Microfono",
           "loqui": "Loqui",
@@ -4784,7 +5020,8 @@
         "needsModel": "Il modello locale di correzione testo non è ancora su questo dispositivo. Scaricalo in Impostazioni → Modelli linguistici (1,3 GB).",
         "unreachable": "Loqui non riesce a raggiungere {{provider}} ora. Le tue parole restano come le hai dette.",
         "modelSetup": "ChatGPT è connesso. Elenca i suoi modelli per sceglierne uno per la revisione del testo.",
-        "review": "Controlla questa modifica, poi scegli «Applica»."
+        "review": "Controlla questa modifica, poi scegli «Applica».",
+        "nativeUnavailable": "La pulizia locale non è disponibile in modalità sigillata in questa versione: i modelli locali non possono ancora essere isolati. Le tue parole restano come le hai dette."
       },
       "reuse": "Usa questa scelta anche per le altre funzioni di testo",
       "exampleInProgress": "Testo di esempio durante la richiesta. Il risultato appare solo se la correzione testo riesce.",
@@ -4838,7 +5075,8 @@
           "configured": "{{voice}}, non ancora provata",
           "downloading": "Download ancora in corso",
           "needsModel": "Scarica una voce",
-          "unavailable": "Completa la configurazione nelle impostazioni"
+          "unavailable": "Completa la configurazione nelle impostazioni",
+          "nativeUnavailable": "Non disponibile in modalità sigillata in questa versione"
         },
         "microphone": {
           "heard": "Funziona",
@@ -4868,7 +5106,8 @@
           "configured": "Configurata con {{name}}",
           "configuredNetwork": "Configurata su {{provider}} con {{name}}",
           "modelSetup": "Elenca i modelli ChatGPT per la revisione",
-          "review": "Controlla questa modifica, poi scegli «Applica»."
+          "review": "Controlla questa modifica, poi scegli «Applica».",
+          "nativeUnavailable": "Non disponibile in modalità sigillata in questa versione"
         }
       },
       "dictateNote": "Detta in una nota",
@@ -4883,7 +5122,8 @@
         "needsModel": "La registrazione delle note richiede un modello vocale su questo dispositivo.",
         "needsKey": "La registrazione delle note richiede la chiave {{provider}}.",
         "needsUrl": "La registrazione delle note richiede un indirizzo del server.",
-        "unreachable": "Loqui non può raggiungere {{provider}} per la registrazione delle note."
+        "unreachable": "Loqui non può raggiungere {{provider}} per la registrazione delle note.",
+        "nativeUnavailable": "La registrazione delle note non è disponibile in modalità sigillata in questa versione: i motori locali non possono ancora essere isolati."
       },
       "fixNote": "Risolvi",
       "noteNetwork": "Le note sono configurate per inviare l’audio a {{provider}}.",

@@ -6,15 +6,6 @@ const product = require("./src/config/product.json");
 const { XWAYLAND_FLAG, shouldForceXWayland } = require("./src/helpers/xwayland");
 const { createHotkeyRepeatGate } = require("./src/helpers/hotkeyRepeatGate");
 
-if (shouldForceXWayland(process.argv)) {
-  const { spawn } = require("child_process");
-  spawn(process.execPath, [...process.argv.slice(1), XWAYLAND_FLAG], {
-    stdio: "inherit",
-    detached: true,
-  }).unref();
-  process.exit(0);
-}
-
 const {
   app,
   desktopCapturer,
@@ -22,27 +13,12 @@ const {
   BrowserWindow,
   dialog,
   ipcMain,
-  shell,
   session,
   systemPreferences,
+  utilityProcess,
 } = require("electron");
 const path = require("path");
-const tls = require("tls");
 require("dotenv").config({ path: path.join(__dirname, ".env"), quiet: true });
-
-// Extend Node's TLS trust with the OS store so ws and https.get see corporate
-// CAs that Chromium already trusts.
-try {
-  const currentCAs = tls.getCACertificates();
-  const systemCAs = tls.getCACertificates("system");
-  if (systemCAs?.length) {
-    tls.setDefaultCACertificates([...currentCAs, ...systemCAs]);
-  }
-} catch (err) {
-  require("./src/helpers/debugLogger").warn("System CA merge failed; using existing CA list", {
-    error: err?.message,
-  });
-}
 
 const VALID_CHANNELS = new Set(["development", "staging", "production"]);
 const BASE_WINDOWS_APP_ID = product.appId;
@@ -95,6 +71,43 @@ require("dotenv").config({
   override: false,
   quiet: true,
 });
+
+// Read intent from the selected profile before any transport/helper captures.
+const privacyBoot = require("./src/helpers/privacy/privacyBoot");
+const childRegistry = require("./src/helpers/privacy/childRegistry");
+const privacy = privacyBoot.bootEgressGuards({
+  app,
+  profile: app.getPath("userData"),
+  getDefaultSession: () => session.defaultSession,
+  utilityProcess,
+});
+
+// Chromium already chose a backend. A sealed startup refuses self-relaunch;
+// continue with the selected backend rather than opening an unconfined child.
+if (shouldForceXWayland(process.argv) && !privacy.state.isSealed()) {
+  const { spawn } = require("child_process");
+  spawn(process.execPath, [...process.argv.slice(1), XWAYLAND_FLAG], {
+    stdio: "inherit",
+    detached: true,
+  }).unref();
+  process.exit(0);
+}
+
+const tls = require("tls");
+
+// Extend Node's TLS trust with the OS store so ws and https.get see corporate
+// CAs that Chromium already trusts.
+try {
+  const currentCAs = tls.getCACertificates();
+  const systemCAs = tls.getCACertificates("system");
+  if (systemCAs?.length) {
+    tls.setDefaultCACertificates([...currentCAs, ...systemCAs]);
+  }
+} catch (err) {
+  require("./src/helpers/debugLogger").warn("System CA merge failed; using existing CA list", {
+    error: err?.message,
+  });
+}
 
 // Chromium's Windows-only occlusion tracker misclassifies the always-on-top
 // transparent pill as occluded, throttling its renderer and jittering animations.
@@ -197,6 +210,27 @@ const WindowsLoopbackAudioManager = require("./src/helpers/windowsLoopbackAudioM
 const MeetingAecManager = require("./src/helpers/meetingAecManager");
 const MeetingDetectionEngine = require("./src/helpers/meetingDetectionEngine");
 const { i18nMain, changeLanguage } = require("./src/helpers/i18nMain");
+// Task 11: before any window exists, every browser, mail and OS-settings
+// handoff asks in a main-owned dialog while sealed. The other app is outside
+// Sealed mode; declining is silent.
+const privacyConfirmations = privacyBoot.createConfirmations({
+  dialog,
+  BrowserWindow,
+  t: (key, params) => i18nMain.t(key, params),
+});
+const externalUrlOpener = require("./src/helpers/externalUrlOpener");
+externalUrlOpener.setExternalOpenGuard(
+  privacyBoot.createExternalOpenGuard({
+    isSealed: () => privacy.state.isSealed(),
+    confirm: privacyConfirmations,
+  })
+);
+// Remote calendar sync (and Apple's native helper) starts, focus-syncs and
+// wake-syncs only through this guard: nothing while sealed.
+const calendarGuard = require("./src/helpers/privacy/calendarGuard").createCalendarGuard({
+  isSealed: () => privacy.state.isSealed(),
+});
+const calendars = () => [googleCalendarManager, microsoftCalendarManager, appleCalendarManager];
 const { ensureYdotool } = require("./src/helpers/ensureYdotool");
 const sidecarRegistry = require("./src/helpers/sidecarRegistry");
 const { reapStaleSidecars } = require("./src/helpers/sidecarReaper");
@@ -295,6 +329,7 @@ function wasLaunchedAtLoginHidden() {
 }
 
 function initializeCoreManagers() {
+  let inference = null;
   setupProductionPath();
 
   debugLogger = require("./src/helpers/debugLogger");
@@ -308,6 +343,7 @@ function initializeCoreManagers() {
   windowManager = new WindowManager();
   hotkeyManager = windowManager.hotkeyManager;
   databaseManager = new DatabaseManager();
+  privacy.recorder.attachDatabase(databaseManager.db);
   clipboardManager = new ClipboardManager();
   whisperManager = new WhisperManager();
   if (process.platform !== "darwin") {
@@ -348,7 +384,14 @@ function initializeCoreManagers() {
   googleCalendarManager = new GoogleCalendarManager(
     databaseManager,
     windowManager,
-    calendarReminderScheduler
+    calendarReminderScheduler,
+    // D-1: a sealed disconnect's pending revoke, in the secure credential storage.
+    {
+      pendingRevoke: {
+        dir: path.join(app.getPath("userData"), "secure-keys"),
+        crypto: require("./src/helpers/secretCrypto"),
+      },
+    }
   );
   microsoftCalendarManager = new MicrosoftCalendarManager(
     databaseManager,
@@ -372,7 +415,9 @@ function initializeCoreManagers() {
       () => meetingProcessDetector.getDetectedProcesses().length > 0
     ),
     windowManager,
-    databaseManager
+    databaseManager,
+    // Detectors poll OS tools; none of them start while sealed (I1, T12-m4).
+    { isSealed: () => privacy.state.isSealed() }
   );
   windowManager.meetingDetectionEngine = meetingDetectionEngine;
   calendarReminderScheduler.meetingDetectionEngine = meetingDetectionEngine;
@@ -421,6 +466,7 @@ function initializeCoreManagers() {
     getQdrantManager: () => qdrantManager,
     getTrayManager: () => trayManager,
     getPersonalInference: () => inference,
+    isSealed: () => privacy.state.isSealed(),
   });
   ipcMain.handle("get-search-model-status", () => ({
     downloaded: require("./src/helpers/localEmbeddings").isAvailable(),
@@ -431,10 +477,16 @@ function initializeCoreManagers() {
       await embeddings.downloadModel();
       return { success: embeddings.isAvailable() };
     } catch (error) {
-      return { success: false, error: error.message };
+      // Sealed mode: keep the refusal typed across IPC (Task 10's envelope).
+      const { isSealedModeError, sealedPhaseOf } = require("./src/helpers/privacy/egressPolicy");
+      return {
+        success: false,
+        error: error.message,
+        ...(isSealedModeError(error) ? { code: "SEALED_MODE", phase: sealedPhaseOf(error) } : {}),
+      };
     }
   });
-  const inference = require("./src/helpers/personalInference").registerPersonalInferenceIPC({
+  inference = require("./src/helpers/personalInference").registerPersonalInferenceIPC({
     ipcMain,
     userDataPath: app.getPath("userData"),
     credentials: ipcHandlers.credentials,
@@ -500,13 +552,18 @@ function initializeCoreManagers() {
         vertexAuthSource: environmentManager.getVertexAuthSource(),
       };
     },
-    openExternal: (url) => shell.openExternal(url),
+    // The Codex sign-in page goes through the guarded opener (Task 11).
+    openExternal: (url) => externalUrlOpener.openExternalUrl(url),
   });
   updateManager = require("./src/helpers/updateIPC").attachUpdateIPC({
     app,
     ipcMain,
     BrowserWindow,
     updater: require("electron-updater").autoUpdater,
+    sealed: () => privacy.state.isSealed(),
+    assertRestartAllowed: () => {
+      if (privacy.state.isSealed()) throw new Error("NATIVE_BOUNDARY_UNAVAILABLE");
+    },
     activity: updateActivity,
     busy: () =>
       updateActivity.busy() ||
@@ -525,6 +582,45 @@ function initializeCoreManagers() {
       updateExit = true;
     },
   });
+
+  const sealTransition = privacyBoot.createSealTransition({
+    state: privacy.state,
+    bootedAt: privacy.bootedAt,
+    bootFailures: privacy.bootFailures,
+    getUpdateManager: () => updateManager,
+    getInference: () => inference,
+    getCalendars: calendars,
+    getMeetingDetection: () => meetingDetectionEngine,
+    cancelPending: () => calendarGuard.cancelPending(),
+    children: childRegistry,
+    nativeBoundary: privacy.nativeBoundary,
+  });
+  const trustedSender = require("./src/helpers/privacy/trustedSender");
+  require("./src/helpers/privacy/privacyIPC").attachPrivacyIPC({
+    ipcMain,
+    BrowserWindow,
+    dialog,
+    state: privacy.state,
+    recorder: privacy.recorder,
+    transition: sealTransition,
+    attest: privacyBoot.createAttestor({
+      state: privacy.state,
+      transition: sealTransition,
+      getInference: () => inference,
+      children: childRegistry,
+      nativeBoundary: privacy.nativeBoundary,
+    }),
+    isTrustedSender: trustedSender.createTrustedSender({
+      getWindows: () => [windowManager.mainWindow, windowManager.controlPanelWindow],
+      appUrlPrefixes: () => trustedSender.appUrlPrefixes(),
+    }),
+    confirm: privacyConfirmations,
+  });
+  if (privacy.state.isSealed())
+    void sealTransition.apply(true).catch(() => {
+      privacy.bootFailures.push("startupBarrierUnavailable");
+      sealTransition.recheck();
+    });
 
   sidecarRegistry.register("codex", () => inference.dispose());
   require("./src/helpers/modelImportIpc").registerModelImportHandlers({
@@ -593,9 +689,10 @@ function initializeDeferredManagers() {
     });
   }
 
-  googleCalendarManager.start();
-  microsoftCalendarManager.start();
-  appleCalendarManager.start();
+  // Sealed: nothing starts; unsealing re-arms the schedules (seal transition).
+  // The meeting detectors stay stopped while sealed (the engine reads the
+  // state); unsealing resumes them through the seal transition.
+  calendarGuard.start(calendars());
   meetingDetectionEngine.start();
 }
 
@@ -605,9 +702,16 @@ async function startApp() {
     userDataPath: app.getPath("userData"),
     development: process.env.NODE_ENV === "development",
   });
-  // Await so a stale sidecar is confirmed dead before new ones can spawn and
-  // contend for its port or storage lock.
-  await reapStaleSidecars();
+  // Consume failure-preserving PID evidence before any native manager work.
+  // Root death never proves that descendants stopped (A23).
+  const { unresolved } = await reapStaleSidecars();
+  for (const record of unresolved) childRegistry.recordUnresolved(record);
+  const startupChildDiagnostics = childRegistry.diagnostics();
+  privacy.bootFailures.push(
+    ...startupChildDiagnostics.unresolved.map(
+      (record) => `child:${record.kind}:${record.pid ?? "unknown"}:${record.reason}`
+    )
+  );
 
   // Phase 1: Core managers + IPC handlers before windows
   initializeCoreManagers();
@@ -815,19 +919,13 @@ async function startApp() {
   }
 
   app.on("browser-window-focus", () => {
-    if (googleCalendarManager) googleCalendarManager.syncOnFocus();
-    if (microsoftCalendarManager) microsoftCalendarManager.syncOnFocus();
-    if (appleCalendarManager) appleCalendarManager.syncOnFocus();
+    calendarGuard.onFocus(calendars());
   });
 
   const { powerMonitor } = require("electron");
   powerMonitor.on("resume", () => {
     if (calendarReminderScheduler) calendarReminderScheduler.onWakeFromSleep();
-    if (googleCalendarManager) {
-      googleCalendarManager.onWakeFromSleep();
-    }
-    if (microsoftCalendarManager) microsoftCalendarManager.onWakeFromSleep();
-    if (appleCalendarManager) appleCalendarManager.onWakeFromSleep();
+    calendarGuard.onWake(calendars());
     // Sleep evicts the local GPU model from VRAM; reload it once the driver settles. See #766.
     if (wakeRewarmTimer) clearTimeout(wakeRewarmTimer);
     wakeRewarmTimer = setTimeout(() => {
@@ -1471,6 +1569,13 @@ if (gotSingleInstanceLock) {
       return new Promise((resolve) => setTimeout(resolve, delay));
     })
     .then(() => {
+      // A mailto: or other external-protocol hand-off goes through main's
+      // guarded opener (sealed confirmation), never straight to the OS (K1).
+      // Only the permissions Loqui uses are granted; geolocation never (T18R-04).
+      require("./src/helpers/navigationGuard").installPermissionHandlers(
+        session.defaultSession,
+        (url) => void externalUrlOpener.openExternalUrl(url).catch(() => {})
+      );
       if (process.platform === "win32") {
         session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
           // Only the loopback audio track is used; the video source is

@@ -6,6 +6,9 @@ import { getFoldersValue } from "../../stores/noteStore";
 import { parseMentionHref } from "../../utils/mentionMarkdown";
 import { sanitizeLinkHref } from "../../lib/linkHref";
 import { useWorkspaceNavigation } from "../workspaceNavigation";
+import { useTranslation } from "react-i18next";
+import { useSealedMode } from "../../hooks/useSealedMode";
+import { isLoopbackUrl } from "../../lib/locality";
 
 interface MarkdownRendererProps {
   content: string;
@@ -17,7 +20,44 @@ interface MarkdownRendererProps {
 const FootnotePrefixContext = createContext("");
 
 // Stable component types preserve DOM state, including table scroll positions.
+// Sealed mode (Plan 07): an image Chromium would fetch from another computer.
+// Relative URLs are the app's own document; data: and blob: are already local.
+function isRemoteImage(src: unknown): boolean {
+  if (typeof src !== "string") return false;
+  const url = src.trim();
+  if (url.startsWith("//")) return !isLoopbackUrl(`http:${url}`);
+  if (/^https?:/i.test(url)) return !isLoopbackUrl(url);
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return !/^(?:data|blob):/i.test(url);
+  return false;
+}
+
 const markdownComponents: Components = {
+  // While sealed, or while that is still unknown, a remote image stays an
+  // inert placeholder: the page never asks Chromium for it. Main would refuse
+  // the request anyway (Layer B); this keeps the reason visible. Links stay
+  // links: opening one goes through main's confirmation.
+  img: function MarkdownImage({ node: _node, src, alt }): ReactElement {
+    const { sealed } = useSealedMode();
+    const { t } = useTranslation();
+    if (isRemoteImage(src) && sealed !== false) {
+      const key =
+        sealed === true ? "sealedMode.markdown.imageBlocked" : "sealedMode.markdown.imageChecking";
+      const label = alt ? t(`${key}Named`, { alt }) : t(key);
+      return (
+        <span
+          role="img"
+          aria-label={label}
+          data-sealed-image=""
+          className="inline-block rounded border border-dashed border-border px-1.5 py-0.5 text-xs text-muted-foreground"
+        >
+          {label}
+        </span>
+      );
+    }
+    return (
+      <img src={typeof src === "string" ? src : undefined} alt={alt ?? ""} className="max-w-full" />
+    );
+  },
   h1: ({ children }): ReactElement => (
     <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h1>
   ),

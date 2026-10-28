@@ -29,6 +29,7 @@ import {
   MAX_SPEAKER_COUNT,
 } from "../constants/speakerDetection.json";
 import logger from "../utils/logger";
+import { isSealedModeError, sealedGenericMessageKey } from "../utils/sealedModeError";
 import {
   lockTranscriptSpeaker,
   mergeTranscriptSegments,
@@ -459,6 +460,14 @@ export const useMeetingRecordingStore = create<MeetingRecordingState>()(() => ({
   micCaptureStatus: "inactive",
   windowWidth: typeof window !== "undefined" ? window.innerWidth : SIDE_PANEL_BREAKPOINT_PX,
 }));
+
+// A sealed failure is kept as its translated key (rendered by the mount),
+// never main's raw [SEALED_MODE] text.
+function meetingFailure(result: unknown, fallback: string): string {
+  if (isSealedModeError(result)) return sealedGenericMessageKey(result);
+  const error = (result as { error?: unknown } | null | undefined)?.error;
+  return typeof error === "string" && error ? error : fallback;
+}
 
 function reportMeetingError(error: string, extra: Partial<MeetingRecordingState> = {}): void {
   useMeetingRecordingStore.setState((state) => ({
@@ -962,7 +971,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
           { error: startResult?.error },
           "meeting"
         );
-        reportMeetingError(startResult?.error || "Failed to start meeting transcription", {
+        reportMeetingError(meetingFailure(startResult, "Failed to start meeting transcription"), {
           isRecording: false,
           isTranscribing: false,
         });
@@ -1614,7 +1623,7 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
             if (result?.success && result.transcript) {
               useMeetingRecordingStore.setState({ transcript: result.transcript });
             } else if (result?.error) {
-              reportMeetingError(result.error);
+              reportMeetingError(meetingFailure(result, result.error));
             } else if (!stopAcknowledged) {
               logger.error(
                 "Meeting transcription stop was not acknowledged",

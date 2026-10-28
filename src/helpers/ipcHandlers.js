@@ -1,3 +1,19 @@
+const egressGate = require("./privacy/egressGate");
+const { guardMetered, gatedNetFetch, gatedNodeFetch } = require("./privacy/gatedFetch");
+const {
+  buildMultipartBody,
+  postMultipart,
+  realtimeProviderId,
+  realtimeTarget,
+  admitRealtimeConnection,
+  bindRealtimeEgress,
+  beginRealtimeRecording,
+  finishRealtimeRecording,
+  realtimeSealedFields,
+  realtimeFailureFields,
+} = require("./sttTransport");
+const { effectiveEndpoint } = require("./privacy/providerEndpoints");
+const { isSealedModeError, sealedPhaseOf } = require("./privacy/egressPolicy");
 const { registerSettingsLinkIpc } = require("./settingsLinks");
 const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
 const {
@@ -22,7 +38,7 @@ const { getModelType, isSherpaLocalProvider } = require("./parakeetModelInfo");
 const { broadcastToWindows } = require("./windowBroadcast");
 const { createStorageOps } = require("./storageOps");
 const { createModelStorageOps } = require("./modelStorageOps");
-const { openExternalUrl } = require("./externalUrlOpener");
+const { attachOpenExternal, openSystemSettingsUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const { createCredentialAuthority, byokSlotId } = require("./credentialAuthority");
@@ -49,6 +65,15 @@ const serializeIpcError =
     try {
       return await fn(...args);
     } catch (error) {
+      // Sealed mode stays typed: a refusal sent nothing, an interruption may have.
+      if (isSealedModeError(error))
+        return {
+          error: error.message,
+          code: "SEALED_MODE",
+          messageKey: error.messageKey,
+          phase: sealedPhaseOf(error),
+          ...(error.providerRetained ? { providerRetained: error.providerRetained } : {}),
+        };
       return { error: error.message, code: error.code, messageKey: error.messageKey };
     }
   };
@@ -77,8 +102,8 @@ const { focusWindowsHotkeyCaptureWindow } = require("./hotkeyCaptureFocus");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
 const { getTinfoilChatModels } = require("./tinfoilCatalog");
-const { transcribeWithTinfoil } = require("./tinfoilTranscription");
-const { transcribeWithGemini } = require("./geminiTranscription");
+const { transcribeWithTinfoil, TINFOIL_TRANSCRIPTION_TARGET } = require("./tinfoilTranscription");
+const { transcribeWithGemini, GEMINI_INTERACTIONS_URL } = require("./geminiTranscription");
 const AudioStorageManager = require("./audioStorage");
 const LocalModelDownloadStatus = require("./localModelDownloadStatus");
 const AgentStreamRequestRegistry = require("./agentStreamRequestRegistry");
@@ -155,6 +180,34 @@ const MEETING_SYSTEM_VAD_THRESHOLD = 0.3;
 const MISTRAL_TRANSCRIPTION_URL = "https://api.mistral.ai/v1/audio/transcriptions";
 
 const XAI_STT_URL = "https://api.x.ai/v1/stt";
+const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
+// Sealed mode: the recipient a speech route's first request goes to, checked
+// before any credential is read or any audio is converted. Unknown is remote.
+const speechDispatchTarget = (route) => {
+  if (route.provider === "corti")
+    return ["eu", "us"].includes(route.cortiEnvironment)
+      ? `https://api.${route.cortiEnvironment}.corti.app/v2`
+      : null;
+  if (route.provider === "tinfoil") return TINFOIL_TRANSCRIPTION_TARGET;
+  if (route.provider === "gemini") return GEMINI_INTERACTIONS_URL;
+  if (route.provider === "xai") return XAI_STT_URL;
+  if (route.provider === "mistral") return MISTRAL_TRANSCRIPTION_URL;
+  return route.endpoint || null;
+};
+// Canonical egress target: the provider id, or host:<host> for the user's own
+// (custom or self-hosted) endpoint.
+const speechProvider = (route) =>
+  route.provider === "custom" || route.provider === "self-hosted" ? null : route.provider || null;
+// Sealed-mode envelope fields for handlers that return { success: false, ... }.
+const sealedEnvelope = (error) =>
+  isSealedModeError(error)
+    ? {
+        code: "SEALED_MODE",
+        phase: sealedPhaseOf(error),
+        // T9-M1: a provider that may still hold part of the request.
+        ...(error.providerRetained ? { providerRetained: error.providerRetained } : {}),
+      }
+    : {};
 
 // Debounce delay: wait for user to stop typing before processing corrections
 const AUTO_LEARN_DEBOUNCE_MS = 1500;
@@ -165,7 +218,7 @@ const byokSizeCapError = (sizeCapBytes) =>
   `File too large. Maximum size for bring-your-own-key is ${Math.floor(sizeCapBytes / (1024 * 1024))} MB.`;
 
 const CONNECTION_TEST_MAX_OUTPUT_TOKENS = 16;
-const { testProviderConnection } = require("./providerConnectionTest");
+const { testProviderConnection, connectionTestTarget } = require("./providerConnectionTest");
 const { createUploadCancelRegistry } = require("./uploadCancelRegistry");
 
 const {
@@ -216,64 +269,6 @@ function resolveAllowedAudioPath(filePath) {
     return real;
   }
   return null;
-}
-
-function buildMultipartBody(fileBuffer, fileName, contentType, fields = {}) {
-  const boundary = `----OpenWhispr${Date.now()}`;
-  const parts = [];
-
-  parts.push(
-    `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-      `Content-Type: ${contentType}\r\n\r\n`
-  );
-  parts.push(fileBuffer);
-  parts.push("\r\n");
-
-  for (const [name, value] of Object.entries(fields)) {
-    for (const item of Array.isArray(value) ? value : [value]) {
-      if (item == null) continue;
-      parts.push(
-        `--${boundary}\r\n` +
-          `Content-Disposition: form-data; name="${name}"\r\n\r\n` +
-          `${item}\r\n`
-      );
-    }
-  }
-
-  parts.push(`--${boundary}--\r\n`);
-
-  const bodyParts = parts.map((p) => (typeof p === "string" ? Buffer.from(p) : p));
-  return { body: Buffer.concat(bodyParts), boundary };
-}
-
-async function postMultipart(
-  url,
-  body,
-  boundary,
-  headers = {},
-  { signal, session: fetchSession } = {}
-) {
-  const response = await (fetchSession ?? net).fetch(url.toString(), {
-    method: "POST",
-    headers: {
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
-      ...headers,
-    },
-    body,
-    useSessionCookies: false,
-    signal,
-  });
-  const text = await response.text();
-  try {
-    return { statusCode: response.status, data: JSON.parse(text) };
-  } catch {
-    // Vercel platform errors (413 payload cap, 504 timeout) return non-JSON bodies.
-    throw Object.assign(new Error(`Server error ${response.status}: ${text.slice(0, 120)}`), {
-      code: "SERVER_ERROR",
-      statusCode: response.status,
-    });
-  }
 }
 
 // Cleanup toast wording for replies the main-process providers reject; mirror
@@ -375,9 +370,9 @@ class IPCHandlers {
     liveSpeakerIdentifier.setDiarizationManager(this.diarizationManager);
     this._setupTextEditMonitor();
     this._setupRetentionCleanup();
-    this._logDetectedGpus();
+    Promise.resolve(this._logDetectedGpus()).catch(() => {});
     // Warm the OS default mic answer before the first hotkey press (~2s on Windows).
-    resolveSystemDefaultMicrophone();
+    Promise.resolve(resolveSystemDefaultMicrophone()).catch(() => {});
     this.credentials = createCredentialAuthority({
       env: this.environmentManager,
       codexHome: path.join(app.getPath("userData"), "codex"),
@@ -401,6 +396,14 @@ class IPCHandlers {
       runEnterpriseTest: (input, admit) => this._runEnterpriseVerification(input, admit),
       broadcast: broadcastToWindows,
       isSealed: () => this.isSealed(),
+      // One blocked providerCheck row at the credential-free target.
+      refuseSealed: (check) =>
+        egressGate.assertAllowed({
+          task: "providerCheck",
+          target: check.provider
+            ? effectiveEndpoint(check.provider, { enterprise: check.enterprise })
+            : connectionTestTarget(check.config, check.requestEnvironment),
+        }),
       enterpriseConfig: () => {
         const state = this.environmentManager.getEnterpriseRouteState();
         return state?.current
@@ -443,7 +446,25 @@ class IPCHandlers {
     }
   }
 
+  // Sealed mode: one providerCheck ticket for the whole test, admitted at the
+  // effective endpoint before any stored credential is read. Every transport
+  // inside is metered; Corti's Electron request is tagged for the backstop.
   async _runProviderConnectionTest(config, captured = null, requestEnvironment) {
+    return guardMetered(
+      {
+        task: "providerCheck",
+        target: connectionTestTarget(config, requestEnvironment),
+        provider: typeof config?.provider === "string" ? config.provider : null,
+      },
+      (ticket) => this._providerConnectionTestBody(config, captured, requestEnvironment, ticket)
+    );
+  }
+
+  async _providerConnectionTestBody(config, captured, requestEnvironment, ticket) {
+    const nodeFetch = egressGate.meteredFetch(ticket, (...args) => fetch(...args));
+    const electronFetch = egressGate.meteredFetch(ticket, (url, init) => net.fetch(url, init), {
+      tag: true,
+    });
     const stored = (field, read) => (captured ? captured[field] || "" : read());
     config = { ...config };
     const customSlots = {
@@ -482,15 +503,17 @@ class IPCHandlers {
               clientId,
               clientSecret,
             },
-            captured ? (url, init) => net.fetch(url, { ...init, redirect: "error" }) : undefined
+            captured
+              ? (url, init) => electronFetch(url, { ...init, redirect: "error" })
+              : electronFetch
           );
         } else if (captured) {
           throw new Error("Invalid Corti client credentials");
         } else {
-          await this._mintStoredCortiToken({
-            environment: config.environment,
-            tenant: config.tenant,
-          });
+          await this._mintStoredCortiToken(
+            { environment: config.environment, tenant: config.tenant },
+            electronFetch
+          );
         }
         return { success: true };
       } catch (error) {
@@ -524,7 +547,7 @@ class IPCHandlers {
     }
     return testProviderConnection(
       config,
-      captured ? (url, init) => fetch(url, { ...init, redirect: "error" }) : undefined,
+      captured ? (url, init) => nodeFetch(url, { ...init, redirect: "error" }) : nodeFetch,
       requestEnvironment
     );
   }
@@ -534,7 +557,20 @@ class IPCHandlers {
       admit();
       return this._enterpriseVerificationExecutor(input);
     }
-    const signal = AbortSignal.timeout(input.timeoutMs);
+    // Sealed mode: gated at the captured executor's endpoint (A6). The SDK,
+    // ADC token exchange and profile reads all run inside this one ticket.
+    return guardMetered(
+      {
+        task: "providerCheck",
+        target: effectiveEndpoint(input.provider, { enterprise: input.enterprise }),
+        provider: input.provider,
+      },
+      (ticket) => this._enterpriseVerificationBody(input, admit, ticket)
+    );
+  }
+
+  async _enterpriseVerificationBody(input, admit, ticket) {
+    const signal = AbortSignal.any([AbortSignal.timeout(input.timeoutMs), ticket.signal]);
     const execution = { signal, deadlineAt: Date.now() + input.timeoutMs };
     const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
     let onAbort;
@@ -550,7 +586,7 @@ class IPCHandlers {
           input.apiKey,
           input.enterprise,
           undefined,
-          undefined,
+          egressGate.meteredFetch(ticket),
           execution
         ),
         aborted,
@@ -1048,6 +1084,11 @@ class IPCHandlers {
 
   _runRetentionCleanup() {
     const { audioRetentionDays, transcriptRetentionDays } = this._retentionSettings;
+    // Keep ledger policy consistent on first sync and every six-hour sweep,
+    // independently of an unrelated transcript/audio cleanup failure.
+    const recorder = egressGate.getRecorder();
+    recorder?.setPersistence(this._retentionSettings.dataRetentionEnabled !== false);
+    recorder?.prune({ retentionDays: transcriptRetentionDays });
     try {
       if (transcriptRetentionDays > 0) {
         const { ids, analyticsPurged } =
@@ -1217,7 +1258,7 @@ class IPCHandlers {
 
   // Mints a Corti access token from stored BYOK credentials. Shared by the
   // dictation streaming handlers and the meeting realtime-token resolver.
-  async _mintStoredCortiToken(options = {}) {
+  async _mintStoredCortiToken(options = {}, fetchImpl) {
     const clientId = this.environmentManager.getCortiClientId();
     const clientSecret = this.environmentManager.getCortiClientSecret();
     if (!clientId || !clientSecret) {
@@ -1227,7 +1268,7 @@ class IPCHandlers {
     }
     const environment = options.environment || "us";
     const tenant = (options.tenant || "").trim() || "base";
-    const token = await getCortiToken({ environment, tenant, clientId, clientSecret });
+    const token = await getCortiToken({ environment, tenant, clientId, clientSecret }, fetchImpl);
     return { token, environment, tenant };
   }
 
@@ -1259,6 +1300,52 @@ class IPCHandlers {
   }
 
   setupHandlers() {
+    // Sealed mode: registers a channel whose whole body runs inside one egress
+    // ticket, admitted before the handler reads any runtime or credential.
+    const handleGated = (channel, meta, fn) =>
+      ipcMain.handle(channel, (event, ...args) =>
+        egressGate.guard(meta(...args), () => fn(event, ...args))
+      );
+    // Speech and legacy proxy channels run inside their egress task and
+    // correlation context, so every transport they reach (multipart, Corti,
+    // Gemini, Tinfoil, proxies) is attributed and gated by main.
+    const handleSpeech = (channel, { task, correlationId = () => null }, fn) =>
+      ipcMain.handle(channel, (event, ...args) =>
+        egressGate.withTask(typeof task === "function" ? task(...args) : task, () =>
+          egressGate.withContext({ correlationId: correlationId(...args) }, () =>
+            fn(event, ...args)
+          )
+        )
+      );
+    // Legacy enterprise channels carry their configuration from the renderer.
+    // The target is that configuration's endpoint; the backstop records the
+    // host actually contacted, and an unresolvable one is unknown (remote).
+    const legacyEnterpriseMeta = (task, provider, config, payload = "metadata", plane) => {
+      const region = /^[a-z0-9-]+$/i.test(config?.bedrockRegion || "us-east-1")
+        ? config?.bedrockRegion || "us-east-1"
+        : null;
+      const suffix = region?.startsWith("cn-") ? "amazonaws.com.cn" : "amazonaws.com";
+      const bedrockBaseURL =
+        plane === "control"
+          ? (process.env.AWS_ENDPOINT_URL_BEDROCK ??
+            process.env.AWS_ENDPOINT_URL ??
+            (region && `https://bedrock.${region}.${suffix}`))
+          : (process.env.AWS_ENDPOINT_URL_BEDROCK_RUNTIME ??
+            process.env.AWS_ENDPOINT_URL ??
+            (region && `https://bedrock-runtime.${region}.${suffix}`));
+      return {
+        task,
+        provider: ["azure", "bedrock", "vertex"].includes(provider) ? provider : null,
+        payload,
+        target: effectiveEndpoint(provider, {
+          enterprise: {
+            azureEndpoint: config?.azureEndpoint,
+            bedrockBaseURL,
+            vertexLocation: config?.vertexLocation || "us-central1",
+          },
+        }),
+      };
+    };
     this.onboardingCleanup = require("./onboardingCleanupRelay").createOnboardingCleanupRelay({
       getSession: () => this.windowManager._onboardingDemoSession,
       getSetup: () => this.windowManager.controlPanelWindow?.webContents,
@@ -1369,8 +1456,13 @@ class IPCHandlers {
       return true;
     });
 
+    // Sealed mode: a providerCheck. Loopback stays testable while sealed; any
+    // other address is refused before a socket opens and answers "sealed".
     ipcMain.handle("probe-self-hosted", (_event, baseUrl) =>
-      require("./selfHostedProbe").probeSelfHosted(baseUrl)
+      require("./selfHostedProbe").probeSelfHosted(
+        baseUrl,
+        gatedNodeFetch("providerCheck", { provider: "custom" })
+      )
     );
 
     ipcMain.handle("test-provider-connection", (_event, config) =>
@@ -1687,6 +1779,7 @@ class IPCHandlers {
         getOwner: () => this.windowManager.mainWindow?.webContents,
         hasSynced: () => this._retentionSettingsSynced,
         onSettingsChanged: (settings) => {
+          egressGate.getRecorder()?.setPersistence(settings.dataRetentionEnabled !== false);
           this._retentionSettings = settings;
           this._retentionSettingsSynced = true;
           this._runRetentionCleanup();
@@ -2463,7 +2556,12 @@ class IPCHandlers {
         return { success: true, ...result };
       } catch (error) {
         debugLogger.error("URL audio download error", { error: error.message, code: error.code });
-        return { success: false, error: error.message, code: error.code || "DOWNLOAD_FAILED" };
+        return {
+          success: false,
+          error: error.message,
+          code: error.code || "DOWNLOAD_FAILED",
+          ...sealedEnvelope(error),
+        };
       } finally {
         if (activeUrlDownloads.get(id) === abortController) {
           activeUrlDownloads.delete(id);
@@ -2585,9 +2683,11 @@ class IPCHandlers {
 
       // Activating the target by PID is more reliable than hide()'s implicit
       // focus hand-off for Chromium apps like Claude desktop and Brave (#668).
+      // Activation is best effort: it runs osascript, which the spawn guard
+      // refuses while sealed. A refusal must not skip the clipboard step below.
       let activated = false;
       if (process.platform === "darwin" && this.textEditMonitor) {
-        activated = await this.textEditMonitor.activateTargetPid();
+        activated = await this.textEditMonitor.activateTargetPid().catch(() => false);
       }
 
       if (!activated && mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
@@ -2627,11 +2727,27 @@ class IPCHandlers {
           ? winTarget.id
           : null;
 
-      const pasteResult = await this.clipboardManager.pasteText(textToPaste, {
-        ...options,
-        webContents: event.sender,
-        targetWindow,
-      });
+      let pasteResult;
+      try {
+        pasteResult = await this.clipboardManager.pasteText(textToPaste, {
+          ...options,
+          webContents: event.sender,
+          targetWindow,
+        });
+      } catch (error) {
+        // Touch-up 3, O1: while sealed, every paste helper is a native program
+        // the spawn guard refuses. ClipboardManager settles that as a sealed
+        // failure and says whether the text is on the clipboard; the renderer
+        // shows translated copy from this typed result, never main's text.
+        if (!isSealedModeError(error)) throw error;
+        return {
+          success: false,
+          pasted: false,
+          code: "SEALED_MODE",
+          phase: sealedPhaseOf(error) ?? "refused",
+          copiedToClipboard: error.copiedToClipboard === true,
+        };
+      }
       const pasted = pasteResult?.pasted !== false;
       debugLogger.debug("[AutoLearn] Paste completed", {
         autoLearnEnabled: this._autoLearnEnabled,
@@ -2987,7 +3103,7 @@ class IPCHandlers {
           error: error.message,
           stack: error.stack,
         });
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...sealedEnvelope(error) };
       }
     });
 
@@ -3048,7 +3164,7 @@ class IPCHandlers {
           error: error.message,
           stack: error.stack,
         });
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...sealedEnvelope(error) };
       }
     });
 
@@ -3403,6 +3519,7 @@ class IPCHandlers {
     // Under `npm run dev` the Vite server dies with Electron, so a relaunched dev
     // instance would have no renderer: just quit there.
     ipcMain.handle("relaunch-app", async () => {
+      if (egressGate.isSealed()) throw new Error("NATIVE_BOUNDARY_UNAVAILABLE");
       if (process.env.NODE_ENV === "development") return app.quit();
       const { launcherPath, args } = getRelaunchOptions({
         argv: process.argv,
@@ -3487,9 +3604,25 @@ class IPCHandlers {
         errors.push(`Codex profile: ${e.message}`);
       }
 
-      // Revoke Google OAuth tokens before DB is closed
+      // Revoke Google OAuth tokens before DB is closed. While sealed the
+      // revoke is refused; the local tokens are still deleted, and the result
+      // says the grant stays valid at Google (T11-M5).
+      let googleGrantKept = false;
+      let googleRevokeFailed = false;
+      // D-1: a revoke kept from a sealed disconnect is erased with every other
+      // credential, never silently. Unsealed, it is tried first; whatever is
+      // still pending afterwards, or a record that can't be read, is a grant
+      // that may remain at Google (settleForReset).
       try {
-        await this.googleCalendarManager?.revokeAllTokens();
+        const settled = await this.googleCalendarManager?.pendingRevoke?.settleForReset();
+        googleGrantKept ||= settled?.googleGrantKept === true;
+        googleRevokeFailed ||= settled?.googleRevokeFailed === true;
+      } catch (e) {
+        errors.push(`GCal pending revoke: ${e.message}`);
+      }
+      try {
+        const revoked = await this.googleCalendarManager?.revokeAllTokens();
+        googleGrantKept ||= (revoked?.sealedRefused ?? 0) > 0;
       } catch (e) {
         errors.push(`GCal revoke: ${e.message}`);
       }
@@ -3619,7 +3752,13 @@ class IPCHandlers {
         debugLogger.warn("Cleanup completed with errors", { errors }, "cleanup");
       }
 
-      return { success: errors.length === 0, message: "Cleanup completed", errors };
+      return {
+        success: errors.length === 0,
+        message: "Cleanup completed",
+        errors,
+        ...(googleGrantKept ? { googleGrantKept: true } : {}),
+        ...(googleRevokeFailed && !googleGrantKept ? { googleRevokeFailed: true } : {}),
+      };
     });
 
     ipcMain.handle("update-hotkey", async (event, hotkey) => {
@@ -3957,18 +4096,8 @@ class IPCHandlers {
       return await this.windowManager.stopControlPanelDrag();
     });
 
-    ipcMain.handle("open-external", async (event, url) => {
-      try {
-        const { protocol } = new URL(url);
-        if (!["http:", "https:", "mailto:"].includes(protocol)) {
-          return { success: false, error: `Blocked URL scheme: ${protocol}` };
-        }
-        await openExternalUrl(url);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    });
+    // http/https/mailto only; asks first while sealed (Task 11, N21).
+    attachOpenExternal({ ipcMain });
 
     ipcMain.handle("get-auto-start-enabled", async () => {
       try {
@@ -4133,9 +4262,11 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle(
+    handleSpeech(
       "proxy-xai-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, language, keyterms }) => {
+        egressGate.assertAllowed({ target: XAI_STT_URL });
         const apiKey = this.environmentManager.getXaiKey();
         if (!apiKey) {
           throw new Error("xAI API key not configured");
@@ -4155,11 +4286,15 @@ class IPCHandlers {
           }
         }
 
-        const response = await proxyFetch(XAI_STT_URL, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
-          body: formData,
-        });
+        const response = await gatedNetFetch(
+          XAI_STT_URL,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}` },
+            body: formData,
+          },
+          { payload: "audio", provider: "xai" }
+        );
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -4170,9 +4305,11 @@ class IPCHandlers {
       })
     );
 
-    ipcMain.handle(
+    handleSpeech(
       "proxy-mistral-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, model, language, contextBias }) => {
+        egressGate.assertAllowed({ target: MISTRAL_TRANSCRIPTION_URL });
         const apiKey = this.environmentManager.getMistralKey();
         if (!apiKey) {
           throw new Error("Mistral API key not configured");
@@ -4191,13 +4328,17 @@ class IPCHandlers {
           }
         }
 
-        const response = await proxyFetch(MISTRAL_TRANSCRIPTION_URL, {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
+        const response = await gatedNetFetch(
+          MISTRAL_TRANSCRIPTION_URL,
+          {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey,
+            },
+            body: formData,
           },
-          body: formData,
-        });
+          { payload: "audio", provider: "mistral" }
+        );
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -4224,9 +4365,13 @@ class IPCHandlers {
       this._acknowledgedSave("corti:speech", "clientSecret", key)
     );
 
-    ipcMain.handle(
+    handleSpeech(
       "proxy-corti-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, language, environment, tenant }) => {
+        egressGate.assertAllowed({
+          target: speechDispatchTarget({ provider: "corti", cortiEnvironment: environment }),
+        });
         const clientId = this.environmentManager.getCortiClientId();
         const clientSecret = this.environmentManager.getCortiClientSecret();
         if (!clientId || !clientSecret) {
@@ -4250,9 +4395,11 @@ class IPCHandlers {
     });
 
     // Enclave attestation is Node-only, so batch transcription is proxied through main.
-    ipcMain.handle(
+    handleSpeech(
       "proxy-tinfoil-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, language, prompt }) => {
+        egressGate.assertAllowed({ target: TINFOIL_TRANSCRIPTION_TARGET });
         return await transcribeWithTinfoil({
           audioBuffer: Buffer.from(audioBuffer),
           fileName: "audio.webm",
@@ -4266,9 +4413,11 @@ class IPCHandlers {
 
     // Gemini's Interactions API takes JSON with inline base64 audio, not
     // OpenAI-compatible multipart, so batch transcription is proxied through main.
-    ipcMain.handle(
+    handleSpeech(
       "proxy-gemini-transcription",
+      { task: "dictationStt" },
       serializeIpcError(async (event, { audioBuffer, model, language, keyterms }) => {
+        egressGate.assertAllowed({ target: GEMINI_INTERACTIONS_URL });
         return await transcribeWithGemini({
           audioBuffer: Buffer.from(audioBuffer),
           model,
@@ -4444,80 +4593,93 @@ class IPCHandlers {
     });
 
     // Enterprise provider test connection
-    ipcMain.handle("test-enterprise-connection", async (event, provider, config) => {
-      const {
-        mapEnterpriseError,
-        runAbortableOperation,
-        runBedrockRequest,
-        validateEnterpriseEndpoint,
-      } = require("./enterpriseProviderErrors");
-      let runtime;
-      try {
-        const { generateText } = require("ai");
-        const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
+    handleGated(
+      "test-enterprise-connection",
+      (provider, config) => legacyEnterpriseMeta("providerCheck", provider, config),
+      async (event, provider, config) => {
+        const {
+          mapEnterpriseError,
+          runAbortableOperation,
+          runBedrockRequest,
+          validateEnterpriseEndpoint,
+        } = require("./enterpriseProviderErrors");
+        let runtime;
+        try {
+          const { generateText } = require("ai");
+          const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
 
-        const resolveModel = (abortSignal) =>
-          runAbortableOperation(async () => {
-            runtime = await resolveEnterpriseRuntime(
-              event,
-              provider,
-              config?.model || "test",
-              config
-            );
-            abortSignal?.throwIfAborted();
-            validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
-            return getEnterpriseAIModel(
-              runtime.provider,
-              runtime.model,
-              runtime.apiKey,
-              runtime.enterprise
-            );
-          }, abortSignal);
+          const resolveModel = (abortSignal) =>
+            runAbortableOperation(async () => {
+              runtime = await resolveEnterpriseRuntime(
+                event,
+                provider,
+                config?.model || "test",
+                config
+              );
+              abortSignal?.throwIfAborted();
+              validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
+              return getEnterpriseAIModel(
+                runtime.provider,
+                runtime.model,
+                runtime.apiKey,
+                runtime.enterprise
+              );
+            }, abortSignal);
 
-        if (provider === "bedrock") {
-          await runBedrockRequest(async () => {
-            const abortSignal = AbortSignal.timeout(config?.timeoutMs || 30_000);
-            const model = await resolveModel(abortSignal);
-            return generateText({
+          if (provider === "bedrock") {
+            await runBedrockRequest(async () => {
+              const abortSignal = AbortSignal.timeout(config?.timeoutMs || 30_000);
+              const model = await resolveModel(abortSignal);
+              return generateText({
+                model,
+                prompt: "Say hello in one word.",
+                maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
+                abortSignal,
+                maxRetries: 0,
+              });
+            });
+          } else {
+            const model = await resolveModel();
+            await generateText({
               model,
               prompt: "Say hello in one word.",
               maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
-              abortSignal,
-              maxRetries: 0,
             });
-          });
-        } else {
-          const model = await resolveModel();
-          await generateText({
-            model,
-            prompt: "Say hello in one word.",
-            maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
-          });
+          }
+
+          return { success: true };
+        } catch (err) {
+          const mappingConfig =
+            runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
+              ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
+              : config;
+          const mapped = mapEnterpriseError(provider, err, mappingConfig);
+          return {
+            success: false,
+            error: mapped.message,
+            messageKey: mapped.messageKey,
+            messageParams: mapped.messageParams,
+            action: mapped.action,
+            actionKey: mapped.actionKey,
+            copyCommand: mapped.copyCommand,
+            retryable: mapped.retryable,
+            technicalDetails: mapped.technicalDetails,
+          };
         }
-
-        return { success: true };
-      } catch (err) {
-        const mappingConfig =
-          runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
-            ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
-            : config;
-        const mapped = mapEnterpriseError(provider, err, mappingConfig);
-        return {
-          success: false,
-          error: mapped.message,
-          messageKey: mapped.messageKey,
-          messageParams: mapped.messageParams,
-          action: mapped.action,
-          actionKey: mapped.actionKey,
-          copyCommand: mapped.copyCommand,
-          retryable: mapped.retryable,
-          technicalDetails: mapped.technicalDetails,
-        };
       }
-    });
+    );
 
-    ipcMain.handle(
+    handleGated(
       "process-enterprise-reasoning",
+      (_text, _modelId, _agentName, config) =>
+        legacyEnterpriseMeta(
+          config?.inferenceScope
+            ? require("./privacy/egressPolicy").taskForScope(config.inferenceScope)
+            : "dictationCleanup",
+          config?.provider,
+          config,
+          "text"
+        ),
       async (event, text, modelId, _agentName, config) => {
         const {
           isEnterpriseProvider,
@@ -4645,83 +4807,87 @@ class IPCHandlers {
     // Runs doStream for the renderer's enterprise chat model shim; parts are
     // relayed verbatim over enterprise-stream-part, ending with {done}/{error}.
     this.enterpriseStreamAborts = new Map();
-    ipcMain.handle("enterprise-stream-start", async (event, payload) => {
-      const {
-        isEnterpriseProvider,
-        mapEnterpriseError,
-        validateEnterpriseEndpoint,
-      } = require("./enterpriseProviderErrors");
-      const { streamId, provider, modelId, config, options } = payload || {};
-      let runtime;
-      const send = (message) => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send("enterprise-stream-part", { streamId, ...message });
-        }
-      };
-      const abortController = new AbortController();
-      this.enterpriseStreamAborts.set(streamId, abortController);
-      // isDestroyed() stays false across reload/navigation, which wipes the
-      // renderer listeners — abort so the provider request isn't billed for
-      // a generation nobody receives.
-      const abortOnGone = (_event, _url, isInPlace, isMainFrame) => {
-        if (isMainFrame && !isInPlace) abortController.abort();
-      };
-      const abortOnDestroyed = () => abortController.abort();
-      event.sender.on("did-start-navigation", abortOnGone);
-      event.sender.once("destroyed", abortOnDestroyed);
-      try {
-        if (!streamId || !isEnterpriseProvider(provider)) {
-          throw new Error(`Unsupported enterprise provider: ${provider}`);
-        }
-        runtime = await resolveEnterpriseRuntime(event, provider, modelId, config || {});
-        if (!runtime.model) throw new Error("No model specified for enterprise streaming");
-        validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
-
-        const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
-        const model = await getEnterpriseAIModel(
-          runtime.provider,
-          runtime.model,
-          runtime.apiKey,
-          runtime.enterprise
-        );
-
-        const { stream } = await model.doStream({
-          ...options,
-          abortSignal: abortController.signal,
-        });
-        const reader = stream.getReader();
-        try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (event.sender.isDestroyed()) {
-              abortController.abort();
-              break;
-            }
-            send({ part: value });
+    handleGated(
+      "enterprise-stream-start",
+      (payload) => legacyEnterpriseMeta("chat", payload?.provider, payload?.config, "text"),
+      async (event, payload) => {
+        const {
+          isEnterpriseProvider,
+          mapEnterpriseError,
+          validateEnterpriseEndpoint,
+        } = require("./enterpriseProviderErrors");
+        const { streamId, provider, modelId, config, options } = payload || {};
+        let runtime;
+        const send = (message) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send("enterprise-stream-part", { streamId, ...message });
           }
+        };
+        const abortController = new AbortController();
+        this.enterpriseStreamAborts.set(streamId, abortController);
+        // isDestroyed() stays false across reload/navigation, which wipes the
+        // renderer listeners — abort so the provider request isn't billed for
+        // a generation nobody receives.
+        const abortOnGone = (_event, _url, isInPlace, isMainFrame) => {
+          if (isMainFrame && !isInPlace) abortController.abort();
+        };
+        const abortOnDestroyed = () => abortController.abort();
+        event.sender.on("did-start-navigation", abortOnGone);
+        event.sender.once("destroyed", abortOnDestroyed);
+        try {
+          if (!streamId || !isEnterpriseProvider(provider)) {
+            throw new Error(`Unsupported enterprise provider: ${provider}`);
+          }
+          runtime = await resolveEnterpriseRuntime(event, provider, modelId, config || {});
+          if (!runtime.model) throw new Error("No model specified for enterprise streaming");
+          validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
+
+          const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
+          const model = await getEnterpriseAIModel(
+            runtime.provider,
+            runtime.model,
+            runtime.apiKey,
+            runtime.enterprise
+          );
+
+          const { stream } = await model.doStream({
+            ...options,
+            abortSignal: abortController.signal,
+          });
+          const reader = stream.getReader();
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (event.sender.isDestroyed()) {
+                abortController.abort();
+                break;
+              }
+              send({ part: value });
+            }
+          } finally {
+            reader.releaseLock();
+          }
+          send({ done: true });
+          return { success: true };
+        } catch (err) {
+          debugLogger.error("Enterprise stream error:", err);
+          const mappingConfig =
+            runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
+              ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
+              : config || {};
+          const mapped = mapEnterpriseError(provider, err, mappingConfig);
+          send({ error: mapped.message });
+          return { success: false, error: mapped.message };
         } finally {
-          reader.releaseLock();
-        }
-        send({ done: true });
-        return { success: true };
-      } catch (err) {
-        debugLogger.error("Enterprise stream error:", err);
-        const mappingConfig =
-          runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
-            ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
-            : config || {};
-        const mapped = mapEnterpriseError(provider, err, mappingConfig);
-        send({ error: mapped.message });
-        return { success: false, error: mapped.message };
-      } finally {
-        this.enterpriseStreamAborts.delete(streamId);
-        if (!event.sender.isDestroyed()) {
-          event.sender.removeListener("did-start-navigation", abortOnGone);
-          event.sender.removeListener("destroyed", abortOnDestroyed);
+          this.enterpriseStreamAborts.delete(streamId);
+          if (!event.sender.isDestroyed()) {
+            event.sender.removeListener("did-start-navigation", abortOnGone);
+            event.sender.removeListener("destroyed", abortOnDestroyed);
+          }
         }
       }
-    });
+    );
 
     ipcMain.handle("enterprise-stream-cancel", async (event, streamId) => {
       this.enterpriseStreamAborts.get(streamId)?.abort();
@@ -4730,66 +4896,70 @@ class IPCHandlers {
 
     // Lists the text models the account serves in the selected region,
     // resolved to invocable IDs (bare on-demand or geo-scoped profile IDs).
-    ipcMain.handle("bedrock-list-models", async (event, config) => {
-      const { mapEnterpriseError } = require("./enterpriseProviderErrors");
-      try {
-        const runtime = await resolveEnterpriseRuntime(
-          event,
-          "bedrock",
-          config?.model || "test",
-          config
-        );
-        const {
-          BedrockClient,
-          ListFoundationModelsCommand,
-          paginateListInferenceProfiles,
-        } = require("@aws-sdk/client-bedrock");
-        const { normalizeBedrockCatalog } = require("./bedrockCatalog");
+    handleGated(
+      "bedrock-list-models",
+      (config) => legacyEnterpriseMeta("providerCheck", "bedrock", config, "metadata", "control"),
+      async (event, config) => {
+        const { mapEnterpriseError } = require("./enterpriseProviderErrors");
+        try {
+          const runtime = await resolveEnterpriseRuntime(
+            event,
+            "bedrock",
+            config?.model || "test",
+            config
+          );
+          const {
+            BedrockClient,
+            ListFoundationModelsCommand,
+            paginateListInferenceProfiles,
+          } = require("@aws-sdk/client-bedrock");
+          const { normalizeBedrockCatalog } = require("./bedrockCatalog");
 
-        const region = runtime.enterprise.bedrockRegion || "us-east-1";
-        let credentials;
-        if (runtime.enterprise.managedCredentialProvider) {
-          credentials = runtime.enterprise.managedCredentialProvider;
-        } else if (runtime.enterprise.bedrockProfile) {
-          const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
-          credentials = fromNodeProviderChain({ profile: runtime.enterprise.bedrockProfile });
-        } else if (
-          runtime.enterprise.bedrockAccessKeyId &&
-          runtime.enterprise.bedrockSecretAccessKey
-        ) {
-          credentials = {
-            accessKeyId: runtime.enterprise.bedrockAccessKeyId,
-            secretAccessKey: runtime.enterprise.bedrockSecretAccessKey,
-            sessionToken: runtime.enterprise.bedrockSessionToken || undefined,
+          const region = runtime.enterprise.bedrockRegion || "us-east-1";
+          let credentials;
+          if (runtime.enterprise.managedCredentialProvider) {
+            credentials = runtime.enterprise.managedCredentialProvider;
+          } else if (runtime.enterprise.bedrockProfile) {
+            const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
+            credentials = fromNodeProviderChain({ profile: runtime.enterprise.bedrockProfile });
+          } else if (
+            runtime.enterprise.bedrockAccessKeyId &&
+            runtime.enterprise.bedrockSecretAccessKey
+          ) {
+            credentials = {
+              accessKeyId: runtime.enterprise.bedrockAccessKeyId,
+              secretAccessKey: runtime.enterprise.bedrockSecretAccessKey,
+              sessionToken: runtime.enterprise.bedrockSessionToken || undefined,
+            };
+          }
+          const client = new BedrockClient({ region, ...(credentials ? { credentials } : {}) });
+
+          const [foundationModels, profileSummaries] = await Promise.all([
+            client.send(new ListFoundationModelsCommand({ byOutputModality: "TEXT" })),
+            (async () => {
+              const summaries = [];
+              const paginator = paginateListInferenceProfiles(
+                { client },
+                { typeEquals: "SYSTEM_DEFINED" }
+              );
+              for await (const page of paginator) {
+                summaries.push(...(page.inferenceProfileSummaries || []));
+              }
+              return summaries;
+            })(),
+          ]);
+
+          return {
+            success: true,
+            models: normalizeBedrockCatalog(foundationModels.modelSummaries, profileSummaries),
           };
+        } catch (err) {
+          debugLogger.error("Bedrock model listing error:", err);
+          const mapped = mapEnterpriseError("bedrock", err, config || {});
+          return { success: false, error: mapped.message };
         }
-        const client = new BedrockClient({ region, ...(credentials ? { credentials } : {}) });
-
-        const [foundationModels, profileSummaries] = await Promise.all([
-          client.send(new ListFoundationModelsCommand({ byOutputModality: "TEXT" })),
-          (async () => {
-            const summaries = [];
-            const paginator = paginateListInferenceProfiles(
-              { client },
-              { typeEquals: "SYSTEM_DEFINED" }
-            );
-            for await (const page of paginator) {
-              summaries.push(...(page.inferenceProfileSummaries || []));
-            }
-            return summaries;
-          })(),
-        ]);
-
-        return {
-          success: true,
-          models: normalizeBedrockCatalog(foundationModels.modelSummaries, profileSummaries),
-        };
-      } catch (err) {
-        debugLogger.error("Bedrock model listing error:", err);
-        const mapped = mapEnterpriseError("bedrock", err, config || {});
-        return { success: false, error: mapped.message };
       }
-    });
+    );
 
     ipcMain.handle("get-dictation-key", async () => {
       return this.environmentManager.getDictationKey();
@@ -4932,6 +5102,14 @@ class IPCHandlers {
           : await localReasoning().processText(text, modelId, config);
         return { success: true, text: result };
       } catch (error) {
+        if (config?.textOperationToken && isSealedModeError(error))
+          // Typed, with its phase: the native refusal sent nothing.
+          return {
+            success: false,
+            error: "Cleanup failed. Your original words are preserved.",
+            code: "SEALED_MODE",
+            phase: sealedPhaseOf(error),
+          };
         if (config?.textOperationToken)
           return {
             success: false,
@@ -4957,10 +5135,12 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle(
+    handleSpeech(
       "process-anthropic-reasoning",
+      { task: "dictationCleanup" },
       async (event, text, modelId, _agentName, config) => {
         try {
+          egressGate.assertAllowed({ target: ANTHROPIC_MESSAGES_URL });
           const apiKey = this.environmentManager.getAnthropicKey();
 
           if (!apiKey) {
@@ -5000,15 +5180,19 @@ class IPCHandlers {
             ...(useTemperature ? { temperature: config?.temperature ?? 0.3 } : {}),
           };
 
-          const response = await proxyFetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-Key": apiKey,
-              "anthropic-version": "2023-06-01",
+          const response = await gatedNetFetch(
+            ANTHROPIC_MESSAGES_URL,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-API-Key": apiKey,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify(requestBody),
             },
-            body: JSON.stringify(requestBody),
-          });
+            { payload: screenContext ? "image" : "text", provider: "anthropic" }
+          );
 
           if (!response.ok) {
             const errorText = await response.text();
@@ -5040,7 +5224,12 @@ class IPCHandlers {
           return { success: true, text: outputText };
         } catch (error) {
           debugLogger.error("Anthropic reasoning error:", error);
-          return { success: false, error: error.message, messageKey: error.messageKey };
+          return {
+            success: false,
+            error: error.message,
+            messageKey: error.messageKey,
+            ...sealedEnvelope(error),
+          };
         }
       }
     );
@@ -5209,7 +5398,7 @@ class IPCHandlers {
           error: error.message,
           stack: error.stack,
         });
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...sealedEnvelope(error) };
       }
     });
 
@@ -5274,7 +5463,9 @@ class IPCHandlers {
       },
     };
 
-    const openSystemSettings = async (settingType) => {
+    // The renderer names a pane; main picks the fixed URL. While sealed the
+    // handoff to the OS settings app asks first, like a link (Task 11, N21).
+    const openSystemSettings = async (settingType, event) => {
       const platform = process.platform;
       const urls = SYSTEM_SETTINGS_URLS[platform];
       const url = urls?.[settingType];
@@ -5297,23 +5488,29 @@ class IPCHandlers {
       }
 
       try {
-        await shell.openExternal(url);
-        return { success: true };
+        const opened = await openSystemSettingsUrl(url, { event });
+        return opened ? { success: true } : { success: false, declined: true };
       } catch (error) {
         debugLogger.error(`Failed to open ${settingType} settings:`, error);
         return { success: false, error: error.message };
       }
     };
 
-    ipcMain.handle("open-microphone-settings", () => openSystemSettings("microphone"));
-    ipcMain.handle("open-sound-input-settings", () => openSystemSettings("sound"));
+    ipcMain.handle("open-microphone-settings", (event) => openSystemSettings("microphone", event));
+    ipcMain.handle("open-sound-input-settings", (event) => openSystemSettings("sound", event));
     ipcMain.handle("get-system-default-microphone", (_event, options = {}) =>
       resolveSystemDefaultMicrophone({ refresh: options?.refresh === true })
     );
-    ipcMain.handle("open-accessibility-settings", () => openSystemSettings("accessibility"));
-    ipcMain.handle("open-system-audio-settings", () => openSystemSettings("systemAudio"));
-    ipcMain.handle("open-screen-recording-settings", () => openSystemSettings("screenRecording"));
-    ipcMain.handle("open-login-items-settings", () => openSystemSettings("loginItems"));
+    ipcMain.handle("open-accessibility-settings", (event) =>
+      openSystemSettings("accessibility", event)
+    );
+    ipcMain.handle("open-system-audio-settings", (event) =>
+      openSystemSettings("systemAudio", event)
+    );
+    ipcMain.handle("open-screen-recording-settings", (event) =>
+      openSystemSettings("screenRecording", event)
+    );
+    ipcMain.handle("open-login-items-settings", (event) => openSystemSettings("loginItems", event));
 
     ipcMain.handle("capture-screen-context", async (event) => {
       // Capture immediately so the screenshot reflects the invocation moment;
@@ -5342,10 +5539,10 @@ class IPCHandlers {
 
     ipcMain.handle("check-screen-recording-access", () => screenContextCapture.getAccessResult());
 
-    ipcMain.handle("request-screen-recording-access", async () => {
+    ipcMain.handle("request-screen-recording-access", async (event) => {
       const status = await screenContextCapture.requestAccess();
       if (process.platform === "darwin" && status !== "granted") {
-        await openSystemSettings("screenRecording");
+        await openSystemSettings("screenRecording", event);
       }
       return screenContextCapture.getAccessResult();
     });
@@ -5432,7 +5629,9 @@ class IPCHandlers {
       return { success: true };
     });
 
-    ipcMain.handle("open-calendar-privacy-settings", () => openSystemSettings("calendars"));
+    ipcMain.handle("open-calendar-privacy-settings", (event) =>
+      openSystemSettings("calendars", event)
+    );
 
     ipcMain.handle("toggle-media-playback", () => {
       const mediaPlayer = require("./mediaPlayer");
@@ -5555,7 +5754,7 @@ class IPCHandlers {
 
     ipcMain.handle("check-system-audio-access", () => getSystemAudioAccess());
 
-    ipcMain.handle("request-system-audio-access", async () => {
+    ipcMain.handle("request-system-audio-access", async (event) => {
       if (process.platform === "win32") {
         return getWindowsSystemAudioAccess();
       }
@@ -5582,7 +5781,7 @@ class IPCHandlers {
         // Falls through to opening System Settings
       }
 
-      await openSystemSettings("systemAudio");
+      await openSystemSettings("systemAudio", event);
       const status = this.audioTapManager.getPermissionStatus();
       return buildSystemAudioAccess({
         granted: false,
@@ -5592,7 +5791,9 @@ class IPCHandlers {
       });
     });
 
-    const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
+    // Sealed mode: realtime token requests go through the gate. Their task comes
+    // from the caller's context (Task 9a attributes the streaming callers).
+    const proxyFetch = (url, init = {}) => gatedNetFetch(url, init);
     const resolveEnterpriseRuntime = async (_event, provider, model, config = {}) => {
       await this.vertexAuthSourceReady;
       const enterprise = require("./enterpriseProviderErrors").pickEnterpriseConfig(config);
@@ -5608,7 +5809,7 @@ class IPCHandlers {
       };
     };
 
-    ipcMain.handle("retry-transcription", async (event, id, settings) => {
+    handleSpeech("retry-transcription", { task: "dictationStt" }, async (event, id, settings) => {
       const buffer = this.audioStorageManager.getAudioBuffer(id);
       if (!buffer) return { success: false, error: "Audio file not found" };
       try {
@@ -5636,6 +5837,10 @@ class IPCHandlers {
           if (route.messageKey) err.messageKey = route.messageKey;
           throw err;
         }
+        // Sealed mode: refuse a remote recipient before any credential read or
+        // re-encode. The stored audio and its History row stay untouched.
+        if (route.transport !== "local")
+          egressGate.assertAllowed({ target: speechDispatchTarget(route) });
 
         if (route.transport === "http-batch" && route.provider === "self-hosted") {
           const formData = new FormData();
@@ -5647,10 +5852,11 @@ class IPCHandlers {
             formData.append("language", route.language);
           }
 
-          const response = await proxyFetch(route.endpoint, {
-            method: "POST",
-            body: formData,
-          });
+          const response = await gatedNetFetch(
+            route.endpoint,
+            { method: "POST", body: formData },
+            { payload: "audio" }
+          );
           if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`Self-hosted API Error: ${response.status} ${errorText}`);
@@ -5795,7 +6001,11 @@ class IPCHandlers {
             }
           }
 
-          const response = await proxyFetch(endpoint, { method: "POST", headers, body: formData });
+          const response = await gatedNetFetch(
+            endpoint,
+            { method: "POST", headers, body: formData },
+            { payload: "audio", provider: speechProvider(route) }
+          );
           if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`${provider} API Error: ${response.status} ${errorText}`);
@@ -5842,9 +6052,15 @@ class IPCHandlers {
           "audio-storage"
         );
         if (error.code) {
-          return { success: false, error: error.message, code: error.code, ...error };
+          return {
+            success: false,
+            error: error.message,
+            code: error.code,
+            ...error,
+            ...sealedEnvelope(error),
+          };
         }
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...sealedEnvelope(error) };
       }
     });
 
@@ -6262,9 +6478,16 @@ class IPCHandlers {
       meetingReconnectReplaySources = new Set();
     };
 
-    const sendMeetingStreamingAudio = (streaming, buffer, capturedAt = null) => {
+    // Sealed mode (Task 9a): every meeting frame carries the meeting
+    // recording's immutable handle, including replayed reconnect audio.
+    const sendMeetingStreamingAudio = (
+      streaming,
+      buffer,
+      capturedAt = null,
+      recording = meetingRecording
+    ) => {
       const firstSampleAt = streaming.audioBytesSent === 0 ? capturedAt : null;
-      const sent = streaming.sendAudio(buffer);
+      const sent = streaming.sendAudio(buffer, recording);
       if (
         sent &&
         streaming.isConnected &&
@@ -6282,7 +6505,7 @@ class IPCHandlers {
       if (!meetingReconnectReplaySources.has(source)) return;
       const copy = Buffer.from(buffer);
       const queue = meetingReconnectAudioBuffers[source];
-      queue.push({ buffer: copy, capturedAt });
+      queue.push({ buffer: copy, capturedAt, recording: meetingRecording });
       meetingReconnectAudioBytes[source] += copy.length;
       while (
         meetingReconnectAudioBytes[source] > MEETING_RECONNECT_BUFFER_MAX_BYTES &&
@@ -6295,8 +6518,8 @@ class IPCHandlers {
     const replayMeetingReconnectAudio = (source, streaming) => {
       if (!meetingReconnectReplaySources.has(source)) return true;
       const queue = meetingReconnectAudioBuffers[source];
-      const replayed = queue.every(({ buffer, capturedAt }) =>
-        sendMeetingStreamingAudio(streaming, buffer, capturedAt)
+      const replayed = queue.every(({ buffer, capturedAt, recording }) =>
+        sendMeetingStreamingAudio(streaming, buffer, capturedAt, recording)
       );
       debugLogger.info("Replayed meeting audio after reconnect", {
         source,
@@ -6345,10 +6568,13 @@ class IPCHandlers {
 
         try {
           const StreamingClass = getMeetingStreamingClient(options.provider);
-          newMic = new StreamingClass();
+          // Replacement sockets are new connections: refused while sealed
+          // before their token or socket.
+          admitRealtimeConnection({ task: MEETING_TASK, provider: options.provider, options });
+          newMic = bindMeetingStream(new StreamingClass(), options);
           attachMeetingStreamingHandlers(newMic, win, "mic");
           if (oldSystem) {
-            newSystem = new StreamingClass();
+            newSystem = bindMeetingStream(new StreamingClass(), options);
             attachMeetingStreamingHandlers(newSystem, win, "system");
           }
 
@@ -6371,7 +6597,7 @@ class IPCHandlers {
 
           let pairs;
           if (newSystem) {
-            const secrets = await fetchRealtimeToken(tokenEvent, options, { streams: 2 });
+            const secrets = await fetchMeetingRealtimeToken(tokenEvent, options, { streams: 2 });
             pairs = [
               { streaming: newMic, secret: secrets[0], source: "mic" },
               { streaming: newSystem, secret: secrets[1], source: "system" },
@@ -6380,7 +6606,7 @@ class IPCHandlers {
             pairs = [
               {
                 streaming: newMic,
-                secret: await fetchRealtimeToken(tokenEvent, options),
+                secret: await fetchMeetingRealtimeToken(tokenEvent, options),
                 source: "mic",
               },
             ];
@@ -6475,6 +6701,17 @@ class IPCHandlers {
         { streams }
       );
     };
+    // Meeting realtime streams are noteRecordingStt. Their token/auth requests
+    // and sockets are connection resources: metadata, never the recording's id.
+    const MEETING_TASK = "noteRecordingStt";
+    const fetchMeetingRealtimeToken = (event, options, extra) =>
+      egressGate.withTask(MEETING_TASK, () =>
+        egressGate.withContext({ provider: realtimeProviderId(options.provider) }, () =>
+          fetchRealtimeToken(event, options, extra)
+        )
+      );
+    const bindMeetingStream = (streaming, options) =>
+      bindRealtimeEgress(streaming, { task: MEETING_TASK, provider: options.provider });
 
     const getMeetingSystemAudioCapabilityMode = () => {
       if (this.audioTapManager?.isSupported()) return "native";
@@ -6524,6 +6761,8 @@ class IPCHandlers {
     const connectRealtimeStreaming = async (event, options) => {
       const connectionKey = getMeetingConnectionKey(options);
       const StreamingClass = getMeetingStreamingClient(options.provider);
+      // Sealed: refused before any token request, credential read or socket.
+      admitRealtimeConnection({ task: MEETING_TASK, provider: options.provider, options });
       if (this._meetingMicStreaming?.isConnected) {
         await this._meetingMicStreaming.disconnect();
       }
@@ -6547,7 +6786,7 @@ class IPCHandlers {
       const { mode: systemAudioMode } = await getMeetingSystemAudioPlan();
       let pairs;
       if (systemAudioMode !== "unsupported") {
-        const secrets = await fetchRealtimeToken(event, options, { streams: 2 });
+        const secrets = await fetchMeetingRealtimeToken(event, options, { streams: 2 });
         pairs = [
           { ref: "_meetingMicStreaming", secret: secrets[0], source: "mic" },
           { ref: "_meetingSystemStreaming", secret: secrets[1], source: "system" },
@@ -6556,14 +6795,14 @@ class IPCHandlers {
         pairs = [
           {
             ref: "_meetingMicStreaming",
-            secret: await fetchRealtimeToken(event, options),
+            secret: await fetchMeetingRealtimeToken(event, options),
             source: "mic",
           },
         ];
       }
 
       for (const { ref, source } of pairs) {
-        this[ref] = new StreamingClass();
+        this[ref] = bindMeetingStream(new StreamingClass(), options);
         attachMeetingStreamingHandlers(this[ref], win, source);
       }
 
@@ -6640,6 +6879,14 @@ class IPCHandlers {
     let meetingReconnectAudioBuffers = { mic: [], system: [] };
     let meetingReconnectAudioBytes = { mic: 0, system: 0 };
     let meetingReconnectReplaySources = new Set();
+    // The current meeting recording's immutable realtime handle (Task 9a).
+    let meetingRecording = null;
+    const endMeetingRecording = (outcome) => {
+      const fields = realtimeSealedFields(meetingRecording);
+      if (meetingRecording) finishRealtimeRecording(meetingRecording, outcome);
+      meetingRecording = null;
+      return fields;
+    };
 
     const fs = require("fs");
     let meetingDiarizationStream = null;
@@ -7508,6 +7755,7 @@ class IPCHandlers {
       await stopLiveSpeakerIdentification().catch(() => {});
       resetMeetingLocalState();
       await disconnectMeetingStreaming().catch(() => {});
+      endMeetingRecording("error");
       this.activeMeetingSpeakerConfig = null;
     };
 
@@ -7551,7 +7799,7 @@ class IPCHandlers {
           return { success: true };
         } catch (error) {
           debugLogger.error("Meeting transcription prepare error", { error: error.message });
-          return toPolicyFailure(error);
+          return { ...toPolicyFailure(error), ...realtimeFailureFields(error) };
         } finally {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           meetingTranscriptionPrepareInProgress = false;
@@ -7622,6 +7870,18 @@ class IPCHandlers {
       };
 
       try {
+        if (options.provider !== "local") {
+          // One distinct recording handle per meeting session, even when it
+          // reuses prepared (warm) sockets. Sealed: refused before any socket.
+          endMeetingRecording("cancelled");
+          meetingRecording = beginRealtimeRecording({
+            task: MEETING_TASK,
+            provider: options.provider,
+            target: realtimeTarget(options.provider, options),
+            correlationId: recordingSessionId,
+            sessionId: recordingSessionId,
+          });
+        }
         const systemAudioPlan = await getMeetingSystemAudioPlan({ refreshWindowsCapability: true });
         let { mode: systemAudioMode, strategy: systemAudioStrategy } = systemAudioPlan;
         const requestedConnectionKey = getMeetingConnectionKey(options);
@@ -7724,11 +7984,12 @@ class IPCHandlers {
           oneOnOneAttendee: meetingOneOnOneAttendee,
         });
       } catch (error) {
+        const failedRecording = meetingRecording;
         await rollbackMeetingTranscriptionStart();
         this.meetingDetectionEngine?.endRecordingSession(recordingSessionId);
         this.meetingDetectionEngine?.setUserRecording(false);
         debugLogger.error("Meeting transcription start error", { error: error.message });
-        return toPolicyFailure(error);
+        return { ...toPolicyFailure(error), ...realtimeFailureFields(error, failedRecording) };
       } finally {
         meetingTranscriptionStartInProgress = false;
       }
@@ -8061,6 +8322,8 @@ class IPCHandlers {
         }
 
         const results = await disconnectMeetingStreaming({ flushPending: true });
+        // After every stream's stop acknowledgement: settle only this recording.
+        const sealedFields = endMeetingRecording("ok");
         const { diarizationPcmPath, diarizationSegments, diarizationStartedAt, diarizedSource } =
           await captureMeetingDiarizationState();
         const transcript =
@@ -8084,10 +8347,10 @@ class IPCHandlers {
           diarizedSource
         );
 
-        return { success: true, transcript, diarizationSessionId };
+        return { success: true, transcript, diarizationSessionId, ...sealedFields };
       } catch (error) {
         debugLogger.error("Meeting transcription stop error", { error: error.message });
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, ...endMeetingRecording("error") };
       }
     };
 
@@ -8379,8 +8642,18 @@ class IPCHandlers {
       return { success: this._uploadCancelRegistry.cancel(requestId) > 0 };
     });
 
-    ipcMain.handle(
+    // Captured dictation audio is dictationStt; a chosen file is uploadStt. The
+    // dictation session id correlates the request (Plan 04 §5.4), else the
+    // upload's own requestId does.
+    const validCorrelation = (value) =>
+      typeof value === "string" && value && value.length <= 100 ? value : null;
+    handleSpeech(
       "transcribe-audio-file-byok",
+      {
+        task: (request) => (request?.audioBuffer !== undefined ? "dictationStt" : "uploadStt"),
+        correlationId: (request) =>
+          validCorrelation(request?.correlationId) ?? validCorrelation(request?.requestId),
+      },
       async (
         event,
         {
@@ -8488,6 +8761,9 @@ class IPCHandlers {
               messageKey: route.messageKey,
             };
           }
+          // Sealed mode: refuse a remote recipient before any credential read or
+          // conversion. The caller keeps the recording or file.
+          egressGate.assertAllowed({ target: speechDispatchTarget(route) });
 
           if (prompt) {
             const { dictionaryPromptLimit, trimDictionaryPrompt } =
@@ -8527,7 +8803,7 @@ class IPCHandlers {
               body,
               boundary,
               {},
-              { signal: job.signal }
+              { signal: job.signal, provider: speechProvider(route) }
             );
             if (data.statusCode !== 200) {
               throw new Error(
@@ -8682,7 +8958,10 @@ class IPCHandlers {
                 : { Authorization: `Bearer ${apiKey}` }
             : undefined;
           handOff();
-          const data = await postMultipart(url, body, boundary, headers, { signal: job.signal });
+          const data = await postMultipart(url, body, boundary, headers, {
+            signal: job.signal,
+            provider: speechProvider(route),
+          });
 
           if (data.statusCode === 401) {
             return { success: false, error: "Invalid API key. Check your key in Settings." };
@@ -8746,6 +9025,7 @@ class IPCHandlers {
             error: error.message,
             code: error.code,
             messageKey: error.messageKey,
+            ...sealedEnvelope(error),
           };
         } finally {
           cleanupUpload?.();
@@ -8996,20 +9276,31 @@ class IPCHandlers {
       }
     });
 
+    // Calendar entry points that reach a provider refuse while sealed before
+    // a loopback listener, a consent page or a request exists (Task 11, N19).
+    // Local reads and disconnects stay available.
+    const calendarAdmission = (target) => egressGate.assertAllowed({ task: "calendar", target });
+    const calendarFailure = (error) => ({
+      success: false,
+      error: error.message,
+      ...sealedEnvelope(error),
+    });
+
     // Google Calendar
     ipcMain.handle("gcal-start-oauth", async () => {
       try {
+        calendarAdmission("https://accounts.google.com");
         return await this.googleCalendarManager.startOAuth();
       } catch (error) {
         debugLogger.error("Google Calendar OAuth failed", { error: error.message }, "calendar");
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
     ipcMain.handle("gcal-disconnect", async (_event, email) => {
       try {
-        this.googleCalendarManager.disconnect(email);
-        return { success: true };
+        // D-1: while sealed this keeps a pending revoke; it never sends one.
+        return { success: true, ...this.googleCalendarManager.disconnectAccount(email) };
       } catch (error) {
         debugLogger.error(
           "Google Calendar disconnect failed",
@@ -9018,6 +9309,29 @@ class IPCHandlers {
         );
         return { success: false, error: error.message };
       }
+    });
+
+    // D-1: the pending revoke's counts (never a token), and Retry: the same
+    // ticketed calendar revoke, refused by the gate while sealed.
+    ipcMain.handle("gcal-pending-revoke-status", async () => {
+      return (
+        this.googleCalendarManager?.pendingRevoke?.status() ?? {
+          pending: 0,
+          failed: 0,
+          unreadable: false,
+          running: false,
+        }
+      );
+    });
+    ipcMain.handle("gcal-pending-revoke-retry", async () => {
+      const store = this.googleCalendarManager?.pendingRevoke;
+      if (!store) return { revoked: 0, failed: 0, skipped: "none" };
+      return store.retry();
+    });
+    // Review I-1: the user dismissed the "may still be active" notice for a
+    // record main can't read. Local only: removes that file, nothing else.
+    ipcMain.handle("gcal-pending-revoke-forget", async () => {
+      return this.googleCalendarManager?.pendingRevoke?.forgetUnreadable() ?? { removed: false };
     });
 
     ipcMain.handle("gcal-get-connection-status", async () => {
@@ -9038,28 +9352,31 @@ class IPCHandlers {
 
     ipcMain.handle("gcal-set-calendar-selection", async (_event, calendarId, isSelected) => {
       try {
+        calendarAdmission("https://www.googleapis.com");
         await this.googleCalendarManager.setCalendarSelection(calendarId, isSelected);
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
     ipcMain.handle("gcal-set-primary-only", async (_event, value) => {
       try {
+        calendarAdmission("https://www.googleapis.com");
         await this.googleCalendarManager.setPrimaryOnly(value);
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
     ipcMain.handle("gcal-sync-events", async () => {
       try {
+        calendarAdmission("https://www.googleapis.com");
         await this.googleCalendarManager.syncEvents();
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
@@ -9086,10 +9403,11 @@ class IPCHandlers {
     // Microsoft Calendar
     ipcMain.handle("mcal-start-oauth", async () => {
       try {
+        calendarAdmission("https://login.microsoftonline.com");
         return await this.microsoftCalendarManager.startOAuth();
       } catch (error) {
         debugLogger.error("Microsoft Calendar OAuth failed", { error: error.message }, "calendar");
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
@@ -9122,15 +9440,20 @@ class IPCHandlers {
 
     ipcMain.handle("mcal-set-primary-only", async (_event, value) => {
       try {
+        calendarAdmission("https://graph.microsoft.com");
         await this.microsoftCalendarManager.setPrimaryOnly(value);
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return calendarFailure(error);
       }
     });
 
     // Apple Calendar (macOS EventKit)
     ipcMain.handle("acal-connect", async () => {
+      // The EventKit helper is a native child: refused before launch while
+      // sealed (07a has no native boundary). The spawn guard refuses it too.
+      if (egressGate.isSealed())
+        return { success: false, reason: "sealed", error: "NATIVE_BOUNDARY_UNAVAILABLE" };
       try {
         return await this.appleCalendarManager.connect();
       } catch (error) {

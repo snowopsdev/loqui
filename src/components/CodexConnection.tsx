@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
 import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes";
 import codexPolicy from "../config/codex.json";
+import { sealedFailureMessage } from "../utils/sealedModeError";
 import {
   ensureRouteFactsSubscribed,
   refreshRouteFacts,
@@ -10,6 +11,15 @@ import {
 } from "../stores/routeFactsStore";
 
 type Status = Awaited<ReturnType<PersonalInferenceAPI["codexStatus"]>>;
+
+// Final review I6: a sealed refusal (of the Codex app's start or its status
+// read) shows translated copy by phase, never main's [SEALED_MODE…] text.
+function failureText(error: unknown, t: (key: string) => string): string {
+  return (
+    sealedFailureMessage(error, t) ??
+    String((error as { message?: unknown } | null)?.message ?? error ?? "")
+  );
+}
 export default function CodexConnection({
   onSignedInChange,
   onStatusChecked,
@@ -27,6 +37,8 @@ export default function CodexConnection({
   checkStatusOnMount?: boolean;
 } = {}) {
   const { t } = useTranslation();
+  const tr = useRef(t);
+  tr.current = t;
   // Main-confirmed presence (Task 2 stats the Codex profile's auth.json: no
   // process, no network). null until main has listed credentials.
   const storedAccount = useRouteFactsStore((s) => s.facts.credentials?.get("codex") ?? null);
@@ -87,7 +99,7 @@ export default function CodexConnection({
   }, [api]);
   // Onboarding only; see checkStatusOnMount.
   useEffect(() => {
-    if (checkStatusOnMount) void refresh().catch((error) => setError(error.message));
+    if (checkStatusOnMount) void refresh().catch((e) => setError(failureText(e, tr.current)));
   }, [checkStatusOnMount, refresh]);
   // Account events follow an explicit sign-in or sign-out (the app server runs
   // only after one of the buttons below), so they still refresh.
@@ -97,9 +109,12 @@ export default function CodexConnection({
         if (event.type !== "account") return;
         if (event.method === "account/login/completed" && event.params?.success === false) {
           setLoginId(null);
-          setError(String(event.params.error || t("codexConnection.loginFailed")));
+          setError(
+            sealedFailureMessage(event.params, t) ??
+              String(event.params.error || t("codexConnection.loginFailed"))
+          );
         }
-        void refresh().catch((error) => setError(error.message));
+        void refresh().catch((error) => setError(failureText(error, t)));
       }),
     [api, refresh, t]
   );
@@ -109,7 +124,7 @@ export default function CodexConnection({
     try {
       await fn();
     } catch (error) {
-      setError((error as Error).message);
+      setError(failureText(error, t));
     } finally {
       setBusy(false);
     }
@@ -157,9 +172,12 @@ export default function CodexConnection({
             variant="outline"
             disabled={busy}
             onClick={() =>
-              void action(async () => {
-                await api.codexCancelLogin(loginId);
+              void run(async () => {
+                const result = await api.codexCancelLogin(loginId);
                 setLoginId(null);
+                // The sign-in ended with its app-server (Sealed mode may have
+                // stopped it). A status read would start a new one, so skip it.
+                if (!result?.appServerStopped) await refresh();
               })
             }
           >
@@ -193,7 +211,7 @@ export default function CodexConnection({
       </Button>
       {(error || status?.error) && (
         <p className="text-sm text-destructive" role="alert">
-          {error || status.error}
+          {error || failureText({ message: status.error }, t)}
         </p>
       )}
     </div>

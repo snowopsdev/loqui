@@ -707,7 +707,7 @@
       "cloud": "Nuvem",
       "local": "Local",
       "enterprise": "Corporativo",
-      "localDescription": "Roda no seu dispositivo. Privacidade total, funciona offline.",
+      "localDescription": "Roda no seu dispositivo e funciona offline.",
       "cloudDescription": "Modelos avançados via API. Rápido e potente, requer internet.",
       "enterpriseDescription": "Use as credenciais de nuvem da sua organização."
     },
@@ -1512,7 +1512,7 @@
         "local": "Local",
         "selfHosted": "Auto-hospedado",
         "providersDesc": "Use sua própria chave API.",
-        "localDesc": "É executado neste dispositivo. Nada sai dele.",
+        "localDesc": "É executado neste dispositivo. O Loqui não envia o seu conteúdo a nenhum fornecedor.",
         "selfHostedDesc": "Seu servidor na sua rede.",
         "enterprise": "Corporativo",
         "enterpriseDesc": "Use a conta de nuvem da sua organização (AWS, Azure, GCP)."
@@ -1901,7 +1901,137 @@
       "clearAllAudioDone": "Áudio armazenado excluído",
       "clearAllAudioFailed": "Nem todo o áudio armazenado foi excluído. Tente novamente ou verifique se outro app está usando os arquivos.",
       "audioStorageChecking": "Verificando o áudio armazenado…",
-      "audioStorageUnavailable": "O Loqui não conseguiu ler a pasta de áudio, então não pode mostrar nem apagar o áudio armazenado agora."
+      "audioStorageUnavailable": "O Loqui não conseguiu ler a pasta de áudio, então não pode mostrar nem apagar o áudio armazenado agora.",
+      "sealed": {
+        "title": "Modo selado",
+        "description": "Quando ativado, o Loqui bloqueia as próprias solicitações para outros computadores, incluindo rotas na nuvem, downloads, atualizações e calendários. Nesta versão, os mecanismos locais ainda não podem ser isolados, por isso ficam indisponíveis enquanto o modo selado está ativado.",
+        "checking": "Verificando o modo selado…",
+        "on": "O modo selado está ativado. O Loqui bloqueia as próprias solicitações para outros computadores.",
+        "buildLimit": "O modo selado não está totalmente disponível nesta versão: os mecanismos locais ainda não podem ser isolados, por isso não são executados enquanto ele está ativado. As rotas que os usam aparecem como indisponíveis.",
+        "statusChecking": "Verificando o estado do modo selado…",
+        "scope": "O modo selado abrange as solicitações que o próprio Loqui faz. Seu navegador, outros apps e o sistema operacional ficam fora dele, e os links só abrem neles depois que você confirma.",
+        "forwarders": "Programas que você mesmo executa, como um proxy, um encaminhador de portas ou uma ferramenta SOCKS ou de túnel, também ficam fora do modo selado. Enquanto ele está ativado, o Loqui não envia as próprias solicitações por um proxy, mas não consegue ver nem impedir o que esses programas enviam.",
+        "unverified": {
+          "guards": "O Loqui não consegue confirmar que todas as suas proteções de rede estão ativas. Saia do Loqui e abra-o novamente.",
+          "envProxy": "O Loqui foi iniciado com uma configuração de proxy no ambiente, por isso não consegue confirmar que todas as solicitações são bloqueadas.",
+          "stopFailed": "Ainda sem confirmação de parada desde que o modo selado foi ativado: {{names}}. O Loqui continua verificando.",
+          "stopFailedUnnamed": "Parte do trabalho iniciado antes de o modo selado ser ativado ainda não confirmou que parou. O Loqui continua verificando.",
+          "child": "O Loqui não consegue confirmar que estes programas e tudo o que eles iniciaram foram encerrados: {{names}}. O Loqui continua verificando.",
+          "childUnknown": "O Loqui não consegue ler o estado dos programas que iniciou. Ele continua verificando.",
+          "chromium": "Uma solicitação de página iniciada antes de o modo selado ser ativado ainda está aberta. O Loqui continua verificando.",
+          "dns": "Uma consulta de nome iniciada antes de o modo selado ser ativado ainda está pendente. O Loqui continua verificando.",
+          "active": "Parando as solicitações iniciadas antes de o modo selado ser ativado…",
+          "other": "O Loqui não conseguiu confirmar todas as etapas da ativação do modo selado, por isso não consegue confirmar que todas as suas solicitações são bloqueadas."
+        },
+        "blocked_one": "{{count}} solicitação bloqueada desde que o modo selado foi ativado ou o Loqui foi iniciado.",
+        "blocked_other": "{{count}} solicitações bloqueadas desde que o modo selado foi ativado ou o Loqui foi iniciado.",
+        "loadError": "O Loqui não conseguiu ler a configuração salva do modo selado, por isso ativou o modo selado por segurança. Desative-o aqui se era isso que você queria.",
+        "saveError": "O Loqui não conseguiu salvar esta configuração do modo selado. Na próxima vez que o Loqui iniciar, ele pode usar a configuração anterior.",
+        "toggleError": "Não foi possível alterar o modo selado. O botão mostra a configuração que o Loqui está usando agora."
+      },
+      "recorder": {
+        "title": "Gravador de voo",
+        "subtitle": "O que as proteções de rede do próprio Loqui registraram hoje, desde a meia-noite. Apenas metadados: nenhum áudio, texto, prompt, chave ou endereço web completo é armazenado aqui.",
+        "loading": "Carregando…",
+        "loadError": "Não foi possível carregar o gravador de voo.",
+        "unavailable": "O gravador de voo não conseguiu salvar alguns registros, então esta lista pode estar incompleta.",
+        "unavailableRead": "O gravador de voo não consegue ler nem salvar seus registros agora.",
+        "deleteFailed": "O gravador de voo não conseguiu excluir alguns registros, então entradas antigas ainda podem estar armazenadas.",
+        "readStale": "O gravador de voo não conseguiu ler seus registros agora há pouco, então esta lista pode estar desatualizada.",
+        "retry": "Tentar novamente",
+        "observedToday_one": "Solicitações de saída registradas hoje: {{count}}",
+        "observedToday_other": "Solicitações de saída registradas hoje: {{count}}",
+        "connectionsToday_one": "Além disso, conexões listadas à parte das solicitações: {{count}}",
+        "connectionsToday_other": "Além disso, conexões listadas à parte das solicitações: {{count}}",
+        "sessionsToday_one": "Além disso, sessões de programas auxiliares (Codex ou yt-dlp) cujas solicitações o Loqui não vê: {{count}}",
+        "sessionsToday_other": "Além disso, sessões de programas auxiliares (Codex ou yt-dlp) cujas solicitações o Loqui não vê: {{count}}",
+        "blockedToday_one": "Solicitações bloqueadas pelo modo selado antes do envio: {{count}}",
+        "blockedToday_other": "Solicitações bloqueadas pelo modo selado antes do envio: {{count}}",
+        "coverage": "Estas contagens incluem apenas o que foi registrado aqui. Os registros podem ser apagados ou removidos pelas suas configurações de retenção, e o tráfego de outros programas não é visto, então elas não podem mostrar tudo o que saiu deste computador.",
+        "recordFailures_one": "Desde que o Loqui foi iniciado, solicitações que não puderam ser gravadas no gravador: {{count}}. Por isso esta lista está incompleta.",
+        "recordFailures_other": "Desde que o Loqui foi iniciado, solicitações que não puderam ser gravadas no gravador: {{count}}. Por isso esta lista está incompleta.",
+        "unexplained": "O Loqui viu solicitações para {{hosts}} que não conseguiu associar a nenhuma tarefa.",
+        "unexplainedMore_one": "Outros hosts: {{count}}.",
+        "unexplainedMore_other": "Outros hosts: {{count}}.",
+        "timelineLabel": "Solicitações registradas hoje, por hora do dia",
+        "timelineLabelPartial": "Solicitações registradas hoje, por hora do dia (parcial: só os registros mais recentes aparecem)",
+        "timelinePartial": "A linha do tempo mostra apenas os registros listados abaixo; as horas anteriores de hoje podem ter outros que não aparecem nela.",
+        "tick": "{{time}} · {{task}} · {{host}}",
+        "legend": {
+          "sent": "Enviada",
+          "session": "Sessão auxiliar",
+          "blocked": "Bloqueada, não enviada",
+          "unexplained": "Sem explicação"
+        },
+        "empty": "Nenhuma solicitação registrada neste período.",
+        "tableCaption": "Solicitações registradas hoje, das mais recentes para as mais antigas",
+        "columns": {
+          "time": "Hora",
+          "task": "Tarefa",
+          "host": "Host",
+          "sent": "Enviado",
+          "received": "Recebido",
+          "status": "Status",
+          "model": "Modelo"
+        },
+        "usualHost": "Normalmente {{host}}",
+        "unknownHost": "Host desconhecido",
+        "connection": "conexão; o Loqui não vê as solicitações dentro dela",
+        "opaque": "Sessão; o tráfego dela não é visível para o Loqui",
+        "notSent": "Não enviada",
+        "unknownBytes": "desconhecido",
+        "outcome": {
+          "ok": "Enviada",
+          "error": "Falhou",
+          "blocked": "Bloqueada",
+          "cancelled": "Interrompida; o provedor pode ter recebido parte"
+        },
+        "truncated_one": "Registros mais recentes de hoje exibidos: {{count}}.",
+        "truncated_other": "Registros mais recentes de hoje exibidos: {{count}}.",
+        "showMore": "Mostrar mais",
+        "exportForAll": "Para ver todos os registros, exporte o CSV.",
+        "loopbackNote": "Solicitações que o Loqui envia para endereços deste computador (loopback), como um servidor de modelos local, não são listadas. Se um programa que você executa aqui, como um proxy ou redirecionador de portas, as repassar, esse tráfego não é mostrado, nem o tráfego que mecanismos locais ou outros programas geram por conta própria.",
+        "bytesNote": "Enviado e Recebido contam o corpo das solicitações e respostas, não os cabeçalhos. As linhas de conexão, incluindo a transcrição ao vivo, contam em vez disso todos os bytes da conexão inteira. “—” significa que o Loqui não conseguiu medir.",
+        "retention": "Os registros seguem suas configurações de histórico local e de retenção de transcrições.",
+        "retentionMemory": "O histórico local está desativado: os registros novos ficam apenas na memória (os 500 mais recentes) e somem quando o Loqui é fechado. Os registros salvos antes de você desativá-lo continuam neste computador até que sua configuração de retenção os remova ou você os apague.",
+        "retentionDays_one": "Os registros são excluídos após {{count}} dia, conforme sua configuração de retenção de transcrições.",
+        "retentionDays_other": "Os registros são excluídos após {{count}} dias, conforme sua configuração de retenção de transcrições.",
+        "retentionForever": "Os registros seguem sua configuração de retenção de transcrições (Sempre): os 100.000 mais recentes são mantidos.",
+        "export": "Exportar CSV",
+        "clear": "Limpar histórico",
+        "actionsNote": "Exportar e Limpar abrangem todos os registros armazenados, não só os de hoje. O Loqui pede confirmação na própria caixa de diálogo antes de limpar qualquer coisa.",
+        "notice": {
+          "exported": "Cópia em CSV salva.",
+          "exportError": "Não foi possível exportar o CSV.",
+          "cleared": "Histórico do gravador de voo apagado.",
+          "clearError": "Não foi possível limpar o histórico."
+        },
+        "tasks": {
+          "dictationStt": "Ditado",
+          "noteRecordingStt": "Gravação de nota",
+          "uploadStt": "Envio de áudio",
+          "dictationCleanup": "Limpeza do ditado",
+          "voiceAssistant": "Assistente de voz",
+          "assistantVision": "Visão do assistente",
+          "translation": "Tradução",
+          "noteFormatting": "Formatação de notas",
+          "chat": "Chat",
+          "speakerId": "Identificação de falantes",
+          "semanticSearch": "Pesquisa semântica",
+          "providerCheck": "Verificação do provedor",
+          "modelDownload": "Download de modelo",
+          "runtimeDownload": "Download de runtime",
+          "urlImport": "Importação de URL",
+          "appUpdate": "Atualizações",
+          "codex": "ChatGPT (Codex)",
+          "calendar": "Calendários",
+          "unattributed": "Sem explicação",
+          "nativeLaunch": "Programa local (não iniciado)"
+        },
+        "nativeRefusedToday_one": "O modo selado não iniciou {{count}} programa local. Um programa não iniciado não é uma solicitação, por isso não entra na contagem acima.",
+        "nativeRefusedToday_other": "O modo selado não iniciou {{count}} programas locais. Programas não iniciados não são solicitações, por isso não entram na contagem acima.",
+        "nativeRefusedPrograms": "Programas não iniciados: {{names}}"
+      }
     },
     "prompts": {
       "description": "Visualize, personalize e teste o prompt de sistema unificado que alimenta a limpeza de texto e a detecção de instruções",
@@ -1930,7 +2060,7 @@
       },
       "supportModels": {
         "title": "Modelos de suporte no dispositivo",
-        "description": "Modelos pequenos que são executados sempre neste dispositivo. Suas gravações e notas nunca saem dele para essas tarefas.",
+        "description": "Modelos pequenos que são executados neste dispositivo. O Loqui não envia suas gravações e notas a nenhum provedor para essas tarefas.",
         "downloaded": "Baixado",
         "checking": "Verificando…",
         "download": "Baixar {{size}}",
@@ -1950,7 +2080,7 @@
         "local": "Local",
         "selfHosted": "Auto-hospedado",
         "providersDesc": "Use sua própria chave API.",
-        "localDesc": "É executado neste dispositivo. Nada sai dele.",
+        "localDesc": "É executado neste dispositivo. O Loqui não envia o seu conteúdo a nenhum fornecedor.",
         "selfHostedDesc": "Seu servidor na sua rede.",
         "enterprise": "Nuvem corporativa",
         "enterpriseDesc": "O áudio vai para a nuvem da sua organização."
@@ -2857,7 +2987,8 @@
       "addUrl": "Adicionar o endereço",
       "sealed": "As ações estão pausadas enquanto o modo selado está ativado",
       "unreachable": "As ações não conseguem acessar o modelo de notas",
-      "openSettings": "Abrir configurações"
+      "openSettings": "Abrir configurações",
+      "nativeUnavailable": "As ações estão indisponíveis no modo selado nesta versão: os modelos locais ainda não podem ser isolados"
     },
     "slash": {
       "label": "Inserir bloco",
@@ -3289,7 +3420,7 @@
       "providers": "Use sua própria chave",
       "providersDesc": "Conecte-se à OpenAI, Anthropic, Gemini ou Groq com sua própria chave API.",
       "local": "Local",
-      "localDesc": "Executa um modelo local neste dispositivo. Nada sai dele.",
+      "localDesc": "Executa um modelo local neste dispositivo. O Loqui não envia o seu conteúdo a nenhum fornecedor.",
       "selfHosted": "Auto-hospedado",
       "selfHostedDesc": "Aponte para um endpoint compatível com OpenAI auto-hospedado.",
       "enterprise": "Corporativo",
@@ -3310,7 +3441,7 @@
         "local": "Local",
         "selfHosted": "Auto-hospedado",
         "providersDesc": "Traga sua própria chave API.",
-        "localDesc": "É executado neste dispositivo. Nada sai dele.",
+        "localDesc": "É executado neste dispositivo. O Loqui não envia o seu conteúdo a nenhum fornecedor.",
         "selfHostedDesc": "Seu próprio servidor na sua rede.",
         "enterprise": "Corporativo",
         "enterpriseDesc": "Use a conta de nuvem da sua organização (AWS, Azure, GCP)."
@@ -3943,7 +4074,9 @@
     "available": "O Loqui {{version}} está disponível. Ative as atualizações automáticas para instalá-lo ou baixe-o do GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "O modo selado está ativado, por isso o Loqui não procura, não baixa nem instala atualizações. Desative o modo selado para atualizar.",
+    "sealedRefused": "O modo selado está ativado, por isso o Loqui não procurou nem instalou nenhuma atualização. Nada foi enviado."
   },
   "locality": {
     "device": "Neste dispositivo",
@@ -4024,7 +4157,8 @@
       "sealed": "Pausado · modo selado",
       "retired": "Serviço encerrado · escolha novamente",
       "unsupported": "Indisponível para esta tarefa",
-      "cantReach": "Não foi possível acessar o servidor"
+      "cantReach": "Não foi possível acessar o servidor",
+      "nativeUnavailable": "Indisponível no modo selado nesta versão"
     },
     "toast": {
       "local": "{{task}} agora é executada neste dispositivo.",
@@ -4096,7 +4230,7 @@
     "tasks": "Tarefas",
     "destinations": "Destinos",
     "openSettings": "Abra as configurações de {{task}}",
-    "sealed": "O modo selado está ativado. As tarefas só podem ser executadas neste dispositivo.",
+    "sealed": "O modo selado está ativado: o Loqui bloqueia as tarefas que enviariam conteúdo para fora deste computador. Nesta versão, os seus mecanismos locais também não são executados enquanto o modo selado estiver ativado.",
     "undo": "Desfazer",
     "kind": {
       "speech": "voz",
@@ -4119,13 +4253,13 @@
     },
     "locked": {
       "speakerId": "Bloqueado neste dispositivo: a identificação do alto-falante precisa das suas gravações no dispositivo.",
-      "semanticSearch": "Bloqueado neste dispositivo: os embeddings permanecem locais, então a pesquisa nunca envia suas notas para lugar nenhum."
+      "semanticSearch": "Bloqueado neste dispositivo: os embeddings permanecem locais e a pesquisa não envia suas notas a nenhum provedor."
     },
     "no": {
       "capability": "{{provider}} não pode executar esta tarefa no Loqui.",
       "visionCloudOnly": "As capturas de tela só podem ir para um modelo de visão em nuvem hoje.",
       "meetingServer": "A gravação de notas ainda não pode usar seu próprio servidor.",
-      "sealed": "O modo selado mantém esta tarefa neste dispositivo.",
+      "sealed": "O modo selado está ativado, por isso esta tarefa não pode ser enviada para cá.",
       "uploadServer": "O upload de arquivo usa o servidor definido para Ditado. Mude isso aí.",
       "serverKind": "{{server}} não foi configurado para tarefas {{kind}}. Use “Adicionar um servidor” para inserir seu endereço."
     },
@@ -4141,7 +4275,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Adicionar um servidor",
       "addServerHint": "Você insere seu endereço a seguir",
-      "nothingLeaves": "Nada sai",
+      "nothingLeaves": "Não é enviado a nenhum fornecedor",
       "yourServer": "Seu próprio servidor",
       "unencrypted": "http, não criptografado",
       "hosted": "Provedor hospedado",
@@ -4151,7 +4285,7 @@
       "keyUnknown": "Verificando chaves salvas…"
     },
     "leaves": {
-      "none": "Nada sai deste dispositivo.",
+      "none": "Nenhuma tarefa envia nada a um fornecedor ou servidor.",
       "prefix": "Sai deste dispositivo:",
       "item": "{{task}} → {{destination}}"
     },
@@ -4338,7 +4472,10 @@
       "word": "redefinir",
       "running": "Redefinindo…",
       "failed": "A redefinição não terminou, por isso o Loqui não reiniciará automaticamente. Estas etapas falharam:",
-      "done": "Redefinição concluída. O Loqui está reiniciando…"
+      "done": "Redefinição concluída. O Loqui está reiniciando…",
+      "doneSealed": "Redefinição concluída. O Loqui não consegue reiniciar sozinho enquanto o modo selado está ativado. Saia do Loqui e abra-o novamente para concluir.",
+      "restartFailed": "Redefinição concluída, mas o Loqui não conseguiu reiniciar sozinho. Saia do Loqui e abra-o novamente para concluir.",
+      "doneRevoke": "Redefinição concluída. Leia a observação sobre o Google abaixo e depois feche o Loqui e abra-o de novo para terminar."
     }
   },
   "settingsSearch": {
@@ -4463,7 +4600,106 @@
     "recovery": {
       "availableTitle": "Gravações prontas para recuperar",
       "transcribe": "Transcrever gravações",
-      "discard": "Descartar gravações"
+      "discard": "Descartar gravações",
+      "transcribeOne": "Transcrever",
+      "stillSealedTitle": "A gravação continua guardada",
+      "stillSealedDetail": "O modo selado ainda está ativado, então esta gravação não foi transcrita. O Loqui continua mantendo-a apenas na memória, por até 30 minutos após o ditado ou até você sair do app. Transcreva-a depois de desativar o modo selado.",
+      "evictedOldest": "Para abrir espaço, o Loqui descartou a gravação mais antiga que estava guardando.",
+      "goneTitle": "Esta gravação não está mais guardada",
+      "goneExpired": "O Loqui a manteve na memória por 30 minutos e depois a descartou. Ela não pode mais ser transcrita.",
+      "goneEvicted": "O Loqui a descartou da memória para abrir espaço para uma gravação mais recente. Ela não pode mais ser transcrita.",
+      "goneDiscarded": "Ela foi descartada da memória. Ela não pode mais ser transcrita.",
+      "goneTranscribed": "O Loqui a transcreveu e não a mantém mais na memória.",
+      "goneUnknown": "O Loqui não a mantém mais na memória, então ela não pode mais ser transcrita.",
+      "expiredDuringReplay": "Os 30 minutos dela na memória acabaram durante esta tentativa, então o Loqui a descartou."
+    },
+    "confirmUnseal": {
+      "title": "Desativar o modo selado?",
+      "message": "As rotas na nuvem, os downloads, as atualizações e os calendários poderão usar a rede novamente.",
+      "detail": "O Loqui pede confirmação aqui, fora da janela do aplicativo, para que só você possa desativar o modo selado.",
+      "keep": "Manter selado",
+      "turnOff": "Desativar o modo selado"
+    },
+    "confirmClear": {
+      "title": "Limpar o registro de conexões?",
+      "message": "Isso exclui o histórico de conexões neste computador.",
+      "detail": "{{count}} registros serão excluídos. Isso não afeta o que um provedor já recebeu.",
+      "keep": "Manter registros",
+      "clear": "Limpar histórico",
+      "detail_one": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu.",
+      "detail_many": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu.",
+      "detail_other": "Registros a excluir: {{count}}. Isso não afeta o que um provedor já recebeu."
+    },
+    "confirmLink": {
+      "title": "Abrir este link fora do Loqui?",
+      "message": "O link abre em outro aplicativo. O modo selado não cobre o uso de rede desse aplicativo.",
+      "detail": "Destino: {{host}}",
+      "mailDetail": "Destino: seu aplicativo de e-mail",
+      "keep": "Não abrir",
+      "open": "Abrir link"
+    },
+    "confirmSettings": {
+      "title": "Abrir as configurações do sistema fora do Loqui?",
+      "message": "As configurações do sistema abrem em outro aplicativo. O modo selado não cobre o uso de rede desse aplicativo.",
+      "keep": "Não abrir",
+      "open": "Abrir configurações"
+    },
+    "blocked": {
+      "dictationPreflight": "Ditado pausado: o modo selado está ativado",
+      "dictationPreflightDetail": "Sua rota de voz envia áudio para fora deste computador, e o modo selado bloqueia isso. Nada foi gravado nem enviado. Escolha uma rota no dispositivo ou desative o modo selado.",
+      "nativeUnavailableTitle": "O ditado local não está disponível no modo selado",
+      "nativeUnavailableDetail": "Esta versão ainda não consegue isolar o mecanismo de voz local do Loqui, então ele não é executado enquanto o modo selado estiver ativado. Nada foi gravado. Desative o modo selado para ditar com ele.",
+      "dictationTitle": "O modo selado interrompeu este ditado",
+      "dictationKept": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. A gravação está salva no histórico, então você pode transcrevê-la depois de desativar o modo selado.",
+      "dictationNotKept": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. A gravação não foi mantida.",
+      "dictationHeld": "O modo selado bloqueou este ditado antes do envio. Nada foi enviado. O Loqui mantém a gravação apenas na memória, por até 30 minutos ou até você sair do app. Transcreva-a depois de desativar o modo selado.",
+      "generic": "O modo selado está ativado, então o Loqui não enviou isto. Nada foi enviado.",
+      "chat": "O modo selado está ativado, então o Loqui não enviou esta mensagem. Nada foi enviado. Sua mensagem continua aqui.",
+      "nativeUnconfirmedTitle": "O ditado local não foi iniciado no modo selado",
+      "nativeUnconfirmedDetail": "O modo selado está ativado e o Loqui não conseguiu confirmar o estado atual dos seus mecanismos locais, então o mecanismo de voz não foi iniciado. Nada foi gravado. Desative o modo selado para ditar com ele."
+    },
+    "paused": {
+      "dictationPreflightDetail": "O modo selado pausou o mecanismo de voz local do Loqui antes que ele iniciasse. Nada foi gravado. Desative o modo selado para ditar com ele."
+    },
+    "interrupted": {
+      "dictationKept": "O modo selado foi ativado enquanto este ditado era enviado, então ele foi interrompido. O provedor pode ter recebido parte dele. A gravação está salva no histórico.",
+      "dictationNotKept": "O modo selado foi ativado enquanto este ditado era enviado, então ele foi interrompido. O provedor pode ter recebido parte dele. A gravação não foi mantida.",
+      "dictationHeld": "O modo selado foi ativado enquanto este ditado era enviado, então ele foi interrompido. O provedor pode ter recebido parte dele. O Loqui mantém a gravação apenas na memória, por até 30 minutos ou até você sair do app.",
+      "dictationPartial": "O modo selado foi ativado durante este ditado. As palavras que chegaram foram mantidas. O provedor pode ter recebido parte da gravação.",
+      "cortiRetained": "A Corti ainda pode ter parte deste ditado: o Loqui não pode pedir à Corti que o exclua enquanto o modo selado estiver ativado e não entrará em contato com a Corti depois para excluí-lo.",
+      "generic": "O modo selado interrompeu isto durante o envio. O provedor pode ter recebido parte dele.",
+      "chat": "O modo selado interrompeu esta resposta enquanto a solicitação era enviada. O provedor pode ter recebido parte da conversa. Sua mensagem continua aqui."
+    },
+    "markdown": {
+      "imageBlocked": "Imagem não carregada: o modo selado está ativado",
+      "imageBlockedNamed": "Imagem não carregada: o modo selado está ativado ({{alt}})",
+      "imageChecking": "Imagem não carregada enquanto o Loqui verifica o modo selado",
+      "imageCheckingNamed": "Imagem não carregada enquanto o Loqui verifica o modo selado ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Não é possível conectar com o modo selado ativado",
+      "connectRefused": "Conectar este calendário exige internet, e o modo selado bloqueia isso. Nada foi enviado. Desative o modo selado para conectar.",
+      "connectInterrupted": "O modo selado foi ativado durante o login, então ele foi interrompido. O provedor pode ter recebido parte do login. Nenhuma conta foi conectada.",
+      "appleUnavailable": "Esta versão não consegue executar o assistente local do Calendário da Apple com o modo selado ativado. Desative o modo selado para conectar.",
+      "googleGrantKept": "O modo selado estava ativado, então o Loqui não pôde pedir ao Google que revogasse o acesso ao calendário. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google. O Loqui não entrará em contato com o Google sobre isso depois.",
+      "revokeQueuedTitle": "O acesso do Google será removido depois",
+      "revokeQueued": "O modo selado está ativado, então o Loqui não pode pedir agora ao Google que remova o acesso dele à agenda. O Loqui desconectou a agenda e guardou só o necessário para fazer o pedido. Ele vai pedir ao Google automaticamente quando você desativar o modo selado.",
+      "revokeDoneTitle": "Acesso do Google removido",
+      "revokeDone": "O Loqui pediu ao Google que removesse o acesso dele à agenda e excluiu o que tinha guardado para isso.",
+      "revokeFailedTitle": "Não foi possível remover o acesso do Google",
+      "revokeFailed": "O Loqui não conseguiu fazer o Google remover o acesso dele à agenda, então esse acesso pode continuar ativo no Google. O Loqui guarda só o necessário para tentar de novo. Você também pode remover o acesso por conta própria na sua Conta do Google.",
+      "revokeRetry": "Tentar de novo",
+      "revokeOpenAccount": "Abrir Conta do Google",
+      "revokeUnreadableTitle": "O acesso do Google pode continuar ativo",
+      "revokeUnreadable": "O Loqui guardou o necessário para pedir ao Google que removesse o acesso dele à agenda, mas não consegue mais ler isso, então não pode pedir. Esse acesso pode continuar ativo no Google. Remova o acesso por conta própria na sua Conta do Google.",
+      "revokeUnreadableDismiss": "Entendi",
+      "revokeUnsaved": "O modo selado está ativado, então o Loqui não pôde pedir ao Google que removesse o acesso dele à agenda, nem guardar com segurança o necessário para pedir depois. O Loqui excluiu a própria cópia do seu login, mas o Google mantém o acesso do Loqui até você removê-lo na sua Conta do Google.",
+      "googleRevokeFailedReset": "O Loqui não conseguiu fazer o Google remover o acesso dele à agenda antes da redefinição, então esse acesso pode continuar ativo no Google. O Loqui excluiu a própria cópia do seu login e não vai contatar o Google sobre isso depois. Remova o acesso na sua Conta do Google."
+    },
+    "paste": {
+      "title": "O modo selado interrompeu a colagem automática",
+      "copied": "O modo selado está ativado, então o Loqui não pôde colar automaticamente. Seu texto está na área de transferência, então você mesmo pode colá-lo.",
+      "notCopied": "O modo selado está ativado, então o Loqui não pôde colar automaticamente."
     }
   },
   "setupFlow": {
@@ -4674,8 +4910,8 @@
       },
       "privacy": {
         "title": "Para onde vão as tuas palavras",
-        "bodyMac": "Nada sai deste Mac a menos que escolhas um fornecedor.",
-        "bodyOther": "Nada sai deste computador a menos que escolhas um fornecedor.",
+        "bodyMac": "O Loqui não envia a tua voz nem o teu texto deste Mac para um fornecedor, a menos que escolhas um.",
+        "bodyOther": "O Loqui não envia a tua voz nem o teu texto deste computador para um fornecedor, a menos que escolhas um.",
         "nodes": {
           "mic": "Micro",
           "loqui": "Loqui",
@@ -4784,7 +5020,8 @@
         "needsModel": "O modelo de limpeza local ainda não está neste dispositivo. Transfere-o nas Definições → Modelos de linguagem (1,3 GB).",
         "unreachable": "O Loqui não consegue contactar {{provider}} neste momento. As tuas palavras ficam como as disseste.",
         "modelSetup": "O ChatGPT está ligado. Liste os modelos para escolher um para a revisão do texto.",
-        "review": "Revê esta alteração e escolhe «Aplicar»."
+        "review": "Revê esta alteração e escolhe «Aplicar».",
+        "nativeUnavailable": "A limpeza local está indisponível no modo selado nesta versão: os modelos locais ainda não podem ser isolados. Suas palavras ficam como você as disse."
       },
       "reuse": "Usar esta escolha também para outras funções de texto",
       "exampleInProgress": "Texto de exemplo enquanto o pedido decorre. O teu resultado só aparece se a limpeza for bem-sucedida.",
@@ -4838,7 +5075,8 @@
           "configured": "{{voice}}, ainda por experimentar",
           "downloading": "A transferência continua",
           "needsModel": "Transfere uma voz",
-          "unavailable": "Conclui a configuração nas Definições"
+          "unavailable": "Conclui a configuração nas Definições",
+          "nativeUnavailable": "Indisponível no modo selado nesta versão"
         },
         "microphone": {
           "heard": "A funcionar",
@@ -4868,7 +5106,8 @@
           "configured": "Configurada com {{name}}",
           "configuredNetwork": "Configurada em {{provider}} com {{name}}",
           "modelSetup": "Listar modelos do ChatGPT para a revisão",
-          "review": "Revê esta alteração e escolhe «Aplicar»."
+          "review": "Revê esta alteração e escolhe «Aplicar».",
+          "nativeUnavailable": "Indisponível no modo selado nesta versão"
         }
       },
       "dictateNote": "Ditar numa nota",
@@ -4883,7 +5122,8 @@
         "needsModel": "A gravação de notas precisa de um modelo de voz neste dispositivo.",
         "needsKey": "A gravação de notas precisa da tua chave {{provider}}.",
         "needsUrl": "A gravação de notas precisa de um endereço de servidor.",
-        "unreachable": "O Loqui não consegue contactar {{provider}} para gravar notas."
+        "unreachable": "O Loqui não consegue contactar {{provider}} para gravar notas.",
+        "nativeUnavailable": "A gravação de notas está indisponível no modo selado nesta versão: os mecanismos locais ainda não podem ser isolados."
       },
       "fixNote": "Resolver",
       "noteNetwork": "As notas estão configuradas para enviar áudio para {{provider}}.",

@@ -28,6 +28,9 @@ class FakeBrowserWindow extends EventEmitter {
     this.ignoreMouseEvents = [];
     this.webContents = Object.assign(new EventEmitter(), {
       send: (channel, payload) => this.messages.push({ channel, payload }),
+      setWindowOpenHandler: (fn) => {
+        this.webContents.openHandler = fn;
+      },
     });
     createdWindows.push(this);
   }
@@ -1518,5 +1521,36 @@ test("TTL while backend registration is pending cannot publish a held label or a
     manager.dismissMeetingNotification();
     await settle();
     timers.restore();
+  }
+});
+
+// Final review I3 / T11-M7: the notification window denies in-app child
+// windows and routes links through main's guarded opener.
+test("the meeting notification window denies window.open and routes links", async () => {
+  const manager = createNormalWindowManager();
+  const routed = [];
+  manager.openExternalUrl = (url) => routed.push(url);
+  try {
+    const showPromise = manager.showMeetingNotification(
+      { detectionId: "calendar:links", source: "calendar" },
+      { autoDismiss: false }
+    );
+    const notificationWindow = await windowCreated(0);
+    const handler = notificationWindow.webContents.openHandler;
+    assert.equal(typeof handler, "function", "a window-open handler is installed");
+    assert.deepEqual(handler({ url: "https://example.com/a" }), { action: "deny" });
+    assert.deepEqual(handler({ url: "file:///etc/passwd" }), { action: "deny" });
+    let prevented = false;
+    notificationWindow.webContents.emit(
+      "will-navigate",
+      { preventDefault: () => (prevented = true) },
+      "mailto:a@example.com"
+    );
+    assert.equal(prevented, true);
+    assert.deepEqual(routed, ["https://example.com/a", "mailto:a@example.com"]);
+    notificationWindow.loadDeferred.resolve();
+    await showPromise;
+  } finally {
+    manager.dismissMeetingNotification();
   }
 });

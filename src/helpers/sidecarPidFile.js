@@ -3,56 +3,135 @@ const path = require("path");
 const { app } = require("electron");
 
 const SUBDIR = "sidecar-pids";
-
+// If an unresolved record cannot be copied, keep its original from being
+// overwritten/cleared by a manager. The registry still owns current children.
+const protectedRecords = new Set();
+// Each failed name+PID copy is a separate obligation. An intact archive of
+// another PID must never unlock the only current record of a failed copy.
+const unpreserved = new Map();
 function pidDir() {
   return path.join(app.getPath("userData"), SUBDIR);
 }
-
 function pidPath(name) {
   return path.join(pidDir(), `${name}.pid`);
 }
-
+function isProtected(file) {
+  return protectedRecords.has(file) || unpreserved.has(file);
+}
 function write(name, pid) {
-  if (!Number.isInteger(pid)) return;
+  if (!Number.isInteger(pid) || pid <= 0 || isProtected(pidPath(name))) return;
   try {
     fs.mkdirSync(pidDir(), { recursive: true });
     fs.writeFileSync(pidPath(name), String(pid), "utf-8");
-  } catch {
-    // Best-effort; the registry is the primary shutdown path.
-  }
+  } catch {} // Best effort; current children also belong to the registry.
 }
-
 function clear(name) {
+  if (isProtected(pidPath(name))) return;
   try {
     fs.unlinkSync(pidPath(name));
-  } catch {
-    // Already gone.
+  } catch {} // Already gone.
+}
+function preserve(name, pid) {
+  const original = pidPath(name);
+  const obligations = unpreserved.get(original) ?? new Set();
+  obligations.add(pid);
+  unpreserved.set(original, obligations);
+  const preserved = () => {
+    obligations.delete(pid);
+    if (obligations.size === 0) unpreserved.delete(original);
+    return true;
+  };
+  try {
+    const dir = path.join(pidDir(), "unresolved");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${name}.${pid}.pid`), String(pid), {
+      encoding: "utf8",
+      flag: "wx",
+    });
+    return preserved();
+  } catch (error) {
+    // An earlier intact copy is sufficient; never erase/replace it here.
+    if (error.code === "EEXIST") {
+      try {
+        if (
+          fs
+            .readFileSync(path.join(pidDir(), "unresolved", `${name}.${pid}.pid`), "utf8")
+            .trim() === String(pid)
+        ) {
+          return preserved();
+        }
+      } catch {}
+    }
+    return false;
   }
 }
-
-function readAll() {
-  const dir = pidDir();
+function readRecords(dir, preserved = false) {
+  const unresolved = [],
+    entries = [];
   let files;
   try {
     files = fs.readdirSync(dir);
-  } catch {
-    return [];
+  } catch (error) {
+    if (error.code !== "ENOENT")
+      unresolved.push({
+        kind: "sidecar-pid-registry",
+        pid: null,
+        reason: "PID_REGISTRY_UNREADABLE",
+        rootExited: false,
+        source: "sidecar-pid-file",
+      });
+    return { entries, unresolved };
   }
-
-  const entries = [];
   for (const file of files) {
     if (!file.endsWith(".pid")) continue;
+    const match = preserved ? file.match(/^(.*)\.([1-9][0-9]*)\.pid$/) : null;
+    const name = preserved && match ? match[1] : path.basename(file, ".pid");
+    const full = path.join(dir, file);
     try {
-      const name = path.basename(file, ".pid");
-      const raw = fs.readFileSync(path.join(dir, file), "utf-8").trim();
-      const pid = Number(raw);
-      if (!Number.isInteger(pid) || pid <= 0) continue;
+      const pid = Number(fs.readFileSync(full, "utf8").trim());
+      if (
+        !Number.isSafeInteger(pid) ||
+        pid <= 0 ||
+        (preserved && (!match || pid !== Number(match[2])))
+      ) {
+        protectedRecords.add(full);
+        unresolved.push({
+          kind: name,
+          pid: null,
+          reason: "PID_RECORD_INVALID",
+          rootExited: false,
+          source: "sidecar-pid-file",
+        });
+        continue;
+      }
       entries.push({ name, pid });
     } catch {
-      // Best-effort recovery metadata; skip entries that vanished or cannot be read.
+      protectedRecords.add(full);
+      unresolved.push({
+        kind: name,
+        pid: null,
+        reason: "PID_RECORD_UNREADABLE",
+        rootExited: false,
+        source: "sidecar-pid-file",
+      });
     }
   }
-  return entries;
+  return { entries, unresolved };
 }
-
-module.exports = { write, clear, readAll };
+function readForReaping() {
+  const current = readRecords(pidDir());
+  const preserved = readRecords(path.join(pidDir(), "unresolved"), true);
+  const unique = new Map(
+    [...current.entries, ...preserved.entries].map((e) => [`${e.name}:${e.pid}`, e])
+  );
+  return {
+    entries: [...unique.values()],
+    unresolved: [...current.unresolved, ...preserved.unresolved],
+  };
+}
+// Compatibility reader describes current manager records. Startup also reads
+// durable unresolved copies, which manager write/clear deliberately cannot touch.
+function readAll() {
+  return readRecords(pidDir()).entries;
+}
+module.exports = { write, clear, readAll, readForReaping, preserve };

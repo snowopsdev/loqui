@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import modelRegistryData from "../../models/modelRegistryData.json";
 import { refreshRouteFacts } from "../../stores/routeFactsStore";
 import { formatDecimalBytes } from "../../utils/formatBytes";
+import { sealedFailureMessage } from "../../utils/sealedModeError";
 import { Button } from "../ui/button";
 import { LocalityRing } from "../ui/LocalityRing";
 import { SectionHeader, SettingsPanel, SettingsPanelRow, SettingsRow } from "../ui/SettingsSection";
@@ -65,7 +66,11 @@ export default function LocalSupportModels() {
       if (mounted.current && requestVersion.current[kind] === request) {
         setStatuses((previous) => ({
           ...previous,
-          [kind]: { downloaded: null, checking: false, error: String(error) },
+          [kind]: {
+            downloaded: null,
+            checking: false,
+            error: sealedFailureMessage(error, translate.current) ?? String(error),
+          },
         }));
       }
     }
@@ -89,7 +94,16 @@ export default function LocalSupportModels() {
         kind === "meeting"
           ? await window.electronAPI.downloadDiarizationModels?.()
           : await window.electronAPI.downloadSearchModel?.();
-      if (!result?.success) throw new Error(result?.error || t("personal.supportDownloadFailed"));
+      if (!result?.success) {
+        // A sealed refusal shows translated copy, never main's text (I6).
+        const message =
+          sealedFailureMessage(result, t) ?? (result?.error || t("personal.supportDownloadFailed"));
+        setStatuses((previous) => ({
+          ...previous,
+          [kind]: { ...previous[kind], checking: false, error: message },
+        }));
+        return;
+      }
       setStatuses((previous) => ({
         ...previous,
         [kind]: { downloaded: true, checking: false, error: null },
@@ -98,7 +112,11 @@ export default function LocalSupportModels() {
     } catch (error) {
       setStatuses((previous) => ({
         ...previous,
-        [kind]: { ...previous[kind], checking: false, error: String(error) },
+        [kind]: {
+          ...previous[kind],
+          checking: false,
+          error: sealedFailureMessage(error, t) ?? String(error),
+        },
       }));
     } finally {
       setBusy(null);

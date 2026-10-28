@@ -37,7 +37,9 @@ export type RouteState =
   | { status: "needsModel"; sizeBytes?: number }
   | { status: "needsKey"; provider: string }
   | { status: "needsUrl" }
-  | { status: "unreachable"; detail?: "sealed" | "retired" | "unsupported" }; // spec §5.1: literal union, not string
+  // spec §5.1: literal union, not string. Plan 07 (A14, fix round 1): "nativeUnavailable"
+  // is main's attested "local engines can't run while sealed on this build".
+  | { status: "unreachable"; detail?: "sealed" | "retired" | "unsupported" | "nativeUnavailable" };
 
 export interface ResolvedRoute {
   id: RouteId;
@@ -206,7 +208,39 @@ export interface RouteFacts {
   rejected: ReadonlySet<CredentialId>;
   speakerIdModelsReady: boolean | null;
   searchModelReady: boolean | null;
+  // Plan 07 (spec §5.1 "Native availability"): main-authoritative availability
+  // of each route's selected built-in native engines, projected from the sole
+  // sealedStore attestation (src/lib/nativeRouteAvailability.ts). Read only
+  // while the seal is known active. Absent means not projected: a route that
+  // needs a built-in engine is then unknown, never ready.
+  nativeAvailability?: Readonly<Partial<Record<RouteId, NativeRouteAvailability>>> | null;
 }
+
+// Spec §5.1 / D15. 07a produces only "notRequired", "unavailable" and
+// "unknown": main has no verified native boundary yet, so no built-in engine
+// is available while sealed. "unavailable" (A14, fix round 1) is main's fresh
+// attestation that this build has no native boundary, so its engines do not
+// run while sealed; it says nothing about isolation and is never a pause.
+// "unknown" is a missing or stale attestation. "available", "pending" and
+// "paused" are reserved for 07b's verified facts and never come from a test,
+// an empty list or a self-test.
+export interface NativeRouteAvailability {
+  status: "notRequired" | "available" | "pending" | "paused" | "unavailable" | "unknown";
+  reason?: "isolation" | "sessionBus";
+}
+
+// Loqui's own native programs, named by the child-registry kind prefix main
+// records for them (childRegistry.js SIDECAR/kindOf; the ONNX worker is a
+// utility process). Derived from the executors (preflight "Selected-native
+// dependency audit"), not from locality.
+export type NativeEngine =
+  | "whisper-server"
+  | "sherpa-onnx"
+  | "sherpa-onnx-diarize"
+  | "llama-server"
+  | "onnx-worker"
+  | "qdrant"
+  | "ffmpeg";
 
 export interface RouteCapabilities {
   // Renderer-normalized Corti auth target agreement. Absent in legacy pure fixtures.
@@ -558,6 +592,7 @@ const NEEDS_URL: RouteState = { status: "needsUrl" };
 const UNSUPPORTED: RouteState = { status: "unreachable", detail: "unsupported" };
 const RETIRED: RouteState = { status: "unreachable", detail: "retired" };
 const SEALED: RouteState = { status: "unreachable", detail: "sealed" };
+const NATIVE_UNAVAILABLE: RouteState = { status: "unreachable", detail: "nativeUnavailable" };
 const CHOOSE_PROVIDER: RouteState = { status: "needsKey", provider: "" };
 
 interface Destination {
@@ -1089,21 +1124,82 @@ export function routePayloadParts(id: RouteId, s: RouteSettingsSnapshot): Payloa
   }
 }
 
+function routeDestination(s: RouteSettingsSnapshot, id: RouteId): Destination {
+  if (id === "speakerId" || id === "semanticSearch") return supportDestination(s, id);
+  if (ROUTE_KIND[id] === "speech")
+    return sttDestination(s, id, s.stt[ROUTE_STT_CONTEXT[id] as SttContext]);
+  return llmDestination(s, id, s.llm[effectiveScope(s, id)]);
+}
+
+// Which of Loqui's own native programs the selected destination needs. Only a
+// built-in engine (device locality, no configured host) has any: a configured
+// loopback endpoint is a server the user runs, not Loqui's child (CCR-7), and
+// remote routes run no engine of Loqui's. Ancillary conversion or capture a
+// configured endpoint may still need stays under main's own launch guard.
+export function nativeEngineRequirements(
+  s: RouteSettingsSnapshot,
+  id: RouteId
+): readonly NativeEngine[] {
+  const dest = routeDestination(s, id);
+  if (dest.locality !== "device" || dest.host !== null) return [];
+  switch (id) {
+    case "speakerId":
+      // Diarization CLI plus the ONNX worker's speaker embeddings.
+      return ["sherpa-onnx-diarize", "onnx-worker"];
+    case "semanticSearch":
+      return ["onnx-worker", "qdrant"];
+    case "dictationStt":
+    case "noteRecordingStt":
+    case "uploadStt": {
+      const input = s.stt[ROUTE_STT_CONTEXT[id] as SttContext];
+      const family = sttFamily(input.localProvider);
+      if (input.mode.trim() !== "local" || family === null) return [];
+      const engine: NativeEngine = family === "whisper" ? "whisper-server" : "sherpa-onnx";
+      // An uploaded file is converted before transcription.
+      return id === "uploadStt" ? [engine, "ffmpeg"] : [engine];
+    }
+    default:
+      return s.llm[effectiveScope(s, id)].mode.trim() === "local" ? ["llama-server"] : [];
+  }
+}
+
+// A built-in engine is ready while sealed only with main's verified availability.
+function nativeReadyWhileSealed(s: RouteSettingsSnapshot, id: RouteId): boolean {
+  if (nativeEngineRequirements(s, id).length === 0) return true;
+  return s.facts.nativeAvailability?.[id]?.status === "available";
+}
+
+// Main's fresh attestation says this build's engines do not run while sealed.
+function nativeAttestedUnavailable(s: RouteSettingsSnapshot, id: RouteId): boolean {
+  return (
+    nativeEngineRequirements(s, id).length > 0 &&
+    s.facts.nativeAvailability?.[id]?.status === "unavailable"
+  );
+}
+
 export function resolveRoute(s: RouteSettingsSnapshot, id: RouteId): ResolvedRoute {
   const kind = ROUTE_KIND[id];
-  let dest: Destination;
-  if (id === "speakerId" || id === "semanticSearch") {
-    dest = supportDestination(s, id);
-  } else if (kind === "speech") {
-    dest = sttDestination(s, id, s.stt[ROUTE_STT_CONTEXT[id] as SttContext]);
-  } else {
-    dest = llmDestination(s, id, s.llm[effectiveScope(s, id)]);
-  }
+  const dest = routeDestination(s, id);
 
   const off = isOff(s, id);
   let state = dest.state;
   if (off) state = OFF;
-  else if (s.sealed && isSealedLocality(dest.locality)) state = SEALED;
+  else if (s.sealed && isSealedLocality(dest.locality)) {
+    // Rule 10 keeps its precedence: an endpoint the executors refuse
+    // (missing, malformed, insecure, plain-HTTP *.localhost) is needsUrl,
+    // sealed or not. Every valid route that leaves the device is sealed,
+    // whatever its readiness (rule 7).
+    state = dest.state.status === "needsUrl" ? dest.state : SEALED;
+  } else if (s.sealed && state.status === "ready" && !nativeReadyWhileSealed(s, id)) {
+    // Native availability overlay (spec §5.1, D15): locality stays "device",
+    // but a built-in engine without main's verified availability is not
+    // ready. Main's attested unavailability is settled (A14, fix round 1);
+    // anything else, such as a missing or stale claim, is unknown.
+    state = nativeAttestedUnavailable(s, id) ? NATIVE_UNAVAILABLE : UNKNOWN;
+  } else if (s.sealed && state.status === "unknown" && nativeAttestedUnavailable(s, id)) {
+    // Readiness facts still loading cannot make the engine run while sealed.
+    state = NATIVE_UNAVAILABLE;
+  }
 
   const parts = off || dest.locality === "device" ? [] : routePayloadParts(id, s);
   return {

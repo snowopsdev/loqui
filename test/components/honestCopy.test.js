@@ -12,7 +12,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const en = JSON.parse(read("src/locales/en/translation.json"));
 const noop = () => {};
 
-test("[change-driving] local mode no longer claims 'fully private'", () => {
+test("[change-driving] local mode no longer claims 'fully private' or that nothing leaves", () => {
   const values = [
     en.settingsPage.transcription.modes.localDesc,
     en.settingsPage.aiModels.modes.localDesc,
@@ -21,7 +21,10 @@ test("[change-driving] local mode no longer claims 'fully private'", () => {
   ];
   for (const value of values) {
     assert.doesNotMatch(value, /fully private/i);
-    assert.match(value, /Nothing leaves it/);
+    // 07a (final review I4): a local route names what Loqui does, never the
+    // absence of all egress, which Loqui cannot attest.
+    assert.doesNotMatch(value, /nothing leaves/i);
+    assert.match(value, /Loqui doesn't send your content to a provider/);
   }
 });
 

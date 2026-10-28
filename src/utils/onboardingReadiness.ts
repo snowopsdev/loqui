@@ -69,6 +69,16 @@ function speechRow(input: ReadinessInput): ReadinessRow {
   ) {
     return { ...base, status: "pending", detail: "speech.checking" };
   }
+  if (route.state.status === "unreachable" && route.state.detail === "nativeUnavailable") {
+    // Plan 07 (fix round 1, I1): main attests local engines don't run while
+    // sealed on this build. Not ready, and not "checking" either.
+    return {
+      ...base,
+      status: "pending",
+      detail: "speech.nativeUnavailable",
+      settingsPath: route.settingsPath,
+    };
+  }
   if (
     route.state.status === "needsKey" ||
     route.state.status === "needsUrl" ||
@@ -173,7 +183,14 @@ export function summarizeReadiness(input: ReadinessInput): ReadinessSummary {
 }
 
 export type NoteBlock =
-  "microphone" | "unsupported" | "sealed" | "needsModel" | "needsKey" | "needsUrl" | "unreachable";
+  | "microphone"
+  | "unsupported"
+  | "sealed"
+  | "nativeUnavailable"
+  | "needsModel"
+  | "needsKey"
+  | "needsUrl"
+  | "unreachable";
 
 export interface NoteActionState {
   status: "ready" | "checking" | "blocked";
@@ -209,6 +226,8 @@ export function noteActionState({
   if (state.status === "unreachable" && state.detail === "unsupported")
     return blocked("unsupported");
   if (state.status === "unreachable" && state.detail === "sealed") return blocked("sealed");
+  if (state.status === "unreachable" && state.detail === "nativeUnavailable")
+    return blocked("nativeUnavailable");
   if (state.status === "needsModel" || state.status === "off") return blocked("needsModel");
   if (state.status === "needsKey") return blocked("needsKey");
   if (state.status === "needsUrl") return blocked("needsUrl");

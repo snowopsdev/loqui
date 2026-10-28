@@ -6,6 +6,8 @@ import { useRouteChange, useRouteCommit } from "./settings/routing/useRouteChang
 import { RouteSwitch } from "./settings/routing/RouteSwitch";
 import { StorageList } from "./settings/StorageList";
 import UpdateSettings from "./settings/UpdateSettings";
+import FlightRecorderPanel from "./settings/FlightRecorderPanel";
+import SealedModePanel from "./settings/SealedModePanel";
 import LabsSettings from "./settings/LabsSettings";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -2605,6 +2607,10 @@ EOF`,
             <div>
               <SectionHeader description={t("personal.privacyDescription")} />
             </div>
+
+            {/* Sealed mode (Plan 07, SET-R6 C), then its flight recorder (SET-M3) */}
+            <SealedModePanel />
+            <FlightRecorderPanel />
 
             {/* Audio Retention */}
             <div className="border-t border-border/70 pt-6">

@@ -1,4 +1,12 @@
 const test = require("node:test");
+const cp = require("node:child_process");
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
+const spawnLeaf = cp.spawn;
+cp.spawn = (command, args, options) =>
+  spawnLeaf(command, args, { ...options, killSignal: "SIGKILL", timeout: 5000 });
+test.after(() => {
+  cp.spawn = spawnLeaf;
+});
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const fs = require("node:fs");
@@ -44,7 +52,7 @@ test("merges independent WebM recorder segments into one decodable timeline", as
           "-y",
           segmentPath,
         ],
-        { windowsHide: true }
+        { windowsHide: true, killSignal: "SIGKILL", timeout: 5000 }
       );
       assert.equal(generated.status, 0, generated.stderr?.toString());
       segments.push({ buffer: fs.readFileSync(segmentPath), mimeType: "audio/webm" });

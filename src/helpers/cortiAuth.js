@@ -1,4 +1,4 @@
-const { net } = require("electron");
+const { gatedNetFetch } = require("./privacy/gatedFetch");
 const { createHash } = require("crypto");
 
 const CORTI_ENVIRONMENTS = new Set(["eu", "us"]);
@@ -41,7 +41,9 @@ async function getCortiToken({ environment, tenant, clientId, clientSecret }, fe
     return cached.value;
   }
 
-  const doFetch = fetchImpl || ((url, init) => net.fetch(url, init));
+  // Sealed mode: the default transport is gated. A token request is metadata;
+  // its task comes from the caller's egress context.
+  const doFetch = fetchImpl || ((url, init) => gatedNetFetch(url, init, { provider: "corti" }));
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), TOKEN_FETCH_TIMEOUT_MS);
   try {

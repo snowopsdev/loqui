@@ -1275,7 +1275,11 @@ test("change-driving: sealed mode makes every route that leaves the device unrea
     "a LAN server is another machine"
   );
   assert.equal(r.noteFormatting.locality, "network");
-  assert.deepEqual(r.chat.state, { status: "ready" });
+  // Plan 07 Task 13 (spec §5.1 "Native availability"): a built-in engine
+  // stays on the device but is not ready while sealed without main's verified
+  // availability; 07a has none, so the local chat model is unknown.
+  assert.equal(r.chat.locality, "device");
+  assert.deepEqual(r.chat.state, { status: "unknown" });
   assert.deepEqual(r.translation.state, { status: "off" });
   assert.equal(isSealedLocality("remote"), true);
   assert.equal(isSealedLocality("network"), true);

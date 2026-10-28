@@ -10,10 +10,12 @@
  */
 
 import { TRUNCATED_OUTPUT_MESSAGE_KEY } from "../services/ai/chatRequestBody";
+import { isSealedModeError, sealedGenericMessageKey } from "./sealedModeError";
 
 export interface LocalInferenceFailure {
   error?: string;
   code?: string;
+  phase?: string;
   details?: Record<string, unknown> | null;
 }
 
@@ -60,6 +62,11 @@ export function buildLocalInferenceError(result: LocalInferenceFailure): LocalIn
   } else if (result.code === "OUTPUT_TRUNCATED") {
     // Same toast the cloud providers raise when a cleanup reply hits the token cap (#2091).
     error.messageKey = TRUNCATED_OUTPUT_MESSAGE_KEY;
+  } else if (isSealedModeError(result)) {
+    // Sealed mode (Plan 07): the phase travels in the envelope and the text;
+    // "nothing was sent" only for a refusal (T8-M4: always a real locale key).
+    error.code = "SEALED_MODE";
+    error.messageKey = sealedGenericMessageKey(result);
   }
 
   return error;

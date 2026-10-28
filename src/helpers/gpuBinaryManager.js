@@ -68,7 +68,9 @@ class GpuBinaryManager {
   }
 
   get binDir() {
-    return path.join(this.binRoot, this.config.dirName);
+    const dir = path.join(this.binRoot, this.config.dirName);
+    require("./privacy/childRegistry").registerLocalBinaryDir(dir);
+    return dir;
   }
 
   _getAssetConfig() {
@@ -107,7 +109,12 @@ class GpuBinaryManager {
   }
 
   async _resolveAsset(assetConfig) {
-    const release = await fetchJson(this.config.releaseUrl, { headers: githubReleaseHeaders() });
+    // Runtime packs are their own ledger task (threat model N13), distinct
+    // from models: every GPU manager (CUDA/Vulkan whisper, Vulkan llama) shares it.
+    const release = await fetchJson(this.config.releaseUrl, {
+      headers: githubReleaseHeaders(),
+      egressTask: "runtimeDownload",
+    });
     if (!release?.assets) throw new Error(`Could not fetch ${this.config.name} release info`);
 
     const asset = release.assets.find((a) =>
@@ -182,6 +189,7 @@ class GpuBinaryManager {
       extractDir = path.join(tempDir, `temp-extract-${Date.now()}`);
 
       await downloadFile(asset.browser_download_url, archivePath, {
+        egressTask: "runtimeDownload",
         signal,
         expectedSize: asset.size,
         onProgress,

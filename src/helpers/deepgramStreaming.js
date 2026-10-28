@@ -3,7 +3,10 @@ const {
   discardPendingAudio,
   zeroAudio,
   sendContentFrame,
+  holdFrame,
+  heldRecording,
 } = require("./streamingHandOff");
+const { openRealtimeSocket } = require("./sttTransport");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -335,9 +338,23 @@ class DeepgramStreaming {
         }
       }, WEBSOCKET_TIMEOUT_MS);
 
-      const socket = new WebSocket(url, {
-        headers: { Authorization: authorizationHeader(this.mode, token) },
-      });
+      let socket;
+      try {
+        // A warm socket is a connection resource with no recording (Task 9a).
+        socket = openRealtimeSocket(
+          this,
+          url,
+          () =>
+            new WebSocket(url, {
+              headers: { Authorization: authorizationHeader(this.mode, token) },
+            })
+        );
+      } catch (error) {
+        clearTimeout(warmupTimeout);
+        settled = true;
+        reject(error);
+        return;
+      }
       this.warmConnection = socket;
       // A replaced warm socket's late events must not touch its successor.
       const isCurrent = () => generation === this._warmGeneration && this.warmConnection === socket;
@@ -726,9 +743,25 @@ class DeepgramStreaming {
         reject(new Error("Deepgram WebSocket connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      const ws = new WebSocket(url, {
-        headers: { Authorization: authorizationHeader(this.mode, token) },
-      });
+      let ws;
+      try {
+        // Cold-start and liveness-reconnect sockets are connections of their own.
+        ws = openRealtimeSocket(
+          this,
+          url,
+          () =>
+            new WebSocket(url, {
+              headers: { Authorization: authorizationHeader(this.mode, token) },
+            })
+        );
+      } catch (error) {
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+        this.pendingResolve = null;
+        this.pendingReject = null;
+        reject(error);
+        return;
+      }
       this.ws = ws;
 
       ws.on("open", () => {
@@ -881,7 +914,8 @@ class DeepgramStreaming {
     }
   }
 
-  sendAudio(pcmBuffer) {
+  // recording: the immutable realtime recording handle this audio belongs to.
+  sendAudio(pcmBuffer, recording) {
     if (!this._egressOpen()) {
       this.discardPendingAudio();
       return false;
@@ -902,7 +936,7 @@ class DeepgramStreaming {
         this.ws.readyState === WebSocket.CONNECTING &&
         this.coldStartBufferSize < COLD_START_BUFFER_MAX
       ) {
-        const copy = Buffer.from(pcmBuffer);
+        const copy = holdFrame(Buffer.from(pcmBuffer), recording);
         this.coldStartBuffer.push(copy);
         this.coldStartBufferSize += copy.length;
       }
@@ -919,8 +953,9 @@ class DeepgramStreaming {
         chunks: this.coldStartBuffer.length,
         bytes: this.coldStartBufferSize,
       });
+      // Replayed liveness audio keeps its own recording, like cold-start audio.
       for (const buf of this.coldStartBuffer) {
-        sendContentFrame(this, buf);
+        sendContentFrame(this, buf, heldRecording(buf));
         zeroAudio(buf);
       }
       this.coldStartBuffer = [];
@@ -928,13 +963,13 @@ class DeepgramStreaming {
     }
 
     if (this.livenessTimer) {
-      const copy = Buffer.from(pcmBuffer);
+      const copy = holdFrame(Buffer.from(pcmBuffer), recording);
       this.replayBuffer.push(copy);
       this.replayBufferSize += copy.length;
     }
 
     this.audioBytesSent += pcmBuffer.length;
-    sendContentFrame(this, pcmBuffer);
+    sendContentFrame(this, pcmBuffer, recording);
     return true;
   }
 

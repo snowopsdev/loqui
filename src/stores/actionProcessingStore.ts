@@ -14,6 +14,7 @@ import { generateNoteTitle } from "../utils/generateTitle";
 import { buildNoteFormattingOverrides } from "../helpers/noteFormattingOverrides";
 import { tagActionItemOwners, type MentionPerson } from "../utils/mentionMarkdown";
 import type { ActionItem } from "../types/electron";
+import { isSealedModeError, sealedGenericMessageKey } from "../utils/sealedModeError";
 
 export type ActionProcessingStatus = "idle" | "processing" | "success";
 
@@ -181,7 +182,15 @@ export function runBackgroundAction(
         messageKey?: string;
         messageParams?: Record<string, string | number>;
       };
-      pushErrorEvent({ noteId, message, messageKey, messageParams });
+      // A sealed failure without its own key gets the translated generic copy
+      // for its phase, never main's raw [SEALED_MODE] text.
+      pushErrorEvent({
+        noteId,
+        message,
+        messageKey:
+          messageKey ?? (isSealedModeError(err) ? sealedGenericMessageKey(err) : undefined),
+        messageParams,
+      });
     } finally {
       cancelledFlags.delete(noteId);
     }

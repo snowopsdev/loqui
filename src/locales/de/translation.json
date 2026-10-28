@@ -728,7 +728,7 @@
       "cloud": "Cloud",
       "local": "Lokal",
       "enterprise": "Enterprise",
-      "localDescription": "Läuft auf Ihrem Gerät. Volle Privatsphäre, funktioniert offline.",
+      "localDescription": "Läuft auf Ihrem Gerät und funktioniert offline.",
       "cloudDescription": "Leistungsstarke Modelle über API. Schnell und leistungsfähig, erfordert Internet.",
       "enterpriseDescription": "Nutzen Sie die Cloud-Anbieter-Zugangsdaten Ihrer Organisation."
     },
@@ -762,7 +762,7 @@
       "listModelsSendsKey": "Sendet {{slot}} an {{host}}, um die Modellliste abzurufen.",
       "listModelsNoKey": "Sendet keinen Schlüssel. Fragt {{host}} nach der Modellliste.",
       "listModelsNeedsEndpoint": "Zuerst einen Endpunkt übernehmen, dann seine Modelle auflisten.",
-      "listModelsSealed": "Der versiegelte Modus ist aktiv. Der Endpunkt wird nicht abgefragt.",
+      "listModelsSealed": "Der abgeschottete Modus ist aktiv. Der Endpunkt wird nicht abgefragt.",
       "slotCustom": "den für {{task}} gespeicherten benutzerdefinierten Schlüssel",
       "slotProvider": "Ihren gespeicherten {{provider}}-Schlüssel",
       "currentModel": "Aktuelles Modell: {{model}}",
@@ -1628,7 +1628,7 @@
         "selfHosted": "Selbst gehostet",
         "enterprise": "Enterprise",
         "providersDesc": "Eigenen API-Schlüssel nutzen.",
-        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
+        "localDesc": "Läuft auf diesem Gerät. Loqui sendet die Inhalte an keinen Anbieter.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterpriseDesc": "Nutzen Sie das Cloud-Konto Ihrer Organisation (AWS, Azure, GCP)."
       },
@@ -2016,7 +2016,137 @@
       "clearAllAudioDone": "Gespeichertes Audio gelöscht",
       "clearAllAudioFailed": "Nicht alle gespeicherten Audiodateien wurden gelöscht. Versuche es erneut oder prüfe, ob eine andere App die Dateien verwendet.",
       "audioStorageChecking": "Gespeichertes Audio wird geprüft…",
-      "audioStorageUnavailable": "Loqui konnte seinen Audioordner nicht lesen und kann gespeichertes Audio gerade weder anzeigen noch löschen."
+      "audioStorageUnavailable": "Loqui konnte seinen Audioordner nicht lesen und kann gespeichertes Audio gerade weder anzeigen noch löschen.",
+      "sealed": {
+        "title": "Abgeschotteter Modus",
+        "description": "Wenn er aktiv ist, blockiert Loqui seine eigenen Anfragen an andere Computer, darunter Cloud-Routen, Downloads, Updates und Kalender. In diesem Build können lokale Engines noch nicht isoliert werden, daher sind sie im abgeschotteten Modus nicht verfügbar.",
+        "checking": "Abgeschotteter Modus wird geprüft …",
+        "on": "Der abgeschottete Modus ist aktiv. Loqui blockiert seine eigenen Anfragen an andere Computer.",
+        "buildLimit": "Der abgeschottete Modus ist in diesem Build nicht vollständig verfügbar: Lokale Engines können noch nicht isoliert werden, daher laufen sie nicht, solange er aktiv ist. Routen, die sie nutzen, werden als nicht verfügbar angezeigt.",
+        "statusChecking": "Status des abgeschotteten Modus wird geprüft …",
+        "scope": "Der abgeschottete Modus gilt für Anfragen, die Loqui selbst stellt. Dein Browser, andere Apps und das Betriebssystem liegen außerhalb davon, und Links öffnen sich dort erst, nachdem du bestätigt hast.",
+        "forwarders": "Programme, die du selbst ausführst, etwa ein Proxy, eine Portweiterleitung, ein SOCKS- oder Tunnel-Tool, liegen ebenfalls außerhalb des abgeschotteten Modus. Solange er aktiv ist, sendet Loqui seine eigenen Anfragen nicht über einen Proxy, kann aber nicht sehen oder verhindern, was diese Programme senden.",
+        "unverified": {
+          "guards": "Loqui kann nicht bestätigen, dass alle seine Netzwerkschutzmechanismen aktiv sind. Beende Loqui und öffne es erneut.",
+          "envProxy": "Loqui wurde mit einer Proxy-Einstellung in seiner Umgebung gestartet und kann daher nicht bestätigen, dass jede Anfrage blockiert wird.",
+          "stopFailed": "Seit dem Einschalten des abgeschotteten Modus noch nicht als beendet bestätigt: {{names}}. Loqui prüft weiter.",
+          "stopFailedUnnamed": "Einige Vorgänge, die vor dem Einschalten des abgeschotteten Modus begonnen haben, haben noch nicht bestätigt, dass sie beendet sind. Loqui prüft weiter.",
+          "child": "Loqui kann nicht bestätigen, dass diese Programme und alles, was sie gestartet haben, beendet sind: {{names}}. Loqui prüft weiter.",
+          "childUnknown": "Loqui kann den Status der Programme, die es gestartet hat, nicht lesen. Es prüft weiter.",
+          "chromium": "Eine Seitenanfrage, die vor dem Einschalten des abgeschotteten Modus begonnen hat, ist noch offen. Loqui prüft weiter.",
+          "dns": "Eine Namensauflösung, die vor dem Einschalten des abgeschotteten Modus begonnen hat, steht noch aus. Loqui prüft weiter.",
+          "active": "Anfragen, die vor dem Einschalten des abgeschotteten Modus begonnen haben, werden gestoppt …",
+          "other": "Loqui konnte nicht jeden Schritt beim Einschalten des abgeschotteten Modus bestätigen und kann daher nicht bestätigen, dass alle eigenen Anfragen blockiert werden."
+        },
+        "blocked_one": "{{count}} Anfrage seit dem Einschalten des abgeschotteten Modus oder dem Start von Loqui blockiert.",
+        "blocked_other": "{{count}} Anfragen seit dem Einschalten des abgeschotteten Modus oder dem Start von Loqui blockiert.",
+        "loadError": "Loqui konnte deine gespeicherte Einstellung für den abgeschotteten Modus nicht lesen und hat ihn sicherheitshalber eingeschaltet. Schalte ihn hier aus, wenn du das möchtest.",
+        "saveError": "Loqui konnte diese Einstellung für den abgeschotteten Modus nicht speichern. Beim nächsten Start verwendet Loqui möglicherweise die vorherige Einstellung.",
+        "toggleError": "Der abgeschottete Modus konnte nicht geändert werden. Der Schalter zeigt die Einstellung, die Loqui gerade verwendet."
+      },
+      "recorder": {
+        "title": "Flugschreiber",
+        "subtitle": "Was Loquis eigene Netzwerkschutzmechanismen heute seit Mitternacht aufgezeichnet haben. Nur Metadaten: Audio, Text, Prompts, Schlüssel und vollständige Webadressen werden hier nicht gespeichert.",
+        "loading": "Wird geladen …",
+        "loadError": "Der Flugschreiber konnte nicht geladen werden.",
+        "unavailable": "Der Flugschreiber konnte einige Einträge nicht speichern, daher ist diese Liste möglicherweise unvollständig.",
+        "unavailableRead": "Der Flugschreiber kann seine Einträge gerade nicht lesen oder speichern.",
+        "deleteFailed": "Der Flugschreiber konnte einige Einträge nicht löschen, daher sind ältere Einträge möglicherweise noch gespeichert.",
+        "readStale": "Der Flugschreiber konnte seine Einträge gerade nicht lesen, daher ist diese Liste möglicherweise nicht aktuell.",
+        "retry": "Erneut versuchen",
+        "observedToday_one": "{{count}} ausgehende Anfrage heute aufgezeichnet",
+        "observedToday_other": "{{count}} ausgehende Anfragen heute aufgezeichnet",
+        "connectionsToday_one": "Dazu {{count}} Verbindung, getrennt von den Anfragen aufgeführt",
+        "connectionsToday_other": "Dazu {{count}} Verbindungen, getrennt von den Anfragen aufgeführt",
+        "sessionsToday_one": "Dazu {{count}} Hilfsprogramm-Sitzung (Codex oder yt-dlp), deren Anfragen Loqui nicht sehen kann",
+        "sessionsToday_other": "Dazu {{count}} Hilfsprogramm-Sitzungen (Codex oder yt-dlp), deren Anfragen Loqui nicht sehen kann",
+        "blockedToday_one": "{{count}} Anfrage vom abgeschotteten Modus blockiert, bevor sie gesendet wurde",
+        "blockedToday_other": "{{count}} Anfragen vom abgeschotteten Modus blockiert, bevor sie gesendet wurden",
+        "coverage": "Diese Zahlen umfassen nur, was hier aufgezeichnet wurde. Einträge können gelöscht oder durch deine Aufbewahrungseinstellungen entfernt werden, und Datenverkehr anderer Programme wird nicht erfasst. Sie können also nicht alles zeigen, was diesen Computer verlassen hat.",
+        "recordFailures_one": "Seit dem Start von Loqui konnte {{count}} Anfrage nicht im Flugschreiber eingetragen werden, daher ist diese Liste unvollständig.",
+        "recordFailures_other": "Seit dem Start von Loqui konnten {{count}} Anfragen nicht im Flugschreiber eingetragen werden, daher ist diese Liste unvollständig.",
+        "unexplained": "Loqui hat Anfragen an {{hosts}} gesehen, die es keiner Aufgabe zuordnen konnte.",
+        "unexplainedMore_one": "Und {{count}} weiterer Host.",
+        "unexplainedMore_other": "Und {{count}} weitere Hosts.",
+        "timelineLabel": "Heute aufgezeichnete Anfragen nach Uhrzeit",
+        "timelineLabelPartial": "Heute aufgezeichnete Anfragen nach Uhrzeit (unvollständig: nur die neuesten Einträge sind eingezeichnet)",
+        "timelinePartial": "Die Zeitleiste zeigt nur die unten aufgeführten Einträge; frühere Stunden von heute können weitere enthalten, die nicht eingezeichnet sind.",
+        "tick": "{{time}} · {{task}} · {{host}}",
+        "legend": {
+          "sent": "Gesendet",
+          "session": "Hilfsprogramm-Sitzung",
+          "blocked": "Blockiert, nicht gesendet",
+          "unexplained": "Ungeklärt"
+        },
+        "empty": "Keine aufgezeichneten Anfragen in diesem Zeitraum.",
+        "tableCaption": "Heute aufgezeichnete Anfragen, neueste zuerst",
+        "columns": {
+          "time": "Zeit",
+          "task": "Aufgabe",
+          "host": "Host",
+          "sent": "Gesendet",
+          "received": "Empfangen",
+          "status": "Status",
+          "model": "Modell"
+        },
+        "usualHost": "Üblicherweise {{host}}",
+        "unknownHost": "Unbekannter Host",
+        "connection": "Verbindung; die Anfragen darin sind für Loqui nicht sichtbar",
+        "opaque": "Sitzung; ihr Datenverkehr ist für Loqui nicht sichtbar",
+        "notSent": "Nicht gesendet",
+        "unknownBytes": "unbekannt",
+        "outcome": {
+          "ok": "Gesendet",
+          "error": "Fehlgeschlagen",
+          "blocked": "Blockiert",
+          "cancelled": "Gestoppt; der Anbieter hat möglicherweise einen Teil erhalten"
+        },
+        "truncated_one": "Angezeigt wird der neueste {{count}} Eintrag von heute.",
+        "truncated_other": "Angezeigt werden die neuesten {{count}} Einträge von heute.",
+        "showMore": "Mehr anzeigen",
+        "exportForAll": "Exportiere die CSV-Datei, um alle Einträge zu sehen.",
+        "loopbackNote": "Anfragen, die Loqui an Adressen auf diesem Computer (Loopback) sendet, etwa an einen lokalen Modellserver, werden nicht aufgeführt. Wenn ein Programm, das du hier ausführst, etwa ein Proxy oder eine Portweiterleitung, sie weitergibt, wird dieser Datenverkehr nicht angezeigt, ebenso wenig wie Datenverkehr, den lokale Engines oder andere Programme selbst erzeugen.",
+        "bytesNote": "Gesendet und Empfangen zählen die Inhalte von Anfragen und Antworten, nicht die Header. Verbindungszeilen, auch die der Live-Transkription, zählen stattdessen alle Bytes der gesamten Verbindung. „—“ bedeutet, dass Loqui es nicht messen konnte.",
+        "retention": "Einträge folgen deinen Einstellungen für den lokalen Verlauf und die Aufbewahrung von Transkripten.",
+        "retentionMemory": "Der lokale Verlauf ist aus: Neue Einträge werden nur im Arbeitsspeicher gehalten (die neuesten 500) und verschwinden, wenn Loqui beendet wird. Einträge, die vor dem Ausschalten gespeichert wurden, bleiben auf diesem Computer, bis deine Aufbewahrungseinstellung sie entfernt oder du sie löschst.",
+        "retentionDays_one": "Einträge werden nach {{count}} Tag gelöscht, entsprechend deiner Aufbewahrungseinstellung für Transkripte.",
+        "retentionDays_other": "Einträge werden nach {{count}} Tagen gelöscht, entsprechend deiner Aufbewahrungseinstellung für Transkripte.",
+        "retentionForever": "Einträge folgen deiner Aufbewahrungseinstellung für Transkripte (Unbegrenzt): Die neuesten 100.000 werden behalten.",
+        "export": "CSV exportieren",
+        "clear": "Verlauf löschen",
+        "actionsNote": "Exportieren und Löschen betreffen alle gespeicherten Einträge, nicht nur die von heute. Loqui fragt in einem eigenen Dialog nach, bevor etwas gelöscht wird.",
+        "notice": {
+          "exported": "Eine CSV-Kopie wurde gespeichert.",
+          "exportError": "Die CSV-Datei konnte nicht exportiert werden.",
+          "cleared": "Der Verlauf des Flugschreibers wurde gelöscht.",
+          "clearError": "Der Verlauf konnte nicht gelöscht werden."
+        },
+        "tasks": {
+          "dictationStt": "Diktat",
+          "noteRecordingStt": "Notizaufnahme",
+          "uploadStt": "Audio-Upload",
+          "dictationCleanup": "Diktat-Bereinigung",
+          "voiceAssistant": "Sprachassistent",
+          "assistantVision": "Assistent-Bildanalyse",
+          "translation": "Übersetzung",
+          "noteFormatting": "Notizformatierung",
+          "chat": "Chat",
+          "speakerId": "Sprechererkennung",
+          "semanticSearch": "Semantische Suche",
+          "providerCheck": "Anbieterprüfung",
+          "modelDownload": "Modell-Download",
+          "runtimeDownload": "Laufzeit-Download",
+          "urlImport": "URL-Import",
+          "appUpdate": "Updates",
+          "codex": "ChatGPT (Codex)",
+          "calendar": "Kalender",
+          "unattributed": "Ungeklärt",
+          "nativeLaunch": "Lokales Programm (nicht gestartet)"
+        },
+        "nativeRefusedToday_one": "Der abgeschottete Modus hat {{count}} lokales Programm nicht gestartet. Ein nicht gestartetes Programm ist keine Anfrage und wird oben nicht mitgezählt.",
+        "nativeRefusedToday_other": "Der abgeschottete Modus hat {{count}} lokale Programme nicht gestartet. Nicht gestartete Programme sind keine Anfragen und werden oben nicht mitgezählt.",
+        "nativeRefusedPrograms": "Nicht gestartete Programme: {{names}}"
+      }
     },
     "prompts": {
       "description": "Den einheitlichen System-Prompt anzeigen, anpassen und testen, der Textbereinigung und Anweisungserkennung steuert",
@@ -2045,7 +2175,7 @@
       },
       "supportModels": {
         "title": "Lokale Unterstützungsmodelle",
-        "description": "Kleine Modelle, die immer auf diesem Gerät laufen. Deine Aufnahmen und Notizen verlassen es für diese Aufgaben nie.",
+        "description": "Kleine Modelle, die auf diesem Gerät laufen. Loqui sendet deine Aufnahmen und Notizen für diese Aufgaben an keinen Anbieter.",
         "downloaded": "Heruntergeladen",
         "checking": "Wird geprüft…",
         "download": "{{size}} herunterladen",
@@ -2065,7 +2195,7 @@
         "local": "Lokal",
         "selfHosted": "Selbst gehostet",
         "providersDesc": "Eigenen API-Schlüssel nutzen.",
-        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
+        "localDesc": "Läuft auf diesem Gerät. Loqui sendet die Inhalte an keinen Anbieter.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterprise": "Unternehmens-Cloud",
         "enterpriseDesc": "Audio wird an die eigene Cloud Ihrer Organisation gesendet."
@@ -3230,9 +3360,10 @@
       "addKey": "Schlüssel hinzufügen",
       "needsUrl": "Aktionen benötigen die Adresse deines Servers",
       "addUrl": "Adresse hinzufügen",
-      "sealed": "Aktionen sind pausiert, solange der versiegelte Modus aktiv ist",
+      "sealed": "Aktionen sind pausiert, solange der abgeschottete Modus aktiv ist",
       "unreachable": "Aktionen können das Notizmodell nicht erreichen",
-      "openSettings": "Einstellungen öffnen"
+      "openSettings": "Einstellungen öffnen",
+      "nativeUnavailable": "Aktionen sind im abgeschotteten Modus in diesem Build nicht verfügbar: Lokale Modelle können noch nicht isoliert werden"
     },
     "slash": {
       "label": "Block einfügen",
@@ -3458,7 +3589,7 @@
       "providers": "Eigenen Schlüssel nutzen",
       "providersDesc": "Mit Ihrem eigenen API-Schlüssel an OpenAI, Anthropic, Gemini oder Groq anbinden.",
       "local": "Lokal",
-      "localDesc": "Führt ein lokales Modell auf diesem Gerät aus. Nichts verlässt es.",
+      "localDesc": "Führt ein lokales Modell auf diesem Gerät aus. Loqui sendet die Inhalte an keinen Anbieter.",
       "selfHosted": "Selbst gehostet",
       "selfHostedDesc": "Auf einen selbst gehosteten, OpenAI-kompatiblen Endpunkt verweisen.",
       "enterprise": "Enterprise",
@@ -3480,7 +3611,7 @@
         "selfHosted": "Selbst gehostet",
         "enterprise": "Enterprise",
         "providersDesc": "Eigenen API-Schlüssel verwenden.",
-        "localDesc": "Läuft auf diesem Gerät. Nichts verlässt es.",
+        "localDesc": "Läuft auf diesem Gerät. Loqui sendet die Inhalte an keinen Anbieter.",
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterpriseDesc": "Nutzen Sie das Cloud-Konto Ihrer Organisation (AWS, Azure, GCP)."
       }
@@ -3940,7 +4071,9 @@
     "available": "Loqui {{version}} ist verfügbar. Aktiviere automatische Updates, um es zu installieren, oder lade es von GitHub herunter.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
-    "restart": "Restart to Update"
+    "restart": "Restart to Update",
+    "sealed": "Der abgeschottete Modus ist aktiv, daher sucht Loqui nicht nach Updates und lädt oder installiert keine. Schalte den abgeschotteten Modus aus, um zu aktualisieren.",
+    "sealedRefused": "Der abgeschottete Modus ist aktiv, daher hat Loqui weder nach einem Update gesucht noch eines installiert. Es wurde nichts gesendet."
   },
   "locality": {
     "device": "Auf diesem Gerät",
@@ -4018,10 +4151,11 @@
       "addKey": "API-Schlüssel hinzufügen",
       "chooseProvider": "Anbieter auswählen",
       "addUrl": "Serveradresse hinzufügen",
-      "sealed": "Pausiert · versiegelter Modus",
+      "sealed": "Pausiert · abgeschotteter Modus",
       "retired": "Dienst eingestellt · erneut auswählen",
       "unsupported": "Für diese Aufgabe nicht verfügbar",
-      "cantReach": "Server nicht erreichbar"
+      "cantReach": "Server nicht erreichbar",
+      "nativeUnavailable": "Im abgeschotteten Modus in diesem Build nicht verfügbar"
     },
     "toast": {
       "local": "{{task}} läuft jetzt auf diesem Gerät.",
@@ -4056,7 +4190,7 @@
       "needsModel": "Lade zuerst das Modell herunter.",
       "chooseModel": "Wähle zuerst ein Modell.",
       "signIn": "Melde dich zuerst bei {{provider}} an. Bis zum Anwenden wird nichts gesendet.",
-      "sealed": "Der versiegelte Modus ist aktiv. Routen außerhalb dieses Geräts sind pausiert.",
+      "sealed": "Der abgeschottete Modus ist aktiv. Routen außerhalb dieses Geräts sind pausiert.",
       "unknown": "Gespeicherte Schlüssel und Modelle werden noch geprüft. Versuche es gleich erneut.",
       "unsupported": "Dieser Anbieter kann diese Aufgabe nicht ausführen."
     },
@@ -4093,7 +4227,7 @@
     "tasks": "Aufgaben",
     "destinations": "Ziele",
     "openSettings": "Öffnen Sie die {{task}}-Einstellungen",
-    "sealed": "Der versiegelte Modus ist aktiviert. Aufgaben können nur auf diesem Gerät ausgeführt werden.",
+    "sealed": "Der abgeschottete Modus ist aktiviert: Loqui blockiert Aufgaben, die Inhalte von diesem Computer senden würden. In dieser Version laufen auch seine lokalen Engines nicht, solange der abgeschottete Modus aktiviert ist.",
     "undo": "Rückgängig machen",
     "kind": {
       "speech": "Sprache",
@@ -4116,13 +4250,13 @@
     },
     "locked": {
       "speakerId": "An dieses Gerät gebunden: Für die Sprechererkennung sind Ihre Aufnahmen auf dem Gerät erforderlich.",
-      "semanticSearch": "An dieses Gerät gebunden: Einbettungen bleiben lokal, sodass die Suche Ihre Notizen niemals irgendwohin sendet."
+      "semanticSearch": "An dieses Gerät gebunden: Einbettungen bleiben lokal, und die Suche sendet Ihre Notizen an keinen Anbieter."
     },
     "no": {
       "capability": "{{provider}} kann diese Aufgabe in Loqui nicht ausführen.",
       "visionCloudOnly": "Screenshots können heute nur auf ein Cloud-Vision-Modell übertragen werden.",
       "meetingServer": "Für die Aufnahme von Notizen kann noch kein eigener Server verwendet werden.",
-      "sealed": "Der versiegelte Modus behält diese Aufgabe auf diesem Gerät bei.",
+      "sealed": "Der abgeschottete Modus ist aktiviert, daher kann diese Aufgabe nicht hierhin gesendet werden.",
       "uploadServer": "Beim Datei-Upload wird der für das Diktat festgelegte Server verwendet. Ändern Sie es dort.",
       "serverKind": "{{server}} wurde nicht für {{kind}}-Aufgaben eingerichtet. Über „Server hinzufügen“ geben Sie dessen Adresse ein."
     },
@@ -4138,7 +4272,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "Fügen Sie einen Server hinzu",
       "addServerHint": "Als nächstes geben Sie die Adresse ein",
-      "nothingLeaves": "Keine Übertragung nach außen",
+      "nothingLeaves": "Keine Übertragung an einen Anbieter",
       "yourServer": "Ihr eigener Server",
       "unencrypted": "http, nicht verschlüsselt",
       "hosted": "Gehosteter Anbieter",
@@ -4148,7 +4282,7 @@
       "keyUnknown": "Gespeicherte Schlüssel werden überprüft…"
     },
     "leaves": {
-      "none": "Nichts verlässt dieses Gerät.",
+      "none": "Keine Aufgabe sendet etwas an einen Anbieter oder Server.",
       "prefix": "Verlässt dieses Gerät:",
       "item": "{{task}} → {{destination}}"
     },
@@ -4203,7 +4337,7 @@
     "loadFailed": "Die Liste konnte nicht aktualisiert werden. Die zuvor geladenen Einträge werden angezeigt.",
     "remind": "In 90 Tagen erinnern",
     "remindLabel": "Mich in 90 Tagen an den Austausch von {{identity}} erinnern",
-    "sealed": "Der versiegelte Modus ist aktiv. Die Prüfung ist pausiert.",
+    "sealed": "Der abgeschottete Modus ist aktiv. Die Prüfung ist pausiert.",
     "empty": "Keine gespeicherten Zugangsdaten. Aufgaben, die sie benötigen, zeigen unter Routing „API-Schlüssel hinzufügen“.",
     "identity": {
       "cortiText": "{{provider}} · Text-API-Schlüssel",
@@ -4331,7 +4465,10 @@
       "word": "zurücksetzen",
       "running": "Wird zurückgesetzt…",
       "failed": "Das Zurücksetzen wurde nicht abgeschlossen. Loqui startet daher nicht automatisch neu. Diese Schritte sind fehlgeschlagen:",
-      "done": "Zurücksetzen abgeschlossen. Loqui startet neu…"
+      "done": "Zurücksetzen abgeschlossen. Loqui startet neu…",
+      "doneSealed": "Zurücksetzen abgeschlossen. Loqui kann sich nicht selbst neu starten, solange der abgeschottete Modus aktiv ist. Beende Loqui und öffne es erneut, um den Vorgang abzuschließen.",
+      "restartFailed": "Zurücksetzen abgeschlossen, aber Loqui konnte sich nicht selbst neu starten. Beende Loqui und öffne es erneut, um den Vorgang abzuschließen.",
+      "doneRevoke": "Zurücksetzen abgeschlossen. Lies den Hinweis zu Google unten, beende dann Loqui und öffne es erneut, um den Vorgang abzuschließen."
     }
   },
   "settingsSearch": {
@@ -4384,7 +4521,7 @@
     },
     "pasteFailed": "Deine Worte konnten nicht eingefügt werden",
     "undo": {
-      "sealed": "Rückgängig blockiert: Der versiegelte Modus ist aktiv und die Route dieser Aufnahme verlässt das Gerät.",
+      "sealed": "Rückgängig blockiert: Der abgeschottete Modus ist aktiv und die Route dieser Aufnahme verlässt das Gerät.",
       "routeUnavailable": "Rückgängig nicht möglich: Die Route dieser Aufnahme ist nicht mehr verfügbar.",
       "noAudio": "Rückgängig nicht möglich: Die Aufnahme war leer.",
       "busy": "Beende das aktuelle Diktat und mache dann den Abbruch rückgängig.",
@@ -4416,7 +4553,7 @@
       "mayHaveText": "{{provider}} hat möglicherweise Text erhalten.",
       "mayHaveImage": "{{provider}} hat möglicherweise ein Bild erhalten.",
       "mayHaveSeveral": "{{provider}} hat möglicherweise einen Teil dieses Diktats erhalten.",
-      "sealedPaused": "Diktat pausiert: Versiegelter Modus ist aktiv"
+      "sealedPaused": "Diktat pausiert: Abgeschotteter Modus ist aktiv"
     },
     "stage": {
       "transcribing": "Transkribieren…",
@@ -4427,7 +4564,7 @@
       "pasted_other": "Eingefügt · {{count}} Wörter"
     },
     "locality": {
-      "sealed": "Durch versiegelten Modus blockiert",
+      "sealed": "Durch abgeschotteten Modus blockiert",
       "remote": "Sendet an {{provider}}"
     },
     "route": {
@@ -4453,7 +4590,105 @@
     "recovery": {
       "availableTitle": "Aufnahmen können wiederhergestellt werden",
       "transcribe": "Aufnahmen transkribieren",
-      "discard": "Aufnahmen verwerfen"
+      "discard": "Aufnahmen verwerfen",
+      "transcribeOne": "Transkribieren",
+      "stillSealedTitle": "Die Aufnahme wird weiterhin gehalten",
+      "stillSealedDetail": "Der abgeschottete Modus ist noch aktiv, daher wurde diese Aufnahme nicht transkribiert. Loqui hält sie weiterhin nur im Arbeitsspeicher, bis zu 30 Minuten nach dem Diktat oder bis du die App beendest. Transkribiere sie, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
+      "evictedOldest": "Um Platz zu schaffen, hat Loqui die älteste gehaltene Aufnahme verworfen.",
+      "goneTitle": "Diese Aufnahme wird nicht mehr gehalten",
+      "goneExpired": "Loqui hat sie 30 Minuten lang im Arbeitsspeicher gehalten und dann verworfen. Sie kann jetzt nicht mehr transkribiert werden.",
+      "goneEvicted": "Loqui hat sie aus dem Arbeitsspeicher verworfen, um Platz für eine neuere Aufnahme zu schaffen. Sie kann jetzt nicht mehr transkribiert werden.",
+      "goneDiscarded": "Sie wurde aus dem Arbeitsspeicher verworfen. Sie kann jetzt nicht mehr transkribiert werden.",
+      "goneTranscribed": "Loqui hat sie transkribiert und hält sie nicht mehr im Arbeitsspeicher.",
+      "goneUnknown": "Loqui hält sie nicht mehr im Arbeitsspeicher, daher kann sie jetzt nicht transkribiert werden.",
+      "expiredDuringReplay": "Ihre 30 Minuten im Arbeitsspeicher sind während dieses Versuchs abgelaufen, daher hat Loqui sie verworfen."
+    },
+    "confirmUnseal": {
+      "title": "Abgeschotteten Modus ausschalten?",
+      "message": "Cloud-Verbindungen, Downloads, Updates und Kalender können dann wieder das Netzwerk nutzen.",
+      "detail": "Loqui fragt hier außerhalb des App-Fensters nach, damit nur du den abgeschotteten Modus ausschalten kannst.",
+      "keep": "Abgeschottet bleiben",
+      "turnOff": "Abgeschotteten Modus ausschalten"
+    },
+    "confirmClear": {
+      "title": "Verbindungsprotokoll löschen?",
+      "message": "Dadurch wird das Verbindungsprotokoll auf diesem Computer gelöscht.",
+      "detail": "Anzahl der zu löschenden Einträge: {{count}}. Bereits von einem Anbieter empfangene Daten sind davon nicht betroffen.",
+      "keep": "Einträge behalten",
+      "clear": "Verlauf löschen",
+      "detail_one": "Anzahl der zu löschenden Einträge: {{count}}. Bereits von einem Anbieter empfangene Daten sind davon nicht betroffen.",
+      "detail_other": "Anzahl der zu löschenden Einträge: {{count}}. Bereits von einem Anbieter empfangene Daten sind davon nicht betroffen."
+    },
+    "confirmLink": {
+      "title": "Diesen Link außerhalb von Loqui öffnen?",
+      "message": "Der Link wird in einer anderen App geöffnet. Der abgeschottete Modus gilt nicht für die Netzwerknutzung dieser App.",
+      "detail": "Ziel: {{host}}",
+      "mailDetail": "Ziel: deine E-Mail-App",
+      "keep": "Nicht öffnen",
+      "open": "Link öffnen"
+    },
+    "confirmSettings": {
+      "title": "Systemeinstellungen außerhalb von Loqui öffnen?",
+      "message": "Die Systemeinstellungen werden in einer anderen App geöffnet. Der abgeschottete Modus gilt nicht für die Netzwerknutzung dieser App.",
+      "keep": "Nicht öffnen",
+      "open": "Einstellungen öffnen"
+    },
+    "blocked": {
+      "dictationPreflight": "Diktat pausiert: Der abgeschottete Modus ist aktiv",
+      "dictationPreflightDetail": "Deine Sprachroute sendet Audio von diesem Computer weg, und der abgeschottete Modus blockiert das. Es wurde nichts aufgenommen oder gesendet. Wähle eine Route auf dem Gerät oder schalte den abgeschotteten Modus aus.",
+      "nativeUnavailableTitle": "Lokales Diktat ist im abgeschotteten Modus nicht verfügbar",
+      "nativeUnavailableDetail": "Dieser Build kann Loquis lokale Sprach-Engine noch nicht isolieren, daher läuft sie nicht, solange der abgeschottete Modus aktiv ist. Es wurde nichts aufgenommen. Schalte den abgeschotteten Modus aus, um damit zu diktieren.",
+      "dictationTitle": "Der abgeschottete Modus hat dieses Diktat gestoppt",
+      "dictationKept": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Die Aufnahme ist im Verlauf gespeichert, sodass du sie transkribieren kannst, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
+      "dictationNotKept": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Die Aufnahme wurde nicht behalten.",
+      "dictationHeld": "Der abgeschottete Modus hat dieses Diktat blockiert, bevor es gesendet wurde. Es wurde nichts gesendet. Loqui hält die Aufnahme nur im Arbeitsspeicher, bis zu 30 Minuten oder bis du die App beendest. Transkribiere sie, nachdem du den abgeschotteten Modus ausgeschaltet hast.",
+      "generic": "Der abgeschottete Modus ist aktiv, daher hat Loqui dies nicht gesendet. Es wurde nichts gesendet.",
+      "chat": "Der abgeschottete Modus ist aktiv, daher hat Loqui diese Nachricht nicht gesendet. Es wurde nichts gesendet. Deine Nachricht bleibt hier erhalten.",
+      "nativeUnconfirmedTitle": "Lokales Diktat wurde im abgeschotteten Modus nicht gestartet",
+      "nativeUnconfirmedDetail": "Der abgeschottete Modus ist aktiv, und Loqui konnte den aktuellen Status seiner lokalen Engines nicht bestätigen, daher wurde die Sprach-Engine nicht gestartet. Es wurde nichts aufgenommen. Schalte den abgeschotteten Modus aus, um damit zu diktieren."
+    },
+    "paused": {
+      "dictationPreflightDetail": "Der abgeschottete Modus hat Loquis lokale Sprach-Engine vor dem Start pausiert. Es wurde nichts aufgenommen. Schalte den abgeschotteten Modus aus, um damit zu diktieren."
+    },
+    "interrupted": {
+      "dictationKept": "Der abgeschottete Modus wurde eingeschaltet, während dieses Diktat gesendet wurde, daher wurde es gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten. Die Aufnahme ist im Verlauf gespeichert.",
+      "dictationNotKept": "Der abgeschottete Modus wurde eingeschaltet, während dieses Diktat gesendet wurde, daher wurde es gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten. Die Aufnahme wurde nicht behalten.",
+      "dictationHeld": "Der abgeschottete Modus wurde eingeschaltet, während dieses Diktat gesendet wurde, daher wurde es gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten. Loqui hält die Aufnahme nur im Arbeitsspeicher, bis zu 30 Minuten oder bis du die App beendest.",
+      "dictationPartial": "Der abgeschottete Modus wurde während dieses Diktats eingeschaltet. Die bereits angekommenen Wörter bleiben erhalten. Der Anbieter hat möglicherweise einen Teil der Aufnahme erhalten.",
+      "cortiRetained": "Corti hat möglicherweise noch einen Teil dieses Diktats: Loqui kann Corti im abgeschotteten Modus nicht um das Löschen bitten und wird Corti auch später nicht kontaktieren, um es zu löschen.",
+      "generic": "Der abgeschottete Modus hat dies während des Sendens gestoppt. Der Anbieter hat möglicherweise einen Teil davon erhalten.",
+      "chat": "Der abgeschottete Modus hat diese Antwort gestoppt, während die Anfrage gesendet wurde. Der Anbieter hat möglicherweise einen Teil der Unterhaltung erhalten. Deine Nachricht bleibt hier erhalten."
+    },
+    "markdown": {
+      "imageBlocked": "Bild nicht geladen: Der abgeschottete Modus ist aktiv",
+      "imageBlockedNamed": "Bild nicht geladen: Der abgeschottete Modus ist aktiv ({{alt}})",
+      "imageChecking": "Bild nicht geladen, während Loqui den abgeschotteten Modus prüft",
+      "imageCheckingNamed": "Bild nicht geladen, während Loqui den abgeschotteten Modus prüft ({{alt}})"
+    },
+    "calendar": {
+      "connectTitle": "Verbinden ist im abgeschotteten Modus nicht möglich",
+      "connectRefused": "Zum Verbinden dieses Kalenders wird das Internet benötigt, und der abgeschottete Modus blockiert das. Es wurde nichts gesendet. Schalte den abgeschotteten Modus aus, um zu verbinden.",
+      "connectInterrupted": "Der abgeschottete Modus wurde während der Anmeldung eingeschaltet, daher wurde sie gestoppt. Der Anbieter hat möglicherweise einen Teil der Anmeldung erhalten. Es wurde kein Konto verbunden.",
+      "appleUnavailable": "Dieser Build kann das lokale Hilfsprogramm von Apple Kalender im abgeschotteten Modus nicht ausführen. Schalte den abgeschotteten Modus aus, um zu verbinden.",
+      "googleGrantKept": "Der abgeschottete Modus war aktiv, daher konnte Loqui Google nicht bitten, den Kalenderzugriff zu widerrufen. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält Loquis Zugriff, bis du ihn in deinem Google-Konto entfernst. Loqui wird Google später nicht deswegen kontaktieren.",
+      "revokeQueuedTitle": "Der Google-Zugriff wird später entfernt",
+      "revokeQueued": "Der abgeschottete Modus ist aktiv, daher kann Loqui Google gerade nicht bitten, seinen Kalenderzugriff zu entfernen. Loqui hat den Kalender getrennt und nur behalten, was es für die Anfrage braucht. Sobald du den abgeschotteten Modus ausschaltest, fragt Loqui Google automatisch.",
+      "revokeDoneTitle": "Google-Zugriff entfernt",
+      "revokeDone": "Loqui hat Google gebeten, seinen Kalenderzugriff zu entfernen, und gelöscht, was es dafür behalten hatte.",
+      "revokeFailedTitle": "Google-Zugriff konnte nicht entfernt werden",
+      "revokeFailed": "Loqui konnte Google nicht dazu bringen, seinen Kalenderzugriff zu entfernen, daher ist dieser Zugriff bei Google möglicherweise noch aktiv. Loqui behält nur, was es für einen neuen Versuch braucht. Du kannst den Zugriff auch selbst in deinem Google-Konto entfernen.",
+      "revokeRetry": "Erneut versuchen",
+      "revokeOpenAccount": "Google-Konto öffnen",
+      "revokeUnreadableTitle": "Google-Zugriff ist möglicherweise noch aktiv",
+      "revokeUnreadable": "Loqui hatte behalten, was es braucht, um Google um das Entfernen seines Kalenderzugriffs zu bitten, kann es aber nicht mehr lesen und daher nicht mehr fragen. Dieser Zugriff ist bei Google möglicherweise noch aktiv. Entferne den Zugriff selbst in deinem Google-Konto.",
+      "revokeUnreadableDismiss": "Verstanden",
+      "revokeUnsaved": "Der abgeschottete Modus ist aktiv, daher konnte Loqui Google nicht bitten, seinen Kalenderzugriff zu entfernen, und konnte auch nicht sicher behalten, was es für eine spätere Anfrage braucht. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht, aber Google behält den Zugriff von Loqui, bis du ihn in deinem Google-Konto entfernst.",
+      "googleRevokeFailedReset": "Loqui konnte Google vor dem Zurücksetzen nicht dazu bringen, seinen Kalenderzugriff zu entfernen, daher ist dieser Zugriff bei Google möglicherweise noch aktiv. Loqui hat seine eigene Kopie deiner Anmeldung gelöscht und wird Google später nicht deswegen kontaktieren. Entferne den Zugriff in deinem Google-Konto."
+    },
+    "paste": {
+      "title": "Der abgeschottete Modus hat das automatische Einfügen gestoppt",
+      "copied": "Der abgeschottete Modus ist aktiv, daher konnte Loqui nicht automatisch einfügen. Dein Text ist in der Zwischenablage, sodass du ihn selbst einfügen kannst.",
+      "notCopied": "Der abgeschottete Modus ist aktiv, daher konnte Loqui nicht automatisch einfügen."
     }
   },
   "setupFlow": {
@@ -4664,8 +4899,8 @@
       },
       "privacy": {
         "title": "Wohin deine Worte gehen",
-        "bodyMac": "Nichts verlässt diesen Mac, solange du keinen Anbieter auswählst.",
-        "bodyOther": "Nichts verlässt diesen Computer, solange du keinen Anbieter auswählst.",
+        "bodyMac": "Loqui sendet deine Stimme oder deinen Text von diesem Mac nur dann an einen Anbieter, wenn du einen auswählst.",
+        "bodyOther": "Loqui sendet deine Stimme oder deinen Text von diesem Computer nur dann an einen Anbieter, wenn du einen auswählst.",
         "nodes": {
           "mic": "Mikro",
           "loqui": "Loqui",
@@ -4774,7 +5009,8 @@
         "needsModel": "Das lokale Modell zur Textbereinigung ist noch nicht auf diesem Gerät. Lade es in Einstellungen → Sprachmodelle herunter (1,3 GB).",
         "unreachable": "Loqui kann {{provider}} gerade nicht erreichen. Deine Worte bleiben unverändert.",
         "modelSetup": "ChatGPT ist verbunden. Rufe die Modelle ab, um eines für die Textkorrektur auszuwählen.",
-        "review": "Prüfe diese Änderung und wähle dann „Anwenden“."
+        "review": "Prüfe diese Änderung und wähle dann „Anwenden“.",
+        "nativeUnavailable": "Die lokale Bereinigung ist im abgeschotteten Modus in diesem Build nicht verfügbar: Lokale Modelle können noch nicht isoliert werden. Deine Worte bleiben so, wie du sie gesagt hast."
       },
       "reuse": "Diese Wahl auch für andere Textfunktionen verwenden",
       "exampleInProgress": "Beispieltext während deiner Anfrage. Dein Ergebnis erscheint erst nach erfolgreicher Textbereinigung.",
@@ -4828,7 +5064,8 @@
           "configured": "{{voice}}, noch nicht ausprobiert",
           "downloading": "Download läuft noch",
           "needsModel": "Stimme herunterladen",
-          "unavailable": "Einrichtung in den Einstellungen abschließen"
+          "unavailable": "Einrichtung in den Einstellungen abschließen",
+          "nativeUnavailable": "Im abgeschotteten Modus in diesem Build nicht verfügbar"
         },
         "microphone": {
           "heard": "Funktioniert",
@@ -4858,7 +5095,8 @@
           "configured": "Mit {{name}} eingerichtet",
           "configuredNetwork": "Bei {{provider}} mit {{name}} eingerichtet",
           "modelSetup": "ChatGPT-Modelle für die Textkorrektur abrufen",
-          "review": "Prüfe diese Änderung und wähle dann „Anwenden“."
+          "review": "Prüfe diese Änderung und wähle dann „Anwenden“.",
+          "nativeUnavailable": "Im abgeschotteten Modus in diesem Build nicht verfügbar"
         }
       },
       "dictateNote": "In eine Notiz diktieren",
@@ -4869,11 +5107,12 @@
       "noteBlocked": {
         "microphone": "Notizen benötigen dein Mikrofon.",
         "unsupported": "Für Notizen ist ein Dienst eingestellt, den sie noch nicht nutzen können, etwa ein selbst gehosteter Server.",
-        "sealed": "Der versiegelte Modus ist aktiv. Notizaufnahmen können {{provider}} nicht erreichen.",
+        "sealed": "Der abgeschottete Modus ist aktiv. Notizaufnahmen können {{provider}} nicht erreichen.",
         "needsModel": "Notizaufnahmen benötigen ein Sprachmodell auf diesem Gerät.",
         "needsKey": "Notizaufnahmen benötigen deinen {{provider}}-Schlüssel.",
         "needsUrl": "Notizaufnahmen benötigen eine Serveradresse.",
-        "unreachable": "Loqui kann {{provider}} für Notizaufnahmen nicht erreichen."
+        "unreachable": "Loqui kann {{provider}} für Notizaufnahmen nicht erreichen.",
+        "nativeUnavailable": "Notizaufnahmen sind im abgeschotteten Modus in diesem Build nicht verfügbar: Lokale Engines können noch nicht isoliert werden."
       },
       "fixNote": "Beheben",
       "noteNetwork": "Notizen sind zum Senden von Audio an {{provider}} eingerichtet."

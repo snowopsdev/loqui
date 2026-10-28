@@ -164,6 +164,9 @@ function loadClipboardManager({ spawn } = {}) {
 }
 
 const ClipboardManager = loadClipboardManager();
+// Boot configures the gate before any paste; an unconfigured gate fails closed
+// (sealed). These are unsealed pastes. Sealed ones: clipboardSealed.test.js.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 const initialExitListeners = new Set(process.listeners("exit"));
 
 test.afterEach(() => {

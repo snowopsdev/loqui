@@ -1,3 +1,5 @@
+// Provider transports are gated (Sealed mode, Plan 07); these tests run unsealed.
+require("../../src/helpers/privacy/egressGate").configureEgress({ isSealed: () => false });
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
@@ -278,8 +280,13 @@ test("production default factory forwards executor, credential material and opti
   Module._load = function (name, parent, isMain) {
     if (name === "./enterpriseAiProviders" && parent.filename.endsWith("personalInference.js"))
       return {
-        getEnterpriseAIModel: (...args) => {
+        getEnterpriseAIModel: async (...args) => {
           calls.push(args);
+          // Slot 6 here is personalInference's slot 8: main's metered fetch,
+          // composed over the injected transport (Sealed mode, A3).
+          args.transport = await args[5]("https://europe-west4-aiplatform.googleapis.com/v1").catch(
+            (error) => error
+          );
           return f.fake;
         },
       };
@@ -300,7 +307,9 @@ test("production default factory forwards executor, credential material and opti
   assert.equal(args[3].project, null);
   assert.equal(Object.isFrozen(args[4]), true);
   assert.ok(args[4].vertexApiKey === "synthetic-key");
-  assert.equal(args[5], fetchImpl);
+  assert.equal(typeof args[5], "function");
+  assert.notEqual(args[5], fetchImpl, "the transport is metered, not the raw injected fetch");
+  assert.match(args.transport.message, /No network/, "the metered fetch composes the injected one");
   assert.equal(
     Object.keys(args[3]).some((key) => /key|secret|credential/i.test(key)),
     false

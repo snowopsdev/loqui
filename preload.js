@@ -64,6 +64,22 @@ const registerListener = (channel, handlerFactory) => {
 
 const invokeTextOperation = async (channel, input) => {
   const result = await ipcRenderer.invoke(channel, input);
+  if (result?.code === "SEALED_MODE") {
+    // Keep Sealed mode typed: a refusal sent nothing, an interruption may have.
+    // Only main's explicit "refused" is a refusal; a missing or unknown phase
+    // never becomes "nothing was sent" (Task 18 T18-06).
+    const interrupted = result.phase !== "refused";
+    throw Object.assign(
+      new Error(
+        interrupted ? "[SEALED_MODE:interrupted] Sealed mode" : "[SEALED_MODE] Sealed mode"
+      ),
+      {
+        code: "SEALED_MODE",
+        messageKey: interrupted ? "sealedMode.interrupted.generic" : "sealedMode.blocked.generic",
+        details: { phase: interrupted ? "interrupted" : "refused" },
+      }
+    );
+  }
   if (!result?.ok)
     throw Object.assign(new Error(result?.code || "CLEANUP_FAILED"), {
       code: result?.code || "CLEANUP_FAILED",
@@ -71,7 +87,39 @@ const invokeTextOperation = async (channel, input) => {
   return result.value;
 };
 
-contextBridge.exposeInMainWorld("electronAPI", {
+// BEGIN sealed-mode: WebRTC removal (Plan 07 Task 7a; the egress ratchet allows this block)
+// Loqui never uses WebRTC, and Chromium's webRequest cannot see its traffic,
+// so remove the constructors before page scripts run in every frame. The
+// all-frame preload is enabled by nodeIntegrationInSubFrames in windowConfig.
+contextBridge.executeInMainWorld({
+  func: () => {
+    for (const name of [
+      "RTCPeerConnection",
+      "webkitRTCPeerConnection",
+      "RTCDataChannel",
+      "RTCRtpSender",
+      "RTCRtpReceiver",
+      "RTCIceCandidate",
+      "RTCSessionDescription",
+    ]) {
+      try {
+        Object.defineProperty(globalThis, name, {
+          value: undefined,
+          writable: false,
+          configurable: false,
+        });
+      } catch {
+        // Already non-configurable in this context: leave it.
+      }
+    }
+  },
+});
+// END sealed-mode: WebRTC removal
+
+const exposeElectronAPI = (...args) =>
+  process.isMainFrame && contextBridge.exposeInMainWorld(...args);
+
+exposeElectronAPI("electronAPI", {
   getSearchModelStatus: () => ipcRenderer.invoke("get-search-model-status"),
   downloadSearchModel: () => ipcRenderer.invoke("download-search-model"),
   updates: {
@@ -122,6 +170,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () => ipcRenderer.removeListener("personal-inference:event", listener);
     },
   },
+  privacy: {
+    getSealed: () => ipcRenderer.invoke("privacy:get-sealed"),
+    setSealed: (sealed) => ipcRenderer.invoke("privacy:set-sealed", sealed),
+    getAttestation: () => ipcRenderer.invoke("privacy:attestation"),
+    onSealedChange: registerListener(
+      "privacy:sealed-changed",
+      (cb) => (_event, sealed) => cb(sealed)
+    ),
+    onAttestation: registerListener(
+      "privacy:attestation",
+      (cb) => (_event, attestation) => cb(attestation)
+    ),
+    listEgress: (options) => ipcRenderer.invoke("privacy:egress-list", options),
+    egressSummary: (options) => ipcRenderer.invoke("privacy:egress-summary", options),
+    clearEgress: () => ipcRenderer.invoke("privacy:egress-clear"),
+    exportEgressCsv: () => ipcRenderer.invoke("privacy:egress-export"),
+    onEgress: registerListener("privacy:egress-event", (cb) => (_event, notice) => cb(notice)),
+    onEgressCleared: registerListener("privacy:egress-cleared", (cb) => () => cb()),
+  },
+
   keyring: {
     list: (options) => ipcRenderer.invoke("keyring-list", options),
     routeHealth: (options) => ipcRenderer.invoke("keyring-route-health", options),
@@ -1261,6 +1329,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Google Calendar
   gcalStartOAuth: () => ipcRenderer.invoke("gcal-start-oauth"),
   gcalDisconnect: (email) => ipcRenderer.invoke("gcal-disconnect", email),
+  // D-1: counts only, never a token; Retry is the same ticketed revoke.
+  gcalPendingRevokeStatus: () => ipcRenderer.invoke("gcal-pending-revoke-status"),
+  gcalPendingRevokeRetry: () => ipcRenderer.invoke("gcal-pending-revoke-retry"),
+  gcalPendingRevokeForget: () => ipcRenderer.invoke("gcal-pending-revoke-forget"),
   gcalGetConnectionStatus: () => ipcRenderer.invoke("gcal-get-connection-status"),
   gcalGetCalendars: () => ipcRenderer.invoke("gcal-get-calendars"),
   gcalSetCalendarSelection: (calendarId, isSelected) =>
@@ -1296,6 +1368,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   ),
   onGcalEventsSynced: registerListener(
     "gcal-events-synced",
+    (callback) => (_event, data) => callback(data)
+  ),
+  onGcalPendingRevoke: registerListener(
+    "gcal-pending-revoke",
     (callback) => (_event, data) => callback(data)
   ),
 

@@ -14,6 +14,7 @@ const LlamaServerManager = require("./llamaServer");
 const debugLogger = require("./debugLogger");
 const { readGgufMetadataFromFile } = require("./ggufMetadata");
 const { ImportedModelStore } = require("./importedModelStore");
+const { isSealedModeError } = require("./privacy/egressPolicy");
 const {
   estimateTokens,
   kvBytesPerToken,
@@ -493,8 +494,10 @@ class ModelManager {
         );
       }
 
-      // Drafter is opportunistic: a failure or cancel here leaves the main model
-      // fully usable, so never fail the download or delete the main file.
+      // Drafter is opportunistic: an ordinary failure here leaves the main model
+      // fully usable, so it never fails the download or deletes the main file.
+      // A cancel or a sealed interruption is not a completed download: it fails
+      // like the main file would. A seal keeps the drafter's `.tmp` for resume.
       if (hasDrafter) {
         const draftPath = path.join(this.modelsDir, model.draftFileName);
         try {
@@ -508,6 +511,7 @@ class ModelManager {
             debugLogger.warn("MTP drafter file too small, keeping model without it", { modelId });
           }
         } catch (draftError) {
+          if (isSealedModeError(draftError)) throw draftError;
           await fsPromises.unlink(draftPath).catch(() => {});
           if (draftError.isAbort) throw draftError;
           debugLogger.warn("MTP drafter download failed, keeping model without it", {
@@ -519,6 +523,9 @@ class ModelManager {
 
       return modelPath;
     } catch (error) {
+      // A sealed refusal or interruption stays typed (code SEALED_MODE and its
+      // phase), never relabelled as a cancel or a network error.
+      if (isSealedModeError(error)) throw error;
       if (error.isAbort) {
         throw new ModelError("Download cancelled by user", "DOWNLOAD_CANCELLED", { modelId });
       }

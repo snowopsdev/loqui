@@ -3,7 +3,10 @@ const {
   discardPendingAudio,
   zeroAudio,
   sendContentFrame,
+  holdFrame,
+  heldRecording,
 } = require("./streamingHandOff");
+const { openRealtimeSocket } = require("./sttTransport");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
 
@@ -175,11 +178,19 @@ class OpenAIRealtimeStreaming {
     debugLogger.debug(`${this.providerLabel} connecting`, this._logContext({ model: this.model }));
 
     // Attested providers (Tinfoil) supply their socket via an async factory.
+    // Either way the socket is one realtime connection resource (Task 9a).
     let ws;
     try {
       ws = createSocket
-        ? await createSocketWithTimeout(createSocket, WEBSOCKET_TIMEOUT_MS)
-        : new WebSocket(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+        ? await createSocketWithTimeout(
+            () => openRealtimeSocket(this, null, createSocket),
+            WEBSOCKET_TIMEOUT_MS
+          )
+        : openRealtimeSocket(
+            this,
+            url,
+            () => new WebSocket(url, { headers: { Authorization: `Bearer ${apiKey}` } })
+          );
     } catch (err) {
       this.isConnecting = false;
       this.cleanup();
@@ -564,7 +575,8 @@ class OpenAIRealtimeStreaming {
     return Buffer.from(out.buffer);
   }
 
-  sendAudio(pcmBuffer) {
+  // recording: the immutable realtime recording handle this audio belongs to.
+  sendAudio(pcmBuffer, recording) {
     if (!this._egressOpen()) {
       this.discardPendingAudio();
       return false;
@@ -573,14 +585,14 @@ class OpenAIRealtimeStreaming {
 
     if (!isOpen) {
       if (this.bufferingAudio && this.coldStartBufferSize < COLD_START_BUFFER_MAX) {
-        const copy = Buffer.from(pcmBuffer);
+        const copy = holdFrame(Buffer.from(pcmBuffer), recording);
         this.coldStartBuffer.push(copy);
         this.coldStartBufferSize += copy.length;
       }
       return false;
     }
 
-    const forwardOwned = (input) => {
+    const forwardOwned = (input, owner) => {
       let audio;
       try {
         audio = this._resampleToInputRate(input);
@@ -589,7 +601,8 @@ class OpenAIRealtimeStreaming {
           JSON.stringify({
             type: "input_audio_buffer.append",
             audio: audio.toString("base64"),
-          })
+          }),
+          owner
         );
         if (sent) this.audioBytesSent += audio.length;
         return sent;
@@ -607,13 +620,14 @@ class OpenAIRealtimeStreaming {
         })
       );
       try {
-        for (const buf of this.coldStartBuffer) if (!forwardOwned(buf)) return false;
+        for (const buf of this.coldStartBuffer)
+          if (!forwardOwned(buf, heldRecording(buf))) return false;
       } finally {
         // Includes untouched remainders if resampling, receipt or ws.send throws.
         this.discardPendingAudio();
       }
     }
-    return forwardOwned(Buffer.from(pcmBuffer));
+    return forwardOwned(Buffer.from(pcmBuffer), recording);
   }
 
   async disconnect({ commit = true } = {}) {

@@ -1,13 +1,14 @@
 # Changelog
 
-## 0.1.0-beta.2 (unreleased)
+## 0.1.0-beta.2 - 2026-10-28
 
 - UI design foundations: updated color, typography, motion, and button styles; reusable audio level bars and provider locality indicators.
 - Refined sidebar, meeting notifications, note controls, hotkey input, and dictation panel styling.
-- Reviewed implementation plans for accessibility, routes and settings, voice overlay, onboarding, workspace, Sealed mode, and the spatial canvas prototype. These plans do not imply that every planned feature is implemented.
-- Distinct beta version for development packages built after the UI/UX foundation and planning PRs.
+- UI/UX overhaul: an accessibility and keyboard sweep; explicit local and remote route readiness, with saved keys held in the main process and removable with Undo; cancelling dictation keeps the recording in memory briefly for Undo; guided, resumable onboarding; workspace notes, chat sources, and a Home overview; and The Table, a Labs-only canvas view of a Space.
+- Local Parakeet speech servers listen only on this device's loopback address.
+- Dependency updates, including Electron 44.5.0 and Vite 8.3.5.
 
-Public release remains pending signed and notarized packages and the acceptance checks in docs/RELEASING.md and docs/VERIFICATION.md.
+Publication waits for real microphone, shortcut, paste, and meeting-capture checks and the first beta-to-beta updates, run on this draft's own installers. See docs/RELEASING.md and docs/VERIFICATION.md.
 
 ## 0.1.0-beta.1 - 2026-10-07
 

@@ -3,28 +3,30 @@ const assert = require("node:assert/strict");
 const { createRequire } = require("node:module");
 const { createModel } = require("../../src/helpers/personalInference");
 
+// The SDK's default logger emits each deprecation once per process, so later
+// cases would see nothing. A custom logger receives every call's warnings.
 function expectLegacyImageWarning(t, legacy = true) {
   const warnings = [];
-  t.mock.method(process, "emitWarning", (message, options) => warnings.push({ message, options }));
+  const previous = globalThis.AI_SDK_LOG_WARNINGS;
+  globalThis.AI_SDK_LOG_WARNINGS = ({ warnings: logged }) => warnings.push(...logged);
   t.after(() => {
+    globalThis.AI_SDK_LOG_WARNINGS = previous;
     if (!legacy) {
       assert.deepEqual(warnings, [], "modern file content emits no legacy warning");
       return;
     }
-    const deprecated = warnings.filter((entry) => entry.options?.type === "DeprecationWarning");
-    assert.equal(deprecated.length, 1, "exactly one supported legacy image conversion warning");
-    const suffix =
-      'Deprecated: ""image" content part". The "image" content part type is deprecated. Use a "file" part with mediaType: \'image\' (or a more specific image/* subtype) instead.';
-    assert.ok(deprecated[0].message.startsWith("AI SDK Warning"));
-    assert.ok(deprecated[0].message.endsWith(suffix), deprecated[0].message);
-    const other = warnings.filter((entry) => entry !== deprecated[0]);
-    assert.ok(other.length <= 1);
-    for (const entry of other)
-      assert.deepEqual(entry, {
-        message:
-          "AI SDK Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.",
-        options: { type: "Warning" },
-      });
+    assert.deepEqual(
+      warnings,
+      [
+        {
+          type: "deprecated",
+          setting: '"image" content part',
+          message:
+            "The \"image\" content part type is deprecated. Use a \"file\" part with mediaType: 'image' (or a more specific image/* subtype) instead.",
+        },
+      ],
+      "exactly one supported legacy image conversion warning"
+    );
   });
 }
 

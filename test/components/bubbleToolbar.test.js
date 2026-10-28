@@ -85,7 +85,9 @@ test("Ask AI opens a visible composer and seeds it, disarming any queue (I05)", 
 
 test("the bubble menu extension is a direct, pinned dependency", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(pkg.dependencies["@tiptap/extension-bubble-menu"], "3.31.3");
+  const version = pkg.dependencies["@tiptap/extension-bubble-menu"];
+  assert.match(version, /^\d+\.\d+\.\d+$/);
+  assert.equal(version, pkg.dependencies["@tiptap/core"]);
 });
 
 test("every native bubble button has canonical opaque focus rings", async () => {

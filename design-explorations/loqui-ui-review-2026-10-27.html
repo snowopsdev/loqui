@@ -1320,9 +1320,9 @@ $("#cond-clean").addEventListener("click", () => { if (!cond.track.children.leng
 
 /* ───────── 4. Undo ───────── */
 const undo = new Pill($("#undo-pill"));
-let undoState = null;
+let undoState = null, undoT = [];
 function startUndo(total) {
-  clearInterval(undoState?.iv); undo.pill.style.setProperty("--undo-ms", total + "ms");
+  clearInterval(undoState?.iv); undoT.forEach(clearTimeout); undoT = []; undo.pill.style.setProperty("--undo-ms", total + "ms");
   undo.set("cancelled", { label: 'Discarded · <span class="u">Undo</span>', restart: true }); playCue("cancel");
   const s = { remaining: total, last: performance.now(), paused: false };
   s.iv = setInterval(() => {
@@ -1337,8 +1337,8 @@ undo.pill.addEventListener("mouseleave", () => { if (undoState) { undoState.paus
 undo.pill.addEventListener("click", () => {
   if (undo.state !== "cancelled") return; clearInterval(undoState.iv); $("#undo-msg").textContent = "Restored: continuing to paste";
   undo.set("transcribing", { label: "Transcribing…" });
-  setTimeout(() => undo.set("pasted", { label: "Pasted · 12 words" }), ms(900));
-  setTimeout(() => undo.set("idle"), ms(900) + 700 * K);
+  undoT.push(setTimeout(() => undo.set("pasted", { label: "Pasted · 12 words" }), ms(900)));
+  undoT.push(setTimeout(() => undo.set("idle"), ms(900) + 700 * K));
 });
 $("#undo-go").addEventListener("click", () => startUndo(5000));
 $("#undo-go10").addEventListener("click", () => startUndo(10000));

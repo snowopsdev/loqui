@@ -143,7 +143,6 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
   // input as silence (Plan 01 172f9df), so an inline adapter is enough.
   const readLevel = () => getAudioLevel() ?? 0;
   const identitySize = locality ? Math.round(IDENTITY_RING_PX * 0.7) : 22;
-  const busy = state === "transcribing" || state === "cleaning" || isRecording;
 
   const icon =
     state === "pasted" ? (
@@ -224,9 +223,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
             {locality ? (
               <LocalityRing
                 locality={locality.locality}
-                provider={locality.provider}
                 label={locality.label}
-                active={busy && locality.locality === "remote"}
                 size={IDENTITY_RING_PX}
                 className={cn(locality.blocked && "locality-ring--blocked")}
               >

@@ -60,13 +60,6 @@ export function providerDisplayLabel(
   return providerDisplayName(id);
 }
 
-export function providerMonogram(displayName: string): string {
-  const words = displayName.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (words.length === 0) return "?";
-  if (words.length === 1) return words[0].charAt(0).toUpperCase() + words[0].charAt(1);
-  return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
-}
-
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 export function isLoopbackUrl(url: string | null | undefined): boolean {

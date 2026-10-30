@@ -180,16 +180,12 @@ test("reduced motion keeps the pill's opacity cues and drops its movement", () =
   );
 });
 
-test("Signal and locality cadences are shared tokens, not local decorative literals", () => {
+test("Signal cadences are shared tokens, not local decorative literals", () => {
   const css = flat(read("src/styles/dictation-panel.css"));
   assert.match(css, /processing-signal-spin var\(--motion-signal-comet\) linear infinite/);
   assert.match(
     css,
     /processing-signal-breathe var\(--motion-signal-breathe\) var\(--motion-ease-ambient\) infinite/
-  );
-  assert.match(
-    read("src/index.css"),
-    /locality-orbit var\(--motion-locality-orbit\) linear infinite/
   );
   assert.match(css, /var\(--shadow-card, /);
   assert.doesNotMatch(

@@ -16,10 +16,3 @@ test("a deep-linked row rings for 1.2s, and reduced motion keeps the ring withou
     /prefers-reduced-motion: reduce[\s\S]*\[data-focused="true"\]\s*\{[^}]*animation:\s*none[^}]*box-shadow/
   );
 });
-
-test("history's remote-provider monogram respects the 11px metadata floor", () => {
-  assert.match(
-    css,
-    /\[data-transcript-id\] \.locality-ring__badge\s*\{[^}]*font-size:\s*var\(--text-micro\)/
-  );
-});

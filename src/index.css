@@ -67,9 +67,9 @@
   --color-live: #ff5a1f;
   --color-live-foreground: #171717;
   --color-nav-marker: #e84e16;
-  /* Locality: shape carries it first (solid, dotted, dashed ring); these
-     hues back it up. Green/blue/amber, never orange or violet, so locality
-     never reads as mode. */
+  /* Locality: one solid ring in these hues, always paired with words.
+     Green/blue/amber, never orange or violet, so locality never reads as
+     mode. */
   --color-locality-device: #0b7a54;
   --color-locality-network: #3b6ea8;
   --color-locality-remote: #ad5008;
@@ -244,7 +244,6 @@
   --motion-condense-fly: 140ms;
   --motion-condense-land: 220ms;
   --motion-rewrite-underline: 600ms;
-  --motion-locality-orbit: 6000ms;
   --motion-signal-comet: 1600ms;
   --motion-signal-breathe: 1900ms;
   --motion-agent-thinking: 2400ms;
@@ -1484,13 +1483,14 @@ a:hover {
   background-color: var(--color-border);
 }
 
-/* Locality ring (DESIGN.md "Roles"): shape first, hue second. */
+/* Locality ring (DESIGN.md "Roles"): one solid ring; hue carries locality. */
 .locality-ring {
   position: relative;
   display: inline-grid;
   place-items: center;
   flex: none;
   color: var(--color-locality-device);
+  transition: color var(--motion-base) var(--motion-ease-std);
 }
 .locality-ring[data-locality="network"] {
   color: var(--color-locality-network);
@@ -1510,46 +1510,12 @@ a:hover {
   stroke: currentColor;
   stroke-width: 2;
 }
-.locality-ring[data-locality="network"] .locality-ring__svg circle {
-  stroke-dasharray: 0.25 6;
-  stroke-linecap: round;
-  stroke-width: 2.25;
-}
-.locality-ring[data-locality="remote"] .locality-ring__svg circle {
-  stroke-dasharray: 6 4;
-}
-.locality-ring[data-locality="remote"][data-active="true"] .locality-ring__svg {
-  animation: locality-orbit var(--motion-locality-orbit) linear infinite;
-}
 .locality-ring__content {
   position: relative;
   display: grid;
   place-items: center;
   width: 70%;
   height: 70%;
-}
-.locality-ring__badge {
-  position: absolute;
-  inset-inline-end: -5px;
-  bottom: -4px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 9999px;
-  background: var(--color-background);
-  border: 1.5px solid currentColor;
-  font: 700 8px/12px var(--font-family-sans);
-  text-align: center;
-}
-@keyframes locality-orbit {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .locality-ring__svg {
-    animation: none !important;
-  }
 }
 
 /* Capture rail (WS-R3 C). The sidebar edge breathes with the mic: idle is
@@ -1609,12 +1575,6 @@ a:hover {
     opacity: 1;
     box-shadow: none;
   }
-}
-
-/* History metadata keeps the shared ring's decorative provider monogram
-   readable at this compact size, without changing rings on other surfaces. */
-[data-transcript-id] .locality-ring__badge {
-  font-size: var(--text-micro);
 }
 
 /* WS-Q3: a deep-linked history row rings for 1.2s. */

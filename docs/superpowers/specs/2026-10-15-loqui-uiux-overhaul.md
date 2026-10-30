@@ -12,7 +12,7 @@
 | Foundations | FND-R1 | C: Orange means "live voice" | |
 | | FND-R2 | C: Plum Night | |
 | | FND-R3 | B: Tokens + springs | |
-| | FND-R4 | B: Ring shape + provider badge | |
+| | FND-R4 | B: Ring shape + provider badge | 2026-10-30: simplified to one solid ring; hue carries locality, no badge or orbit. |
 | | FND-R5 | B: The logo speaks | |
 | Onboarding | ONB-R1 | C: The orange panel becomes the instrument | |
 | | ONB-R2 | B: Two phases: Get dictating / Make it yours | |
@@ -78,11 +78,13 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
   - Add the sentence about the undo window to `docs/PRIVACY.md`.
 - **D4, locality has three values.** It is computed by one function (`src/lib/locality.ts`) and drawn by one primitive (`LocalityRing`).
 
-  | Locality | Ring | Light text | Dark text |
-  |---|---|---|---|
-  | `device` | solid | `#0b7a54` | `#5ee0ad` |
-  | `network` (self-hosted on another machine) | dotted | `#3b6ea8` | `#9bb4d6` |
-  | `remote` (provider) | dashed orbit + provider badge | `#ad5008` | `#fbbf6a` |
+  | Locality | Light text | Dark text |
+  |---|---|---|
+  | `device` | `#0b7a54` | `#5ee0ad` |
+  | `network` (self-hosted on another machine) | `#3b6ea8` | `#9bb4d6` |
+  | `remote` (provider) | `#ad5008` | `#fbbf6a` |
+
+  Every locality draws the same solid ring; only the hue changes, and the ring's label (or nearby words) names the destination. The earlier dotted, dashed-orbit and provider-badge variants were removed on 2026-10-30.
 
   Unknown providers resolve to `remote`, which fails toward disclosure. A self-hosted URL on localhost, 127.0.0.1 or ::1 is `device`.
 - **D5, Plum Night replaces charcoal as the only dark theme.** Every dark token is written in hex so contrast is testable. Magenta `#E6007A` is the dark-theme active-nav marker; the focus ring stays orange.
@@ -164,7 +166,7 @@ Every plan codes against these contracts, and only the owning plan may change th
 |---|---|---|
 | Motion and colour tokens | `--motion-*`; `--color-cta*`, `--color-live*`, `--color-nav-marker`, `--color-locality-*`, `--color-link*`, `--gradient-brand-glass*` | **Plan 02:** `--color-input-border` (light `#858585`, Plum Night `#8c6b7b`); the light `--color-warning-foreground` and `--color-success-foreground` become `#171717`. **Plan 06 (CR-06-4):** `--color-ai`, `--color-ai-text`, `--color-agent`, `--color-agent-text`, and the UI type ramp `--text-display\|title\|heading\|body\|ui\|caption\|micro` (line-height, weight and tracking included). The ramp never redefines Tailwind's `--text-xs…--text-9xl`. Plan 06 also adds the cadence tokens `--motion-loop-*`, `--motion-stagger` and `--motion-dwell-ring`. **Plan 04 (CCR-8):** the choreography beat tokens `--motion-condense-fly`, `--motion-condense-land`, `--motion-rewrite-underline`, `--motion-nudge` and `--motion-bounce`, with matching DESIGN.md rows. `--color-agent-brand` stays valid. Plans 04 and 05 may adopt these after 06 merges; they do not depend on 06. |
 | Button | `variant="live"` | none |
-| Locality | `src/lib/locality.ts`: `Locality`, `RouteLocality`, `resolveLocality`, `providerDisplayName` (logs only), `providerDisplayLabel(id, t)` (every provider name shown in UI), `providerMonogram`, `isLoopbackUrl` | **Plan 07 (CCR-5):** `isLoopbackUrl` accepts exactly what main's `isLoopbackHost` accepts: `localhost` (including a trailing dot), `*.localhost`, `127.0.0.0/8`, `::1` in any spelling, and IPv4-mapped `127.x`. Both are tested against `test/fixtures/loopbackCases.json`. A hostname that only *resolves* to loopback is not loopback. Whether an endpoint is *valid* is a separate question that the executors answer, so plain-HTTP `*.localhost` is loopback but refused, and resolves `needsUrl` (§5.1 rule 10). |
+| Locality | `src/lib/locality.ts`: `Locality`, `RouteLocality`, `resolveLocality`, `providerDisplayName` (logs only), `providerDisplayLabel(id, t)` (every provider name shown in UI), `isLoopbackUrl` | **Plan 07 (CCR-5):** `isLoopbackUrl` accepts exactly what main's `isLoopbackHost` accepts: `localhost` (including a trailing dot), `*.localhost`, `127.0.0.0/8`, `::1` in any spelling, and IPv4-mapped `127.x`. Both are tested against `test/fixtures/loopbackCases.json`. A hostname that only *resolves* to loopback is not loopback. Whether an endpoint is *valid* is a separate question that the executors answer, so plain-HTTP `*.localhost` is loopback but refused, and resolves `needsUrl` (§5.1 rule 10). |
 | Locality ring | `src/components/ui/LocalityRing.tsx` | none |
 | Level meter | `src/components/ui/LevelBars.tsx` and `levelBarsMath.ts` | **Plan 05:** an optional `tone?: "brand" \| "onLive"` prop, defaulting to `"brand"`, which replaces the scoped `!important` override. |
 | Test helpers | `src/utils/contrast.ts` (`contrastRatio`, `roundContrastRatio`), `test/helpers/harness/cssTokens.js` | none |

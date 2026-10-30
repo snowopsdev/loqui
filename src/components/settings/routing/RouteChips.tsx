@@ -140,7 +140,7 @@ export function RouteDestinationChip({
         className
       )}
     >
-      <LocalityRing locality={route.locality} label={ringLabel} provider={providerName} size={16} />
+      <LocalityRing locality={route.locality} label={ringLabel} size={16} />
       <span className="truncate" dir="auto">
         {route.model ? `${place} · ${route.model}` : place}
       </span>

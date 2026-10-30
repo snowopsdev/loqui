@@ -243,7 +243,6 @@ export default function TranscriptionItem({
                 <LocalityRing
                   size={20}
                   locality={locality.locality}
-                  provider={providerLabel}
                   label={t(`locality.${locality.locality}`, { provider: providerLabel ?? "" })}
                 />
               </span>

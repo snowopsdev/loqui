@@ -211,7 +211,6 @@ export function PatchbayView(props: PatchbayViewProps) {
                       label={
                         dest.locality === "remote" ? t("locality.remote", { provider: name }) : name
                       }
-                      provider={dest.locality === "remote" ? name : null}
                       size={16}
                     />
                     <span className="truncate">{name}</span>

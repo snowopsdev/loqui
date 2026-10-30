@@ -64,14 +64,6 @@ test("unknown or missing modes fail toward disclosure", async () => {
   });
 });
 
-test("monograms are two letters and ignore punctuation", async () => {
-  const { providerMonogram } = await load();
-  assert.equal(providerMonogram("OpenAI"), "Op");
-  assert.equal(providerMonogram("AWS Bedrock"), "AB");
-  assert.equal(providerMonogram("ChatGPT (Codex)"), "CC");
-  assert.equal(providerMonogram(""), "?");
-});
-
 test("punctuation-only provider ids fall back to the unknown provider name", async () => {
   const { providerDisplayName } = await load();
   assert.equal(providerDisplayName("---"), "Unknown provider");
@@ -87,8 +79,7 @@ test("providerDisplayLabel localises unknown and custom providers", async () => 
 });
 
 test("inherited object keys are treated as unknown provider ids, never returned raw", async () => {
-  const { providerDisplayName, providerDisplayLabel, resolveLocality, providerMonogram } =
-    await load();
+  const { providerDisplayName, providerDisplayLabel, resolveLocality } = await load();
   const t = (k) => "T:" + k;
   const expected = { constructor: "Constructor", __proto__: "Proto", toString: "Tostring" };
   for (const id of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"]) {
@@ -96,7 +87,6 @@ test("inherited object keys are treated as unknown provider ids, never returned 
     assert.equal(typeof providerDisplayLabel(id, t), "string", id);
     const route = resolveLocality({ mode: "providers", provider: id });
     assert.equal(typeof route.provider, "string", id);
-    assert.equal(typeof providerMonogram(route.provider), "string", id);
   }
   for (const [id, name] of Object.entries(expected)) {
     assert.equal(providerDisplayName(id), name, id);

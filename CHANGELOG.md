@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.3 - 2026-10-30
+
+- The locality indicator is now one solid ring for every destination; its colour alone says this device, your own server, or a provider. The dotted and dashed rings, the orbit animation, and the provider badge are gone.
+
+Publication waits for real microphone, shortcut, paste, and meeting-capture checks and beta-to-beta updates from 0.1.0-beta.2, run on this draft's own installers. See docs/RELEASING.md and docs/VERIFICATION.md.
+
 ## 0.1.0-beta.2 - 2026-10-28
 
 - UI design foundations: updated color, typography, motion, and button styles; reusable audio level bars and provider locality indicators.

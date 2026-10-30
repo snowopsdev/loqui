@@ -1,6 +1,6 @@
 {
   "name": "loqui",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "Local-first dictation, notes, meetings, and a personal AI assistant",
   "main": "main.js",
   "private": true,

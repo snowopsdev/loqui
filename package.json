@@ -93,7 +93,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "ajv": "^8.20.0",
-    "autoprefixer": "^10.6.1",
+    "autoprefixer": "^10.6.2",
     "concurrently": "^10.0.6",
     "cross-env": "^10.0.0",
     "electron": "44.5.0",

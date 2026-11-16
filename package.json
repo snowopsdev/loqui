@@ -150,7 +150,7 @@
     "@tiptap/react": "3.33.0",
     "@tiptap/starter-kit": "3.33.0",
     "@tiptap/suggestion": "3.33.0",
-    "ai": "^7.0.164",
+    "ai": "^7.0.171",
     "better-sqlite3": "13.0.3",
     "canvas-confetti": "^1.9.4",
     "class-variance-authority": "^0.7.1",

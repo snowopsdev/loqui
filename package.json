@@ -159,7 +159,7 @@
     "electron-updater": "6.8.11",
     "ffmpeg-static": "^5.2.0",
     "flatted": "^3.4.4",
-    "i18next": "^26.7.2",
+    "i18next": "^27.1.1",
     "lucide-react": "1.70.0",
     "object-assign": "^4.1.1",
     "onnxruntime-node": "^1.31.1",

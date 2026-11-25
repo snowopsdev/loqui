@@ -50,8 +50,6 @@ const DialogContent = React.forwardRef<
           "bg-card border-border/70",
           "dark:bg-surface-2 dark:border-border dark:shadow-modal",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-          // Content stays mounted while it fades out; it must not take clicks then.
-          "data-[state=closed]:pointer-events-none",
           className
         )}
         {...props}

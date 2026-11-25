@@ -90,22 +90,89 @@ test("closing Settings keeps the search results through the fade; reopening rese
   assert.equal(hook.query, "", "a reopened Settings starts without the old search");
 });
 
-test("closing dialog content ignores pointer input while it fades out", () => {
+test("closing dialog content turns inert for its exit fade and back when reopened", async (t) => {
+  const { vite } = await setup(t);
+  const { inertWhileClosed } = await vite.ssrLoadModule("/components/ui/useDismissGuard.ts");
+  // A MutationObserver stand-in that reports data-state changes synchronously.
+  const observers = [];
+  const original = globalThis.MutationObserver;
+  globalThis.MutationObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+    observe(node, options) {
+      assert.deepEqual(options.attributeFilter, ["data-state"]);
+      this.node = node;
+    }
+    disconnect() {
+      this.node = null;
+    }
+  };
+  t.after(() => (globalThis.MutationObserver = original));
+  const attrs = { "data-state": "open" };
+  const focused = [];
+  const doc = { activeElement: null };
+  let fieldFocusable = true;
+  const field = {
+    isConnected: true,
+    focus: () => {
+      focused.push("field");
+      if (fieldFocusable) doc.activeElement = field;
+    },
+  };
+  const node = {
+    inert: false,
+    ownerDocument: doc,
+    contains: (el) => el === field || el === node,
+    focus: () => {
+      focused.push("content");
+      doc.activeElement = node;
+    },
+    getAttribute: (name) => attrs[name] ?? null,
+    setState(state) {
+      attrs["data-state"] = state;
+      for (const o of observers) if (o.node === this) o.callback([]);
+    },
+  };
+
+  const stop = inertWhileClosed(node);
+  assert.equal(node.inert, false, "open content stays interactive");
+  doc.activeElement = field;
+  node.setState("closed");
+  assert.equal(node.inert, true, "fading-out content takes no input");
+  // Reopened mid-fade: the same content comes back, and so does its focus.
+  doc.activeElement = null;
+  node.setState("open");
+  assert.equal(node.inert, false, "reopened content is interactive again");
+  assert.deepEqual(focused, ["field"], "focus returns to the field it left");
+  // With nothing focused inside when it closed, the content itself takes focus.
+  doc.activeElement = null;
+  node.setState("closed");
+  node.setState("open");
+  assert.deepEqual(focused, ["field", "content"]);
+  // A field that became disabled refuses focus; the content takes it instead.
+  doc.activeElement = field;
+  node.setState("closed");
+  fieldFocusable = false;
+  doc.activeElement = null;
+  node.setState("open");
+  assert.deepEqual(focused, ["field", "content", "field", "content"]);
+  assert.equal(doc.activeElement, node);
+  stop();
+  node.setState("closed");
+  assert.equal(node.inert, false, "a detached node is no longer tracked");
+});
+
+test("every dialog content (shared, Settings, palette) registers through the inert-aware ref", () => {
   const fs = require("node:fs");
   const path = require("node:path");
   const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");
-  // Settings (SidebarModal), shared dialogs and both command-palette modes.
-  assert.match(read("src/components/ui/dialog.tsx"), /data-\[state=closed\]:pointer-events-none/);
-  assert.match(
-    read("src/components/ui/SidebarModal.tsx"),
-    /data-\[state=closed\]:zoom-out-98[^"]*data-\[state=closed\]:pointer-events-none/
-  );
-  assert.equal(
-    (
-      read("src/components/CommandSearch.tsx").match(
-        /data-\[state=closed\]:pointer-events-none/g
-      ) ?? []
-    ).length,
-    2
-  );
+  for (const file of [
+    "src/components/ui/dialog.tsx",
+    "src/components/ui/SidebarModal.tsx",
+    "src/components/CommandSearch.tsx",
+  ]) {
+    assert.match(read(file), /<DialogPrimitive\.Content[\s\S]{0,80}ref=\{registerContent\}/, file);
+  }
 });

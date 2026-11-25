@@ -35,12 +35,48 @@ export function hasLayerAbove(content: HTMLElement | null, doc: LayerProbe): boo
   return openDialogs.length > 0 && openDialogs[openDialogs.length - 1] !== content;
 }
 
+/**
+ * Exit animations keep dialog content mounted while it fades out, and Radix
+ * marks it `data-state="closed"` for that whole time. Make it `inert` then, so
+ * no pointer input (even on `pointer-events-auto` descendants) or keyboard
+ * input reaches content that has already been dismissed.
+ */
+export function inertWhileClosed(node: HTMLElement): () => void {
+  // Inert content drops focus to <body>. Reopened mid-fade, the content is
+  // reused rather than remounted, so Radix won't auto-focus it again: put focus
+  // back where it was (or on the content itself) when it reopens.
+  let restoreFocus: HTMLElement | null = null;
+  const sync = () => {
+    const closed = node.getAttribute("data-state") === "closed";
+    if (closed === node.inert) return;
+    if (closed) {
+      const active = node.ownerDocument?.activeElement as HTMLElement | null | undefined;
+      restoreFocus = active && node.contains(active) ? active : null;
+      node.inert = true;
+      return;
+    }
+    node.inert = false;
+    const target = restoreFocus?.isConnected && node.contains(restoreFocus) ? restoreFocus : node;
+    restoreFocus = null;
+    target.focus({ preventScroll: true });
+    // A disabled or hidden element silently refuses focus; fall back to the content.
+    if (!node.contains(node.ownerDocument?.activeElement ?? null))
+      node.focus({ preventScroll: true });
+  };
+  sync();
+  if (typeof MutationObserver === "undefined") return () => {};
+  const observer = new MutationObserver(sync);
+  observer.observe(node, { attributes: true, attributeFilter: ["data-state"] });
+  return () => observer.disconnect();
+}
+
 interface OutsideEvent {
   detail: { originalEvent: Event };
 }
 
 export function useDismissGuard<T extends HTMLElement>(forwardedRef?: React.ForwardedRef<T>) {
   const contentRef = React.useRef<T | null>(null);
+  const stopInertSync = React.useRef<(() => void) | null>(null);
   const layerWasAboveRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -56,6 +92,8 @@ export function useDismissGuard<T extends HTMLElement>(forwardedRef?: React.Forw
   /** Ref for the dialog content, composed with the caller's forwarded ref. */
   const registerContent = React.useCallback(
     (node: T | null) => {
+      stopInertSync.current?.();
+      stopInertSync.current = node ? inertWhileClosed(node) : null;
       contentRef.current = node;
       if (typeof forwardedRef === "function") forwardedRef(node);
       else if (forwardedRef) forwardedRef.current = node;

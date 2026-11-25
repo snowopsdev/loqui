@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
-const { spawnSync } = require("child_process");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 const { dialog } = require("electron");
 const { getLinuxSessionInfo } = require("./linuxSession");
 
@@ -8,36 +9,31 @@ function getLogger() {
   return require("./debugLogger");
 }
 
-function commandExists(name) {
+const execFileAsync = promisify(execFile);
+
+// Probes run off the main thread's event loop: a slow systemctl/pgrep must not
+// freeze startup or the settings window. A non-zero exit still carries stdout
+// (systemctl is-active prints "inactive" and exits 3).
+async function run(command, args, timeout = 5000) {
   try {
-    return spawnSync("which", [name], { stdio: "pipe", timeout: 5000 }).status === 0;
-  } catch {
-    return false;
+    const { stdout } = await execFileAsync(command, args, { timeout, windowsHide: true });
+    return { ok: true, stdout: String(stdout ?? "") };
+  } catch (error) {
+    return { ok: false, stdout: String(error?.stdout ?? "") };
   }
 }
 
-function isYdotooldRunning() {
-  try {
-    const result = spawnSync("systemctl", ["--user", "is-active", "ydotoold"], {
-      stdio: "pipe",
-      timeout: 5000,
-    });
-    if (result.stdout?.toString().trim() === "active") return true;
-  } catch {}
+async function commandExists(name) {
+  return (await run("which", [name])).ok;
+}
 
-  try {
-    const result = spawnSync("systemctl", ["--user", "is-active", "ydotool"], {
-      stdio: "pipe",
-      timeout: 5000,
-    });
-    if (result.stdout?.toString().trim() === "active") return true;
-  } catch {}
-
-  try {
-    return spawnSync("pgrep", ["-x", "ydotoold"], { stdio: "pipe", timeout: 5000 }).status === 0;
-  } catch {}
-
-  return false;
+async function isYdotooldRunning() {
+  const [ydotoold, ydotool, pgrep] = await Promise.all([
+    run("systemctl", ["--user", "is-active", "ydotoold"]),
+    run("systemctl", ["--user", "is-active", "ydotool"]),
+    run("pgrep", ["-x", "ydotoold"]),
+  ]);
+  return ydotoold.stdout.trim() === "active" || ydotool.stdout.trim() === "active" || pgrep.ok;
 }
 
 function serviceFileExists() {
@@ -75,13 +71,8 @@ function udevRuleExists() {
   return false;
 }
 
-function userInInputGroup() {
-  try {
-    const result = spawnSync("groups", [], { stdio: "pipe", timeout: 5000 });
-    return result.stdout?.toString().includes("input") ?? false;
-  } catch {
-    return false;
-  }
+async function userInInputGroup() {
+  return (await run("groups", [])).stdout.includes("input");
 }
 
 async function ensureYdotool() {
@@ -92,12 +83,14 @@ async function ensureYdotool() {
 
   const log = getLogger();
 
-  const hasYdotool = commandExists("ydotool");
-  const hasYdotoold = commandExists("ydotoold");
-  const daemonRunning = isYdotooldRunning();
+  const [hasYdotool, hasYdotoold, daemonRunning, hasGroup] = await Promise.all([
+    commandExists("ydotool"),
+    commandExists("ydotoold"),
+    isYdotooldRunning(),
+    userInInputGroup(),
+  ]);
   const hasService = serviceFileExists();
   const hasUinput = isUinputAccessible();
-  const hasGroup = userInInputGroup();
 
   log.debug(
     "ydotool check",
@@ -113,20 +106,13 @@ async function ensureYdotool() {
 
   // If the service exists and daemon is just not running, try to start it
   if (hasYdotoold && hasService && !daemonRunning) {
-    try {
-      spawnSync("systemctl", ["--user", "start", "ydotoold"], { stdio: "pipe", timeout: 10000 });
-      if (isYdotooldRunning()) {
-        log.info("ydotoold daemon started", {}, "clipboard");
+    for (const unit of ["ydotoold", "ydotool"]) {
+      await run("systemctl", ["--user", "start", unit], 10000);
+      if (await isYdotooldRunning()) {
+        log.info(`${unit} daemon started`, {}, "clipboard");
         return;
       }
-    } catch {}
-    try {
-      spawnSync("systemctl", ["--user", "start", "ydotool"], { stdio: "pipe", timeout: 10000 });
-      if (isYdotooldRunning()) {
-        log.info("ydotool daemon started", {}, "clipboard");
-        return;
-      }
-    } catch {}
+    }
   }
 
   // Something is missing — build an informative message
@@ -184,15 +170,17 @@ function isNixOS() {
   }
 }
 
-function getYdotoolStatus() {
-  const hasYdotool = commandExists("ydotool");
-  const hasYdotoold = commandExists("ydotoold");
-  const hasWtype = commandExists("wtype");
-  const daemonRunning = isYdotooldRunning();
+async function getYdotoolStatus() {
+  const [hasYdotool, hasYdotoold, hasWtype, daemonRunning, hasGroup] = await Promise.all([
+    commandExists("ydotool"),
+    commandExists("ydotoold"),
+    commandExists("wtype"),
+    isYdotooldRunning(),
+    userInInputGroup(),
+  ]);
   const hasService = serviceFileExists();
   const hasUinput = isUinputAccessible();
   const hasUdevRule = udevRuleExists();
-  const hasGroup = userInInputGroup();
   const { isWayland, isKde, isWlroots } = getLinuxSessionInfo();
 
   return {
@@ -212,4 +200,4 @@ function getYdotoolStatus() {
   };
 }
 
-module.exports = { ensureYdotool, getYdotoolStatus };
+module.exports = { ensureYdotool, getYdotoolStatus, commandExists };

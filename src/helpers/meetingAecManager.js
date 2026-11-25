@@ -2,6 +2,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const debugLogger = require("./debugLogger");
+const { capPendingLine } = require("./boundedOutput");
 
 const START_TIMEOUT_MS = 3000;
 const STOP_TIMEOUT_MS = 2000;
@@ -265,6 +266,10 @@ class MeetingAecManager {
 
       newlineIndex = this.stderrBuffer.indexOf("\n");
     }
+
+    this.stderrBuffer = capPendingLine(this.stderrBuffer, undefined, (chars) =>
+      debugLogger.warn("[MeetingAecManager] Dropped oversized stderr line", { chars }, "meeting")
+    );
   }
 }
 

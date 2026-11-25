@@ -103,6 +103,26 @@ test("does not kill a reused PID that is no longer the sidecar binary", posixOnl
   assert.deepEqual(sidecarPidFile.readAll(), []);
 });
 
+test("keeps the entry when the process lookup fails instead of guessing", posixOnly, async (t) => {
+  createUserDataDir(t);
+  const child = await spawnFakeSidecar(t, { scriptName: "qdrant-orphan.js", ignoreSigterm: false });
+  sidecarPidFile.write("qdrant", child.pid);
+
+  // A timed-out ps reports unknown (null), which is not a command mismatch.
+  await reapStaleSidecars({ ...GRACES, lookupCommand: async () => null });
+
+  assert.equal(isAlive(child.pid), true);
+  assert.deepEqual(
+    sidecarPidFile.readAll().map(({ name, pid }) => ({ name, pid })),
+    [{ name: "qdrant", pid: child.pid }]
+  );
+
+  // The next launch, with a working lookup, reaps it.
+  await reapStaleSidecars(GRACES);
+  assert.equal(await waitUntilDead(child.pid), true);
+  assert.deepEqual(sidecarPidFile.readAll(), []);
+});
+
 // qdrantManager's unhealthy-restart path uses waitForExit to verify the old
 // process is gone before spawning a replacement.
 test("waitForExit distinguishes a live process from a dead one", async (t) => {

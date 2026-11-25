@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const debugLogger = require("./debugLogger");
+const { BoundedOutput } = require("./boundedOutput");
 const { killProcess } = require("../utils/process");
 const { isPortAvailable } = require("../utils/serverUtils");
 const { getSafeTempDir } = require("./safeTempDir");
@@ -436,7 +437,7 @@ class LlamaServerManager {
       });
       sidecarPidFile.write("llama", this.process.pid);
 
-      let stderrBuffer = "";
+      const stderrOutput = new BoundedOutput();
       let exitCode = null;
       let exitSignal = null;
       let settled = false;
@@ -462,7 +463,7 @@ class LlamaServerManager {
       });
 
       this.process.stderr.on("data", (data) => {
-        stderrBuffer += data.toString();
+        stderrOutput.append(data);
         debugLogger.debug("llama-server stderr", { data: data.toString().trim() });
       });
 
@@ -482,7 +483,7 @@ class LlamaServerManager {
         sidecarPidFile.clear("llama");
       });
 
-      const getProcessInfo = () => ({ stderr: stderrBuffer, exitCode, exitSignal });
+      const getProcessInfo = () => ({ stderr: stderrOutput.toString(), exitCode, exitSignal });
 
       const startTime = Date.now();
       let pollCount = 0;

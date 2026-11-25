@@ -5,6 +5,7 @@ const path = require("path");
 const http = require("http");
 const { app } = require("electron");
 const debugLogger = require("./debugLogger");
+const { BoundedOutput } = require("./boundedOutput");
 const { killProcess } = require("../utils/process");
 const { isPortAvailable, getAvailableParallelism } = require("../utils/serverUtils");
 const { getSafeTempDir } = require("./safeTempDir");
@@ -640,7 +641,7 @@ class WhisperServerManager extends EventEmitter {
     });
     sidecarPidFile.write("whisper", this.process.pid);
 
-    let stderrBuffer = "";
+    const stderrOutput = new BoundedOutput();
     let exitCode = null;
 
     this.process.stdout.on("data", (data) => {
@@ -648,7 +649,7 @@ class WhisperServerManager extends EventEmitter {
     });
 
     this.process.stderr.on("data", (data) => {
-      stderrBuffer += data.toString();
+      stderrOutput.append(data);
       debugLogger.debug("whisper-server stderr", { data: data.toString().trim() });
     });
 
@@ -668,7 +669,7 @@ class WhisperServerManager extends EventEmitter {
 
     try {
       await this.waitForReady(
-        () => ({ stderr: stderrBuffer, exitCode }),
+        () => ({ stderr: stderrOutput.toString(), exitCode }),
         usingVulkan ? VULKAN_STARTUP_TIMEOUT_MS : STARTUP_TIMEOUT_MS
       );
     } catch (err) {
@@ -684,7 +685,7 @@ class WhisperServerManager extends EventEmitter {
           {
             error: err.message,
             exitCode,
-            stderr: stderrBuffer.slice(0, 200),
+            stderr: stderrOutput.toString().slice(0, 200),
           }
         );
         this.emit(usingCuda ? "cuda-fallback" : "gpu-fallback");
@@ -701,7 +702,7 @@ class WhisperServerManager extends EventEmitter {
         debugLogger.warn("Auto whisper thread count failed, falling back to default", {
           selectedThreads: threadResolution.threads,
           availableParallelism: threadResolution.availableParallelism,
-          stderr: stderrBuffer.slice(0, 200),
+          stderr: stderrOutput.toString().slice(0, 200),
         });
         await this.stop();
         this.threadSignature = getThreadSignature(threadResolution);
@@ -720,7 +721,7 @@ class WhisperServerManager extends EventEmitter {
     // catch above falls back to CPU as usual. See #1606.
     if (usingVulkan && !options.vulkanPinChecked) {
       const pinAction = resolveVulkanPinAction({
-        devices: parseVulkanDevices(stderrBuffer),
+        devices: parseVulkanDevices(stderrOutput.toString()),
         appliedPin: vulkanDeviceIndex,
       });
       if (pinAction.action === "pin") {

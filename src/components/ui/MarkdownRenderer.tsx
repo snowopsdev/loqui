@@ -1,4 +1,4 @@
-import { createContext, useContext, useId, type ReactElement } from "react";
+import { createContext, memo, useContext, useId, useMemo, type ReactElement } from "react";
 import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
@@ -133,21 +133,37 @@ const markdownComponents: Components = {
   ),
 };
 
-export function MarkdownRenderer({
+// Hoisted so react-markdown receives referentially stable options; streaming
+// updates then only pay for the content that actually changed.
+const BASE_REMARK_PLUGINS: PluggableList = [remarkGfm];
+const urlTransform = (url: string): string =>
+  parseMentionHref(url) ? url : defaultUrlTransform(url);
+
+function MarkdownRendererImpl({
   content,
   className,
   remarkPlugins,
   components,
 }: MarkdownRendererProps): ReactElement {
   const footnotePrefix = `user-content-${useId()}-`;
+  const plugins = useMemo(
+    () =>
+      remarkPlugins?.length ? [...BASE_REMARK_PLUGINS, ...remarkPlugins] : BASE_REMARK_PLUGINS,
+    [remarkPlugins]
+  );
+  const remarkRehypeOptions = useMemo(() => ({ clobberPrefix: footnotePrefix }), [footnotePrefix]);
+  const mergedComponents = useMemo(
+    () => (components ? { ...markdownComponents, ...components } : markdownComponents),
+    [components]
+  );
   return (
     <div dir="auto" className={className}>
       <FootnotePrefixContext value={footnotePrefix}>
         <Markdown
-          remarkPlugins={[remarkGfm, ...(remarkPlugins ?? [])]}
-          urlTransform={(url) => (parseMentionHref(url) ? url : defaultUrlTransform(url))}
-          remarkRehypeOptions={{ clobberPrefix: footnotePrefix }}
-          components={components ? { ...markdownComponents, ...components } : markdownComponents}
+          remarkPlugins={plugins}
+          urlTransform={urlTransform}
+          remarkRehypeOptions={remarkRehypeOptions}
+          components={mergedComponents}
         >
           {content}
         </Markdown>
@@ -155,5 +171,9 @@ export function MarkdownRenderer({
     </div>
   );
 }
+
+// Chat transcripts re-render on every streamed token; memo keeps settled
+// messages from re-parsing their Markdown when their props did not change.
+export const MarkdownRenderer = memo(MarkdownRendererImpl);
 
 export default MarkdownRenderer;

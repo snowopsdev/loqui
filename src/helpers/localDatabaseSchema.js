@@ -316,10 +316,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_spaces_private ON spaces(kind);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_personal_name ON folders(space_id, name) WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_analytics_date ON analytics_events(local_date);
+-- Also applied to existing databases by localDatabaseMigrations.js (v1).
+CREATE INDEX IF NOT EXISTS idx_transcriptions_active_order
+  ON transcriptions(timestamp DESC, id DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notes_calendar_event_id ON notes(calendar_event_id);
 CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
   INSERT INTO notes_fts(rowid, title, content, enhanced_content) VALUES (new.id, new.title, new.content, new.enhanced_content);
 END;
-CREATE TRIGGER IF NOT EXISTS notes_fts_update AFTER UPDATE ON notes BEGIN
+CREATE TRIGGER IF NOT EXISTS notes_fts_update AFTER UPDATE OF title, content, enhanced_content ON notes BEGIN
   INSERT INTO notes_fts(notes_fts, rowid, title, content, enhanced_content) VALUES ('delete', old.id, old.title, old.content, old.enhanced_content);
   INSERT INTO notes_fts(rowid, title, content, enhanced_content) VALUES (new.id, new.title, new.content, new.enhanced_content);
 END;

@@ -317,6 +317,18 @@ test("mounted sampler atomically publishes at <=12Hz, reports quiet, resets and 
   globalThis.__meetingMeterAnalyser = analyser();
   await tick(42000);
   assert.equal(state.getState().micQuiet, false, "unknown gap never counts as silence");
+  // A hidden window skips fallback level writes and catches up once visible.
+  const visibleLevel = state.getState().currentMicLevel;
+  globalThis.document.visibilityState = "hidden";
+  amplitude = 0.8;
+  const beforeHidden = publications.length;
+  await tick(42084);
+  await tick(42168);
+  assert.equal(publications.length, beforeHidden, "hidden meters do not publish levels");
+  assert.equal(state.getState().currentMicLevel, visibleLevel);
+  globalThis.document.visibilityState = "visible";
+  await tick(42252);
+  assert.ok(state.getState().currentMicLevel > 0.39, "visible tick republishes the live level");
   await React.act(async () => root.unmount());
   mounted = false;
   assert.equal(intervals.size, 0);

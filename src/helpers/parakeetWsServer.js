@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const WebSocket = require("ws");
 const debugLogger = require("./debugLogger");
+const { BoundedOutput, capPendingLine } = require("./boundedOutput");
 const {
   findAvailablePort,
   resolveBinaryPath,
@@ -181,7 +182,9 @@ class ParakeetWsServer {
     this.process = child;
     sidecarPidFile.write("parakeet", child.pid);
 
-    let stderrBuffer = "";
+    const stderrOutput = new BoundedOutput();
+    let listenerJudged = false;
+    let pendingLine = "";
     let exitCode = null;
     let listenedBeyondLoopback = false;
     let readyResolve = null;
@@ -194,12 +197,25 @@ class ParakeetWsServer {
     });
 
     child.stderr.on("data", (data) => {
-      stderrBuffer += data.toString();
+      stderrOutput.append(data);
       debugLogger.debug("parakeet-ws stderr", { data: data.toString().trim() });
+      if (listenerJudged) return;
       // Judge the bind address only once the whole startup line has arrived.
-      const listenAt = stderrBuffer.indexOf("Listening on:");
-      if (listenAt === -1 || !stderrBuffer.includes("\n", listenAt)) return;
-      if (stderrBuffer.startsWith(LOOPBACK_LISTEN_MARKER, listenAt)) {
+      // Scan complete lines as they land rather than the retained log, whose
+      // middle may already be trimmed by the time the listener line prints.
+      pendingLine += data.toString();
+      const lineEnd = pendingLine.lastIndexOf("\n");
+      if (lineEnd === -1) {
+        pendingLine = capPendingLine(pendingLine);
+        return;
+      }
+      const completeLines = pendingLine.slice(0, lineEnd);
+      pendingLine = pendingLine.slice(lineEnd + 1);
+      const listenAt = completeLines.indexOf("Listening on:");
+      if (listenAt === -1) return;
+      listenerJudged = true;
+      pendingLine = "";
+      if (completeLines.startsWith(LOOPBACK_LISTEN_MARKER, listenAt)) {
         readyResolve(true);
       } else {
         listenedBeyondLoopback = true;
@@ -227,7 +243,10 @@ class ParakeetWsServer {
     });
 
     try {
-      await this._waitForReady(readyFromStderr, () => ({ stderr: stderrBuffer, exitCode }));
+      await this._waitForReady(readyFromStderr, () => ({
+        stderr: stderrOutput.toString(),
+        exitCode,
+      }));
     } catch (error) {
       if (!listenedBeyondLoopback) throw error;
       await this.stop();

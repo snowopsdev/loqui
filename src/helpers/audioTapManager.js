@@ -2,6 +2,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const debugLogger = require("./debugLogger");
+const { capPendingLine } = require("./boundedOutput");
 const { compareVersions } = require("./parakeetCapability");
 
 const ARCH_CPU_TYPE = {
@@ -328,6 +329,7 @@ class AudioTapManager {
           }
           newlineIndex = stderrBuffer.indexOf("\n");
         }
+        stderrBuffer = capPendingLine(stderrBuffer);
       });
 
       child.on("error", (error) => {
@@ -414,6 +416,10 @@ class AudioTapManager {
 
       newlineIndex = this.stderrBuffer.indexOf("\n");
     }
+
+    this.stderrBuffer = capPendingLine(this.stderrBuffer, undefined, (chars) =>
+      debugLogger.warn("[AudioTapManager] Dropped oversized stderr line", { chars }, "meeting")
+    );
   }
 
   _buildProcessError(message) {

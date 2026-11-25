@@ -103,7 +103,7 @@ test("Markdown component types stay stable across streaming and parent rerenders
   const { MarkdownRenderer } = await vite.ssrLoadModule("/components/ui/MarkdownRenderer.tsx");
   let components;
   function InspectMarkdown(props) {
-    const element = MarkdownRenderer(props);
+    const element = MarkdownRenderer.type(props);
     components = element.props.children.props.children.props.components;
     return element;
   }

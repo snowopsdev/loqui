@@ -8,10 +8,16 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import App from "./App.jsx";
 import AgentDictationPillOverlay from "./components/dictation/AgentDictationPillOverlay.tsx";
-import MeetingNotificationOverlay from "./components/MeetingNotificationOverlay.tsx";
 import { useControlPanelWindowDrag } from "./hooks/useControlPanelWindowDrag";
 import { useTheme } from "./hooks/useTheme";
 import { isControlPanelWindow } from "./utils/windowContext.ts";
+// App stays eager: main admits the dictation gate only from the control panel,
+// so the dictation panel must have its recording listeners before any hotkey.
+// The agent pill stays eager because windowManager pushes state to it on load.
+// The meeting notification pulls its own data on mount, so it can load lazily.
+const MeetingNotificationOverlay = React.lazy(
+  () => import("./components/MeetingNotificationOverlay.tsx")
+);
 const ControlPanel = React.lazy(() => import("./components/ControlPanel.tsx"));
 const OnboardingFlow = React.lazy(() => import("./components/OnboardingFlow.tsx"));
 const BrowserPreview = import.meta.env.DEV
@@ -39,7 +45,11 @@ export default function AppRouter() {
     );
   }
   if (window.location.search.includes("meeting-notification=true"))
-    return <MeetingNotificationOverlay />;
+    return (
+      <Suspense fallback={null}>
+        <MeetingNotificationOverlay />
+      </Suspense>
+    );
   if (window.location.search.includes("agent-dictation-pill=true"))
     return <AgentDictationPillOverlay />;
   return <MainApp />;

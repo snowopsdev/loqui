@@ -2,6 +2,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const debugLogger = require("./debugLogger");
+const { BoundedOutput, capPendingLine } = require("./boundedOutput");
 
 const START_TIMEOUT_MS = 15000;
 const STOP_TIMEOUT_MS = 5000;
@@ -296,7 +297,8 @@ class LinuxPortalAudioManager {
     });
 
     let stdout = "";
-    let stderr = "";
+    // Only the error message is read from stderr; keep its recent tail.
+    const stderr = new BoundedOutput({ headChars: 0, tailChars: 16 * 1024 });
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -321,7 +323,7 @@ class LinuxPortalAudioManager {
       });
 
       child.stderr.on("data", (chunk) => {
-        stderr += chunk.toString();
+        stderr.append(chunk);
       });
 
       child.on("error", (error) => {
@@ -332,7 +334,7 @@ class LinuxPortalAudioManager {
         if (settled) return;
 
         if (code !== 0) {
-          const message = stderr.trim() || stdout.trim() || `exit code ${code}`;
+          const message = stderr.toString().trim() || stdout.trim() || `exit code ${code}`;
           finish(reject, new Error(message));
           return;
         }
@@ -369,6 +371,14 @@ class LinuxPortalAudioManager {
 
       newlineIndex = this.stderrBuffer.indexOf("\n");
     }
+
+    this.stderrBuffer = capPendingLine(this.stderrBuffer, undefined, (chars) =>
+      debugLogger.warn(
+        "[LinuxPortalAudioManager] Dropped oversized stderr line",
+        { chars },
+        "meeting"
+      )
+    );
   }
 
   _buildProcessError(message) {

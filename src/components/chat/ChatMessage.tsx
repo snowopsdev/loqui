@@ -1,5 +1,6 @@
 import { RouteTag } from "./ChatModelChip";
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import type { PluggableList } from "unified";
 import { useTranslation } from "react-i18next";
 import {
   Sparkles,
@@ -285,7 +286,7 @@ function ToolActivityDisclosure({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
   );
 }
 
-export function ChatMessage({
+function ChatMessageImpl({
   role,
   content,
   isStreaming,
@@ -317,6 +318,20 @@ export function ChatMessage({
       // clipboard unavailable
     }
   };
+
+  const isAssistantDocument = variant === "document" && role !== "user";
+  const citations = useMemo(() => {
+    if (!isAssistantDocument) return null;
+    const candidates = collectSources(toolCalls, [
+      ...(context?.ragNotes ?? []),
+      ...(context?.pinnedNotes ?? []),
+    ]);
+    return numberCitations(content, candidates);
+  }, [isAssistantDocument, toolCalls, context, content]);
+  const citationPlugins = useMemo<PluggableList | undefined>(
+    () => (citations ? [[remarkCitations, { numbers: citations.numbers }]] : undefined),
+    [citations]
+  );
 
   if (variant === "document" && role === "user") {
     return (
@@ -352,12 +367,8 @@ export function ChatMessage({
   const hasContent = content.length > 0;
   const noteCards = extractNoteCards(toolCalls, t("notes.list.untitledNote"));
 
-  if (variant === "document") {
-    const candidates = collectSources(toolCalls, [
-      ...(context?.ragNotes ?? []),
-      ...(context?.pinnedNotes ?? []),
-    ]);
-    const { numbers, sources } = numberCitations(content, candidates);
+  if (variant === "document" && citations) {
+    const { sources } = citations;
     return (
       <div
         data-variant="document"
@@ -380,7 +391,7 @@ export function ChatMessage({
         {hasContent && (
           <MarkdownRenderer
             content={content}
-            remarkPlugins={[[remarkCitations, { numbers }]]}
+            remarkPlugins={citationPlugins}
             components={citationComponents}
             className="max-w-[68ch] text-body leading-[1.6] [&_strong]:font-[650]"
           />
@@ -499,3 +510,7 @@ export function ChatMessage({
     </div>
   );
 }
+
+// Settled messages skip re-rendering (and re-parsing Markdown) while a sibling
+// message streams, as long as the parent passes stable props.
+export const ChatMessage = memo(ChatMessageImpl);

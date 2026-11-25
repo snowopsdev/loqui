@@ -10,11 +10,15 @@ class MarkdownMirror {
   constructor() {
     this._basePath = null;
     this._baseRealPath = null;
+    // noteId -> { filePath, digest, size, mtimeMs } of the last transcript we
+    // wrote, so unrelated note saves skip rewriting an unchanged transcript.
+    this._transcriptWrites = new Map();
   }
 
   init(basePath) {
     this._basePath = basePath;
     this._baseRealPath = null;
+    this._transcriptWrites.clear();
     try {
       fs.mkdirSync(basePath, { recursive: true });
       this._baseRealPath = fs.realpathSync(basePath);
@@ -197,8 +201,14 @@ class MarkdownMirror {
       }
 
       const { formatMd } = require("./transcriptFormatter");
-      fs.writeFileSync(newFilePath, formatMd(note, segments, speakerMappings || {}), "utf-8");
+      const markdown = formatMd(note, segments, speakerMappings || {});
+      const digest = crypto.createHash("sha256").update(markdown).digest("hex");
+      if (this._isTranscriptCurrent(note.id, newFilePath, digest)) return;
+      fs.writeFileSync(newFilePath, markdown, "utf-8");
+      const { size, mtimeMs } = fs.statSync(newFilePath);
+      this._transcriptWrites.set(note.id, { filePath: newFilePath, digest, size, mtimeMs });
     } catch (err) {
+      this._transcriptWrites.delete(note.id);
       debugLogger.error(
         "Failed to write transcript file",
         { noteId: note.id, error: err.message },
@@ -207,8 +217,32 @@ class MarkdownMirror {
     }
   }
 
+  // True when the file on disk is still exactly what we last wrote: same path,
+  // same content digest, and untouched since (an external edit or delete
+  // changes size/mtime and forces the mirror to rewrite it).
+  _isTranscriptCurrent(noteId, filePath, digest) {
+    const last = this._transcriptWrites.get(noteId);
+    if (!last || last.filePath !== filePath || last.digest !== digest) return false;
+    try {
+      const { size, mtimeMs } = fs.statSync(filePath);
+      return size === last.size && mtimeMs === last.mtimeMs;
+    } catch {
+      return false;
+    }
+  }
+
+  // Drop cache entries for files that a folder delete/rename moved or removed,
+  // so the cache never outlives the files it describes.
+  _forgetTranscriptsUnder(dirPath) {
+    const prefix = dirPath.endsWith(path.sep) ? dirPath : dirPath + path.sep;
+    for (const [noteId, entry] of this._transcriptWrites) {
+      if (entry.filePath.startsWith(prefix)) this._transcriptWrites.delete(noteId);
+    }
+  }
+
   deleteNote(noteId) {
     if (!this._baseRealPath) return;
+    this._transcriptWrites.delete(noteId);
     try {
       const files = [...this._globNoteFiles(noteId), ...this._globTranscriptFiles(noteId)];
       for (const f of files) {
@@ -252,6 +286,7 @@ class MarkdownMirror {
       if (!newPath || oldPath === newPath) return;
       if (fs.existsSync(newPath)) this._resolveExistingFolderPath(newPath);
       fs.renameSync(oldPath, newPath);
+      this._forgetTranscriptsUnder(oldPath);
     } catch (err) {
       debugLogger.error(
         "Failed to rename folder",
@@ -265,7 +300,10 @@ class MarkdownMirror {
     if (!this._baseRealPath) return;
     try {
       const dirPath = this._resolveFolderPath(folderName);
-      if (dirPath) fs.rmSync(dirPath, { recursive: true, force: true });
+      if (dirPath) {
+        fs.rmSync(dirPath, { recursive: true, force: true });
+        this._forgetTranscriptsUnder(dirPath);
+      }
     } catch (err) {
       debugLogger.error(
         "Failed to delete folder",

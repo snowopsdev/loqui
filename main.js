@@ -17,13 +17,11 @@ if (shouldForceXWayland(process.argv)) {
 
 const {
   app,
-  desktopCapturer,
   globalShortcut,
   BrowserWindow,
   dialog,
   ipcMain,
   shell,
-  session,
   systemPreferences,
 } = require("electron");
 const path = require("path");
@@ -45,7 +43,6 @@ try {
 }
 
 const VALID_CHANNELS = new Set(["development", "staging", "production"]);
-const BASE_WINDOWS_APP_ID = product.appId;
 
 function isElectronBinaryExec() {
   const execPath = (process.execPath || "").toLowerCase();
@@ -96,12 +93,6 @@ require("dotenv").config({
   quiet: true,
 });
 
-// Chromium's Windows-only occlusion tracker misclassifies the always-on-top
-// transparent pill as occluded, throttling its renderer and jittering animations.
-if (process.platform === "win32") {
-  app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
-}
-
 // Fix transparent window flickering on Linux: --enable-transparent-visuals requires
 // the compositor to set up an ARGB visual before any windows are created.
 // --disable-gpu-compositing prevents GPU compositing conflicts with the compositor.
@@ -122,13 +113,6 @@ if (process.platform === "linux" && process.env.XDG_SESSION_TYPE === "wayland") 
 // This allows XDG portals (e.g. PipeWire) to persist permissions across sessions.
 if (process.platform === "linux") {
   app.setDesktopName(`${product.packageName}.desktop`);
-}
-
-// Group all windows under single taskbar entry on Windows
-if (process.platform === "win32") {
-  const windowsAppId =
-    APP_CHANNEL === "production" ? BASE_WINDOWS_APP_ID : `${BASE_WINDOWS_APP_ID}.${APP_CHANNEL}`;
-  app.setAppUserModelId(windowsAppId);
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -173,7 +157,6 @@ const autoStart = require("./src/helpers/autoStart");
 const IPCHandlers = require("./src/helpers/ipcHandlers");
 const CliBridge = require("./src/helpers/cliBridge");
 const GlobeKeyManager = require("./src/helpers/globeKeyManager");
-const WindowsKeyManager = require("./src/helpers/windowsKeyManager");
 const LinuxKeyManager = require("./src/helpers/linuxKeyManager");
 const TextEditMonitor = require("./src/helpers/textEditMonitor");
 const SelectionManager = require("./src/helpers/selectionManager");
@@ -193,7 +176,6 @@ const {
 } = require("./src/helpers/electronProcessIds");
 const AudioTapManager = require("./src/helpers/audioTapManager");
 const LinuxPortalAudioManager = require("./src/helpers/linuxPortalAudioManager");
-const WindowsLoopbackAudioManager = require("./src/helpers/windowsLoopbackAudioManager");
 const MeetingAecManager = require("./src/helpers/meetingAecManager");
 const MeetingDetectionEngine = require("./src/helpers/meetingDetectionEngine");
 const { i18nMain, changeLanguage } = require("./src/helpers/i18nMain");
@@ -213,7 +195,6 @@ let parakeetManager = null;
 let diarizationManager = null;
 let trayManager = null;
 let globeKeyManager = null;
-let windowsKeyManager = null;
 let linuxKeyManager = null;
 let textEditMonitor = null;
 let selectionManager = null;
@@ -226,7 +207,6 @@ let calendarReminderScheduler = null;
 let meetingDetectionEngine = null;
 let audioTapManager = null;
 let linuxPortalAudioManager = null;
-let windowsLoopbackAudioManager = null;
 let meetingAecManager = null;
 let qdrantManager = null;
 let ipcHandlers = null;
@@ -363,11 +343,7 @@ function initializeCoreManagers() {
       // The capture-helper managers are created a few lines below; the provider
       // is only invoked on mic events, long after initialization completes.
       createExcludedProcessIdProvider(() =>
-        collectAudioCaptureHelperPids([
-          audioTapManager,
-          linuxPortalAudioManager,
-          windowsLoopbackAudioManager,
-        ])
+        collectAudioCaptureHelperPids([audioTapManager, linuxPortalAudioManager])
       ),
       () => meetingProcessDetector.getDetectedProcesses().length > 0
     ),
@@ -376,22 +352,16 @@ function initializeCoreManagers() {
   );
   windowManager.meetingDetectionEngine = meetingDetectionEngine;
   calendarReminderScheduler.meetingDetectionEngine = meetingDetectionEngine;
-  windowsKeyManager = new WindowsKeyManager();
   linuxKeyManager = new LinuxKeyManager();
   textEditMonitor = new TextEditMonitor();
   selectionManager = new SelectionManager({ clipboardManager, textEditMonitor });
   audioTapManager = new AudioTapManager();
   linuxPortalAudioManager = new LinuxPortalAudioManager();
-  windowsLoopbackAudioManager = new WindowsLoopbackAudioManager();
-  // Warm the capability cache off the hot path so the first meeting start
-  // doesn't pay the probe spawn. No-ops on non-Windows.
-  windowsLoopbackAudioManager.getCapability().catch(() => {});
   cleanupOrphanedLinuxRestoreToken();
   syncAutoStartEntry();
   meetingAecManager = new MeetingAecManager();
   windowManager.textEditMonitor = textEditMonitor;
   windowManager.selectionManager = selectionManager;
-  windowManager.windowsKeyManager = windowsKeyManager;
   windowManager.linuxKeyManager = linuxKeyManager;
 
   // IPC handlers must be registered before window content loads
@@ -404,7 +374,6 @@ function initializeCoreManagers() {
     parakeetManager,
     diarizationManager,
     windowManager,
-    windowsKeyManager,
     linuxKeyManager,
     textEditMonitor,
     selectionManager,
@@ -416,7 +385,6 @@ function initializeCoreManagers() {
     meetingDetectionEngine,
     audioTapManager,
     linuxPortalAudioManager,
-    windowsLoopbackAudioManager,
     meetingAecManager,
     getQdrantManager: () => qdrantManager,
     getTrayManager: () => trayManager,
@@ -911,11 +879,6 @@ async function startApp() {
       });
   }
 
-  if (process.platform === "win32") {
-    const nircmdStatus = clipboardManager.getNircmdStatus();
-    debugLogger.debug("Windows paste tool status", nircmdStatus);
-  }
-
   trayManager.setWindows(windowManager.mainWindow, windowManager.controlPanelWindow);
   trayManager.setWindowManager(windowManager);
   // The tray's listen item is a toggle, so it has to rebuild when dictation
@@ -1331,13 +1294,12 @@ async function startApp() {
     });
   }
 
-  // Windows and Linux share the same native low-level key listener model: one hook
-  // process per watched key (Electron globalShortcut can't see modifier-only or
-  // right-side-modifier combos), routed to the owning slot here. macOS is handled
-  // separately above via globeKeyManager.
-  if (process.platform === "win32" || process.platform === "linux") {
-    const isWindows = process.platform === "win32";
-    const nativeKeyManager = isWindows ? windowsKeyManager : linuxKeyManager;
+  // Linux uses a native low-level key listener: one hook process per watched key
+  // (Electron globalShortcut can't see modifier-only or right-side-modifier
+  // combos), routed to the owning slot here. macOS is handled separately above
+  // via globeKeyManager.
+  if (process.platform === "linux") {
+    const nativeKeyManager = linuxKeyManager;
     debugLogger.debug("[Push-to-Talk] Native key listener setup starting");
 
     // Dictation supports push-to-talk and needs the overlay window; meeting
@@ -1381,40 +1343,26 @@ async function startApp() {
 
     nativeKeyManager.on("error", (error) => {
       debugLogger.warn("[Push-to-Talk] Native key listener error", { error: error.message });
-      if (isWindows && isLiveWindow(windowManager.mainWindow)) {
-        windowManager.mainWindow.webContents.send("windows-ptt-unavailable", {
-          reason: "error",
-          message: error.message,
-        });
-      }
     });
 
     nativeKeyManager.on("unavailable", () => {
       debugLogger.debug(
         "[Push-to-Talk] Native key listener unavailable - falling back to toggle mode"
       );
-      if (isWindows && isLiveWindow(windowManager.mainWindow)) {
-        windowManager.mainWindow.webContents.send("windows-ptt-unavailable", {
-          reason: "binary_not_found",
-          message: i18nMain.t("windows.pttUnavailable"),
-        });
-      }
     });
 
     nativeKeyManager.on("ready", () => {
       debugLogger.debug("[Push-to-Talk] Native key listener ready and listening");
     });
 
-    if (!isWindows) {
-      nativeKeyManager.on("permission-denied", () => {
-        debugLogger.warn(
-          "[Push-to-Talk] Linux key listener has no permission to access input devices"
-        );
-        if (isLiveWindow(windowManager.mainWindow)) {
-          windowManager.mainWindow.webContents.send("linux-ptt-permission-denied");
-        }
-      });
-    }
+    nativeKeyManager.on("permission-denied", () => {
+      debugLogger.warn(
+        "[Push-to-Talk] Linux key listener has no permission to access input devices"
+      );
+      if (isLiveWindow(windowManager.mainWindow)) {
+        windowManager.mainWindow.webContents.send("linux-ptt-permission-denied");
+      }
+    });
 
     const STARTUP_DELAY_MS = 3000;
     setTimeout(() => windowManager.reconcileNativeKeyListeners(), STARTUP_DELAY_MS);
@@ -1471,26 +1419,6 @@ if (gotSingleInstanceLock) {
       return new Promise((resolve) => setTimeout(resolve, delay));
     })
     .then(() => {
-      if (process.platform === "win32") {
-        session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-          // Only the loopback audio track is used; the video source is
-          // discarded by the renderer, so skip thumbnail generation.
-          desktopCapturer
-            .getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } })
-            .then((sources) => {
-              if (sources.length > 0) {
-                callback({ video: sources[0], audio: "loopback" });
-              } else {
-                callback(null);
-              }
-            })
-            .catch((error) => {
-              console.error("Display media request failed:", error);
-              callback(null);
-            });
-        });
-      }
-
       startApp().catch((error) => {
         console.error("Failed to start app:", error);
         dialog.showErrorBox(
@@ -1582,7 +1510,6 @@ function performSyncTeardown() {
     globalShortcut.unregisterAll();
   }
   if (globeKeyManager) globeKeyManager.stop();
-  if (windowsKeyManager) windowsKeyManager.stop();
   if (linuxKeyManager) linuxKeyManager.stop();
   if (meetingDetectionEngine) meetingDetectionEngine.stop();
   if (googleCalendarManager) googleCalendarManager.stop();
@@ -1591,7 +1518,6 @@ function performSyncTeardown() {
   if (calendarReminderScheduler) calendarReminderScheduler.stop();
   if (audioTapManager) audioTapManager.stop().catch(() => {});
   if (linuxPortalAudioManager) linuxPortalAudioManager.stop().catch(() => {});
-  if (windowsLoopbackAudioManager) windowsLoopbackAudioManager.stop().catch(() => {});
   if (meetingAecManager) meetingAecManager.stop().catch(() => {});
   if (ipcHandlers) ipcHandlers._cleanupTextEditMonitor();
   if (textEditMonitor) textEditMonitor.stopMonitoring();

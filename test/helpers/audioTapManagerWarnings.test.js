@@ -51,8 +51,8 @@ function loadManagerClass() {
 
 const AudioTapManager = loadManagerClass();
 
-// Same instance-seam style as windowsLoopbackAudioManager.test.js: the binary
-// lookup and the macOS version gate are not what is under test here.
+// Instance seam: the binary lookup and the macOS version gate are not what is
+// under test here.
 function createManager() {
   const manager = new AudioTapManager();
   manager.isSupported = () => true;

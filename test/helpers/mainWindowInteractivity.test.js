@@ -90,10 +90,6 @@ const hoverCycle = (platform, win = fakeWindow()) => {
 
 const INTERACTIVE = { ignore: false, options: undefined };
 
-test("Windows keeps the existing always-interactive behavior", () => {
-  assert.deepEqual(hoverCycle("win32"), [INTERACTIVE, INTERACTIVE, INTERACTIVE]);
-});
-
 test("Linux native capture fallback does not request unsupported forwarding", () => {
   assert.deepEqual(hoverCycle("linux"), [
     INTERACTIVE,

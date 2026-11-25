@@ -18,13 +18,16 @@ dirsToClean.forEach((dir) => {
 // Clean development database
 console.log("🗄️ Cleaning development database...");
 try {
-  // Use the same logic as the database.js file to determine the user data path
-  const userDataPath =
+  // Mirror main.js: the development channel profile lives under appData as
+  // `${profileName}-development`, unless LOQUI_PROFILE_DIR overrides it.
+  const product = require("./src/config/product.json");
+  const appDataPath =
     process.platform === "darwin"
-      ? path.join(os.homedir(), "Library", "Application Support", "open-whispr")
-      : process.platform === "win32"
-        ? path.join(process.env.APPDATA || os.homedir(), "open-whispr")
-        : path.join(os.homedir(), ".config", "open-whispr");
+      ? path.join(os.homedir(), "Library", "Application Support")
+      : process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  const userDataPath =
+    process.env[product.env.profile] ||
+    path.join(appDataPath, `${product.profileName}-development`);
 
   const devDbPath = path.join(userDataPath, "transcriptions-dev.db");
 

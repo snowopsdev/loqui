@@ -15,7 +15,7 @@ const ATSPI_TARGET_TIMEOUT_MS = 2000;
 // an empty selection (VS Code's editor.emptySelectionClipboard, Scintilla,
 // JetBrains, Visual Studio), making a bare caret look like a selection to the
 // synthetic-copy capture. Matched against exe name and window class on
-// Windows/Linux and against the localized app name on macOS, so the JetBrains
+// Linux and against the localized app name on macOS, so the JetBrains
 // IDEs need both spellings.
 const LINE_COPY_EDITOR_SIGNATURES = [
   "code", // VS Code and forks (VSCodium, code-oss)
@@ -119,37 +119,10 @@ class SelectionManager {
   }
 
   async _probeTarget() {
-    if (this.platform === "win32") {
-      const binary = this.clipboardManager.resolveWindowsFastPasteBinary();
-      if (!binary) return null;
-      const result = await runSpawn(binary, ["--detect-only"], { timeout: 700 });
-      const match = result.stdout.match(/TARGET\s+(\S+)/);
-      return result.success && match
-        ? {
-            kind: "win-hwnd",
-            id: match[1],
-            windowClass: result.stdout.match(/^WINDOW_CLASS (.+)$/m)?.[1]?.trim() || null,
-            exeName: result.stdout.match(/^EXE_NAME (.+)$/m)?.[1]?.trim() || null,
-            isTerminal: /^IS_TERMINAL true$/m.test(result.stdout),
-          }
-        : null;
-    }
     if (this.platform === "linux") {
       return this._getLinuxTarget();
     }
     return null;
-  }
-
-  // The Windows foreground window captured at record start, for the paste path
-  // to restore before Ctrl+V lands (#859). Waits out an in-flight probe for the
-  // same reason captureSelectedText does: the stop-press probe can still be
-  // running when fast transcription reaches the paste. Carries the window's
-  // identity so the paste can judge whether restoring it makes sense.
-  async getWinTarget() {
-    while (this._captureTargetPromise) {
-      await this._captureTargetPromise;
-    }
-    return this.lastTarget?.kind === "win-hwnd" ? this.lastTarget : null;
   }
 
   async captureSelectedText(options = {}) {
@@ -277,7 +250,6 @@ class SelectionManager {
         const pasteResult = await this.clipboardManager._pasteText(text, {
           ...options,
           restoreClipboard: options.restoreClipboard !== false,
-          ...(session.target?.kind === "win-hwnd" ? { targetWindow: session.target.id } : {}),
         });
         await pasteResult?.restoreComplete;
         if (pasteResult?.pasted === false) {
@@ -301,9 +273,6 @@ class SelectionManager {
   async _readCurrentSelection(expectedTarget = null, options = {}) {
     if (this.platform === "darwin") {
       return this._readMacSelection(expectedTarget, options);
-    }
-    if (this.platform === "win32") {
-      return this._readWindowsSelection(expectedTarget, options);
     }
     if (this.platform === "linux") {
       return this._readLinuxSelection(expectedTarget, options);
@@ -337,8 +306,8 @@ class SelectionManager {
     }
     // Chromium browsers (and any app whose accessibility tree stays dormant)
     // never resolve a focused element, so the read above cannot tell a selection
-    // from an empty field. A synthetic copy still can — the same route Windows
-    // and Linux take by default.
+    // from an empty field. A synthetic copy still can — the same route Linux
+    // takes by default.
     return this._readMacSelectionViaClipboard(pid, expectedTarget, probeEditable);
   }
 
@@ -379,26 +348,6 @@ class SelectionManager {
 
   _runCopyHelper(binary, args) {
     return runSpawn(binary, args, { timeout: COPY_TIMEOUT_MS });
-  }
-
-  async _readWindowsSelection(expectedTarget, { probeEditable = false } = {}) {
-    const binary = this.clipboardManager.resolveWindowsFastPasteBinary();
-    if (!binary) return { status: "unavailable", code: "copy_helper_unavailable" };
-
-    const capture = await this._captureViaClipboard(async () => {
-      const result = await runSpawn(binary, ["--copy"], { timeout: COPY_TIMEOUT_MS });
-      if (!result.success) return { success: false };
-      const match = result.stdout.match(/COPY_OK\s+(\S+)/);
-      return { success: !!match, target: match ? { kind: "win-hwnd", id: match[1] } : null };
-    }, expectedTarget);
-    // The copy reports only the HWND; a same-window expectedTarget (verified by
-    // _captureViaClipboard) carries the exe/class identity the terminal and
-    // line-copy checks need, so keep it on the target a caret session stores.
-    const target =
-      capture.target && expectedTarget
-        ? { ...expectedTarget, ...capture.target }
-        : capture.target || expectedTarget;
-    return this._markEditableCaret(capture, target, probeEditable);
   }
 
   async _readLinuxSelection(expectedTarget, { probeEditable = false } = {}) {
@@ -686,7 +635,7 @@ class SelectionManager {
     return `${target?.exeName || ""} ${target?.windowClass || ""} ${target?.appName || ""}`.trim();
   }
 
-  // Windows and Linux name the app in the target captured before the copy;
+  // Linux names the app in the target captured before the copy;
   // macOS learns it from the copy helper's own report, so both are checked.
   _isLineCopyEditor(...targets) {
     const signature = targets

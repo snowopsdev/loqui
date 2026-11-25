@@ -763,11 +763,6 @@ class TextEditMonitor extends EventEmitter {
       return scriptPath ? { command: "python3", args: [scriptPath] } : null;
     }
 
-    if (platform === "win32") {
-      const binaryPath = this._findFile("windows-text-monitor.exe");
-      return binaryPath ? { command: binaryPath, args: [] } : null;
-    }
-
     if (platform === "darwin") {
       const nativePath = this._findFile("macos-text-monitor");
       if (nativePath) return { command: nativePath, args: [] }; // PID added at spawn time

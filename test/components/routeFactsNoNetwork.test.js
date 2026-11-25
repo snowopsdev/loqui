@@ -370,7 +370,7 @@ test("[baseline source guard] reviewed keyring bindings are captured before the 
   );
   const ipc = stripComments(read("src/helpers/ipcHandlers.js"));
   assert.match(ipc, /deadlineAt/);
-  assert.match(ipc, /signal: controller\.signal/);
+  assert.match(ipc, /abortSignal: signal/);
   const factory = stripComments(read("src/helpers/enterpriseAiProviders.js"));
   assert.match(factory, /redirect: "error"/);
   assert.match(factory, /UNSUPPORTED_AUTH_SOURCE/);

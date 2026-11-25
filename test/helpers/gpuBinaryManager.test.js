@@ -25,13 +25,6 @@ Object.defineProperty(process, "arch", { value: "x64" });
 
 const state = {};
 
-const WINDOWS_MSVC_RUNTIME_LIBRARIES = [
-  "msvcp140.dll",
-  "vcruntime140.dll",
-  "vcruntime140_1.dll",
-  "vcomp140.dll",
-];
-
 function sha256(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
@@ -121,12 +114,6 @@ function requiredLibrariesManager() {
       },
     },
   });
-}
-
-function useWindowsAsset(manager) {
-  const windowsAsset = manager.config.assets["win32-x64"];
-  manager._getAssetConfig = () => windowsAsset;
-  return manager;
 }
 
 test.beforeEach(() => {
@@ -446,50 +433,6 @@ test("required libraries: an incomplete archive cannot replace a working pack", 
   assert.equal(manager.isDownloaded(), true);
 });
 
-test("Windows whisper GPU packs require every app-local MSVC runtime library", () => {
-  const managers = [
-    useWindowsAsset(new WhisperCudaManager()),
-    useWindowsAsset(new WhisperVulkanManager()),
-  ];
-
-  for (const manager of managers) {
-    const assetConfig = manager._getAssetConfig();
-    const packDir = seedPack(manager.config.dirName, [assetConfig.outputName]);
-
-    assert.equal(manager.isDownloaded(), false, `${manager.config.name} rejects a bare exe`);
-
-    for (const library of WINDOWS_MSVC_RUNTIME_LIBRARIES.slice(0, -1)) {
-      fs.writeFileSync(path.join(packDir, library), "runtime");
-    }
-    assert.equal(manager.isDownloaded(), false, `${manager.config.name} rejects a partial runtime`);
-
-    fs.writeFileSync(path.join(packDir, "vcomp140.dll"), "runtime");
-    assert.equal(manager.isDownloaded(), true, `${manager.config.name} accepts the complete pack`);
-  }
-});
-
-test("Windows whisper Vulkan installs the MSVC runtime libraries from its release archive", async () => {
-  const manager = useWindowsAsset(new WhisperVulkanManager());
-  manager.config.expectedDigests = undefined;
-  const assetConfig = manager._getAssetConfig();
-
-  state.release = makeRelease(assetConfig.assetName);
-  state.extractedFiles = {
-    [assetConfig.binaryName]: "binary",
-    "msvcp140.dll": "runtime",
-    "vcruntime140.dll": "runtime",
-    "vcruntime140_1.dll": "runtime",
-    "vcomp140.dll": "runtime",
-  };
-
-  await manager.download();
-
-  assert.equal(manager.isDownloaded(), true);
-  for (const library of WINDOWS_MSVC_RUNTIME_LIBRARIES) {
-    assert.ok(fs.existsSync(path.join(manager.binDir, library)), `${library} copied`);
-  }
-});
-
 test("re-download replaces the previous install, including stale libs", async () => {
   seedPack("whisper-cuda", ["whisper-server-linux-x64-cuda", "libstale.so"]);
 
@@ -539,20 +482,6 @@ test("legacy migration: lib-free pack is moved, lib-carrying packs are cleared f
   // Idempotent on the healed layout — and nothing left to report
   assert.deepEqual(migrateLegacyBinDir([cuda, vulkan, llama]), []);
   assert.equal(vulkan.isDownloaded(), true);
-});
-
-test("legacy migration: win32 Vulkan without the 0.0.10 DLLs is cleared for re-download", () => {
-  const { migrateLegacyBinDir } = GpuBinaryManager;
-  const manager = useWindowsAsset(new WhisperVulkanManager());
-  const windowsAsset = manager._getAssetConfig();
-
-  const binRoot = path.join(userDataDir, "bin");
-  fs.mkdirSync(binRoot, { recursive: true });
-  fs.writeFileSync(path.join(binRoot, windowsAsset.outputName), "binary");
-
-  assert.deepEqual(migrateLegacyBinDir([manager]), ["Vulkan whisper"]);
-  assert.equal(manager.isDownloaded(), false);
-  assert.ok(!fs.existsSync(path.join(binRoot, windowsAsset.outputName)));
 });
 
 test("orphan detection: enabled flag with no pack on disk is reported for the notice", () => {

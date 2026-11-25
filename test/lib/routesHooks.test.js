@@ -88,7 +88,6 @@ function recordingApi() {
     saveVertexProject: forbidden("saveVertexProject"),
     saveVertexLocation: forbidden("saveVertexLocation"),
     saveVertexAuthSource: forbidden("saveVertexAuthSource"),
-    testEnterpriseConnection: forbidden("testEnterpriseConnection"),
     credentials: {
       list: ok("credentials.list", [{ id: "openai", present: true, generation: 1 }]),
       onChanged: subscribe("credentials"),
@@ -107,7 +106,6 @@ function recordingApi() {
       credentialStatus: forbidden("personalInference.credentialStatus"),
       models: forbidden("personalInference.models"),
     },
-    listBedrockModels: forbidden("listBedrockModels"),
     getTinfoilChatModels: forbidden("getTinfoilChatModels"),
     privacy: { getSealed: ok("privacy.getSealed", false), onSealedChange: subscribe("sealed") },
   };

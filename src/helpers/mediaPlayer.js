@@ -53,9 +53,9 @@ function spawnAsync(cmd, args, { timeout = 3000 } = {}) {
     const timer = setTimeout(() => {
       // A helper can finish its work and exit while a descendant it spawned
       // keeps the inherited pipes open, so the deadline can arrive with the
-      // outcome already known. Honour that exit code: discarding it sends the
-      // Windows pause into the media-key fallback, which toggles playback back
-      // on mid-dictation and then leaves it paused afterwards (#2073).
+      // outcome already known. Honour that exit code: discarding it sends a
+      // pause into the media-key fallback, which toggles playback back on
+      // mid-dictation and then leaves it paused afterwards (#2073).
       const exitCode = child.exitCode;
       try {
         // A no-op once the child has exited; dropping our own pipe ends is
@@ -91,21 +91,17 @@ class MediaPlayer {
   constructor() {
     this._linuxBinaryChecked = false;
     this._linuxBinaryPath = null;
-    this._nircmdChecked = false;
-    this._nircmdPath = null;
     this._macBinaryChecked = false;
     this._macBinaryPath = null;
     this._pausedPlayers = []; // MPRIS players we paused (Linux)
     this._didPause = false; // Whether we sent a pause via toggle fallback
-    this._pausedWinApps = []; // GSMTC app IDs we paused (Windows)
     this._adapterChecked = false;
     this._adapterPaths = null; // { perl, script, framework } once resolved
     this._pausedViaAdapter = false; // macOS: whether we paused via the adapter
     // Pause/resume/toggle run one at a time. macOS was already async and had
     // the race this prevents: a quick tap could run the resume before the
     // pause had recorded what it paused, stranding media until the next
-    // dictation ended. Windows and Linux inherited the risk by becoming async
-    // too (#2073).
+    // dictation ended. Linux inherited the risk by becoming async too (#2073).
     this._queue = Promise.resolve();
   }
 
@@ -135,28 +131,6 @@ class MediaPlayer {
         if (fs.existsSync(candidate)) {
           fs.accessSync(candidate, fs.constants.X_OK);
           this._linuxBinaryPath = candidate;
-          return candidate;
-        }
-      } catch {
-        continue;
-      }
-    }
-    return null;
-  }
-
-  _resolveNircmd() {
-    if (this._nircmdChecked) return this._nircmdPath;
-    this._nircmdChecked = true;
-
-    const candidates = [
-      path.join(process.resourcesPath || "", "bin", "nircmd.exe"),
-      path.join(__dirname, "..", "..", "resources", "bin", "nircmd.exe"),
-    ];
-
-    for (const candidate of candidates) {
-      try {
-        if (fs.existsSync(candidate)) {
-          this._nircmdPath = candidate;
           return candidate;
         }
       } catch {
@@ -244,8 +218,6 @@ class MediaPlayer {
           return await this._pauseLinux();
         } else if (process.platform === "darwin") {
           return await this._pauseMacOS();
-        } else if (process.platform === "win32") {
-          return await this._pauseWindows();
         }
       } catch (err) {
         debugLogger.warn("Media pause failed", { error: err.message }, "media");
@@ -261,8 +233,6 @@ class MediaPlayer {
           return await this._resumeLinux();
         } else if (process.platform === "darwin") {
           return await this._resumeMacOS();
-        } else if (process.platform === "win32") {
-          return await this._resumeWindows();
         }
       } catch (err) {
         debugLogger.warn("Media resume failed", { error: err.message }, "media");
@@ -278,8 +248,6 @@ class MediaPlayer {
           return await this._toggleLinux();
         } else if (process.platform === "darwin") {
           return await this._toggleMacOS();
-        } else if (process.platform === "win32") {
-          return await this._toggleWindows();
         }
       } catch (err) {
         debugLogger.warn("Media toggle failed", { error: err.message }, "media");
@@ -597,179 +565,6 @@ class MediaPlayer {
 
   async _toggleMacOS() {
     return this._sendMacMediaKey();
-  }
-
-  // --- Windows: GSMTC-aware pause/resume ---
-
-  // WinRT IAsyncOperation objects appear as opaque System.__ComObject in
-  // PowerShell, so .GetAwaiter() isn't available directly. This preamble
-  // loads the System.Runtime.WindowsRuntime bridge and defines an Await
-  // helper that converts IAsyncOperation<T> to a .NET Task via AsTask().
-  _gsmtcPreamble() {
-    return `Add-Type -AssemblyName System.Runtime.WindowsRuntime
-  $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
-    $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
-    $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation\`1'
-  })[0]
-  function Await($WinRtTask, $ResultType) {
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
-    $netTask.Result
-  }
-  $null = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]
-  $m = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])`;
-  }
-
-  _gsmtcPauseScript() {
-    const preamble = this._gsmtcPreamble();
-    return `
-try {
-  ${preamble}
-  $paused = @()
-  foreach ($s in $m.GetSessions()) {
-    try {
-      $pi = $s.GetPlaybackInfo()
-      if ($pi.PlaybackStatus -eq 4) {
-        $ok = Await ($s.TryPauseAsync()) ([bool])
-        if ($ok) { $paused += $s.SourceAppUserModelId }
-      }
-    } catch { continue }
-  }
-  $paused -join '|'
-} catch {
-  Write-Output 'GSMTC_FAIL'
-}`.trim();
-  }
-
-  _gsmtcResumeScript(appIds) {
-    const idList = appIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(",");
-    const preamble = this._gsmtcPreamble();
-    return `
-try {
-  ${preamble}
-  $ids = @(${idList})
-  foreach ($s in $m.GetSessions()) {
-    try {
-      if ($ids -contains $s.SourceAppUserModelId) {
-        $null = Await ($s.TryPlayAsync()) ([bool])
-      }
-    } catch { continue }
-  }
-  Write-Output 'OK'
-} catch {
-  Write-Output 'GSMTC_FAIL'
-}`.trim();
-  }
-
-  async _sendWindowsMediaKey() {
-    const nircmd = this._resolveNircmd();
-    if (nircmd) {
-      const result = await spawnAsync(nircmd, ["sendkeypress", "0xB3"], { timeout: 3000 });
-      if (result.status === 0) return true;
-    }
-
-    const result = await spawnAsync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class KB { [DllImport(\"user32.dll\")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo); }'; [KB]::keybd_event(0xB3, 0, 1, 0); [KB]::keybd_event(0xB3, 0, 3, 0)",
-      ],
-      { timeout: 5000 }
-    );
-    return result.status === 0;
-  }
-
-  async _pauseWindows() {
-    this._pausedWinApps = [];
-    this._didPause = false;
-
-    // GSMTC (Windows 10 1809+) — state-aware, targets specific apps
-    const result = await spawnAsync(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", this._gsmtcPauseScript()],
-      { timeout: 5000 }
-    );
-
-    if (result.status === 0) {
-      const output = result.stdout.trim();
-      if (output === "GSMTC_FAIL") {
-        debugLogger.debug("GSMTC unavailable, falling back to media key", {}, "media");
-        return this._pauseWindowsFallback();
-      }
-      this._pausedWinApps = output.split("|").filter(Boolean);
-      if (this._pausedWinApps.length > 0) {
-        debugLogger.debug("Media paused via GSMTC", { apps: this._pausedWinApps }, "media");
-        return true;
-      }
-      debugLogger.debug("GSMTC found no playing sessions", {}, "media");
-      return false;
-    }
-
-    const stderr = result.stderr.trim();
-    debugLogger.debug(
-      "GSMTC PowerShell failed, falling back to media key",
-      {
-        status: result.status,
-        timedOut: result.timedOut,
-        stderr: stderr ? stderr.slice(0, 200) : undefined,
-      },
-      "media"
-    );
-    return this._pauseWindowsFallback();
-  }
-
-  async _pauseWindowsFallback() {
-    if (await this._sendWindowsMediaKey()) {
-      this._didPause = true;
-      debugLogger.debug("Media paused via media key fallback", {}, "media");
-      return true;
-    }
-    return false;
-  }
-
-  async _resumeWindows() {
-    // Resume via GSMTC if we paused that way
-    if (this._pausedWinApps && this._pausedWinApps.length > 0) {
-      const apps = this._pausedWinApps;
-      this._pausedWinApps = [];
-
-      const result = await spawnAsync(
-        "powershell.exe",
-        ["-NoProfile", "-NonInteractive", "-Command", this._gsmtcResumeScript(apps)],
-        { timeout: 5000 }
-      );
-
-      if (result.status === 0) {
-        debugLogger.debug("Media resumed via GSMTC", { apps }, "media");
-        return true;
-      }
-
-      // GSMTC resume failed, fall back to media key
-      debugLogger.debug("GSMTC resume failed, falling back to media key", {}, "media");
-      return this._sendWindowsMediaKey();
-    }
-
-    // Resume via media key toggle if we paused with the fallback
-    if (this._didPause) {
-      this._didPause = false;
-      if (await this._sendWindowsMediaKey()) {
-        debugLogger.debug("Media resumed via media key fallback", {}, "media");
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  async _toggleWindows() {
-    if (await this._sendWindowsMediaKey()) {
-      debugLogger.debug("Media toggled via Windows media key", {}, "media");
-      return true;
-    }
-    return false;
   }
 }
 

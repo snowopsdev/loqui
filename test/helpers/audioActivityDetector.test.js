@@ -128,7 +128,7 @@ const createDeferred = () => {
   });
   return { promise, reject, resolve };
 };
-const PLATFORMS = ["darwin", "win32", "linux"];
+const PLATFORMS = ["darwin", "linux"];
 
 for (const platform of PLATFORMS) {
   test(`${platform}: a listener that fails to launch uses only a safe fallback`, async (t) => {
@@ -210,37 +210,6 @@ test("darwin: attributed microphone transitions drive the sustained timer", asyn
   assert.notEqual(detector._sustainedTimer, null);
 
   children[0].stdout.emit("data", "MIC_STOP 900\n");
-  assert.equal(detector._sustainedTimer, null);
-  detector.stop();
-});
-
-test("win32: mic-listener spawns hidden, keeps stdin piped, and emits every pid", async () => {
-  const { detector, calls } = createDetector("win32");
-
-  await detector.start();
-
-  assert.deepEqual(calls[0].args, []);
-  assert.equal(calls[0].options.windowsHide, true, "no console window may flash");
-  assert.deepEqual(
-    calls[0].options.stdio,
-    ["pipe", "pipe", "pipe"],
-    "stdin must stay piped so the binary can detect parent death"
-  );
-  detector.stop();
-});
-
-test("win32: MIC_START/MIC_STOP pids are tracked across partial chunks", async () => {
-  const { detector, children } = createDetector("win32");
-
-  await detector.start();
-  children[0].stdout.emit("data", "MIC_START 11\nMIC_STA");
-  children[0].stdout.emit("data", "RT 22\n");
-  assert.deepEqual([...detector._activeMicPids], [11, 22]);
-
-  children[0].stdout.emit("data", "MIC_STOP 11\n");
-  assert.notEqual(detector._sustainedTimer, null, "one mic is still active");
-
-  children[0].stdout.emit("data", "MIC_STOP 22\n");
   assert.equal(detector._sustainedTimer, null);
   detector.stop();
 });
@@ -629,119 +598,6 @@ test("darwin: exclusion-provider failure emits reliability loss", async () => {
   detector.stop();
 });
 
-test("win32: current OpenWhispr PIDs are filtered dynamically in JavaScript", async () => {
-  let excludedProcessIds = [process.pid, 404];
-  const { detector, children, calls } = createDetector("win32", {
-    excludedProcessIds: () => excludedProcessIds,
-  });
-  const externalStates = [];
-  detector.on("external-mic-state-changed", (state) => externalStates.push(state));
-
-  await detector.start();
-  assert.deepEqual(calls[0].args, [], "the native listener must report excluded pids too");
-
-  children[0].stdout.emit("data", "READY\nCAPABILITY PID\nMIC_START 404\n");
-  assert.deepEqual(externalStates, [{ reliable: true, externalMicActive: false }]);
-
-  excludedProcessIds = [process.pid];
-  children[0].stdout.emit("data", "MIC_START 501\n");
-  children[0].stdout.emit("data", "MIC_STOP 501\nMIC_STOP 404\n");
-
-  assert.deepEqual(externalStates, [
-    { reliable: true, externalMicActive: false },
-    { reliable: true, externalMicActive: true },
-    { reliable: true, externalMicActive: false },
-  ]);
-  assert.deepEqual(detector.getExternalMicState(), {
-    reliable: true,
-    externalMicActive: false,
-  });
-  detector.stop();
-});
-
-test("win32: own microphone activity never starts or sustains the legacy prompt", async () => {
-  const { detector, children } = createDetector("win32", {
-    excludedProcessIds: () => [process.pid],
-  });
-
-  await detector.start();
-  children[0].stdout.emit("data", `READY\nCAPABILITY PID\nMIC_START ${process.pid}\n`);
-  assert.equal(detector._sustainedTimer, null, "an excluded pid must not start a prompt");
-
-  children[0].stdout.emit("data", "MIC_START 900\n");
-  assert.notEqual(detector._sustainedTimer, null, "an external pid must start a prompt");
-
-  children[0].stdout.emit("data", "MIC_STOP 900\n");
-  assert.equal(
-    detector._sustainedTimer,
-    null,
-    "an excluded pid must not keep the external prompt active"
-  );
-  detector.stop();
-});
-
-test("win32: a legacy binary without CAPABILITY PID stays unreliable but still prompts", async () => {
-  const { detector, children } = createDetector("win32", {
-    excludedProcessIds: () => [process.pid],
-  });
-  const externalStates = [];
-  detector.on("external-mic-state-changed", (state) => externalStates.push(state));
-
-  await detector.start();
-  // Pre-refcounting builds print READY and un-refcounted MIC events; trusting
-  // them for auto-end could stop a live meeting recording.
-  children[0].stdout.emit("data", "READY\nMIC_START 900\n");
-
-  assert.deepEqual(detector.getExternalMicState(), {
-    reliable: false,
-    externalMicActive: false,
-  });
-  assert.deepEqual(externalStates, []);
-  assert.notEqual(detector._sustainedTimer, null, "legacy events must still drive prompts");
-  detector.stop();
-});
-
-test("win32: a mid-run coverage downgrade emits an unreliable snapshot but keeps prompting", async () => {
-  const { detector, children } = createDetector("win32", {
-    excludedProcessIds: () => [process.pid],
-  });
-  const externalStates = [];
-  detector.on("external-mic-state-changed", (state) => externalStates.push(state));
-
-  await detector.start();
-  children[0].stdout.emit("data", "READY\nCAPABILITY PID\nMIC_START 900\n");
-  assert.deepEqual(externalStates.at(-1), { reliable: true, externalMicActive: true });
-
-  // The helper announces CAPABILITY AGGREGATE instead of exiting when it can
-  // no longer guarantee per-PID coverage.
-  children[0].stdout.emit("data", "CAPABILITY AGGREGATE\n");
-  assert.deepEqual(externalStates.at(-1), {
-    reliable: false,
-    externalMicActive: false,
-  });
-
-  children[0].stdout.emit("data", "MIC_START 901\n");
-  assert.notEqual(detector._sustainedTimer, null, "degraded events must still drive prompts");
-  assert.equal(detector.getExternalMicState().reliable, false);
-  detector.stop();
-});
-
-test("win32: unattributable sessions (pid 0) count as external capture", async () => {
-  const { detector, children } = createDetector("win32", {
-    excludedProcessIds: () => [process.pid],
-  });
-  const externalStates = [];
-  detector.on("external-mic-state-changed", (state) => externalStates.push(state));
-
-  await detector.start();
-  children[0].stdout.emit("data", "READY\nCAPABILITY PID\nMIC_START 0\n");
-  assert.deepEqual(externalStates.at(-1), { reliable: true, externalMicActive: true });
-
-  children[0].stdout.emit("data", "MIC_STOP 0\n");
-  assert.deepEqual(externalStates.at(-1), { reliable: true, externalMicActive: false });
-  detector.stop();
-});
-
 // Mirrors LINUX_RECONCILE_MIN_SPACING_MS in audioActivityDetector.js.
 const RECONCILE_SPACING_MS = 1000;
 
@@ -1098,49 +954,6 @@ test("darwin: native snapshots exclude background speech while preserving meetin
   }
 });
 
-test("win32: portable native state seam handles reference counts and failures", (t) => {
-  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-mic-listener-"));
-  const executablePath = path.join(temporaryDirectory, "mic-listener-state-test");
-  t.after(() => fs.rmSync(temporaryDirectory, { force: true, recursive: true }));
-
-  const compileResult = childProcess.spawnSync(
-    process.env.CC || "cc",
-    [
-      "-DMIC_LISTENER_STATE_TEST",
-      "-std=c11",
-      "-Wall",
-      "-Wextra",
-      "-Werror",
-      path.resolve(__dirname, "../../resources/windows-mic-listener.c"),
-      "-o",
-      executablePath,
-    ],
-    { encoding: "utf8" }
-  );
-
-  if (compileResult.error?.code === "ENOENT") {
-    t.skip("no C compiler is available for the portable native-state seam");
-    return;
-  }
-
-  assert.equal(compileResult.status, 0, compileResult.stderr);
-  const scenarios = [
-    { argument: "state", output: /native state tests passed/ },
-    { argument: "ownership", output: /invalid process ownership rejected/ },
-    { argument: "lifecycle", output: /session lifecycle fully released/ },
-    { argument: "expired-state", output: /expired state queued cleanup once/ },
-    { argument: "coverage", output: /unhealthy setup rejected/ },
-  ];
-
-  for (const scenario of scenarios) {
-    const runResult = childProcess.spawnSync(executablePath, [scenario.argument], {
-      encoding: "utf8",
-    });
-    assert.equal(runResult.status, 0, runResult.stderr);
-    assert.match(runResult.stdout, scenario.output);
-  }
-});
-
 // The native listeners are edge-triggered: they emit only on state transitions,
 // so an edge swallowed by a gate is never re-delivered. The detector must
 // remember the last known state and re-evaluate it when the gate lifts.
@@ -1259,76 +1072,6 @@ test("darwin: a warm-hold that releases cleanly does not produce a stale prompt"
   t.mock.timers.tick(SUSTAINED_MS * 2);
 
   assert.equal(emitted.length, 0, "the release edge must cancel the pending re-evaluation");
-  detector.stop();
-});
-
-test("win32: an unrelated app's mic session ending does not hide an ongoing dismissed call", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10_000 });
-  const { detector, children } = createDetector("win32");
-  const emitted = [];
-  detector.on("sustained-audio-detected", (data) => emitted.push(data));
-
-  await detector.start();
-  children[0].stdout.emit("data", "MIC_START 11\n");
-  t.mock.timers.tick(SUSTAINED_MS);
-  assert.equal(emitted.length, 1);
-  detector.dismiss();
-
-  // pid 11 never stopped, so the reference count must still hold it — otherwise
-  // pid 22's stop reads as "every mic closed" and cancels the re-evaluation.
-  children[0].stdout.emit("data", "MIC_START 22\nMIC_STOP 22\n");
-  t.mock.timers.tick(COOLDOWN_MS);
-  t.mock.timers.tick(SUSTAINED_MS);
-
-  assert.equal(emitted.length, 2, "the still-running call must re-prompt after the cooldown");
-  detector.stop();
-});
-
-// #1392: the helper is given a single --exclude-pid for the main process, but
-// dictation opens the mic from Chromium's audio service, so OpenWhispr's own
-// capture is reported back to us under a child PID and read as a meeting.
-test("win32: a mic session from one of our own child processes is ignored", async () => {
-  const AUDIO_SERVICE_PID = 4242;
-  const { detector, children } = createDetector("win32", {
-    ownPids: [process.pid, AUDIO_SERVICE_PID],
-  });
-
-  await detector.start();
-  children[0].stdout.emit("data", `MIC_START ${AUDIO_SERVICE_PID}\n`);
-
-  assert.equal(detector._activeMicPids.size, 0);
-  assert.equal(detector._sustainedTimer, null, "our own dictation must not arm detection");
-  assert.equal(detector._lastKnownMicState, false, "and must not leave stale state behind");
-  detector.stop();
-});
-
-test("win32: a mic session from another application is still detected", async () => {
-  const { detector, children } = createDetector("win32", {
-    ownPids: [process.pid, 4242],
-  });
-
-  await detector.start();
-  children[0].stdout.emit("data", "MIC_START 9001\n");
-
-  assert.deepEqual([...detector._activeMicPids], [9001]);
-  assert.notEqual(detector._sustainedTimer, null);
-  detector.stop();
-});
-
-test("win32: our own capture cannot cancel a real meeting already in progress", async () => {
-  const AUDIO_SERVICE_PID = 4242;
-  const { detector, children } = createDetector("win32", {
-    ownPids: [process.pid, AUDIO_SERVICE_PID],
-  });
-
-  await detector.start();
-  children[0].stdout.emit("data", "MIC_START 9001\n");
-  children[0].stdout.emit("data", `MIC_START ${AUDIO_SERVICE_PID}\n`);
-  children[0].stdout.emit("data", `MIC_STOP ${AUDIO_SERVICE_PID}\n`);
-
-  // Dropping our own stop must not empty the set while the other app holds it.
-  assert.deepEqual([...detector._activeMicPids], [9001]);
-  assert.notEqual(detector._sustainedTimer, null);
   detector.stop();
 });
 

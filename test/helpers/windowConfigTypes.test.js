@@ -89,6 +89,16 @@ test("onboarding sizing does not resize the normal control panel", () => {
   assert.deepEqual(windowConfig.ONBOARDING_WINDOW_SIZES.EXPANDED, { width: 1000, height: 740 });
 });
 
+test("the control panel can't shrink so far that the top bar loses its window controls", () => {
+  // Side-panel layout while recording: Back, the bars + Stop pill and the
+  // window controls need ~380px; the floor matches compact onboarding.
+  const windowConfig = loadWindowConfig({ platform: "linux", environment: {} });
+  assert.equal(windowConfig.CONTROL_PANEL_CONFIG.minWidth, 480);
+  assert.ok(
+    windowConfig.CONTROL_PANEL_CONFIG.minWidth <= windowConfig.ONBOARDING_WINDOW_SIZES.COMPACT.width
+  );
+});
+
 test("the overlay resolver preserves every unaffected platform and session", () => {
   const cases = [
     {

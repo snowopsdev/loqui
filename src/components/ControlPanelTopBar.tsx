@@ -140,7 +140,7 @@ export default function ControlPanelTopBar({
             <div
               data-no-window-drag=""
               style={noDragStyle}
-              className="flex items-center empty:hidden"
+              className="flex min-w-0 items-center empty:hidden"
             >
               {status}
             </div>

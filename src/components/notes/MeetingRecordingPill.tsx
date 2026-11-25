@@ -70,7 +70,9 @@ export default function MeetingRecordingPill({
 
   const pill = (
     <div
-      className={inline ? "shrink-0" : "fixed top-2 left-1/2 -translate-x-1/2 z-30"}
+      // Inline it may shrink: the trailing top-bar slot also holds Capture and
+      // the window controls, so the pill must never push them out of view.
+      className={inline ? "min-w-0 max-w-full" : "fixed top-2 left-1/2 -translate-x-1/2 z-30"}
       style={
         {
           WebkitAppRegion: "no-drag",
@@ -81,7 +83,7 @@ export default function MeetingRecordingPill({
       <div
         className={cn(
           "flex items-center gap-2 px-3 rounded-xl",
-          inline ? "h-8" : "h-9",
+          inline ? "h-8 min-w-0" : "h-9",
           "bg-card/95 dark:bg-surface-2/95",
           "backdrop-blur-xl",
           "border border-primary/25 dark:border-primary/30",
@@ -94,7 +96,7 @@ export default function MeetingRecordingPill({
           aria-label={returnLabel}
           title={returnLabel}
           className={cn(
-            "flex items-center gap-3 px-1 -mx-1 rounded-md",
+            "flex min-w-0 items-center gap-3 px-1 -mx-1 rounded-md",
             "transition-colors",
             "hover:bg-primary/8 active:bg-primary/14",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
@@ -105,7 +107,14 @@ export default function MeetingRecordingPill({
           ) : (
             <LevelBars readLevel={readMeetingMicLevel} height={16} />
           )}
-          <span className="text-xs font-medium text-foreground/80 truncate max-w-[12rem]">
+          {/* Narrow windows (the 1024px side-panel breakpoint) keep bars + Stop;
+              the button's aria-label still names the destination. */}
+          <span
+            className={cn(
+              "min-w-0 text-xs font-medium text-foreground/80 truncate",
+              inline ? "max-w-[9rem] max-[1023px]:hidden" : "max-w-[12rem]"
+            )}
+          >
             {isWaitingForMic ? t("notes.meetingPill.waitingForMicrophone") : title}
           </span>
         </button>
@@ -117,7 +126,7 @@ export default function MeetingRecordingPill({
           aria-label={stopLabel}
           title={stopLabel}
           className={cn(
-            "flex items-center justify-center w-7 h-7 rounded-lg",
+            "flex shrink-0 items-center justify-center w-7 h-7 rounded-lg",
             "transition-colors duration-(--motion-fast)",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30",
             isStopping

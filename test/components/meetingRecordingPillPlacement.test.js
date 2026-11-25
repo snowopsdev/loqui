@@ -59,6 +59,23 @@ test("inline: rendered in flow while the workspace shows, never fixed or portale
   const tree = await render(t, { placement: "inline", workspaceActive: true });
   assert.ok(tree && !tree.portal, "inline renders in place");
   assert.doesNotMatch(tree.props.className, /\bfixed\b/);
+  assert.match(tree.props.className, /\bmin-w-0\b/, "the slot can shrink");
+});
+
+test("inline: a narrow window keeps bars and Stop, truncating then hiding the title", async (t) => {
+  const tree = await render(t, { placement: "inline", workspaceActive: true });
+  const spans = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== "object") return;
+    if (node.type === "span" && node.props.children === "Weekly sync") spans.push(node);
+    walk(node.props?.children);
+  };
+  walk(tree);
+  assert.equal(spans.length, 1);
+  assert.match(spans[0].props.className, /\btruncate\b/);
+  assert.match(spans[0].props.className, /max-w-\[9rem\]/);
+  assert.match(spans[0].props.className, /max-\[1023px\]:hidden/);
 });
 
 test("inline: hidden while the workspace and its top bar are hidden", async (t) => {

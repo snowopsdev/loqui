@@ -116,9 +116,9 @@ export default function CommandSearch({
 
   if (open && !prevOpen) {
     setPrevOpen(open);
-    // The picker stays mounted while closed; a reopened picker starts from
-    // recent chats, never the last session's search hits.
-    if (isConversationsMode && query.trim()) setConversations([]);
+    // The picker stays mounted while closed; a reopened picker starts empty and
+    // loads recent chats, never showing the last session's search hits.
+    if (isConversationsMode) setConversations([]);
     setQuery("");
     setScopeSpaceId(null);
     setSelectedIndex(0);

@@ -280,6 +280,49 @@ test("a network failure keeps the partial file and the next attempt resumes it",
   assert.equal(fs.readFileSync(destination, "utf8"), "helloworld");
 });
 
+test("a download whose SHA-256 doesn't match is discarded and never moved into place", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-sha-"));
+  const destination = path.join(dir, "model.bin");
+  const body = Buffer.from("re-uploaded bytes");
+  const loaded = loadWithResponses([
+    { statusCode: 200, headers: { "content-length": String(body.length) }, body },
+  ]);
+  t.after(() => {
+    loaded.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const expected = require("crypto").createHash("sha256").update("pinned bytes").digest("hex");
+  const failure = await loaded.downloadUtils
+    .downloadFile("https://example.com/model.bin", destination, { sha256: expected })
+    .catch((error) => error);
+  assert.equal(failure.code, "ERR_DOWNLOAD_SHA256_MISMATCH");
+  assert.equal(failure.expectedSha256, expected);
+  assert.equal(failure.keptBytes, 0);
+  // Not retried: the one scripted response was the only request.
+  assert.equal(loaded.requests.length, 1);
+  assert.equal(fs.existsSync(destination), false);
+  assert.equal(fs.existsSync(`${destination}.tmp`), false);
+});
+
+test("a download whose SHA-256 matches lands at its destination", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-sha-ok-"));
+  const destination = path.join(dir, "model.bin");
+  const body = Buffer.from("pinned bytes");
+  const loaded = loadWithResponses([
+    { statusCode: 200, headers: { "content-length": String(body.length) }, body },
+  ]);
+  t.after(() => {
+    loaded.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const digest = require("crypto").createHash("sha256").update(body).digest("hex");
+  await loaded.downloadUtils.downloadFile("https://example.com/model.bin", destination, {
+    sha256: digest.toUpperCase(),
+  });
+  assert.equal(fs.readFileSync(destination, "utf8"), "pinned bytes");
+  assert.equal(await loaded.downloadUtils.sha256File(destination), digest);
+});
+
 test("an HTTP failure drops the partial file and reports nothing kept", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-drop-"));
   const destination = path.join(dir, "model.bin");

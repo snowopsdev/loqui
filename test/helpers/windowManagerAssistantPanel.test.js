@@ -1035,3 +1035,42 @@ test("loading or missing control panels do not queue audio-level listeners", () 
   manager.controlPanelWindow = null;
   assert.doesNotThrow(() => manager.setDictationAudioLevel(0.5));
 });
+
+test("leaving onboarding restores the control panel minimum, clamped to the work area", () => {
+  const manager = new WindowManager();
+  const minimumSizes = [];
+  const win = {
+    isDestroyed: () => false,
+    isFullScreen: () => false,
+    isMaximized: () => false,
+    getBounds: () => ({ x: 0, y: 0, width: 480, height: 624 }),
+    getContentBounds: () => ({ x: 0, y: 0, width: 480, height: 624 }),
+    setContentBounds: () => undefined,
+    setResizable: () => undefined,
+    setMinimizable: () => undefined,
+    setMaximizable: () => undefined,
+    setClosable: () => undefined,
+    setFullScreenable: () => undefined,
+    setMinimumSize: (width, height) => minimumSizes.push([width, height]),
+    setWindowButtonVisibility: () => undefined,
+  };
+  manager.controlPanelWindow = win;
+  manager._showControlPanel = () => undefined;
+  const saved = {
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    closable: true,
+    fullscreenable: true,
+  };
+
+  // The usual case: the control panel's own 480px floor comes back as saved.
+  manager._onboardingWindowState = { ...saved, minimumSize: [480, 0] };
+  assert.equal(manager.setOnboardingWindowMode("restore"), true);
+  assert.deepEqual(minimumSizes.at(-1), [480, 0]);
+
+  // A saved floor wider than the 1440px work area is clamped, like onboarding's own.
+  manager._onboardingWindowState = { ...saved, minimumSize: [2000, 0] };
+  assert.equal(manager.setOnboardingWindowMode("restore"), true);
+  assert.deepEqual(minimumSizes.at(-1), [1440, 0]);
+});

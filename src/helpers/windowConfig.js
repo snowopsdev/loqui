@@ -386,9 +386,23 @@ class WindowPositionUtil {
   }
 }
 
+// Meeting side-panel snap: the right third of the work area, but never under the
+// control panel's minimum width. Electron widens a too-narrow setBounds without
+// moving its left edge, which would push the window controls off-screen.
+function meetingModeSnapBounds(workArea, minWidth = 0) {
+  const width = Math.min(workArea.width, Math.max(Math.round(workArea.width / 3), minWidth));
+  return {
+    x: workArea.x + workArea.width - width,
+    y: workArea.y,
+    width,
+    height: workArea.height,
+  };
+}
+
 module.exports = {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
+  meetingModeSnapBounds,
   ONBOARDING_WINDOW_SIZES,
   NOTIFICATION_WINDOW_CONFIG,
   ASSISTANT_PANEL_SIZE_LIMITS,

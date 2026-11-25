@@ -44,6 +44,7 @@ function toBridgeLifecycleState(state) {
 const {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
+  meetingModeSnapBounds,
   ONBOARDING_WINDOW_SIZES,
   NOTIFICATION_WINDOW_CONFIG,
   fitAssistantContentWindowToWorkArea,
@@ -2048,7 +2049,12 @@ class WindowManager {
         win.setMaximizable(state.maximizable);
         win.setClosable(state.closable);
         win.setFullScreenable(state.fullscreenable);
-        if (state.minimumSize) win.setMinimumSize(...state.minimumSize);
+        if (state.minimumSize) {
+          // Clamp like onboarding's own floor: a work area narrower than the
+          // control panel's minimum must not force the window off-screen.
+          const [minWidth, minHeight] = state.minimumSize;
+          win.setMinimumSize(Math.min(minWidth, workArea.width), minHeight);
+        }
       }
       if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
         win.setWindowButtonVisibility(true);
@@ -2649,14 +2655,8 @@ class WindowManager {
     if (!win || win.isDestroyed()) return;
     this._preMeetingBounds = win.getBounds();
     const display = screen.getPrimaryDisplay();
-    const workArea = display.workArea;
-    const width = Math.round(workArea.width / 3);
-    win.setBounds({
-      x: workArea.x + workArea.width - width,
-      y: workArea.y,
-      width,
-      height: workArea.height,
-    });
+    const [minWidth = 0] = win.getMinimumSize?.() ?? [];
+    win.setBounds(meetingModeSnapBounds(display.workArea, minWidth));
     win.focus();
   }
 

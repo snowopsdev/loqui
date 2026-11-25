@@ -89,6 +89,27 @@ test("onboarding sizing does not resize the normal control panel", () => {
   assert.deepEqual(windowConfig.ONBOARDING_WINDOW_SIZES.EXPANDED, { width: 1000, height: 740 });
 });
 
+test("the meeting side-panel snap keeps the whole window on screen above the minimum width", () => {
+  const { meetingModeSnapBounds } = loadWindowConfig({ platform: "linux", environment: {} });
+  // A third of a wide work area is above the floor: the right third, as before.
+  assert.deepEqual(meetingModeSnapBounds({ x: 0, y: 25, width: 1920, height: 1055 }, 480), {
+    x: 1280,
+    y: 25,
+    width: 640,
+    height: 1055,
+  });
+  // 1366px (or 1280 DIP at 150%): a third is under 480, so the snap widens to the
+  // floor and moves left, keeping its right edge (and Close) on screen.
+  const narrow = meetingModeSnapBounds({ x: 0, y: 0, width: 1366, height: 728 }, 480);
+  assert.equal(narrow.width, 480);
+  assert.equal(narrow.x + narrow.width, 1366);
+  // On a secondary display offset to the right, too.
+  const offset = meetingModeSnapBounds({ x: 1920, y: 0, width: 1280, height: 800 }, 480);
+  assert.equal(offset.x + offset.width, 3200);
+  // Never wider than the work area itself.
+  assert.equal(meetingModeSnapBounds({ x: 0, y: 0, width: 400, height: 600 }, 480).width, 400);
+});
+
 test("the control panel can't shrink so far that the top bar loses its window controls", () => {
   // Side-panel layout while recording: Back, the bars + Stop pill and the
   // window controls need ~380px; the floor matches compact onboarding.

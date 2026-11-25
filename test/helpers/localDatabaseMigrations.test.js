@@ -10,11 +10,7 @@ const {
   runLocalDatabaseMigrations,
 } = require("../../src/helpers/localDatabaseMigrations");
 
-const EXPECTED_INDEXES = [
-  "idx_transcriptions_live_status_time",
-  "idx_notes_calendar_event_id",
-  "idx_calendar_events_time_range",
-];
+const EXPECTED_INDEXES = ["idx_transcriptions_active_order", "idx_notes_calendar_event_id"];
 
 // The notes_fts_update trigger every database had before user_version 1.
 const LEGACY_FTS_UPDATE_TRIGGER = `
@@ -64,6 +60,23 @@ test("a fresh database reaches the current user_version with its indexes", (t) =
   assert.equal(db.pragma("synchronous", { simple: true }), 1, "synchronous = NORMAL");
   assert.equal(db.pragma("temp_store", { simple: true }), 2, "temp_store = MEMORY");
   assert.equal(db.pragma("busy_timeout", { simple: true }), 5000);
+});
+
+test("history lists read live transcriptions in index order without a temp sort", (t) => {
+  const manager = createDb(t);
+  if (!manager) return;
+  for (const includeDiscarded of [false, true]) {
+    const statusFilter = includeDiscarded ? "" : " AND status != 'discarded'";
+    const plan = manager.db
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT * FROM transcriptions WHERE deleted_at IS NULL${statusFilter} ORDER BY timestamp DESC, id DESC LIMIT ?`
+      )
+      .all(50)
+      .map((row) => row.detail)
+      .join("\n");
+    assert.match(plan, /idx_transcriptions_active_order/, plan);
+    assert.doesNotMatch(plan, /TEMP B-TREE/, plan);
+  }
 });
 
 test("an existing pre-versioning database upgrades in place and keeps its data", (t) => {

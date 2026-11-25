@@ -231,6 +231,15 @@ class MarkdownMirror {
     }
   }
 
+  // Drop cache entries for files that a folder delete/rename moved or removed,
+  // so the cache never outlives the files it describes.
+  _forgetTranscriptsUnder(dirPath) {
+    const prefix = dirPath.endsWith(path.sep) ? dirPath : dirPath + path.sep;
+    for (const [noteId, entry] of this._transcriptWrites) {
+      if (entry.filePath.startsWith(prefix)) this._transcriptWrites.delete(noteId);
+    }
+  }
+
   deleteNote(noteId) {
     if (!this._baseRealPath) return;
     this._transcriptWrites.delete(noteId);
@@ -277,6 +286,7 @@ class MarkdownMirror {
       if (!newPath || oldPath === newPath) return;
       if (fs.existsSync(newPath)) this._resolveExistingFolderPath(newPath);
       fs.renameSync(oldPath, newPath);
+      this._forgetTranscriptsUnder(oldPath);
     } catch (err) {
       debugLogger.error(
         "Failed to rename folder",
@@ -290,7 +300,10 @@ class MarkdownMirror {
     if (!this._baseRealPath) return;
     try {
       const dirPath = this._resolveFolderPath(folderName);
-      if (dirPath) fs.rmSync(dirPath, { recursive: true, force: true });
+      if (dirPath) {
+        fs.rmSync(dirPath, { recursive: true, force: true });
+        this._forgetTranscriptsUnder(dirPath);
+      }
     } catch (err) {
       debugLogger.error(
         "Failed to delete folder",

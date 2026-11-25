@@ -6,15 +6,14 @@ import UpdateSettings from "./components/settings/UpdateSettings";
 import { flushForUpdate } from "./utils/updateFlush";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import AgentDictationPillOverlay from "./components/dictation/AgentDictationPillOverlay.tsx";
 import { useControlPanelWindowDrag } from "./hooks/useControlPanelWindowDrag";
 import { useTheme } from "./hooks/useTheme";
 import { isControlPanelWindow } from "./utils/windowContext.ts";
-// Each window mounts exactly one of these surfaces, so none of them belongs in
-// the shared entry chunk.
+// Each window mounts exactly one of these surfaces, so the larger ones stay out
+// of the shared entry chunk. The agent pill stays eager: windowManager talks to
+// it as soon as the page finishes loading, before a lazy chunk could mount.
 const App = React.lazy(() => import("./App.jsx"));
-const AgentDictationPillOverlay = React.lazy(
-  () => import("./components/dictation/AgentDictationPillOverlay.tsx")
-);
 const MeetingNotificationOverlay = React.lazy(
   () => import("./components/MeetingNotificationOverlay.tsx")
 );
@@ -51,11 +50,7 @@ export default function AppRouter() {
       </Suspense>
     );
   if (window.location.search.includes("agent-dictation-pill=true"))
-    return (
-      <Suspense fallback={null}>
-        <AgentDictationPillOverlay />
-      </Suspense>
-    );
+    return <AgentDictationPillOverlay />;
   return <MainApp />;
 }
 function MainApp() {
@@ -107,9 +102,11 @@ function MainApp() {
       {t("common.loading")}
     </div>
   );
+  // The dictation panel is a transparent frameless window: an opaque loading
+  // box would flash on screen while the App chunk loads.
   if (!isControlPanel)
     return (
-      <Suspense fallback={loading}>
+      <Suspense fallback={null}>
         <App />
       </Suspense>
     );

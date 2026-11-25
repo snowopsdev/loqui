@@ -209,9 +209,10 @@ let audioTapManager = null;
 let linuxPortalAudioManager = null;
 let meetingAecManager = null;
 let qdrantManager = null;
-// Starts the Qdrant sidecar once both it and the embedding model are present.
-// Replaced at startup; until then (and without the model) it is a no-op.
-let startVectorIndexIfReady = () => {};
+// Starts the Qdrant sidecar once both it and the embedding model are present,
+// resolving when the vector index is wired (never rejects). Replaced at
+// startup; until then (and without the model) it resolves immediately.
+let startVectorIndexIfReady = async () => {};
 let ipcHandlers = null;
 let updateManager = null;
 let updateExit = false;
@@ -401,8 +402,10 @@ function initializeCoreManagers() {
       const embeddings = require("./src/helpers/localEmbeddings");
       await embeddings.downloadModel();
       const success = embeddings.isAvailable();
-      // Startup skips the sidecar while the model is missing; bring it up now.
-      if (success) startVectorIndexIfReady();
+      // Startup skips the sidecar while the model is missing. Bring it up
+      // before reporting success so a reindex the renderer starts next finds
+      // the vector index ready instead of racing the sidecar's startup.
+      if (success) await startVectorIndexIfReady();
       return { success };
     } catch (error) {
       return { success: false, error: error.message };
@@ -856,12 +859,13 @@ async function startApp() {
   const QdrantManager = require("./src/helpers/qdrantManager");
   qdrantManager = new QdrantManager();
   // Must not throw: this also runs inside the unhealthy-restart path, whose
-  // catch would stop the replacement sidecar.
+  // catch would stop the replacement sidecar. Resolves once the collection
+  // setup settles.
   const wireVectorIndex = (port) => {
     try {
       const vectorIndex = require("./src/helpers/vectorIndex");
       vectorIndex.init(port);
-      vectorIndex
+      return vectorIndex
         .ensureCollection()
         .then(() => ipcHandlers?.drainPendingVectorPurges())
         .catch((err) => {
@@ -877,22 +881,28 @@ async function startApp() {
   // Vectors need the local embedding model; without it the sidecar would only
   // cost memory and a startup process. Search falls back to keyword (FTS)
   // until the model is downloaded, which starts the sidecar on demand.
-  let vectorIndexStarting = false;
+  // Concurrent callers share one in-flight start; it clears when that start
+  // settles either way, so a later stop (quit, clear-all-data) never leaves a
+  // stale latch that blocks the next start.
+  let vectorIndexStart = null;
   startVectorIndexIfReady = () => {
-    if (vectorIndexStarting || !qdrantManager.isAvailable()) return;
-    if (!require("./src/helpers/localEmbeddings").isAvailable()) return;
-    vectorIndexStarting = true;
-    qdrantManager
+    if (vectorIndexStart) return vectorIndexStart;
+    if (qdrantManager.isReady() || !qdrantManager.isAvailable()) return Promise.resolve();
+    if (!require("./src/helpers/localEmbeddings").isAvailable()) return Promise.resolve();
+    vectorIndexStart = qdrantManager
       .start()
       .then(() => {
-        if (qdrantManager.isReady()) wireVectorIndex(qdrantManager.getPort());
+        if (qdrantManager.isReady()) return wireVectorIndex(qdrantManager.getPort());
       })
       .catch((err) => {
-        vectorIndexStarting = false;
         debugLogger.debug("Qdrant startup error (non-fatal)", { error: err.message });
+      })
+      .finally(() => {
+        vectorIndexStart = null;
       });
+    return vectorIndexStart;
   };
-  startVectorIndexIfReady();
+  void startVectorIndexIfReady();
 
   trayManager.setWindows(windowManager.mainWindow, windowManager.controlPanelWindow);
   trayManager.setWindowManager(windowManager);

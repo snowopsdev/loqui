@@ -81,7 +81,13 @@ const browserLanguage =
 const storageLanguage =
   typeof window !== "undefined" ? window.localStorage?.getItem("uiLanguage") : undefined;
 
-const initialLanguage = normalizeUiLanguage(storageLanguage || browserLanguage || "en");
+/**
+ * The UI language this window starts in. i18n.language stays unset until its
+ * bundle loads, so startup code reads this instead of falling back to "en".
+ */
+export const initialUiLanguage: UiLanguage = normalizeUiLanguage(
+  storageLanguage || browserLanguage || "en"
+);
 
 /** Resolves once the initial UI language bundle is loaded. */
 export const i18nReady: Promise<unknown> = i18n
@@ -90,7 +96,7 @@ export const i18nReady: Promise<unknown> = i18n
   .init({
     resources,
     partialBundledLanguages: true,
-    lng: initialLanguage,
+    lng: initialUiLanguage,
     fallbackLng: "en",
     ns: ["translation", "prompts"],
     defaultNS: "translation",
@@ -99,6 +105,10 @@ export const i18nReady: Promise<unknown> = i18n
     },
     returnEmptyString: true,
     returnNull: false,
+    // Never suspend: renderApp already waits for i18nReady, and a locale chunk
+    // that fails to load must fall back to bundled English rather than throw a
+    // promise outside any Suspense boundary.
+    react: { useSuspense: false },
   });
 
 export default i18n;

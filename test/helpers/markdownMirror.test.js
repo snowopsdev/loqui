@@ -359,3 +359,29 @@ test("an unchanged transcript is not rewritten, but a changed or edited one is",
   assert.equal(transcriptWrites(), 3, "an externally edited mirror file is restored");
   assert.match(fs.readFileSync(transcriptPath, "utf8"), /Second update\./);
 });
+
+test("deleting or renaming a folder forgets its cached transcript writes", (t) => {
+  const basePath = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-markdown-mirror-folders-"));
+  t.after(() => fs.rmSync(basePath, { recursive: true, force: true }));
+  const note = (id) => ({
+    id,
+    title: `Sync ${id}`,
+    content: "",
+    created_at: "2026-07-21T12:00:00Z",
+    transcript: JSON.stringify([{ speaker: "speaker_0", timestamp: 0, text: "Update." }]),
+  });
+
+  markdownMirror.init(basePath);
+  markdownMirror.writeTranscript(note(1), "Archive", {});
+  markdownMirror.writeTranscript(note(2), "Projects", {});
+  markdownMirror.writeTranscript(note(3), "Personal", {});
+  assert.equal(markdownMirror._transcriptWrites.size, 3);
+
+  markdownMirror.deleteFolder("Archive");
+  markdownMirror.renameFolder("Projects", "Clients");
+  assert.deepEqual([...markdownMirror._transcriptWrites.keys()], [3]);
+
+  // The renamed note's next write lands at its new path again.
+  markdownMirror.writeTranscript(note(2), "Clients", {});
+  assert.ok(fs.existsSync(path.join(basePath, "Clients", "2-sync-2-transcript.md")));
+});

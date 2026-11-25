@@ -9,7 +9,7 @@ import {
 export type { SecretSaveResult, SecretStoreKey };
 import { create } from "zustand";
 import { API_ENDPOINTS } from "../config/constants";
-import i18n, { normalizeUiLanguage } from "../i18n";
+import i18n, { initialUiLanguage, normalizeUiLanguage } from "../i18n";
 import { ensureAgentNameInDictionary } from "../utils/agentName";
 import { chooseDictionaryStartupAction } from "../helpers/dictionaryStartup.mjs";
 import logger from "../utils/logger";
@@ -1712,7 +1712,7 @@ export const MAX_TRANSLATION_TARGETS = 5;
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
   uiLanguage: normalizeUiLanguage(
-    isBrowser ? localStorage.getItem("uiLanguage") || i18n.language : null
+    isBrowser ? localStorage.getItem("uiLanguage") || i18n.language || initialUiLanguage : null
   ),
   useLocalWhisper: readBoolean("useLocalWhisper", true),
   whisperModel: readString("whisperModel", "base"),
@@ -3314,7 +3314,10 @@ export async function initializeSettings(): Promise<void> {
     // Sync UI language from main process
     try {
       const envLanguage = await window.electronAPI.getUiLanguage?.();
-      const resolved = normalizeUiLanguage(envLanguage || state.uiLanguage);
+      // Without an explicit main-process language, keep the language this
+      // window resolved at startup; it may still be loading (i18n.language
+      // unset), in which case the store already holds initialUiLanguage.
+      const resolved = normalizeUiLanguage(envLanguage || i18n.language || state.uiLanguage);
       if (resolved !== state.uiLanguage) {
         if (isBrowser) localStorage.setItem("uiLanguage", resolved);
         useSettingsStore.setState({ uiLanguage: resolved });

@@ -32,6 +32,9 @@ const PROCESS_LOOKUP_TIMEOUT_MS = 5000;
 
 // Reaping runs during startup; an async lookup keeps a slow ps/tasklist from
 // blocking the main process while the other sidecars are checked in parallel.
+// Resolves to the command line, "" when the lookup ran and found nothing, or
+// null when the lookup itself failed (timeout, missing tool): unknown is not
+// a mismatch, so callers must not treat it as one.
 async function processCommand(pid) {
   try {
     if (process.platform === "win32") {
@@ -47,8 +50,13 @@ async function processCommand(pid) {
       timeout: PROCESS_LOOKUP_TIMEOUT_MS,
     });
     return String(stdout).trim();
-  } catch {
-    return "";
+  } catch (error) {
+    // A numeric code is the tool's own exit status (ps exits 1 for a PID it
+    // cannot find); anything else means the lookup never completed.
+    if (typeof error?.code === "number" && !error.killed) {
+      return String(error.stdout ?? "").trim();
+    }
+    return null;
   }
 }
 
@@ -92,13 +100,20 @@ async function killStaleSidecar(name, pid, { sigtermGraceMs, sigkillGraceMs }) {
 async function reapStaleSidecars({
   sigtermGraceMs = SIGTERM_GRACE_MS,
   sigkillGraceMs = SIGKILL_GRACE_MS,
+  lookupCommand = processCommand,
 } = {}) {
   const entries = sidecarPidFile.readAll();
   await Promise.all(
     entries.map(async ({ name, pid }) => {
       const fragments = EXPECTED_BINARY_FRAGMENTS[name];
       if (fragments && isProcessAlive(pid)) {
-        const command = await processCommand(pid);
+        const command = await lookupCommand(pid);
+        if (command === null) {
+          // Keep the entry: the next launch retries instead of forgetting a
+          // possibly orphaned sidecar.
+          debugLogger.warn("Could not identify stale sidecar process; will retry", { name, pid });
+          return;
+        }
         if (fragments.some((fragment) => command.includes(fragment))) {
           const dead = await killStaleSidecar(name, pid, { sigtermGraceMs, sigkillGraceMs });
           if (!dead) return;

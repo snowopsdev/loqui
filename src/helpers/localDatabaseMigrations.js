@@ -1,10 +1,15 @@
 // Versioned changes to the local database, tracked in PRAGMA user_version.
 //
-// localDatabaseSchema.js always describes the current schema, so a fresh
-// database already has everything below; these steps bring databases created
-// by earlier builds up to the same shape. Every step must therefore be
-// idempotent (IF NOT EXISTS / DROP ... IF EXISTS), and versions only ever grow:
-// append a new entry instead of editing a shipped one.
+// Order at open: localDatabaseSchema.js runs first (CREATE ... IF NOT EXISTS),
+// then these migrations. The schema script therefore also runs against old
+// databases whose tables predate newer columns, so an index or trigger that
+// depends on a column added later belongs here, after the step that adds the
+// column, never in the schema script alone.
+//
+// Steps that only add objects are mirrored in the schema script so a fresh
+// database reads complete, which means every step must be idempotent
+// (IF NOT EXISTS / DROP ... IF EXISTS). Versions only ever grow: append a new
+// entry instead of editing a shipped one.
 
 const NOTES_FTS_UPDATE_TRIGGER = `
 CREATE TRIGGER notes_fts_update AFTER UPDATE OF title, content, enhanced_content ON notes BEGIN
@@ -12,15 +17,19 @@ CREATE TRIGGER notes_fts_update AFTER UPDATE OF title, content, enhanced_content
   INSERT INTO notes_fts(rowid, title, content, enhanced_content) VALUES (new.id, new.title, new.content, new.enhanced_content);
 END;`;
 
+// History lists read live rows newest-first, optionally excluding discarded
+// ones. The partial index serves that order directly (no temp B-tree); the
+// status filter is applied to rows as they stream in index order.
+const TRANSCRIPTIONS_ACTIVE_ORDER_INDEX = `CREATE INDEX IF NOT EXISTS idx_transcriptions_active_order
+  ON transcriptions(timestamp DESC, id DESC) WHERE deleted_at IS NULL;`;
+
 const LOCAL_DATABASE_MIGRATIONS = [
   {
     version: 1,
-    description: "list/lookup indexes; re-index notes FTS only when indexed text changes",
+    description: "history/meeting lookup indexes; re-index notes FTS only when its text changes",
     sql: `
-CREATE INDEX IF NOT EXISTS idx_transcriptions_live_status_time
-  ON transcriptions(deleted_at, status, timestamp DESC);
+${TRANSCRIPTIONS_ACTIVE_ORDER_INDEX}
 CREATE INDEX IF NOT EXISTS idx_notes_calendar_event_id ON notes(calendar_event_id);
-CREATE INDEX IF NOT EXISTS idx_calendar_events_time_range ON calendar_events(start_time, end_time);
 DROP TRIGGER IF EXISTS notes_fts_update;
 ${NOTES_FTS_UPDATE_TRIGGER}
 `,

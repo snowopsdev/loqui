@@ -336,12 +336,6 @@ class WindowManager {
       return;
     }
 
-    if (process.platform === "win32") {
-      // Windows click-through forwarding is unreliable for this floating panel.
-      this.mainWindow.setIgnoreMouseEvents(false);
-      return;
-    }
-
     if (process.platform === "linux") {
       // Native capture is the fallback when the input-region helper is unavailable.
       this.mainWindow.setIgnoreMouseEvents(!shouldCapture);
@@ -729,10 +723,7 @@ class WindowManager {
       }
 
       // Push mode: defer to native listener (globalShortcut can't detect key-up)
-      if (
-        (process.platform === "win32" || process.platform === "linux") &&
-        activationMode === "push"
-      ) {
+      if (process.platform === "linux" && activationMode === "push") {
         return;
       }
 
@@ -1335,9 +1326,7 @@ class WindowManager {
         ? nativeListenerKeys.filter((key) => this.hotkeyManager.slotHasHotkey("dictation", key))
         : []
       : nativeListenerKeys;
-    if (process.platform === "win32" && this.windowsKeyManager) {
-      this.windowsKeyManager.setKeys(keys);
-    } else if (process.platform === "linux" && this.linuxKeyManager) {
+    if (process.platform === "linux" && this.linuxKeyManager) {
       this.linuxKeyManager.setKeys(keys);
     }
   }

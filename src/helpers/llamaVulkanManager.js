@@ -13,12 +13,6 @@ class LlamaVulkanManager extends GpuBinaryManager {
       dirName: BIN_SUBDIR,
       releaseUrl: `https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/${LLAMA_CPP_TAG}`,
       assets: {
-        "win32-x64": {
-          assetPattern: /^llama-.*-bin-win-vulkan-x64\.zip$/,
-          binaryName: "llama-server.exe",
-          outputName: "llama-server-vulkan.exe",
-          libPattern: /\.dll$/i,
-        },
         "linux-x64": {
           assetPattern: /^llama-.*-bin-ubuntu-vulkan-x64\.tar\.gz$/,
           binaryName: "llama-server",

@@ -13,7 +13,6 @@ const path = require("path");
 const { showSystemNotification } = require("./systemNotification");
 const fs = require("fs");
 const os = require("os");
-const { isRestorablePasteTarget } = require("./windowsPasteTarget");
 const crypto = require("crypto");
 const debugLogger = require("./debugLogger");
 const { ANALYTICS_HISTORY_BACKFILL_VERSION } = require("./analytics");
@@ -33,25 +32,12 @@ const {
   startRotationReminders,
 } = require("./keyring");
 const { initializeVertexAuthSource } = require("./vertexAuthSourceMigration");
-const { extractAnthropicText, describeMissingAnthropicText } = require("./anthropicResponse");
 const { toPolicyFailure } = require("./policyResponseError");
 const { resolveSystemDefaultMicrophone } = require("./systemDefaultMicrophone");
 // The renderer's ModelRegistry is not main-loadable; the raw registry data is
 // packaged, and the route resolver only needs {id, baseUrl} per provider.
 const transcriptionProviderBaseUrls = () =>
   require("../models/modelRegistryData.json").transcriptionProviders;
-// ipcMain.handle keeps only the message when a promise rejects, dropping custom
-// props — proxy handlers return {error, code, messageKey} so the renderer can
-// rebuild the error.
-const serializeIpcError =
-  (fn) =>
-  async (...args) => {
-    try {
-      return await fn(...args);
-    } catch (error) {
-      return { error: error.message, code: error.code, messageKey: error.messageKey };
-    }
-  };
 // Which diarization dialect a resolved endpoint speaks, for Custom endpoints
 // that front a known provider. Null when the host offers no known dialect.
 const diarizationHost = (endpoint) => {
@@ -276,11 +262,6 @@ async function postMultipart(
   }
 }
 
-// Cleanup toast wording for replies the main-process providers reject; mirror
-// TRUNCATED_/EMPTY_OUTPUT_MESSAGE_KEY in services/ai/chatRequestBody.ts (#2091).
-const CLEANUP_TRUNCATED_MESSAGE_KEY = "hooks.audioRecording.errorDescriptions.cleanupTruncated";
-const CLEANUP_EMPTY_REPLY_MESSAGE_KEY = "hooks.audioRecording.errorDescriptions.cleanupEmptyReply";
-
 class IPCHandlers {
   constructor(managers) {
     this.environmentManager = managers.environmentManager;
@@ -290,7 +271,6 @@ class IPCHandlers {
     this.parakeetManager = managers.parakeetManager;
     this.diarizationManager = managers.diarizationManager;
     this.windowManager = managers.windowManager;
-    this.windowsKeyManager = managers.windowsKeyManager;
     this.linuxKeyManager = managers.linuxKeyManager;
     this.textEditMonitor = managers.textEditMonitor;
     this.selectionManager = managers.selectionManager;
@@ -303,7 +283,6 @@ class IPCHandlers {
     this.meetingDetectionEngine = managers.meetingDetectionEngine;
     this.audioTapManager = managers.audioTapManager;
     this.linuxPortalAudioManager = managers.linuxPortalAudioManager;
-    this.windowsLoopbackAudioManager = managers.windowsLoopbackAudioManager;
     this.meetingAecManager = managers.meetingAecManager;
     this.getQdrantManager = managers.getQdrantManager;
     this.getPersonalInference = managers.getPersonalInference;
@@ -314,7 +293,6 @@ class IPCHandlers {
     // cancel can abort the exact job.
     this._uploadCancelRegistry = createUploadCancelRegistry();
     this._agentStreamRequests = new AgentStreamRequestRegistry();
-    this._enterpriseReasoningRequests = new AgentStreamRequestRegistry();
     // webContents id -> its release listener, for renderers holding the mic open.
     this._micHoldSenders = new Map();
     this.assemblyAiStreaming = null;
@@ -2607,30 +2585,9 @@ class IPCHandlers {
       // of ms — too slow for the paste hot path.
       const textToPaste = applySmartSpacing(text);
 
-      // Windows: restore the foreground window captured at record start so the
-      // paste lands in the field the user was dictating into, not wherever focus
-      // drifted during transcription (#859). macOS handles this via
-      // activateTargetPid above; Linux re-detects the target inside pasteLinux.
-      const winTarget =
-        process.platform === "win32"
-          ? ((await this.selectionManager?.getWinTarget?.()) ?? null)
-          : null;
-      const targetWindow =
-        winTarget &&
-        isRestorablePasteTarget({
-          target: winTarget,
-          ownExeName: path.basename(process.execPath),
-          ownWindowHandles: BrowserWindow.getAllWindows()
-            .filter((win) => !win.isDestroyed())
-            .map((win) => win.getNativeWindowHandle()),
-        })
-          ? winTarget.id
-          : null;
-
       const pasteResult = await this.clipboardManager.pasteText(textToPaste, {
         ...options,
         webContents: event.sender,
-        targetWindow,
       });
       const pasted = pasteResult?.pasted !== false;
       debugLogger.debug("[AutoLearn] Paste completed", {
@@ -3679,12 +3636,6 @@ class IPCHandlers {
           }
         }
 
-        // On Windows, stop the Windows key listener
-        if (process.platform === "win32" && this.windowsKeyManager) {
-          debugLogger.log("[IPC] Stopping Windows key listener for hotkey capture mode");
-          this.windowsKeyManager.stop();
-        }
-
         // On Linux, stop the Linux key listener
         if (process.platform === "linux" && this.linuxKeyManager) {
           debugLogger.log("[IPC] Stopping Linux key listener for hotkey capture mode");
@@ -4133,81 +4084,6 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle(
-      "proxy-xai-transcription",
-      serializeIpcError(async (event, { audioBuffer, language, keyterms }) => {
-        const apiKey = this.environmentManager.getXaiKey();
-        if (!apiKey) {
-          throw new Error("xAI API key not configured");
-        }
-
-        const formData = new FormData();
-        const audioBlob = new Blob([Buffer.from(audioBuffer)], { type: "audio/webm" });
-        formData.append("file", audioBlob, "audio.webm");
-        const { XAI_STT_LANGUAGES } = await import("./transcriptionRoute.ts");
-        if (language && language !== "auto" && XAI_STT_LANGUAGES.has(language)) {
-          formData.append("language", language);
-          formData.append("format", "true");
-        }
-        if (keyterms && keyterms.length > 0) {
-          for (const term of keyterms) {
-            formData.append("keyterm", term);
-          }
-        }
-
-        const response = await proxyFetch(XAI_STT_URL, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`xAI API Error: ${response.status} ${errorText}`);
-        }
-
-        return await response.json();
-      })
-    );
-
-    ipcMain.handle(
-      "proxy-mistral-transcription",
-      serializeIpcError(async (event, { audioBuffer, model, language, contextBias }) => {
-        const apiKey = this.environmentManager.getMistralKey();
-        if (!apiKey) {
-          throw new Error("Mistral API key not configured");
-        }
-
-        const formData = new FormData();
-        const audioBlob = new Blob([Buffer.from(audioBuffer)], { type: "audio/webm" });
-        formData.append("file", audioBlob, "audio.webm");
-        formData.append("model", model || "voxtral-mini-latest");
-        if (language && language !== "auto") {
-          formData.append("language", language);
-        }
-        if (contextBias && contextBias.length > 0) {
-          for (const token of contextBias) {
-            formData.append("context_bias", token);
-          }
-        }
-
-        const response = await proxyFetch(MISTRAL_TRANSCRIPTION_URL, {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
-          },
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Mistral API Error: ${response.status} ${errorText}`);
-        }
-
-        return await response.json();
-      })
-    );
-
     ipcMain.handle("get-corti-client-id", async () => {
       return this.environmentManager.getCortiClientId() ? "__stored__" : "";
     });
@@ -4224,61 +4100,9 @@ class IPCHandlers {
       this._acknowledgedSave("corti:speech", "clientSecret", key)
     );
 
-    ipcMain.handle(
-      "proxy-corti-transcription",
-      serializeIpcError(async (event, { audioBuffer, language, environment, tenant }) => {
-        const clientId = this.environmentManager.getCortiClientId();
-        const clientSecret = this.environmentManager.getCortiClientSecret();
-        if (!clientId || !clientSecret) {
-          throw new Error("Corti credentials not configured");
-        }
-
-        const { transcribeAudio } = require("./cortiTranscription");
-        return await transcribeAudio({
-          environment,
-          tenant,
-          clientId,
-          clientSecret,
-          audioBuffer,
-          language,
-        });
-      })
-    );
-
     ipcMain.handle("get-tinfoil-chat-models", async () => {
       return getTinfoilChatModels();
     });
-
-    // Enclave attestation is Node-only, so batch transcription is proxied through main.
-    ipcMain.handle(
-      "proxy-tinfoil-transcription",
-      serializeIpcError(async (event, { audioBuffer, language, prompt }) => {
-        return await transcribeWithTinfoil({
-          audioBuffer: Buffer.from(audioBuffer),
-          fileName: "audio.webm",
-          contentType: "audio/webm",
-          language,
-          prompt,
-          apiKey: this.environmentManager.getTinfoilKey(),
-        });
-      })
-    );
-
-    // Gemini's Interactions API takes JSON with inline base64 audio, not
-    // OpenAI-compatible multipart, so batch transcription is proxied through main.
-    ipcMain.handle(
-      "proxy-gemini-transcription",
-      serializeIpcError(async (event, { audioBuffer, model, language, keyterms }) => {
-        return await transcribeWithGemini({
-          audioBuffer: Buffer.from(audioBuffer),
-          model,
-          contentType: "audio/webm",
-          language,
-          keyterms,
-          apiKey: this.environmentManager.getGeminiKey(),
-        });
-      })
-    );
 
     ipcMain.handle("get-custom-transcription-key", async () => {
       return this.environmentManager.getCustomTranscriptionKey() ? "__stored__" : "";
@@ -4441,354 +4265,6 @@ class IPCHandlers {
     ipcMain.handle("enterprise-route-facts", async () => {
       await this.vertexAuthSourceReady;
       return publishedEnterpriseFacts();
-    });
-
-    // Enterprise provider test connection
-    ipcMain.handle("test-enterprise-connection", async (event, provider, config) => {
-      const {
-        mapEnterpriseError,
-        runAbortableOperation,
-        runBedrockRequest,
-        validateEnterpriseEndpoint,
-      } = require("./enterpriseProviderErrors");
-      let runtime;
-      try {
-        const { generateText } = require("ai");
-        const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
-
-        const resolveModel = (abortSignal) =>
-          runAbortableOperation(async () => {
-            runtime = await resolveEnterpriseRuntime(
-              event,
-              provider,
-              config?.model || "test",
-              config
-            );
-            abortSignal?.throwIfAborted();
-            validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
-            return getEnterpriseAIModel(
-              runtime.provider,
-              runtime.model,
-              runtime.apiKey,
-              runtime.enterprise
-            );
-          }, abortSignal);
-
-        if (provider === "bedrock") {
-          await runBedrockRequest(async () => {
-            const abortSignal = AbortSignal.timeout(config?.timeoutMs || 30_000);
-            const model = await resolveModel(abortSignal);
-            return generateText({
-              model,
-              prompt: "Say hello in one word.",
-              maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
-              abortSignal,
-              maxRetries: 0,
-            });
-          });
-        } else {
-          const model = await resolveModel();
-          await generateText({
-            model,
-            prompt: "Say hello in one word.",
-            maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
-          });
-        }
-
-        return { success: true };
-      } catch (err) {
-        const mappingConfig =
-          runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
-            ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
-            : config;
-        const mapped = mapEnterpriseError(provider, err, mappingConfig);
-        return {
-          success: false,
-          error: mapped.message,
-          messageKey: mapped.messageKey,
-          messageParams: mapped.messageParams,
-          action: mapped.action,
-          actionKey: mapped.actionKey,
-          copyCommand: mapped.copyCommand,
-          retryable: mapped.retryable,
-          technicalDetails: mapped.technicalDetails,
-        };
-      }
-    });
-
-    ipcMain.handle(
-      "process-enterprise-reasoning",
-      async (event, text, modelId, _agentName, config) => {
-        const {
-          isEnterpriseProvider,
-          mapEnterpriseError,
-          runAbortableOperation,
-          runBedrockRequest,
-          validateEnterpriseEndpoint,
-        } = require("./enterpriseProviderErrors");
-        const provider = config?.provider;
-        let runtime;
-        try {
-          if (!isEnterpriseProvider(provider)) {
-            throw new Error(`Unsupported enterprise provider: ${provider}`);
-          }
-          const isBedrockCleanup =
-            provider === "bedrock" && config?.inferenceScope === "dictationCleanup";
-          const sender = isBedrockCleanup ? event.sender : null;
-          const senderId = sender?.id;
-          const requestId = isBedrockCleanup ? crypto.randomUUID() : null;
-          const controller = isBedrockCleanup
-            ? this._enterpriseReasoningRequests.begin(senderId, requestId)
-            : null;
-          const cancelSenderRequests = () =>
-            this._enterpriseReasoningRequests.cancelSender(senderId);
-          try {
-            if (controller) {
-              sender.once("destroyed", cancelSenderRequests);
-              if (sender.isDestroyed()) controller.abort();
-            }
-            controller?.signal.throwIfAborted();
-
-            const { generateText } = require("ai");
-            const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
-            const timeoutMs = config?.timeoutMs || 60000;
-            // Opus 4.7 / GPT-5 / o-series dropped `temperature`; renderer
-            // derives support from the model registry and we honor that here.
-            const useTemperature = config?.supportsTemperature !== false;
-            const resolveModel = (abortSignal) =>
-              runAbortableOperation(async () => {
-                runtime = await resolveEnterpriseRuntime(event, provider, modelId, config || {});
-                abortSignal?.throwIfAborted();
-                if (!runtime.model) throw new Error("No model specified for enterprise reasoning");
-                validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
-                return getEnterpriseAIModel(
-                  runtime.provider,
-                  runtime.model,
-                  runtime.apiKey,
-                  runtime.enterprise
-                );
-              }, abortSignal);
-            const generate = (model, abortSignal, disableNestedRetries = false) => {
-              return generateText({
-                model,
-                instructions: config?.systemPrompt || "",
-                prompt: text,
-                maxOutputTokens: config?.maxTokens || 4096,
-                ...(useTemperature ? { temperature: config?.temperature ?? 0.3 } : {}),
-                abortSignal,
-                ...(disableNestedRetries ? { maxRetries: 0 } : {}),
-              });
-            };
-            let result;
-            if (isBedrockCleanup) {
-              result = await runBedrockRequest(
-                async () => {
-                  const abortSignal = AbortSignal.any([
-                    controller.signal,
-                    AbortSignal.timeout(timeoutMs),
-                  ]);
-                  const model = await resolveModel(abortSignal);
-                  return generate(model, abortSignal, true);
-                },
-                { signal: controller.signal }
-              );
-            } else {
-              const model = await resolveModel();
-              result = await generate(model, AbortSignal.timeout(timeoutMs));
-            }
-            const { text: generated, finishReason } = result;
-
-            if (
-              config?.requireCompleteOutput &&
-              ["length", "max-tokens", "max_tokens"].includes(finishReason)
-            ) {
-              throw Object.assign(new Error("Model output was truncated"), {
-                messageKey: CLEANUP_TRUNCATED_MESSAGE_KEY,
-              });
-            }
-
-            return { success: true, text: (generated || "").trim() };
-          } finally {
-            if (controller) {
-              sender.removeListener("destroyed", cancelSenderRequests);
-              this._enterpriseReasoningRequests.complete(senderId, requestId, controller);
-            }
-          }
-        } catch (err) {
-          debugLogger.error("Enterprise reasoning error:", err);
-          const mappingConfig =
-            runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
-              ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
-              : config || {};
-          const mapped = mapEnterpriseError(provider, err, mappingConfig);
-          return {
-            success: false,
-            error: mapped.message,
-            // mapEnterpriseError matches provider failures, so a truncation falls through
-            // to its generic mapping — keep the key the throw site set.
-            messageKey: err.messageKey || mapped.messageKey,
-            messageParams: mapped.messageParams,
-            action: mapped.action,
-            actionKey: mapped.actionKey,
-            copyCommand: mapped.copyCommand,
-            retryable: mapped.retryable,
-            technicalDetails: mapped.technicalDetails,
-          };
-        }
-      }
-    );
-
-    ipcMain.on("enterprise-reasoning-cancel", (event) => {
-      this._enterpriseReasoningRequests.cancelSender(event.sender.id);
-    });
-
-    // Runs doStream for the renderer's enterprise chat model shim; parts are
-    // relayed verbatim over enterprise-stream-part, ending with {done}/{error}.
-    this.enterpriseStreamAborts = new Map();
-    ipcMain.handle("enterprise-stream-start", async (event, payload) => {
-      const {
-        isEnterpriseProvider,
-        mapEnterpriseError,
-        validateEnterpriseEndpoint,
-      } = require("./enterpriseProviderErrors");
-      const { streamId, provider, modelId, config, options } = payload || {};
-      let runtime;
-      const send = (message) => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send("enterprise-stream-part", { streamId, ...message });
-        }
-      };
-      const abortController = new AbortController();
-      this.enterpriseStreamAborts.set(streamId, abortController);
-      // isDestroyed() stays false across reload/navigation, which wipes the
-      // renderer listeners — abort so the provider request isn't billed for
-      // a generation nobody receives.
-      const abortOnGone = (_event, _url, isInPlace, isMainFrame) => {
-        if (isMainFrame && !isInPlace) abortController.abort();
-      };
-      const abortOnDestroyed = () => abortController.abort();
-      event.sender.on("did-start-navigation", abortOnGone);
-      event.sender.once("destroyed", abortOnDestroyed);
-      try {
-        if (!streamId || !isEnterpriseProvider(provider)) {
-          throw new Error(`Unsupported enterprise provider: ${provider}`);
-        }
-        runtime = await resolveEnterpriseRuntime(event, provider, modelId, config || {});
-        if (!runtime.model) throw new Error("No model specified for enterprise streaming");
-        validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
-
-        const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
-        const model = await getEnterpriseAIModel(
-          runtime.provider,
-          runtime.model,
-          runtime.apiKey,
-          runtime.enterprise
-        );
-
-        const { stream } = await model.doStream({
-          ...options,
-          abortSignal: abortController.signal,
-        });
-        const reader = stream.getReader();
-        try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (event.sender.isDestroyed()) {
-              abortController.abort();
-              break;
-            }
-            send({ part: value });
-          }
-        } finally {
-          reader.releaseLock();
-        }
-        send({ done: true });
-        return { success: true };
-      } catch (err) {
-        debugLogger.error("Enterprise stream error:", err);
-        const mappingConfig =
-          runtime?.provider === "bedrock" && runtime.enterprise?.bedrockRegion
-            ? { ...(config || {}), bedrockRegion: runtime.enterprise.bedrockRegion }
-            : config || {};
-        const mapped = mapEnterpriseError(provider, err, mappingConfig);
-        send({ error: mapped.message });
-        return { success: false, error: mapped.message };
-      } finally {
-        this.enterpriseStreamAborts.delete(streamId);
-        if (!event.sender.isDestroyed()) {
-          event.sender.removeListener("did-start-navigation", abortOnGone);
-          event.sender.removeListener("destroyed", abortOnDestroyed);
-        }
-      }
-    });
-
-    ipcMain.handle("enterprise-stream-cancel", async (event, streamId) => {
-      this.enterpriseStreamAborts.get(streamId)?.abort();
-      this.enterpriseStreamAborts.delete(streamId);
-    });
-
-    // Lists the text models the account serves in the selected region,
-    // resolved to invocable IDs (bare on-demand or geo-scoped profile IDs).
-    ipcMain.handle("bedrock-list-models", async (event, config) => {
-      const { mapEnterpriseError } = require("./enterpriseProviderErrors");
-      try {
-        const runtime = await resolveEnterpriseRuntime(
-          event,
-          "bedrock",
-          config?.model || "test",
-          config
-        );
-        const {
-          BedrockClient,
-          ListFoundationModelsCommand,
-          paginateListInferenceProfiles,
-        } = require("@aws-sdk/client-bedrock");
-        const { normalizeBedrockCatalog } = require("./bedrockCatalog");
-
-        const region = runtime.enterprise.bedrockRegion || "us-east-1";
-        let credentials;
-        if (runtime.enterprise.managedCredentialProvider) {
-          credentials = runtime.enterprise.managedCredentialProvider;
-        } else if (runtime.enterprise.bedrockProfile) {
-          const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
-          credentials = fromNodeProviderChain({ profile: runtime.enterprise.bedrockProfile });
-        } else if (
-          runtime.enterprise.bedrockAccessKeyId &&
-          runtime.enterprise.bedrockSecretAccessKey
-        ) {
-          credentials = {
-            accessKeyId: runtime.enterprise.bedrockAccessKeyId,
-            secretAccessKey: runtime.enterprise.bedrockSecretAccessKey,
-            sessionToken: runtime.enterprise.bedrockSessionToken || undefined,
-          };
-        }
-        const client = new BedrockClient({ region, ...(credentials ? { credentials } : {}) });
-
-        const [foundationModels, profileSummaries] = await Promise.all([
-          client.send(new ListFoundationModelsCommand({ byOutputModality: "TEXT" })),
-          (async () => {
-            const summaries = [];
-            const paginator = paginateListInferenceProfiles(
-              { client },
-              { typeEquals: "SYSTEM_DEFINED" }
-            );
-            for await (const page of paginator) {
-              summaries.push(...(page.inferenceProfileSummaries || []));
-            }
-            return summaries;
-          })(),
-        ]);
-
-        return {
-          success: true,
-          models: normalizeBedrockCatalog(foundationModels.modelSummaries, profileSummaries),
-        };
-      } catch (err) {
-        debugLogger.error("Bedrock model listing error:", err);
-        const mapped = mapEnterpriseError("bedrock", err, config || {});
-        return { success: false, error: mapped.message };
-      }
     });
 
     ipcMain.handle("get-dictation-key", async () => {
@@ -4956,94 +4432,6 @@ class IPCHandlers {
         };
       }
     });
-
-    ipcMain.handle(
-      "process-anthropic-reasoning",
-      async (event, text, modelId, _agentName, config) => {
-        try {
-          const apiKey = this.environmentManager.getAnthropicKey();
-
-          if (!apiKey) {
-            throw new Error("Anthropic API key not configured");
-          }
-
-          const systemPrompt = config?.systemPrompt || "";
-          const userPrompt = text;
-
-          if (!modelId) {
-            throw new Error("No model specified for Anthropic API call");
-          }
-
-          const screenContext = config?.screenContext;
-          const userContent = screenContext
-            ? [
-                { type: "text", text: userPrompt },
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: screenContext.mediaType,
-                    data: screenContext.data,
-                  },
-                },
-              ]
-            : userPrompt;
-
-          // Claude models from Opus 4.7 onward reject `temperature` with a 400;
-          // the renderer derives support from the model registry.
-          const useTemperature = config?.supportsTemperature === true;
-          const requestBody = {
-            model: modelId,
-            messages: [{ role: "user", content: userContent }],
-            system: systemPrompt,
-            max_tokens: config?.maxTokens || Math.max(100, Math.min(text.length * 2, 4096)),
-            ...(useTemperature ? { temperature: config?.temperature ?? 0.3 } : {}),
-          };
-
-          const response = await proxyFetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-Key": apiKey,
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify(requestBody),
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            let errorData = { error: response.statusText };
-            try {
-              errorData = JSON.parse(errorText);
-            } catch {
-              errorData = { error: errorText || response.statusText };
-            }
-            throw new Error(
-              errorData.error?.message ||
-                errorData.error ||
-                `Anthropic API error: ${response.status}`
-            );
-          }
-
-          const data = await response.json();
-          if (config?.requireCompleteOutput && data.stop_reason === "max_tokens") {
-            throw Object.assign(new Error("Model output was truncated"), {
-              messageKey: CLEANUP_TRUNCATED_MESSAGE_KEY,
-            });
-          }
-          const outputText = extractAnthropicText(data);
-          if (outputText === null) {
-            throw Object.assign(new Error(describeMissingAnthropicText(data)), {
-              messageKey: CLEANUP_EMPTY_REPLY_MESSAGE_KEY,
-            });
-          }
-          return { success: true, text: outputText };
-        } catch (error) {
-          debugLogger.error("Anthropic reasoning error:", error);
-          return { success: false, error: error.message, messageKey: error.messageKey };
-        }
-      }
-    );
 
     ipcMain.handle("check-local-reasoning-available", async () => {
       try {
@@ -5266,11 +4654,6 @@ class IPCHandlers {
           "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
         calendars: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
         loginItems: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
-      },
-      win32: {
-        microphone: "ms-settings:privacy-microphone",
-        sound: "ms-settings:sound",
-        loginItems: "ms-settings:startupapps",
       },
     };
 
@@ -5511,31 +4894,7 @@ class IPCHandlers {
       });
     };
 
-    // System audio is always capturable on Windows: via the native WASAPI
-    // process-loopback helper when available (hears every output device),
-    // otherwise via Chromium's default-device loopback in the renderer.
-    const getWindowsSystemAudioAccess = async ({ refreshCapability = false } = {}) => {
-      const capability = await this.windowsLoopbackAudioManager
-        ?.getCapability({ force: refreshCapability })
-        .catch(() => ({
-          available: false,
-        }));
-      const helperAvailable = !!capability?.available;
-
-      return buildSystemAudioAccess({
-        granted: true,
-        status: "granted",
-        mode: "loopback",
-        supportsNativeCapture: helperAvailable,
-        strategy: helperAvailable ? "wasapi-loopback" : "loopback",
-      });
-    };
-
     const getSystemAudioAccess = async () => {
-      if (process.platform === "win32") {
-        return getWindowsSystemAudioAccess();
-      }
-
       if (process.platform === "linux") {
         return getLinuxSystemAudioAccess();
       }
@@ -5556,10 +4915,6 @@ class IPCHandlers {
     ipcMain.handle("check-system-audio-access", () => getSystemAudioAccess());
 
     ipcMain.handle("request-system-audio-access", async () => {
-      if (process.platform === "win32") {
-        return getWindowsSystemAudioAccess();
-      }
-
       if (process.platform === "linux") {
         return getLinuxSystemAudioAccess();
       }
@@ -5593,21 +4948,6 @@ class IPCHandlers {
     });
 
     const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
-    const resolveEnterpriseRuntime = async (_event, provider, model, config = {}) => {
-      await this.vertexAuthSourceReady;
-      const enterprise = require("./enterpriseProviderErrors").pickEnterpriseConfig(config);
-      return {
-        provider,
-        model,
-        apiKey: config.apiKey || "",
-        enterprise: {
-          ...enterprise,
-          vertexAuthSource:
-            enterprise.vertexAuthSource ?? this.environmentManager.getVertexAuthSource(),
-        },
-      };
-    };
-
     ipcMain.handle("retry-transcription", async (event, id, settings) => {
       const buffer = this.audioStorageManager.getAudioBuffer(id);
       if (!buffer) return { success: false, error: "Audio file not found" };
@@ -6093,7 +5433,6 @@ class IPCHandlers {
       meetingMicDiarizationPath = null;
       meetingMicDiarizationStartedAt = null;
       meetingSystemAudioHeard = false;
-      meetingSystemAudioDegraded = false;
       meetingDiarizationSegments = [];
       const { pcmPath, startedAt, diarizedSource, cleanupPcmPaths } = resolveDiarizationInput({
         systemPcmPath,
@@ -6478,14 +5817,13 @@ class IPCHandlers {
 
     const getMeetingSystemAudioCapabilityMode = () => {
       if (this.audioTapManager?.isSupported()) return "native";
-      if (process.platform === "win32") return "loopback";
       if (process.platform === "linux") return "loopback";
       return "unsupported";
     };
 
     const getMeetingSystemAudioMode = () => getMeetingSystemAudioCapabilityMode();
 
-    const getMeetingSystemAudioPlan = async ({ refreshWindowsCapability = false } = {}) => {
+    const getMeetingSystemAudioPlan = async () => {
       const mode = getMeetingSystemAudioMode();
       if (mode === "unsupported") {
         return { mode, strategy: "unsupported" };
@@ -6503,15 +5841,8 @@ class IPCHandlers {
         };
       }
 
-      if (process.platform === "win32") {
-        const windowsAccess = await getWindowsSystemAudioAccess({
-          refreshCapability: refreshWindowsCapability,
-        });
-        return { mode: windowsAccess.mode, strategy: windowsAccess.strategy };
-      }
-
-      // Unreachable today (loopback implies win32 or linux, both handled
-      // above), but callers destructure the result, so never return undefined.
+      // Unreachable today (loopback implies linux, handled above), but callers
+      // destructure the result, so never return undefined.
       return { mode, strategy: "unsupported" };
     };
 
@@ -6651,7 +5982,6 @@ class IPCHandlers {
     let meetingMicDiarizationPath = null;
     let meetingMicDiarizationStartedAt = null;
     let meetingSystemAudioHeard = false;
-    let meetingSystemAudioDegraded = false;
     let meetingDiarizationSegments = [];
     let meetingLiveSpeakerActive = false;
     let meetingLiveSpeakerState = null;
@@ -7257,7 +6587,6 @@ class IPCHandlers {
       meetingDiarizationStartedAt = null;
       dropMeetingMicDiarizationCapture();
       meetingSystemAudioHeard = false;
-      meetingSystemAudioDegraded = false;
       meetingDiarizationSegments = [];
       meetingLocalWin = null;
       meetingLocalTranscript = "";
@@ -7501,9 +6830,6 @@ class IPCHandlers {
       if (this.linuxPortalAudioManager) {
         await this.linuxPortalAudioManager.stop().catch(() => {});
       }
-      if (this.windowsLoopbackAudioManager) {
-        await this.windowsLoopbackAudioManager.stop().catch(() => {});
-      }
       await stopMeetingAec();
       await stopLiveSpeakerIdentification().catch(() => {});
       resetMeetingLocalState();
@@ -7622,7 +6948,7 @@ class IPCHandlers {
       };
 
       try {
-        const systemAudioPlan = await getMeetingSystemAudioPlan({ refreshWindowsCapability: true });
+        const systemAudioPlan = await getMeetingSystemAudioPlan();
         let { mode: systemAudioMode, strategy: systemAudioStrategy } = systemAudioPlan;
         const requestedConnectionKey = getMeetingConnectionKey(options);
         meetingEchoLeakDetector.reset();
@@ -7833,25 +7159,6 @@ class IPCHandlers {
       }
     };
 
-    // The Windows helper reports capture_silent when its own stream is silent
-    // while a render endpoint is playing: activation succeeded but no audio
-    // will ever arrive, so hand the live session to Chromium's renderer
-    // loopback. The silence watchdog stays armed in case that fails too.
-    const degradeMeetingSystemAudioToLoopback = async (event) => {
-      if (meetingSystemAudioDegraded || meetingSystemAudioHeard) return;
-      meetingSystemAudioDegraded = true;
-      debugLogger.warn(
-        "Windows system audio helper captured only silence, switching to renderer loopback",
-        {},
-        "meeting"
-      );
-      await this.windowsLoopbackAudioManager?.stop().catch(() => {});
-      const win = BrowserWindow.fromWebContents(event.sender);
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("meeting-system-audio-degraded");
-      }
-    };
-
     const startManagedMeetingSystemAudio = (event, manager, warningLabel, onWarningCode) => {
       const win = BrowserWindow.fromWebContents(event.sender);
       const timeline =
@@ -7944,31 +7251,6 @@ class IPCHandlers {
         }
       }
 
-      if (systemAudioStrategy === "wasapi-loopback") {
-        try {
-          await startManagedMeetingSystemAudio(
-            event,
-            this.windowsLoopbackAudioManager,
-            "Windows system audio warning",
-            (code) => {
-              if (code === "capture_silent") {
-                void degradeMeetingSystemAudioToLoopback(event);
-              }
-            }
-          );
-          return { systemAudioMode, systemAudioStrategy };
-        } catch (error) {
-          debugLogger.warn(
-            `Windows system audio helper failed ${context}, falling back to renderer loopback`,
-            { error: error.message },
-            "meeting"
-          );
-          // The renderer captures via Chromium's display-media loopback when
-          // it sees the downgraded strategy in the start result.
-          return { systemAudioMode, systemAudioStrategy: "loopback" };
-        }
-      }
-
       if (systemAudioStrategy !== "pipewire-loopback") {
         return { systemAudioMode, systemAudioStrategy };
       }
@@ -8011,9 +7293,6 @@ class IPCHandlers {
         }
         if (this.linuxPortalAudioManager) {
           await this.linuxPortalAudioManager.stop().catch(() => {});
-        }
-        if (this.windowsLoopbackAudioManager) {
-          await this.windowsLoopbackAudioManager.stop().catch(() => {});
         }
 
         flushPendingMeetingMicChunks(true);

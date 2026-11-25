@@ -1,7 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
-const { EventEmitter } = require("node:events");
 const childProcess = require("node:child_process");
 
 const selectionManagerPath = require.resolve("../../src/helpers/selectionManager");
@@ -145,7 +144,7 @@ test("a terminal-flagged target is refused as a caret destination without probin
         return true;
       },
     },
-    platform: "win32",
+    platform: "linux",
     now: () => 1000,
   });
   const flagged = { kind: "win-hwnd", id: "1A", isTerminal: true };
@@ -459,102 +458,6 @@ test("a superseded probe never overwrites the newer probe's target", async () =>
   assert.deepEqual(manager.lastTarget, { kind: "atspi-pid", id: "2" });
 });
 
-// The Windows paste path restores the window captured at record start (#859).
-// getWinTarget hands the paste that HWND exactly as --detect-only printed
-// it ("TARGET %p", hex) so the binary's base-16 --restore-window parse round-trips.
-test("getWinTarget returns the hex HWND a win32 probe captured (#859)", async () => {
-  const spawnCalls = [];
-  const SpawningSelectionManager = loadSelectionManager({
-    spawn: (command, args) => {
-      spawnCalls.push({ command, args });
-      const probe = new EventEmitter();
-      probe.stdout = new EventEmitter();
-      probe.stderr = new EventEmitter();
-      process.nextTick(() => {
-        probe.stdout.emit(
-          "data",
-          "TARGET 00001A2B\nWINDOW_CLASS Chrome_WidgetWin_1\nIS_TERMINAL false\n"
-        );
-        probe.emit("close", 0);
-      });
-      return probe;
-    },
-  });
-  const manager = new SpawningSelectionManager({
-    clipboardManager: { resolveWindowsFastPasteBinary: () => "/tmp/windows-fast-paste.exe" },
-    textEditMonitor: {},
-    platform: "win32",
-    now: () => 1000,
-  });
-
-  await manager.captureTarget();
-
-  assert.deepEqual(spawnCalls, [
-    { command: "/tmp/windows-fast-paste.exe", args: ["--detect-only"] },
-  ]);
-  assert.equal((await manager.getWinTarget())?.id, "00001A2B");
-});
-
-// captureTarget() nulls lastTarget while its probe runs; a paste racing the
-// stop-press probe must wait for the answer instead of restoring nothing.
-test("getWinTarget waits for an in-flight probe before answering", async () => {
-  const manager = new SelectionManager({
-    clipboardManager: {},
-    textEditMonitor: {},
-    platform: "win32",
-    now: () => 1000,
-  });
-  let resolveProbe;
-  manager._probeTarget = () => new Promise((resolve) => (resolveProbe = resolve));
-
-  const probe = manager.captureTarget();
-  const pending = manager.getWinTarget();
-  resolveProbe({ kind: "win-hwnd", id: "0000F00D" });
-  await probe;
-
-  assert.equal((await pending)?.id, "0000F00D");
-});
-
-test("getWinTarget is null without a capture or with a non-Windows target", async () => {
-  const manager = new SelectionManager({
-    clipboardManager: {},
-    textEditMonitor: {},
-    platform: "linux",
-    now: () => 1000,
-  });
-  assert.equal(await manager.getWinTarget(), null);
-
-  manager.lastTarget = { kind: "x11-window", id: "7" };
-  assert.equal(await manager.getWinTarget(), null);
-});
-
-test("caret delivery pins the captured Windows HWND into the paste helper", async () => {
-  const pastes = [];
-  const manager = new SelectionManager({
-    clipboardManager: {
-      runClipboardOperation: (operation) => operation(),
-      _pasteText: async (text, options) => {
-        pastes.push({ text, options });
-        return { restoreComplete: Promise.resolve() };
-      },
-    },
-    textEditMonitor: {},
-    platform: "win32",
-    now: () => 1000,
-  });
-  manager.sessions.set("caret-session", {
-    kind: "caret",
-    target: { kind: "win-hwnd", id: "00001A2B" },
-    expiresAt: 2000,
-  });
-  manager._readCurrentSelection = async () => ({ status: "editable" });
-
-  assert.deepEqual(await manager.pasteAtCapturedTarget("caret-session", "Agent response"), {
-    success: true,
-  });
-  assert.equal(pastes[0].options.targetWindow, "00001A2B");
-});
-
 // Replacement text typed into a shell executes on its embedded newlines, so a
 // terminal target must read as no selection (standalone dictation), not as an
 // editable selection.
@@ -672,30 +575,6 @@ test("a missing copy helper stays non-fatal so the command still runs", async ()
     status: "unavailable",
     code: "accessibility_unavailable",
   });
-});
-
-// The clipboard fallback is macOS-only; Windows and Linux keep their own capture
-// paths untouched.
-test("a win32 read never reaches the macOS clipboard fallback", async () => {
-  let macCalled = false;
-  const manager = new SelectionManager({
-    clipboardManager: {
-      runClipboardOperation: (operation) => operation(),
-      resolveWindowsFastPasteBinary: () => null,
-    },
-    textEditMonitor: { lastTargetPid: 42 },
-    platform: "win32",
-    now: () => 1000,
-  });
-  manager._readMacSelectionViaClipboard = async () => {
-    macCalled = true;
-    return { status: "selected", text: "wrong platform" };
-  };
-
-  const result = await manager._readCurrentSelection({ kind: "win-hwnd", id: "7" });
-
-  assert.equal(macCalled, false);
-  assert.deepEqual(result, { status: "unavailable", code: "copy_helper_unavailable" });
 });
 
 test("empty replacement output is rejected without consuming a paste", async () => {

@@ -405,40 +405,6 @@ test("retry: mistral goes to Mistral with x-api-key", async () => {
   assert.equal(fetches[0].init.headers["x-api-key"], "mk-mistral");
 });
 
-test("proxy transcription handlers resolve to structured errors instead of rejecting", async () => {
-  fetchResponse = () => ({
-    ok: false,
-    status: 401,
-    text: async () => "unauthorized",
-    json: async () => ({}),
-  });
-  cortiBehavior = async () => {
-    const err = new Error("Corti API Error: 401");
-    err.code = "INVALID_KEY";
-    throw err;
-  };
-  try {
-    for (const channel of [
-      "proxy-mistral-transcription",
-      "proxy-xai-transcription",
-      "proxy-corti-transcription",
-    ]) {
-      const fn = handlers.get(channel);
-      assert.ok(fn, `${channel} must be registered`);
-      const result = await fn({ sender: {} }, { audioBuffer: new ArrayBuffer(4) });
-      assert.equal(typeof result.error, "string", channel);
-    }
-  } finally {
-    cortiBehavior = async () => ({ text: "corti text" });
-    fetchResponse = () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ text: "transcribed" }),
-      text: async () => JSON.stringify({ text: "transcribed" }),
-    });
-  }
-});
-
 const uploadTempFile = pathNode.join(testTempDir, "fixture.webm");
 
 const invokeUpload = (payload) => {

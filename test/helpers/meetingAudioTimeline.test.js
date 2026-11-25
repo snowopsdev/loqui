@@ -85,7 +85,7 @@ function harness({ native = true, local = false } = {}) {
     `
     ${section("const resetMeetingReconnectAudio =", "// Labels the socket for field logs")}
     ${section("const dispatchMeetingAudioBuffer =", "const stopMeetingAec =")}
-    ${section("const sendMeetingAudio =", "// The Windows helper reports capture_silent")}
+    ${section("const sendMeetingAudio =", "const startManagedMeetingSystemAudio =")}
     ${section("const startManagedMeetingSystemAudio =", "const fallBackToMicOnly =")}
     globalThis.startCapture = () => startManagedMeetingSystemAudio({ sender: {} }, capture, "warning");
     globalThis.replaySystemAudio = (streaming) => replayMeetingReconnectAudio("system", streaming);

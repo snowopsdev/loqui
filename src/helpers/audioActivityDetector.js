@@ -7,7 +7,7 @@ const { getOwnProcessPids } = require("./ownProcessPids");
 
 const execAsync = promisify(exec);
 
-const CHECK_INTERVAL_MS = process.platform === "win32" ? 15 * 1000 : 3 * 1000;
+const CHECK_INTERVAL_MS = 3 * 1000;
 const SUSTAINED_THRESHOLD_CHECKS = 2;
 const SUSTAINED_EVENT_DRIVEN_MS = 2 * 1000;
 const COOLDOWN_MS = 5 * 60 * 1000;
@@ -287,8 +287,6 @@ class AudioActivityDetector extends EventEmitter {
     switch (process.platform) {
       case "darwin":
         return this._tryEventDrivenDarwin(generation);
-      case "win32":
-        return this._tryEventDrivenWin32(generation);
       case "linux":
         return this._tryEventDrivenLinux(generation);
       default:
@@ -460,43 +458,6 @@ class AudioActivityDetector extends EventEmitter {
       clearTimeout(this._respawnTimer);
       this._respawnTimer = null;
     }
-  }
-
-  _tryEventDrivenWin32(generation) {
-    const binaryPath = resolveBundledBinary("windows-mic-listener.exe", "meeting");
-    if (!binaryPath) {
-      debugLogger.warn("windows-mic-listener.exe not found, will use polling", {}, "meeting");
-      return false;
-    }
-
-    return this._spawnListener({
-      command: binaryPath,
-      args: [],
-      // stdin must be "pipe" — the Windows binary monitors stdin for parent death
-      options: { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
-      label: "windows-mic-listener",
-      generation,
-      onLine: (line) => this._parseWin32ListenerLine(line),
-    });
-  }
-
-  _parseWin32ListenerLine(line) {
-    if (!this._running) return;
-    // Only rebuilt binaries announce CAPABILITY PID. Pre-refcounting builds
-    // print READY and MIC_START/MIC_STOP too, but their un-refcounted stop
-    // events must never be treated as reliable evidence for auto-end.
-    if (line === "CAPABILITY PID") {
-      this._setPidScopedCapability(true);
-      return;
-    }
-    // The helper downgrades itself mid-run on an unrecoverable coverage gap
-    // and keeps emitting best-effort transitions for meeting detection.
-    if (line === "CAPABILITY AGGREGATE") {
-      this._setPidScopedCapability(false);
-      return;
-    }
-
-    this._parsePidScopedListenerLine(line);
   }
 
   // Our own captures never enter the pid set: dictation opens the mic from
@@ -915,26 +876,10 @@ class AudioActivityDetector extends EventEmitter {
 
   async _isMicActive() {
     switch (process.platform) {
-      case "win32":
-        return this._checkWin32();
       case "linux":
         return this._checkLinux();
       default:
         return false;
-    }
-  }
-
-  async _checkWin32() {
-    try {
-      const processListCache = require("./processListCache");
-      const names = await processListCache.getProcessList();
-      return (
-        names.includes("cpthost.exe") ||
-        names.includes("ms-teams_modulehost.exe") ||
-        names.includes("webexmeetingsapp.exe")
-      );
-    } catch {
-      return false;
     }
   }
 

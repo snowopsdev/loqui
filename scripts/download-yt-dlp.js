@@ -8,23 +8,13 @@ const YT_DLP_VERSION = "2026.07.04";
 const GITHUB_RELEASE_URL = `https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}`;
 
 // yt-dlp ships single self-contained PyInstaller binaries (no archive to extract).
-// macOS asset is universal2 and serves both arm64 and x64. sha256 values are pinned
+// The macOS asset is universal2; only the arm64 target ships. sha256 values are pinned
 // from the release's SHA2-256SUMS — release assets are mutable, tags aren't enough.
 const BINARIES = {
   "darwin-arm64": {
     assetName: "yt-dlp_macos",
     outputName: "yt-dlp-darwin-arm64",
     sha256: "498bd0dae17855c599d371d68ec5bafc439a9d8640e838be25c765a9792f261b",
-  },
-  "darwin-x64": {
-    assetName: "yt-dlp_macos",
-    outputName: "yt-dlp-darwin-x64",
-    sha256: "498bd0dae17855c599d371d68ec5bafc439a9d8640e838be25c765a9792f261b",
-  },
-  "win32-x64": {
-    assetName: "yt-dlp.exe",
-    outputName: "yt-dlp-win32-x64.exe",
-    sha256: "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8",
   },
   "linux-x64": {
     assetName: "yt-dlp_linux",

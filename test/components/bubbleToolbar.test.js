@@ -83,11 +83,13 @@ test("Ask AI opens a visible composer and seeds it, disarming any queue (I05)", 
   );
 });
 
+// Tiptap is bundled into the renderer by Vite, so it is a devDependency and
+// stays out of app.asar; it must still be direct and pinned with core.
 test("the bubble menu extension is a direct, pinned dependency", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  const version = pkg.dependencies["@tiptap/extension-bubble-menu"];
+  const version = pkg.devDependencies["@tiptap/extension-bubble-menu"];
   assert.match(version, /^\d+\.\d+\.\d+$/);
-  assert.equal(version, pkg.dependencies["@tiptap/core"]);
+  assert.equal(version, pkg.devDependencies["@tiptap/core"]);
 });
 
 test("every native bubble button has canonical opaque focus rings", async () => {

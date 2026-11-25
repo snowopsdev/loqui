@@ -26,20 +26,6 @@ const BINARIES = {
     outputName: "llama-server-darwin-arm64",
     libPattern: "*.dylib",
   },
-  "darwin-x64": {
-    platformArch: "darwin-x64",
-    assetPattern: /^llama-.*-bin-macos-x64\.tar\.gz$/,
-    binaryPath: "build/bin/llama-server",
-    outputName: "llama-server-darwin-x64",
-    libPattern: "*.dylib",
-  },
-  "win32-x64-cpu": {
-    platformArch: "win32-x64",
-    assetPattern: /^llama-.*-bin-win-cpu-x64\.zip$/,
-    binaryPath: "build/bin/llama-server.exe",
-    outputName: "llama-server-win32-x64-cpu.exe",
-    libPattern: "*.dll",
-  },
   "linux-x64-cpu": {
     platformArch: "linux-x64",
     assetPattern: /^llama-.*-bin-ubuntu-x64\.tar\.gz$/,

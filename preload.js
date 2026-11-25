@@ -713,19 +713,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveUiLanguage: (language) => ipcRenderer.invoke("save-ui-language", language),
   setUiLanguage: (language) => ipcRenderer.invoke("set-ui-language", language),
 
-  // xAI / Mistral transcription proxies (keys handled by the manifest bridge)
-  proxyXaiTranscription: (data) => ipcRenderer.invoke("proxy-xai-transcription", data),
-  proxyMistralTranscription: (data) => ipcRenderer.invoke("proxy-mistral-transcription", data),
-  proxyGeminiTranscription: (data) => ipcRenderer.invoke("proxy-gemini-transcription", data),
-
   // Corti API
   getCortiClientId: () => ipcRenderer.invoke("get-corti-client-id"),
   saveCortiClientId: (key) => ipcRenderer.invoke("save-corti-client-id", key),
   getCortiClientSecret: () => ipcRenderer.invoke("get-corti-client-secret"),
   saveCortiClientSecret: (key) => ipcRenderer.invoke("save-corti-client-secret", key),
-  proxyCortiTranscription: (data) => ipcRenderer.invoke("proxy-corti-transcription", data),
   getTinfoilChatModels: () => ipcRenderer.invoke("get-tinfoil-chat-models"),
-  proxyTinfoilTranscription: (data) => ipcRenderer.invoke("proxy-tinfoil-transcription", data),
 
   // Custom endpoint API keys
   getCustomTranscriptionKey: () => ipcRenderer.invoke("get-custom-transcription-key"),
@@ -767,8 +760,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveVertexLocation: (value) => ipcRenderer.invoke("save-vertex-location", value),
   getVertexApiKey: () => ipcRenderer.invoke("get-vertex-api-key"),
   saveVertexApiKey: (key) => ipcRenderer.invoke("save-vertex-api-key", key),
-  testEnterpriseConnection: (provider, config) =>
-    ipcRenderer.invoke("test-enterprise-connection", provider, config),
 
   // Dictation key persistence (file-based for reliable startup)
   getDictationKey: () => ipcRenderer.invoke("get-dictation-key"),
@@ -788,23 +779,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   processLocalReasoning: (text, modelId, agentName, config) =>
     ipcRenderer.invoke("process-local-reasoning", text, modelId, agentName, config),
   checkLocalReasoningAvailable: () => ipcRenderer.invoke("check-local-reasoning-available"),
-
-  // Anthropic reasoning
-  processAnthropicReasoning: (text, modelId, agentName, config) =>
-    ipcRenderer.invoke("process-anthropic-reasoning", text, modelId, agentName, config),
-
-  // Enterprise reasoning (Bedrock, Azure, Vertex) — runs in main process so
-  // Node-only SDKs (AWS/Azure/Google credential providers) can resolve.
-  processEnterpriseReasoning: (text, modelId, agentName, config) =>
-    ipcRenderer.invoke("process-enterprise-reasoning", text, modelId, agentName, config),
-  cancelEnterpriseReasoning: () => ipcRenderer.send("enterprise-reasoning-cancel"),
-  enterpriseStreamStart: (payload) => ipcRenderer.invoke("enterprise-stream-start", payload),
-  enterpriseStreamCancel: (streamId) => ipcRenderer.invoke("enterprise-stream-cancel", streamId),
-  onEnterpriseStreamPart: registerListener(
-    "enterprise-stream-part",
-    (callback) => (_event, payload) => callback(payload)
-  ),
-  listBedrockModels: (config) => ipcRenderer.invoke("bedrock-list-models", config),
 
   // llama.cpp
   llamaCppCheck: () => ipcRenderer.invoke("llama-cpp-check"),
@@ -1146,7 +1120,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("dictation-key-active", listener);
     return () => ipcRenderer.removeListener("dictation-key-active", listener);
   },
-  onWindowsPushToTalkUnavailable: registerListener("windows-ptt-unavailable"),
   onLinuxPttPermissionDenied: registerListener(
     "linux-ptt-permission-denied",
     (callback) => () => callback()

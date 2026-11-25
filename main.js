@@ -209,6 +209,9 @@ let audioTapManager = null;
 let linuxPortalAudioManager = null;
 let meetingAecManager = null;
 let qdrantManager = null;
+// Starts the Qdrant sidecar once both it and the embedding model are present.
+// Replaced at startup; until then (and without the model) it is a no-op.
+let startVectorIndexIfReady = () => {};
 let ipcHandlers = null;
 let updateManager = null;
 let updateExit = false;
@@ -397,7 +400,10 @@ function initializeCoreManagers() {
     try {
       const embeddings = require("./src/helpers/localEmbeddings");
       await embeddings.downloadModel();
-      return { success: embeddings.isAvailable() };
+      const success = embeddings.isAvailable();
+      // Startup skips the sidecar while the model is missing; bring it up now.
+      if (success) startVectorIndexIfReady();
+      return { success };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -827,22 +833,22 @@ async function startApp() {
   // TODO: drop legacy REASONING_PROVIDER / LOCAL_REASONING_MODEL fallbacks after 2 releases.
   const cleanupProvider = process.env.CLEANUP_PROVIDER || process.env.REASONING_PROVIDER;
   const cleanupLocalModel = process.env.LOCAL_CLEANUP_MODEL || process.env.LOCAL_REASONING_MODEL;
-  if (cleanupProvider === "local" && cleanupLocalModel) {
+  const dictationAgentLocalModel =
+    process.env.DICTATION_AGENT_PROVIDER === "local"
+      ? process.env.LOCAL_DICTATION_AGENT_MODEL
+      : undefined;
+  // llama-server hosts one model at a time, so warming the cleanup and agent
+  // models together raced two starts against the same server and left
+  // whichever finished last loaded. Warm one: cleanup runs on every dictation,
+  // the agent only on request (and loads its model on demand).
+  const prewarmModel =
+    (cleanupProvider === "local" && cleanupLocalModel) || dictationAgentLocalModel;
+  if (prewarmModel) {
     const modelManager = require("./src/helpers/modelManagerBridge").default;
-    modelManager.prewarmServer(cleanupLocalModel).catch((err) => {
-      debugLogger.debug("llama-server pre-warm error (non-fatal)", { error: err.message });
-    });
-  }
-
-  if (
-    process.env.DICTATION_AGENT_PROVIDER === "local" &&
-    process.env.LOCAL_DICTATION_AGENT_MODEL &&
-    process.env.LOCAL_DICTATION_AGENT_MODEL !== cleanupLocalModel
-  ) {
-    const modelManager = require("./src/helpers/modelManagerBridge").default;
-    modelManager.prewarmServer(process.env.LOCAL_DICTATION_AGENT_MODEL).catch((err) => {
-      debugLogger.debug("dictation-agent llama-server pre-warm error (non-fatal)", {
+    modelManager.prewarmServer(prewarmModel).catch((err) => {
+      debugLogger.debug("llama-server pre-warm error (non-fatal)", {
         error: err.message,
+        modelId: prewarmModel,
       });
     });
   }
@@ -868,16 +874,25 @@ async function startApp() {
   // A successful unhealthy-restart can bring the sidecar back on a new port.
   qdrantManager.on("restarted", wireVectorIndex);
   sidecarRegistry.register("qdrant", () => qdrantManager.stop());
-  if (qdrantManager.isAvailable()) {
+  // Vectors need the local embedding model; without it the sidecar would only
+  // cost memory and a startup process. Search falls back to keyword (FTS)
+  // until the model is downloaded, which starts the sidecar on demand.
+  let vectorIndexStarting = false;
+  startVectorIndexIfReady = () => {
+    if (vectorIndexStarting || !qdrantManager.isAvailable()) return;
+    if (!require("./src/helpers/localEmbeddings").isAvailable()) return;
+    vectorIndexStarting = true;
     qdrantManager
       .start()
       .then(() => {
         if (qdrantManager.isReady()) wireVectorIndex(qdrantManager.getPort());
       })
       .catch((err) => {
+        vectorIndexStarting = false;
         debugLogger.debug("Qdrant startup error (non-fatal)", { error: err.message });
       });
-  }
+  };
+  startVectorIndexIfReady();
 
   trayManager.setWindows(windowManager.mainWindow, windowManager.controlPanelWindow);
   trayManager.setWindowManager(windowManager);

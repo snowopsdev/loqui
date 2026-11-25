@@ -1,3 +1,5 @@
+// Declares the handwritten face used by onboarding copy (.brand-script).
+import "@fontsource-variable/caveat";
 import {
   getSetupCleanupRevision,
   subscribeSetupCleanupRevision,

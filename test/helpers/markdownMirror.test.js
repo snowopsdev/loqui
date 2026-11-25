@@ -316,3 +316,46 @@ test("a note file re-saved with a BOM or CRLF is still recognised as its note", 
     assert.equal(markdownMirror.getNotePath(note.id), notePath);
   }
 });
+
+test("an unchanged transcript is not rewritten, but a changed or edited one is", (t) => {
+  const basePath = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-markdown-mirror-transcript-"));
+  t.after(() => fs.rmSync(basePath, { recursive: true, force: true }));
+  const transcriptPath = path.join(basePath, "Personal", "9-standup-transcript.md");
+  const writes = [];
+  const originalWrite = fs.writeFileSync;
+  fs.writeFileSync = function countingWrite(file, ...rest) {
+    writes.push(file);
+    return originalWrite.call(this, file, ...rest);
+  };
+  t.after(() => {
+    fs.writeFileSync = originalWrite;
+  });
+  const note = {
+    id: 9,
+    title: "Standup",
+    content: "",
+    created_at: "2026-07-21T12:00:00Z",
+    transcript: JSON.stringify([{ speaker: "speaker_0", timestamp: 0, text: "First update." }]),
+  };
+  const transcriptWrites = () => writes.filter((file) => file === transcriptPath).length;
+
+  markdownMirror.init(basePath);
+  markdownMirror.writeTranscript(note, "Personal", {});
+  assert.equal(transcriptWrites(), 1);
+
+  markdownMirror.writeTranscript({ ...note, content: "edited body only" }, "Personal", {});
+  assert.equal(transcriptWrites(), 1, "a note save that leaves the transcript alone skips it");
+
+  const changed = {
+    ...note,
+    transcript: JSON.stringify([{ speaker: "speaker_0", timestamp: 0, text: "Second update." }]),
+  };
+  markdownMirror.writeTranscript(changed, "Personal", {});
+  assert.equal(transcriptWrites(), 2);
+  assert.match(fs.readFileSync(transcriptPath, "utf8"), /Second update\./);
+
+  originalWrite(transcriptPath, "edited outside Loqui, longer than before", "utf8");
+  markdownMirror.writeTranscript(changed, "Personal", {});
+  assert.equal(transcriptWrites(), 3, "an externally edited mirror file is restored");
+  assert.match(fs.readFileSync(transcriptPath, "utf8"), /Second update\./);
+});

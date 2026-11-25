@@ -9,6 +9,7 @@ const { parseEventTime } = require("./calendarAvailability");
 // Prefer recorded occurrence times when dating local history.
 const { hasExplicitTimeZone, parseDbTimestamp, toDbTimestamp } = require("./dbTimestamp");
 const { BUILTIN_ACTIONS } = require("./builtinActions");
+const { runLocalDatabaseMigrations } = require("./localDatabaseMigrations");
 const {
   ANALYTICS_COUNTER_VERSION,
   ANALYTICS_HISTORY_BACKFILL_VERSION,
@@ -144,7 +145,13 @@ class DatabaseManager {
     this.db = new Database(path.join(app.getPath("userData"), dbFileName));
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
+    // WAL keeps NORMAL durable across app crashes (only an OS crash can lose
+    // the last commits) while skipping an fsync per transaction.
+    this.db.pragma("synchronous = NORMAL");
+    this.db.pragma("temp_store = MEMORY");
+    this.db.pragma("busy_timeout = 5000");
     this.db.exec(require("./localDatabaseSchema"));
+    runLocalDatabaseMigrations(this.db);
     this.db.transaction(() => {
       if (!this.db.prepare("SELECT id FROM spaces WHERE kind = 'private'").get()) {
         this.db

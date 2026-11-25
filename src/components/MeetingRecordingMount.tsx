@@ -287,7 +287,13 @@ export default function MeetingRecordingMount(): null {
       }
       // Meters read the analyser directly. Publish changed fallback/quiet fields
       // atomically so even a quiet transition costs at most one update per tick.
-      const levelChanged = measured ? Math.abs(level - lastWritten) > 0.005 : lastWritten !== 0;
+      // A hidden window paints no meters, so it skips the fallback level write
+      // (every store write wakes every subscriber); quiet detection keeps
+      // publishing because presence reporting depends on it. The first visible
+      // tick republishes the current level.
+      const metersVisible = document.visibilityState !== "hidden";
+      const levelChanged =
+        metersVisible && (measured ? Math.abs(level - lastWritten) > 0.005 : lastWritten !== 0);
       const quietChanged = quiet !== lastQuiet;
       if (levelChanged || quietChanged) {
         useMeetingRecordingStore.setState({

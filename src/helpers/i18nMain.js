@@ -1,29 +1,5 @@
 const i18next = require("i18next");
 
-const enTranslation = require("../locales/en/translation.json");
-const arTranslation = require("../locales/ar/translation.json");
-const esTranslation = require("../locales/es/translation.json");
-const frTranslation = require("../locales/fr/translation.json");
-const deTranslation = require("../locales/de/translation.json");
-const ptTranslation = require("../locales/pt/translation.json");
-const itTranslation = require("../locales/it/translation.json");
-const ruTranslation = require("../locales/ru/translation.json");
-const jaTranslation = require("../locales/ja/translation.json");
-const zhCNTranslation = require("../locales/zh-CN/translation.json");
-const zhTWTranslation = require("../locales/zh-TW/translation.json");
-
-const enPrompts = require("../locales/en/prompts.json");
-const arPrompts = require("../locales/ar/prompts.json");
-const esPrompts = require("../locales/es/prompts.json");
-const frPrompts = require("../locales/fr/prompts.json");
-const dePrompts = require("../locales/de/prompts.json");
-const ptPrompts = require("../locales/pt/prompts.json");
-const itPrompts = require("../locales/it/prompts.json");
-const ruPrompts = require("../locales/ru/prompts.json");
-const jaPrompts = require("../locales/ja/prompts.json");
-const zhCNPrompts = require("../locales/zh-CN/prompts.json");
-const zhTWPrompts = require("../locales/zh-TW/prompts.json");
-
 const SUPPORTED_UI_LANGUAGES = [
   "en",
   "ar",
@@ -65,57 +41,39 @@ function normalizeUiLanguage(language) {
   return SUPPORTED_UI_LANGUAGES.includes(base) ? base : "en";
 }
 
+// Only English (the fallback) and the active UI language are loaded. Each
+// translation bundle is ~250 KB of JSON, so requiring all 22 files at startup
+// costs parse time and heap for languages the user never sees.
+function readLocaleBundle(language, namespace) {
+  return require(`../locales/${language}/${namespace}.json`);
+}
+
+function ensureLanguageLoaded(instance, language) {
+  for (const namespace of ["translation", "prompts"]) {
+    if (!instance.hasResourceBundle(language, namespace)) {
+      instance.addResourceBundle(language, namespace, readLocaleBundle(language, namespace));
+    }
+  }
+}
+
+function buildInitialResources(language) {
+  const resources = {};
+  for (const lng of new Set(["en", language])) {
+    resources[lng] = {
+      translation: readLocaleBundle(lng, "translation"),
+      prompts: readLocaleBundle(lng, "prompts"),
+    };
+  }
+  return resources;
+}
+
 const i18nMain = i18next.createInstance();
+const initialLanguage = normalizeUiLanguage(process.env.UI_LANGUAGE);
 
 void i18nMain.init({
   initAsync: false,
-  resources: {
-    en: {
-      translation: enTranslation,
-      prompts: enPrompts,
-    },
-    ar: {
-      translation: arTranslation,
-      prompts: arPrompts,
-    },
-    es: {
-      translation: esTranslation,
-      prompts: esPrompts,
-    },
-    fr: {
-      translation: frTranslation,
-      prompts: frPrompts,
-    },
-    de: {
-      translation: deTranslation,
-      prompts: dePrompts,
-    },
-    pt: {
-      translation: ptTranslation,
-      prompts: ptPrompts,
-    },
-    it: {
-      translation: itTranslation,
-      prompts: itPrompts,
-    },
-    ru: {
-      translation: ruTranslation,
-      prompts: ruPrompts,
-    },
-    ja: {
-      translation: jaTranslation,
-      prompts: jaPrompts,
-    },
-    "zh-CN": {
-      translation: zhCNTranslation,
-      prompts: zhCNPrompts,
-    },
-    "zh-TW": {
-      translation: zhTWTranslation,
-      prompts: zhTWPrompts,
-    },
-  },
-  lng: normalizeUiLanguage(process.env.UI_LANGUAGE),
+  resources: buildInitialResources(initialLanguage),
+  lng: initialLanguage,
   fallbackLng: "en",
   ns: ["translation", "prompts"],
   defaultNS: "translation",
@@ -130,6 +88,8 @@ function changeLanguage(language) {
   const normalized = normalizeUiLanguage(language);
 
   if (i18nMain.language !== normalized) {
+    // Bundles load synchronously so callers observe the new language at once.
+    ensureLanguageLoaded(i18nMain, normalized);
     void i18nMain.changeLanguage(normalized);
   }
 

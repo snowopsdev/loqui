@@ -8054,24 +8054,15 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("get-ydotool-status", () => {
-      const { getYdotoolStatus } = require("./ensureYdotool");
+    ipcMain.handle("get-ydotool-status", async () => {
+      const { getYdotoolStatus, commandExists } = require("./ensureYdotool");
       const { getLinuxSessionInfo } = require("./linuxSession");
-      const { execFileSync } = require("child_process");
-      const status = getYdotoolStatus();
       const { isKde } = getLinuxSessionInfo();
-      let hasXclip = false;
-      let hasXsel = false;
-      if (isKde) {
-        try {
-          execFileSync("which", ["xclip"], { timeout: 1000 });
-          hasXclip = true;
-        } catch {}
-        try {
-          execFileSync("which", ["xsel"], { timeout: 1000 });
-          hasXsel = true;
-        } catch {}
-      }
+      const [status, hasXclip, hasXsel] = await Promise.all([
+        getYdotoolStatus(),
+        isKde ? commandExists("xclip") : false,
+        isKde ? commandExists("xsel") : false,
+      ]);
       return { ...status, hasXclip, hasXsel };
     });
 

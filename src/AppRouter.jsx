@@ -6,12 +6,18 @@ import UpdateSettings from "./components/settings/UpdateSettings";
 import { flushForUpdate } from "./utils/updateFlush";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import App from "./App.jsx";
-import AgentDictationPillOverlay from "./components/dictation/AgentDictationPillOverlay.tsx";
-import MeetingNotificationOverlay from "./components/MeetingNotificationOverlay.tsx";
 import { useControlPanelWindowDrag } from "./hooks/useControlPanelWindowDrag";
 import { useTheme } from "./hooks/useTheme";
 import { isControlPanelWindow } from "./utils/windowContext.ts";
+// Each window mounts exactly one of these surfaces, so none of them belongs in
+// the shared entry chunk.
+const App = React.lazy(() => import("./App.jsx"));
+const AgentDictationPillOverlay = React.lazy(
+  () => import("./components/dictation/AgentDictationPillOverlay.tsx")
+);
+const MeetingNotificationOverlay = React.lazy(
+  () => import("./components/MeetingNotificationOverlay.tsx")
+);
 const ControlPanel = React.lazy(() => import("./components/ControlPanel.tsx"));
 const OnboardingFlow = React.lazy(() => import("./components/OnboardingFlow.tsx"));
 const BrowserPreview = import.meta.env.DEV
@@ -39,9 +45,17 @@ export default function AppRouter() {
     );
   }
   if (window.location.search.includes("meeting-notification=true"))
-    return <MeetingNotificationOverlay />;
+    return (
+      <Suspense fallback={null}>
+        <MeetingNotificationOverlay />
+      </Suspense>
+    );
   if (window.location.search.includes("agent-dictation-pill=true"))
-    return <AgentDictationPillOverlay />;
+    return (
+      <Suspense fallback={null}>
+        <AgentDictationPillOverlay />
+      </Suspense>
+    );
   return <MainApp />;
 }
 function MainApp() {

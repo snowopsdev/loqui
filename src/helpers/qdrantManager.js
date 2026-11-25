@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const debugLogger = require("./debugLogger");
+const { BoundedOutput } = require("./boundedOutput");
 const {
   findAvailablePort,
   resolveBinaryPath,
@@ -134,7 +135,7 @@ class QdrantManager extends EventEmitter {
     this.process = child;
     sidecarPidFile.write("qdrant", child.pid);
 
-    let stderrBuffer = "";
+    const stderrOutput = new BoundedOutput();
     let lastErrorLine = "";
     let exitCode = null;
 
@@ -146,7 +147,7 @@ class QdrantManager extends EventEmitter {
     });
 
     child.stderr.on("data", (data) => {
-      stderrBuffer += data.toString();
+      stderrOutput.append(data);
       debugLogger.debug("qdrant stderr", { data: data.toString().trim() });
     });
 
@@ -167,7 +168,7 @@ class QdrantManager extends EventEmitter {
       sidecarPidFile.clear("qdrant");
     });
 
-    await this._waitForReady(() => ({ stderr: stderrBuffer, lastErrorLine, exitCode }));
+    await this._waitForReady(() => ({ stderr: stderrOutput.toString(), lastErrorLine, exitCode }));
     this._startHealthCheck();
 
     debugLogger.info("qdrant started successfully", { port: this.port });

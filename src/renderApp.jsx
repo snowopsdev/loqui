@@ -10,16 +10,21 @@ import { I18nDirectionProvider } from "./components/I18nDirectionProvider.tsx";
 import { SettingsProvider } from "./hooks/useSettings";
 import { bindDocumentLanguage } from "./utils/i18nDocument";
 
-import i18n from "./i18n";
+import i18n, { i18nReady } from "./i18n";
 // Self-hosted so it works offline and makes no network call — the "opsz" build
 // carries Inter's optical-size axis, so large display text picks up the Inter
 // Display shaping automatically. Declaring the face is global; only the
 // onboarding surfaces actually ask for it (see .onboarding-canvas in index.css).
+// The handwritten Caveat face is declared by OnboardingFlow, its only consumer.
 import "@fontsource-variable/inter/opsz.css";
-import "@fontsource-variable/caveat";
 import "./index.css";
 
 bindDocumentLanguage(i18n, document.documentElement, import.meta.hot);
+
+// Non-English UI bundles load on demand; render once the active one is ready
+// so the first paint is already translated. A failed load still renders (with
+// the bundled English fallback) rather than leaving the window blank.
+await i18nReady.catch(() => {});
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(

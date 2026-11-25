@@ -1,7 +1,7 @@
-import i18n from "i18next";
+import i18n, { type BackendModule, type ResourceLanguage } from "i18next";
 import { initReactI18next } from "react-i18next";
 import { PROMPTS_BY_LOCALE } from "./locales/prompts";
-import { TRANSLATIONS_BY_LOCALE } from "./locales/translations";
+import { EN_TRANSLATION, hasTranslationLoader, loadTranslation } from "./locales/translations";
 
 export const SUPPORTED_UI_LANGUAGES = [
   "en",
@@ -48,52 +48,32 @@ export function normalizeUiLanguage(language: string | null | undefined): UiLang
   return "en";
 }
 
-const resources = {
-  en: {
-    translation: TRANSLATIONS_BY_LOCALE.en,
-    prompts: PROMPTS_BY_LOCALE.en,
+// Prompts are small (~5 KB per locale) and resolved synchronously for any
+// locale (see config/prompts), so every locale's prompts stay bundled. UI
+// translations are ~250 KB per locale: only English ships eagerly as the
+// fallback and the rest load on demand through the backend below.
+const resources: Record<string, ResourceLanguage> = Object.fromEntries(
+  SUPPORTED_UI_LANGUAGES.map((lng) => [lng, { prompts: PROMPTS_BY_LOCALE[lng] }])
+);
+resources.en = { translation: EN_TRANSLATION, prompts: PROMPTS_BY_LOCALE.en };
+
+// i18next calls read() for any (language, namespace) pair it has no bundle
+// for, and changeLanguage() resolves only after it completes, so a language
+// switch never renders untranslated keys.
+const lazyTranslationBackend: BackendModule = {
+  type: "backend",
+  init() {},
+  read(language, namespace, callback) {
+    if (namespace !== "translation" || !hasTranslationLoader(language)) {
+      callback(null, {});
+      return;
+    }
+    loadTranslation(language).then(
+      (bundle) => callback(null, bundle),
+      (error: Error) => callback(error, false)
+    );
   },
-  ar: {
-    translation: TRANSLATIONS_BY_LOCALE.ar,
-    prompts: PROMPTS_BY_LOCALE.ar,
-  },
-  es: {
-    translation: TRANSLATIONS_BY_LOCALE.es,
-    prompts: PROMPTS_BY_LOCALE.es,
-  },
-  fr: {
-    translation: TRANSLATIONS_BY_LOCALE.fr,
-    prompts: PROMPTS_BY_LOCALE.fr,
-  },
-  de: {
-    translation: TRANSLATIONS_BY_LOCALE.de,
-    prompts: PROMPTS_BY_LOCALE.de,
-  },
-  pt: {
-    translation: TRANSLATIONS_BY_LOCALE.pt,
-    prompts: PROMPTS_BY_LOCALE.pt,
-  },
-  it: {
-    translation: TRANSLATIONS_BY_LOCALE.it,
-    prompts: PROMPTS_BY_LOCALE.it,
-  },
-  ru: {
-    translation: TRANSLATIONS_BY_LOCALE.ru,
-    prompts: PROMPTS_BY_LOCALE.ru,
-  },
-  ja: {
-    translation: TRANSLATIONS_BY_LOCALE.ja,
-    prompts: PROMPTS_BY_LOCALE.ja,
-  },
-  "zh-CN": {
-    translation: TRANSLATIONS_BY_LOCALE["zh-CN"],
-    prompts: PROMPTS_BY_LOCALE["zh-CN"],
-  },
-  "zh-TW": {
-    translation: TRANSLATIONS_BY_LOCALE["zh-TW"],
-    prompts: PROMPTS_BY_LOCALE["zh-TW"],
-  },
-} as const;
+};
 
 const browserLanguage =
   typeof navigator !== "undefined" ? navigator.language || navigator.languages?.[0] : undefined;
@@ -103,17 +83,22 @@ const storageLanguage =
 
 const initialLanguage = normalizeUiLanguage(storageLanguage || browserLanguage || "en");
 
-void i18n.use(initReactI18next).init({
-  resources,
-  lng: initialLanguage,
-  fallbackLng: "en",
-  ns: ["translation", "prompts"],
-  defaultNS: "translation",
-  interpolation: {
-    escapeValue: false,
-  },
-  returnEmptyString: true,
-  returnNull: false,
-});
+/** Resolves once the initial UI language bundle is loaded. */
+export const i18nReady: Promise<unknown> = i18n
+  .use(lazyTranslationBackend)
+  .use(initReactI18next)
+  .init({
+    resources,
+    partialBundledLanguages: true,
+    lng: initialLanguage,
+    fallbackLng: "en",
+    ns: ["translation", "prompts"],
+    defaultNS: "translation",
+    interpolation: {
+      escapeValue: false,
+    },
+    returnEmptyString: true,
+    returnNull: false,
+  });
 
 export default i18n;

@@ -1,4 +1,5 @@
-const { execFileSync } = require("child_process");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 const debugLogger = require("./debugLogger");
 const sidecarPidFile = require("./sidecarPidFile");
 
@@ -26,21 +27,26 @@ function isProcessAlive(pid) {
   }
 }
 
-function processCommand(pid) {
+const execFileAsync = promisify(execFile);
+const PROCESS_LOOKUP_TIMEOUT_MS = 5000;
+
+// Reaping runs during startup; an async lookup keeps a slow ps/tasklist from
+// blocking the main process while the other sidecars are checked in parallel.
+async function processCommand(pid) {
   try {
     if (process.platform === "win32") {
-      const out = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
-        stdio: ["ignore", "pipe", "ignore"],
-        windowsHide: true,
-      }).toString();
-      const match = out.match(/^"([^"]+)"/);
+      const { stdout } = await execFileAsync(
+        "tasklist",
+        ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"],
+        { windowsHide: true, timeout: PROCESS_LOOKUP_TIMEOUT_MS }
+      );
+      const match = String(stdout).match(/^"([^"]+)"/);
       return match ? match[1] : "";
     }
-    return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
+    const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "command="], {
+      timeout: PROCESS_LOOKUP_TIMEOUT_MS,
+    });
+    return String(stdout).trim();
   } catch {
     return "";
   }
@@ -92,7 +98,7 @@ async function reapStaleSidecars({
     entries.map(async ({ name, pid }) => {
       const fragments = EXPECTED_BINARY_FRAGMENTS[name];
       if (fragments && isProcessAlive(pid)) {
-        const command = processCommand(pid);
+        const command = await processCommand(pid);
         if (fragments.some((fragment) => command.includes(fragment))) {
           const dead = await killStaleSidecar(name, pid, { sigtermGraceMs, sigkillGraceMs });
           if (!dead) return;

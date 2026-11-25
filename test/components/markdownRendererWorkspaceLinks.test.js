@@ -24,7 +24,7 @@ async function render(t, content, inspect = () => {}) {
   });
   const mod = await vite.ssrLoadModule("/components/ui/MarkdownRenderer.tsx");
   function InspectMarkdown(props) {
-    const element = mod.MarkdownRenderer(props);
+    const element = mod.MarkdownRenderer.type(props);
     inspect(element.props.children.props.children.props.components.a);
     return element;
   }

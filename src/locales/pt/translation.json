@@ -3934,7 +3934,7 @@
   "updates": {
     "title": "Loqui updates",
     "automatic": "Download updates automatically",
-    "description": "After setup, Loqui checks its GitHub releases about once a day and downloads updates. You choose when to restart. Turn this off for fully offline use.",
+    "description": "After setup, Loqui checks its GitHub releases about once a day (every few hours on the Beta channel) and downloads updates. You choose when to restart. Turn this off for fully offline use.",
     "channel": "Release channel",
     "stable": "Stable",
     "beta": "Beta and stable",
@@ -4595,7 +4595,7 @@
       "historyBodyMac": "Guarda as transcrições neste Mac. Podes alterar a opção em Privacidade e dados quando quiseres.",
       "historyBodyOther": "Guarda as transcrições neste computador. Podes alterar a opção em Privacidade e dados quando quiseres.",
       "updatesTitle": "Transferir atualizações automaticamente",
-      "updatesBody": "Verifica versões assinadas todos os dias. Tu escolhes quando reiniciar."
+      "updatesBody": "Verifica versões assinadas regularmente. Tu escolhes quando reiniciar."
     },
     "voice": {
       "checkingMac": "A analisar este Mac…",

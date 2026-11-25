@@ -7,7 +7,7 @@ const crypto = require("node:crypto");
 const yaml = require("js-yaml");
 const { validateRelease } = require("../../scripts/validate-release.cjs");
 const { assembleRelease } = require("../../scripts/assemble-release.cjs");
-const { run: draftRelease } = require("../../scripts/release-draft.cjs");
+const { run: draftRelease, releaseNotes } = require("../../scripts/release-draft.cjs");
 
 const version = "0.1.0-beta.1";
 const tag = `v${version}`;
@@ -355,6 +355,37 @@ test("new releases are always drafts, with immutable protection and tag identity
   assert.deepEqual(f.writes[0].args.slice(0, 3), ["release", "create", tag]);
   assert.ok(f.writes[0].args.includes("--draft"));
   assert.ok(f.writes[0].args.includes("--prerelease"));
+  assert.ok(!f.writes[0].args.includes("--notes-file"), "never the whole changelog");
+  assert.equal(f.writes[0].args[f.writes[0].args.indexOf("--notes") + 1], "Release fixture.");
+});
+
+test("[change-driving] release notes carry only the released version's changelog section", () => {
+  const changelog = [
+    "# Changelog",
+    "",
+    "## 0.2.0 - 2026-11-20",
+    "",
+    "- Newest change.",
+    "",
+    "### Fixes",
+    "",
+    "- A fix.",
+    "",
+    "## 0.1.0-beta.3 - 2026-10-30",
+    "",
+    "- Older change.",
+    "",
+    "## 0.1.0-beta.30",
+    "- Prefix collision.",
+  ].join("\r\n");
+  assert.equal(releaseNotes(changelog, "0.2.0"), "- Newest change.\n\n### Fixes\n\n- A fix.");
+  assert.equal(releaseNotes(changelog, "0.1.0-beta.3"), "- Older change.");
+  assert.equal(releaseNotes(changelog, "0.1.0-beta.30"), "- Prefix collision.");
+  assert.equal(releaseNotes(changelog, "9.9.9"), "Loqui 9.9.9. See CHANGELOG.md for details.");
+  assert.equal(
+    releaseNotes("## 1.0.0\n\n## 0.9.0\n- x\n", "1.0.0"),
+    "Loqui 1.0.0. See CHANGELOG.md for details."
+  );
 });
 
 test("draft retries verify unchanged assets and stop if publication happens before upload", async (t) => {

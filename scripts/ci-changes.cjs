@@ -1,16 +1,28 @@
 const fs = require("node:fs");
 const { execFileSync } = require("node:child_process");
 
-function classifyPaths(paths) {
+// Paths that change what the native/package build produces. Pure app logic
+// (renderer, main-process helpers, main.js/preload.js) is covered by the quality
+// job on pull requests and by the full platform build on every push to main, so
+// a JS-only pull request does not wait an hour for Linux and macOS packaging.
+// src/assets and src/config are packaging inputs: electron-builder reads
+// product.json and package-smoke.cjs compares the shipped artwork.
+const PLATFORM_PATHS =
+  /^(?:native\/|resources\/|scripts\/|src\/(?:assets|config)\/|package(?:-lock)?\.json$|electron-builder\.(?:json|cjs)$|runtime-assets\.json$|\.node-version$|\.github\/workflows\/platform\.yml$)/;
+
+function classifyPaths(paths, { fullBuild = false } = {}) {
   const codePaths = paths.filter((file) => !/^(?:docs\/|(?:LICENSE|NOTICE)$)|\.md$/i.test(file));
+  const code = codePaths.length > 0;
   return {
-    code: codePaths.length > 0,
-    platform: codePaths.some((file) =>
-      /^(?:native\/|resources\/|scripts\/|src\/(?:assets|config|helpers|models|workers)\/|\.github\/workflows\/|(?:main|preload)\.js$|package(?:-lock)?\.json$|electron-builder\.(?:json|cjs)$|runtime-assets\.json$|\.node-version$)/.test(
-        file
-      )
-    ),
+    code,
+    platform: code && (fullBuild || codePaths.some((file) => PLATFORM_PATHS.test(file))),
   };
+}
+
+// Pushes to main always build both platforms so packaging regressions from app
+// code are caught before a release, never later than the merge that caused them.
+function isMainPush(env = process.env) {
+  return env.GITHUB_EVENT_NAME === "push" && env.GITHUB_REF === "refs/heads/main";
 }
 
 function changedPaths(base, git = (args) => execFileSync("git", args, { encoding: "utf8" })) {
@@ -24,7 +36,7 @@ function changedPaths(base, git = (args) => execFileSync("git", args, { encoding
 }
 
 if (require.main === module) {
-  const changes = classifyPaths(changedPaths(process.env.BASE));
+  const changes = classifyPaths(changedPaths(process.env.BASE), { fullBuild: isMainPush() });
   const output = Object.entries(changes)
     .map(([name, value]) => `${name}=${value}`)
     .join("\n");
@@ -32,4 +44,4 @@ if (require.main === module) {
   console.log(output);
 }
 
-module.exports = { classifyPaths, changedPaths };
+module.exports = { classifyPaths, changedPaths, isMainPush };

@@ -5,6 +5,8 @@ const onnxWorkerClient = require("./onnxWorkerClient");
 const { getSupportCacheDir } = require("./supportCacheDir");
 
 const MODEL_SUBDIR = "all-MiniLM-L6-v2";
+const EMBED_TEXT_LENGTH = 1500;
+const SPARSE_BODY_LENGTH = 200;
 
 class LocalEmbeddings {
   constructor() {
@@ -75,8 +77,41 @@ class LocalEmbeddings {
     return results;
   }
 
-  static noteEmbedText(title, content, enhancedContent) {
-    return `${title}\n${enhancedContent || content}`.slice(0, 1500);
+  // Recorded meetings and uploaded audio often have no typed notes, so a sparse
+  // body is topped up with the start of the transcript; otherwise those notes
+  // embed as little more than their title and never surface in semantic search.
+  static noteEmbedText(title, content, enhancedContent, transcript) {
+    const body = String(enhancedContent || content || "").trim();
+    const parts = [title || "", body];
+    if (body.length < SPARSE_BODY_LENGTH) {
+      const spoken = LocalEmbeddings.transcriptText(transcript);
+      if (spoken) parts.push(spoken);
+    }
+    return parts.filter(Boolean).join("\n").slice(0, EMBED_TEXT_LENGTH);
+  }
+
+  // The notes table stores transcripts as a JSON array of segments. Speaker
+  // labels are kept only when a person was actually named.
+  static transcriptText(transcript) {
+    if (transcript == null || transcript === "") return "";
+    let segments = transcript;
+    if (typeof transcript === "string") {
+      try {
+        segments = JSON.parse(transcript);
+      } catch {
+        return transcript.trim();
+      }
+    }
+    if (!Array.isArray(segments)) return "";
+    return segments
+      .map((segment) => {
+        const text = typeof segment?.text === "string" ? segment.text.trim() : "";
+        if (!text) return "";
+        const name = typeof segment.speakerName === "string" ? segment.speakerName.trim() : "";
+        return name && !segment.speakerIsPlaceholder ? `${name}: ${text}` : text;
+      })
+      .filter(Boolean)
+      .join("\n");
   }
 
   async downloadModel() {

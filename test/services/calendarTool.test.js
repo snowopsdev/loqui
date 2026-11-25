@@ -38,7 +38,59 @@ test("events map the real DB columns and survive serialization", async () => {
       start: "2026-08-12 16:00:00",
       end: "2026-08-12 16:15:00",
       joinUrl: "https://meet.google.com/abc-defg-hij",
+      attendees: [],
     },
+  ]);
+});
+
+test("[change-driving] attendees stored on the event reach the assistant", async () => {
+  const { calendarTool } = await load();
+  stubEvents([
+    {
+      summary: "Renewal call",
+      start_time: "2026-08-12 16:00:00",
+      end_time: "2026-08-12 16:30:00",
+      hangout_link: null,
+      conference_data: null,
+      attendees_count: 3,
+      attendees: JSON.stringify([
+        { email: "me@example.com", displayName: null, responseStatus: "accepted", self: true },
+        {
+          email: "dana@acme.test",
+          displayName: "Dana Lee",
+          responseStatus: "tentative",
+          self: false,
+        },
+        { email: "", displayName: "", responseStatus: null, self: false },
+      ]),
+    },
+  ]);
+
+  const result = await calendarTool.execute({});
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.data[0].attendees)), [
+    { name: null, email: "me@example.com", responseStatus: "accepted", self: true },
+    { name: "Dana Lee", email: "dana@acme.test", responseStatus: "tentative", self: false },
+  ]);
+  assert.equal("attendeeCount" in result.data[0], false);
+});
+
+test("large invites are capped with the full count kept; malformed attendee JSON is ignored", async () => {
+  const { calendarTool, parseAttendees } = await load();
+  const many = Array.from({ length: 40 }, (_, i) => ({ email: `p${i}@acme.test` }));
+  stubEvents([
+    { summary: "All hands", attendees_count: 40, attendees: JSON.stringify(many) },
+    { summary: "Broken", attendees_count: 2, attendees: "{not json" },
+  ]);
+
+  const result = await calendarTool.execute({});
+
+  assert.equal(result.data[0].attendees.length, 25);
+  assert.equal(result.data[0].attendeeCount, 40);
+  assert.deepEqual(result.data[1].attendees, []);
+  assert.deepEqual(parseAttendees(null), []);
+  assert.deepEqual(parseAttendees([{ displayName: " Sam " }]), [
+    { name: "Sam", email: null, responseStatus: null, self: false },
   ]);
 });
 

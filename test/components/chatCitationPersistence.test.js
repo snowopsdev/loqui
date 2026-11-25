@@ -262,7 +262,7 @@ for (const firstSend of [false, true]) {
     assert.equal(h.requests[0].model, "model-a");
     assert.equal(h.requests[0].baseUrl, "https://a.invalid/v1");
     assert.match(h.requests[0].systemPrompt, /A external context/);
-    assert.match(h.requests[0].systemPrompt, /A raw source/);
+    assert.match(h.requests[0].systemPrompt, /A enhanced source/);
     assert.doesNotMatch(h.requests[0].systemPrompt, /B context/);
     assert.match(h.requests[0].systemPrompt, /\[note:ID\]/);
     assert.deepEqual(h.requests[0].messages, [{ role: "user", content: "A question" }]);
@@ -286,7 +286,13 @@ for (const firstSend of [false, true]) {
     assert.deepEqual(h.histories.get(8), [{ role: "user", content: "B history" }]);
     const expected = {
       ragNotes: [
-        { id: 17, title: "A source", type: "meeting", date: "2026-10-13", quote: "A raw source" },
+        {
+          id: 17,
+          title: "A source",
+          type: "meeting",
+          date: "2026-10-13",
+          quote: "A enhanced source",
+        },
       ],
       route: { model: "model-a", providerId: "custom", locality: "remote" },
     };

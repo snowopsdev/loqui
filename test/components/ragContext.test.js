@@ -64,7 +64,7 @@ test("titles cannot break the note tag", async () => {
   assert.doesNotMatch(text, /injected="1"/);
 });
 
-test("RAG captures scope, keeps raw 500-character prompt snippets, and compacts Unicode-safe quotes", async () => {
+test("RAG captures scope, keeps 500-character prompt snippets, and compacts Unicode-safe quotes", async () => {
   const { buildRagContext } = await load();
   const calls = [];
   const content = "x".repeat(239) + "😀" + " raw ".repeat(100);
@@ -77,7 +77,7 @@ test("RAG captures scope, keeps raw 500-character prompt snippets, and compacts 
       id: 1,
       title: 'A & "B" <C>',
       content,
-      enhanced_content: "must not replace raw",
+      enhanced_content: null,
       note_type: "meeting",
       updated_at: "2026-10-15",
     }),
@@ -86,7 +86,7 @@ test("RAG captures scope, keeps raw 500-character prompt snippets, and compacts 
   assert.deepEqual(calls, [["question", 5, 3, 4]]);
   assert.match(result.text, /title="A &amp; &quot;B&quot; &lt;C&gt;"/);
   assert.ok(result.text.includes(content.slice(0, 500)));
-  assert.doesNotMatch(result.text, /must not replace raw/);
+  assert.ok(!result.text.includes(content.slice(0, 501)));
   assert.deepEqual(result.notes, [
     { id: 1, title: 'A & "B" <C>', type: "meeting", date: "2026-10-15", quote: "x".repeat(239) },
   ]);
@@ -106,4 +106,75 @@ test("bad RAG rows are dropped and a failed note read fails closed", async () =>
     throw new Error("read failed");
   };
   assert.deepEqual(await buildRagContext(api, "q"), { text: "", notes: [] });
+});
+
+const segments = (rows) => JSON.stringify(rows);
+const ragFor = async (note) => {
+  const { buildRagContext } = await load();
+  return buildRagContext(
+    {
+      semanticSearchNotes: async () => [{ id: note.id, title: note.title }],
+      getNote: async () => note,
+    },
+    "q"
+  );
+};
+
+test("[change-driving] a recorded meeting with no typed notes injects its transcript", async () => {
+  const { text, notes } = await ragFor({
+    id: 9,
+    title: "Vendor sync",
+    content: "",
+    enhanced_content: null,
+    note_type: "meeting",
+    transcript: segments([
+      { text: "We agreed to renew the contract in March.", speaker: "speaker_0" },
+      { text: "  ", speaker: "speaker_1" },
+      { text: "Budget is capped at 40k.", speakerName: "Dana" },
+      { text: "Placeholder name ignored.", speakerName: "Speaker 3", speakerIsPlaceholder: true },
+    ]),
+  });
+  assert.match(
+    text,
+    /<note id="9" title="Vendor sync">\nWe agreed to renew the contract in March\.\nDana: Budget is capped at 40k\.\nPlaceholder name ignored\.\n<\/note>/
+  );
+  assert.equal(
+    notes[0].quote,
+    "We agreed to renew the contract in March. Dana: Budget is capped at 40k. Placeholder name ignored."
+  );
+});
+
+test("[change-driving] the AI summary is preferred over typed notes and the transcript, matching get_note", async () => {
+  const { text, notes } = await ragFor({
+    id: 3,
+    title: "Upload",
+    content: "typed",
+    enhanced_content: "Summary of the uploaded call",
+    note_type: "upload",
+    transcript: segments([{ text: "spoken words" }]),
+  });
+  assert.match(text, /Summary of the uploaded call/);
+  assert.doesNotMatch(text, /typed|spoken words/);
+  assert.equal(notes[0].quote, "Summary of the uploaded call");
+  const typed = await ragFor({
+    id: 4,
+    title: "T",
+    content: "typed",
+    transcript: segments([{ text: "spoken" }]),
+  });
+  assert.match(typed.text, /\ntyped\n/);
+  assert.doesNotMatch(typed.text, /spoken/);
+});
+
+test("malformed or empty transcripts never throw and fall back safely", async () => {
+  const { formatTranscript } = await load();
+  assert.equal(formatTranscript(null), "");
+  assert.equal(formatTranscript(""), "");
+  assert.equal(formatTranscript("{}"), "");
+  assert.equal(formatTranscript("[]"), "");
+  assert.equal(formatTranscript("plain text transcript "), "plain text transcript");
+  assert.equal(formatTranscript(segments([null, { text: 5 }, { text: "ok" }])), "ok");
+  const { text, notes } = await ragFor({ id: 5, title: "Empty", content: "", transcript: null });
+  assert.equal(text, '<note id="5" title="Empty">\n\n</note>');
+  assert.equal(notes[0].quote, "");
 });

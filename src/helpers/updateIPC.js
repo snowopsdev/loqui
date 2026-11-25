@@ -1,5 +1,9 @@
 const crypto = require("node:crypto");
 const { UpdateManager } = require("./updateManager");
+// Packaged windows load file: URLs; development windows load the Vite server,
+// which binds 127.0.0.1 and may be addressed as localhost or by that address.
+const APP_URL = /^(?:file:|http:\/\/(?:localhost|127\.0\.0\.1):)/;
+const isAppUrl = (url) => typeof url === "string" && APP_URL.test(url);
 function trackUpdateActivity(ipcMain) {
   const pending = new Set();
   const handle = ipcMain.handle.bind(ipcMain);
@@ -48,12 +52,12 @@ function attachUpdateIPC({ app, ipcMain, BrowserWindow, updater, busy, activity,
   const waiters = new Map();
   const valid = (event) =>
     BrowserWindow.getAllWindows().some((w) => w.webContents === event.sender) &&
-    /^(file:|http:\/\/localhost:)/.test(event.sender.getURL());
+    isAppUrl(event.sender.getURL());
   const prepare = async () => {
     activity.lock(true);
     try {
       const windows = BrowserWindow.getAllWindows().filter(
-        (w) => !w.isDestroyed() && /^(file:|http:\/\/localhost:)/.test(w.webContents.getURL())
+        (w) => !w.isDestroyed() && isAppUrl(w.webContents.getURL())
       );
       await Promise.all(
         windows.map(
@@ -124,4 +128,4 @@ function attachUpdateIPC({ app, ipcMain, BrowserWindow, updater, busy, activity,
   if (manager.prefs.onboarded) manager.start();
   return manager;
 }
-module.exports = { trackUpdateActivity, attachUpdateIPC };
+module.exports = { trackUpdateActivity, attachUpdateIPC, isAppUrl };

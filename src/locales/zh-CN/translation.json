@@ -3929,7 +3929,7 @@
   "updates": {
     "title": "Loqui updates",
     "automatic": "Download updates automatically",
-    "description": "After setup, Loqui checks its GitHub releases about once a day and downloads updates. You choose when to restart. Turn this off for fully offline use.",
+    "description": "After setup, Loqui checks its GitHub releases about once a day (every few hours on the Beta channel) and downloads updates. You choose when to restart. Turn this off for fully offline use.",
     "channel": "Release channel",
     "stable": "Stable",
     "beta": "Beta and stable",
@@ -4555,7 +4555,7 @@
       "historyBodyMac": "将转写文本保存在这台 Mac 上。可随时在“隐私与数据”中更改。",
       "historyBodyOther": "将转写文本保存在这台电脑上。可随时在“隐私与数据”中更改。",
       "updatesTitle": "自动下载更新",
-      "updatesBody": "每天检查已签名的版本。由你决定何时重启。"
+      "updatesBody": "定期检查已签名的版本。由你决定何时重启。"
     },
     "voice": {
       "checkingMac": "正在检查这台 Mac…",

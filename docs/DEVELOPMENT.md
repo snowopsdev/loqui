@@ -72,9 +72,11 @@ npm run build:renderer
 npm run native:electron
 ```
 
+`npm run i18n:check` always fails on English errors and on mismatched placeholders or plural forms in any translated key. A key missing from another locale only warns, because i18next falls back to English; the release workflow runs `npm run i18n:check -- --strict` (and `npm test` with `I18N_STRICT=1`), which fails until every locale is complete.
+
 Use the repository's Prettier configuration for changed files. `npm run format:check` checks formatting as well as lint. Add focused tests for changed behavior; browser simulations do not validate microphones, global shortcuts, automatic paste, or meeting capture.
 
-Maintainers can run the **Quality** workflow manually to check the full source and both platform packages, including after repository import. Pull requests skip compilation for documentation-only changes; manual runs always run the complete checks. Superseded pull-request runs are canceled, while an in-progress `main` validation is allowed to finish.
+Maintainers can run the **Quality** workflow manually to check the full source and both platform packages, including after repository import. Pull requests skip compilation for documentation-only changes, and run the Linux and macOS platform builds only when they touch packaging inputs (`native/`, `resources/`, `scripts/`, `src/assets/`, `src/config/`, `package*.json`, `electron-builder.*`, `runtime-assets.json`, `.node-version`, or `platform.yml`). Pushes to `main` and manual runs always run the complete checks. Superseded pull-request runs are canceled, while an in-progress `main` validation is allowed to finish.
 
 ## Development packages
 

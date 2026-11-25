@@ -2654,9 +2654,15 @@ class WindowManager {
     const win = this.controlPanelWindow;
     if (!win || win.isDestroyed()) return;
     this._preMeetingBounds = win.getBounds();
-    const display = screen.getPrimaryDisplay();
-    const [minWidth = 0] = win.getMinimumSize?.() ?? [];
-    win.setBounds(meetingModeSnapBounds(display.workArea, minWidth));
+    const { workArea } = screen.getPrimaryDisplay();
+    let [minWidth = 0, minHeight = 0] = win.getMinimumSize?.() ?? [];
+    // A work area narrower than the floor: lower the floor first, or the OS
+    // widens the snapped window past the screen edge again.
+    if (minWidth > workArea.width) {
+      minWidth = workArea.width;
+      win.setMinimumSize(minWidth, minHeight);
+    }
+    win.setBounds(meetingModeSnapBounds(workArea, minWidth));
     win.focus();
   }
 

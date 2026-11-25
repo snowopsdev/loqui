@@ -2,6 +2,7 @@ import type { ContainerScope } from "../../types/chat";
 import type { SpaceItem } from "../../types/electron";
 import type { ToolDefinition, ToolResult } from "./ToolRegistry";
 import { resolveSpace } from "./utils";
+import { noteSourceText } from "../../lib/noteSourceText";
 
 const MAX_CONTENT_LENGTH = 500;
 
@@ -131,7 +132,7 @@ async function executeLocalSearch(
     date: note.created_at,
     type: note.note_type,
     space: spaceNameById.get(note.space_id) ?? null,
-    content: (note.enhanced_content || note.content).slice(0, MAX_CONTENT_LENGTH),
+    content: noteSourceText(note).slice(0, MAX_CONTENT_LENGTH),
   }));
 
   return {

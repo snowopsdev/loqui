@@ -1,5 +1,6 @@
 import { isSourceId, sourceQuote, truncateSourceText } from "./citations.ts";
 import type { RagNoteRef } from "./citations";
+import { noteSourceText } from "../../lib/noteSourceText";
 type ElectronAPI = Window["electronAPI"];
 
 type RagApi = Partial<Pick<ElectronAPI, "semanticSearchNotes" | "getNote">>;
@@ -7,41 +8,6 @@ const RAG_NOTE_LIMIT = 5;
 const RAG_NOTE_SNIPPET_LENGTH = 500;
 const attr = (value: string) =>
   value.replace(/[&"<>]/g, (c) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" })[c]!);
-
-type TranscriptSegment = { text?: unknown; speakerName?: unknown; speakerIsPlaceholder?: unknown };
-
-// The notes table stores a transcript as a JSON array of segments. Speaker
-// labels are kept only when a person was actually named.
-export function formatTranscript(transcript: string | null | undefined): string {
-  if (!transcript) return "";
-  let segments: unknown;
-  try {
-    segments = JSON.parse(transcript);
-  } catch {
-    return transcript.trim();
-  }
-  if (!Array.isArray(segments)) return "";
-  return (segments as TranscriptSegment[])
-    .map((segment) => {
-      const text = typeof segment?.text === "string" ? segment.text.trim() : "";
-      if (!text) return "";
-      const name = typeof segment.speakerName === "string" ? segment.speakerName.trim() : "";
-      return name && !segment.speakerIsPlaceholder ? `${name}: ${text}` : text;
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-// Recorded meetings and uploaded audio usually have no typed notes: their text
-// lives in the AI summary or the transcript. Match get_note/search_notes, which
-// read the summary first, and fall back to the transcript rather than nothing.
-export function noteSourceText(note: {
-  content?: string | null;
-  enhanced_content?: string | null;
-  transcript?: string | null;
-}): string {
-  return note.enhanced_content || note.content || formatTranscript(note.transcript);
-}
 
 export async function buildRagContext(
   api: RagApi,

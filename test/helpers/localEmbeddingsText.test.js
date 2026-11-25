@@ -59,3 +59,11 @@ test("embed text stays capped and tolerates missing or malformed transcripts", (
   assert.equal(transcriptText('{"text":"x"}'), "");
   assert.equal(transcriptText([null, { text: 7 }, { text: " ok " }]), "ok");
 });
+
+test("[change-driving] whitespace-only summaries and notes never hide typed text or the transcript", () => {
+  assert.equal(noteEmbedText("T", "typed agenda", "   \n"), "T\ntyped agenda");
+  assert.equal(
+    noteEmbedText("Launch sync", " \t", " ", transcript).split("\n")[1],
+    "Let's move the launch to April."
+  );
+});

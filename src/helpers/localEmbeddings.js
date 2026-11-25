@@ -80,8 +80,12 @@ class LocalEmbeddings {
   // Recorded meetings and uploaded audio often have no typed notes, so a sparse
   // body is topped up with the start of the transcript; otherwise those notes
   // embed as little more than their title and never surface in semantic search.
+  // A blank (whitespace-only) summary falls through to the typed notes.
   static noteEmbedText(title, content, enhancedContent, transcript) {
-    const body = String(enhancedContent || content || "").trim();
+    const body =
+      [enhancedContent, content]
+        .find((candidate) => typeof candidate === "string" && candidate.trim())
+        ?.trim() ?? "";
     const parts = [title || "", body];
     if (body.length < SPARSE_BODY_LENGTH) {
       const spoken = LocalEmbeddings.transcriptText(transcript);

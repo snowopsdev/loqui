@@ -96,10 +96,8 @@ export const calendarTool: ToolDefinition = {
       // actually has for "where").
       const events = response.events.map((event: Record<string, unknown>) => {
         const attendees = parseAttendees(event.attendees);
-        const total =
-          typeof event.attendees_count === "number"
-            ? Math.max(event.attendees_count, attendees.length)
-            : attendees.length;
+        const count = Number(event.attendees_count);
+        const total = Number.isFinite(count) ? Math.max(count, attendees.length) : attendees.length;
         return {
           summary: event.summary || "(No title)",
           start: event.start_time,

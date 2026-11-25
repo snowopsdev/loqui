@@ -41,6 +41,12 @@ async function run({
   log = console.log,
   command = (file, args) =>
     execFileSync(file, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }),
+  // Pull requests only warn about untranslated keys; a release requires them all.
+  checkLocales = () =>
+    execFileSync(process.execPath, [path.join(__dirname, "check-i18n.js"), "--strict"], {
+      cwd,
+      stdio: ["ignore", "inherit", "inherit"],
+    }),
 } = {}) {
   if (env.GITHUB_REPOSITORY !== REPOSITORY)
     throw Error(`Release tags are created only in ${REPOSITORY}`);
@@ -119,6 +125,16 @@ async function run({
       throw Error(`${tag} points at ${target}, not main's commit ${commit}; tags are never moved`);
     startRelease(`${tag} already exists at ${commit}`);
     return { state: "dispatched", tag, commit };
+  }
+  // Tags are immutable, so incomplete translations must fail here rather than in
+  // release.yml after the version's tag has already been spent.
+  try {
+    checkLocales();
+  } catch (error) {
+    throw new Error(
+      `Not tagging ${tag}: every locale must be complete (node scripts/check-i18n.js --strict failed)`,
+      { cause: error }
+    );
   }
   // GitHub rejects an existing ref with 422, so a concurrent tag push fails closed here.
   const created = await githubRequest("/git/refs", {

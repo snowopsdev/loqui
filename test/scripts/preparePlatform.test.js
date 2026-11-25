@@ -61,7 +61,7 @@ test("[change-driving] downloads run concurrently with each other and with nativ
   );
 });
 
-test("[change-driving] marker-verified runtimes are reused; existence-only downloads keep --force", async () => {
+test("every download keeps --force so no stale binary skips SHA-256 verification", async () => {
   const r = recorder();
   const done = preparePlatform({ platform: "darwin", arch: "arm64", run: r.run, ...present });
   await r.drain();
@@ -69,9 +69,8 @@ test("[change-driving] marker-verified runtimes are reused; existence-only downl
   const args = Object.fromEntries(
     r.events.filter(([kind]) => kind === "start").map(([, file, list]) => [file, list])
   );
+  for (const [file] of DOWNLOADS) assert.ok(args[file].includes("--force"), file);
   for (const file of ["download-whisper-cpp", "download-sherpa-onnx", "download-qdrant"])
-    assert.deepEqual(args[file], ["--current"], file);
-  for (const file of ["download-llama-server", "download-yt-dlp", "download-whisper-vad-model"])
     assert.deepEqual(args[file], ["--current", "--force"], file);
   assert.deepEqual(args["download-minilm"], ["--for-build", "--force"]);
   assert.ok("build-macos-audio-tap" in args && !("build-linux-key-listener" in args));
@@ -137,5 +136,9 @@ test("step output is prefixed per line and a non-zero exit rejects", async () =>
   await assert.rejects(
     runStep("download-qdrant", ["--current"], { spawnImpl: fake(2), write: () => {} }),
     /download-qdrant --current failed \(exit 2\)/
+  );
+  await assert.rejects(
+    runStep("build-sherpa-websocket", [], { spawnImpl: fake(1), write: () => {} }),
+    (error) => error.message === "build-sherpa-websocket failed (exit 1)"
   );
 });

@@ -81,6 +81,7 @@ test("large invites are capped with the full count kept; malformed attendee JSON
   stubEvents([
     { summary: "All hands", attendees_count: 40, attendees: JSON.stringify(many) },
     { summary: "Broken", attendees_count: 2, attendees: "{not json" },
+    { summary: "NaN count", attendees_count: NaN, attendees: JSON.stringify(many) },
   ]);
 
   const result = await calendarTool.execute({});
@@ -88,6 +89,8 @@ test("large invites are capped with the full count kept; malformed attendee JSON
   assert.equal(result.data[0].attendees.length, 25);
   assert.equal(result.data[0].attendeeCount, 40);
   assert.deepEqual(result.data[1].attendees, []);
+  assert.equal(result.data[2].attendees.length, 25);
+  assert.equal(result.data[2].attendeeCount, 40, "a NaN count falls back to the parsed list");
   assert.deepEqual(parseAttendees(null), []);
   assert.deepEqual(parseAttendees([{ displayName: " Sam " }]), [
     { name: "Sam", email: null, responseStatus: null, self: false },

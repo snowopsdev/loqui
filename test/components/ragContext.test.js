@@ -167,7 +167,7 @@ test("[change-driving] the AI summary is preferred over typed notes and the tran
 });
 
 test("malformed or empty transcripts never throw and fall back safely", async () => {
-  const { formatTranscript } = await load();
+  const { formatTranscript } = await import("../../src/lib/noteSourceText.ts");
   assert.equal(formatTranscript(null), "");
   assert.equal(formatTranscript(""), "");
   assert.equal(formatTranscript("{}"), "");
@@ -177,4 +177,24 @@ test("malformed or empty transcripts never throw and fall back safely", async ()
   const { text, notes } = await ragFor({ id: 5, title: "Empty", content: "", transcript: null });
   assert.equal(text, '<note id="5" title="Empty">\n\n</note>');
   assert.equal(notes[0].quote, "");
+});
+
+test("[change-driving] whitespace-only summaries or notes fall through to real text", async () => {
+  const typed = await ragFor({
+    id: 6,
+    title: "Blank summary",
+    content: "Typed agenda",
+    enhanced_content: "  \n ",
+    transcript: segments([{ text: "spoken" }]),
+  });
+  assert.match(typed.text, /\nTyped agenda\n/);
+  assert.equal(typed.notes[0].quote, "Typed agenda");
+  const spoken = await ragFor({
+    id: 7,
+    title: "Blank everything",
+    content: " \n\t",
+    enhanced_content: " ",
+    transcript: segments([{ text: "Only the recording has words." }]),
+  });
+  assert.match(spoken.text, /\nOnly the recording has words\.\n/);
 });

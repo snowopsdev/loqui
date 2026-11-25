@@ -15,8 +15,9 @@ const STRICT =
   (Array.isArray(process.argv) && process.argv.includes("--strict")) ||
   process.env?.I18N_STRICT === "1";
 const MISSING_KEY_PREVIEW = 10;
-// Surfaces the warnings as annotations on the pull request's checks.
-const WARNING_PREFIX = process.env?.GITHUB_ACTIONS === "true" ? "::warning::" : "";
+// GitHub shows at most ten annotations per step, so the per-locale details stay
+// plain log lines and a single summary becomes the pull request's annotation.
+const GITHUB_ACTIONS = process.env?.GITHUB_ACTIONS === "true";
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -184,7 +185,7 @@ for (const namespace of NAMESPACES) {
           ? `, +${missing.length - MISSING_KEY_PREVIEW} more`
           : "";
       console.warn(
-        `${WARNING_PREFIX}[i18n] Warning: ${lang}/${namespace} is missing ${missing.length} key${missing.length === 1 ? "" : "s"} (falls back to en): ${preview}${more}`
+        `[i18n] Warning: ${lang}/${namespace} is missing ${missing.length} key${missing.length === 1 ? "" : "s"} (falls back to en): ${preview}${more}`
       );
     }
   }
@@ -195,6 +196,10 @@ if (failed) {
 }
 
 if (missingKeys.length) {
+  if (GITHUB_ACTIONS)
+    console.warn(
+      `::warning title=Untranslated locale keys::${missingKeys.length} non-English translation${missingKeys.length === 1 ? " is" : "s are"} missing and will fall back to en. See the i18n check log for each locale; releases require them (--strict).`
+    );
   console.log(
     `[i18n] English, plurals and placeholders are consistent; ${missingKeys.length} translation${missingKeys.length === 1 ? " is" : "s are"} missing and will fall back to en. Run with --strict to require them.`
   );

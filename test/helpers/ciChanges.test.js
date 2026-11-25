@@ -27,6 +27,11 @@ test("renderer changes run quality while packaging inputs run platform checks", 
     "scripts/prepare-platform.cjs",
     "resources/mac/entitlements.mac.plist",
     ".github/workflows/platform.yml",
+    ".github/workflows/quality.yml",
+    "test/native/sherpaLoopback.test.js",
+    "src/helpers/parakeetCapability.js",
+    "src/helpers/sherpaLoopback.js",
+    "src/helpers/whisperCppRelease.js",
   ]) {
     assert.equal(classifyPaths([file]).platform, true, file);
   }
@@ -43,7 +48,8 @@ test("[change-driving] pull requests touching only app logic skip the native pla
     "src/services/tools/calendarTool.ts",
     "src/locales/de/translation.json",
     "test/helpers/ciChanges.test.js",
-    ".github/workflows/quality.yml",
+    "src/helpers/sherpaLoopbackStatus.js",
+    ".github/workflows/release.yml",
   ]) {
     assert.deepEqual(classifyPaths([file]), { code: true, platform: false }, file);
   }
@@ -87,4 +93,22 @@ test("unavailable or malformed base commits cannot silently skip CI", () => {
       }),
     /missing commit/
   );
+});
+
+test("[change-driving] a moved packaging input reports its old path, so the platform build still runs", () => {
+  const calls = [];
+  const files = changedPaths("a".repeat(40), (args) => {
+    calls.push(args);
+    // git diff --no-renames lists a move as a deletion plus an addition.
+    return args[0] === "diff" ? "native/listener.c\0src/legacy/listener.c\0" : "";
+  });
+  assert.deepEqual(calls.at(-1), [
+    "diff",
+    "--name-only",
+    "--no-renames",
+    "-z",
+    "a".repeat(40),
+    "HEAD",
+  ]);
+  assert.equal(classifyPaths(files).platform, true);
 });

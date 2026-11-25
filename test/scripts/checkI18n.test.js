@@ -82,12 +82,21 @@ test("[change-driving] by default a missing translation warns instead of failing
   assert.match(result.warnings, /ja\/translation is missing 1 key \(falls back to en\): title/);
   assert.match(result.warnings, /ja\/prompts is missing 1 key \(falls back to en\): instruction/);
   assert.match(result.logs.join("\n"), /2 translations are missing.*--strict/);
+  assert.doesNotMatch(result.warnings, /::warning/, "no annotations outside GitHub Actions");
   const annotated = check(
-    { ja: { showAll_other: "All {{count}}" } },
+    { ja: { showAll_other: "All {{count}}" }, "zh-CN": { showAll_other: "All {{count}}" } },
     {},
     { env: { GITHUB_ACTIONS: "true" } }
   );
-  assert.match(annotated.warnings, /^::warning::\[i18n\] Warning: ja\/translation/);
+  const lines = annotated.warnings.split("\n");
+  const annotations = lines.filter((line) => line.startsWith("::"));
+  assert.equal(annotations.length, 1, "one summary annotation, under GitHub's per-step cap");
+  assert.match(
+    annotations[0],
+    /^::warning title=Untranslated locale keys::2 non-English translations are missing/
+  );
+  assert.ok(lines.some((line) => /^\[i18n\] Warning: ja\/translation is missing/.test(line)));
+  assert.ok(lines.some((line) => /^\[i18n\] Warning: zh-CN\/translation is missing/.test(line)));
 });
 
 test("[change-driving] default mode still fails English, placeholder and plural errors in present keys", () => {

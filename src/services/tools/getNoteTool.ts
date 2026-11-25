@@ -1,4 +1,5 @@
 import type { ToolDefinition, ToolResult } from "./ToolRegistry";
+import { noteSourceText } from "../../lib/noteSourceText";
 
 export const getNoteTool: ToolDefinition = {
   name: "get_note",
@@ -36,7 +37,7 @@ export const getNoteTool: ToolDefinition = {
         data: {
           id: note.id,
           title: note.title,
-          content: note.enhanced_content || note.content,
+          content: noteSourceText(note),
           type: note.note_type,
           folder_id: note.folder_id,
           created_at: note.created_at,

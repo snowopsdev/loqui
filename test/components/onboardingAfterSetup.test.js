@@ -91,7 +91,7 @@ for (const kind of ["dictate-note", "open-settings"]) {
           meetingUseLocalWhisper: "true",
           meetingLocalTranscriptionProvider: "whisper",
           meetingWhisperModel: "base",
-          semanticReindexVersion: "2",
+          semanticReindexVersion: "3",
           ...(kind === "open-settings"
             ? {
                 meetingTranscriptionMode: "self-hosted",
@@ -202,7 +202,7 @@ test("actual desktop Router resumes stored progress and remounts actual Flow on 
     storage: {
       ...MIGRATED_STORAGE,
       onboardingCompleted: "true",
-      semanticReindexVersion: "2",
+      semanticReindexVersion: "3",
       "loqui.onboarding.progress": JSON.stringify({
         version: 2,
         step: "cleanup",

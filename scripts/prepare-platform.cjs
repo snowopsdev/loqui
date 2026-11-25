@@ -31,7 +31,11 @@ function runStep(
     child.on("close", (code, signal) =>
       code === 0
         ? resolve()
-        : reject(Error(`${file} ${args.join(" ")} failed (${signal || `exit ${code}`})`.trim()))
+        : reject(
+            Error(
+              `${args.length ? `${file} ${args.join(" ")}` : file} failed (${signal || `exit ${code}`})`
+            )
+          )
     );
   });
 }
@@ -64,14 +68,13 @@ function nativeBuilds(platform) {
       ];
 }
 
-// whisper.cpp, sherpa-onnx and qdrant skip only an install whose marker records
-// the pinned version and every library, so a verified install is reused instead
-// of downloaded and extracted again. The rest skip on a bare existence check and
-// keep --force so a stale or truncated file never ships.
+// Every release download keeps --force: an existing binary is never trusted, so
+// each one is re-verified against its pinned SHA-256. Network cost stays low
+// because download-utils serves pinned assets from the verified archive cache.
 const DOWNLOADS = [
-  ["download-whisper-cpp", ["--current"]],
-  ["download-sherpa-onnx", ["--current"]],
-  ["download-qdrant", ["--current"]],
+  ["download-whisper-cpp", ["--current", "--force"]],
+  ["download-sherpa-onnx", ["--current", "--force"]],
+  ["download-qdrant", ["--current", "--force"]],
   ["download-llama-server", ["--current", "--force"]],
   ["download-yt-dlp", ["--current", "--force"]],
   ["download-whisper-vad-model", ["--current", "--force"]],

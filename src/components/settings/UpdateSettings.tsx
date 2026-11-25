@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { UpdateStatus } from "../../types/updates";
 import { Button } from "../ui/button";
@@ -15,9 +15,14 @@ export default function UpdateSettings({
   const { t } = useTranslation();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [error, setError] = useState("");
-  // Set once a manual check finishes, so "latest version" answers that check
-  // rather than appearing on every idle status.
-  const [checked, setChecked] = useState(false);
+  // The channel a manual check just confirmed as current. "Latest version"
+  // answers that check only, never an idle status from a skipped or older run.
+  const [checkedChannel, setCheckedChannel] = useState<UpdateStatus["channel"] | null>(null);
+  // Every run gets an id; a superseded run (e.g. a check overtaken by a
+  // channel switch) may not write status, errors or the check result.
+  const runIdRef = useRef(0);
+  // A check that really ran publishes "checking"; a skipped one returns as is.
+  const checkProbeRef = useRef<{ sawChecking: boolean } | null>(null);
   const channelLabelId = useId();
   const api = window.electronAPI?.updates;
   useEffect(() => {
@@ -26,16 +31,31 @@ export default function UpdateSettings({
       .status()
       .then(setStatus)
       .catch(() => {});
-    return api.onStatus(setStatus);
+    return api.onStatus((next) => {
+      if (next.phase === "checking" && checkProbeRef.current) {
+        checkProbeRef.current.sawChecking = true;
+      }
+      setStatus(next);
+    });
   }, [api]);
-  async function run(action: () => Promise<unknown>) {
+  async function run(action: () => Promise<unknown>, { check = false } = {}) {
+    const id = ++runIdRef.current;
+    const probe = check ? { sawChecking: false } : null;
+    checkProbeRef.current = probe;
     setError("");
-    setChecked(false);
+    setCheckedChannel(null);
     try {
       await action();
-      setStatus(await api.status());
+      const next = await api.status();
+      if (id !== runIdRef.current) return;
+      setStatus(next);
+      if (probe?.sawChecking && next.phase === "idle" && !next.error) {
+        setCheckedChannel(next.channel);
+      }
     } catch (e) {
-      setError((e as Error).message);
+      if (id === runIdRef.current) setError((e as Error).message);
+    } finally {
+      if (checkProbeRef.current === probe) checkProbeRef.current = null;
     }
   }
   if (notice && status?.phase !== "ready") return null;
@@ -80,11 +100,14 @@ export default function UpdateSettings({
           {status?.phase === "checking" && (
             <p className="text-muted-foreground">{t("settingsPage.general.updates.checking")}</p>
           )}
-          {checked && status?.phase === "idle" && !status.error && (
-            <p className="text-muted-foreground">
-              {t("settingsPage.general.updates.latestVersion")}
-            </p>
-          )}
+          {checkedChannel !== null &&
+            status?.channel === checkedChannel &&
+            status.phase === "idle" &&
+            !status.error && (
+              <p className="text-muted-foreground">
+                {t("settingsPage.general.updates.latestVersion")}
+              </p>
+            )}
           {status?.phase === "downloading" && (
             <p>{t("updates.downloading", { percent: Math.round(status.progress ?? 0) })}</p>
           )}
@@ -105,12 +128,7 @@ export default function UpdateSettings({
             <Button
               variant="outline"
               disabled={!status || ["checking", "downloading"].includes(status.phase)}
-              onClick={() =>
-                void run(async () => {
-                  await api.check();
-                  setChecked(true);
-                })
-              }
+              onClick={() => void run(() => api.check(), { check: true })}
             >
               {t("updates.check")}
             </Button>

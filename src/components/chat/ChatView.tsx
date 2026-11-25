@@ -96,6 +96,9 @@ export default function ChatView({
   const [isNewChat, setIsNewChat] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showSearch, setShowSearch] = useState(false);
+  // Mount the picker on first open, then keep it for the Radix exit animation.
+  const [searchMounted, setSearchMounted] = useState(false);
+  if (showSearch && !searchMounted) setSearchMounted(true);
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
 
   const navigation = useWorkspaceNavigation();
@@ -422,15 +425,16 @@ export default function ChatView({
         onConfirm={confirmDialog.onConfirm}
         variant={confirmDialog.variant}
       />
-      {/* Always mounted so Radix can play the palette's exit animation. */}
-      <Suspense fallback={null}>
-        <CommandSearch
-          open={showSearch}
-          onOpenChange={setShowSearch}
-          mode="conversations"
-          onConversationSelect={handleSelectConversation}
-        />
-      </Suspense>
+      {searchMounted && (
+        <Suspense fallback={null}>
+          <CommandSearch
+            open={showSearch}
+            onOpenChange={setShowSearch}
+            mode="conversations"
+            onConversationSelect={handleSelectConversation}
+          />
+        </Suspense>
+      )}
       {mentionIntent &&
         createPortal(
           <div

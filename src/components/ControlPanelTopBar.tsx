@@ -26,6 +26,8 @@ interface ControlPanelTopBarProps {
   onExitSidePanel: () => void;
   /** Global actions, right of the search bar; hidden with it in the side-panel layout. */
   actions?: React.ReactNode;
+  /** Live status (the meeting recording pill); stays in every layout. */
+  status?: React.ReactNode;
 }
 
 export default function ControlPanelTopBar({
@@ -36,6 +38,7 @@ export default function ControlPanelTopBar({
   isSidePanelLayout,
   onExitSidePanel,
   actions,
+  status,
 }: ControlPanelTopBarProps) {
   const { t } = useTranslation();
   // With the sidebar out of the way the container's start edge sits under the
@@ -129,17 +132,25 @@ export default function ControlPanelTopBar({
       )}
 
       <div className="col-start-3 flex items-center gap-2">
-        {!isSidePanelLayout && actions && (
-          <div
-            data-no-window-drag=""
-            style={noDragStyle}
-            // macOS keeps no window controls here, so the actions take the far
-            // end; elsewhere they sit beside the search, left of the controls.
-            className={cn("flex items-center", platform === "darwin" && "ms-auto")}
-          >
-            {actions}
-          </div>
-        )}
+        {/* macOS keeps no window controls here, so status and actions take the
+            far end; elsewhere they sit beside the search, left of the controls. */}
+        <div className={cn("flex items-center gap-2", platform === "darwin" && "ms-auto")}>
+          {status && (
+            // empty:hidden: the pill renders nothing while no meeting records.
+            <div
+              data-no-window-drag=""
+              style={noDragStyle}
+              className="flex items-center empty:hidden"
+            >
+              {status}
+            </div>
+          )}
+          {!isSidePanelLayout && actions && (
+            <div data-no-window-drag="" style={noDragStyle} className="flex items-center">
+              {actions}
+            </div>
+          )}
+        </div>
         {platform !== "darwin" && (
           <div data-no-window-drag="" style={noDragStyle} className="ms-auto">
             <WindowControls />

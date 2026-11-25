@@ -887,6 +887,21 @@ export default function ControlPanel({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [invalidateActivation]);
 
+  const meetingPillProps = {
+    workspaceActive,
+    activeView,
+    activeNoteId,
+    onReturnToNote: () => {
+      if (!activeRef.current) {
+        onReturnToWorkspace?.();
+        return;
+      }
+      setActiveView("personal-notes");
+      setActiveFolderId(recordingFolderId);
+      setActiveNoteId(recordingNoteId);
+    },
+  };
+
   return (
     <WorkspaceNavigationProvider value={navigation}>
       <WorkspacePresentation
@@ -895,20 +910,8 @@ export default function ControlPanel({
         className="h-screen bg-surface-window flex flex-col"
       >
         <MeetingRecordingMount />
-        <MeetingRecordingPill
-          workspaceActive={workspaceActive}
-          activeView={activeView}
-          activeNoteId={activeNoteId}
-          onReturnToNote={() => {
-            if (!activeRef.current) {
-              onReturnToWorkspace?.();
-              return;
-            }
-            setActiveView("personal-notes");
-            setActiveFolderId(recordingFolderId);
-            setActiveNoteId(recordingNoteId);
-          }}
-        />
+        {/* Floating only while the workspace (and its top bar) is hidden. */}
+        <MeetingRecordingPill {...meetingPillProps} placement="floating" />
         <ConfirmDialog
           open={confirmDialog.open}
           onOpenChange={hideConfirmDialog}
@@ -989,6 +992,7 @@ export default function ControlPanel({
                     showChat={navItems.some((item) => item.id === "chat")}
                   />
                 }
+                status={<MeetingRecordingPill {...meetingPillProps} placement="inline" />}
               />
               {/* Keyed per view: each destination fades in (opacity only, so fixed
                   descendants keep their containing block) and starts at the top. */}

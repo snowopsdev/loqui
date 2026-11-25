@@ -10,6 +10,12 @@ import { isControlPanelWindow } from "../../utils/windowContext";
 
 interface MeetingRecordingPillProps {
   workspaceActive?: boolean;
+  /**
+   * "inline" sits in the workspace top bar and shows only while the workspace
+   * is visible; "floating" overlays the window only while it is hidden (setup),
+   * when no top bar is on screen to hold it.
+   */
+  placement?: "inline" | "floating";
   activeView: string;
   activeNoteId: number | null;
   onReturnToNote: () => void;
@@ -20,6 +26,7 @@ const truncateTitle = (title: string) =>
 
 export default function MeetingRecordingPill({
   workspaceActive = true,
+  placement = "floating",
   activeView,
   activeNoteId,
   onReturnToNote,
@@ -35,7 +42,13 @@ export default function MeetingRecordingPill({
   const isViewingRecordingNote =
     workspaceActive && activeView === "personal-notes" && activeNoteId === recordingNoteId;
 
-  if (!isRecording || isViewingRecordingNote || !isControlPanelWindow()) {
+  const inline = placement === "inline";
+  if (
+    !isRecording ||
+    isViewingRecordingNote ||
+    !isControlPanelWindow() ||
+    inline !== workspaceActive
+  ) {
     return null;
   }
 
@@ -55,11 +68,9 @@ export default function MeetingRecordingPill({
   );
   const stopLabel = t("notes.editor.stop");
 
-  // Floats just under the 48px top bar: top-2 sat on the centred search field,
-  // and the bottom edge belongs to the chat composer and note bottom bar.
-  return createPortal(
+  const pill = (
     <div
-      className="fixed top-14 left-1/2 -translate-x-1/2 z-30"
+      className={inline ? "shrink-0" : "fixed top-2 left-1/2 -translate-x-1/2 z-30"}
       style={
         {
           WebkitAppRegion: "no-drag",
@@ -69,7 +80,8 @@ export default function MeetingRecordingPill({
     >
       <div
         className={cn(
-          "flex items-center gap-2 h-9 px-3 rounded-xl",
+          "flex items-center gap-2 px-3 rounded-xl",
+          inline ? "h-8" : "h-9",
           "bg-card/95 dark:bg-surface-2/95",
           "backdrop-blur-xl",
           "border border-primary/25 dark:border-primary/30",
@@ -116,7 +128,10 @@ export default function MeetingRecordingPill({
           <Square size={12} fill="currentColor" />
         </button>
       </div>
-    </div>,
-    document.body
+    </div>
   );
+
+  // Inline it takes its own room in the top bar's trailing column, so it can
+  // never cover the centred search field or a view's own header row.
+  return inline ? pill : createPortal(pill, document.body);
 }

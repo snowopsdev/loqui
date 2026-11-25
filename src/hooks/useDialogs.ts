@@ -16,10 +16,12 @@ export interface AlertDialogState {
   description?: string;
 }
 
+const noop = () => {};
+
 const defaultConfirmDialog: ConfirmDialogState = {
   open: false,
   title: "",
-  onConfirm: () => {},
+  onConfirm: noop,
 };
 
 const defaultAlertDialog: AlertDialogState = {
@@ -40,12 +42,14 @@ export function useDialogs() {
     setAlertDialog({ ...options, open: true });
   }, []);
 
+  // Closing keeps the copy so it does not blank out during the Radix exit
+  // animation; the confirm action is dropped so a late click cannot re-fire it.
   const hideConfirmDialog = useCallback(() => {
-    setConfirmDialog(defaultConfirmDialog);
+    setConfirmDialog((prev) => ({ ...prev, open: false, onConfirm: noop }));
   }, []);
 
   const hideAlertDialog = useCallback(() => {
-    setAlertDialog(defaultAlertDialog);
+    setAlertDialog((prev) => ({ ...prev, open: false }));
   }, []);
 
   return {

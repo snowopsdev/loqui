@@ -22,6 +22,12 @@ const OnboardingFlow = React.lazy(() => import("./components/OnboardingFlow.tsx"
 const BrowserPreview = import.meta.env.DEV
   ? React.lazy(() => import("./preview/BrowserPreview.tsx"))
   : null;
+// Rendered after a lazy sibling inside the same Suspense boundary: its effect
+// runs only once that boundary commits, after the sibling's own effects.
+function MountSignal({ onMount }) {
+  useEffect(() => onMount(), [onMount]);
+  return null;
+}
 export default function AppRouter() {
   useTheme();
   useEffect(
@@ -69,12 +75,20 @@ function MainApp() {
     setShowOnboarding(true);
   });
   useControlPanelWindowDrag(isControlPanel);
+  // The dictation panel's App chunk loads lazily. Reporting onboarding as done
+  // opens main's dictation gate, so hold that report until App has mounted
+  // and registered its recording listeners; otherwise an early hotkey could
+  // send events no one is listening for yet.
+  const [dictationAppMounted, setDictationAppMounted] = useState(false);
+  const handleDictationAppMounted = React.useCallback(() => setDictationAppMounted(true), []);
+  const surfaceReady = isControlPanel || dictationAppMounted;
   useEffect(() => {
+    if (!surfaceReady) return;
     if (isControlPanel) void window.electronAPI?.setOnboardingWindowMode?.("restore");
     void window.electronAPI?.setOnboardingActive?.(showOnboarding);
     if (!isControlPanel && showOnboarding) window.electronAPI?.hideWindow?.();
     if (!showOnboarding) window.electronAPI?.markMacAccessibilityFeaturesReady?.(null);
-  }, [isControlPanel, showOnboarding]);
+  }, [isControlPanel, showOnboarding, surfaceReady]);
   // First launch never mounts the workspace. Once entered, retain its original
   // editor/chat/recorder owners across every later setup presentation.
   const [workspaceMounted, setWorkspaceMounted] = useState(() => !showOnboarding);
@@ -108,6 +122,7 @@ function MainApp() {
     return (
       <Suspense fallback={null}>
         <App />
+        <MountSignal onMount={handleDictationAppMounted} />
       </Suspense>
     );
   return (

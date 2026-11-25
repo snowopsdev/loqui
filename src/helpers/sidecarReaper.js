@@ -109,8 +109,9 @@ async function reapStaleSidecars({
       if (fragments && isProcessAlive(pid)) {
         const command = await lookupCommand(pid);
         if (command === null) {
-          // Keep the entry: the next launch retries instead of forgetting a
-          // possibly orphaned sidecar.
+          // Keep the entry so the next launch can try again (best effort:
+          // the PID file holds one PID per sidecar name, so a new sidecar of
+          // the same name started before then replaces this record).
           debugLogger.warn("Could not identify stale sidecar process; will retry", { name, pid });
           return;
         }

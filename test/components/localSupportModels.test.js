@@ -112,7 +112,17 @@ test("[change-driving] support models", async (t) => {
     assert.match(textOf(h.row("search")), /supportModels\.download\{"size":"91 MB"\}/);
   });
   await t.test("[change-driving] a finished download refreshes route facts", async (t) => {
-    const h = await mount(t, status());
+    let downloaded = false;
+    const h = await mount(
+      t,
+      status({
+        getDiarizationModelStatus: async () => ({ available: true, modelsDownloaded: downloaded }),
+        downloadDiarizationModels: async () => {
+          downloaded = true;
+          return { success: true };
+        },
+      })
+    );
     await settle();
     assert.equal(globalThis.__routeFactsRefreshes, 0);
     await React.act(async () => h.button("meeting").props.onClick());
@@ -120,6 +130,22 @@ test("[change-driving] support models", async (t) => {
     assert.equal(globalThis.__routeFactsRefreshes, 1);
     assert.match(textOf(h.row("meeting")), /settingsPage\.llms\.supportModels\.downloaded/);
   });
+  await t.test(
+    "[change-driving] a successful download shows what main reports, not an assumed success",
+    async (t) => {
+      // The download resolves, but an optional part (the VAD model, e.g. rejected
+      // by its pinned SHA-256) is still missing, so main reports not downloaded.
+      const h = await mount(t, status());
+      await settle();
+      await React.act(async () => h.button("meeting").props.onClick());
+      await settle();
+      assert.doesNotMatch(
+        textOf(h.row("meeting")),
+        /settingsPage\.llms\.supportModels\.downloaded/
+      );
+      assert.ok(h.button("meeting"), "the download stays offered");
+    }
+  );
   await t.test(
     "[baseline guard] a failed download keeps the button and does not refresh",
     async (t) => {

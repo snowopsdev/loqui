@@ -144,7 +144,8 @@ class DiarizationManager {
 
   // A downloaded single-file model that doesn't match its pin (a file fetched
   // before verification existed, or one damaged on disk) is removed so the
-  // download below replaces it. Bundled models are verified at build time.
+  // download below replaces it. This runs only when a download is requested,
+  // not at startup. Bundled models are verified at build time.
   async _discardMismatchedDownload(filePath, expectedSha256) {
     let actualSha256;
     try {
@@ -161,7 +162,10 @@ class DiarizationManager {
       expectedSha256,
       actualSha256,
     });
-    await fsPromises.unlink(filePath).catch(() => {});
+    // If it can't be removed, fail rather than report the bad file as ready.
+    await fsPromises.unlink(filePath).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
   }
 
   async downloadModels(progressCallback = null) {

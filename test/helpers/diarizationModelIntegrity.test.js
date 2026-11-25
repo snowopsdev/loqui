@@ -101,3 +101,19 @@ test("downloadModels re-fetches an existing embedding model that fails its pin",
   const embedding = DiarizationManager.PINNED_DOWNLOADS[1];
   assert.ok(downloads.some((d) => d.url === embedding.url && d.sha256 === embedding.sha256));
 });
+
+test("a mismatched model that can't be removed fails instead of counting as ready", async (t) => {
+  const { manager, dir } = managerIn(t);
+  const file = path.join(dir, "model.onnx");
+  fs.writeFileSync(file, "a re-uploaded or damaged file");
+  const originalUnlink = fs.promises.unlink;
+  fs.promises.unlink = async () => {
+    throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+  };
+  t.after(() => (fs.promises.unlink = originalUnlink));
+
+  await assert.rejects(
+    manager._discardMismatchedDownload(file, sha256("the expected bytes")),
+    /permission denied/
+  );
+});

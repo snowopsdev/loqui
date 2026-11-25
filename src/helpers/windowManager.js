@@ -2657,8 +2657,10 @@ class WindowManager {
     const { workArea } = screen.getPrimaryDisplay();
     let [minWidth = 0, minHeight = 0] = win.getMinimumSize?.() ?? [];
     // A work area narrower than the floor: lower the floor first, or the OS
-    // widens the snapped window past the screen edge again.
+    // widens the snapped window past the screen edge again. The original floor
+    // comes back when meeting mode ends.
     if (minWidth > workArea.width) {
+      this._preMeetingMinimumSize ??= [minWidth, minHeight];
       minWidth = workArea.width;
       win.setMinimumSize(minWidth, minHeight);
     }
@@ -2676,6 +2678,13 @@ class WindowManager {
       const { width, height } = CONTROL_PANEL_CONFIG;
       win.setSize(width, height);
       win.center();
+    }
+    if (this._preMeetingMinimumSize) {
+      // Clamped to the display the window is on now, like onboarding's floor.
+      const [minWidth, minHeight] = this._preMeetingMinimumSize;
+      const { workArea } = screen.getDisplayMatching(win.getBounds());
+      win.setMinimumSize(Math.min(minWidth, workArea.width), minHeight);
+      this._preMeetingMinimumSize = null;
     }
   }
 

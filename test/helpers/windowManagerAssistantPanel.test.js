@@ -1115,6 +1115,16 @@ test("the meeting side-panel snap honours the window's minimum width", () => {
       ["setMinimumSize", 400, 0],
       ["setBounds", { x: 0, y: 0, width: 400, height: 600 }],
     ]);
+
+    // Leaving meeting mode brings the 480px floor back, clamped to the display
+    // the window ends up on (getDisplayMatching: 1440px wide here).
+    calls.length = 0;
+    manager.restoreControlPanelFromMeetingMode();
+    assert.deepEqual(calls, [
+      ["setBounds", { x: 100, y: 100, width: 1200, height: 800 }],
+      ["setMinimumSize", 480, 0],
+    ]);
+    assert.deepEqual(minimumSize, [480, 0]);
   } finally {
     primaryWorkArea = { x: 0, y: 0, width: 1440, height: 900 };
   }

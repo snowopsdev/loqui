@@ -304,6 +304,36 @@ test("a download whose SHA-256 doesn't match is discarded and never moved into p
   assert.equal(fs.existsSync(`${destination}.tmp`), false);
 });
 
+test("a Stop accepted while the download is being hashed installs nothing", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-sha-abort-"));
+  const destination = path.join(dir, "model.bin");
+  const body = Buffer.from("pinned bytes");
+  const loaded = loadWithResponses([
+    { statusCode: 200, headers: { "content-length": String(body.length) }, body },
+  ]);
+  const { signal, abort } = loaded.downloadUtils.createDownloadSignal();
+  // Accept the Stop on the hash stream's first chunk, after the transfer finished.
+  const originalCreateReadStream = fs.createReadStream;
+  fs.createReadStream = (...args) => {
+    const stream = originalCreateReadStream(...args);
+    stream.once("data", () => abort());
+    return stream;
+  };
+  t.after(() => {
+    fs.createReadStream = originalCreateReadStream;
+    loaded.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const digest = require("crypto").createHash("sha256").update(body).digest("hex");
+  const failure = await loaded.downloadUtils
+    .downloadFile("https://example.com/model.bin", destination, { sha256: digest, signal })
+    .catch((error) => error);
+  assert.equal(failure.isAbort, true);
+  assert.equal(failure.keptBytes, 0);
+  assert.equal(fs.existsSync(destination), false);
+  assert.equal(fs.existsSync(`${destination}.tmp`), false);
+});
+
 test("a download whose SHA-256 matches lands at its destination", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-sha-ok-"));
   const destination = path.join(dir, "model.bin");

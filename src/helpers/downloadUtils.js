@@ -368,6 +368,11 @@ async function downloadFile(url, destPath, options = {}) {
             actualSha256,
           });
         }
+        // Hashing yields; a Stop accepted meanwhile must not install the file.
+        // The catch below routes this through the cancelled-download cleanup.
+        if (signal?.aborted) {
+          throw Object.assign(new Error("Download cancelled"), { isAbort: true });
+        }
       }
 
       // Atomic move to final path

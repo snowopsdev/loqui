@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { trackUpdateActivity } = require("../../src/helpers/updateIPC");
+const { trackUpdateActivity, isAppUrl } = require("../../src/helpers/updateIPC");
 test("restart lock blocks new recording/generation/download work but permits saves", async () => {
   const handlers = new Map();
   const ipc = { handle: (name, fn) => handlers.set(name, fn) };
@@ -38,4 +38,22 @@ test("in-flight processing remains busy through completion", async () => {
   finish();
   await pending;
   assert.equal(tracked.busy(), false);
+});
+test("[change-driving] update IPC accepts packaged and Vite dev origins only", () => {
+  for (const url of [
+    "file:///Applications/Loqui.app/Contents/Resources/app.asar/src/dist/index.html",
+    "http://localhost:5183/",
+    "http://127.0.0.1:5183/?panel=control",
+  ])
+    assert.equal(isAppUrl(url), true, url);
+  for (const url of [
+    "https://localhost:5183/",
+    "http://127.0.0.2:5183/",
+    "http://localhost.evil.test:5183/",
+    "http://127.0.0.1.evil.test/",
+    "http://example.com/",
+    "",
+    undefined,
+  ])
+    assert.equal(isAppUrl(url), false, String(url));
 });

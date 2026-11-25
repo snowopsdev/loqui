@@ -10,6 +10,8 @@ With Labs → The Table on, card positions, links and each Space’s canvas view
 
 Chat history also stores, on this device, the titles of the notes an answer used and a short excerpt (up to 240 characters) of each, so the Sources row can be shown later. This local storage feature adds no new transfer; when remote inference is selected, that provider already receives the context supplied to the request.
 
+Chat reads a note as its AI summary, its typed notes, or, for a recorded meeting or uploaded audio with neither, its transcript: up to 500 characters per note in automatic context and search results, and the full text when Chat opens a note. When Chat looks up calendar events, each result includes the event's attendees from the locally synced calendar: names, email addresses, RSVP status and which one is you, up to 25 per event. With remote inference selected, the chosen provider receives this context as part of the request; local inference keeps it on this device.
+
 On a fresh profile:
 
 - Local transcription history is enabled.
@@ -70,7 +72,7 @@ Local inference stays on this computer. The local speech, language-model and sea
 
 ## Updates and calendars
 
-Automatic update checks and downloads are enabled by default after onboarding. Checks run when due at startup and approximately daily; failures use bounded retry delays. Disable automatic updates in **System** settings. No GitHub credential is embedded in the application. Installation requires **Restart to Update** and is blocked while relevant work or saving is active. With automatic updates off, **Check for Updates** still works: it contacts GitHub only when you click it, never downloads, and links to the release instead.
+Automatic update checks and downloads are enabled by default after onboarding. Checks run when due at startup and then approximately daily on the Stable channel, or every four hours on the Beta channel; failures use bounded retry delays. Disable automatic updates in **System** settings. No GitHub credential is embedded in the application. Installation requires **Restart to Update** and is blocked while relevant work or saving is active. With automatic updates off, **Check for Updates** still works: it contacts GitHub only when you click it, never downloads, and links to the release instead.
 
 Optional Google and Microsoft connections require independently configured OAuth applications. OAuth completion uses a local loopback page; it does not redirect through OpenWhispr. Apple Calendar uses local OS permissions. Connecting a calendar can schedule background synchronization while the connection remains configured; disconnect it to stop that integration.
 

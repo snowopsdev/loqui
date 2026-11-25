@@ -52,7 +52,10 @@ jobs:
       - name: Install pinned Electron for Node test imports
         run: node node_modules/electron/install.js
       - run: npm run native:node
-      - run: npm test && npm run lint && npm run typecheck && npm run i18n:check && npm run publication:check && npm run build:renderer
+      # Pull requests only warn about untranslated keys; a release requires every locale.
+      - run: npm test && npm run lint && npm run typecheck && npm run i18n:check -- --strict && npm run publication:check && npm run build:renderer
+        env:
+          I18N_STRICT: "1"
   build:
     needs: validate
     uses: ./.github/workflows/platform.yml

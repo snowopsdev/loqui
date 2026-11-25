@@ -2,7 +2,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const product = require("../config/product.json");
-const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+// How long a healthy install waits between scheduled checks. Betas ship fixes
+// in quick succession and testers opted in to receive them, so they check every
+// few hours; stable keeps a daily check.
+const CHECK_INTERVAL = { stable: DAY, beta: 4 * HOUR };
 class UpdateManager extends EventEmitter {
   constructor({
     updater,
@@ -69,6 +74,9 @@ class UpdateManager extends EventEmitter {
     this.updater.allowPrerelease = this.prefs.channel === "beta";
     this.updater.allowDowngrade = false;
   }
+  checkInterval() {
+    return CHECK_INTERVAL[this.prefs.channel] ?? DAY;
+  }
   status() {
     return { ...this.state, ...this.prefs, busy: !!this.busy(), supported: this.supported };
   }
@@ -124,7 +132,7 @@ class UpdateManager extends EventEmitter {
   }
   start() {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.check(false), 60 * 60 * 1000);
+    this.timer = setInterval(() => void this.check(false), HOUR);
     this.timer.unref?.();
     void this.check(false);
   }
@@ -141,7 +149,8 @@ class UpdateManager extends EventEmitter {
       this.state.phase === "ready"
     )
       return this.status();
-    const delay = this.failures ? Math.min(DAY, 60 * 60 * 1000 * 2 ** (this.failures - 1)) : DAY;
+    const interval = this.checkInterval();
+    const delay = this.failures ? Math.min(interval, HOUR * 2 ** (this.failures - 1)) : interval;
     if (!manual && this.now() - this.prefs.lastCheck < delay) return this.status();
     this.running = true;
     const channel = this.prefs.channel;
@@ -202,4 +211,4 @@ class UpdateManager extends EventEmitter {
     this.cancel?.cancel();
   }
 }
-module.exports = { UpdateManager, DAY };
+module.exports = { UpdateManager, DAY, HOUR, CHECK_INTERVAL };

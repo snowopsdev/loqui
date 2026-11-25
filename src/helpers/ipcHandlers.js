@@ -760,7 +760,12 @@ class IPCHandlers {
       const vectorIndex = require("./vectorIndex");
       if (!vectorIndex.isReady()) return;
       const { LocalEmbeddings } = require("./localEmbeddings");
-      const text = LocalEmbeddings.noteEmbedText(note.title, note.content, note.enhanced_content);
+      const text = LocalEmbeddings.noteEmbedText(
+        note.title,
+        note.content,
+        note.enhanced_content,
+        note.transcript
+      );
       vectorIndex
         .upsertNote(note.id, text, { space_id: note.space_id, folder_id: note.folder_id ?? null })
         .catch(() => {});

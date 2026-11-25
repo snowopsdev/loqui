@@ -87,7 +87,7 @@ class VectorIndex {
     for (let i = 0; i < notes.length; i += BATCH_SIZE) {
       const batch = notes.slice(i, i + BATCH_SIZE);
       const texts = batch.map((n) =>
-        LocalEmbeddings.noteEmbedText(n.title, n.content, n.enhanced_content)
+        LocalEmbeddings.noteEmbedText(n.title, n.content, n.enhanced_content, n.transcript)
       );
       try {
         const vectors = await localEmbeddings.embedTexts(texts);

@@ -6,6 +6,18 @@ const path = require("path");
 const LOCALES_DIR = path.join(__dirname, "..", "src", "locales");
 const BASE_LANG = "en";
 const NAMESPACES = ["translation", "prompts"];
+// English is always checked strictly, as are the placeholders and plural forms of
+// every key a translation does contain. A key a translation lacks only warns by
+// default: i18next falls back to English, so a pull request adding an English
+// string need not block on every translation. Releases pass --strict (or set
+// I18N_STRICT=1) so every locale is complete before it ships.
+const STRICT =
+  (Array.isArray(process.argv) && process.argv.includes("--strict")) ||
+  process.env?.I18N_STRICT === "1";
+const MISSING_KEY_PREVIEW = 10;
+// GitHub shows at most ten annotations per step, so the per-locale details stay
+// plain log lines and a single summary becomes the pull request's annotation.
+const GITHUB_ACTIONS = process.env?.GITHUB_ACTIONS === "true";
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -112,6 +124,7 @@ const languages = fs
   .sort();
 
 let failed = false;
+const missingKeys = [];
 
 for (const namespace of NAMESPACES) {
   const baseFile = path.join(LOCALES_DIR, BASE_LANG, `${namespace}.json`);
@@ -138,6 +151,7 @@ for (const namespace of NAMESPACES) {
     if (checkPlurals(lang, namespace, flat)) failed = true;
 
     const selectedCategories = pluralProbe(lang);
+    const missing = [];
     for (const key of Object.keys(baseFlat)) {
       if (!(key in flat)) {
         const plural = key.match(PLURAL_SUFFIX);
@@ -145,8 +159,7 @@ for (const namespace of NAMESPACES) {
         // categories may be omitted; _other still detects a missing family.
         // Present compatibility forms keep the placeholder checks below.
         if (plural && plural[2] !== "other" && !selectedCategories.has(plural[2])) continue;
-        console.error(`[i18n] Missing key ${lang}/${namespace}: ${key}`);
-        failed = true;
+        missing.push(key);
         continue;
       }
 
@@ -159,6 +172,22 @@ for (const namespace of NAMESPACES) {
         failed = true;
       }
     }
+
+    if (!missing.length) continue;
+    missingKeys.push(...missing);
+    if (STRICT) {
+      for (const key of missing) console.error(`[i18n] Missing key ${lang}/${namespace}: ${key}`);
+      failed = true;
+    } else {
+      const preview = missing.slice(0, MISSING_KEY_PREVIEW).join(", ");
+      const more =
+        missing.length > MISSING_KEY_PREVIEW
+          ? `, +${missing.length - MISSING_KEY_PREVIEW} more`
+          : "";
+      console.warn(
+        `[i18n] Warning: ${lang}/${namespace} is missing ${missing.length} key${missing.length === 1 ? "" : "s"} (falls back to en): ${preview}${more}`
+      );
+    }
   }
 }
 
@@ -166,4 +195,14 @@ if (failed) {
   process.exit(1);
 }
 
-console.log("[i18n] Locale keys and placeholders are consistent.");
+if (missingKeys.length) {
+  if (GITHUB_ACTIONS)
+    console.warn(
+      `::warning title=Untranslated locale keys::${missingKeys.length} non-English translation${missingKeys.length === 1 ? " is" : "s are"} missing and will fall back to en. See the i18n check log for each locale; releases require them (--strict).`
+    );
+  console.log(
+    `[i18n] English, plurals and placeholders are consistent; ${missingKeys.length} translation${missingKeys.length === 1 ? " is" : "s are"} missing and will fall back to en. Run with --strict to require them.`
+  );
+} else {
+  console.log("[i18n] Locale keys and placeholders are consistent.");
+}

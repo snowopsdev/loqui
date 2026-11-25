@@ -1,5 +1,6 @@
 import { isSourceId, sourceQuote, truncateSourceText } from "./citations.ts";
 import type { RagNoteRef } from "./citations";
+import { noteSourceText } from "../../lib/noteSourceText";
 type ElectronAPI = Window["electronAPI"];
 
 type RagApi = Partial<Pick<ElectronAPI, "semanticSearchNotes" | "getNote">>;
@@ -27,20 +28,22 @@ export async function buildRagContext(
         .slice(0, RAG_NOTE_LIMIT)
         .map((r) => api.getNote!(r.id))
     );
-    const notes = loaded.filter((note) => note && isSourceId(note.id));
+    const notes = loaded
+      .filter((note) => note && isSourceId(note.id))
+      .map((note) => ({ note, body: noteSourceText(note) }));
     return {
       text: notes
         .map(
-          (note) =>
-            `<note id="${note.id}" title="${attr(note.title)}">\n${truncateSourceText(note.content || "", RAG_NOTE_SNIPPET_LENGTH)}\n</note>`
+          ({ note, body }) =>
+            `<note id="${note.id}" title="${attr(note.title)}">\n${truncateSourceText(body, RAG_NOTE_SNIPPET_LENGTH)}\n</note>`
         )
         .join("\n\n"),
-      notes: notes.map((note) => ({
+      notes: notes.map(({ note, body }) => ({
         id: note.id,
         title: note.title,
         type: note.note_type ?? null,
         date: note.updated_at ?? null,
-        quote: sourceQuote(note.content || ""),
+        quote: sourceQuote(body),
       })),
     };
   } catch {

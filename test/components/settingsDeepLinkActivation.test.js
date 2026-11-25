@@ -25,7 +25,7 @@ async function mount(t, { acknowledge = async () => true } = {}) {
   const acknowledgments = [];
   const publications = [];
   installBrowserGlobals(t, {
-    initialStorage: { semanticReindexVersion: "2" },
+    initialStorage: { semanticReindexVersion: "3" },
     window: {
       electronAPI: {
         onShowSettings: (listener) => {

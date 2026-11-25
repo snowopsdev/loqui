@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
-const { UpdateManager, DAY } = require("../../src/helpers/updateManager");
+const { UpdateManager, DAY, HOUR, CHECK_INTERVAL } = require("../../src/helpers/updateManager");
 function setup(t, options = {}) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-updates-"));
   const updater = new EventEmitter();
@@ -187,10 +187,10 @@ test("a profile that cannot be written does not wedge the updater", async (t) =>
   assert.equal(s.counts().checks, 1);
 });
 test("scheduled retries back off hourly, double per failure, cap at a day, and reset after success", async (t) => {
-  const HOUR = DAY / 24;
   let clock = DAY * 10;
   let fail = true;
   const s = setup(t);
+  s.manager.preferences({ channel: "stable" });
   s.manager.now = () => clock;
   s.updater.checkForUpdates = async () => {
     if (fail) throw Error("offline");
@@ -244,4 +244,51 @@ test("an unwritable profile does not stop setup completion from starting the che
   const status = s.manager.preferences({ enabled: false, channel: "stable" });
   assert.equal(status.enabled, false);
   assert.equal(status.channel, "stable");
+});
+
+test("[change-driving] beta checks every four hours while stable keeps a daily check", async (t) => {
+  assert.equal(HOUR * 24, DAY);
+  assert.deepEqual(CHECK_INTERVAL, { stable: DAY, beta: 4 * HOUR });
+  let clock = DAY * 10;
+  const beta = setup(t, { next: "0.1.0-beta.1" });
+  beta.manager.now = () => clock;
+  assert.equal(beta.manager.prefs.channel, "beta", "a beta build defaults to the beta channel");
+  const attempted = async (manager) => {
+    const before = manager.prefs.lastCheck;
+    await manager.check(false);
+    return manager.prefs.lastCheck !== before;
+  };
+  assert.equal(await attempted(beta.manager), true);
+  clock += 4 * HOUR - 1;
+  assert.equal(await attempted(beta.manager), false, "beta waits four hours");
+  clock += 1;
+  assert.equal(await attempted(beta.manager), true, "beta checks again after four hours");
+
+  const stable = setup(t, { next: "0.1.0-beta.1" });
+  stable.manager.preferences({ channel: "stable" });
+  stable.manager.now = () => clock;
+  assert.equal(await attempted(stable.manager), true);
+  clock += 4 * HOUR;
+  assert.equal(await attempted(stable.manager), false, "stable does not follow the beta cadence");
+  clock += DAY - 4 * HOUR;
+  assert.equal(await attempted(stable.manager), true, "stable checks daily");
+});
+
+test("beta retry backoff is capped at its own four-hour cadence", async (t) => {
+  let clock = DAY * 10;
+  const s = setup(t);
+  s.manager.now = () => clock;
+  s.updater.checkForUpdates = async () => {
+    throw Error("offline");
+  };
+  await s.manager.check(false);
+  for (const wait of [1, 2, 4, 4]) {
+    clock += wait * HOUR - 1;
+    const before = s.manager.prefs.lastCheck;
+    await s.manager.check(false);
+    assert.equal(s.manager.prefs.lastCheck, before, `retry ${wait}h early`);
+    clock += 1;
+    await s.manager.check(false);
+    assert.notEqual(s.manager.prefs.lastCheck, before, `retry after ${wait}h`);
+  }
 });

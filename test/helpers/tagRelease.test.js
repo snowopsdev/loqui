@@ -41,9 +41,11 @@ function github({
   dispatchError,
   previousVersion = "0.1.0-beta.1",
   eventName = "push",
+  localeError,
 } = {}) {
   const events = [],
-    messages = [];
+    messages = [],
+    localeChecks = [];
   const respond = (status, data) => ({
     status,
     ok: status >= 200 && status < 300,
@@ -52,6 +54,7 @@ function github({
   return {
     events,
     messages,
+    localeChecks,
     writes: () => events.filter((event) => event.method !== "GET"),
     options: {
       env: {
@@ -94,6 +97,10 @@ function github({
             ? respond(201, { ref: `refs/tags/${tag}`, object: { sha } })
             : respond(createStatus, { message: "Reference already exists" });
         throw Error(`Unexpected request: ${method} ${url}`);
+      },
+      checkLocales: () => {
+        localeChecks.push(events.length);
+        if (localeError) throw Error(localeError);
       },
       command: (file, args) => {
         events.push({ method: "COMMAND", file, args });
@@ -285,4 +292,30 @@ test("a push without a valid pre-push commit fails instead of guessing whether t
     await assert.rejects(run({ ...options, cwd: fixture(t) }), /pre-push commit/);
     assert.deepEqual(g.writes(), []);
   }
+});
+
+test("[change-driving] incomplete translations fail before the immutable tag is created", async (t) => {
+  const g = github({ localeError: "Missing key de/translation: x" });
+  await assert.rejects(run({ ...g.options, cwd: fixture(t) }), (error) => {
+    assert.match(error.message, /Not tagging v0\.1\.0-beta\.2: every locale must be complete/);
+    assert.match(error.cause.message, /Missing key/);
+    return true;
+  });
+  assert.deepEqual(g.writes(), [], "no tag and no release dispatch");
+  const ok = github();
+  assert.equal((await run({ ...ok.options, cwd: fixture(t) })).state, "created");
+  assert.equal(ok.localeChecks.length, 1);
+  assert.equal(
+    ok.events.slice(ok.localeChecks[0]).find((event) => event.method !== "GET")?.url,
+    `${api}/git/refs`,
+    "the locale check runs before the tag is created"
+  );
+});
+
+test("skipped pushes and existing tags never run the locale check", async (t) => {
+  const unchanged = github({ previousVersion: version });
+  assert.equal((await run({ ...unchanged.options, cwd: fixture(t) })).state, "skipped");
+  const exists = github({ tagExists: true });
+  assert.equal((await run({ ...exists.options, cwd: fixture(t) })).state, "exists");
+  assert.deepEqual([...unchanged.localeChecks, ...exists.localeChecks], []);
 });

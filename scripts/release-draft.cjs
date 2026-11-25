@@ -33,6 +33,25 @@ function assertDraft(release, { commit, tag }) {
     throw Error("Draft prerelease channel does not match the version tag");
 }
 
+// GitHub release notes for one version: the body of its `## <version>` section in
+// CHANGELOG.md, up to the next `## ` heading. The heading itself is dropped
+// because the release title already names the version. validate-release.cjs has
+// already required that heading, so the fallback covers only manual runs.
+function releaseNotes(changelog, version) {
+  const lines = String(changelog).split(/\r?\n/);
+  const start = lines.findIndex(
+    (line) => line === `## ${version}` || line.startsWith(`## ${version} `)
+  );
+  const fallback = `Loqui ${version}. See CHANGELOG.md for details.`;
+  if (start === -1) return fallback;
+  const end = lines.findIndex((line, index) => index > start && /^## /.test(line));
+  const body = lines
+    .slice(start + 1, end === -1 ? undefined : end)
+    .join("\n")
+    .trim();
+  return body || fallback;
+}
+
 function verifyAssets(cwd) {
   const dir = path.join(cwd, "release");
   const names = fs.readdirSync(dir).sort();
@@ -159,8 +178,8 @@ async function run(
       commit,
       "--title",
       `Loqui ${tag}`,
-      "--notes-file",
-      "CHANGELOG.md",
+      "--notes",
+      releaseNotes(fs.readFileSync(path.join(cwd, "CHANGELOG.md"), "utf8"), tag.slice(1)),
     ];
     if (tag.includes("-beta.")) args.push("--prerelease");
     command("gh", args);
@@ -173,4 +192,4 @@ if (require.main === module)
     console.error(error.message);
     process.exitCode = 1;
   });
-module.exports = { run, readGitHub, assertDraft, verifyAssets };
+module.exports = { run, readGitHub, assertDraft, verifyAssets, releaseNotes };

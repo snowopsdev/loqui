@@ -73,7 +73,12 @@ test("inline: a narrow window keeps bars and Stop, truncating then hiding the ti
   };
   walk(tree);
   assert.equal(spans.length, 1);
-  assert.match(spans[0].props.className, /\btruncate\b/);
+  // Not nowrap `truncate`: its min-content width would be the whole title, so the
+  // top bar's min-content column could never shrink it.
+  assert.doesNotMatch(spans[0].props.className, /\btruncate\b/);
+  assert.match(spans[0].props.className, /\bline-clamp-1\b/);
+  assert.match(spans[0].props.className, /\bwrap-anywhere\b/);
+  assert.match(spans[0].props.className, /\bmin-w-16\b/);
   assert.match(spans[0].props.className, /max-w-\[9rem\]/);
   assert.match(spans[0].props.className, /max-\[1023px\]:hidden/);
 });

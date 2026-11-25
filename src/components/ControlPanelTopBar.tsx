@@ -50,6 +50,9 @@ export default function ControlPanelTopBar({
       className={cn(
         // The trailing column never shrinks past its actions and window controls
         // (both shrink-0); only an inline status such as the meeting pill gives way.
+        // That relies on the status having a small min-content width: the pill's
+        // title wraps anywhere (clamped to one line) rather than using nowrap, so
+        // it narrows to 4rem before the search field shrinks.
         "grid h-12 shrink-0 grid-cols-[minmax(120px,1fr)_minmax(0,340px)_minmax(min-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
         "transition-[padding] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none",
         clearTrafficLights && (sidebarMode === "rail" ? "ltr:ps-5" : "ltr:ps-[76px]")

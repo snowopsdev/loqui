@@ -108,11 +108,17 @@ export default function MeetingRecordingPill({
             <LevelBars readLevel={readMeetingMicLevel} height={16} />
           )}
           {/* Narrow windows (the 1024px side-panel breakpoint) keep bars + Stop;
-              the button's aria-label still names the destination. */}
+              the button's aria-label still names the destination. Inline, the
+              title clamps to one line instead of nowrap truncation, which would
+              make its min-content width the whole title. Wrapping anywhere lets
+              the top bar's min-content column shrink it from 9rem to 4rem before
+              the search field gives up any room. */}
           <span
             className={cn(
-              "min-w-0 text-xs font-medium text-foreground/80 truncate",
-              inline ? "max-w-[9rem] max-[1023px]:hidden" : "max-w-[12rem]"
+              "text-xs font-medium text-foreground/80",
+              inline
+                ? "line-clamp-1 wrap-anywhere min-w-16 max-w-[9rem] max-[1023px]:hidden"
+                : "min-w-0 truncate max-w-[12rem]"
             )}
           >
             {isWaitingForMic ? t("notes.meetingPill.waitingForMicrophone") : title}

@@ -100,7 +100,7 @@ export default function SidebarModal<T extends string>({
             // otherwise take the whole settings modal with it.
             if (shouldBlockDismiss(e)) e.preventDefault();
           }}
-          className="fixed left-[50%] top-[50%] z-50 max-h-[85vh] w-[90vw] max-w-5xl translate-x-[-50%] translate-y-[-50%] rounded-xl p-0 overflow-hidden outline-none bg-background border border-border shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] dark:bg-surface-1 dark:border-border-subtle dark:shadow-[0_25px_60px_-12px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-98 data-[state=open]:zoom-in-98"
+          className="fixed left-[50%] top-[50%] z-50 max-h-[85vh] w-[90vw] max-w-5xl translate-x-[-50%] translate-y-[-50%] rounded-xl p-0 overflow-hidden outline-none bg-background border border-border shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] dark:bg-surface-1 dark:border-border-subtle dark:shadow-[0_25px_60px_-12px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-98 data-[state=open]:zoom-in-98 data-[state=closed]:pointer-events-none"
         >
           <div className="relative h-full max-h-[85vh] overflow-hidden">
             <div ref={containerRef} className="flex h-[85vh]">

@@ -15,8 +15,16 @@ test("Notes no longer adds a second navigation column", () => {
 test("the title column keeps at least 120px (WS-Q2)", () => {
   assert.match(
     read("src/components/ControlPanelTopBar.tsx"),
-    /grid-cols-\[minmax\(120px,1fr\)_minmax\(0,340px\)_minmax\(max-content,1fr\)\]/
+    /grid-cols-\[minmax\(120px,1fr\)_minmax\(0,340px\)_minmax\(min-content,1fr\)\]/
   );
+});
+
+test("only an inline status gives way in the trailing column; actions and window controls never shrink", () => {
+  const bar = read("src/components/ControlPanelTopBar.tsx");
+  assert.match(bar, /col-start-3 flex min-w-0 items-center/);
+  assert.match(bar, /className="flex min-w-0 items-center empty:hidden"/);
+  assert.match(bar, /className="flex shrink-0 items-center">\s*\{actions\}/);
+  assert.match(bar, /className="ms-auto shrink-0">\s*<WindowControls/);
 });
 
 test("the sidebar footer carries the mic card and the edge carries the capture rail", () => {

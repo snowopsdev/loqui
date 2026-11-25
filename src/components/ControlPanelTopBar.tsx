@@ -48,8 +48,9 @@ export default function ControlPanelTopBar({
   return (
     <header
       className={cn(
-        // The trailing column never shrinks past its actions and window controls.
-        "grid h-12 shrink-0 grid-cols-[minmax(120px,1fr)_minmax(0,340px)_minmax(max-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
+        // The trailing column never shrinks past its actions and window controls
+        // (both shrink-0); only an inline status such as the meeting pill gives way.
+        "grid h-12 shrink-0 grid-cols-[minmax(120px,1fr)_minmax(0,340px)_minmax(min-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
         "transition-[padding] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none",
         clearTrafficLights && (sidebarMode === "rail" ? "ltr:ps-5" : "ltr:ps-[76px]")
       )}
@@ -131,10 +132,10 @@ export default function ControlPanelTopBar({
         </button>
       )}
 
-      <div className="col-start-3 flex items-center gap-2">
+      <div className="col-start-3 flex min-w-0 items-center gap-2">
         {/* macOS keeps no window controls here, so status and actions take the
             far end; elsewhere they sit beside the search, left of the controls. */}
-        <div className={cn("flex items-center gap-2", platform === "darwin" && "ms-auto")}>
+        <div className={cn("flex min-w-0 items-center gap-2", platform === "darwin" && "ms-auto")}>
           {status && (
             // empty:hidden: the pill renders nothing while no meeting records.
             <div
@@ -146,13 +147,13 @@ export default function ControlPanelTopBar({
             </div>
           )}
           {!isSidePanelLayout && actions && (
-            <div data-no-window-drag="" style={noDragStyle} className="flex items-center">
+            <div data-no-window-drag="" style={noDragStyle} className="flex shrink-0 items-center">
               {actions}
             </div>
           )}
         </div>
         {platform !== "darwin" && (
-          <div data-no-window-drag="" style={noDragStyle} className="ms-auto">
+          <div data-no-window-drag="" style={noDragStyle} className="ms-auto shrink-0">
             <WindowControls />
           </div>
         )}

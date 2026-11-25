@@ -6,14 +6,15 @@ import UpdateSettings from "./components/settings/UpdateSettings";
 import { flushForUpdate } from "./utils/updateFlush";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import App from "./App.jsx";
 import AgentDictationPillOverlay from "./components/dictation/AgentDictationPillOverlay.tsx";
 import { useControlPanelWindowDrag } from "./hooks/useControlPanelWindowDrag";
 import { useTheme } from "./hooks/useTheme";
 import { isControlPanelWindow } from "./utils/windowContext.ts";
-// Each window mounts exactly one of these surfaces, so the larger ones stay out
-// of the shared entry chunk. The agent pill stays eager: windowManager talks to
-// it as soon as the page finishes loading, before a lazy chunk could mount.
-const App = React.lazy(() => import("./App.jsx"));
+// App stays eager: main admits the dictation gate only from the control panel,
+// so the dictation panel must have its recording listeners before any hotkey.
+// The agent pill stays eager because windowManager pushes state to it on load.
+// The meeting notification pulls its own data on mount, so it can load lazily.
 const MeetingNotificationOverlay = React.lazy(
   () => import("./components/MeetingNotificationOverlay.tsx")
 );
@@ -22,12 +23,6 @@ const OnboardingFlow = React.lazy(() => import("./components/OnboardingFlow.tsx"
 const BrowserPreview = import.meta.env.DEV
   ? React.lazy(() => import("./preview/BrowserPreview.tsx"))
   : null;
-// Rendered after a lazy sibling inside the same Suspense boundary: its effect
-// runs only once that boundary commits, after the sibling's own effects.
-function MountSignal({ onMount }) {
-  useEffect(() => onMount(), [onMount]);
-  return null;
-}
 export default function AppRouter() {
   useTheme();
   useEffect(
@@ -75,20 +70,12 @@ function MainApp() {
     setShowOnboarding(true);
   });
   useControlPanelWindowDrag(isControlPanel);
-  // The dictation panel's App chunk loads lazily. Reporting onboarding as done
-  // opens main's dictation gate, so hold that report until App has mounted
-  // and registered its recording listeners; otherwise an early hotkey could
-  // send events no one is listening for yet.
-  const [dictationAppMounted, setDictationAppMounted] = useState(false);
-  const handleDictationAppMounted = React.useCallback(() => setDictationAppMounted(true), []);
-  const surfaceReady = isControlPanel || dictationAppMounted;
   useEffect(() => {
-    if (!surfaceReady) return;
     if (isControlPanel) void window.electronAPI?.setOnboardingWindowMode?.("restore");
     void window.electronAPI?.setOnboardingActive?.(showOnboarding);
     if (!isControlPanel && showOnboarding) window.electronAPI?.hideWindow?.();
     if (!showOnboarding) window.electronAPI?.markMacAccessibilityFeaturesReady?.(null);
-  }, [isControlPanel, showOnboarding, surfaceReady]);
+  }, [isControlPanel, showOnboarding]);
   // First launch never mounts the workspace. Once entered, retain its original
   // editor/chat/recorder owners across every later setup presentation.
   const [workspaceMounted, setWorkspaceMounted] = useState(() => !showOnboarding);
@@ -116,13 +103,10 @@ function MainApp() {
       {t("common.loading")}
     </div>
   );
-  // The dictation panel is a transparent frameless window: an opaque loading
-  // box would flash on screen while the App chunk loads.
   if (!isControlPanel)
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={loading}>
         <App />
-        <MountSignal onMount={handleDictationAppMounted} />
       </Suspense>
     );
   return (

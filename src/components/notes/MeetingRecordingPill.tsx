@@ -63,6 +63,8 @@ export default function MeetingRecordingPill({
   };
 
   const title = truncateTitle(recordingNoteTitle ?? "");
+  // No span for an untitled note, or the inline title's 4rem floor leaves a gap.
+  const label = isWaitingForMic ? t("notes.meetingPill.waitingForMicrophone") : title;
   const returnLabel = t(
     workspaceActive ? "notes.meetingPill.returnToNote" : "setupFlow.ready.openWorkspace"
   );
@@ -103,26 +105,28 @@ export default function MeetingRecordingPill({
           )}
         >
           {isWaitingForMic ? (
-            <span className="size-2 rounded-full bg-warning" aria-hidden="true" />
+            <span className="size-2 shrink-0 rounded-full bg-warning" aria-hidden="true" />
           ) : (
             <LevelBars readLevel={readMeetingMicLevel} height={16} />
           )}
-          {/* Narrow windows (the 1024px side-panel breakpoint) keep bars + Stop;
+          {/* Narrow windows (below the 1024px side-panel breakpoint) keep bars + Stop;
               the button's aria-label still names the destination. Inline, the
               title clamps to one line instead of nowrap truncation, which would
               make its min-content width the whole title. Wrapping anywhere lets
               the top bar's min-content column shrink it from 9rem to 4rem before
               the search field gives up any room. */}
-          <span
-            className={cn(
-              "text-xs font-medium text-foreground/80",
-              inline
-                ? "line-clamp-1 wrap-anywhere min-w-16 max-w-[9rem] max-[1023px]:hidden"
-                : "min-w-0 truncate max-w-[12rem]"
-            )}
-          >
-            {isWaitingForMic ? t("notes.meetingPill.waitingForMicrophone") : title}
-          </span>
+          {label && (
+            <span
+              className={cn(
+                "text-start text-xs font-medium text-foreground/80",
+                inline
+                  ? "line-clamp-1 wrap-anywhere min-w-16 max-w-[9rem] max-lg:hidden"
+                  : "min-w-0 truncate max-w-[12rem]"
+              )}
+            >
+              {label}
+            </span>
+          )}
         </button>
 
         <button

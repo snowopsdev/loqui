@@ -11,7 +11,7 @@ const {
 // The pill sits in the workspace top bar while the workspace shows, so it can
 // never cover the centred search field or a view's header row. It floats only
 // while the workspace (and so its top bar) is hidden.
-async function render(t, props) {
+async function render(t, props, state = {}) {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -23,6 +23,7 @@ async function render(t, props) {
     recordingNoteId: 7,
     recordingNoteTitle: "Weekly sync",
     micCaptureStatus: "capturing",
+    ...state,
   };
   t.after(() => delete globalThis.__meetingPillState);
   const vite = await createRendererServer(t, {
@@ -80,7 +81,44 @@ test("inline: a narrow window keeps bars and Stop, truncating then hiding the ti
   assert.match(spans[0].props.className, /\bwrap-anywhere\b/);
   assert.match(spans[0].props.className, /\bmin-w-16\b/);
   assert.match(spans[0].props.className, /max-w-\[9rem\]/);
-  assert.match(spans[0].props.className, /max-\[1023px\]:hidden/);
+  // Tailwind v4's max-[1023px] means width < 1023px; max-lg matches the
+  // side-panel breakpoint (window width < 1024).
+  assert.match(spans[0].props.className, /\bmax-lg:hidden\b/);
+});
+
+function spansIn(tree) {
+  const spans = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== "object") return;
+    if (node.type === "span") spans.push(node);
+    walk(node.props?.children);
+  };
+  walk(tree);
+  return spans;
+}
+
+test("inline: an untitled note leaves no empty title slot between the bars and Stop", async (t) => {
+  const tree = await render(
+    t,
+    { placement: "inline", workspaceActive: true },
+    { recordingNoteTitle: "" }
+  );
+  assert.equal(
+    spansIn(tree).filter((span) => /\bmin-w-16\b/.test(span.props.className ?? "")).length,
+    0
+  );
+});
+
+test("inline: the waiting-for-mic dot keeps its size beside a long label", async (t) => {
+  const tree = await render(
+    t,
+    { placement: "inline", workspaceActive: true },
+    { micCaptureStatus: "reconnecting" }
+  );
+  const dot = spansIn(tree).find((span) => /\bbg-warning\b/.test(span.props.className ?? ""));
+  assert.ok(dot, "the waiting dot renders");
+  assert.match(dot.props.className, /\bshrink-0\b/);
 });
 
 test("inline: hidden while the workspace and its top bar are hidden", async (t) => {

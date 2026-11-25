@@ -61,6 +61,15 @@
     "!**/node_modules/tailwind-merge/**",
     "!**/node_modules/tw-animate-css/**",
     "!**/node_modules/react-markdown/**",
+    "!**/node_modules/@tiptap/**",
+    "!**/node_modules/tiptap-markdown/**",
+    "!**/node_modules/prosemirror-*/**",
+    "!**/node_modules/opencc-js/**",
+    "!**/node_modules/@fontsource-variable/**",
+    "!**/node_modules/react-i18next/**",
+    "!**/node_modules/@tanstack/**",
+    "!**/node_modules/zustand/**",
+    "!**/node_modules/remark-gfm/**",
     "!**/node_modules/@types/**",
     "!**/node_modules/concurrently/**",
     "!**/node_modules/cross-env/**",
@@ -117,7 +126,11 @@
         "diarization-models/**/*",
         "whisper-vad/**/*",
         "*.dylib",
-        "*.so*"
+        "*.so*",
+        "!*-win32-*",
+        "!*-darwin-x64*",
+        "!*.exe",
+        "!*.dll"
       ]
     },
     {

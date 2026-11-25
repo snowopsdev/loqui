@@ -10,8 +10,9 @@
 //    user flags from ~/.config/loqui-snowopsdev-flags.conf, and falls back to
 //    --no-sandbox where the Chromium sandbox cannot work (AppImage/tar.gz
 //    on distros that restrict unprivileged user namespaces).
-// 3. Fails the build if required binaries (ffmpeg-static, onnx worker script) are missing from app.asar.unpacked/, or if the
-//    Parakeet servers are not the loopback-only build.
+// 3. Fails the build if required binaries (ffmpeg-static, onnx worker script)
+//    are missing from app.asar.unpacked/, or if the Parakeet servers are not
+//    the loopback-only build.
 // 4. Fails the build if any native image under resources/ can load a library
 //    from outside the app (RPATH/RUNPATH/LC_RPATH or a dylib path), or if a
 //    Linux sherpa-onnx executable needs a newer glibc than whisper and llama.

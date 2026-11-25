@@ -150,7 +150,6 @@ const AUTO_LEARN_DEBOUNCE_MS = 1500;
 const byokSizeCapError = (sizeCapBytes) =>
   `File too large. Maximum size for bring-your-own-key is ${Math.floor(sizeCapBytes / (1024 * 1024))} MB.`;
 
-const CONNECTION_TEST_MAX_OUTPUT_TOKENS = 16;
 const { testProviderConnection } = require("./providerConnectionTest");
 const { createUploadCancelRegistry } = require("./uploadCancelRegistry");
 

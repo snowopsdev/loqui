@@ -133,6 +133,14 @@ function loadMediaPlayer(platform, { existingPaths = () => false, warnThrows = f
   return { mediaPlayer: require(modulePath), calls, logs };
 }
 
+// Lets any pending continuation run, for assertions that something did *not*
+// happen and so have no call to wait for.
+async function drain() {
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 // Awaits until the module has spawned call #index. The chain between one
 // child's close and the next spawn is microtask-only, so a single immediate
 // suffices; the bound is just a guard against a hang.
@@ -182,6 +190,127 @@ test("darwin: resume waits for an in-flight pause instead of no-oping on _didPau
 
 // Linux has the same hazard: dbus-send and playerctl ran through spawnSync on
 // the same main thread (#2073).
+// spawnAsync is shared by the Linux and macOS helpers. These run it through the
+// Linux MPRIS listing (call #0, a 2 s deadline) because that is the first spawn
+// every pause makes.
+const MPRIS_LIST_TIMEOUT_MS = 2000;
+const MPRIS_PLAYERS =
+  'string "org.mpris.MediaPlayer2.spotify"\nstring "org.mpris.MediaPlayer2.vlc"\n';
+
+// A helper that never closes its pipes is killed at the deadline, its stdio is
+// destroyed so stuck pipes don't accumulate, and a late close can neither
+// double-settle nor re-run anything.
+test("linux: a helper stuck past its deadline is killed, its stdio destroyed, and the pause falls through", async (t) => {
+  // Only setTimeout is mocked: waitForCall drives progress with setImmediate,
+  // which a bare enable() would also mock, stalling every helper below.
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { mediaPlayer, calls, logs } = loadMediaPlayer("linux");
+
+  const pausing = mediaPlayer.pauseMedia();
+  const list = await waitForCall(calls, 0);
+
+  t.mock.timers.tick(MPRIS_LIST_TIMEOUT_MS - 1);
+  assert.deepEqual(list.child.killSignals, [], "nothing is killed before the deadline");
+  t.mock.timers.tick(1);
+
+  assert.deepEqual(list.child.killSignals, ["SIGKILL"]);
+  assert.equal(list.child.stdoutDestroyed, true);
+  assert.equal(list.child.stderrDestroyed, true);
+  assert.ok(
+    logs.some((entry) => entry.level === "warn" && entry.message.includes("timed out")),
+    "a timed-out helper is reported above debug level"
+  );
+
+  // A timed-out listing reads as "no players", so playerctl takes over.
+  const playerctl = await waitForCall(calls, 1);
+  assert.equal(playerctl.cmd, "playerctl");
+  assert.deepEqual(playerctl.args, ["pause"]);
+
+  list.child.finish(0, MPRIS_PLAYERS);
+  playerctl.child.finish(0);
+  assert.equal(await pausing, true);
+  await drain();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(mediaPlayer._pausedPlayers, ["playerctl"]);
+});
+
+// The deadline can arrive after the helper has already done its job and
+// exited, with only its pipes held open by a descendant — the shape behind
+// #2073. Its exit code and the output we buffered are the real result.
+test("linux: a helper that exited before the deadline is honoured, not reported as a timeout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { mediaPlayer, calls, logs } = loadMediaPlayer("linux");
+
+  const pausing = mediaPlayer.pauseMedia();
+  const list = await waitForCall(calls, 0);
+  list.child.exitLeavingPipesOpen(0, 'string "org.mpris.MediaPlayer2.spotify"\n');
+
+  t.mock.timers.tick(MPRIS_LIST_TIMEOUT_MS);
+  await drain();
+
+  // The listing's players are used rather than the playerctl fallback.
+  const status = await waitForCall(calls, 1);
+  assert.equal(status.cmd, "dbus-send");
+  assert.ok(status.args.includes("--dest=org.mpris.MediaPlayer2.spotify"));
+  assert.deepEqual(list.child.killSignals, [], "an exited helper is not killed");
+  const timeout = logs.find((entry) => entry.message.includes("timed out"));
+  assert.equal(timeout.meta.exitCode, 0);
+
+  status.child.finish(0, 'variant string "Playing"\n');
+  (await waitForCall(calls, 2)).child.finish(0);
+  assert.equal(await pausing, true);
+  assert.deepEqual(mediaPlayer._pausedPlayers, ["org.mpris.MediaPlayer2.spotify"]);
+});
+
+// spawnSync capped output at 1 MB and killed anything past it. Without a
+// replacement cap a runaway helper buffers in the main process until its
+// deadline, and a large enough payload makes the settle path throw after it
+// has marked itself settled — stalling the serialized queue for good.
+test("linux: a helper that floods stdout has its output capped", async () => {
+  const { mediaPlayer, calls } = loadMediaPlayer("linux");
+
+  const pausing = mediaPlayer.pauseMedia();
+  const list = await waitForCall(calls, 0);
+  list.child.stdout.emit("data", Buffer.from('string "org.mpris.MediaPlayer2.early"\n'));
+  const chunk = "A".repeat(512 * 1024);
+  for (let i = 0; i < 4; i += 1) list.child.stdout.emit("data", Buffer.from(chunk));
+  // Past the 1 MB cap, so this player is never buffered.
+  list.child.stdout.emit("data", Buffer.from('string "org.mpris.MediaPlayer2.late"\n'));
+  list.child.finish(0);
+
+  const status = await waitForCall(calls, 1);
+  assert.ok(status.args.includes("--dest=org.mpris.MediaPlayer2.early"));
+  status.child.finish(0, 'variant string "Paused"\n');
+
+  // Only the early player was listed, so playerctl is next, not a "late" query.
+  const playerctl = await waitForCall(calls, 2);
+  assert.equal(playerctl.cmd, "playerctl");
+  playerctl.child.finish(1);
+  assert.equal(await pausing, false);
+  assert.ok(!calls.some((call) => call.args.includes("--dest=org.mpris.MediaPlayer2.late")));
+});
+
+// Teardown and logging at the deadline are best effort, but the deadline must
+// still settle: an unsettled promise sits at the head of the serial queue and
+// kills every later pause and resume for the rest of the session.
+test("linux: a logger that throws at the deadline still settles and leaves the queue usable", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { mediaPlayer, calls } = loadMediaPlayer("linux", { warnThrows: true });
+
+  const pausing = mediaPlayer.pauseMedia();
+  await waitForCall(calls, 0);
+  t.mock.timers.tick(MPRIS_LIST_TIMEOUT_MS);
+
+  (await waitForCall(calls, 1)).child.finish(0); // playerctl pause
+  assert.equal(await pausing, true);
+
+  const resuming = mediaPlayer.resumeMedia();
+  const play = await waitForCall(calls, 2);
+  assert.deepEqual(play.args, ["play"]);
+  play.child.finish(0);
+  assert.equal(await resuming, true);
+});
+
 test("linux: pauses only Playing MPRIS players and resumes exactly those", async () => {
   const { mediaPlayer, calls } = loadMediaPlayer("linux");
 

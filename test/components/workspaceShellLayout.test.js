@@ -23,8 +23,21 @@ test("only an inline status gives way in the trailing column; actions and window
   const bar = read("src/components/ControlPanelTopBar.tsx");
   assert.match(bar, /col-start-3 flex min-w-0 items-center/);
   assert.match(bar, /className="flex min-w-0 items-center empty:hidden"/);
-  assert.match(bar, /className="flex shrink-0 items-center">\s*\{actions\}/);
+  assert.match(bar, /className="flex shrink-0 items-center"\s*>\s*\{actions\}/);
   assert.match(bar, /className="ms-auto shrink-0">\s*<WindowControls/);
+});
+
+test("a header too narrow for the status moves it to its own row instead of clipping the controls", () => {
+  const bar = read("src/components/ControlPanelTopBar.tsx");
+  assert.match(bar, /nextStatusRow\(statusRowRef\.current, header\)/);
+  assert.match(bar, /new ResizeObserver\(measure\)/);
+  // The status slot and Capture are observed too: neither resizes the header.
+  assert.equal((bar.match(/data-top-bar-measure=""/g) ?? []).length, 2);
+  assert.match(bar, /\{status && !statusStacked && \(/);
+  assert.match(
+    bar,
+    /\{status && statusStacked && \(\s*<div className="flex justify-center border-b/
+  );
 });
 
 test("the sidebar footer carries the mic card and the edge carries the capture rail", () => {

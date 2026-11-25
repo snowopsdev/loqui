@@ -1,4 +1,4 @@
-import React, { Fragment } from "react";
+import React, { Fragment, useLayoutEffect, useRef, useState } from "react";
 import type { SidebarMode } from "../lib/sidebarMode";
 import { shortcutHint } from "../lib/workspaceShortcuts";
 import { useTranslation } from "react-i18next";
@@ -7,6 +7,7 @@ import { Button } from "./ui/button";
 import WindowControls from "./WindowControls";
 import { cn } from "./lib/utils";
 import { getCachedPlatform } from "../utils/platform";
+import { INLINE_STATUS_ROW, nextStatusRow, type StatusRowState } from "../lib/topBarStatusRow";
 
 const platform = getCachedPlatform();
 
@@ -45,122 +46,160 @@ export default function ControlPanelTopBar({
   // macOS traffic lights, so the leading controls shift past them.
   const clearTrafficLights = platform === "darwin" && sidebarMode !== "expanded";
 
+  // A header too narrow for the status beside Capture and the window controls
+  // moves the status to its own row below, so it never pushes them off the edge.
+  const headerRef = useRef<HTMLElement>(null);
+  const statusRowRef = useRef<StatusRowState>(INLINE_STATUS_ROW);
+  const [statusStacked, setStatusStacked] = useState(false);
+  const hasStatus = status != null;
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header || !hasStatus) return;
+    const measure = () => {
+      statusRowRef.current = nextStatusRow(statusRowRef.current, header);
+      setStatusStacked(statusRowRef.current.stacked);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    // The status appearing or Capture changing width doesn't resize the header.
+    header.querySelectorAll("[data-top-bar-measure]").forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [hasStatus, statusStacked, isSidePanelLayout]);
+
   return (
-    <header
-      className={cn(
-        // The trailing column never shrinks past its actions and window controls
-        // (both shrink-0); only an inline status such as the meeting pill gives way.
-        // That relies on the status having a small min-content width: the pill's
-        // title wraps anywhere (clamped to one line) rather than using nowrap, so
-        // it narrows to 4rem before the search field shrinks.
-        "grid h-12 shrink-0 grid-cols-[minmax(120px,1fr)_minmax(0,340px)_minmax(min-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
-        "transition-[padding] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none",
-        clearTrafficLights && (sidebarMode === "rail" ? "ltr:ps-5" : "ltr:ps-[76px]")
-      )}
-      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-    >
-      <div className="flex min-w-0 items-center gap-2.5">
-        {isSidePanelLayout ? (
-          <Button
-            variant="outline-flat"
-            size="sm"
-            onClick={onExitSidePanel}
-            className="h-7 gap-1 px-2.5 ps-1.5"
+    <>
+      <header
+        ref={headerRef}
+        className={cn(
+          // The trailing column never shrinks past its actions and window controls
+          // (both shrink-0); only an inline status such as the meeting pill gives way.
+          // That relies on the status having a small min-content width: the pill's
+          // title wraps anywhere (clamped to one line) rather than using nowrap, so
+          // it narrows to 4rem before the search field shrinks.
+          "grid h-12 shrink-0 grid-cols-[minmax(120px,1fr)_minmax(0,340px)_minmax(min-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
+          "transition-[padding] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none",
+          clearTrafficLights && (sidebarMode === "rail" ? "ltr:ps-5" : "ltr:ps-[76px]")
+        )}
+        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          {isSidePanelLayout ? (
+            <Button
+              variant="outline-flat"
+              size="sm"
+              onClick={onExitSidePanel}
+              className="h-7 gap-1 px-2.5 ps-1.5"
+              data-no-window-drag=""
+              style={noDragStyle}
+            >
+              <ChevronLeft size={14} strokeWidth={1.8} className="rtl:rotate-180" />
+              {t("controlPanel.backToNotes")}
+            </Button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onToggleSidebar}
+                aria-label={`${t(sidebarMode === "expanded" ? "sidebar.collapse" : "sidebar.expand")} ${shortcutHint("toggleSidebar", platform)}`}
+                title={`${t(sidebarMode === "expanded" ? "sidebar.collapse" : "sidebar.expand")} ${shortcutHint("toggleSidebar", platform)}`}
+                data-no-window-drag=""
+                style={noDragStyle}
+                className="group relative z-40 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition-colors duration-(--motion-fast) ease-(--motion-ease-std) motion-reduce:transition-none hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/5"
+              >
+                {sidebarMode !== "expanded" ? (
+                  <PanelLeftOpen size={16} className={toggleIconClass} />
+                ) : (
+                  <PanelLeftClose size={16} className={toggleIconClass} />
+                )}
+              </button>
+              <nav
+                aria-label={t("controlPanel.breadcrumb")}
+                className="flex min-w-0 items-center gap-1.5"
+              >
+                {breadcrumb.slice(0, -1).map((crumb, index) => (
+                  <Fragment key={`${index}-${crumb}`}>
+                    <span dir="auto" className="max-w-40 truncate text-ui text-muted-foreground">
+                      {crumb}
+                    </span>
+                    <span aria-hidden className="text-ui text-muted-foreground">
+                      /
+                    </span>
+                  </Fragment>
+                ))}
+                <h1
+                  dir="auto"
+                  className="truncate text-ui! font-medium! leading-none! tracking-normal! text-foreground"
+                >
+                  {breadcrumb.at(-1)}
+                </h1>
+              </nav>
+            </>
+          )}
+        </div>
+
+        {!isSidePanelLayout && (
+          <button
+            type="button"
+            onClick={onOpenSearch}
             data-no-window-drag=""
             style={noDragStyle}
+            className="flex h-8 w-full items-center gap-2.5 rounded-full border border-border bg-foreground/4 px-4 text-start outline-none transition-colors duration-(--motion-fast) ease-(--motion-ease-std) motion-reduce:transition-none hover:bg-foreground/6 focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/8"
           >
-            <ChevronLeft size={14} strokeWidth={1.8} className="rtl:rotate-180" />
-            {t("controlPanel.backToNotes")}
-          </Button>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={onToggleSidebar}
-              aria-label={`${t(sidebarMode === "expanded" ? "sidebar.collapse" : "sidebar.expand")} ${shortcutHint("toggleSidebar", platform)}`}
-              title={`${t(sidebarMode === "expanded" ? "sidebar.collapse" : "sidebar.expand")} ${shortcutHint("toggleSidebar", platform)}`}
-              data-no-window-drag=""
-              style={noDragStyle}
-              className="group relative z-40 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition-colors duration-(--motion-fast) ease-(--motion-ease-std) motion-reduce:transition-none hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/5"
+            <Search size={14} className="shrink-0 text-muted-foreground" />
+            <span className="flex-1 truncate text-ui text-muted-foreground">
+              {t("commandSearch.placeholder")}
+            </span>
+            <kbd
+              dir="ltr"
+              className="shrink-0 rounded-full bg-foreground/6 px-1.5 py-px font-sans text-caption font-medium text-muted-foreground dark:bg-white/8"
             >
-              {sidebarMode !== "expanded" ? (
-                <PanelLeftOpen size={16} className={toggleIconClass} />
-              ) : (
-                <PanelLeftClose size={16} className={toggleIconClass} />
-              )}
-            </button>
-            <nav
-              aria-label={t("controlPanel.breadcrumb")}
-              className="flex min-w-0 items-center gap-1.5"
-            >
-              {breadcrumb.slice(0, -1).map((crumb, index) => (
-                <Fragment key={`${index}-${crumb}`}>
-                  <span dir="auto" className="max-w-40 truncate text-ui text-muted-foreground">
-                    {crumb}
-                  </span>
-                  <span aria-hidden className="text-ui text-muted-foreground">
-                    /
-                  </span>
-                </Fragment>
-              ))}
-              <h1
-                dir="auto"
-                className="truncate text-ui! font-medium! leading-none! tracking-normal! text-foreground"
-              >
-                {breadcrumb.at(-1)}
-              </h1>
-            </nav>
-          </>
+              {platform === "darwin" ? "⌘ + K" : "Ctrl + K"}
+            </kbd>
+          </button>
         )}
-      </div>
 
-      {!isSidePanelLayout && (
-        <button
-          type="button"
-          onClick={onOpenSearch}
-          data-no-window-drag=""
-          style={noDragStyle}
-          className="flex h-8 w-full items-center gap-2.5 rounded-full border border-border bg-foreground/4 px-4 text-start outline-none transition-colors duration-(--motion-fast) ease-(--motion-ease-std) motion-reduce:transition-none hover:bg-foreground/6 focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/8"
-        >
-          <Search size={14} className="shrink-0 text-muted-foreground" />
-          <span className="flex-1 truncate text-ui text-muted-foreground">
-            {t("commandSearch.placeholder")}
-          </span>
-          <kbd
-            dir="ltr"
-            className="shrink-0 rounded-full bg-foreground/6 px-1.5 py-px font-sans text-caption font-medium text-muted-foreground dark:bg-white/8"
-          >
-            {platform === "darwin" ? "⌘ + K" : "Ctrl + K"}
-          </kbd>
-        </button>
-      )}
-
-      <div className="col-start-3 flex min-w-0 items-center gap-2">
-        {/* macOS keeps no window controls here, so status and actions take the
+        <div className="col-start-3 flex min-w-0 items-center gap-2">
+          {/* macOS keeps no window controls here, so status and actions take the
             far end; elsewhere they sit beside the search, left of the controls. */}
-        <div className={cn("flex min-w-0 items-center gap-2", platform === "darwin" && "ms-auto")}>
-          {status && (
-            // empty:hidden: the pill renders nothing while no meeting records.
-            <div
-              data-no-window-drag=""
-              style={noDragStyle}
-              className="flex min-w-0 items-center empty:hidden"
-            >
-              {status}
-            </div>
-          )}
-          {!isSidePanelLayout && actions && (
-            <div data-no-window-drag="" style={noDragStyle} className="flex shrink-0 items-center">
-              {actions}
+          <div
+            className={cn("flex min-w-0 items-center gap-2", platform === "darwin" && "ms-auto")}
+          >
+            {status && !statusStacked && (
+              // empty:hidden: the pill renders nothing while no meeting records.
+              <div
+                data-no-window-drag=""
+                data-top-bar-measure=""
+                style={noDragStyle}
+                className="flex min-w-0 items-center empty:hidden"
+              >
+                {status}
+              </div>
+            )}
+            {!isSidePanelLayout && actions && (
+              <div
+                data-no-window-drag=""
+                data-top-bar-measure=""
+                style={noDragStyle}
+                className="flex shrink-0 items-center"
+              >
+                {actions}
+              </div>
+            )}
+          </div>
+          {platform !== "darwin" && (
+            <div data-no-window-drag="" style={noDragStyle} className="ms-auto shrink-0">
+              <WindowControls />
             </div>
           )}
         </div>
-        {platform !== "darwin" && (
-          <div data-no-window-drag="" style={noDragStyle} className="ms-auto shrink-0">
-            <WindowControls />
-          </div>
-        )}
-      </div>
-    </header>
+      </header>
+      {status && statusStacked && (
+        <div className="flex justify-center border-b border-border px-3 py-1.5 empty:hidden dark:border-white/10">
+          {status}
+        </div>
+      )}
+    </>
   );
 }

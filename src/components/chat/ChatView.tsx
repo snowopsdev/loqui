@@ -422,16 +422,15 @@ export default function ChatView({
         onConfirm={confirmDialog.onConfirm}
         variant={confirmDialog.variant}
       />
-      {showSearch && (
-        <Suspense fallback={null}>
-          <CommandSearch
-            open={showSearch}
-            onOpenChange={setShowSearch}
-            mode="conversations"
-            onConversationSelect={handleSelectConversation}
-          />
-        </Suspense>
-      )}
+      {/* Always mounted so Radix can play the palette's exit animation. */}
+      <Suspense fallback={null}>
+        <CommandSearch
+          open={showSearch}
+          onOpenChange={setShowSearch}
+          mode="conversations"
+          onConversationSelect={handleSelectConversation}
+        />
+      </Suspense>
       {mentionIntent &&
         createPortal(
           <div

@@ -309,7 +309,7 @@ export default function DictionaryView() {
                         </span>
                       )}
                       {!isEditing && (
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
                           <button
                             onClick={() => startEdit(word)}
                             aria-label={t("dictionary.editWord", { word })}

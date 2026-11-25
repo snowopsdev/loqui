@@ -55,9 +55,11 @@ export default function MeetingRecordingPill({
   );
   const stopLabel = t("notes.editor.stop");
 
+  // Floats just under the 48px top bar: top-2 sat on the centred search field,
+  // and the bottom edge belongs to the chat composer and note bottom bar.
   return createPortal(
     <div
-      className="fixed top-2 left-1/2 -translate-x-1/2 z-30"
+      className="fixed top-14 left-1/2 -translate-x-1/2 z-30"
       style={
         {
           WebkitAppRegion: "no-drag",

@@ -130,6 +130,10 @@ export default function ControlPanel({
   const history = useTranscriptions();
   const [isLoading, setIsLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(!!initialSettingsSection);
+  // Settings loads on first open, then stays mounted so Radix can play its exit
+  // animation; closing still ends the draft session through onOpenChange.
+  const [settingsMounted, setSettingsMounted] = useState(showSettings);
+  if (showSettings && !settingsMounted) setSettingsMounted(true);
 
   const [settingsSection, setSettingsSection] = useState<string | undefined>(
     initialSettingsSection
@@ -922,7 +926,7 @@ export default function ControlPanel({
           onOk={() => {}}
         />
 
-        {showSettings && (
+        {settingsMounted && (
           <Suspense fallback={null}>
             <SettingsModal
               open={showSettings}
@@ -986,7 +990,12 @@ export default function ControlPanel({
                   />
                 }
               />
-              <div className="scrollbar-hidden flex-1 overflow-y-auto">
+              {/* Keyed per view: each destination fades in (opacity only, so fixed
+                  descendants keep their containing block) and starts at the top. */}
+              <div
+                key={activeView}
+                className="scrollbar-hidden flex-1 overflow-y-auto animate-[reduced-motion-fade-in_var(--motion-base)_var(--motion-ease-enter)_backwards]"
+              >
                 {(gpuAccelAvailable.transcription || gpuAccelAvailable.intelligence) &&
                   activeView === "home" &&
                   !gpuBannerDismissed && (

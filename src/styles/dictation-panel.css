@@ -1146,7 +1146,8 @@
 .pill-tooltip {
   padding: 6px 8px;
   z-index: 10;
-  animation: none;
+  /* Fade only: the tooltip appears where it is read, it does not travel in. */
+  animation: reduced-motion-fade-in var(--motion-fast) var(--motion-ease-enter) both;
 }
 
 /* VO-Q19: idle contrast on any wallpaper, with a light-theme shadow fallback. */

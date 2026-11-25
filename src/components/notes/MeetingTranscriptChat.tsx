@@ -929,7 +929,7 @@ export function MeetingTranscriptChat({
                   <button
                     onClick={() => onSetSessionExpectedCount?.(sessionExpectedCount - 1)}
                     disabled={sessionExpectedCount <= 1}
-                    className="px-1.5 py-0.5 rounded-s-md hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                    className="px-1.5 py-0.5 rounded-s-md hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:opacity-30 disabled:pointer-events-none transition-colors"
                     aria-label={t("notes.speaker.pill.decAria")}
                   >
                     −
@@ -942,7 +942,7 @@ export function MeetingTranscriptChat({
                   <button
                     onClick={() => onSetSessionExpectedCount?.(sessionExpectedCount + 1)}
                     disabled={sessionExpectedCount >= MAX_SPEAKER_COUNT}
-                    className="px-1.5 py-0.5 rounded-e-md hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                    className="px-1.5 py-0.5 rounded-e-md hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:opacity-30 disabled:pointer-events-none transition-colors"
                     aria-label={t("notes.speaker.pill.incAria")}
                   >
                     +

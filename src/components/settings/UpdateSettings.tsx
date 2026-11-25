@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { UpdateStatus } from "../../types/updates";
 import { Button } from "../ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle } from "../ui/toggle";
 import { SettingsRow } from "../ui/SettingsSection";
 export default function UpdateSettings({
@@ -14,6 +15,10 @@ export default function UpdateSettings({
   const { t } = useTranslation();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [error, setError] = useState("");
+  // Set once a manual check finishes, so "latest version" answers that check
+  // rather than appearing on every idle status.
+  const [checked, setChecked] = useState(false);
+  const channelLabelId = useId();
   const api = window.electronAPI?.updates;
   useEffect(() => {
     if (!api) return;
@@ -25,6 +30,7 @@ export default function UpdateSettings({
   }, [api]);
   async function run(action: () => Promise<unknown>) {
     setError("");
+    setChecked(false);
     try {
       await action();
       setStatus(await api.status());
@@ -49,24 +55,36 @@ export default function UpdateSettings({
             />
           </SettingsRow>
           {!setup && (
-            <label className="flex items-center gap-3 text-sm">
-              {t("updates.channel")}
-              <select
-                className="rounded border bg-background p-2"
+            <div className="flex items-center gap-3 text-sm">
+              <span id={channelLabelId}>{t("updates.channel")}</span>
+              <Select
                 value={status?.channel ?? "stable"}
-                onChange={(e) =>
-                  void run(() => api.preferences({ channel: e.target.value as "stable" | "beta" }))
+                onValueChange={(channel) =>
+                  void run(() => api.preferences({ channel: channel as "stable" | "beta" }))
                 }
               >
-                <option value="stable">{t("updates.stable")}</option>
-                <option value="beta">{t("updates.beta")}</option>
-              </select>
-            </label>
+                <SelectTrigger aria-labelledby={channelLabelId} className="h-8 w-44 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="stable">{t("updates.stable")}</SelectItem>
+                  <SelectItem value="beta">{t("updates.beta")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           )}
         </>
       )}
       {!setup && (
-        <div className="space-y-2 text-sm">
+        <div className="space-y-2 text-sm" aria-live="polite">
+          {status?.phase === "checking" && (
+            <p className="text-muted-foreground">{t("settingsPage.general.updates.checking")}</p>
+          )}
+          {checked && status?.phase === "idle" && !status.error && (
+            <p className="text-muted-foreground">
+              {t("settingsPage.general.updates.latestVersion")}
+            </p>
+          )}
           {status?.phase === "downloading" && (
             <p>{t("updates.downloading", { percent: Math.round(status.progress ?? 0) })}</p>
           )}
@@ -87,7 +105,12 @@ export default function UpdateSettings({
             <Button
               variant="outline"
               disabled={!status || ["checking", "downloading"].includes(status.phase)}
-              onClick={() => void run(() => api.check())}
+              onClick={() =>
+                void run(async () => {
+                  await api.check();
+                  setChecked(true);
+                })
+              }
             >
               {t("updates.check")}
             </Button>

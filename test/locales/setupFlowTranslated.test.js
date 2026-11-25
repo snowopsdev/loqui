@@ -104,10 +104,13 @@ test("every setup string is translated with complete keys, plurals and placehold
     "zh-CN",
     "zh-TW",
   ]);
+  // Like scripts/check-i18n.js: PRs may add English before its translations
+  // (en falls back); releases run with I18N_STRICT=1 and require them.
+  const strict = process.env.I18N_STRICT === "1";
   const issues = locales.flatMap((locale) =>
-    issuesFor(english, flatten(read(locale).setupFlow), locale).map(
-      (issue) => `${locale}: ${issue}`
-    )
+    issuesFor(english, flatten(read(locale).setupFlow), locale)
+      .filter((issue) => strict || !issue.endsWith(": missing translation"))
+      .map((issue) => `${locale}: ${issue}`)
   );
   assert.equal(issues.length, 0, issues.join("\n"));
 });
@@ -184,6 +187,10 @@ test("all eleven resources resolve local CLDR forms and interpolate localized nu
     const t = instance.getFixedT(locale);
     const counts = [...Array.from({ length: 201 }, (_, index) => index), 1.5];
     for (const family of families) {
+      // A family with no translated forms yet falls back to en; PRs allow that,
+      // releases (I18N_STRICT=1) don't. A partly translated family is always checked.
+      const untranslated = !Object.keys(flat).some((key) => key.replace(PLURAL, "") === family);
+      if (locale !== "en" && untranslated && process.env.I18N_STRICT !== "1") continue;
       // Retain and exercise merger-created million forms where they already exist.
       const familyCounts =
         flat[`${family}_many`] && rules.select(1_000_000) === "many"

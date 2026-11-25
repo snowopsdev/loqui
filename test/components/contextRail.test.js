@@ -128,6 +128,34 @@ test("pinned context reaches the prompt; deleted items are skipped and long note
   );
 });
 
+test("a pinned transcript-only meeting, alone or in a folder, brings its transcript", async () => {
+  const { buildPinnedContext } = await load();
+  const transcript = JSON.stringify([
+    { text: "Ship the beta on Friday", speakerName: "Maya" },
+    { text: "Agreed", speakerName: "Speaker 2", speakerIsPlaceholder: true },
+  ]);
+  const meeting = { id: 41, title: "Standup", content: "  ", transcript };
+  const { text } = await buildPinnedContext(
+    [
+      { kind: "meeting", id: 41, label: "Standup" },
+      { kind: "folder", id: 3, label: "Meetings" },
+    ],
+    {
+      getNote: async () => meeting,
+      getNotes: async () => [{ ...meeting, id: 42 }],
+      getTranscriptionById: async () => null,
+    }
+  );
+  assert.match(
+    text,
+    /<note id="41" title="Standup">\nMaya: Ship the beta on Friday\nAgreed\n<\/note>/
+  );
+  assert.match(
+    text,
+    /<note id="42" title="Standup">\nMaya: Ship the beta on Friday\nAgreed\n<\/note>/
+  );
+});
+
 test("a pinned-only note is cited even with empty RAG and tool results, and survives save and load (I12)", async () => {
   const { buildPinnedContext } = await load();
   const { collectSources, numberCitations } = require("../../src/components/chat/citations.ts");

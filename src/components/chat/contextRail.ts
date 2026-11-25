@@ -1,4 +1,5 @@
 import type { MentionResult } from "../../lib/mentionSearch";
+import { noteSourceText } from "../../lib/noteSourceText";
 import { collectSources, type RagNoteRef } from "./citations";
 import type { Message, ToolCallInfo } from "./types";
 
@@ -88,6 +89,7 @@ export interface PinnedContextApi {
     title: string;
     content?: string | null;
     enhanced_content?: string | null;
+    transcript?: string | null;
     deleted_at?: string | null;
     note_type?: string | null;
   } | null>;
@@ -100,6 +102,8 @@ export interface PinnedContextApi {
       id: number;
       title: string;
       content?: string | null;
+      enhanced_content?: string | null;
+      transcript?: string | null;
       deleted_at?: string | null;
       note_type?: string | null;
     }>
@@ -139,7 +143,8 @@ export async function buildPinnedContext(
         if (item.kind === "note" || item.kind === "meeting") {
           const note = await api.getNote(item.id);
           if (!note || note.deleted_at || !validId(note.id)) return null;
-          const body = bounded(note.enhanced_content || note.content || "", PINNED_NOTE_CHARS);
+          // Same source as RAG: a transcript-only meeting is not empty context.
+          const body = bounded(noteSourceText(note), PINNED_NOTE_CHARS);
           return {
             text: `<note id="${note.id}" title="${attr(note.title)}">\n${body}\n</note>`,
             notes: [ref(note, body)],
@@ -150,14 +155,12 @@ export async function buildPinnedContext(
             .slice(0, FOLDER_NOTES)
             .filter((n) => !n.deleted_at && validId(n.id));
           if (notes.length === 0) return null;
+          const bodies = notes.map((n) => bounded(noteSourceText(n), FOLDER_NOTE_CHARS));
           return {
             text: notes
-              .map(
-                (n) =>
-                  `<note id="${n.id}" title="${attr(n.title)}">\n${bounded(n.content || "", FOLDER_NOTE_CHARS)}\n</note>`
-              )
+              .map((n, i) => `<note id="${n.id}" title="${attr(n.title)}">\n${bodies[i]}\n</note>`)
               .join("\n\n"),
-            notes: notes.map((n) => ref(n, bounded(n.content || "", FOLDER_NOTE_CHARS))),
+            notes: notes.map((n, i) => ref(n, bodies[i])),
           };
         }
         const dictation = await api.getTranscriptionById(item.id);

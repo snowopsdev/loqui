@@ -146,7 +146,7 @@
     "dotenv": "^18.0.9",
     "electron-updater": "6.8.11",
     "ffmpeg-static": "^5.2.0",
-    "i18next": "^26.7.2",
+    "i18next": "^27.2.4",
     "lucide-react": "1.70.0",
     "onnxruntime-node": "^1.31.1",
     "opencc-js": "^1.4.2",

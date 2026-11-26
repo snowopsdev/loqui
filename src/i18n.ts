@@ -3,6 +3,14 @@ import { initReactI18next } from "react-i18next";
 import { PROMPTS_BY_LOCALE } from "./locales/prompts";
 import { EN_TRANSLATION, hasTranslationLoader, loadTranslation } from "./locales/translations";
 
+// i18next 27 defaults this to true, which makes `t` unassignable to the
+// `(key, options?) => string` helper types used across the renderer.
+declare module "i18next" {
+  interface CustomTypeOptions {
+    strictInterpolationChecks: false;
+  }
+}
+
 export const SUPPORTED_UI_LANGUAGES = [
   "en",
   "ar",

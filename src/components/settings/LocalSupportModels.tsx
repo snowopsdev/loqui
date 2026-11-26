@@ -90,10 +90,9 @@ export default function LocalSupportModels() {
           ? await window.electronAPI.downloadDiarizationModels?.()
           : await window.electronAPI.downloadSearchModel?.();
       if (!result?.success) throw new Error(result?.error || t("personal.supportDownloadFailed"));
-      setStatuses((previous) => ({
-        ...previous,
-        [kind]: { downloaded: true, checking: false, error: null },
-      }));
+      // Ask main rather than assume: an optional part (the meeting VAD model) can
+      // fail, or be rejected by its pinned SHA-256, while the download succeeds.
+      await refreshStatus(kind);
       void refreshRouteFacts();
     } catch (error) {
       setStatuses((previous) => ({

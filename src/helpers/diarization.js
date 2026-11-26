@@ -4,7 +4,12 @@ const path = require("path");
 const { spawn } = require("child_process");
 const debugLogger = require("./debugLogger");
 const { runSystemTar } = require("./systemTar");
-const { downloadFile, createDownloadSignal, checkDiskSpace } = require("./downloadUtils");
+const {
+  downloadFile,
+  sha256File,
+  createDownloadSignal,
+  checkDiskSpace,
+} = require("./downloadUtils");
 const { resolveBinaryPath, gracefulStopProcess } = require("../utils/serverUtils");
 const { getModelsDirForService } = require("./modelDirUtils");
 const { convertToWav } = require("./ffmpegUtils");
@@ -57,6 +62,15 @@ const EMBEDDING_MODEL_URL =
   "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx";
 const SILERO_VAD_MODEL_URL =
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx";
+
+// The same digests runtime-assets.json pins for these URLs (a test keeps them in
+// sync). That file isn't packaged, so the in-app download carries its own copy.
+// Two of the URLs are mutable GitHub release assets: a re-upload or a tampered
+// file is rejected instead of loaded into sherpa-onnx.
+const SEGMENTATION_ARCHIVE_SHA256 =
+  "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488";
+const EMBEDDING_MODEL_SHA256 = "357a834f702b80161e5b981182c038e18553c1f2ca752ed6cec2052365d4129b";
+const SILERO_VAD_MODEL_SHA256 = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6";
 
 const SEGMENTATION_DIR = "sherpa-onnx-pyannote-segmentation-3-0";
 const SEGMENTATION_ONNX = path.join(SEGMENTATION_DIR, "model.onnx");
@@ -128,9 +142,43 @@ class DiarizationManager {
     return fs.existsSync(this.getVadModelPath());
   }
 
+  // A downloaded single-file model that doesn't match its pin (a file fetched
+  // before verification existed, or one damaged on disk) is removed so the
+  // download below replaces it. This runs only when a download is requested,
+  // not at startup. Bundled models are verified at build time.
+  async _discardMismatchedDownload(filePath, expectedSha256) {
+    let actualSha256;
+    try {
+      actualSha256 = await sha256File(filePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        debugLogger.warn("Could not verify diarization model", { filePath, error: error.message });
+      }
+      return;
+    }
+    if (actualSha256 === expectedSha256) return;
+    debugLogger.warn("Diarization model does not match its pinned SHA-256; re-downloading", {
+      filePath,
+      expectedSha256,
+      actualSha256,
+    });
+    // If it can't be removed, fail rather than report the bad file as ready.
+    await fsPromises.unlink(filePath).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+
   async downloadModels(progressCallback = null) {
     const modelsDir = this.getModelsDir();
     await fsPromises.mkdir(modelsDir, { recursive: true });
+    await this._discardMismatchedDownload(
+      path.join(modelsDir, EMBEDDING_ONNX),
+      EMBEDDING_MODEL_SHA256
+    );
+    await this._discardMismatchedDownload(
+      path.join(modelsDir, SILERO_VAD_ONNX),
+      SILERO_VAD_MODEL_SHA256
+    );
 
     const modelsReady = this.isModelDownloaded();
     const vadReady = this.isVadModelDownloaded();
@@ -157,7 +205,9 @@ class DiarizationManager {
       const segModelPath = path.join(modelsDir, SEGMENTATION_ONNX);
 
       if (!fs.existsSync(segModelPath)) {
+        // Verified before extraction: a mismatched archive never reaches tar.
         await downloadFile(SEGMENTATION_MODEL_URL, segArchivePath, {
+          sha256: SEGMENTATION_ARCHIVE_SHA256,
           timeout: 600000,
           signal,
           onProgress: (downloadedBytes, totalBytes) => {
@@ -191,6 +241,7 @@ class DiarizationManager {
 
       if (!fs.existsSync(embModelPath)) {
         await downloadFile(EMBEDDING_MODEL_URL, embModelPath, {
+          sha256: EMBEDDING_MODEL_SHA256,
           timeout: 600000,
           signal,
           onProgress: (downloadedBytes, totalBytes) => {
@@ -210,6 +261,7 @@ class DiarizationManager {
       if (!this.isVadModelDownloaded()) {
         try {
           await downloadFile(SILERO_VAD_MODEL_URL, this.getVadModelPath(), {
+            sha256: SILERO_VAD_MODEL_SHA256,
             timeout: 600000,
             signal,
             onProgress: (downloadedBytes, totalBytes) => {
@@ -617,5 +669,13 @@ class DiarizationManager {
     await Promise.all(procs.map((p) => gracefulStopProcess(p)));
   }
 }
+
+// Every pinned in-app download, for the test that keeps these in step with
+// runtime-assets.json.
+DiarizationManager.PINNED_DOWNLOADS = Object.freeze([
+  { url: SEGMENTATION_MODEL_URL, sha256: SEGMENTATION_ARCHIVE_SHA256 },
+  { url: EMBEDDING_MODEL_URL, sha256: EMBEDDING_MODEL_SHA256 },
+  { url: SILERO_VAD_MODEL_URL, sha256: SILERO_VAD_MODEL_SHA256 },
+]);
 
 module.exports = DiarizationManager;

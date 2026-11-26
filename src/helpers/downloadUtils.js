@@ -1,4 +1,5 @@
 const fs = require("fs");
+const crypto = require("crypto");
 const { promises: fsPromises } = require("fs");
 const path = require("path");
 const { net } = require("electron");
@@ -264,8 +265,30 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
+async function sha256File(filePath) {
+  const hash = crypto.createHash("sha256");
+  await new Promise((resolve, reject) => {
+    fs.createReadStream(filePath)
+      .on("data", (chunk) => hash.update(chunk))
+      .on("error", reject)
+      .on("end", resolve);
+  });
+  return hash.digest("hex");
+}
+
+/**
+ * Download url to destPath through a resumable temp file. With `sha256`, the
+ * finished temp file must match that digest before it is moved into place; a
+ * mismatch discards it and rejects with code ERR_DOWNLOAD_SHA256_MISMATCH.
+ */
 async function downloadFile(url, destPath, options = {}) {
-  const { onProgress, maxRetries = DEFAULT_MAX_RETRIES, signal, expectedSize = 0 } = options;
+  const {
+    onProgress,
+    maxRetries = DEFAULT_MAX_RETRIES,
+    signal,
+    expectedSize = 0,
+    sha256: expectedSha256,
+  } = options;
 
   const tempPath = `${destPath}.tmp`;
 
@@ -334,6 +357,23 @@ async function downloadFile(url, destPath, options = {}) {
         startOffset,
         expectedSize,
       });
+
+      if (expectedSha256) {
+        const actualSha256 = await sha256File(tempPath);
+        if (actualSha256 !== expectedSha256.toLowerCase()) {
+          // Not retryable: a resumed or fresh fetch of the same URL serves the same bytes.
+          throw Object.assign(new Error(`SHA-256 mismatch for ${url}`), {
+            code: "ERR_DOWNLOAD_SHA256_MISMATCH",
+            expectedSha256,
+            actualSha256,
+          });
+        }
+        // Hashing yields; a Stop accepted meanwhile must not install the file.
+        // The catch below routes this through the cancelled-download cleanup.
+        if (signal?.aborted) {
+          throw Object.assign(new Error("Download cancelled"), { isAbort: true });
+        }
+      }
 
       // Atomic move to final path
       try {
@@ -554,6 +594,7 @@ async function findFiles(dir, pattern, maxDepth = 5, depth = 0) {
 
 module.exports = {
   downloadFile,
+  sha256File,
   fetchJson,
   createDownloadSignal,
   createDownloadInProgressError,

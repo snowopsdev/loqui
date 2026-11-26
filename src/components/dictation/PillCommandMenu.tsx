@@ -56,7 +56,7 @@ export function PillCommandMenu({
   return (
     <div
       ref={menuRef}
-      className="absolute bottom-full end-0 mb-3 w-48 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg backdrop-blur-sm"
+      className="absolute bottom-full end-0 mb-3 w-48 origin-bottom-right overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg backdrop-blur-sm animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-(--motion-fast) ease-(--motion-ease-enter) rtl:origin-bottom-left"
       onMouseEnter={() => {
         setWindowInteractivity(true);
       }}

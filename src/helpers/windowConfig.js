@@ -215,6 +215,11 @@ const ONBOARDING_WINDOW_SIZES = {
 const CONTROL_PANEL_CONFIG = {
   width: 1200,
   height: 800,
+  // Below ~380px the workspace top bar can't hold its Back button, the meeting
+  // recording pill (level bars + Stop) and the window controls, so Close would
+  // slide out of reach. 480px matches the compact onboarding frame, which
+  // already floors the window there and restores this minimum when it ends.
+  minWidth: 480,
   // macOS: fully transparent, so nothing paints into the compact onboarding
   // frame's rounded corners. Windows/Linux keep an opaque backing (the renderer
   // paints its own background on top) — see the transparent flag below.
@@ -381,9 +386,23 @@ class WindowPositionUtil {
   }
 }
 
+// Meeting side-panel snap: the right third of the work area, but never under the
+// control panel's minimum width. Electron widens a too-narrow setBounds without
+// moving its left edge, which would push the window controls off-screen.
+function meetingModeSnapBounds(workArea, minWidth = 0) {
+  const width = Math.min(workArea.width, Math.max(Math.round(workArea.width / 3), minWidth));
+  return {
+    x: workArea.x + workArea.width - width,
+    y: workArea.y,
+    width,
+    height: workArea.height,
+  };
+}
+
 module.exports = {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
+  meetingModeSnapBounds,
   ONBOARDING_WINDOW_SIZES,
   NOTIFICATION_WINDOW_CONFIG,
   ASSISTANT_PANEL_SIZE_LIMITS,

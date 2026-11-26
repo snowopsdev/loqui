@@ -1017,6 +1017,8 @@ export default function SettingsPage({
     isNixOS: boolean;
   } | null>(null);
   const [ydotoolGuideKey, setYdotoolGuideKey] = useState<string | null>(null);
+  // Closing keeps the key, so the guide's content stays through the exit fade.
+  const [ydotoolGuideOpen, setYdotoolGuideOpen] = useState(false);
 
   const refreshYdotoolStatus = useCallback(async () => {
     try {
@@ -2486,7 +2488,10 @@ EOF`,
                                     </div>
                                     {!item.ok && (
                                       <button
-                                        onClick={() => setYdotoolGuideKey(item.key)}
+                                        onClick={() => {
+                                          setYdotoolGuideKey(item.key);
+                                          setYdotoolGuideOpen(true);
+                                        }}
                                         className="shrink-0 flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted transition-colors text-foreground"
                                       >
                                         <BookOpen className="w-3 h-3" />
@@ -2514,8 +2519,8 @@ EOF`,
 
                       {/* Step-by-step guide dialog */}
                       <Dialog
-                        open={!!activeGuide}
-                        onOpenChange={(open) => !open && setYdotoolGuideKey(null)}
+                        open={ydotoolGuideOpen && !!activeGuide}
+                        onOpenChange={(open) => !open && setYdotoolGuideOpen(false)}
                       >
                         <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
                           {activeGuide && (

@@ -130,6 +130,10 @@ export default function ControlPanel({
   const history = useTranscriptions();
   const [isLoading, setIsLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(!!initialSettingsSection);
+  // Settings loads on first open, then stays mounted so Radix can play its exit
+  // animation; closing still ends the draft session through onOpenChange.
+  const [settingsMounted, setSettingsMounted] = useState(showSettings);
+  if (showSettings && !settingsMounted) setSettingsMounted(true);
 
   const [settingsSection, setSettingsSection] = useState<string | undefined>(
     initialSettingsSection
@@ -883,6 +887,21 @@ export default function ControlPanel({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [invalidateActivation]);
 
+  const meetingPillProps = {
+    workspaceActive,
+    activeView,
+    activeNoteId,
+    onReturnToNote: () => {
+      if (!activeRef.current) {
+        onReturnToWorkspace?.();
+        return;
+      }
+      setActiveView("personal-notes");
+      setActiveFolderId(recordingFolderId);
+      setActiveNoteId(recordingNoteId);
+    },
+  };
+
   return (
     <WorkspaceNavigationProvider value={navigation}>
       <WorkspacePresentation
@@ -891,20 +910,8 @@ export default function ControlPanel({
         className="h-screen bg-surface-window flex flex-col"
       >
         <MeetingRecordingMount />
-        <MeetingRecordingPill
-          workspaceActive={workspaceActive}
-          activeView={activeView}
-          activeNoteId={activeNoteId}
-          onReturnToNote={() => {
-            if (!activeRef.current) {
-              onReturnToWorkspace?.();
-              return;
-            }
-            setActiveView("personal-notes");
-            setActiveFolderId(recordingFolderId);
-            setActiveNoteId(recordingNoteId);
-          }}
-        />
+        {/* Floating only while the workspace (and its top bar) is hidden. */}
+        <MeetingRecordingPill {...meetingPillProps} placement="floating" />
         <ConfirmDialog
           open={confirmDialog.open}
           onOpenChange={hideConfirmDialog}
@@ -922,7 +929,7 @@ export default function ControlPanel({
           onOk={() => {}}
         />
 
-        {showSettings && (
+        {settingsMounted && (
           <Suspense fallback={null}>
             <SettingsModal
               open={showSettings}
@@ -985,8 +992,14 @@ export default function ControlPanel({
                     showChat={navItems.some((item) => item.id === "chat")}
                   />
                 }
+                status={<MeetingRecordingPill {...meetingPillProps} placement="inline" />}
               />
-              <div className="scrollbar-hidden flex-1 overflow-y-auto">
+              {/* Keyed per view: each destination fades in (opacity only, so fixed
+                  descendants keep their containing block) and starts at the top. */}
+              <div
+                key={activeView}
+                className="scrollbar-hidden flex-1 overflow-y-auto animate-[reduced-motion-fade-in_var(--motion-base)_var(--motion-ease-enter)_backwards]"
+              >
                 {(gpuAccelAvailable.transcription || gpuAccelAvailable.intelligence) &&
                   activeView === "home" &&
                   !gpuBannerDismissed && (

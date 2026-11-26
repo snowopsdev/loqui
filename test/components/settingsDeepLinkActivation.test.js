@@ -190,7 +190,9 @@ async function mount(t, { acknowledge = async () => true } = {}) {
       panel,
       (node) => node.props && "initialSection" in node.props && "open" in node.props
     );
-    visible = Boolean(settings);
+    // Settings stays mounted after its first open (for the Radix exit
+    // animation), so visibility is the modal's open prop, not its presence.
+    visible = Boolean(settings?.props.open);
     return settings ? React.createElement(ModalProbe, settings.props) : null;
   }
   root = createRoot(container);

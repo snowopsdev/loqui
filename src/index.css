@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 /* Dictation window feature styles (voice pill, assistant/live-transcript panels). */
 @import "./styles/dictation-panel.css";
 @import "./styles/notices.css";
@@ -471,6 +472,42 @@
       0
     );
   }
+
+  /* Element defaults live in the base layer so an explicit utility on the
+     element (text-lg, leading-*, tracking-*, font-*) wins. The bare h1 keeps
+     the Display scale from DESIGN.md. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-family-display);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+  }
+
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+  }
+
+  button {
+    font-family: var(--font-family-sans);
+    cursor: pointer;
+  }
+
+  button:hover,
+  [role="button"]:hover,
+  .cursor-pointer:hover,
+  button svg:hover,
+  [role="button"] svg:hover,
+  a svg:hover,
+  [data-icon]:hover,
+  .icon:hover {
+    cursor: pointer;
+  }
 }
 
 /* Fade-only entry, for reduced motion. Something still marks the arrival of new
@@ -517,49 +554,6 @@
 .brand-body {
   font-family: var(--font-family-sans);
   line-height: 1.6;
-}
-
-.brand-script {
-  /* Figma binds this to Caveat Regular 400. Self-hosted like Inter so it works
-     offline; Snell Roundhand stays as the fallback for the same handwritten feel
-     if the face ever fails to load. Not italic — Caveat is already slanted. */
-  font-family: "Caveat Variable", "Snell Roundhand", "Segoe Script", cursive;
-  font-weight: 400;
-}
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  font-family: var(--font-family-display);
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  line-height: 1.15;
-}
-
-h1 {
-  font-size: 2.5rem;
-  font-weight: 700;
-}
-
-/* Modern Button Styling - handled by button component */
-button {
-  font-family: var(--font-family-sans);
-  cursor: pointer;
-}
-
-/* Ensure all interactive elements have pointer cursor */
-button:hover,
-[role="button"]:hover,
-.cursor-pointer:hover,
-button svg:hover,
-[role="button"] svg:hover,
-a svg:hover,
-[data-icon]:hover,
-.icon:hover {
-  cursor: pointer;
 }
 
 /* Premium input styling with subtle depth */
@@ -612,34 +606,6 @@ textarea:not(.input-inline) {
     0 0 0 3px var(--color-ring);
 }
 
-/* Card styling - elevated parchment */
-.card {
-  background-color: var(--color-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card, 0 1px 3px oklch(from var(--color-foreground) l c h / 0.08));
-  transition:
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
-}
-
-.card:hover {
-  box-shadow: var(--shadow-card-hover, 0 4px 12px oklch(from var(--color-foreground) l c h / 0.1));
-  transform: translateY(-1px);
-}
-
-/* Dark mode cards — grounded, no lift, subtle border glow */
-.dark .card {
-  border-color: var(--color-border-subtle);
-  box-shadow: var(--shadow-card);
-}
-
-.dark .card:hover {
-  box-shadow: var(--shadow-card-hover);
-  transform: none;
-  border-color: var(--color-border-hover);
-}
-
 /* Link styling */
 a {
   color: var(--color-link);
@@ -652,54 +618,6 @@ a:hover {
   color: var(--color-link);
   opacity: 0.8;
   cursor: pointer;
-}
-
-/* Status indicators */
-.status-active {
-  color: var(--color-brand-accent);
-  font-weight: 600;
-}
-
-.text-brand-primary {
-  color: var(--color-brand-primary);
-}
-
-.text-brand-accent {
-  color: var(--color-brand-accent);
-}
-
-.text-brand-highlight {
-  color: var(--color-brand-highlight);
-}
-
-.text-brand-link {
-  color: var(--color-brand-link);
-}
-
-/* ---- Premium UI Utilities ---- */
-
-/* Section panel — grouped settings container */
-.section-panel {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-xl);
-}
-
-/* Gradient accent bar — top border highlight for panels */
-.accent-bar {
-  position: relative;
-}
-
-.dark .accent-bar::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, rgb(255 90 31 / 0.5), rgb(217 0 120 / 0.3), transparent 80%);
-  pointer-events: none;
-  z-index: 1;
 }
 
 /* Monochrome icon theming - explicit light/dark handling */
@@ -807,52 +725,6 @@ a:hover {
   }
   to {
     stroke-dashoffset: 0;
-  }
-}
-
-@keyframes drag-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.4;
-  }
-  50% {
-    transform: scale(1.02);
-    opacity: 0.7;
-  }
-}
-
-@keyframes shimmer-slide {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(100%);
-  }
-}
-
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes check-pop {
-  0% {
-    transform: scale(0);
-    opacity: 0;
-  }
-  50% {
-    transform: scale(1.2);
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
   }
 }
 
@@ -1211,19 +1083,6 @@ a:hover {
     animation: none;
     background: none;
     -webkit-text-fill-color: var(--color-muted-foreground);
-  }
-}
-
-@keyframes agent-loading-dot {
-  0%,
-  80%,
-  100% {
-    opacity: 0.3;
-    transform: scale(0.8);
-  }
-  40% {
-    opacity: 1;
-    transform: scale(1);
   }
 }
 

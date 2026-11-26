@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { UpdateStatus } from "../../types/updates";
 import { Button } from "../ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle } from "../ui/toggle";
 import { SettingsRow } from "../ui/SettingsSection";
 export default function UpdateSettings({
@@ -14,6 +15,15 @@ export default function UpdateSettings({
   const { t } = useTranslation();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [error, setError] = useState("");
+  // The channel a manual check just confirmed as current. "Latest version"
+  // answers that check only, never an idle status from a skipped or older run.
+  const [checkedChannel, setCheckedChannel] = useState<UpdateStatus["channel"] | null>(null);
+  // Every run gets an id; a superseded run (e.g. a check overtaken by a
+  // channel switch) may not write status, errors or the check result.
+  const runIdRef = useRef(0);
+  // A check that really ran publishes "checking"; a skipped one returns as is.
+  const checkProbeRef = useRef<{ sawChecking: boolean } | null>(null);
+  const channelLabelId = useId();
   const api = window.electronAPI?.updates;
   useEffect(() => {
     if (!api) return;
@@ -21,15 +31,31 @@ export default function UpdateSettings({
       .status()
       .then(setStatus)
       .catch(() => {});
-    return api.onStatus(setStatus);
+    return api.onStatus((next) => {
+      if (next.phase === "checking" && checkProbeRef.current) {
+        checkProbeRef.current.sawChecking = true;
+      }
+      setStatus(next);
+    });
   }, [api]);
-  async function run(action: () => Promise<unknown>) {
+  async function run(action: () => Promise<unknown>, { check = false } = {}) {
+    const id = ++runIdRef.current;
+    const probe = check ? { sawChecking: false } : null;
+    checkProbeRef.current = probe;
     setError("");
+    setCheckedChannel(null);
     try {
       await action();
-      setStatus(await api.status());
+      const next = await api.status();
+      if (id !== runIdRef.current) return;
+      setStatus(next);
+      if (probe?.sawChecking && next.phase === "idle" && !next.error) {
+        setCheckedChannel(next.channel);
+      }
     } catch (e) {
-      setError((e as Error).message);
+      if (id === runIdRef.current) setError((e as Error).message);
+    } finally {
+      if (checkProbeRef.current === probe) checkProbeRef.current = null;
     }
   }
   if (notice && status?.phase !== "ready") return null;
@@ -49,24 +75,39 @@ export default function UpdateSettings({
             />
           </SettingsRow>
           {!setup && (
-            <label className="flex items-center gap-3 text-sm">
-              {t("updates.channel")}
-              <select
-                className="rounded border bg-background p-2"
+            <div className="flex items-center gap-3 text-sm">
+              <span id={channelLabelId}>{t("updates.channel")}</span>
+              <Select
                 value={status?.channel ?? "stable"}
-                onChange={(e) =>
-                  void run(() => api.preferences({ channel: e.target.value as "stable" | "beta" }))
+                onValueChange={(channel) =>
+                  void run(() => api.preferences({ channel: channel as "stable" | "beta" }))
                 }
               >
-                <option value="stable">{t("updates.stable")}</option>
-                <option value="beta">{t("updates.beta")}</option>
-              </select>
-            </label>
+                <SelectTrigger aria-labelledby={channelLabelId} className="h-8 w-44 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="stable">{t("updates.stable")}</SelectItem>
+                  <SelectItem value="beta">{t("updates.beta")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           )}
         </>
       )}
       {!setup && (
-        <div className="space-y-2 text-sm">
+        <div className="space-y-2 text-sm" aria-live="polite">
+          {status?.phase === "checking" && (
+            <p className="text-muted-foreground">{t("settingsPage.general.updates.checking")}</p>
+          )}
+          {checkedChannel !== null &&
+            status?.channel === checkedChannel &&
+            status.phase === "idle" &&
+            !status.error && (
+              <p className="text-muted-foreground">
+                {t("settingsPage.general.updates.latestVersion")}
+              </p>
+            )}
           {status?.phase === "downloading" && (
             <p>{t("updates.downloading", { percent: Math.round(status.progress ?? 0) })}</p>
           )}
@@ -87,7 +128,7 @@ export default function UpdateSettings({
             <Button
               variant="outline"
               disabled={!status || ["checking", "downloading"].includes(status.phase)}
-              onClick={() => void run(() => api.check())}
+              onClick={() => void run(() => api.check(), { check: true })}
             >
               {t("updates.check")}
             </Button>

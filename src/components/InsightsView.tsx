@@ -263,7 +263,7 @@ function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) 
           <button
             type="button"
             onClick={() => void load()}
-            className="focus-visible:ring-2 focus-visible:ring-ring rounded-md border border-border px-3 py-1.5 text-caption font-medium text-foreground hover:bg-accent"
+            className="focus-visible:ring-2 focus-visible:ring-ring rounded-md border border-border px-3 py-1.5 text-caption font-medium text-foreground hover:bg-muted"
           >
             {t("common.retry")}
           </button>

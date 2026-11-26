@@ -106,7 +106,7 @@ function CalendarAccountRows({
             <button
               onClick={() => onUnlink(account.email)}
               disabled={disconnectingEmail === account.email}
-              className="focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus-within:opacity-100 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-100"
+              className="focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-[opacity,color,background-color] disabled:opacity-100"
               aria-label={t(`${i18nKey}.disconnect`)}
             >
               {disconnectingEmail === account.email ? (
@@ -403,7 +403,7 @@ export default function IntegrationsView() {
                 </span>
                 <button
                   onClick={() => setConfirmAppleDisconnect(true)}
-                  className="focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus-within:opacity-100 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                  className="focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-[opacity,color,background-color]"
                   aria-label={t("integrations.appleCalendar.disconnect")}
                 >
                   <Unlink className="h-3.5 w-3.5" />

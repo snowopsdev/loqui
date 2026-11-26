@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -103,9 +104,16 @@ export function useSettingsSearch({
     };
   }, [pendingAnchor, open, land]);
 
+  // Closing stops any landing cue, but the query (and the results it shows)
+  // stays through the exit fade; it resets on reopen, before paint.
   useEffect(() => {
-    if (!open) clear();
-  }, [open, clear]);
+    if (open) return;
+    cancelLanding.current?.();
+    setPendingAnchor(null);
+  }, [open]);
+  useLayoutEffect(() => {
+    if (open) setQuery("");
+  }, [open, setQuery]);
 
   useEffect(() => {
     if (!open) return;

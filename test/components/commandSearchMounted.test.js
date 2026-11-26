@@ -360,6 +360,32 @@ test("mounted conversations picker retains 20-limit semantic API, callback, lega
   );
 });
 
+test("a retained conversations picker never reopens on the last session's search hits", async (t) => {
+  let recentCalls = 0;
+  const pending = deferred();
+  const h = await mount(t, {
+    mode: "conversations",
+    api: {
+      // The first recent load answers; later ones hang, like a slow DB.
+      getAgentConversationsWithPreview: async () =>
+        ++recentCalls === 1 ? [conv(1, "recent")] : pending.promise,
+      semanticSearchConversations: async () => [conv(9, "search hit")],
+    },
+  });
+  await h.wait();
+  await h.query("hit");
+  await h.wait();
+  assert.ok(h.rows().some((r) => String(r.key) === "9"));
+  // Clear the query, then close before the recent list comes back.
+  await h.query("");
+  await h.render({ open: false });
+  await h.render({ open: true });
+  assert.ok(!h.rows().some((r) => String(r.key) === "9"), "no stale search hit on reopen");
+  await React.act(async () => pending.resolve([conv(1, "recent")]));
+  await h.wait();
+  assert.ok(h.rows().some((r) => String(r.key) === "1"));
+});
+
 test("mounted all-mode async section shrink keeps Arrow/Enter on a valid rendered row", async (t) => {
   const result = deferred();
   const h = await mount(t, {

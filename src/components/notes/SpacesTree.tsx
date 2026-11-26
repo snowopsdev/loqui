@@ -223,7 +223,7 @@ export default function SpacesTree({
         >
           <ChevronRight
             size={13}
-            className={expanded.has(rootKey) ? "rotate-90" : "rtl:rotate-180"}
+            className={`transition-transform duration-150 motion-reduce:transition-none ${expanded.has(rootKey) ? "rotate-90" : "rtl:rotate-180"}`}
           />
         </button>
         <button
@@ -264,7 +264,7 @@ export default function SpacesTree({
             return (
               <div key={folder.id}>
                 <div
-                  className={`group flex items-center rounded-md ${dragState.dragOverKey === key ? "bg-foreground/5" : context?.folderId === folder.id ? "bg-foreground/5" : "hover:bg-accent"}`}
+                  className={`group flex items-center rounded-md ${dragState.dragOverKey === key ? "bg-foreground/5" : context?.folderId === folder.id ? "bg-foreground/5" : "hover:bg-foreground/5 dark:hover:bg-white/6"}`}
                   {...dropTargetHandlers({
                     spaceId: space.id,
                     folderId: folder.id,
@@ -280,7 +280,7 @@ export default function SpacesTree({
                   >
                     <ChevronRight
                       size={13}
-                      className={expanded.has(key) ? "rotate-90" : "rtl:rotate-180"}
+                      className={`transition-transform duration-150 motion-reduce:transition-none ${expanded.has(key) ? "rotate-90" : "rtl:rotate-180"}`}
                     />
                   </button>
                   <button

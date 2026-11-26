@@ -63,7 +63,9 @@ export const Tooltip = ({ children, content }: TooltipProps) => {
             style={{
               top: position.top,
               left: position.left,
-              transform: "translate(-50%, calc(-100% - 8px))",
+              // The standalone translate property composes with the
+              // tw-animate enter keyframe's transform instead of being replaced.
+              translate: "-50% calc(-100% - 8px)",
             }}
           >
             {content}

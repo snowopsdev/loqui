@@ -44,6 +44,7 @@ function toBridgeLifecycleState(state) {
 const {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
+  meetingModeSnapBounds,
   ONBOARDING_WINDOW_SIZES,
   NOTIFICATION_WINDOW_CONFIG,
   fitAssistantContentWindowToWorkArea,
@@ -2048,7 +2049,12 @@ class WindowManager {
         win.setMaximizable(state.maximizable);
         win.setClosable(state.closable);
         win.setFullScreenable(state.fullscreenable);
-        if (state.minimumSize) win.setMinimumSize(...state.minimumSize);
+        if (state.minimumSize) {
+          // Clamp like onboarding's own floor: a work area narrower than the
+          // control panel's minimum must not force the window off-screen.
+          const [minWidth, minHeight] = state.minimumSize;
+          win.setMinimumSize(Math.min(minWidth, workArea.width), minHeight);
+        }
       }
       if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
         win.setWindowButtonVisibility(true);
@@ -2648,15 +2654,17 @@ class WindowManager {
     const win = this.controlPanelWindow;
     if (!win || win.isDestroyed()) return;
     this._preMeetingBounds = win.getBounds();
-    const display = screen.getPrimaryDisplay();
-    const workArea = display.workArea;
-    const width = Math.round(workArea.width / 3);
-    win.setBounds({
-      x: workArea.x + workArea.width - width,
-      y: workArea.y,
-      width,
-      height: workArea.height,
-    });
+    const { workArea } = screen.getPrimaryDisplay();
+    let [minWidth = 0, minHeight = 0] = win.getMinimumSize?.() ?? [];
+    // A work area narrower than the floor: lower the floor first, or the OS
+    // widens the snapped window past the screen edge again. The original floor
+    // comes back when meeting mode ends.
+    if (minWidth > workArea.width) {
+      this._preMeetingMinimumSize ??= [minWidth, minHeight];
+      minWidth = workArea.width;
+      win.setMinimumSize(minWidth, minHeight);
+    }
+    win.setBounds(meetingModeSnapBounds(workArea, minWidth));
     win.focus();
   }
 
@@ -2670,6 +2678,13 @@ class WindowManager {
       const { width, height } = CONTROL_PANEL_CONFIG;
       win.setSize(width, height);
       win.center();
+    }
+    if (this._preMeetingMinimumSize) {
+      // Clamped to the display the window is on now, like onboarding's floor.
+      const [minWidth, minHeight] = this._preMeetingMinimumSize;
+      const { workArea } = screen.getDisplayMatching(win.getBounds());
+      win.setMinimumSize(Math.min(minWidth, workArea.width), minHeight);
+      this._preMeetingMinimumSize = null;
     }
   }
 

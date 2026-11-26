@@ -10,6 +10,12 @@ import { isControlPanelWindow } from "../../utils/windowContext";
 
 interface MeetingRecordingPillProps {
   workspaceActive?: boolean;
+  /**
+   * "inline" sits in the workspace top bar and shows only while the workspace
+   * is visible; "floating" overlays the window only while it is hidden (setup),
+   * when no top bar is on screen to hold it.
+   */
+  placement?: "inline" | "floating";
   activeView: string;
   activeNoteId: number | null;
   onReturnToNote: () => void;
@@ -20,6 +26,7 @@ const truncateTitle = (title: string) =>
 
 export default function MeetingRecordingPill({
   workspaceActive = true,
+  placement = "floating",
   activeView,
   activeNoteId,
   onReturnToNote,
@@ -35,7 +42,13 @@ export default function MeetingRecordingPill({
   const isViewingRecordingNote =
     workspaceActive && activeView === "personal-notes" && activeNoteId === recordingNoteId;
 
-  if (!isRecording || isViewingRecordingNote || !isControlPanelWindow()) {
+  const inline = placement === "inline";
+  if (
+    !isRecording ||
+    isViewingRecordingNote ||
+    !isControlPanelWindow() ||
+    inline !== workspaceActive
+  ) {
     return null;
   }
 
@@ -50,14 +63,18 @@ export default function MeetingRecordingPill({
   };
 
   const title = truncateTitle(recordingNoteTitle ?? "");
+  // No span for an untitled note, or the inline title's 4rem floor leaves a gap.
+  const label = isWaitingForMic ? t("notes.meetingPill.waitingForMicrophone") : title;
   const returnLabel = t(
     workspaceActive ? "notes.meetingPill.returnToNote" : "setupFlow.ready.openWorkspace"
   );
   const stopLabel = t("notes.editor.stop");
 
-  return createPortal(
+  const pill = (
     <div
-      className="fixed top-2 left-1/2 -translate-x-1/2 z-30"
+      // Inline it may shrink: the trailing top-bar slot also holds Capture and
+      // the window controls, so the pill must never push them out of view.
+      className={inline ? "min-w-0 max-w-full" : "fixed top-2 left-1/2 -translate-x-1/2 z-30"}
       style={
         {
           WebkitAppRegion: "no-drag",
@@ -67,7 +84,8 @@ export default function MeetingRecordingPill({
     >
       <div
         className={cn(
-          "flex items-center gap-2 h-9 px-3 rounded-xl",
+          "flex items-center gap-2 px-3 rounded-xl",
+          inline ? "h-8 min-w-0" : "h-9",
           "bg-card/95 dark:bg-surface-2/95",
           "backdrop-blur-xl",
           "border border-primary/25 dark:border-primary/30",
@@ -80,20 +98,35 @@ export default function MeetingRecordingPill({
           aria-label={returnLabel}
           title={returnLabel}
           className={cn(
-            "flex items-center gap-3 px-1 -mx-1 rounded-md",
+            "flex min-w-0 items-center gap-3 px-1 -mx-1 rounded-md",
             "transition-colors",
             "hover:bg-primary/8 active:bg-primary/14",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
           )}
         >
           {isWaitingForMic ? (
-            <span className="size-2 rounded-full bg-warning" aria-hidden="true" />
+            <span className="size-2 shrink-0 rounded-full bg-warning" aria-hidden="true" />
           ) : (
             <LevelBars readLevel={readMeetingMicLevel} height={16} />
           )}
-          <span className="text-xs font-medium text-foreground/80 truncate max-w-[12rem]">
-            {isWaitingForMic ? t("notes.meetingPill.waitingForMicrophone") : title}
-          </span>
+          {/* Narrow windows (below the 1024px side-panel breakpoint) keep bars + Stop;
+              the button's aria-label still names the destination. Inline, the
+              title clamps to one line instead of nowrap truncation, which would
+              make its min-content width the whole title. Wrapping anywhere lets
+              the top bar's min-content column shrink it from 9rem to 4rem before
+              the search field gives up any room. */}
+          {label && (
+            <span
+              className={cn(
+                "text-start text-xs font-medium text-foreground/80",
+                inline
+                  ? "line-clamp-1 wrap-anywhere min-w-16 max-w-[9rem] max-lg:hidden"
+                  : "min-w-0 truncate max-w-[12rem]"
+              )}
+            >
+              {label}
+            </span>
+          )}
         </button>
 
         <button
@@ -103,7 +136,7 @@ export default function MeetingRecordingPill({
           aria-label={stopLabel}
           title={stopLabel}
           className={cn(
-            "flex items-center justify-center w-7 h-7 rounded-lg",
+            "flex shrink-0 items-center justify-center w-7 h-7 rounded-lg",
             "transition-colors duration-(--motion-fast)",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30",
             isStopping
@@ -114,7 +147,10 @@ export default function MeetingRecordingPill({
           <Square size={12} fill="currentColor" />
         </button>
       </div>
-    </div>,
-    document.body
+    </div>
   );
+
+  // Inline it takes its own room in the top bar's trailing column, so it can
+  // never cover the centred search field or a view's own header row.
+  return inline ? pill : createPortal(pill, document.body);
 }

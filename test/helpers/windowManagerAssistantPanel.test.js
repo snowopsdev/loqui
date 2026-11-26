@@ -5,6 +5,7 @@ const requestedMainWindowPositions = [];
 const createdBrowserWindows = [];
 const screenListeners = [];
 const builtMenus = [];
+let primaryWorkArea = { x: 0, y: 0, width: 1440, height: 900 };
 
 // Same stub set as windowManagerMeetingNotification.test.js: WindowManager
 // pulls in electron + sibling managers at require time.
@@ -14,7 +15,7 @@ Module._load = function loadWindowManagerWithStubs(request, parent, isMain) {
     return {
       app: { on: () => undefined },
       screen: {
-        getPrimaryDisplay: () => ({}),
+        getPrimaryDisplay: () => ({ workArea: primaryWorkArea }),
         getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
         getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
         on: (event, listener) => screenListeners.push({ event, listener }),
@@ -126,6 +127,12 @@ Module._load = function loadWindowManagerWithStubs(request, parent, isMain) {
     return {
       MAIN_WINDOW_CONFIG: {},
       CONTROL_PANEL_CONFIG: {},
+      // The real geometry, so the meeting snap test exercises it end to end.
+      meetingModeSnapBounds: originalLoad(
+        require.resolve("../../src/helpers/windowConfig"),
+        parent,
+        isMain
+      ).meetingModeSnapBounds,
       NOTIFICATION_WINDOW_CONFIG: {},
       WINDOW_SIZES: { BASE: { width: 96, height: 96 } },
       ONBOARDING_WINDOW_SIZES: {
@@ -1034,4 +1041,91 @@ test("loading or missing control panels do not queue audio-level listeners", () 
   assert.equal(panel.queuedLoadListeners.length, lifecycleLoadListenerCount);
   manager.controlPanelWindow = null;
   assert.doesNotThrow(() => manager.setDictationAudioLevel(0.5));
+});
+
+test("leaving onboarding restores the control panel minimum, clamped to the work area", () => {
+  const manager = new WindowManager();
+  const minimumSizes = [];
+  const win = {
+    isDestroyed: () => false,
+    isFullScreen: () => false,
+    isMaximized: () => false,
+    getBounds: () => ({ x: 0, y: 0, width: 480, height: 624 }),
+    getContentBounds: () => ({ x: 0, y: 0, width: 480, height: 624 }),
+    setContentBounds: () => undefined,
+    setResizable: () => undefined,
+    setMinimizable: () => undefined,
+    setMaximizable: () => undefined,
+    setClosable: () => undefined,
+    setFullScreenable: () => undefined,
+    setMinimumSize: (width, height) => minimumSizes.push([width, height]),
+    setWindowButtonVisibility: () => undefined,
+  };
+  manager.controlPanelWindow = win;
+  manager._showControlPanel = () => undefined;
+  const saved = {
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    closable: true,
+    fullscreenable: true,
+  };
+
+  // The usual case: the control panel's own 480px floor comes back as saved.
+  manager._onboardingWindowState = { ...saved, minimumSize: [480, 0] };
+  assert.equal(manager.setOnboardingWindowMode("restore"), true);
+  assert.deepEqual(minimumSizes.at(-1), [480, 0]);
+
+  // A saved floor wider than the 1440px work area is clamped, like onboarding's own.
+  manager._onboardingWindowState = { ...saved, minimumSize: [2000, 0] };
+  assert.equal(manager.setOnboardingWindowMode("restore"), true);
+  assert.deepEqual(minimumSizes.at(-1), [1440, 0]);
+});
+
+test("the meeting side-panel snap honours the window's minimum width", () => {
+  const manager = new WindowManager();
+  const calls = [];
+  let minimumSize = [480, 0];
+  const win = {
+    isDestroyed: () => false,
+    getBounds: () => ({ x: 100, y: 100, width: 1200, height: 800 }),
+    getMinimumSize: () => minimumSize,
+    setMinimumSize: (width, height) => {
+      minimumSize = [width, height];
+      calls.push(["setMinimumSize", width, height]);
+    },
+    setBounds: (bounds) => calls.push(["setBounds", bounds]),
+    focus: () => undefined,
+  };
+  manager.controlPanelWindow = win;
+
+  try {
+    // 1366px: a third (455) is under the 480 floor, so the snap takes the floor
+    // and keeps its right edge on screen.
+    primaryWorkArea = { x: 0, y: 0, width: 1366, height: 728 };
+    manager.snapControlPanelToMeetingMode();
+    assert.deepEqual(calls, [["setBounds", { x: 886, y: 0, width: 480, height: 728 }]]);
+
+    // A work area narrower than the floor lowers the floor before snapping, so
+    // the OS can't widen the window past the screen edge.
+    calls.length = 0;
+    primaryWorkArea = { x: 0, y: 0, width: 400, height: 600 };
+    manager.snapControlPanelToMeetingMode();
+    assert.deepEqual(calls, [
+      ["setMinimumSize", 400, 0],
+      ["setBounds", { x: 0, y: 0, width: 400, height: 600 }],
+    ]);
+
+    // Leaving meeting mode brings the 480px floor back, clamped to the display
+    // the window ends up on (getDisplayMatching: 1440px wide here).
+    calls.length = 0;
+    manager.restoreControlPanelFromMeetingMode();
+    assert.deepEqual(calls, [
+      ["setBounds", { x: 100, y: 100, width: 1200, height: 800 }],
+      ["setMinimumSize", 480, 0],
+    ]);
+    assert.deepEqual(minimumSize, [480, 0]);
+  } finally {
+    primaryWorkArea = { x: 0, y: 0, width: 1440, height: 900 };
+  }
 });

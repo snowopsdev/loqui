@@ -116,6 +116,9 @@ export default function CommandSearch({
 
   if (open && !prevOpen) {
     setPrevOpen(open);
+    // The picker stays mounted while closed; a reopened picker starts empty and
+    // loads recent chats, never showing the last session's search hits.
+    if (isConversationsMode) setConversations([]);
     setQuery("");
     setScopeSpaceId(null);
     setSelectedIndex(0);
@@ -124,25 +127,10 @@ export default function CommandSearch({
   }
 
   useEffect(() => {
-    if (!open) return;
-    if (isConversationsMode) {
-      window.electronAPI?.getAgentConversationsWithPreview?.(20, 0, false).then((r) => {
-        if (r)
-          setConversations(
-            r.map((c) => ({
-              id: c.id,
-              title: c.title || "Untitled",
-              last_message: c.last_message,
-              updated_at: c.updated_at,
-            }))
-          );
-      });
-    }
-  }, [open, isConversationsMode]);
-
-  useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    // Bumped on close too, so a response landing after close is dropped.
     const version = ++searchVersionRef.current;
+    if (!open) return;
 
     if (isConversationsMode) {
       if (!query.trim()) {
@@ -182,7 +170,7 @@ export default function CommandSearch({
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     };
-  }, [query, isConversationsMode, scopeSpaceId]);
+  }, [open, query, isConversationsMode, scopeSpaceId]);
 
   useEffect(() => {
     if (isConversationsMode || !open) return;
@@ -394,8 +382,8 @@ export default function CommandSearch({
             "rounded-xl border border-border/70 bg-card shadow-2xl overflow-hidden",
             "dark:bg-surface-2 dark:border-border dark:shadow-modal",
             isConversationsMode
-              ? "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-top-[44%] data-[state=closed]:slide-out-to-top-[44%] data-[state=open]:slide-in-from-left-1/2 data-[state=closed]:slide-out-to-left-1/2"
-              : "animate-in fade-in-0 duration-(--motion-base) motion-reduce:animate-none"
+              ? "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+              : "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 duration-(--motion-base) motion-reduce:animate-none"
           )}
         >
           <DialogPrimitive.Title className="sr-only">

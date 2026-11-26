@@ -26,6 +26,8 @@ interface ControlPanelTopBarProps {
   onExitSidePanel: () => void;
   /** Global actions, right of the search bar; hidden with it in the side-panel layout. */
   actions?: React.ReactNode;
+  /** Live status (the meeting recording pill); stays in every layout. */
+  status?: React.ReactNode;
 }
 
 export default function ControlPanelTopBar({
@@ -36,6 +38,7 @@ export default function ControlPanelTopBar({
   isSidePanelLayout,
   onExitSidePanel,
   actions,
+  status,
 }: ControlPanelTopBarProps) {
   const { t } = useTranslation();
   // With the sidebar out of the way the container's start edge sits under the
@@ -45,8 +48,12 @@ export default function ControlPanelTopBar({
   return (
     <header
       className={cn(
-        // The trailing column never shrinks past its actions and window controls.
-        "grid h-12 shrink-0 grid-cols-[minmax(120px,1fr)_minmax(0,340px)_minmax(max-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
+        // The trailing column never shrinks past its actions and window controls
+        // (both shrink-0); only an inline status such as the meeting pill gives way.
+        // That relies on the status having a small min-content width: the pill's
+        // title wraps anywhere (clamped to one line) rather than using nowrap, so
+        // it narrows to 4rem before the search field shrinks.
+        "grid h-12 shrink-0 grid-cols-[minmax(120px,1fr)_minmax(0,340px)_minmax(min-content,1fr)] items-center gap-4 border-b border-border px-3 dark:border-white/10",
         "transition-[padding] duration-(--motion-base) ease-(--motion-ease-std) motion-reduce:transition-none",
         clearTrafficLights && (sidebarMode === "rail" ? "ltr:ps-5" : "ltr:ps-[76px]")
       )}
@@ -128,20 +135,28 @@ export default function ControlPanelTopBar({
         </button>
       )}
 
-      <div className="col-start-3 flex items-center gap-2">
-        {!isSidePanelLayout && actions && (
-          <div
-            data-no-window-drag=""
-            style={noDragStyle}
-            // macOS keeps no window controls here, so the actions take the far
-            // end; elsewhere they sit beside the search, left of the controls.
-            className={cn("flex items-center", platform === "darwin" && "ms-auto")}
-          >
-            {actions}
-          </div>
-        )}
+      <div className="col-start-3 flex min-w-0 items-center gap-2">
+        {/* macOS keeps no window controls here, so status and actions take the
+            far end; elsewhere they sit beside the search, left of the controls. */}
+        <div className={cn("flex min-w-0 items-center gap-2", platform === "darwin" && "ms-auto")}>
+          {status && (
+            // empty:hidden: the pill renders nothing while no meeting records.
+            <div
+              data-no-window-drag=""
+              style={noDragStyle}
+              className="flex min-w-0 items-center empty:hidden"
+            >
+              {status}
+            </div>
+          )}
+          {!isSidePanelLayout && actions && (
+            <div data-no-window-drag="" style={noDragStyle} className="flex shrink-0 items-center">
+              {actions}
+            </div>
+          )}
+        </div>
         {platform !== "darwin" && (
-          <div data-no-window-drag="" style={noDragStyle} className="ms-auto">
+          <div data-no-window-drag="" style={noDragStyle} className="ms-auto shrink-0">
             <WindowControls />
           </div>
         )}

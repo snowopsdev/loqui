@@ -922,7 +922,7 @@ export default function NoteEditor({
                   <button
                     key={option.id}
                     onClick={option.onSelect}
-                    className="focus-visible:ring-2 focus-visible:ring-ring px-2 py-1 text-caption rounded border hover:bg-accent"
+                    className="focus-visible:ring-2 focus-visible:ring-ring px-2 py-1 text-caption rounded border hover:bg-muted"
                   >
                     {option.label}
                   </button>
